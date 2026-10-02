@@ -6,6 +6,7 @@ import { serial } from "./lock.ts";
 import { Repository } from "./repository.ts";
 import { restoreCheckpoint } from "./restore.ts";
 import { createWorktree, removeWorktree, type CreateWorktreeOptions } from "./worktrees.ts";
+import { GitError } from "./types.ts";
 import type { Checkpoint, DiffSide, GitOptions } from "./types.ts";
 
 export { GitError } from "./types.ts";
@@ -87,6 +88,22 @@ export class GitService {
         options.maxPatchBytes ?? this.maxPatchBytes,
       ),
     );
+  }
+
+  async resolveCommit(options: { worktree: string; ref: string }): Promise<string> {
+    const root = await this.repository.root(options.worktree);
+    return serial(root, () => this.repository.commit(root, options.ref));
+  }
+
+  async applyPatch(options: { worktree: string; patch: string }): Promise<void> {
+    if (!options.patch || Buffer.byteLength(options.patch) > 65_536)
+      throw new GitError("invalid_argument", "Patch must be between 1 and 65536 bytes");
+    const root = await this.repository.root(options.worktree);
+    await serial(root, async () => {
+      const args = ["apply", "--whitespace=nowarn"];
+      await this.repository.cli.call(root, [...args, "--check", "-"], { input: options.patch });
+      await this.repository.cli.call(root, [...args, "-"], { input: options.patch, write: true });
+    });
   }
 
   async restoreCheckpoint(options: { worktree: string; checkpoint: string }) {

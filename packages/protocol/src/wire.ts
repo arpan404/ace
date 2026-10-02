@@ -1,3 +1,4 @@
+import { ReviewData } from "./review.ts";
 import { z } from "zod";
 import {
   PresenceUpdate,
@@ -84,6 +85,7 @@ export const CommandResult = z.object({
   commandId: CommandId,
   ok: z.boolean(),
   error: z.string().optional(),
+  review: ReviewData.optional(),
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [

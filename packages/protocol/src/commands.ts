@@ -12,7 +12,10 @@ import { InteractionResolution } from "./interactions.ts";
 import { ContentPart } from "./items.ts";
 import { ProviderKind } from "./provider.ts";
 
+import { ReviewCommands } from "./review.ts";
+
 export const CommandPayload = z.discriminatedUnion("type", [
+  ...ReviewCommands,
   z.object({
     type: z.literal("thread.create"),
     workspaceId: WorkspaceId,
