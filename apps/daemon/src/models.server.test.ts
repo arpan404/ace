@@ -118,18 +118,18 @@ test("malformed catalog filters fail at the socket boundary", async () => {
   expect(await client.next()).toMatchObject({ type: "error", code: "invalid_message" });
 });
 test("slow refreshes leave ping and cached model queries responsive", async () => {
-  const { f, catalog } = await setup();
-  const client = await f.connect();
-  await client.next();
   let release: (rows: CatalogModel[]) => void = noRelease;
   const rows = model().rows;
+  let calls = 0;
   const slow = new ModelCatalog({
     storage: openModelStorage(":memory:"),
     instances: [model().instance],
     discover: () =>
-      new Promise((resolve) => {
-        release = resolve;
-      }),
+      ++calls === 1
+        ? Promise.resolve(rows)
+        : new Promise((resolve) => {
+            release = resolve;
+          }),
     now: () => 1000,
     deadline(expire, ms) {
       const timer = setTimeout(expire, ms);
@@ -137,21 +137,91 @@ test("slow refreshes leave ping and cached model queries responsive", async () =
     },
   });
   cleanups.push(() => slow.close());
-  // Use a real server with a controllable provider edge, and synchronize on a ping.
-  const other = await fixture({ models: slow });
-  cleanups.push(other.close);
-  const connected = await other.connect();
+  await slow.refresh();
+  const f = await fixture({ models: slow });
+  cleanups.push(f.close);
+  const connected = await f.connect();
   await connected.next();
   connected.send({ type: "models.refresh", requestId: "slow", filter: {} });
   connected.send({ type: "ping" });
   expect(await connected.next()).toEqual({ type: "pong" });
+  connected.send({ type: "models.list", requestId: "cached", options: { offset: 0, limit: 100 } });
+  expect(await connected.next()).toMatchObject({
+    type: "models.result",
+    requestId: "cached",
+    result: { models: [{ id: "coder" }], instances: [{ refreshing: true }] },
+  });
+  connected.send({
+    type: "models.resolve",
+    requestId: "cached-role",
+    roleSpec: { role: "coder", selection: "default", preferenceOrder: [], imageInput: false },
+  });
+  expect(await connected.next()).toMatchObject({
+    type: "models.result",
+    requestId: "cached-role",
+    result: { ok: true, model: { id: "coder" } },
+  });
   release(rows);
   expect(await connected.next()).toMatchObject({
     type: "models.result",
     requestId: "slow",
     result: { models: [{ id: "coder" }] },
   });
-  expect(catalog.list().models[0]?.id).toBe("coder");
+});
+
+test("maximum-length legal policies return valid correlated socket replies", async () => {
+  const { instance } = model();
+  const id = "m".repeat(256);
+  const tier = "t".repeat(256);
+  const effort = "e".repeat(256);
+  const rows = normalizeCodex(
+    {
+      data: [
+        {
+          id: "catalog",
+          model: id,
+          displayName: "Long model",
+          isDefault: true,
+          defaultReasoningEffort: effort,
+          supportedReasoningEfforts: [{ reasoningEffort: effort }],
+          serviceTiers: [{ id: tier, name: "Long tier" }],
+        },
+      ],
+    },
+    instance,
+  );
+  const catalog = new ModelCatalog({
+    storage: openModelStorage(":memory:"),
+    instances: [instance],
+    discover: async () => rows,
+    now: () => 1000,
+    deadline: () => () => {},
+  });
+  cleanups.push(() => catalog.close());
+  await catalog.refresh();
+  const f = await fixture({ models: catalog });
+  cleanups.push(f.close);
+  const client = await f.connect();
+  await client.next();
+  client.send({
+    type: "models.resolve",
+    requestId: "long",
+    roleSpec: {
+      role: "r".repeat(256),
+      model: id,
+      tier,
+      effort,
+      selection: "default",
+      preferenceOrder: [],
+      imageInput: false,
+    },
+  });
+  // The real client parses every received frame with ServerMessage.
+  expect(await client.next()).toMatchObject({
+    type: "models.result",
+    requestId: "long",
+    result: { ok: true, model: { id }, tier: { id: tier }, effort },
+  });
 });
 
 test("an unavailable catalog returns a correlated failure without breaking the socket", async () => {
