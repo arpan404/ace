@@ -180,3 +180,26 @@ it("keeps raw nested tool input independent of later provider buffer reuse", () 
   expect(JSON.stringify(tool)).toContain('"command":"original"');
   expect(JSON.stringify(tool)).not.toContain("reused");
 });
+it("settles an accepted native message ID even if its user announcement is missing", () => {
+  const h = setup();
+  h.feed({
+    seq: 50,
+    t: 10,
+    dir: "send",
+    channel: "http",
+    data: {
+      method: "POST",
+      path: "/session/root_native/prompt_async",
+      body: { messageID: "accepted_user" },
+    },
+  });
+  h.event("session.error", {
+    sessionID: "root_native",
+    error: { name: "ProviderAuthError", data: { message: "login expired" } },
+  });
+  h.event("session.status", { sessionID: "root_native", status: { type: "idle" } });
+  expect(h.view.thread.status.state).toBe("failed");
+  expect(Object.values(h.view.runs)).toMatchObject([
+    { nativeId: "accepted_user", state: "failed" },
+  ]);
+});

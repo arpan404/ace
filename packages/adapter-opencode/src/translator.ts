@@ -1,8 +1,8 @@
 import type { Fact, Key } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
 import type { Frame, Translator } from "@ace/engine-api";
-import { number, object, raw, string, retryReason, type Data } from "./data.ts";
-import { request, resolution, type Pending } from "./interactions.ts";
+import { number, object, string, retryReason, type Data } from "./data.ts";
+import { translateInteraction } from "./interactions.ts";
 import { translatePart } from "./parts.ts";
 import { TranslationState } from "./translation-state.ts";
 
@@ -26,9 +26,14 @@ export class OpenCodeTranslator implements Translator {
     const data = object(frame.data);
     if (frame.channel === "lifecycle") {
       if (data.type === "background.grace.expired") return this.tick(now);
-      if (data.type === "started") return [{ type: "process.started" }];
+      if (data.type === "started")
+        return [
+          { type: "process.started" },
+          ...this.state.metadata("process.started", "process", frame.data),
+        ];
       if (data.type === "exited")
         return [
+          ...this.state.metadata("process.exited", "process", frame.data),
           {
             type: "process.exited",
             deliberate: data.deliberate === true,
@@ -209,13 +214,14 @@ export class OpenCodeTranslator implements Translator {
         s.user !== undefined &&
         (created && s.userOrder ? created < s.userOrder : msg <= s.user);
       if (info.role === "user" && !previous && !historicalOlder) {
+        const sameUser = s.user === msg;
         s.user = msg;
         s.userOrder = created;
         s.answered = false;
         s.awaiting = true;
         s.abort = false;
         delete s.error;
-        s.trigger = this.state.own.has(msg) || s.sent ? "user" : "unknown";
+        s.trigger = this.state.own.has(msg) || s.sent ? "user" : sameUser ? s.trigger : "unknown";
         if (s.sent) {
           this.state.own.add(msg);
           s.sent = false;
@@ -260,6 +266,7 @@ export class OpenCodeTranslator implements Translator {
 
       return [
         ...facts,
+        ...this.state.metadata(type, part.item, frame.data),
         {
           type: "item.delta",
           agent: this.state.key(part.agent),
@@ -278,52 +285,8 @@ export class OpenCodeTranslator implements Translator {
           : []),
       ];
     }
-    if (type === "permission.asked" || type === "question.asked") {
-      const interaction = string(p.id);
-      if (!interaction) return [...facts, ...this.state.notice(frame.data, type)];
-      if (this.state.pending.has(interaction)) return facts;
-      const call = string(object(p.tool).callID);
-      const part = this.state.getPart(call);
-      const pending: Pending = {
-        agent,
-        ...(call ? { item: call } : {}),
-        request: request(type, p, string(part?.data.tool), s.planPath, s.planMarkdown),
-      };
-      this.state.pending.set(interaction, pending);
-      facts.push({
-        type: "interaction.opened",
-        agent,
-        interaction,
-        blocking: true,
-        request: pending.request,
-        ...(call ? { item: call } : {}),
-        raw: raw(type, frame.data),
-      });
-      if (call)
-        facts.push({
-          type: "item.upsert",
-          agent,
-          item: call,
-          draft: { type: "tool_call", call: { status: "awaiting_approval" } },
-        });
-      return facts;
-    }
-    if (["permission.replied", "question.replied", "question.rejected"].includes(type)) {
-      const interaction = string(p.requestID);
-      const pending = this.state.pending.get(interaction);
-      if (!pending) return [...facts, ...this.state.notice(frame.data, type)];
-      this.state.pending.delete(interaction);
-      return [
-        ...facts,
-        ...this.state.metadata(type, interaction, frame.data),
-        {
-          type: "interaction.closed",
-          interaction,
-          state: "resolved",
-          resolution: resolution(type, p, pending),
-        },
-      ];
-    }
+    if (type.startsWith("permission.") || type.startsWith("question."))
+      return [...facts, ...translateInteraction(this.state, type, p, frame.data)];
     if (type === "server.connected" || type === "server.heartbeat" || type === "session.idle")
       return [...facts, ...this.state.metadata(type, id || "stream", frame.data)];
     return [...facts, ...this.state.notice(frame.data, type || "unknown")];
@@ -337,10 +300,13 @@ export class OpenCodeTranslator implements Translator {
       path === "/session" &&
       typeof body.id === "string"
     )
-      return this.state.seen(body);
+      return [
+        ...this.state.seen(body),
+        ...this.state.metadata("session.created", string(body.id), frame.data),
+      ];
     if (frame.dir === "recv" && path === "/mcp") {
       this.state.mcp = new Set(Object.keys(body));
-      return [];
+      return this.state.metadata("mcp", "servers", frame.data);
     }
     const match = /^\/session\/([^/]+)\/(prompt_async|message|abort)$/.exec(path);
     if (match && frame.dir === "send" && data.method === "POST") {
@@ -348,16 +314,27 @@ export class OpenCodeTranslator implements Translator {
       const s = this.state.session(id);
       if (match[2] === "abort") {
         s.abort = true;
-        return [];
+        return this.state.metadata("abort", id, frame.data);
       }
       s.sent = true;
       s.awaiting = true;
-      if (typeof body.messageID === "string") this.state.own.add(body.messageID);
-      return [{ type: "wake.expected", agent: this.state.key(id), until: Number.MAX_SAFE_INTEGER }];
+      if (typeof body.messageID === "string") {
+        this.state.own.add(body.messageID);
+        s.user = body.messageID;
+        s.trigger = "user";
+      }
+      return [
+        { type: "wake.expected", agent: this.state.key(id), until: Number.MAX_SAFE_INTEGER },
+        ...this.state.metadata("prompt", string(body.messageID, id), frame.data),
+      ];
     }
     if (frame.dir === "recv" && number(data.status) >= 400)
       return this.state.notice(frame.data, "HTTP error");
     return this.state.notice(frame.data, `HTTP ${string(data.method)} ${path}`);
+  }
+  taskOwner(task: string): string | undefined {
+    const bg = this.state.backgrounds.get(task);
+    return bg?.child ?? bg?.agent;
   }
   isSettled(): boolean {
     return this.state.settled();

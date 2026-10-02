@@ -23,17 +23,21 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
   const message = state.messages.get(string(p.messageID));
   if (p.type === "text" || p.type === "reasoning") {
     const text = string(p.text);
-    const user = message?.role === "user";
+    let user = message?.role === "user";
     if (user && state.own.has(string(p.messageID))) {
       const path = /(?:<[^>]+>|[^\s<>]+)\/\.opencode\/plans\/[^\s<>]+\.md/.exec(text)?.[0];
       if (path) s.planPath = path;
     }
     const task =
-      user && !state.own.has(string(p.messageID)) && p.synthetic === true
+      message?.role !== "assistant" && !state.own.has(string(p.messageID)) && p.synthetic === true
         ? /^<task id="([^"]+)" state="(completed|error)">/.exec(text)
         : null;
-    if (task) state.delivered.add(string(task[1]));
+    if (task) {
+      user = true;
+      state.delivered.add(string(task[1]));
+    }
     if (task && state.backgrounds.has(string(task[1]))) {
+      s.user = string(p.messageID, `task-result:${partId}`);
       s.trigger = "subagent_result";
       s.awaiting = true;
       facts.push(
@@ -187,6 +191,7 @@ export function translatePart(state: TranslationState, p: Data): Fact[] {
       state.graceDirty = true;
     }
   } else if (p.type === "step-finish") {
+    facts.push(...state.metadata("step-finish", item, p));
     const tokens = object(p.tokens);
     facts.push({
       type: "usage",
