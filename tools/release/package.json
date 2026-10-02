@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@ace/daemon": "workspace:*",
+    "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/service": "workspace:*",

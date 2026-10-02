@@ -36,7 +36,8 @@ async function files(root: string, prefix = ""): Promise<string[]> {
   return result;
 }
 async function main() {
-  if (process.versions.node !== nodeVersion) throw new Error(`Release builds require Node ${nodeVersion}; use that runtime on PATH`);
+  if (process.versions.node !== nodeVersion)
+    throw new Error(`Release builds require Node ${nodeVersion}; use that runtime on PATH`);
   const version = ReleaseVersion.parse(process.argv[2]);
   const target = ReleaseTarget.parse(process.argv[3]);
   const publicKeyPath = process.argv[4];

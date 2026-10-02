@@ -20,9 +20,12 @@ export class MaintenanceGate {
   admitCommand(command: Command): boolean {
     return (
       this.admit() ||
-      ["interaction.resolve", "thread.interrupt", "background_task.stop"].includes(
-        command.payload.type,
-      )
+      [
+        "interaction.resolve",
+        "thread.interrupt",
+        "background_task.stop",
+        "orchestration.cancel",
+      ].includes(command.payload.type)
     );
   }
   admit(): boolean {

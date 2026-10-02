@@ -24,6 +24,8 @@ const child = spawn(node, [join(artifact, "ace.mjs"), "start"], {
     ...process.env,
     ACE_HOME: root,
     ACE_PORT: "0",
+    ACE_LISTEN: "local",
+    ACE_MODEL_INSTANCES: "[]",
     ACE_DEV: "0",
     ACE_MAINTENANCE: "0",
     ACE_VERSION: manifest.version,

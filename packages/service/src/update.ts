@@ -2,11 +2,16 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, cp, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { InstalledRelease, MaintenanceStatus } from "@ace/protocol";
+import {
+  InstalledRelease,
+  MaintenanceStatus,
+  ReleaseDirectory,
+  ReleaseVersion,
+} from "@ace/protocol";
 import { downloadArchive, unpackArchive, verifyManifest } from "./artifact.ts";
 import {
   atomicPointer,
-  pointer,
+  releasePointer,
   durableJson,
   durableRemove,
   syncTree,
@@ -16,9 +21,9 @@ import {
 import { snapshotDatabases, restoreDatabases } from "./migration.ts";
 import type { Fetcher } from "./feed.ts";
 const Journal = z.object({
-  old: z.string().regex(/^releases\/[a-z0-9.-]+$/),
-  candidate: z.string().regex(/^releases\/[a-z0-9.-]+$/),
-  version: z.string(),
+  old: ReleaseDirectory,
+  candidate: ReleaseDirectory,
+  version: ReleaseVersion,
 });
 export interface UpdatePorts {
   maintenance(method: "GET" | "POST" | "DELETE"): Promise<unknown>;
@@ -90,9 +95,7 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
     let stopped = false;
     try {
       await recoverUpdate(root, dataDir, ports);
-      const old = await pointer(join(root, "current"));
-      if (!old || !/^releases\/[a-z0-9.-]+$/.test(old))
-        throw new Error("Managed installation required");
+      const old = await releasePointer(root);
       const oldManifest = InstalledRelease.parse(
         JSON.parse(await readFile(join(root, old, "release.json"), "utf8")),
       );
@@ -132,7 +135,7 @@ export async function applyUpdate(request: UpdateRequest): Promise<"updated"> {
       await syncTree(staging);
       await rename(staging, join(root, candidate));
       await syncDirectory(join(root, "releases"));
-      const journal = { old, candidate, version: oldManifest.version };
+      const journal = Journal.parse({ old, candidate, version: oldManifest.version });
       await durableJson(join(root, "update.json"), journal);
       try {
         await atomicPointer(join(root, "previous"), old);

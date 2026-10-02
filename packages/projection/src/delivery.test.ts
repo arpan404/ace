@@ -1,6 +1,6 @@
 import { Agent, Event, Thread, type EventBatch, type Progress } from "@ace/protocol";
 import { describe, expect, it } from "vitest";
-import { applyDelivery, applyEvent, createThreadView } from "./index.ts";
+import { applyDelivery, applyEvent, createThreadView, rebuildAgentChildren } from "./index.ts";
 const thread = Thread.parse({
   id: "t",
   workspaceId: "w",
@@ -38,6 +38,19 @@ describe("scoped projection delivery", () => {
     expect(view.seq).toBe(12);
     expect(view.thread.title).toBe("After");
     expect(applyDelivery(view, progress).kind).toBe("ignored");
+  });
+  it("rejects an out-of-scope batch atomically before any item or thread mutation", () => {
+    const view = createThreadView(thread, 2);
+    const outside = {
+      ...event(6, "Outside"),
+      threadId: Thread.parse({ ...thread, id: "other" }).id,
+    };
+    expect(applyDelivery(view, batch(2, 8, [event(5, "Partial"), outside])).kind).toBe("gap");
+    expect(view.seq).toBe(2);
+    expect(view.thread.title).toBe("Before");
+    expect(applyEvent(view, { ...outside, seq: 3 }).kind).toBe("gap");
+    expect(view.seq).toBe(2);
+    expect(view.thread.title).toBe("Before");
   });
   it("refuses missing or partially overlapping intervals without changing the view", () => {
     const view = createThreadView(thread, 2);
@@ -121,4 +134,43 @@ describe("late agent linkage", () => {
     expect(view.agentChildren.new).toEqual([]);
     expect(view.agents.child?.parentId).toBeNull();
   });
+});
+
+it("restores sibling trees and keeps subsequent reparenting consistent", () => {
+  const view = createThreadView(thread, 20_000);
+  const agent = Agent.parse({
+    id: "child",
+    threadId: thread.id,
+    parentId: "__proto__",
+    cwd: "/repo",
+    origin: "provider_subagent",
+    fidelity: "placeholder",
+    native: { provider: "codex" },
+    status: { state: "starting" },
+    createdAt: 1,
+  });
+  view.agents = Object.fromEntries(
+    Array.from({ length: 20_000 }, (_, index) => {
+      const id = `child-${index}`;
+      return [id, { ...agent, id: Agent.parse({ ...agent, id }).id }];
+    }),
+  );
+  rebuildAgentChildren(view);
+  expect(view.agentChildren.__proto__).toEqual(
+    Array.from({ length: 20_000 }, (_, index) => `child-${index}`),
+  );
+  const changed = Event.parse({
+    seq: view.seq + 1,
+    id: "moved",
+    at: 2,
+    threadId: thread.id,
+    payload: { type: "agent.updated", agentId: "child-19999", parentId: "new" },
+  });
+  expect(applyEvent(view, changed).kind).toBe("applied");
+  expect(view.agentChildren.__proto__).toHaveLength(19_999);
+  expect(view.agentChildren.__proto__).not.toContain("child-19999");
+  expect(view.agentChildren.new).toEqual(["child-19999"]);
+  rebuildAgentChildren(view);
+  expect(view.agentChildren.new).toEqual(["child-19999"]);
+  expect(view.agentChildren.__proto__).toHaveLength(19_999);
 });

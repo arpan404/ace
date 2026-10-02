@@ -1,3 +1,4 @@
+import { ReleaseDirectory } from "@ace/protocol";
 import { mkdir, open, readFile, readlink, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 export async function atomicPointer(path: string, target: string): Promise<void> {
@@ -101,4 +102,8 @@ export async function syncTree(root: string): Promise<void> {
     await syncDirectory(path);
   }
   await visit(root);
+}
+
+export async function releasePointer(root: string): Promise<ReleaseDirectory> {
+  return ReleaseDirectory.parse(await pointer(join(root, "current")));
 }

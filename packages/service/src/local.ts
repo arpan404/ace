@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { lstat, rm } from "node:fs/promises";
 import { z } from "zod";
-import { planService } from "./plan.ts";
+import { planService, ServiceEnvironment } from "./plan.ts";
 import { UserService } from "./service.ts";
 import { runProcess } from "./process.ts";
 import { withInstallLock } from "./files.ts";
@@ -11,6 +11,7 @@ import { withInstallLock } from "./files.ts";
 export function localService(dataDir: string) {
   return new UserService(
     planService({
+      environment: ServiceEnvironment.parse(process.env),
       updatePolicy: process.env.ACE_AUTO_UPDATE === "0" ? "manual" : "daily",
       platform: z.enum(["darwin", "linux"]).parse(process.platform),
       home: homedir(),

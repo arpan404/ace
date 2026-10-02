@@ -31,3 +31,12 @@ export const InstalledRelease = ReleaseManifest.pick({
   channel: true,
   target: true,
 });
+
+export const ReleaseDirectory = z.templateLiteral([
+  "releases/",
+  ReleaseVersion,
+  "-",
+  ReleaseTarget,
+]);
+
+export type ReleaseDirectory = z.infer<typeof ReleaseDirectory>;

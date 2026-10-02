@@ -1,4 +1,4 @@
-export { planService, ServiceConfig, type ServicePlan } from "./plan.ts";
+export { planService, ServiceConfig, ServiceEnvironment, type ServicePlan } from "./plan.ts";
 export { UserService, type ServiceAction } from "./service.ts";
 export { runProcess, checked, type Runner, type ProcessResult } from "./process.ts";
 export { MaintenanceGate } from "./maintenance.ts";
@@ -7,6 +7,7 @@ export { checkRelease, boundedText, type Fetcher } from "./feed.ts";
 export {
   atomicPointer,
   pointer,
+  releasePointer,
   withInstallLock,
   durableJson,
   durableRemove,

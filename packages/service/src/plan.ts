@@ -8,7 +8,19 @@ const text = z
     Array.from(v).every((char) => char.charCodeAt(0) >= 32 && char.charCodeAt(0) !== 127),
   );
 const absolute = text.refine((v) => v.startsWith("/"));
+const port = z
+  .string()
+  .regex(/^\d{1,5}$/)
+  .refine((value) => Number(value) <= 65535);
+export const ServiceEnvironment = z.object({
+  ACE_PORT: port.optional(),
+  ACE_REMOTE_PORT: port.optional(),
+  ACE_LISTEN: z.enum(["local", "lan", "tailscale"]).optional(),
+  ACE_LOG_LEVEL: z.enum(["debug", "info", "warn", "error", "silent"]).optional(),
+  ACE_ADVERTISE_HOST: text.optional(),
+});
 export const ServiceConfig = z.object({
+  environment: ServiceEnvironment.default({}),
   updatePolicy: z.enum(["daily", "manual"]).default("daily"),
   platform: z.enum(["darwin", "linux"]),
   home: absolute,
@@ -37,6 +49,17 @@ const quote = (s: string) =>
 export function planService(input: ServiceConfig): ServicePlan {
   const c = ServiceConfig.parse(input);
   const logDir = join(c.dataDir, "logs");
+  const variables: [string, string][] = [
+    ["ACE_HOME", c.dataDir],
+    ["PATH", c.path],
+    ["ACE_AUTO_UPDATE", c.updatePolicy === "daily" ? "1" : "0"],
+  ];
+  for (const [key, value] of Object.entries(c.environment))
+    if (value !== undefined) variables.push([key, value]);
+  const plistEnvironment = variables
+    .map(([key, value]) => `<key>${xml(key)}</key><string>${xml(value)}</string>`)
+    .join("");
+  const unitEnvironment = variables.map(([key, value]) => quote(`${key}=${value}`)).join(" ");
   if (c.platform === "darwin")
     return {
       platform: c.platform,
@@ -48,7 +71,7 @@ export function planService(input: ServiceConfig): ServicePlan {
 <key>ProgramArguments</key><array><string>${xml(c.executable)}</string><string>supervise</string></array>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
 <key>ThrottleInterval</key><integer>15</integer>
-<key>EnvironmentVariables</key><dict><key>ACE_HOME</key><string>${xml(c.dataDir)}</string><key>PATH</key><string>${xml(c.path)}</string><key>ACE_AUTO_UPDATE</key><string>${c.updatePolicy === "daily" ? "1" : "0"}</string></dict>
+<key>EnvironmentVariables</key><dict>${plistEnvironment}</dict>
 <key>StandardOutPath</key><string>${xml(join(logDir, "daemon.log"))}</string>
 <key>StandardErrorPath</key><string>${xml(join(logDir, "daemon.err.log"))}</string>
 </dict></plist>\n`,
@@ -58,6 +81,6 @@ export function planService(input: ServiceConfig): ServicePlan {
     file: join(c.home, ".config/systemd/user/ace.service"),
     domain: "ace.service",
     logDir,
-    content: `[Unit]\nDescription=ace local daemon\nStartLimitIntervalSec=0\n[Service]\nType=simple\nExecStart=${quote(c.executable.replaceAll("$", () => "$$"))} supervise\nEnvironment=${quote(`ACE_HOME=${c.dataDir}`)} ${quote(`PATH=${c.path}`)} ${quote(`ACE_AUTO_UPDATE=${c.updatePolicy === "daily" ? "1" : "0"}`)}\nRestart=always\nRestartSec=15s\nTimeoutStopSec=60s\nKillMode=control-group\nStandardOutput=journal\nStandardError=journal\nSyslogIdentifier=ace\n[Install]\nWantedBy=default.target\n`,
+    content: `[Unit]\nDescription=ace local daemon\nStartLimitIntervalSec=0\n[Service]\nType=simple\nExecStart=${quote(c.executable.replaceAll("$", () => "$$"))} supervise\nEnvironment=${unitEnvironment}\nRestart=always\nRestartSec=15s\nTimeoutStopSec=60s\nKillMode=control-group\nStandardOutput=journal\nStandardError=journal\nSyslogIdentifier=ace\n[Install]\nWantedBy=default.target\n`,
   };
 }

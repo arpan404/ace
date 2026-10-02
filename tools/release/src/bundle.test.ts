@@ -1,7 +1,9 @@
 import { afterEach, expect, test } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, cp } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
+import { checked, runProcess } from "@ace/service";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { generateKeyPairSync } from "node:crypto";
@@ -26,6 +28,8 @@ test(
         ...process.env,
         ACE_HOME: join(root, "data"),
         ACE_PORT: "0",
+        ACE_LISTEN: "local",
+        ACE_MODEL_INSTANCES: "[]",
         ACE_VERSION: "1.2.3",
         ACE_DEV: "0",
         ACE_MAINTENANCE: "0",
@@ -55,6 +59,15 @@ test(
       const exit = once(child, "exit");
       child.kill("SIGTERM");
       expect((await exit)[0]).toBe(0);
+      const copy = join(root, "migration-copy");
+      await cp(join(root, "data"), copy, { recursive: true });
+      await checked(runProcess, process.execPath, [join(root, "ace.mjs"), "migrate-check", copy]);
+      const db = new DatabaseSync(join(copy, "events.sqlite"));
+      db.exec("UPDATE schema_version SET version = 999");
+      db.close();
+      await expect(
+        checked(runProcess, process.execPath, [join(root, "ace.mjs"), "migrate-check", copy]),
+      ).rejects.toThrow("newer");
     } finally {
       if (child.exitCode === null) {
         const exit = once(child, "exit");

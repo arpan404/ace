@@ -1,0 +1,18 @@
+{
+  "name": "@ace/orchestrator",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "benchmark": "node bench/facts.ts"
+  },
+  "dependencies": {
+    "@ace/git": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "zod": "^4.1.12"
+  }
+}

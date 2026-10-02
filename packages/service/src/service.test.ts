@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parse } from "plist";
 import { z } from "zod";
-import { planService, UserService, runProcess } from "./index.ts";
+import { planService, ServiceEnvironment, UserService, runProcess } from "./index.ts";
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
@@ -140,4 +140,30 @@ test("a broken service manager is reported instead of silently treated as stoppe
       "status",
     ),
   ).rejects.toThrow();
+});
+test("service environment preserves daemon network settings while excluding provider secrets", () => {
+  const environment = ServiceEnvironment.parse({
+    ACE_PORT: "4545",
+    ACE_LISTEN: "lan",
+    ACE_ADVERTISE_HOST: "host.local",
+    PROVIDER_API_KEY: "must-not-persist",
+  });
+  const p = planService({
+    platform: "darwin",
+    home: "/Users/a",
+    dataDir: "/Users/a/.ace",
+    executable: "/Users/a/.ace/bin/ace",
+    path: "/bin",
+    uid: 501,
+    environment,
+  });
+  const decoded = z
+    .object({ EnvironmentVariables: z.record(z.string(), z.string()) })
+    .parse(parse(p.content));
+  expect(decoded.EnvironmentVariables).toMatchObject({
+    ACE_PORT: "4545",
+    ACE_LISTEN: "lan",
+    ACE_ADVERTISE_HOST: "host.local",
+  });
+  expect(p.content).not.toContain("must-not-persist");
 });

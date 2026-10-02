@@ -225,7 +225,7 @@ test(
     const f = await fixture();
     await mkdir(join(f.root, "releases/other"));
     await writeFile(join(f.root, "releases/other/marker"), "other");
-    await Promise.all([
+    const results = await Promise.allSettled([
       (async () => {
         for (let i = 0; i < 100; i++)
           await atomicPointer(
@@ -236,10 +236,11 @@ test(
       (async () => {
         for (let i = 0; i < 200; i++)
           expect(["old", "other"]).toContain(
-            await readFile(join(f.root, "current/marker"), "utf8"),
+            await readFile(join(f.root, await readlink(join(f.root, "current")), "marker"), "utf8"),
           );
       })(),
     ]);
+    for (const result of results) if (result.status === "rejected") throw result.reason;
   },
 );
 test("SQLite snapshots contain uncheckpointed WAL changes", { timeout: 60_000 }, async () => {
@@ -285,3 +286,13 @@ test(
     old.close();
   },
 );
+test("an unsafe recovery target is rejected before stopping or removing installation data", async () => {
+  const f = await fixture();
+  await writeFile(
+    join(f.root, "update.json"),
+    JSON.stringify({ old: "releases/1.0.0-linux-x64", candidate: "releases/..", version: "1.0.0" }),
+  );
+  await expect(recoverUpdate(f.root, f.root, f.request.ports)).rejects.toThrow();
+  expect(f.running).toBe(true);
+  expect(await readFile(join(f.root, "current/marker"), "utf8")).toBe("old");
+});

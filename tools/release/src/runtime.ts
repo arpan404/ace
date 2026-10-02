@@ -7,6 +7,7 @@ import { z } from "zod";
 import { Store, readConfig } from "@ace/daemon";
 import { accessRequest } from "@ace/daemon/client-access";
 import { InstalledRelease, DaemonHealth } from "@ace/protocol";
+import { openModelStorage } from "@ace/models";
 import { NotificationService } from "@ace/notify";
 import {
   BoundedLog,
@@ -21,6 +22,7 @@ import {
   syncTree,
   syncDirectory,
   atomicPointer,
+  releasePointer,
   withInstallLock,
   durableJson,
 } from "@ace/service";
@@ -66,6 +68,9 @@ export async function migrateCheck(path: string) {
     },
   });
   await notifications.close();
+  const modelStorage = openModelStorage(join(path, "models.sqlite"));
+  modelStorage.load();
+  await modelStorage.close();
   for (const name of await readdir(path))
     if (name.endsWith(".sqlite")) {
       const db = new DatabaseSync(join(path, name));
@@ -121,7 +126,7 @@ export async function updateCli(args: string[]) {
     if (command === "recover") return;
   }
   const installed = InstalledRelease.parse(
-    JSON.parse(await readFile(join(root, "current/release.json"), "utf8")),
+    JSON.parse(await readFile(join(root, await releasePointer(root), "release.json"), "utf8")),
   );
   const feed =
     installed.channel === "stable"
@@ -169,7 +174,7 @@ export async function installArtifact(artifact: string) {
     const { writeFile } = await import("node:fs/promises");
     await writeFile(
       join(root, "bin/ace"),
-      `#!/bin/sh\nACE_HOME=${shell(root)}\nexport ACE_HOME\nexec ${shell(join(root, "current/bin/node"))} ${shell(join(root, "current/ace.mjs"))} "$@"\n`,
+      `#!/bin/sh\nACE_HOME=${shell(root)}\nexport ACE_HOME\ntarget=$(readlink "$ACE_HOME/current")\ncase "$target" in releases/*) ;; *) exit 1;; esac\nartifact="$ACE_HOME/$target"\nexec "$artifact/bin/node" "$artifact/ace.mjs" "$@"\n`,
       { mode: 0o755 },
     );
     await syncTree(join(root, target));
@@ -181,7 +186,7 @@ export async function installArtifact(artifact: string) {
 export async function supervise() {
   const root = dataDir();
   const manifest = InstalledRelease.parse(
-    JSON.parse(readFileSync(join(root, "current/release.json"), "utf8")),
+    JSON.parse(readFileSync(join(root, await releasePointer(root), "release.json"), "utf8")),
   );
   await mkdir(join(root, "logs"), { recursive: true, mode: 0o700 });
   const stdout = new BoundedLog(join(root, "logs/output.log")),
