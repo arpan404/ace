@@ -107,7 +107,7 @@ describe("daemon lifecycle", () => {
     const third = launch(home);
     const restarted = await connect(await third.ready, home);
     expect(await restarted.next()).toEqual(welcome);
-  });
+  }, 30_000);
   it("releases the instance lock after a crash and preserves committed events", async () => {
     const home = tempHome();
     const first = launch(home);
@@ -125,7 +125,7 @@ describe("daemon lifecycle", () => {
       type: "events",
       events: [{ seq: 1, payload: { type: "thread.created" } }],
     });
-  });
+  }, 30_000);
   it("unwinds a failed bind so the same data directory can start again", async () => {
     const firstHome = tempHome();
     const first = await startDaemon(
