@@ -24,9 +24,18 @@ When these conflict, choose in that order.
 
 - TypeScript must be erasable (`erasableSyntaxOnly`): no enums, namespaces or parameter properties. Node runs `.ts` files directly.
 - Relative imports use the `.ts` extension.
-- Keep modules small and single-purpose. If a file passes ~400 lines, split it.
+- No god files. Keep modules small and single-purpose: aim for under 400 lines per file. **Hard limit: 1,500 lines** per source file (tests included), enforced in CI by `bun run check:size`. A file approaching the limit is split by responsibility, never by arbitrary cuts.
 - Decode provider data leniently: unknown event types and fields are kept as raw data, never dropped and never fatal.
 - Before adding logic, check for an existing module that owns it. Duplicate logic across packages is a bug.
+
+## Design for modularity and testability
+
+- **Pure core, thin I/O shell.** Decision logic (state machines, translators, status rules, parsers) lives in pure functions or modules with no I/O, so it can be tested directly. I/O (processes, sockets, SQLite, filesystem, timers) lives in thin shells around it.
+- **Inject what you can't control.** Clocks, id generators, randomness, process spawners, filesystem roots and network endpoints are passed in, never reached for globally (`Date.now()`, `Math.random()` and module-level singletons are banned in logic code). Tests substitute them at the boundary.
+- **One responsibility per module, one public surface per package.** Each package exposes its API through `package.json` `exports`. Never import another package's internals (`@ace/x/src/...`). Circular imports are a lint error.
+- **Explicit types at boundaries.** Data from outside the process (provider frames, wire messages, files, env) is parsed with a schema before use. No `any`, no unchecked `as` casts on external data, no non-null assertions to silence the compiler.
+- **Small, composable units over options-heavy functions.** If a function needs a boolean flag that changes what it does, split it in two.
+- **Performance is designed in.** Hot paths (deltas, frame translation, event fan-out) do work proportional to the change, not to history. Anything slower needs a benchmark and a reason.
 
 ## Tests
 
@@ -56,6 +65,7 @@ Reviews reject PRs containing such tests.
 - `bun run lint` (oxlint)
 - `bun run typecheck`
 - `bun run test` (Vitest). Never run `bun test`; that is Bun's own runner.
+- `bun run check:size` fails if any source file exceeds 1,500 lines.
 - `bun run check` runs all of the above. It must pass before a task is complete.
 
 ## Recording fixtures
