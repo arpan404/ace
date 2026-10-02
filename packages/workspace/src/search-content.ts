@@ -42,6 +42,7 @@ export async function searchContent(
       const decoder = new TextDecoder();
       let offset = 0;
       let cr = "";
+      let last = "";
       while (offset < scanned) {
         aborted(signal);
         const { bytesRead } = await handle.read(
@@ -54,9 +55,16 @@ export async function searchContent(
         offset += bytesRead;
         const text = cr + decoder.decode(buffer.subarray(0, bytesRead), { stream: true });
         cr = text.endsWith("\r") ? "\r" : "";
-        yield Buffer.from(normalizeLines(cr ? text.slice(0, -1) : text));
+        const normalized = normalizeLines(cr ? text.slice(0, -1) : text);
+        if (normalized) last = normalized.slice(-1);
+        yield Buffer.from(normalized);
       }
-      yield Buffer.from(normalizeLines(cr + decoder.decode()));
+      const tail = normalizeLines(cr + decoder.decode());
+      if (tail) last = tail.slice(-1);
+      yield Buffer.from(tail);
+      // Treat EOF and budget-cut prefixes as complete lines in both engines.
+      // This delimiter does not consume physical byte budget or create an empty file's line.
+      if (last && last !== "\n") yield Buffer.from("\n");
     },
   };
 }
