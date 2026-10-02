@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ReadRequest, ReadResponse } from "./reads.ts";
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import { Command } from "./commands.ts";
@@ -19,6 +20,7 @@ export const ThreadView = z.object({
   runs: records(Run),
   items: records(Item),
   itemOrder: z.array(z.string()),
+  itemsBefore: z.string().nullable().optional(),
   interactions: records(Interaction),
   backgroundTasks: records(BackgroundTask),
   usage: records(UsageUpdated),
@@ -47,6 +49,7 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
 );
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  ReadRequest,
   z.object({
     type: z.literal("hello"),
     protocolVersion: z.literal(1),
@@ -70,7 +73,7 @@ export const CommandResult = z.object({
   error: z.string().optional(),
 });
 export type CommandResult = z.infer<typeof CommandResult>;
-export const ServerMessage = z.discriminatedUnion("type", [
+const CoreServerMessage = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("welcome"),
     hostId: HostId,
@@ -117,6 +120,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
   z.object({ type: z.literal("pong") }),
 ]);
+export const ServerMessage = z.union([ReadResponse, CoreServerMessage]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
 export type EventBatch = Extract<ServerMessage, { type: "events" }>;

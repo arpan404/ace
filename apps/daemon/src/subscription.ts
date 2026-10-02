@@ -1,5 +1,6 @@
 import type { Event, ServerMessage, SubscriptionScope, ThreadId } from "@ace/protocol";
 import { createThreadListView, isSidebarEvent } from "@ace/projection";
+import { snapshotWindow } from "./snapshot-window.ts";
 import type { Store } from "./store.ts";
 
 export type SubscriptionStore = Pick<
@@ -79,7 +80,7 @@ export function subscribe(
         ? store.acquireThread(scope.threadId)
         : createThreadListView(store.listThreads());
     if (scope.kind === "thread") acquired = scope.threadId;
-    const snapshotView = structuredClone(view);
+    const snapshotView = view.kind === "thread" ? snapshotWindow(view) : structuredClone(view);
     const head = store.headSeq();
     snapshotView.seq = head;
     if (afterSeq !== undefined && afterSeq > head) throw new Error("Cursor ahead of log");

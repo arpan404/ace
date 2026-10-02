@@ -4,6 +4,7 @@ import { commandContext, type CommandHandler } from "./commands.ts";
 import { validToken } from "./local-files.ts";
 import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
+import { read } from "./reads.ts";
 import { subscribe } from "./subscription.ts";
 
 export interface ServerOptions {
@@ -120,6 +121,24 @@ export async function startServer(
             subscriptions.set(message.subscriptionId, stop);
           } catch {
             fail("subscribe_failed", "Unknown thread or invalid cursor");
+          }
+          break;
+        }
+        case "request": {
+          try {
+            send({
+              type: "response",
+              requestId: message.requestId,
+              ok: true,
+              result: read(options.store, message.payload),
+            });
+          } catch {
+            send({
+              type: "response",
+              requestId: message.requestId,
+              ok: false,
+              error: "read_failed",
+            });
           }
           break;
         }
