@@ -35,6 +35,12 @@ export function reduce(state: State, input: unknown, env: Environment): Transiti
       !lane.retiring
     ) {
       if (fact.at > env.now() || fact.at < lane.lastActivity) return { state, effects: [] };
+      // Done repeats do not move the deadline anchor. Keep lastActivity at the
+      // latest fact timestamp separately, so older working facts stay fenced.
+      const observation =
+        fact.status === "done" && lane.migrationObservation?.status === "done"
+          ? lane.migrationObservation
+          : { status: fact.status, at: fact.at };
       return {
         state: {
           ...state,
@@ -43,7 +49,11 @@ export function reduce(state: State, input: unknown, env: Environment): Transiti
             [lane.id]: {
               ...lane,
               lastActivity: fact.at,
-              migrationObservation: { status: fact.status, at: fact.at },
+              artifactDeadline:
+                fact.status === "done" && !lane.artifact
+                  ? (lane.artifactDeadline ?? observation.at + state.spec.constraints.stallAfterMs)
+                  : null,
+              migrationObservation: observation,
             },
           },
         },
@@ -95,7 +105,7 @@ export function reduce(state: State, input: unknown, env: Environment): Transiti
     if (fact.type === "migrated") {
       if (lane.status !== "migrating") return { state, effects: [] };
       lane.status = lane.migrationObservation?.status ?? "working";
-      lane.lastActivity = lane.migrationObservation?.at ?? env.now();
+      lane.lastActivity = Math.max(lane.lastActivity, lane.migrationObservation?.at ?? env.now());
       lane.migrationObservation = null;
       applyLaneStatus(ctx, lane);
     } else if (fact.type === "status") {
@@ -209,8 +219,13 @@ export function reduce(state: State, input: unknown, env: Environment): Transiti
         for (const lane of Object.values(s.lanes)) {
           const deadline = laneDeadline(s, lane);
           if (deadline === null || env.now() < deadline) continue;
-          const missingArtifact = lane.status === "done";
-          if (!missingArtifact) lane.status = "unresponsive";
+          const missingArtifact =
+            !lane.artifact &&
+            (lane.status === "done" ||
+              (lane.status === "migrating" && lane.migrationObservation?.status === "done"));
+          // Keep the acknowledgement barrier intact when migration stalls.
+          // Its buffered observation still needs to settle after the ack.
+          if (!missingArtifact && lane.status !== "migrating") lane.status = "unresponsive";
           const node = lane.workstream ? (s.nodes[lane.workstream] ?? null) : null;
           if (node) node.state = "escalated";
           gate(
