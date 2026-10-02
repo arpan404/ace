@@ -96,7 +96,7 @@ A separate `node --expose-gc packages/automations/bench/poll-admission.ts` obser
 
 ## Independent verifier follow-up
 
-Merged origin/main at 94b2170, retaining automation, MCP and remote exports. The merge brings main's CommonJS fake-CLI fixture helper from #30. No CI invocation, rerun or watch was made in this round; CI is disabled by the repository owner and the local check is the gate.
+Initially merged origin/main at 94b2170, retaining automation, MCP and remote exports, then refreshed through bbcdae5 with notifications and the encrypted relay. The merge brings main's CommonJS fake-CLI fixture helper from #30. No CI invocation, rerun or watch was made in this round; CI is disabled by the repository owner and the local check is the gate.
 
 Reproduced both verifier lifecycle probes before fixing them: executor abort attempted a synchronous restart, and throwing file cleanup called onError, which attempted a restart. Each public-service test found one active resource after stop instead of zero. A third startup probe had a workspace subscription call stop and likewise leaked one watcher. All three now pass through a pure, constant-space lifecycle state machine. Teardown owns the transition and suppresses callback-driven startup until it finishes; stop during startup disables admission immediately and drains cleanup after startup registers resources. An explicit later start recovers observers and installs usable watchers, and a later stop releases them.
 
@@ -135,3 +135,5 @@ Refreshed non-gating measurements on Node v26.8.1, macOS arm64, shared machine. 
 | Poll 1,000 cached entries, 1,000 changes            |       6 |      158,759.84 |         308.4 |
 | Supervised fake-gh process, 64-KiB response         |      17 |       58,817.34 |         101.8 |
 | Restart, recovery and cancellation, one pending run |   9,782 |          102.23 |         117.3 |
+
+The final merged-tree `bun run check` passed formatting, lint, all 266 tracked source-file sizes, all package typechecks and 641 tests with four existing skips. The automation suite has 92 passing tests.
