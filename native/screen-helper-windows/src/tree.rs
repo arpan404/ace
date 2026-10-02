@@ -29,6 +29,15 @@ pub struct Query {
     pub text: Option<String>,
 }
 impl Query {
+    pub fn validate(&self) -> Result<()> {
+        if [&self.role, &self.name, &self.text]
+            .iter()
+            .any(|s| s.as_ref().is_some_and(|v| v.encode_utf16().count() > 256))
+        {
+            return Err(Error::new(Code::Bounds, "Query limit"));
+        }
+        Ok(())
+    }
     pub fn matches(&self, node: &Node) -> bool {
         self.role
             .as_ref()
@@ -132,6 +141,7 @@ fn visit<S: Source>(
     Ok(Some(node))
 }
 pub fn find(tree: &Tree, query: &Query, limit: usize) -> Result<Vec<Node>> {
+    query.validate()?;
     if limit == 0 || limit > 128 {
         return Err(Error::new(Code::Bounds, "Find limit exceeded"));
     }
@@ -180,6 +190,7 @@ pub fn find_from<S: Source>(
     query: &Query,
     limit: usize,
 ) -> Result<Found> {
+    query.validate()?;
     if limit == 0 || limit > 128 {
         return Err(Error::new(Code::Bounds, "Find limit exceeded"));
     }

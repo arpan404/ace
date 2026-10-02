@@ -455,3 +455,45 @@ fn tree_strings_respect_utf16_caps_without_splitting_surrogate_pairs() {
     let name = tree.root.unwrap().name;
     assert_eq!(name, "😀".repeat(128));
 }
+
+#[test]
+fn search_limits_use_utf16_units_and_accept_multibyte_queries() {
+    let mut app = App {
+        reads: 0,
+        offscreen: false,
+    };
+    let mut tree = tree::walk(&mut app, 0, 0, 1).unwrap();
+    tree.root.as_mut().unwrap().name = "😀".repeat(128);
+    let query = Query {
+        role: None,
+        name: Some("😀".repeat(128)),
+        text: None,
+    };
+    assert_eq!(tree::find(&tree, &query, 1).unwrap()[0].r#ref, "r0");
+    let oversized = Query {
+        role: None,
+        name: Some("😀".repeat(129)),
+        text: None,
+    };
+    assert_eq!(
+        tree::find(&tree, &oversized, 1).unwrap_err().code,
+        Code::Bounds
+    );
+    let before = app.reads;
+    assert_eq!(
+        tree::find_from(&mut app, 0, &oversized, 1)
+            .unwrap_err()
+            .code,
+        Code::Bounds
+    );
+    assert_eq!(app.reads, before);
+}
+
+#[test]
+fn unicode_error_messages_fit_the_shared_wire_limit_without_split_surrogates() {
+    let error =
+        ace_screen_helper_windows::errors::Error::hresult(0x80070005u32 as i32, "😀".repeat(1024));
+    assert_eq!(error.code, Code::PermissionDenied);
+    assert_eq!(error.message, "😀".repeat(512));
+    assert_eq!(error.message.encode_utf16().count(), 1024);
+}

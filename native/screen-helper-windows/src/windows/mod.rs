@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod automation_tests;
 mod capture;
 mod gpu;
 mod input;
@@ -145,12 +147,6 @@ impl Host {
             "ui.find" => {
                 let target = self.target()?.clone();
                 let query: Query = request.get("query")?;
-                if [&query.role, &query.name, &query.text]
-                    .iter()
-                    .any(|s| s.as_ref().is_some_and(|v| v.len() > 256))
-                {
-                    return Err(Error::new(Code::Bounds, "Query limit"));
-                }
                 self.automation.find(&target, &query, request.get("limit")?)
             }
             "ui.act" => {

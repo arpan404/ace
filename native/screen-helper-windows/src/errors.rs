@@ -18,10 +18,16 @@ pub struct Error {
 pub type Result<T> = std::result::Result<T, Error>;
 impl Error {
     pub fn new(code: Code, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into().chars().take(1024).collect(),
-        }
+        let mut units = 0;
+        let message = message
+            .into()
+            .chars()
+            .take_while(|c| {
+                units += c.len_utf16();
+                units <= 1024
+            })
+            .collect();
+        Self { code, message }
     }
     pub fn hresult(value: i32, message: impl Into<String>) -> Self {
         let code = match value as u32 {

@@ -42,6 +42,7 @@ impl Automation {
                 UIA_IsPasswordPropertyId,
                 UIA_IsKeyboardFocusablePropertyId,
                 UIA_ValueValuePropertyId,
+                UIA_ValueIsReadOnlyPropertyId,
                 UIA_SelectionItemIsSelectedPropertyId,
                 UIA_ExpandCollapseExpandCollapseStatePropertyId,
                 UIA_ToggleToggleStatePropertyId,

@@ -88,5 +88,23 @@
     "mutation": "Do not recheck ownership after a delayed tree read",
     "test": "a UI read cannot return after controller ownership changes",
     "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "src/windows/uia.rs",
+    "mutation": "Omit cached ValueIsReadOnly or advertise setValue on a readonly edit",
+    "test": "cached_edit_values_offer_set_value_only_when_writable (interactive Windows)",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "tree.rs",
+    "mutation": "Limit queries by UTF-8 bytes instead of UTF-16 units, or skip the query cap",
+    "test": "search_limits_use_utf16_units_and_accept_multibyte_queries",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "source": "apps/daemon/src/server.ts",
+    "mutation": "Allow read/operate devices to create a screen bridge or grant approvals",
+    "test": "paired devices cannot observe screen state or grant screen approvals",
+    "status": "not executed (tests run at merge)"
   }
 ]
