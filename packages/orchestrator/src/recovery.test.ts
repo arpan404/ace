@@ -68,3 +68,22 @@ it("side-by-side summaries expose the global row cap and preserve retained chang
   expect(Object.keys(result.files[0]?.lanes ?? {})).toEqual(["a", "b"]);
   expect(result.files.at(-1)?.path).toBe("file-4095");
 });
+it("recovery refuses a pending check for a different checkpoint than its lane", () => {
+  const r = setup("fanout", 1);
+  const lane = r.lanes[0];
+  if (!lane) throw new Error("Missing lane");
+  const pending = complete(r.state, lane, r.ctx).intents[0];
+  if (!pending || pending.effect.type !== "check") throw new Error("Missing check");
+  const valid = recover(r.state);
+  expect(valid.intents.map((intent) => intent.id)).toContain(pending.id);
+  const invalid = {
+    ...pending,
+    effect: {
+      ...pending.effect,
+      artifact: { ...pending.effect.artifact, checkpoint: "refs/ace/checkpoints/other/1" },
+    },
+  };
+  expect(() =>
+    recover({ ...r.state, intents: { ...r.state.intents, [pending.id]: invalid } }),
+  ).toThrow("Invalid intent phase");
+});

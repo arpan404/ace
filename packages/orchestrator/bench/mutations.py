@@ -31,6 +31,8 @@ mutations = [
     ("recovery phase compatibility", "recovery.ts", 'if (!canExecute(state, lane, entry.effect)) throw new Error("Invalid intent phase");', '', "review-regressions.test.ts"),
     ("accepted ancestor check invalidation", "state.ts", 'delete lane.checksPassed;', '', "review-regressions.test.ts"),
     ("global summary overflow", "summary.ts", '          truncated = true;', '', "recovery.test.ts"),
+    ("failed-child revival accounting (N13)", "reduce.ts", 'if (wasUnsuccessful) parent.failedChildren--;', '', "coordinator.test.ts"),
+    ("check checkpoint ownership (N14)", "execution-policy.ts", 'lane.artifact?.checkpoint === effect.artifact.checkpoint', 'true', "recovery.test.ts"),
 ]
 for name, file, original, replacement, test in mutations:
     path = (ROOT / "packages/orchestrator/src" / file).resolve()

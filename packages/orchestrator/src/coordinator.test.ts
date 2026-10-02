@@ -137,3 +137,28 @@ it("total lanes are bounded and non-coordinator templates cannot spawn", () => {
   ).toMatchObject({ reason: "spawn_not_allowed" });
   expect(root.phase).toBe("starting");
 });
+it("a failed child can revive and succeed without leaving its planner failed", () => {
+  const r = setup("coordinator", 1);
+  const root = r.lanes[0];
+  if (!root) throw new Error("Missing planner");
+  const id = r.send({
+    type: "spawn",
+    parentId: root.id,
+    attempt: root.attempt,
+    requestId: "recoverable-child",
+    spec: root.spec,
+    prompt: "Subtask",
+  }).intents[0]?.effect.laneId;
+  const child = id ? r.state.lanes[id] : undefined;
+  if (!child) throw new Error("Missing child");
+  complete(r.state, root, r.ctx);
+  r.send({ type: "thread", ...fact(child), status: { state: "failed" } });
+  expect(r.state.status).toBe("failed");
+  r.send({ type: "thread", ...fact(child), status: { state: "working", agents: 1 } });
+  expect(r.state.status).toBe("waiting");
+  complete(r.state, child, r.ctx);
+  check(r.state, child, r.ctx);
+  check(r.state, root, r.ctx);
+  expect(r.state.status).toBe("succeeded");
+  expect(recover(r.state).state.status).toBe("succeeded");
+});

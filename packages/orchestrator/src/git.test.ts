@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -10,7 +10,9 @@ import { compare, execute, mergeWinner, type Executor } from "./index.ts";
 import { stopFact, artifact, check, complete, fact, setup } from "./test-support.ts";
 const exec = promisify(execFile);
 async function repo() {
-  const dir = await mkdtemp(join(tmpdir(), "ace-orch-"));
+  const root = await mkdtemp(join(tmpdir(), "ace-orch-"));
+  const dir = join(root, "target");
+  await mkdir(dir);
   const cli = async (...args: string[]) => (await exec("git", ["-C", dir, ...args])).stdout.trim();
   await cli("init", "-b", "main");
   await cli("config", "user.name", "Test");
@@ -18,7 +20,7 @@ async function repo() {
   await writeFile(join(dir, "feature.txt"), "original\n");
   await cli("add", ".");
   await cli("commit", "-m", "base");
-  return { dir, cli, git: new GitService(), base: await cli("rev-parse", "HEAD") };
+  return { root, dir, cli, git: new GitService(), base: await cli("rev-parse", "HEAD") };
 }
 // Real subprocess I/O gets a generous runner timeout under shared CI load.
 // Behaviour assertions use injected time, never measured elapsed time.
@@ -30,10 +32,9 @@ it("compares real lane checkpoints and applies the picked winner with a safety c
     const [a, b] = r.lanes;
     if (!a || !b) throw new Error("Missing lanes");
     for (const [n, lane] of r.lanes.entries()) {
-      const path = join(p.dir, `lane-${n}`);
+      const path = join(p.root, `lane-${n}`);
       await p.git.createWorktree({ repo: p.dir, path, baseRef: p.base, branch: `lane-${n}` });
-      // Registered worktrees live beneath the test repo; exclude them from the target's untracked files.
-      await writeFile(join(p.dir, ".git", "info", "exclude"), "lane-*\n");
+      // Lane worktrees are isolated siblings, outside the target snapshot.
       r.send({ type: "thread", ...fact(lane), status: { state: "working", agents: 1 } });
       r.send({
         type: "bound",
@@ -97,7 +98,7 @@ it("compares real lane checkpoints and applies the picked winner with a safety c
     await p.git.restoreCheckpoint({ worktree: p.dir, checkpoint: r.state.safetyCheckpoint });
     expect(await readFile(join(p.dir, "feature.txt"), "utf8")).toBe("original\n");
   } finally {
-    await rm(p.dir, { recursive: true, force: true });
+    await rm(p.root, { recursive: true, force: true });
   }
 }, 60_000);
 it("winner application refuses a dirty target, an advanced base and the wrong branch", async () => {
@@ -125,7 +126,7 @@ it("winner application refuses a dirty target, an advanced base and the wrong br
     await p.cli("switch", "-c", "other");
     await expect(mergeWinner(r.state, p.dir, p.git)).rejects.toThrow("target_changed");
   } finally {
-    await rm(p.dir, { recursive: true, force: true });
+    await rm(p.root, { recursive: true, force: true });
   }
 }, 60_000);
 it("picking a winner cancels remaining work and delays merge until stop acknowledgements", () => {
