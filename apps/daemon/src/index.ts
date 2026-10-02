@@ -1,3 +1,4 @@
+import { SettingsService } from "@ace/settings";
 import { join } from "node:path";
 import { type CommandHandler, stubHandler } from "./commands.ts";
 import { type Config, logger, readConfig } from "./config.ts";
@@ -15,10 +16,17 @@ export { readConfig } from "./config.ts";
 export async function startDaemon(
   config: Config = readConfig(),
   handler: CommandHandler = stubHandler(),
-): Promise<{ url: string; tokenPath: string; store: Store; close(): Promise<void> }> {
+): Promise<{
+  url: string;
+  tokenPath: string;
+  store: Store;
+  settings: SettingsService;
+  close(): Promise<void>;
+}> {
   const unlock = acquireLock(config.dataDir);
   const log = logger(config.logLevel);
   let store: Store | undefined;
+  let settings: SettingsService | undefined;
   try {
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
@@ -26,7 +34,10 @@ export async function startDaemon(
       log("error", "Event subscriber failed", error),
     );
     const ownedStore = store;
+    settings = new SettingsService({ dataDir: config.dataDir });
+    const ownedSettings = settings;
     const server = await startServer({
+      settings,
       port: config.port,
       token,
       hostId,
@@ -39,12 +50,14 @@ export async function startDaemon(
       url: server.url,
       tokenPath,
       store,
+      settings,
       close() {
         closing ??= (async () => {
           try {
             await server.close();
           } finally {
             try {
+              await ownedSettings.close();
               ownedStore.close();
             } finally {
               unlock();
@@ -56,6 +69,7 @@ export async function startDaemon(
     };
   } catch (error) {
     try {
+      await settings?.close();
       store?.close();
     } finally {
       unlock();

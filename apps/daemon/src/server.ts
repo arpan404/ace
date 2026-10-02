@@ -1,3 +1,5 @@
+import type { SettingsService } from "@ace/settings";
+import { settingsSession } from "./settings.ts";
 import { WebSocket, WebSocketServer } from "ws";
 import { ClientMessage, HostId, type DeviceId, type ServerMessage } from "@ace/protocol";
 import { commandContext, type CommandHandler } from "./commands.ts";
@@ -7,6 +9,7 @@ import type { Store } from "./store.ts";
 import { subscribe } from "./subscription.ts";
 
 export interface ServerOptions {
+  settings?: SettingsService;
   port: number;
   token: string;
   hostId: string;
@@ -40,7 +43,14 @@ export async function startServer(
       send({ type: "error", code, message });
       if (close) socket.close(4001, code);
     };
+    const settings = settingsSession({
+      service: options.settings,
+      store: options.store,
+      subscriptions,
+      send,
+    });
     const cleanup = () => {
+      settings.close();
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
@@ -91,6 +101,11 @@ export async function startServer(
         return;
       }
       switch (message.type) {
+        case "settings.get":
+        case "settings.set":
+        case "settings.subscribe":
+          settings.accept(message);
+          break;
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
           break;
