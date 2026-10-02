@@ -5,6 +5,7 @@ import { once } from "node:events";
 import { DeviceId, Command, InteractionId, AgentId, type Notification } from "@ace/protocol";
 import { NotificationWorker, attachNotifications, createNotificationRouter } from "@ace/notify";
 import { afterEach, expect, it } from "vitest";
+import { createDaemonNotifications } from "./notifications.ts";
 import { fixture } from "./socket-test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -228,4 +229,30 @@ it("registration and preferences are bound to the connection and revoked clients
   );
   expect(await unauthorized.next()).toMatchObject({ type: "error", code: "unauthorized" });
   await unauthorizedClosed;
+});
+
+it("refuses daemon notification transport for an operate-only paired device", async () => {
+  const f = await fixture();
+  const notifications = createDaemonNotifications(f.home, f.store, () => {}, {}, 0);
+  const delivered: DeviceId[] = [];
+  notifications.setSender((id) => {
+    delivered.push(id);
+    return true;
+  });
+  try {
+    const denied = f.store.devices.create("Operate only", ["operate"], 1).device;
+    const allowed = f.store.devices.create("Reader", ["read"], 2).device;
+    for (const device of [denied, allowed])
+      await notifications.service.register(device.id, {
+        channel: "websocket",
+        platform: "desktop",
+      });
+    f.store.appendEvents(f.thread.id, [{ type: "thread.updated", status: { state: "done" } }]);
+    await notifications.service.ingest(f.store.readEvents({ afterSeq: 0, limit: 10 }));
+    await notifications.service.drain();
+    expect(delivered).toEqual([allowed.id]);
+  } finally {
+    await notifications.close();
+    await f.close();
+  }
 });
