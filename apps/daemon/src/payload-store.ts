@@ -86,8 +86,14 @@ export class PayloadStore {
             this.statement("SELECT size FROM output_streams WHERE id = ?").get(streamId)?.size,
           );
           const bytes = Buffer.from(output).subarray(size);
+          for (let offset = 0; offset < bytes.length; offset += 64 * 1024) {
+            this.statement("INSERT INTO output_chunks VALUES (?, ?, ?)").run(
+              streamId,
+              size + offset,
+              bytes.subarray(offset, offset + 64 * 1024),
+            );
+          }
           if (bytes.length) {
-            this.statement("INSERT INTO output_chunks VALUES (?, ?, ?)").run(streamId, size, bytes);
             this.statement("UPDATE output_streams SET size = size + ? WHERE id = ?").run(
               bytes.length,
               streamId,
@@ -246,7 +252,7 @@ export class PayloadStore {
     ).get(streamId, offset);
     const start = predecessor ? Number(predecessor.offset) : offset;
     const chunks = this.readStatement(
-      `SELECT substr(bytes, MAX(0, ? - offset) + 1, MIN(length(bytes), ? - offset) - MAX(0, ? - offset)) AS bytes FROM ${table} WHERE stream_id = ? AND offset >= ? AND offset < ? ORDER BY offset`,
+      `SELECT offset, substr(bytes, MAX(0, ? - offset) + 1, MIN(length(bytes), ? - offset) - MAX(0, ? - offset)) AS bytes FROM ${table} WHERE stream_id = ? AND offset >= ? AND offset < ? ORDER BY offset`,
     ).all(offset, end, offset, streamId, start, end);
     const bytes = Buffer.concat(
       chunks.map((row) => {

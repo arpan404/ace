@@ -1,3 +1,4 @@
+import { restorePrePreviewSchema } from "./migration-test-support.ts";
 import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -29,10 +30,9 @@ it("upgrades existing oversized text and appended code units into bounded previe
     store.close();
     store = undefined;
     const db = new DatabaseSync(path);
+    restorePrePreviewSchema(db);
     // Restore the pre-feature schema with its original authoritative bodies/chunks.
-    db.exec(
-      "DROP TABLE item_source_chunks; DROP TABLE item_text_streams; DROP TABLE item_previews; DROP TABLE item_preview_migration; UPDATE schema_version SET version = 5",
-    );
+    db.exec("UPDATE schema_version SET version = 5");
     db.close();
     store = new Store(path);
     const page = store.readItemPage(thread.id, store.headSeq() + 1, 1);

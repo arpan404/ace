@@ -198,57 +198,61 @@ test("a partial end-only native turn stays completed across cold snapshot recove
   }
 });
 
-test("oversized unknown raw data is capped in snapshots and events while its original JSON is readable", async () => {
-  const frames = scriptFrames();
-  const data = { unfamiliar: "x".repeat(1024 * 1024), nested: { survives: true } };
-  const h = track(
-    await harness(
-      [
-        {
-          on: "send",
-          frames: [
-            frames.frame(
-              start,
-              {
-                type: "item.upsert",
-                agent: "root",
-                item: "raw",
-                draft: {
-                  type: "notice",
-                  level: "info",
-                  text: "unknown provider event",
-                  raw: [{ type: "unfamiliar", data }],
+test.each(["item.upsert", "item.reconciled"] as const)(
+  "oversized unknown raw data from %s is capped in snapshots and events while its original JSON is readable",
+  async (type) => {
+    const frames = scriptFrames();
+    const data = { unfamiliar: "x".repeat(1024 * 1024), nested: { survives: true } };
+    const h = track(
+      await harness(
+        [
+          {
+            on: "send",
+            frames: [
+              frames.frame(
+                start,
+                {
+                  type,
+                  agent: "root",
+                  item: "raw",
+                  draft: {
+                    type: "notice",
+                    level: "info",
+                    text: "unknown provider event",
+                    raw: [{ type: "unfamiliar", data }],
+                  },
                 },
-              },
-              end,
-            ),
-          ],
-        },
-      ],
-      frames,
-    ),
-  );
-  const id = await h.create();
-  const notice = Object.values(view(h.store, id).items).find((item) => item.type === "notice");
-  if (!notice || notice.type !== "notice") throw new Error("Missing raw notice");
-  const blob = z
-    .object({ blobRef: z.string(), size: z.number(), preview: z.string() })
-    .parse(notice.raw[0]);
-  expect(blob.size).toBeGreaterThan(1024 * 1024);
-  const bytes = h.engine.readRawBlob(blob.blobRef);
-  expect(bytes).toBeDefined();
-  expect(JSON.parse(Buffer.from(bytes ?? []).toString())).toEqual(data);
-  const snapshotBytes = h.store.atomic((db) =>
-    Number(
-      db.prepare("SELECT sum(length(CAST(value AS BLOB))) AS bytes FROM engine_state_records").get()
-        ?.bytes,
-    ),
-  );
-  expect(snapshotBytes).toBeLessThan(64 * 1024);
-  expect(
-    JSON.stringify(h.store.readEvents({ afterSeq: 0, threadId: id, limit: 1000 })).length,
-  ).toBeLessThan(64 * 1024);
-});
+                end,
+              ),
+            ],
+          },
+        ],
+        frames,
+      ),
+    );
+    const id = await h.create();
+    const notice = Object.values(view(h.store, id).items).find((item) => item.type === "notice");
+    if (!notice || notice.type !== "notice") throw new Error("Missing raw notice");
+    const blob = z
+      .object({ blobRef: z.string(), size: z.number(), preview: z.string() })
+      .parse(notice.raw[0]);
+    expect(blob.size).toBeGreaterThan(1024 * 1024);
+    const bytes = h.engine.readRawBlob(blob.blobRef);
+    expect(bytes).toBeDefined();
+    expect(JSON.parse(Buffer.from(bytes ?? []).toString())).toEqual(data);
+    const snapshotBytes = h.store.atomic((db) =>
+      Number(
+        db
+          .prepare("SELECT sum(length(CAST(value AS BLOB))) AS bytes FROM engine_state_records")
+          .get()?.bytes,
+      ),
+    );
+    expect(snapshotBytes).toBeLessThan(64 * 1024);
+    expect(
+      JSON.stringify(h.store.readEvents({ afterSeq: 0, threadId: id, limit: 1000 })).length,
+    ).toBeLessThan(64 * 1024);
+  },
+);
 
 test("a recovered message can append a new text part whose saved base had none", async () => {
   const frames = scriptFrames();

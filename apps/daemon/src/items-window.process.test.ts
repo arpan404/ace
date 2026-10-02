@@ -2,6 +2,8 @@ import { Agent, BackgroundTask, Interaction, ThreadId, Run, AgentItem } from "@a
 import { applyDelivery, applyItemsPage, trackItem } from "@ace/projection";
 import { afterEach, expect, it } from "vitest";
 import { fixture } from "./socket-test-support.ts";
+import type { Store } from "./index.ts";
+import type { Item } from "@ace/protocol";
 import { message } from "./payload-test-support.ts";
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -14,6 +16,28 @@ async function setup() {
   return f;
 }
 
+function completeMessage(store: Store, item: Item) {
+  if (item.type !== "message") throw new Error("Expected message");
+  return {
+    ...item,
+    parts: item.parts.map((part) => {
+      if (part.type !== "text" || !part.source) return part;
+      const { source, ...preview } = part;
+      const chunks: Buffer[] = [];
+      let offset = 0;
+      while (offset < source.bytes) {
+        const chunk = store.readOutput(source.streamId, offset, 256 * 1024);
+        if (chunk.nextOffset <= offset) throw new Error("Source stalled");
+        chunks.push(Buffer.from(chunk.bytes, "base64"));
+        offset = chunk.nextOffset;
+      }
+      expect(offset).toBe(source.bytes);
+      const text = Buffer.concat(chunks).toString("utf16le");
+      expect(preview.text).toBe(text.slice(0, preview.text.length));
+      return { ...preview, text };
+    }),
+  };
+}
 it("snapshots only the last 200 items, keeps all work entities and pages older history in creation order", async () => {
   const f = await setup();
   const agent = Agent.parse({
@@ -155,10 +179,12 @@ it("pages several oversized messages one at a time over the socket without skipp
     const item = items[i];
     const event = events[i];
     if (!item || !event || before === null) throw new Error("History ended too early");
-    c.send({ type: "items.page", requestId: `p-${i}`, threadId: f.thread.id, before, limit: 200 });
+    c.send({ type: "items.page", requestId: `p-${i}`, threadId: f.thread.id, before, limit: 1 });
     const page = await c.next();
     if (page.type !== "items.page") throw new Error("Expected page");
-    expect(page.items).toEqual([item]);
+    expect(page.items).toHaveLength(1);
+    expect(page.items.map((entry) => completeMessage(f.store, entry))).toEqual([item]);
+    expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThanOrEqual(1024 * 1024);
     expect(page.itemsBefore).toBe(i ? event.seq : null);
     before = page.itemsBefore;
   }

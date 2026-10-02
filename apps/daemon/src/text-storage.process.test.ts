@@ -1,3 +1,4 @@
+import { restorePrePreviewSchema } from "./migration-test-support.ts";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -197,6 +198,7 @@ it("recovers version-four split text chunks from the lossless event log during u
   const path = join(f.home, "events.sqlite");
   const db = new DatabaseSync(path);
   cleanups.push(() => db.close());
+  restorePrePreviewSchema(db);
   // Reproduce schema-four TEXT bindings, including their irreversible UTF-8 replacement.
   const rows = db.prepare("SELECT seq FROM item_text_chunks ORDER BY seq").all();
   const units = ["\ud83d", "\ude00"];

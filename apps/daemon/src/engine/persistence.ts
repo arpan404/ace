@@ -107,7 +107,12 @@ export class Snapshot {
     return this.items.useAppendValue(fact.item, structuredClone(metadata));
   }
   remember(fact: Fact, events: EventPayload[]): void {
-    if (fact.type !== "item.upsert" && fact.type !== "item.delta") return;
+    if (
+      fact.type !== "item.upsert" &&
+      fact.type !== "item.reconciled" &&
+      fact.type !== "item.delta"
+    )
+      return;
     const item = this.state.items[fact.item];
     if (
       item &&

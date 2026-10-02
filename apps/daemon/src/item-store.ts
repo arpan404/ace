@@ -166,7 +166,14 @@ export class ItemStore {
           id: ItemId,
           created_seq: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
           size: z.number().int().nonnegative(),
-          item_type: z.enum(["message", "reasoning", "notice", "tool_call", "compaction"]),
+          item_type: z.enum([
+            "message",
+            "reasoning",
+            "notice",
+            "tool_call",
+            "compaction",
+            "artifact",
+          ]),
         }),
       )
       .max(201)
@@ -226,7 +233,8 @@ export class ItemStore {
       if (!row) break;
       const size =
         Number(row.size) + 2 * Buffer.byteLength(JSON.stringify(row.id)) + 1 + (count ? 2 : 0);
-      if (bytes + size > (byteLimit ?? Infinity)) break;
+      if (bytes + size > (byteLimit ?? 1024 * 1024) && (count > 0 || byteLimit !== undefined))
+        break;
       bytes += size;
       count++;
     }
