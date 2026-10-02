@@ -25,6 +25,7 @@ type Session = {
   actionTail: Promise<void>;
   queuedActions: number;
   recordingStarting: boolean;
+  stopping: Promise<void> | undefined;
 };
 export class ScreenManager {
   private enabled = false;
@@ -135,6 +136,7 @@ export class ScreenManager {
         actionTail: Promise.resolve(),
         queuedActions: 0,
         recordingStarting: false,
+        stopping: undefined,
         state: {
           sessionId: id,
           lifecycle: "starting",
@@ -280,23 +282,24 @@ export class ScreenManager {
     session.recording = undefined;
     return recording.stop();
   }
-  async stop(id: string): Promise<void> {
+  stop(id: string): Promise<void> {
     const session = this.get(id);
+    session.stopping ??= this.finish(session);
+    return session.stopping;
+  }
+  private async finish(session: Session): Promise<void> {
     session.epoch++;
     session.latest = undefined;
     session.hub.clear();
-    session.state = {
-      ...session.state,
-      lifecycle: "stopped",
-      indicator: false,
-      controller: "none",
-    };
+    session.state = { ...session.state, lifecycle: "stopping", controller: "none" };
+    this.emit(session);
+    await session.helper.close();
+    session.state = { ...session.state, lifecycle: "stopped", indicator: false };
     this.emit(session);
     try {
-      if (session.recording) await this.stopRecording(id);
+      if (session.recording) await this.stopRecording(session.state.sessionId);
     } finally {
-      await session.helper.close();
-      this.sessions.delete(id);
+      this.sessions.delete(session.state.sessionId);
     }
   }
   async close(): Promise<void> {
@@ -323,21 +326,28 @@ export class ScreenManager {
     }
   }
   private fail(session: Session, error: Error): void {
-    if (session.state.lifecycle === "failed" || session.state.lifecycle === "stopped") return;
+    if (
+      session.state.lifecycle === "failed" ||
+      session.state.lifecycle === "stopped" ||
+      session.state.lifecycle === "stopping"
+    )
+      return;
     session.epoch++;
     session.latest = undefined;
     session.hub.clear();
     session.state = {
       ...session.state,
-      lifecycle: "failed",
-      indicator: false,
+      lifecycle: "stopping",
       controller: "none",
       error: error.message.slice(0, 1024),
     };
     this.emit(session);
     void session.recording?.stop().catch(() => {});
     session.recording = undefined;
-    void session.helper.close();
+    void session.helper.close().then(() => {
+      session.state = { ...session.state, lifecycle: "failed", indicator: false };
+      this.emit(session);
+    });
   }
 }
 function bundles(target: ScreenTarget): string[] {

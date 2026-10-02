@@ -66,7 +66,7 @@ export const ScreenFrameHeader = z.object({
 export type ScreenFrameHeader = z.infer<typeof ScreenFrameHeader>;
 export const ScreenState = z.object({
   sessionId: ScreenId,
-  lifecycle: z.enum(["starting", "live", "stopped", "failed"]),
+  lifecycle: z.enum(["starting", "live", "stopping", "stopped", "failed"]),
   controller: z.enum(["agent", "human", "none"]),
   indicator: z.boolean(),
   target: ScreenTarget,
