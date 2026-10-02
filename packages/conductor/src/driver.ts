@@ -1,7 +1,7 @@
 import { ConductorCommandPayload } from "@ace/protocol";
 import { executable } from "./outbox-policy.ts";
 import type { Executor } from "./ports.ts";
-import type { Environment, State } from "./schema.ts";
+import type { Effect, Environment, State } from "./schema.ts";
 import type { ConductorStore } from "./store.ts";
 
 export class ConductorDriver {
@@ -45,12 +45,20 @@ export class ConductorDriver {
     this.draining = true;
     let count = 0;
     try {
+      let batch = new Map(this.store.pending(run).map((effect) => [effect.id, effect]));
       while (count < limit) {
         const state = this.store.load(run);
         if (!state) throw new Error("run_not_found");
-        const pending = this.store.pending(run);
-        const effect = pending.find((e) => executable(state, e));
-        if (!effect) break;
+        let effect = this.pick(batch, state);
+        if (!effect) {
+          // New intents can arrive while an executor awaits. Refresh only at a
+          // batch boundary, never parse the full queue for each acknowledgement.
+          batch = new Map(this.store.pending(run).map((item) => [item.id, item]));
+          effect = this.pick(batch, state);
+          if (!effect) break;
+        }
+        batch.delete(effect.id);
+        if (!this.store.hasPending(run, effect.id)) continue;
         if (
           (state.phase === "cancelling" || state.phase === "cancelled") &&
           effect.type === "merge"
@@ -77,5 +85,9 @@ export class ConductorDriver {
     } finally {
       this.draining = false;
     }
+  }
+  private pick(batch: Map<string, Effect>, state: State) {
+    for (const effect of batch.values()) if (executable(state, effect)) return effect;
+    return undefined;
   }
 }
