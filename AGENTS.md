@@ -24,7 +24,7 @@ When these conflict, choose in that order.
 
 - TypeScript must be erasable (`erasableSyntaxOnly`): no enums, namespaces or parameter properties. Node runs `.ts` files directly.
 - Relative imports use the `.ts` extension.
-- Keep modules small and single-purpose. If a file passes ~400 lines, split it.
+- No god files. Keep modules small and single-purpose: aim for under 400 lines per file. **Hard limit: 1,500 lines** per source file (tests included), enforced in CI by `bun run check:size`. A file approaching the limit is split by responsibility, never by arbitrary cuts.
 - Decode provider data leniently: unknown event types and fields are kept as raw data, never dropped and never fatal.
 - Before adding logic, check for an existing module that owns it. Duplicate logic across packages is a bug.
 
@@ -56,6 +56,7 @@ Reviews reject PRs containing such tests.
 - `bun run lint` (oxlint)
 - `bun run typecheck`
 - `bun run test` (Vitest). Never run `bun test`; that is Bun's own runner.
+- `bun run check:size` fails if any source file exceeds 1,500 lines.
 - `bun run check` runs all of the above. It must pass before a task is complete.
 
 ## Recording fixtures
