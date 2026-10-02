@@ -22,6 +22,7 @@
     "@ace/core": "workspace:*",
     "@ace/engine-api": "workspace:*",
     "@ace/mcp-server": "workspace:*",
+    "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",

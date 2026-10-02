@@ -4,6 +4,7 @@ import { PairingResponse } from "@ace/protocol";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import createQr from "qrcode-generator";
+import { readModelInstances } from "./models.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread, stubHandler } from "./commands.ts";
 import { accessRequest } from "./client-access.ts";
@@ -61,6 +62,9 @@ async function main(args: string[]): Promise<void> {
     const daemon = await startDaemon(
       config,
       development ? stubHandler({ development }) : undefined,
+      [],
+      undefined,
+      readModelInstances(),
     );
     try {
       if (development && daemon.store.listThreads().length === 0)

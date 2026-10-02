@@ -1,5 +1,7 @@
 import { Engine, type EngineOptions } from "./engine/index.ts";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
+import type { ModelCatalog, InstanceInput } from "@ace/models";
+import { openDaemonModels } from "./models.ts";
 import { writeFileSync, unlinkSync } from "node:fs";
 import type { NotificationWorker, NotificationChannels } from "@ace/notify";
 import type { Toolkit } from "@ace/mcp-server";
@@ -31,10 +33,12 @@ export async function startDaemon(
   handler?: CommandHandler,
   options: DaemonOptions | readonly Toolkit[] = {},
   notificationChannels?: Omit<NotificationChannels, "websocket">,
+  modelInstances: readonly InstanceInput[] = [],
 ): Promise<{
   url: string;
   tokenPath: string;
   store: Store;
+  models: ModelCatalog;
   notifications: NotificationWorker;
   mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
   remoteUrl?: string;
@@ -47,6 +51,7 @@ export async function startDaemon(
   const log = logger(config.logLevel);
   let store: Store | undefined;
   let engine: Engine | undefined;
+  let models: ModelCatalog | undefined;
   let notifications: DaemonNotifications | undefined;
   let closeChannels = noop;
   let mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
@@ -70,7 +75,11 @@ export async function startDaemon(
             closeChannels();
           } finally {
             try {
-              store?.close();
+              try {
+                await models?.close();
+              } finally {
+                store?.close();
+              }
             } finally {
               try {
                 if (endpointPath) unlinkSync(endpointPath);
@@ -96,6 +105,7 @@ export async function startDaemon(
       });
       handler = engine.handler;
     }
+    models = openDaemonModels(config.dataDir, modelInstances);
     mcp = await startDaemonMcp(store, toolkits);
     const configured = notificationChannels
       ? { channels: notificationChannels, close: closeChannels }
@@ -115,6 +125,7 @@ export async function startDaemon(
       hostId,
       store,
       handler,
+      models,
       notifications: notifications.service,
       log: (error) => log("error", "WebSocket failure", error),
     });
@@ -131,6 +142,7 @@ export async function startDaemon(
         : {}),
       tokenPath,
       store,
+      models,
       notifications: notifications.service,
       mcp,
       close() {
