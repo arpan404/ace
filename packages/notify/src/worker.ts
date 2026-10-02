@@ -1,4 +1,4 @@
-import { Worker } from "node:worker_threads";
+import { Worker, type WorkerOptions } from "node:worker_threads";
 import {
   NotificationAddress,
   NotificationPreferences,
@@ -8,99 +8,31 @@ import {
   type ThreadId,
 } from "@ace/protocol";
 import type { NotificationTransport } from "./service.ts";
-import { FromWorker, WorkerConfig, type WorkerCall } from "./worker-wire.ts";
+import { FromWorker, WorkerConfig, ToWorker, type WorkerCall } from "./worker-wire.ts";
+import { metadata, type MetadataEvent } from "./metadata.ts";
 
-/** Strip transcript, raw provider payloads and descriptions before copying across the worker boundary. */
-function metadata(event: Event): Event | undefined {
-  if (event.id.length > 200 || event.threadId.length > 200)
-    throw new Error("Notification identifier too long");
-  const p = event.payload;
-  switch (p.type) {
-    case "thread.created":
-      return {
-        ...event,
-        payload: { ...p, thread: { ...p.thread, title: p.thread.title.slice(0, 200) } },
-      };
-    case "thread.updated":
-      return {
-        ...event,
-        payload: { ...p, ...(p.title === undefined ? {} : { title: p.title.slice(0, 200) }) },
-      };
-    case "interaction.opened":
-      return {
-        ...event,
-        payload: {
-          ...p,
-          interaction: {
-            id: p.interaction.id,
-            threadId: p.interaction.threadId,
-            agentId: p.interaction.agentId,
-            blocking: p.interaction.blocking,
-            state: p.interaction.state,
-            createdAt: p.interaction.createdAt,
-            raw: [],
-            request:
-              p.interaction.request.kind === "approval"
-                ? {
-                    kind: "approval",
-                    title: "",
-                    options: p.interaction.request.options
-                      .slice(0, 128)
-                      .filter((option) => option.id.length <= 200)
-                      .map((option) => ({ id: option.id, kind: option.kind, label: "" })),
-                  }
-                : { kind: "question", questions: [] },
-          },
-        },
-      };
-    case "interaction.closed":
-      return {
-        ...event,
-        payload: {
-          type: p.type,
-          interactionId: p.interactionId,
-          state: p.state,
-          closedAt: p.closedAt,
-        },
-      };
-    case "background_task.started":
-      return {
-        ...event,
-        payload: {
-          type: p.type,
-          task: {
-            id: p.task.id,
-            agentId: p.task.agentId,
-            kind: p.task.kind,
-            status: p.task.status,
-            ambient: p.task.ambient,
-            stoppable: p.task.stoppable,
-            startedAt: p.task.startedAt,
-            title: "",
-            raw: [],
-          },
-        },
-      };
-    case "background_task.updated":
-      return event;
-    default:
-      return undefined;
-  }
-}
 export class NotificationWorker {
   private worker: Worker;
   private sequence = 0;
   private pending = new Map<
     number,
-    { resolve(value: number | undefined): void; reject(error: Error): void }
+    { resolve(value: number | undefined): void; reject(error: Error): void; bytes: number }
   >();
   private flights = new Map<number, AbortController>();
   private transport: NotificationTransport;
   private closing: Promise<void> | undefined;
   private failed: Error | undefined;
-  constructor(options: { path: string; windowMs?: number; transport: NotificationTransport }) {
+  private pendingBytes = 0;
+  constructor(options: {
+    path: string;
+    windowMs?: number;
+    transport: NotificationTransport;
+    spawn?: (entry: URL, options: WorkerOptions) => Worker;
+  }) {
     this.transport = options.transport;
-    this.worker = new Worker(new URL("./worker-entry.ts", import.meta.url), {
+    const spawn =
+      options.spawn ?? ((entry: URL, config: WorkerOptions) => new Worker(entry, config));
+    this.worker = spawn(new URL("./worker-entry.ts", import.meta.url), {
       workerData: WorkerConfig.parse(options),
     });
     this.worker.on("error", (error: unknown) =>
@@ -117,6 +49,7 @@ export class NotificationWorker {
       if (message.type === "result") {
         const waiter = this.pending.get(message.id);
         this.pending.delete(message.id);
+        this.pendingBytes -= waiter?.bytes ?? 0;
         if (message.ok) waiter?.resolve(message.value);
         else waiter?.reject(new Error("Notification operation rejected"));
       } else if (message.type === "cancel") this.flights.get(message.id)?.abort();
@@ -142,6 +75,7 @@ export class NotificationWorker {
     this.failed = error;
     for (const waiter of this.pending.values()) waiter.reject(error);
     this.pending.clear();
+    this.pendingBytes = 0;
     for (const flight of this.flights.values()) flight.abort();
     this.flights.clear();
   }
@@ -150,9 +84,20 @@ export class NotificationWorker {
     if (this.pending.size >= 64)
       return Promise.reject(new Error("Notification worker backpressure"));
     const id = ++this.sequence;
+    const message = ToWorker.parse({ type: "call", id, call });
+    const bytes = Buffer.byteLength(JSON.stringify(message));
+    if (bytes > 128 * 1024 || this.pendingBytes + bytes > 8 * 1024 * 1024)
+      return Promise.reject(new Error("Notification worker byte backpressure"));
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ type: "call", id, call }, []);
+      this.pending.set(id, { resolve, reject, bytes });
+      this.pendingBytes += bytes;
+      try {
+        this.worker.postMessage(message, []);
+      } catch (error) {
+        this.pending.delete(id);
+        this.pendingBytes -= bytes;
+        reject(error);
+      }
     });
   }
   async cursor(): Promise<number> {
@@ -166,15 +111,29 @@ export class NotificationWorker {
     const first = events[0],
       last = events.at(-1);
     if (!first || !last) return Promise.resolve();
-    return this.call({
-      method: "ingest",
-      afterSeq: first.seq - 1,
-      throughSeq: last.seq,
-      events: events.flatMap((event) => {
-        const compact = metadata(event);
-        return compact ? [compact] : [];
-      }),
-    }).then(() => {});
+    for (let i = 1; i < events.length; i++) {
+      if (events[i]?.seq !== (events[i - 1]?.seq ?? 0) + 1)
+        return Promise.reject(new Error("Notification replay gap"));
+    }
+    return (async () => {
+      let afterSeq = first.seq - 1,
+        throughSeq = afterSeq;
+      let compact: MetadataEvent[] = [];
+      const flush = async () => {
+        await this.call({ method: "ingest", afterSeq, throughSeq, events: compact });
+        afterSeq = throughSeq;
+        compact = [];
+      };
+      // Skip deltas without allocating/copying their payloads. Sixteen compact
+      // records fit the byte budget even under worst-case JSON escaping.
+      for (const event of events) {
+        const projected = metadata(event);
+        if (projected) compact.push(projected);
+        throughSeq = event.seq;
+        if (compact.length === 16) await flush();
+      }
+      if (throughSeq > afterSeq) await flush();
+    })();
   }
   async connectDevice(device: DeviceId): Promise<void> {
     await this.call({ method: "connectDevice", device });

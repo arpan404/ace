@@ -8,16 +8,10 @@ import {
   NotificationAddress,
   ThreadId,
   type DeviceId,
-  type Event,
 } from "@ace/protocol";
-import {
-  CompactThread,
-  Pending,
-  advance,
-  content,
-  InteractionLink,
-  interactionLink,
-} from "./model.ts";
+import { CompactThread, Pending, advance, content } from "./model.ts";
+import type { MetadataEvent } from "./metadata.ts";
+import { InteractionTracking, trackingTables } from "./tracking.ts";
 
 const Job = z.object({
   id: z.number().int(),
@@ -28,24 +22,17 @@ const Job = z.object({
   generation: z.number().int().nonnegative(),
 });
 export type Job = z.infer<typeof Job>;
-const relevant = new Set([
-  "thread.created",
-  "thread.updated",
-  "interaction.opened",
-  "interaction.closed",
-  "background_task.started",
-  "background_task.updated",
-]);
-
 /** All writes are bounded, synchronous SQLite transactions around pure policy. */
 export class NotificationDatabase {
   private db: DatabaseSync;
   private statements = new Map<string, StatementSync>();
   private windowMs: number;
+  private tracking: InteractionTracking;
   constructor(path: string, windowMs = 5000) {
     if (!Number.isSafeInteger(windowMs) || windowMs < 0)
       throw new Error("Invalid coalescing window");
     this.windowMs = windowMs;
+    this.tracking = new InteractionTracking((sql) => this.statement(sql));
     this.db = new DatabaseSync(path);
     if (path !== ":memory:") chmodSync(path, 0o600);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
@@ -62,7 +49,23 @@ export class NotificationDatabase {
       CREATE TABLE IF NOT EXISTS jobs (id INTEGER PRIMARY KEY, device TEXT NOT NULL, thread TEXT NOT NULL, body TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, due INTEGER NOT NULL, expires INTEGER NOT NULL, generation INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS jobs_due ON jobs(due);
       CREATE INDEX IF NOT EXISTS jobs_device ON jobs(device);
-      CREATE INDEX IF NOT EXISTS jobs_thread ON jobs(thread);`);
+      CREATE INDEX IF NOT EXISTS jobs_thread ON jobs(thread);
+      CREATE TABLE IF NOT EXISTS queue_size (id INTEGER PRIMARY KEY CHECK(id=1), n INTEGER NOT NULL);
+      INSERT OR IGNORE INTO queue_size SELECT 1,count(*) FROM pending;
+      CREATE TRIGGER IF NOT EXISTS pending_insert AFTER INSERT ON pending BEGIN UPDATE queue_size SET n=n+1 WHERE id=1; END;
+      CREATE TRIGGER IF NOT EXISTS pending_delete AFTER DELETE ON pending BEGIN UPDATE queue_size SET n=n-1 WHERE id=1; END;
+      ${trackingTables}`);
+    const version = z
+      .number()
+      .int()
+      .parse(this.db.prepare("PRAGMA user_version").get()?.user_version);
+    if (version === 0) {
+      // Older projections lack owner eligibility. Rebuild from the event log, preserving device policy.
+      this.db.exec(`BEGIN IMMEDIATE; DELETE FROM threads; DELETE FROM interactions;
+        DELETE FROM interaction_owners; DELETE FROM agent_status; DELETE FROM tasks;
+        DELETE FROM pending; DELETE FROM jobs; UPDATE cursor SET seq=0 WHERE id=1;
+        PRAGMA user_version=1; COMMIT;`);
+    } else if (version !== 1) throw new Error("Unsupported notification database version");
   }
   private statement(sql: string): StatementSync {
     let value = this.statements.get(sql);
@@ -90,9 +93,9 @@ export class NotificationDatabase {
   cursor(): number {
     return z.number().int().parse(this.statement("SELECT seq FROM cursor WHERE id=1").get()?.seq);
   }
-  /** Caller passes parsed canonical Event batches, never provider input. */
+  /** Caller passes bounded schema-parsed projections, never provider input. */
   ingest(
-    events: readonly Event[],
+    events: readonly MetadataEvent[],
     now: number,
     coverage?: { afterSeq: number; throughSeq: number },
   ): void {
@@ -103,7 +106,6 @@ export class NotificationDatabase {
         if (event.seq <= cursor) continue;
         if (!coverage && event.seq !== cursor + 1) throw new Error("Notification replay gap");
         cursor = event.seq;
-        if (!relevant.has(event.payload.type)) continue;
         if (event.threadId.length > 200) throw new Error("Thread id too long");
         if (event.payload.type === "thread.created") {
           const state = CompactThread.parse({
@@ -127,7 +129,7 @@ export class NotificationDatabase {
           event,
           now,
           this.windowMs,
-          this.track(event),
+          this.tracking.track(event),
         );
         // State is compact and bounded independently of transcript length.
         this.statement("UPDATE threads SET body=? WHERE id=?").run(
@@ -135,8 +137,11 @@ export class NotificationDatabase {
           event.threadId,
         );
         if (pending) {
-          if (!prior && this.count("pending") >= 1000)
-            throw new Error("Pending notification capacity reached");
+          if (!prior && this.count("pending") >= 10_000)
+            // Disk spool eviction keeps replay advancing even during sustained overload.
+            this.statement(
+              "DELETE FROM pending WHERE thread=(SELECT thread FROM pending ORDER BY due LIMIT 1)",
+            ).run();
           this.statement(
             "INSERT INTO pending VALUES(?,?,?) ON CONFLICT(thread) DO UPDATE SET due=excluded.due,body=excluded.body",
           ).run(event.threadId, pending.due, JSON.stringify(pending));
@@ -147,38 +152,9 @@ export class NotificationDatabase {
       );
     });
   }
-  /** Active entity rows are indexed on disk; no per-thread live set grows in memory. */
-  private track(event: Event): { interactionOpened: boolean; backgroundCompleted: boolean } {
-    const p = event.payload;
-    let interactionOpened = false,
-      backgroundCompleted = false;
-    if (p.type === "interaction.opened" && p.interaction.state === "pending") {
-      const link = interactionLink(p.interaction);
-      interactionOpened =
-        this.statement(
-          "INSERT INTO interactions VALUES(?,?,?,?) ON CONFLICT(thread,id) DO NOTHING RETURNING id",
-        ).get(event.threadId, p.interaction.id, event.seq, JSON.stringify(link)) !== undefined;
-    } else if (p.type === "interaction.closed") {
-      this.statement("DELETE FROM interactions WHERE thread=? AND id=?").run(
-        event.threadId,
-        p.interactionId,
-      );
-    } else if (p.type === "background_task.started" && p.task.status === "running") {
-      z.string().max(200).parse(p.task.id);
-      this.statement("INSERT INTO tasks VALUES(?,?) ON CONFLICT(thread,id) DO NOTHING").run(
-        event.threadId,
-        p.task.id,
-      );
-    } else if (p.type === "background_task.updated" && p.status !== "running") {
-      const removed = this.statement("DELETE FROM tasks WHERE thread=? AND id=? RETURNING id").get(
-        event.threadId,
-        p.taskId,
-      );
-      backgroundCompleted = removed !== undefined && p.status === "completed";
-    }
-    return { interactionOpened, backgroundCompleted };
-  }
   private count(table: "pending" | "devices" | "jobs"): number {
+    if (table === "pending")
+      return Number(this.statement("SELECT n FROM queue_size WHERE id=1").get()?.n);
     return Number(this.statement(`SELECT count(*) AS n FROM ${table}`).get()?.n);
   }
   register(id: DeviceId, input: unknown): void {
@@ -250,18 +226,15 @@ export class NotificationDatabase {
       const devices = this.statement("SELECT id FROM devices WHERE revoked=0").all();
       let jobs = this.count("jobs");
       for (const row of pending) {
-        if (jobs + devices.length > 10_000) break; // Backpressure leaves cursor-derived pending rows durable.
         const threadId = ThreadId.parse(row.thread);
         const value = Pending.parse(JSON.parse(String(row.body)));
         if ((!value.status && !value.backgroundCount) || value.at + 86_400_000 <= now) {
           this.statement("DELETE FROM pending WHERE thread=?").run(threadId);
           continue;
         }
+        if (jobs + devices.length > 10_000) break; // Leave live pending rows durable under delivery backpressure.
         const state = this.thread(threadId);
-        const rowLink = this.statement(
-          "SELECT body FROM interactions WHERE thread=? ORDER BY seq LIMIT 1",
-        ).get(threadId);
-        const link = rowLink ? InteractionLink.parse(JSON.parse(String(rowLink.body))) : undefined;
+        const link = this.tracking.first(threadId);
         const notification = content(threadId, state, value, link);
         const serialized = JSON.stringify(notification);
         for (const device of devices) {
@@ -294,10 +267,7 @@ export class NotificationDatabase {
       state.generation === generation &&
       state.status.state === notification.status &&
       (notification.interactionId === undefined ||
-        this.statement("SELECT id FROM interactions WHERE thread=? AND id=?").get(
-          notification.threadId,
-          notification.interactionId,
-        ) !== undefined)
+        this.tracking.eligible(notification.threadId, notification.interactionId))
     );
   }
   due(now: number): Job[] {

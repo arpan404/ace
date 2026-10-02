@@ -8,13 +8,12 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "bench": "node bench/notifications.ts"
+    "bench": "node bench/notifications.ts",
+    "bench:backlog": "node bench/backlog.ts"
   },
   "dependencies": {
+    "@ace/core": "workspace:*",
     "@ace/protocol": "workspace:*",
     "zod": "^4.1.12"
-  },
-  "devDependencies": {
-    "@ace/core": "workspace:*"
   }
 }

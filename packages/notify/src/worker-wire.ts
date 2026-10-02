@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   DeviceId,
-  Event,
   Notification,
   NotificationDevice,
   NotificationAddress,
@@ -10,6 +9,8 @@ import {
   ThreadId,
 } from "@ace/protocol";
 
+import { MetadataEvent } from "./metadata.ts";
+
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const WorkerCall = z.discriminatedUnion("method", [
   z.object({ method: z.literal("cursor") }),
@@ -17,23 +18,27 @@ export const WorkerCall = z.discriminatedUnion("method", [
   z.object({ method: z.literal("close") }),
   z.object({
     method: z.literal("ingest"),
-    events: z.array(Event).max(256),
+    events: z.array(MetadataEvent).max(256),
     afterSeq: seq,
     throughSeq: seq,
   }),
-  z.object({ method: z.literal("register"), device: DeviceId, address: NotificationAddress }),
-  z.object({ method: z.literal("connectDevice"), device: DeviceId }),
+  z.object({
+    method: z.literal("register"),
+    device: DeviceId.and(z.string().max(200)),
+    address: NotificationAddress,
+  }),
+  z.object({ method: z.literal("connectDevice"), device: DeviceId.and(z.string().max(200)) }),
   z.object({
     method: z.literal("preferences"),
-    device: DeviceId,
+    device: DeviceId.and(z.string().max(200)),
     preferences: NotificationPreferences,
   }),
-  z.object({ method: z.literal("revoke"), device: DeviceId }),
-  z.object({ method: z.literal("snooze"), thread: ThreadId, until: seq }),
+  z.object({ method: z.literal("revoke"), device: DeviceId.and(z.string().max(200)) }),
+  z.object({ method: z.literal("snooze"), thread: ThreadId.and(z.string().max(200)), until: seq }),
   z.object({
     method: z.literal("presence"),
     session: z.string().max(200),
-    device: DeviceId,
+    device: DeviceId.and(z.string().max(200)),
     update: PresenceUpdate,
   }),
   z.object({ method: z.literal("disconnect"), session: z.string().max(200) }),

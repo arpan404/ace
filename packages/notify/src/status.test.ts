@@ -192,12 +192,13 @@ it("a second interaction refreshes needs-you and closed interactions are never d
     });
   const first = question("first").find((event) => event.payload.type === "interaction.opened");
   await f.flush();
-  question("second");
+  const second = question("second").find((event) => event.payload.type === "interaction.opened");
   if (first?.payload.type !== "interaction.opened") throw new Error("Missing interaction");
   f.fact({ type: "interaction.closed", interaction: "first", state: "resolved" });
   await f.flush();
   expect(f.deliveries).toHaveLength(4);
-  expect(f.deliveries[2]?.notification.interactionId).not.toBe(first.payload.interaction.id);
+  if (second?.payload.type !== "interaction.opened") throw new Error("Missing second interaction");
+  expect(f.deliveries[2]?.notification.interactionId).toBe(second.payload.interaction.id);
 });
 
 it("large active task sets complete incrementally without losing completion counts", async () => {

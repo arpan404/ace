@@ -6,6 +6,7 @@ import {
   type Event,
   type Interaction,
 } from "@ace/protocol";
+import type { MetadataEvent } from "./metadata.ts";
 import { alertStatus } from "./policy.ts";
 
 export const InteractionLink = z.object({
@@ -31,8 +32,12 @@ export type Pending = z.infer<typeof Pending>;
 export function interactionLink(interaction: Interaction): z.infer<typeof InteractionLink> {
   const actions: Notification["actions"] = [];
   if (interaction.request.kind === "approval") {
-    const allow = interaction.request.options.find((option) => option.kind === "allow_once");
-    const deny = interaction.request.options.find((option) => option.kind === "deny");
+    const allow = interaction.request.options.find(
+      (option) => option.kind === "allow_once" && option.id.length <= 200,
+    );
+    const deny = interaction.request.options.find(
+      (option) => option.kind === "deny" && option.id.length <= 200,
+    );
     if (allow && allow.id.length <= 200) actions.push({ action: "approve", optionId: allow.id });
     if (deny && deny.id.length <= 200) actions.push({ action: "deny", optionId: deny.id });
   }
@@ -42,10 +47,10 @@ export function interactionLink(interaction: Interaction): z.infer<typeof Intera
 export function advance(
   state: CompactThread,
   pending: Pending | undefined,
-  event: Event,
+  event: MetadataEvent,
   now: number,
   windowMs: number,
-  changes: { interactionOpened: boolean; backgroundCompleted: boolean },
+  changes: { interactionChanged: boolean; backgroundCompleted: boolean },
 ): Pending | undefined {
   const p = event.payload;
   let changed = false;
@@ -63,9 +68,8 @@ export function advance(
         else delete pending.status;
       }
     }
-  } else if (p.type === "interaction.opened") {
-    changed = changes.interactionOpened && state.status.state === "needs_you";
   }
+  changed ||= changes.interactionChanged && state.status.state === "needs_you";
   background = changes.backgroundCompleted ? 1 : 0;
   const status = alertStatus(state.status);
   if ((changed && status) || background) {

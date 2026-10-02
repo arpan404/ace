@@ -48,7 +48,7 @@ port.on("message", (input: unknown) => {
           value = service.cursor();
           break;
         case "ingest":
-          service.ingest(call.events, call);
+          service.ingestMetadata(call.events, call);
           break;
         case "register":
           service.register(call.device, call.address);

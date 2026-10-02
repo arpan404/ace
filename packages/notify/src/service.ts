@@ -6,6 +6,7 @@ import type {
   PresenceUpdate,
   ThreadId,
 } from "@ace/protocol";
+import { metadata, type MetadataEvent } from "./metadata.ts";
 import { NotificationDatabase } from "./database.ts";
 import { PresenceIndex } from "./presence.ts";
 import { isQuiet, retryDelay } from "./policy.ts";
@@ -46,6 +47,35 @@ export class NotificationService {
     return this.database.cursor();
   }
   ingest(events: readonly Event[], coverage?: { afterSeq: number; throughSeq: number }): void {
+    const first = events[0],
+      last = events.at(-1);
+    if (!first || !last) return;
+    for (let i = 1; i < events.length; i++) {
+      if (events[i]?.seq !== (events[i - 1]?.seq ?? 0) + 1)
+        throw new Error("Notification replay gap");
+    }
+    for (let i = 0; i < events.length; i += 256) {
+      const page = events.slice(i, i + 256),
+        begin = page[0],
+        end = page.at(-1);
+      if (!begin || !end) continue;
+      this.ingestMetadata(
+        page.flatMap((event) => {
+          const projected = metadata(event);
+          return projected ? [projected] : [];
+        }),
+        {
+          afterSeq: i === 0 ? (coverage?.afterSeq ?? begin.seq - 1) : begin.seq - 1,
+          throughSeq: i + 256 >= events.length ? (coverage?.throughSeq ?? end.seq) : end.seq,
+        },
+      );
+    }
+  }
+  /** Parsed bounded events, used by the worker I/O boundary. */
+  ingestMetadata(
+    events: readonly MetadataEvent[],
+    coverage: { afterSeq: number; throughSeq: number },
+  ): void {
     this.database.ingest(events, this.options.now(), coverage);
   }
   register(id: DeviceId, address: unknown): void {
