@@ -2,6 +2,22 @@
 import { z } from "zod";
 import { schemaId, type SchemaEntry, type Snapshot } from "./model.ts";
 
+const supportedChecks = new Set([
+  "custom",
+  "string_format",
+  "number_format",
+  "greater_than",
+  "less_than",
+  "multiple_of",
+  "min_size",
+  "max_size",
+  "size_equals",
+  "min_length",
+  "max_length",
+  "length_equals",
+  "overwrite",
+]);
+
 /** Conversion guards cover checks that Zod otherwise omits in JSON Schema. */
 function guard(schema: z.core.$ZodType, path: (string | number)[]): void {
   const def = schema._zod.def;
@@ -13,6 +29,11 @@ function guard(schema: z.core.$ZodType, path: (string | number)[]): void {
     ("coerce" in def && def.coerce)
   )
     throw new Error(`Unsupported ${def.type} at ${path.join(".") || "root"}`);
+  if (def.type === "string" && "fn" in def)
+    throw new Error(`Unsupported custom string format at ${path.join(".") || "root"}`);
+  for (const check of def.checks ?? [])
+    if (!supportedChecks.has(check._zod.def.check))
+      throw new Error(`Unsupported check ${check._zod.def.check} at ${path.join(".") || "root"}`);
   if (def.checks?.some((check) => check._zod.def.check === "overwrite"))
     throw new Error(`Unsupported overwrite at ${path.join(".") || "root"}`);
   const custom = def.checks?.some((check) => check._zod.def.check === "custom");

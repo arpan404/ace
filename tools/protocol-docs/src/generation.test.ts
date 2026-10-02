@@ -117,6 +117,8 @@ it.each([
   ["Refinement", z.object({ value: z.string().refine((value) => value === "only") })],
   ["Coercion", z.coerce.number()],
   ["BigInt", z.bigint()],
+  ["PropertyCheck", z.object({ field: z.string() }).check(z.property("field", z.string().min(2)))],
+  ["CustomFormat", z.stringFormat("special", (value) => value === "special")],
   ["Overwrite", z.string().trim()],
   ["Catch", z.number().catch(1)],
   ["Lazy", z.lazy(() => z.string().refine((value) => value === "only"))],
