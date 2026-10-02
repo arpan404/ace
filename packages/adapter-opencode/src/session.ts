@@ -1,8 +1,9 @@
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
+import { nativeResolution } from "./interactions.ts";
+import { SnapshotWatermarks } from "./watermarks.ts";
 import { HistoryReader } from "./history.ts";
-import { RecentMap } from "./cache.ts";
 import { OpenCodeTranslator } from "./translator.ts";
 import { messageId, promptBody } from "./input.ts";
 import { array, object, string } from "./data.ts";
@@ -10,6 +11,7 @@ import { OpenCodeServer, eventSession } from "./server.ts";
 type Queued = { input: ContentPart[]; resolve(): void; reject(error: Error): void };
 export class OpenCodeSession implements ProviderSession {
   private nativeId: string;
+  private project = "";
   get nativeSessionId(): string {
     return this.nativeId;
   }
@@ -25,7 +27,7 @@ export class OpenCodeSession implements ProviderSession {
   private sequence = 0;
   private startedAt: number;
   private known = new Set<string>();
-  private itemOwners = new RecentMap<string>(1024);
+  private watermarks = new SnapshotWatermarks();
   private history: HistoryReader;
   private promptSequence = 0;
   private parents = new Map<string, string>();
@@ -77,10 +79,11 @@ export class OpenCodeSession implements ProviderSession {
           string(object(object(data).payload).type),
         );
       },
-      reconcile: (data) => {
+      reconcile: (data, watermark) => {
         if (!session.owns(data)) return;
         const payload = object(object(data).payload);
         const type = string(payload.type);
+        if (session.watermarks.covers(data, watermark)) return;
         if (
           type === "session.status" ||
           type === "session.error" ||
@@ -115,6 +118,7 @@ export class OpenCodeSession implements ProviderSession {
         const id = string(info.id);
         if (!id) throw new Error("OpenCode did not return a session id");
         session.nativeId = id;
+        session.project = string(info.projectID);
         session.known.clear();
         session.known.add(id);
       }
@@ -147,6 +151,10 @@ export class OpenCodeSession implements ProviderSession {
     this.translator.translate(frame, t);
     this.ctx.onFrame(frame);
   };
+  private snapshot(data: unknown): void {
+    this.watermarks.record(data, this.server.eventWatermark);
+    this.receive(data);
+  }
   private owns(data: unknown): boolean {
     const envelope = object(data);
     if (
@@ -155,9 +163,12 @@ export class OpenCodeSession implements ProviderSession {
       envelope.directory !== "global"
     )
       return false;
+    if (this.project && typeof envelope.project === "string" && envelope.project !== this.project)
+      return false;
     const payload = object(envelope.payload);
     const info = object(object(payload.properties).info);
     const id = eventSession(data) || string(info.id);
+    if (!this.project && id === this.nativeSessionId) this.project = string(info.projectID);
     if (payload.type === "session.created" && this.known.has(string(info.parentID))) {
       this.known.add(string(info.id));
       this.parents.set(string(info.id), string(info.parentID));
@@ -176,6 +187,7 @@ export class OpenCodeSession implements ProviderSession {
     this.cancelGrace = this.server.runtime.schedule(
       () => {
         this.cancelGrace = undefined;
+        this.graceDeadline = undefined;
         this.emit("note", "lifecycle", { type: "background.grace.expired" });
         this.armGrace();
         void this.pump();
@@ -213,9 +225,6 @@ export class OpenCodeSession implements ProviderSession {
       ["question.replied", "question.rejected", "permission.replied"].includes(string(payload.type))
     )
       this.questions.delete(string(p.requestID));
-    const part = object(p.part);
-    if (typeof part.callID === "string" && typeof part.sessionID === "string")
-      this.itemOwners.set(part.callID, part.sessionID);
     this.armGrace();
     void this.pump();
   }
@@ -278,36 +287,11 @@ export class OpenCodeSession implements ProviderSession {
     await this.request("POST", `/session/${id}/abort`, {});
   }
   async resolve(interaction: Key, resolution: InteractionResolution): Promise<void> {
-    if (resolution.kind === "approval") {
-      if (!["once", "always", "reject"].includes(resolution.optionId))
-        throw new Error("Unsupported OpenCode approval option");
-      await this.request("POST", `/permission/${encodeURIComponent(interaction)}/reply`, {
-        reply: resolution.optionId,
-        ...(resolution.message ? { message: resolution.message } : {}),
-      });
-    } else if (resolution.kind === "question") {
-      if (resolution.dismissed)
-        await this.request("POST", `/question/${encodeURIComponent(interaction)}/reject`, {});
-      else {
-        const pending = object(this.questions.get(interaction));
-        const questions = array(pending.questions);
-        if (!questions.length) throw new Error("OpenCode question is no longer pending");
-        await this.request("POST", `/question/${encodeURIComponent(interaction)}/reply`, {
-          answers: questions.map((_, i) => resolution.answers[`${interaction}#${i}`] ?? []),
-        });
-      }
-    } else if (resolution.kind === "plan_review")
-      await this.request(
-        "POST",
-        `/question/${encodeURIComponent(interaction)}/${resolution.decision === "approve" ? "reply" : "reject"}`,
-        resolution.decision === "approve" ? { answers: [["Yes"]] } : {},
-      );
-    else throw new Error("OpenCode does not support elicitation resolution");
+    const command = nativeResolution(interaction, resolution, this.questions.get(interaction));
+    await this.request("POST", command.path, command.body);
   }
   async stopTask(task: Key): Promise<void> {
-    const id = task.startsWith("survivor:")
-      ? this.itemOwners.get(task.slice("survivor:".length))
-      : task;
+    const id = task.startsWith("survivor:") ? this.translator.taskOwner(task) : task;
     if (!id || !this.known.has(id)) throw new Error("Unknown OpenCode task");
     await this.interrupt({ agent: id, cascade: true });
   }
@@ -320,7 +304,7 @@ export class OpenCodeSession implements ProviderSession {
       if (visited.has(id)) return;
       visited.add(id);
       const info = await this.request("GET", `/session/${id}`);
-      this.receive({
+      this.snapshot({
         directory: this.ctx.cwd,
         payload: { type: "session.created", properties: { info, sessionID: id } },
       });
@@ -335,17 +319,20 @@ export class OpenCodeSession implements ProviderSession {
       await this.history.read(id);
     };
     await visit(this.nativeSessionId);
-    for (const path of ["/permission", "/question"])
-      for (const p of array(await this.request("GET", path)))
-        this.receive({
+    for (const path of ["/permission", "/question"]) {
+      const pending = await this.request("GET", path);
+      this.watermarks.category(path.slice(1), this.server.eventWatermark);
+      for (const p of array(pending))
+        this.snapshot({
           payload: {
             type: path === "/permission" ? "permission.asked" : "question.asked",
             properties: p,
           },
         });
+    }
     const statuses = object(await this.request("GET", "/session/status"));
     for (const id of this.known)
-      this.receive({
+      this.snapshot({
         payload: {
           type: "session.status",
           properties: { sessionID: id, status: statuses[id] ?? { type: "idle" } },
@@ -359,6 +346,7 @@ export class OpenCodeSession implements ProviderSession {
     const unsettled = !this.translator.isSettled();
     if (reason === "idle" && unsettled)
       throw new Error("Cannot idle-close an unsettled OpenCode session");
+    const abortProvider = reason !== "idle" && unsettled && !this.reportedExit;
     this.closed = true;
     // Local cancellation cannot depend on the provider accepting an abort.
     this.controller.abort();
@@ -374,7 +362,7 @@ export class OpenCodeSession implements ProviderSession {
     const abort = new AbortController();
     const cancel = this.server.runtime.schedule(() => abort.abort(), this.server.shutdownTimeoutMs);
     try {
-      if (reason !== "idle" && unsettled) {
+      if (abortProvider) {
         for (const id of [...this.known].toReversed())
           await this.server.request(
             "POST",

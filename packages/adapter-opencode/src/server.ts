@@ -12,7 +12,7 @@ export type ServerConsumer = {
   frame(dir: Frame["dir"], channel: string, data: unknown): void;
   disconnected(): void;
   buffered(data: unknown): boolean;
-  reconcile(data: unknown): void;
+  reconcile(data: unknown, watermark: number): void;
   recovered(): void;
   resync(): Promise<void>;
   exited(deliberate: boolean, message?: string): void;
@@ -35,7 +35,11 @@ export class OpenCodeServer {
   private stream?: Promise<void>;
   private deliberate = false;
   private recovering = false;
-  private buffered: unknown[] = [];
+  private buffered: { data: unknown; watermark: number }[] = [];
+  private eventSequence = 0;
+  get eventWatermark(): number {
+    return this.eventSequence;
+  }
   private recovery: Promise<void> | undefined;
   private sequences = new RecentMap<number>(1024);
   private pendingLogs: { dir: Frame["dir"]; channel: string; data: unknown }[] = [];
@@ -62,6 +66,7 @@ export class OpenCodeServer {
       this.sequences.clear();
       this.pendingLogs = [];
       this.buffered = [];
+      this.eventSequence = 0;
       this.recovering = false;
     }
     this.opening ??= this.start();
@@ -151,6 +156,7 @@ export class OpenCodeServer {
         signal: this.controller.signal,
         headers: { authorization: this.authorization },
         onEvent: ({ data }) => {
+          const watermark = ++this.eventSequence;
           let parsed: unknown;
           try {
             parsed = JSON.parse(data);
@@ -173,7 +179,8 @@ export class OpenCodeServer {
             }
           }
           if (this.recovering) {
-            if ([...this.consumers].some((c) => c.accepts(parsed))) this.buffered.push(parsed);
+            if ([...this.consumers].some((c) => c.accepts(parsed)))
+              this.buffered.push({ data: parsed, watermark });
             if (this.buffered.length > 4096) {
               this.controller.abort();
               void proc.stop({ graceMs: 0 });
@@ -218,12 +225,13 @@ export class OpenCodeServer {
           const buffered = this.buffered.splice(0);
           let changed = false;
           for (const data of buffered)
-            for (const c of this.consumers) if (c.buffered(data)) changed = true;
+            for (const c of this.consumers) if (c.buffered(data.data)) changed = true;
           if (!changed || pass === 1) {
             // Full settlement updates are idempotent. Deltas are raw evidence only:
             // the snapshot may already contain them. The next live full part update
             // reconciles content without an unbounded wait for a quiet global stream.
-            for (const data of buffered) for (const c of this.consumers) c.reconcile(data);
+            for (const data of buffered)
+              for (const c of this.consumers) c.reconcile(data.data, data.watermark);
             break;
           }
         }

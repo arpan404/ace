@@ -131,7 +131,12 @@ const server = createServer(async (req, res) => {
   }
   if (path === "/session" && req.method === "POST") {
     const id = `ses_${++counter}`;
-    const info = { id, directory: url.searchParams.get("directory"), title: "ace" };
+    const info = {
+      id,
+      directory: url.searchParams.get("directory"),
+      projectID: url.searchParams.get("directory"),
+      title: "ace",
+    };
     sessions.set(id, info);
     event("session.created", { sessionID: id, info }, info.directory);
     reply(info);

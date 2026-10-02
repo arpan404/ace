@@ -230,3 +230,127 @@ it("bounds recovery even when an owned project emits on every history read", asy
   ]);
   expect(recovered).toBe(true);
 });
+it("does not replay an older buffered idle over a newer busy REST snapshot", async () => {
+  const h = await setup();
+  const id = h.session.nativeSessionId;
+  await h.session.send([{ type: "text", text: "first" }], "queue");
+  await h.control("/test/state", {
+    onMessage: {
+      directory: "/one",
+      payload: { type: "session.status", properties: { sessionID: id, status: { type: "idle" } } },
+    },
+  });
+  await h.control("/test/drop", {});
+  await h.wait((f) => f.channel === "lifecycle" && object(f.data).type === "resynced");
+  expect(h.projection.view.thread.status.state).toBe("working");
+  const queued = h.session.send([{ type: "text", text: "second" }], "queue");
+  void queued.catch(() => {});
+  await h.session.resolve("barrier", { kind: "approval", optionId: "once" });
+  expect(sentPrompts(h.frames)).toHaveLength(1);
+});
+
+it("stops a surviving shell through its child owner instead of aborting the root", async () => {
+  const h = await setup();
+  await h.session.send([{ type: "text", text: "first" }], "queue");
+  await h.publish("session.created", {
+    info: { id: "child", parentID: h.session.nativeSessionId },
+  });
+  await h.publish("message.updated", {
+    sessionID: "child",
+    info: { id: "child_user", role: "user" },
+  });
+  await h.publish("session.status", { sessionID: "child", status: { type: "busy" } });
+  await h.publish("message.part.updated", {
+    part: {
+      id: "shell",
+      callID: "shell_call",
+      sessionID: "child",
+      type: "tool",
+      tool: "bash",
+      state: { status: "running", input: { command: "offline" } },
+    },
+  });
+  await h.publish("session.status", { sessionID: "child", status: { type: "idle" } });
+  await h.wait(
+    (f) =>
+      object(object(object(f.data).payload).properties).sessionID === "child" &&
+      object(object(object(object(f.data).payload).properties).status).type === "idle",
+  );
+  await h.session.stopTask("survivor:shell_call");
+  const info = object(await h.control("/test/requests"));
+  expect(JSON.stringify(info)).toContain('"path":"/session/child/abort"');
+  expect(JSON.stringify(info)).not.toContain(
+    `"path":"/session/${h.session.nativeSessionId}/abort"`,
+  );
+});
+it("rearms a grace timer that fires before the injected deadline", async () => {
+  let clock = 0;
+  const timers = new Set<{ at: number; callback(): void }>();
+  const h = await setup({
+    runtime: {
+      monotonic: () => clock,
+      schedule: (callback, delay) => {
+        const timer = { at: clock + delay, callback };
+        timers.add(timer);
+        return () => {
+          timers.delete(timer);
+        };
+      },
+    },
+  });
+  const id = h.session.nativeSessionId;
+  await h.session.send([{ type: "text", text: "first" }], "queue");
+  await h.publish("session.created", { info: { id: "child", parentID: id } });
+  await h.publish("message.part.updated", {
+    part: {
+      id: "spawn",
+      callID: "spawn_call",
+      sessionID: id,
+      type: "tool",
+      tool: "task",
+      state: { status: "completed", input: {}, metadata: { background: true, sessionId: "child" } },
+    },
+  });
+  await h.publish("session.status", { sessionID: id, status: { type: "idle" } });
+  await h.publish("session.status", { sessionID: "child", status: { type: "idle" } });
+  await h.wait(
+    (f) =>
+      object(object(object(f.data).payload).properties).sessionID === "child" &&
+      object(object(object(object(f.data).payload).properties).status).type === "idle",
+  );
+  const queued = h.session.send([{ type: "text", text: "second" }], "queue");
+  void queued.catch(() => {});
+  clock = 2999;
+  for (const timer of Array.from(timers)) {
+    timers.delete(timer);
+    timer.callback();
+  }
+  await h.session.resolve("early_barrier", { kind: "approval", optionId: "once" });
+  expect(sentPrompts(h.frames)).toHaveLength(1);
+  clock = 3000;
+  for (const timer of Array.from(timers))
+    if (timer.at <= clock) {
+      timers.delete(timer);
+      timer.callback();
+    }
+  await h.session.resolve("deadline_barrier", { kind: "approval", optionId: "once" });
+  expect(sentPrompts(h.frames)).toHaveLength(2);
+  await queued;
+});
+it("does not disclose a foreign project event marked with global directory", async () => {
+  const h = await setup();
+  await h.control("/test/state", {
+    duringMessage: {
+      sessionID: h.session.nativeSessionId,
+      messages: [],
+      event: {
+        directory: "global",
+        project: "/foreign",
+        payload: { type: "future.secret", properties: { text: "FOREIGN_PROJECT_SECRET" } },
+      },
+    },
+  });
+  await h.control("/test/drop", {});
+  await h.wait((f) => f.channel === "lifecycle" && object(f.data).type === "resynced");
+  expect(JSON.stringify(h.frames)).not.toContain("FOREIGN_PROJECT_SECRET");
+});
