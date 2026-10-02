@@ -159,6 +159,15 @@ it("ignores unloaded updates and deltas, follows tracked details and preserves n
     throw new Error("Expected thread snapshot");
   const view = snapshot.view;
   const oldPage = f.store.readItems(f.thread.id, view.itemsBefore!, 1);
+  f.store.appendEvents(f.thread.id, [
+    { type: "item.created", item: message("live", "live creation") },
+  ]);
+  const created = await c.next();
+  if (created.type !== "events") throw new Error("Expected events");
+  applyDelivery(view, created);
+  expect(view.items.live).toMatchObject({ parts: [{ text: "live creation" }] });
+  expect(view.itemOrder.at(-1)).toBe("live");
+
   const update = (id: string, text: string) =>
     f.store.appendEvents(f.thread.id, [{ type: "item.updated", item: message(id, text) }]);
   update("item-0", "ignored");
@@ -184,8 +193,20 @@ it("ignores unloaded updates and deltas, follows tracked details and preserves n
   const tracked = await c.next();
   if (tracked.type !== "events") throw new Error("Expected events");
   applyDelivery(view, tracked);
+  f.store.appendEvents(f.thread.id, [
+    {
+      type: "item.delta",
+      itemId: message("item-0").id,
+      agentId: message("item-0").agentId,
+      field: "text",
+      append: " detail delta",
+    },
+  ]);
+  const detailDelta = await c.next();
+  if (detailDelta.type !== "events") throw new Error("Expected events");
+  applyDelivery(view, detailDelta);
   applyItemsPage(view, oldPage);
-  expect(view.items["item-0"]).toMatchObject({ parts: [{ text: "tracked" }] });
+  expect(view.items["item-0"]).toMatchObject({ parts: [{ text: "tracked detail delta" }] });
   expect(view.itemOrder[0]).toBe("item-0");
   expect(view.itemsBefore).toBeNull();
   update("new", "new live item"); // Unknown updates after paging all history are authoritative.
