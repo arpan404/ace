@@ -24,3 +24,7 @@ node packages/client/bench/events.ts
 node --expose-gc packages/client/bench/parents.ts
 node packages/client/bench/reads.ts
 ```
+
+## Verifier follow-up workloads
+
+`ranges.ts` adds one-byte reads inside single 1 MiB and 16 MiB blobs, plus daemon persistence into one-part and 200-part text messages. These exercise SQLite range slicing and the new text-source append path. No measurements were taken: **needs run at merge**. The historical numbers above do not measure these changes.

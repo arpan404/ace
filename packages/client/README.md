@@ -49,3 +49,19 @@ Run `bun run --filter @ace/client bench` for event application and notification 
 Remote access uses `credential: ticketCredential(readDeviceToken, exchangeTicket)`. The injected exchange sends the token in an Authorization header to `/v1/tickets` over pinned TLS and returns the bounded JSON response. The helper validates SocketTicket, and reconnects obtain a fresh ticket. Return ClientError("offline") for transient network failures and ClientError("auth") for rejected credentials. The token string shorthand in the example is for local connections.
 
 Scoped failures are observable through thread/sidebar `error` selectors. Release and reacquire the scope to retry it. Other scopes and reads stay usable. Auth rejection and malformed/oversized frames remain fatal connection errors.
+
+Large history text arrives as a bounded prefix with a source descriptor. Read its full text lazily, with no Node runtime dependency:
+
+```ts
+const item = page.items[0];
+if (item?.type === "message") {
+  const part = item.parts[0];
+  if (part?.type === "text" && part.source) {
+    for await (const text of client.text(part.source, { signal })) {
+      // Consume the chunk before advancing. The SDK does not accumulate full text.
+    }
+  }
+}
+```
+
+`text(source)` reads the byte length captured by that descriptor and preserves surrogate pairs between chunks. An authoritative replacement invalidates the old source; obtain a fresh page after its typed daemon error. Append-only text retains the source ID. `store.truncated(id)` reports when a loaded item contains a prefix rather than its full text. Overlapping pages merge by creation cursor, preserving order and the known end of history under the window cap.
