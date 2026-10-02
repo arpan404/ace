@@ -77,17 +77,32 @@ export class FrameHub {
     busy: boolean;
     pending: Frame | undefined;
     active: boolean;
+    close: () => void;
   }>();
-  subscribe(send: FrameSink, initial?: Frame): () => void {
+  subscribe(send: FrameSink, initial?: Frame, onClosed: () => void = () => {}): () => void {
     if (this.subscribers.size >= 64) throw new Error("Subscriber limit");
-    const subscriber = { send, busy: false, active: true, pending: undefined };
+    const subscriber: {
+      send: FrameSink;
+      busy: boolean;
+      active: boolean;
+      pending: Frame | undefined;
+      close: () => void;
+    } = {
+      send,
+      busy: false,
+      active: true,
+      pending: undefined,
+      close: () => {
+        if (!subscriber.active) return;
+        subscriber.active = false;
+        subscriber.pending = undefined;
+        this.subscribers.delete(subscriber);
+        onClosed();
+      },
+    };
     this.subscribers.add(subscriber);
     if (initial) this.deliver(subscriber, initial);
-    return () => {
-      subscriber.active = false;
-      subscriber.pending = undefined;
-      this.subscribers.delete(subscriber);
-    };
+    return subscriber.close;
   }
   publish(frame: Frame): void {
     for (const subscriber of this.subscribers) {
@@ -96,14 +111,16 @@ export class FrameHub {
     }
   }
   clear(): void {
-    for (const subscriber of this.subscribers) {
-      subscriber.active = false;
-      subscriber.pending = undefined;
-    }
-    this.subscribers.clear();
+    for (const subscriber of this.subscribers) subscriber.close();
   }
   private deliver(
-    subscriber: { send: FrameSink; busy: boolean; pending: Frame | undefined; active: boolean },
+    subscriber: {
+      send: FrameSink;
+      busy: boolean;
+      pending: Frame | undefined;
+      active: boolean;
+      close: () => void;
+    },
     frame: Frame,
   ): void {
     subscriber.busy = true;
@@ -117,9 +134,7 @@ export class FrameHub {
           if (subscriber.active && pending) this.deliver(subscriber, pending);
         },
         () => {
-          subscriber.active = false;
-          subscriber.pending = undefined;
-          this.subscribers.delete(subscriber);
+          subscriber.close();
         },
       );
   }

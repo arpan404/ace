@@ -1,30 +1,35 @@
 import { expect, it } from "vitest";
-import { parseUITree, parseUIFind } from "./ui-results.ts";
-const node = {
-  ref: "save",
-  role: "button",
-  name: "Save",
-  bounds: { x: 0, y: 0, w: 10, h: 10 },
-  states: [],
-  actions: ["press"],
-  children: [],
-};
-it("UI replies reject aggregate node counts and excessive depth before recursive decoding", () => {
-  expect(parseUITree({ root: node, truncated: true }, 1, 0)).toMatchObject({
-    root: { ref: "save" },
-    truncated: true,
-  });
-  expect(() =>
-    parseUITree({ root: { ...node, children: [node, node] }, truncated: false }, 2, 5),
-  ).toThrow("caps");
-  expect(() =>
-    parseUITree({ root: { ...node, children: [node] }, truncated: false }, 2, 0),
-  ).toThrow("caps");
-  expect(() =>
-    parseUIFind({ nodes: [{ ...node, children: [node] }], truncated: false }, 2),
-  ).toThrow("caps");
-  expect(() => parseUIFind({ nodes: [node, node], truncated: false }, 1)).toThrow();
-  expect(() =>
-    parseUITree({ root: { ...node, states: ["invented"] }, truncated: false }, 1, 0),
-  ).toThrow();
-});
+import { windowsFixture } from "./testing/windows-fixture.ts";
+it.each(["nodes", "depth", "findChildren", "findCount", "states"])(
+  "public UI reads reject %s invalid or over-limit helper replies",
+  async (mode) => {
+    const f = await windowsFixture({ env: { UI_MODE: mode } });
+    try {
+      const session = await f.start();
+      f.manager.controller(session.sessionId, "agent", "reader");
+      if (mode === "findChildren")
+        await expect(
+          f.manager.uiFind(session.sessionId, { query: {}, limit: 2 }, "reader"),
+        ).rejects.toThrow("caps");
+      else if (mode === "findCount")
+        await expect(
+          f.manager.uiFind(session.sessionId, { query: {}, limit: 1 }, "reader"),
+        ).rejects.toThrow();
+      else if (mode === "states")
+        await expect(
+          f.manager.uiTree(session.sessionId, { maxNodes: 2, maxDepth: 5 }, "reader"),
+        ).rejects.toThrow();
+      else
+        await expect(
+          f.manager.uiTree(
+            session.sessionId,
+            { maxNodes: 2, maxDepth: mode === "depth" ? 0 : 5 },
+            "reader",
+          ),
+        ).rejects.toThrow("caps");
+      expect(f.manager.state(session.sessionId).lifecycle).toBe("live");
+    } finally {
+      await f.close();
+    }
+  },
+);

@@ -10,3 +10,6 @@ export { localScreenManager, screenHelperPath } from "./host.ts";
 
 export { windowsEndpoint } from "./transport.ts";
 export { HelperCommandError } from "./helper.ts";
+
+export { screenToolkit } from "./mcp.ts";
+export type { Scheduler } from "./runtime.ts";

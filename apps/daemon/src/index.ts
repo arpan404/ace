@@ -4,7 +4,7 @@ import { writeFileSync, unlinkSync } from "node:fs";
 import type { NotificationWorker, NotificationChannels } from "@ace/notify";
 import type { Toolkit } from "@ace/mcp-server";
 import { join } from "node:path";
-import { localScreenManager, type ScreenManager } from "@ace/screen";
+import { localScreenManager, screenToolkit, type ScreenManager } from "@ace/screen";
 import { remoteListener } from "./network.ts";
 import { startDaemonMcp } from "./mcp.ts";
 import { loadNotificationChannels } from "./notification-config.ts";
@@ -96,7 +96,7 @@ export async function startDaemon(
       ? localScreenManager(config.screenHelper, join(config.dataDir, "screen-artifacts"))
       : undefined;
     models = openDaemonModels(config.dataDir, modelInstances);
-    mcp = await startDaemonMcp(store, toolkits);
+    mcp = await startDaemonMcp(store, screen ? [...toolkits, screenToolkit(screen)] : toolkits);
     const configured = notificationChannels
       ? { channels: notificationChannels, close: closeChannels }
       : await loadNotificationChannels();

@@ -33,7 +33,7 @@ it("the supervised helper correlates concurrent commands and receives fragmented
     await helper.close();
   }
 });
-it("spawn failure rejects pending work and releases the helper socket", async () => {
+it("spawn failure rejects pending helper work", async () => {
   const failed = deferred<Error>();
   const helper = await Helper.open({
     command: "/no-such-screen-helper",

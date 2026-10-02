@@ -4,6 +4,9 @@ type Handlers = Pick<HelperOptions, "onFrame" | "onFailure">;
 export class HelperOwner {
   readonly persistent: boolean;
   private readonly options: Omit<HelperOptions, "onFrame" | "onFailure">;
+  private closed = false;
+  private generation = 0;
+  readonly nextGeneration = (): number => ++this.generation;
   private host: Promise<Helper> | undefined;
   private handlers: Handlers | undefined;
   constructor(options: Omit<HelperOptions, "onFrame" | "onFailure">) {
@@ -11,6 +14,7 @@ export class HelperOwner {
     this.persistent = (options.platform ?? process.platform) === "win32";
   }
   async open(handlers?: Handlers): Promise<Helper> {
+    if (this.closed) throw new Error("Screen helper owner is closed");
     if (!this.persistent)
       return Helper.open({
         ...this.options,
@@ -35,12 +39,21 @@ export class HelperOwner {
     if (!this.persistent) await helper.close();
   }
   async stop(helper: Helper): Promise<void> {
-    if (this.persistent) await helper.request({ op: "stop" }).catch(() => {});
-    else await helper.close();
+    if (this.persistent) {
+      try {
+        await helper.request({ op: "stop" });
+      } catch (error) {
+        await helper.close();
+        if ((await this.host?.catch(() => undefined)) === helper) this.host = undefined;
+        throw error;
+      }
+    } else await helper.close();
   }
   async close(): Promise<void> {
-    await (await this.host)?.close();
+    this.closed = true;
+    const host = this.host;
     this.host = undefined;
     this.handlers = undefined;
+    await (await host)?.close();
   }
 }

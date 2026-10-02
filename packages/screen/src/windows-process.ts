@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
-import { createInterface } from "node:readline";
-import { Transform } from "node:stream";
+import { lineReader } from "@ace/provider-kit/process";
 import type { SpawnOptions, SupervisedProcess, ProcessExit } from "@ace/provider-kit/process";
 /** The native helper never creates children. Own this one process until stdin EOF, then kill if stuck. */
 export function spawnWindowsHelper(options: SpawnOptions): SupervisedProcess {
@@ -10,27 +9,8 @@ export function spawnWindowsHelper(options: SpawnOptions): SupervisedProcess {
     stdio: ["pipe", "pipe", "pipe"],
   });
   const controller = new AbortController();
-  function bounded(input: NodeJS.ReadableStream) {
-    let bytes = 0;
-    const stream = new Transform({
-      transform(chunk: Buffer, _encoding, callback) {
-        for (const byte of chunk) {
-          bytes = byte === 10 ? 0 : bytes + 1;
-          if (bytes > 1024 * 1024) {
-            child.kill();
-            callback(new Error("Helper line exceeds limit"));
-            return;
-          }
-        }
-        callback(null, chunk);
-      },
-    });
-    stream.on("error", () => child.kill());
-    input.pipe(stream);
-    return createInterface({ input: stream, crlfDelay: Infinity });
-  }
-  const stdout = bounded(child.stdout);
-  const stderr = bounded(child.stderr);
+  const stdout = lineReader(child.stdout, options.maxLineBytes ?? 1024 * 1024, () => child.kill());
+  const stderr = lineReader(child.stderr, options.maxLineBytes ?? 1024 * 1024, () => child.kill());
   child.stdin.on("error", () => {});
   let failed = false;
   let stopped = false;

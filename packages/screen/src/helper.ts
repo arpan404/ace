@@ -113,6 +113,7 @@ export class Helper {
           args: [...(options.args ?? []), ...channel.args],
           env: options.env ?? {},
           name: "screen-helper",
+          maxLineBytes: 1024 * 1024,
         },
       );
       helper = new Helper(proc, channel.close, options);

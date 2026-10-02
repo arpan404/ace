@@ -75,11 +75,17 @@ export function screenConnection(
           case "controller":
             if (operation.controller === "agent" && !operation.agentId)
               throw new Error("Agent id required for delegation");
-            manager.controller(
-              operation.sessionId,
-              operation.controller,
-              operation.controller === "agent" ? operation.agentId : owner,
-            );
+            if (operation.controller === "agent" && operation.agentId && operation.threadId)
+              manager.delegateAgent(operation.sessionId, {
+                agentId: operation.agentId,
+                threadId: operation.threadId,
+              });
+            else
+              manager.controller(
+                operation.sessionId,
+                operation.controller,
+                operation.controller === "agent" ? operation.agentId : owner,
+              );
             break;
           case "action":
             await manager.action(operation.sessionId, "human", operation.action, owner);

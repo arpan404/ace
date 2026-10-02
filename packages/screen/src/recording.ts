@@ -20,23 +20,27 @@ export class Recording {
   private readonly path: string;
   private readonly id: string;
   private readonly limit: number;
+  private readonly onClosed: (completion: Promise<RecordingArtifact>) => void;
   private readonly publish: (artifact: RecordingArtifact) => Promise<void>;
   private constructor(
     path: string,
     id: string,
     limit: number,
     publish: (artifact: RecordingArtifact) => Promise<void>,
+    onClosed: (completion: Promise<RecordingArtifact>) => void,
   ) {
     this.path = path;
     this.id = id;
     this.limit = limit;
     this.publish = publish;
+    this.onClosed = onClosed;
     this.stream = createWriteStream(path, { flags: "wx", mode: 0o600, highWaterMark: 64 * 1024 });
     this.stream.on("error", (error) => {
       this.failure = error;
       this.pending = undefined;
       this.busy = false;
       this.drained?.();
+      void this.stop().catch(() => {});
     });
   }
   static async open(
@@ -44,11 +48,18 @@ export class Recording {
     id: string,
     publish: (artifact: RecordingArtifact) => Promise<void>,
     limit = 50 * 1024 * 1024,
+    onClosed: (completion: Promise<RecordingArtifact>) => void = () => {},
   ): Promise<Recording> {
     ScreenId.parse(id);
     if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid recording limit");
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    const recording = new Recording(join(directory, `${id}.ace-screen`), id, limit, publish);
+    const recording = new Recording(
+      join(directory, `${id}.ace-screen`),
+      id,
+      limit,
+      publish,
+      onClosed,
+    );
     await new Promise<void>((resolve, reject) => {
       recording.stream.once("open", () => resolve());
       recording.stream.once("error", reject);
@@ -71,7 +82,10 @@ export class Recording {
     this.busy = true;
     this.bytes += frame.packet.length;
     this.stream.write(frame.packet, (error) => {
-      if (error) this.failure = error;
+      if (error) {
+        this.failure = error;
+        void this.stop().catch(() => {});
+      }
       this.busy = false;
       const pending = this.pending;
       this.pending = undefined;
@@ -80,7 +94,8 @@ export class Recording {
     });
   }
   stop(): Promise<RecordingArtifact> {
-    this.closing ??= (async () => {
+    if (this.closing) return this.closing;
+    this.closing = Promise.resolve().then(async () => {
       if (this.busy)
         await new Promise<void>((resolve) => {
           this.drained = resolve;
@@ -98,7 +113,8 @@ export class Recording {
       };
       await this.publish(artifact);
       return artifact;
-    })();
+    });
+    this.onClosed(this.closing);
     return this.closing;
   }
 }

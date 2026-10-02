@@ -1,9 +1,16 @@
+import { z } from "zod";
 import { rm } from "node:fs/promises";
 import { createServer, type Socket } from "node:net";
 import { createInterface } from "node:readline";
-import { ScreenHelperRequestV2 } from "@ace/protocol";
+import { ScreenHelperRequestV2, ScreenUINode } from "@ace/protocol";
 const endpoint = process.argv.at(-1);
 if (!endpoint?.startsWith("unix:")) throw new Error("Fake requires unix endpoint");
+const padding = z.coerce
+  .number()
+  .int()
+  .min(0)
+  .max(1048576)
+  .parse(process.env.PAYLOAD_PADDING ?? 0);
 let socket: Socket | undefined;
 await rm(endpoint.slice(5), { force: true });
 const server = createServer((client) => {
@@ -15,7 +22,12 @@ let session = "";
 let seq = 0;
 let active = false;
 let value = "original";
-function node() {
+let generation = 1;
+let starts = 0;
+let held: Buffer | undefined;
+let retired: Buffer | undefined;
+let heldOnce = false;
+function node(): typeof ScreenUINode._output {
   return {
     ref: "save",
     role: "button",
@@ -27,15 +39,22 @@ function node() {
     children: [],
   };
 }
-function frame() {
-  if (!active || !session) return;
-  if (!socket) throw new Error("No frame connection");
-  const payload = Buffer.from(`v2-jpeg-${seq}`);
+function packet(text?: string): Buffer {
+  const sequence = seq++;
+  const content =
+    text ??
+    (process.env.RETIRED_ON_RESUME === "1"
+      ? "fresh"
+      : process.env.PAYLOAD_VALUE === "1"
+        ? `pixels:${value}`
+        : `v2-jpeg-${sequence}`);
+  const payload = Buffer.from(content + "x".repeat(padding));
   const header = Buffer.from(
     JSON.stringify({
       version: 2,
       sessionId: session,
-      seq: seq++,
+      seq: sequence,
+      captureGeneration: generation,
       ts: 1000,
       width: 100,
       height: 100,
@@ -46,8 +65,20 @@ function frame() {
   );
   const prefix = Buffer.alloc(4);
   prefix.writeUInt32BE(header.length);
-  socket.write(prefix.subarray(0, 2));
-  socket.write(Buffer.concat([prefix.subarray(2), header, payload]));
+  return Buffer.concat([prefix, header, payload]);
+}
+function frame() {
+  if (!active || !session || process.env.NO_FRAMES === "1") return;
+  if (!socket) throw new Error("No frame connection");
+  const bytes = packet();
+  if (process.env.BACKPRESSURE_RESTART === "1" && starts === 1 && !heldOnce) {
+    heldOnce = true;
+    socket.write(bytes.subarray(0, 1));
+    held = bytes.subarray(1);
+    return;
+  }
+  socket.write(bytes.subarray(0, 2));
+  socket.write(bytes.subarray(2));
 }
 const lines = createInterface({ input: process.stdin });
 lines.on("line", (line) => {
@@ -77,24 +108,63 @@ lines.on("line", (line) => {
       };
       break;
     case "start":
+      if (held) {
+        socket?.write(held);
+        held = undefined;
+      }
+      starts++;
       session = request.sessionId;
+      generation = request.captureGeneration ?? 1;
       seq = 0;
       active = true;
-      setImmediate(frame);
+      frame();
       break;
     case "stop":
+      if (process.env.STOP_ERROR === "1") {
+        error = { code: "busy", message: "native stop rejected" };
+        break;
+      }
       active = false;
       session = "";
       break;
     case "watch":
+      if (!request.active && active && process.env.RETIRED_ON_RESUME === "1")
+        retired = packet("retired");
       active = request.active;
-      if (active) setImmediate(frame);
+      if (active) {
+        generation = request.captureGeneration ?? generation;
+        if (retired) {
+          socket?.write(retired);
+          retired = undefined;
+        }
+        frame();
+      }
       break;
     case "ui.tree":
-      data = { root: node(), truncated: false };
+      {
+        let root = node();
+        if (process.env.UI_MODE === "nodes") root.children = [node(), node()];
+        if (process.env.UI_MODE === "depth") root.children = [node()];
+        data = {
+          root: process.env.UI_MODE === "states" ? { ...root, states: ["invented"] } : root,
+          truncated: false,
+        };
+      }
       break;
     case "ui.find":
-      data = { nodes: request.query.name === "missing" ? [] : [node()], truncated: false };
+      data = {
+        nodes:
+          request.query.name === "missing"
+            ? []
+            : process.env.UI_MODE === "findCount"
+              ? [node(), node()]
+              : [
+                  process.env.UI_MODE === "findChildren"
+                    ? { ...node(), children: [node()] }
+                    : node(),
+                ],
+        truncated: false,
+      };
       break;
     case "ui.act":
       if (request.ref === "busy") error = { code: "busy", message: "UAC active" };

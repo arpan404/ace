@@ -34,6 +34,16 @@ const Scroll = z.object({
   deltaX: z.number().int().min(-1000).max(1000),
   deltaY: z.number().int().min(-1000).max(1000),
 });
+export const computerUseSchemas = {
+  screen_ui_tree: ScreenUITreeOptions,
+  screen_ui_find: ScreenUIFindOptions,
+  screen_ui_act: ScreenUIActOptions,
+  screen_screenshot: Screenshot,
+  screen_click: Click,
+  screen_type: Type,
+  screen_key: Key,
+  screen_scroll: Scroll,
+};
 export const computerUseTools = [
   {
     name: "screen_ui_tree",

@@ -1,5 +1,6 @@
 import {
   ScreenAction,
+  ScreenAgentScope,
   type ScreenCapabilities,
   ScreenBundle,
   ScreenInventory,
@@ -7,14 +8,21 @@ import {
   ScreenTarget,
   type ScreenState,
 } from "@ace/protocol";
-import { FrameHub, type Frame, type FrameSink } from "./frames.ts";
+import { type Frame, type FrameSink } from "./frames.ts";
 import { type Helper, type HelperOptions } from "./helper.ts";
 import { HelperOwner } from "./helper-owner.ts";
+import { captureSession, sessionFrames } from "./session-capture.ts";
 import { type Session, captureDemand, freshScreenshot, endSnapshot } from "./session.ts";
 import { SessionUI } from "./session-ui.ts";
-import { Recording, type RecordingArtifact } from "./recording.ts";
+import type { RecordingArtifact } from "./recording.ts";
+import { startRecording, stopRecording } from "./session-recording.ts";
+import { stopCaptureSession } from "./session-stop.ts";
+import { agentOwner } from "./agent-binding.ts";
+import { systemScheduler, type Scheduler } from "./runtime.ts";
 
 export type ScreenOptions = Omit<HelperOptions, "onFrame" | "onFailure"> & {
+  scheduler?: Scheduler;
+  recordingLimitBytes?: number;
   recordingDirectory: string;
   publishArtifact: (artifact: RecordingArtifact) => Promise<void>;
 };
@@ -32,7 +40,12 @@ export class ScreenManager {
     return this.helpers.persistent;
   }
   private demand(session: Session): void {
-    captureDemand(session, this.persistent, (error) => this.fail(session, error));
+    captureDemand(
+      session,
+      this.persistent,
+      (error) => this.fail(session, error),
+      this.helpers.nextGeneration,
+    );
   }
   capabilities(id: string): ScreenCapabilities | undefined {
     return this.live(id).helper.capabilities;
@@ -53,7 +66,15 @@ export class ScreenManager {
   async enable(enabled: boolean): Promise<void> {
     this.enabled = enabled;
     this.policyEpoch++;
-    if (!enabled) await Promise.all([...this.sessions.keys()].map((id) => this.stop(id)));
+    if (!enabled) {
+      const stopped = await Promise.allSettled(
+        [...this.sessions.keys()].map((id) => this.stop(id)),
+      );
+      const errors = stopped
+        .filter((result) => result.status === "rejected")
+        .map((result) => result.reason);
+      if (errors.length) throw new AggregateError(errors, "Screen shutdown failed");
+    }
   }
   async approve(bundleId: string, allowed: boolean): Promise<void> {
     ScreenBundle.parse(bundleId);
@@ -114,58 +135,18 @@ export class ScreenManager {
       const id = this.options.nextId();
       if (this.sessions.has(id)) throw new Error("Duplicate session id");
       helper = await this.helpers.open({
-        onFrame: (frame) => {
-          if (
-            !session ||
-            (session.state.lifecycle !== "live" && session.state.lifecycle !== "starting")
-          )
-            return;
-          if (
-            frame.header.sessionId !== id ||
-            frame.header.sequence <= (session.latest?.header.sequence ?? -1)
-          ) {
-            this.fail(session, new Error("Invalid frame sequence or session"));
-            return;
-          }
-          this.authorize(target);
-          session.latest = frame;
-          if (session.snapshot) {
-            clearTimeout(session.snapshot.timer);
-            session.snapshot.resolve(frame);
-            session.snapshot = undefined;
-          }
-          if (session.state.lifecycle === "live") {
-            session.hub.publish(frame);
-            session.recording?.push(frame);
-            this.demand(session);
-          }
-        },
+        onFrame: sessionFrames(
+          () => session,
+          this.persistent,
+          () => this.authorize(target),
+          (current, error) => this.fail(current, error),
+          (current) => this.demand(current),
+        ),
         onFailure: (error) => {
           if (session) this.fail(session, error);
         },
       });
-      session = {
-        helper,
-        hub: new FrameHub(),
-        epoch: 0,
-        latest: undefined,
-        owner: undefined,
-        recording: undefined,
-        actionTail: Promise.resolve(),
-        queuedActions: 0,
-        recordingStarting: false,
-        viewers: 0,
-        captureActive: true,
-        snapshot: undefined,
-        state: {
-          sessionId: id,
-          lifecycle: "starting",
-          controller: "none",
-          indicator: false,
-          target,
-          permissions: { screenRecording: false, accessibility: false },
-        },
-      };
+      session = captureSession(helper, id, target, this.helpers.nextGeneration());
       this.sessions.set(id, session);
       session.state.permissions = ScreenPermissions.parse(
         await helper.request({ op: "permissions" }),
@@ -181,13 +162,16 @@ export class ScreenManager {
           : helper.capabilities.capture.windows)
       )
         throw new Error("Helper does not support target capture");
-      await helper.request({
-        op: "start",
+      const command = {
+        op: "start" as const,
         sessionId: id,
         target,
         fps,
         allowlist: [...this.allowed],
-      });
+      };
+      if (this.persistent)
+        await helper.requestV2({ ...command, captureGeneration: session.captureGeneration });
+      else await helper.request(command);
       this.authorize(target);
       if (epoch !== this.policyEpoch || session.state.lifecycle !== "starting")
         throw new Error("Screen start cancelled");
@@ -221,17 +205,13 @@ export class ScreenManager {
   }
   subscribe(id: string, sink: FrameSink): () => void {
     const session = this.live(id);
-    const stop = session.hub.subscribe(sink, session.latest);
-    session.viewers++;
-    this.demand(session);
-    let active = true;
-    return () => {
-      if (!active) return;
-      active = false;
-      stop();
+    const stop = session.hub.subscribe(sink, session.latest, () => {
       session.viewers--;
       this.demand(session);
-    };
+    });
+    session.viewers++;
+    this.demand(session);
+    return stop;
   }
   screenshot(id: string): Frame {
     const session = this.live(id);
@@ -243,8 +223,12 @@ export class ScreenManager {
     const session = this.live(id);
     this.authorize(session.state.target);
     if (this.persistent) await session.helper.request({ op: "permissions" });
-    return freshScreenshot(session, this.persistent, this.options.timeoutMs ?? 10_000, () =>
-      this.demand(session),
+    return freshScreenshot(
+      session,
+      this.persistent,
+      this.options.timeoutMs ?? 10_000,
+      () => this.demand(session),
+      this.options.scheduler ?? systemScheduler,
     );
   }
   controller(id: string, controller: ScreenState["controller"], owner = "local"): void {
@@ -253,6 +237,22 @@ export class ScreenManager {
     session.owner = controller === "none" ? undefined : owner;
     session.state = { ...session.state, controller };
     this.emit(session);
+  }
+  delegateAgent(id: string, input: ScreenAgentScope): void {
+    this.controller(id, "agent", agentOwner(input));
+  }
+  agentSession(input: ScreenAgentScope): string {
+    const owner = agentOwner(input);
+    const matches = [...this.sessions.values()].filter(
+      (session) =>
+        session.state.lifecycle === "live" &&
+        session.state.controller === "agent" &&
+        session.owner === owner,
+    );
+    if (matches.length !== 1 || !matches[0])
+      throw new Error("A single delegated screen session is required");
+    this.authorize(matches[0].state.target);
+    return matches[0].state.sessionId;
   }
   async action(
     id: string,
@@ -344,58 +344,47 @@ export class ScreenManager {
       if (session.owner === owner && session.state.lifecycle === "live")
         this.controller(session.state.sessionId, "none");
   }
-  async startRecording(id: string): Promise<void> {
+  startRecording(id: string): Promise<void> {
     const session = this.live(id);
-    if (session.recording || session.recordingStarting) throw new Error("Recording already active");
-    session.recordingStarting = true;
+    return startRecording(session, this.options, () => this.demand(session));
+  }
+  stopRecording(id: string): Promise<RecordingArtifact> {
+    return stopRecording(this.get(id));
+  }
+  stop(id: string): Promise<void> {
+    const session = this.get(id);
+    session.stopping ??= this.stopSession(session);
+    return session.stopping;
+  }
+  private async stopSession(session: Session): Promise<void> {
+    const failed = session.state.lifecycle === "failed";
     try {
-      const recording = await Recording.open(
-        this.options.recordingDirectory,
-        this.options.nextId(),
-        this.options.publishArtifact,
+      await stopCaptureSession(
+        session,
+        () => (failed ? session.helper.close() : this.helpers.stop(session.helper)),
+        () => this.emit(session),
       );
-      if (session.state.lifecycle !== "live" || session.recording) {
-        await recording.stop();
-        throw new Error("Recording start cancelled");
-      }
-      session.recording = recording;
-      this.demand(session);
     } finally {
-      session.recordingStarting = false;
-    }
-  }
-  async stopRecording(id: string): Promise<RecordingArtifact> {
-    const session = this.get(id);
-    const recording = session.recording;
-    if (!recording) throw new Error("No recording active");
-    session.recording = undefined;
-    this.demand(session);
-    return recording.stop();
-  }
-  async stop(id: string): Promise<void> {
-    const session = this.get(id);
-    session.epoch++;
-    session.latest = undefined;
-    endSnapshot(session);
-    session.hub.clear();
-    session.state = {
-      ...session.state,
-      lifecycle: "stopped",
-      indicator: false,
-      controller: "none",
-    };
-    this.emit(session);
-    try {
-      if (session.recording) await this.stopRecording(id);
-    } finally {
-      await this.helpers.stop(session.helper);
-      this.sessions.delete(id);
+      this.sessions.delete(session.state.sessionId);
     }
   }
   async close(): Promise<void> {
-    await this.enable(false);
-    await this.helpers.close();
-    this.listeners.clear();
+    const errors: unknown[] = [];
+    try {
+      await this.enable(false);
+    } catch (error) {
+      errors.push(error);
+    } finally {
+      try {
+        await this.helpers.close();
+      } catch (error) {
+        errors.push(error);
+      } finally {
+        this.listeners.clear();
+      }
+    }
+    if (errors.length === 1) throw errors[0];
+    if (errors.length) throw new AggregateError(errors, "Screen close failed");
   }
   private get(id: string): Session {
     const session = this.sessions.get(id);
@@ -432,7 +421,7 @@ export class ScreenManager {
     this.emit(session);
     void session.recording?.stop().catch(() => {});
     session.recording = undefined;
-    void this.helpers.stop(session.helper);
+    void this.helpers.stop(session.helper).catch(() => {});
   }
 }
 function bundles(target: ScreenTarget): string[] {

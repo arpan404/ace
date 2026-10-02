@@ -24,7 +24,7 @@ async function fixture(env: NodeJS.ProcessEnv = {}) {
   };
   return { options, directory, clean: () => rm(directory, { recursive: true, force: true }) };
 }
-it("Windows resolves a stable executable and unique local pipe without rewriting binaries", () => {
+it("Windows resolves its installed executable and validates local pipe identifiers", () => {
   expect(screenHelperPath("C:\\ace-data", "win32")).toBe(
     "C:\\ace-data\\helpers\\screen\\ace-screen-helper-windows.exe",
   );
@@ -85,7 +85,7 @@ it("an incompatible capability version closes the helper before capture", async 
   }
 });
 it("one host helper serves inspections, restarts and semantic tools with controller checks", async () => {
-  const f = await fixture();
+  const f = await fixture({ PAYLOAD_VALUE: "1" });
   let spawned = 0;
   const manager = new ScreenManager({
     ...f.options,
@@ -112,9 +112,14 @@ it("one host helper serves inspections, restarts and semantic tools with control
     expect((await tool("screen_ui_find", { query: { name: "Save" } })).content).toEqual([
       { type: "text", text: expect.stringContaining("你好 😀") },
     ]);
+    await manager.targets();
     const image = await tool("screen_screenshot", {});
     expect(image.content).toEqual([
-      { type: "image", data: expect.any(String), mimeType: "image/jpeg" },
+      {
+        type: "image",
+        data: Buffer.from("pixels:你好 😀").toString("base64"),
+        mimeType: "image/jpeg",
+      },
       { type: "text", text: expect.stringContaining("1.5 pixels per target point") },
     ]);
     await tool("screen_key", { key: "ENTER", modifiers: ["control"] });
