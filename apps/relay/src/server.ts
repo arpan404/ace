@@ -138,6 +138,13 @@ export async function startRelay(options: RelayOptions = {}) {
     else connection.socket.close(1008, "Unknown endpoint");
   }
   http.on("upgrade", (request, socket, head) => {
+    let url: URL;
+    try {
+      url = new URL(request.url ?? "/", "http://relay");
+    } catch {
+      socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n", () => socket.destroy());
+      return;
+    }
     const ip = request.socket.remoteAddress ?? "";
     if (!ip) {
       socket.destroy();
@@ -206,9 +213,7 @@ export async function startRelay(options: RelayOptions = {}) {
         peerBudget.release(clock.now());
         void apply(routing.close(id)).catch(() => {});
       });
-      void route(id, new URL(request.url ?? "/", "http://relay"), connection).catch(() =>
-        ws.terminate(),
-      );
+      void route(id, url, connection).catch(() => ws.terminate());
     });
   });
   function sweep(): void {
