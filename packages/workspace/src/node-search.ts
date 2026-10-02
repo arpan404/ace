@@ -1,16 +1,18 @@
+import type { WorkspaceRuntime } from "./runtime.ts";
 // MessagePort.postMessage has no browser targetOrigin argument.
 /* eslint-disable unicorn/require-post-message-target-origin */
-import { workerResponse } from "./rg-parser.ts";
-import { Worker } from "node:worker_threads";
+import { workerResponse, workerStarted } from "./worker-messages.ts";
+import type { Worker } from "node:worker_threads";
 import { aborted, WorkspaceError, type Match } from "./types.ts";
 
 /** Regex work runs off the daemon thread so cancellation can terminate it. */
 export class NodeSearch {
-  private readonly worker = new Worker(new URL("./node-search-worker.ts", import.meta.url), {
-    execArgv: [],
-  });
+  private readonly worker: Worker;
+  private readonly runtime: WorkspaceRuntime;
   private problem: Error | undefined;
-  constructor() {
+  constructor(runtime: WorkspaceRuntime) {
+    this.runtime = runtime;
+    this.worker = runtime.worker(new URL("./node-search-worker.ts", import.meta.url));
     // The worker can fail during filesystem traversal, before match attaches listeners.
     this.worker.on("error", (error: Error) => {
       this.problem = error;
@@ -20,14 +22,21 @@ export class NodeSearch {
     });
   }
   async match(
-    request: { text: string; path: string; source: string; caseSensitive: boolean; limit: number },
+    request: {
+      text: string;
+      path: string;
+      source: string;
+      caseSensitive: boolean;
+      limit: number;
+      lineOffset: number;
+    },
     signal?: AbortSignal,
   ): Promise<Match[]> {
     aborted(signal);
     if (this.problem) throw new WorkspaceError("SEARCH_FAILED", this.problem.message, this.problem);
     return new Promise((resolve, reject) => {
       const finish = (error?: Error, matches?: Match[]) => {
-        clearTimeout(deadline);
+        deadline();
         signal?.removeEventListener("abort", cancel);
         this.worker.off("message", message);
         this.worker.off("error", failed);
@@ -44,6 +53,7 @@ export class NodeSearch {
       const exited = () =>
         finish(new WorkspaceError("SEARCH_FAILED", "Search worker exited unexpectedly"));
       const message = (raw: unknown) => {
+        if (workerStarted.safeParse(raw).success) return;
         const parsed = workerResponse.safeParse(raw);
         if (!parsed.success) {
           finish(
@@ -56,12 +66,12 @@ export class NodeSearch {
         else finish(undefined, result.matches);
       };
       // A byte cap alone does not bound backtracking regex CPU time.
-      const deadline = setTimeout(() => {
+      const deadline = this.runtime.clock.after(() => {
         void this.worker.terminate();
         finish(new WorkspaceError("SEARCH_FAILED", "Fallback regex exceeded its execution budget"));
       }, 5000);
       signal?.addEventListener("abort", cancel, { once: true });
-      this.worker.once("message", message);
+      this.worker.on("message", message);
       this.worker.once("error", failed);
       this.worker.once("exit", exited);
       this.worker.postMessage(request);

@@ -2,16 +2,15 @@ import { matchesGlob } from "node:path";
 import type { GitIgnore } from "./ignore.ts";
 import { NodeSearch } from "./node-search.ts";
 import { command } from "./process.ts";
-import { querySource, searchText } from "./query.ts";
-import { read } from "./read.ts";
+import { querySource } from "./query.ts";
 import { rgSearch } from "./rg-search.ts";
+import { searchContent, linePackets, type SearchContent } from "./search-content.ts";
 import { transient, type SafeRoot } from "./safety.ts";
 import { tree } from "./tree.ts";
 import {
   aborted,
   errorCode,
   integer,
-  READ_CAP,
   SEARCH_BUDGET,
   TREE_CAP,
   WorkspaceError,
@@ -19,10 +18,14 @@ import {
   type SearchResult,
 } from "./types.ts";
 
-async function backend(binary: string | null, signal?: AbortSignal): Promise<"node" | "ripgrep"> {
+async function backend(
+  safe: SafeRoot,
+  binary: string | null,
+  signal?: AbortSignal,
+): Promise<"node" | "ripgrep"> {
   if (binary === null) return "node";
   try {
-    const result = await command(binary, ["--version"], signal ? { signal } : {});
+    const result = await command(binary, ["--version"], signal ? { signal } : {}, safe.runtime);
     if (result.code !== 0)
       throw new WorkspaceError("SEARCH_FAILED", result.stderr || "Cannot run ripgrep");
     return "ripgrep";
@@ -41,17 +44,60 @@ export async function search(
   const expression = querySource(options);
   const limit = integer(options.limit, "limit", 1, 10_000);
   const budget = integer(options.byteBudget ?? SEARCH_BUDGET, "byteBudget", 1, SEARCH_BUDGET);
-  if (options.glob !== undefined && (options.glob.length > 4096 || options.glob.includes("\0"))) {
+  if (options.glob !== undefined && (options.glob.length > 4096 || options.glob.includes("\0")))
     throw new WorkspaceError("INVALID_ARGUMENT", "Invalid search glob");
-  }
-  const selected = await backend(binary, options.signal);
+  const selected = await backend(safe, binary, options.signal);
   const result: SearchResult = {
     matches: [],
     truncated: false,
     bytesScanned: 0,
     backend: selected,
   };
-  const fallback = selected === "node" ? new NodeSearch() : undefined;
+  const fallback = selected === "node" ? new NodeSearch(safe.runtime) : undefined;
+  let batch: { path: string; content: SearchContent }[] = [];
+  async function drain(): Promise<void> {
+    if (!batch.length) return;
+    const owned = batch;
+    batch = [];
+    try {
+      if (fallback) {
+        for (const file of owned) {
+          for await (const packet of linePackets(file.content.input())) {
+            const matches = await fallback.match(
+              {
+                ...packet,
+                path: file.path,
+                source: expression,
+                caseSensitive: options.caseSensitive ?? true,
+                limit: limit - result.matches.length,
+              },
+              options.signal,
+            );
+            result.matches.push(...matches);
+            if (result.matches.length >= limit) return;
+          }
+        }
+      } else {
+        result.matches.push(
+          ...(await rgSearch(
+            safe.runtime,
+            binary ?? "rg",
+            {
+              files: owned.map((file) => ({ path: file.path, input: file.content.input() })),
+              query: options.regex ? expression : options.query,
+              regex: options.regex ?? false,
+              caseSensitive: options.caseSensitive ?? true,
+              limit: limit - result.matches.length,
+              bytes: owned.reduce((total, file) => total + file.content.bytesScanned, 0),
+            },
+            options.signal,
+          )),
+        );
+      }
+    } finally {
+      await Promise.all(owned.map((file) => file.content.close()));
+    }
+  }
   try {
     for await (const entry of tree(safe, ignore, {
       dir: "",
@@ -65,52 +111,25 @@ export async function search(
         (options.glob !== undefined && !matchesGlob(entry.path, options.glob))
       )
         continue;
-      // Skip oversized files rather than treating a cut prefix as a complete file.
-      if (entry.size > READ_CAP || entry.size > budget - result.bytesScanned) {
+      if (result.bytesScanned >= budget) {
         result.truncated = true;
-        continue;
+        break;
       }
       try {
-        const content = await read(safe, {
-          path: entry.path,
-          length: Math.min(READ_CAP, budget - result.bytesScanned),
-        });
-        aborted(options.signal);
+        const content = await searchContent(
+          safe,
+          entry.path,
+          budget - result.bytesScanned,
+          options.signal,
+        );
+        result.bytesScanned += content.bytesScanned;
+        result.truncated ||= content.truncated;
         if (content.binary) {
-          result.bytesScanned += Math.min(content.size, 8192, budget - result.bytesScanned);
+          await content.close();
           continue;
         }
-        result.bytesScanned += content.bytesRead;
-        if (content.truncated || content.text.includes("\0")) {
-          result.truncated ||= content.truncated;
-          continue;
-        }
-        const remaining = limit - result.matches.length;
-        const text = searchText(content.text);
-        const matches = fallback
-          ? await fallback.match(
-              {
-                text,
-                path: entry.path,
-                source: expression,
-                caseSensitive: options.caseSensitive ?? true,
-                limit: remaining,
-              },
-              options.signal,
-            )
-          : await rgSearch(
-              binary ?? "rg",
-              {
-                text,
-                path: entry.path,
-                query: options.regex ? expression : options.query,
-                regex: options.regex ?? false,
-                caseSensitive: options.caseSensitive ?? true,
-                limit: remaining,
-              },
-              options.signal,
-            );
-        result.matches.push(...matches);
+        batch.push({ path: entry.path, content });
+        if (batch.length >= (fallback ? 1 : 64)) await drain();
         if (result.matches.length >= limit) {
           result.truncated = true;
           break;
@@ -119,9 +138,12 @@ export async function search(
         if (!transient(error)) throw error;
       }
     }
+    await drain();
+    if (result.matches.length >= limit) result.truncated = true;
     aborted(options.signal);
     return result;
   } finally {
+    await Promise.all(batch.map((file) => file.content.close()));
     await fallback?.dispose();
   }
 }
