@@ -2,6 +2,7 @@ import type { AgentStatus, EventPayload, Item, ThreadStatus } from "@ace/protoco
 import type { Key } from "./facts.ts";
 import { lookup, type AgentRecord, type ThreadState } from "./state.ts";
 import { emit } from "./emit.ts";
+import { isActionableInteraction } from "./human.ts";
 import { liveToolKeys, pendingInteractionKeys, runningTaskKeys } from "./indexes.ts";
 import { subtreeSignalReader, transportSignalAt } from "./liveness.ts";
 
@@ -287,11 +288,7 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
   const byId = new Map(records.map((record) => [record.agent.id, record.agent.status]));
   const pending = pendingInteractionKeys(state)
     .map((key) => lookup(state.interactions, key)!)
-    .filter((interaction) => {
-      if (interaction.state !== "pending") return false;
-      if (interaction.blocking) return true;
-      return byId.get(interaction.agentId)?.state !== "working";
-    });
+    .filter((interaction) => isActionableInteraction(interaction, byId.get(interaction.agentId)));
   if (pending.length > 0) return { state: "needs_you", interactions: pending.length };
   const recordById = new Map(records.map((record) => [record.agent.id, record]));
   const background = new Map<string, boolean>();
