@@ -1,0 +1,15 @@
+{
+  "checkpoints": [
+    {
+      "t": 7006,
+      "thread": "done"
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 1,
+    "interactions": {
+      "resolved": 1
+    }
+  }
+}

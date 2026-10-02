@@ -23,6 +23,15 @@
         "@types/ws": "^8.18.1",
       },
     },
+    "packages/adapter-claude": {
+      "name": "@ace/adapter-claude",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "@anthropic-ai/claude-agent-sdk": "0.3.287",
+      },
+    },
     "packages/core": {
       "name": "@ace/core",
       "dependencies": {
@@ -53,6 +62,8 @@
     },
   },
   "packages": {
+    "@ace/adapter-claude": ["@ace/adapter-claude@workspace:packages/adapter-claude"],
+
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],

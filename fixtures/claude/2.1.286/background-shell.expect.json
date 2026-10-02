@@ -1,0 +1,23 @@
+{
+  "checkpoints": [
+    {
+      "t": 4211,
+      "thread": "waiting"
+    },
+    {
+      "t": 18499,
+      "thread": "working"
+    },
+    {
+      "t": 22426,
+      "thread": "done"
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 1,
+    "interactions": {
+      "resolved": 0
+    }
+  }
+}
