@@ -213,3 +213,8 @@ Tool name → kind (always keep raw `tool` + `state.input`):
 - Docs: https://opencode.ai/docs/server, /docs/sdk, /docs/agents, /docs/config, /docs/permissions, /docs/plugins, /docs/acp, /docs/cli (sources under `packages/web/src/content/docs/`).
 - Releases: https://github.com/anomalyco/opencode/releases (v1.18.10–v1.18.34, 2026-07-30 → 2026-09-30).
 - Local: `opencode --help`, `opencode serve --help`, `opencode acp --help`; read-only `sqlite3 -readonly ~/.local/share/opencode/opencode.db`.
+
+## ace MCP injection
+
+The runtime config content and read-only discovery contract is recorded in
+[ace MCP injection contracts](ace-mcp-injection.md#opencode).

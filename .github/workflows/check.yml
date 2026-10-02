@@ -76,3 +76,9 @@ jobs:
       - name: PTY throughput (informational)
         continue-on-error: true
         run: bun run --filter @ace/terminal bench 100
+
+      - name: Build relay image and verify encrypted traffic on Node 24
+        if: runner.os == 'Linux'
+        run: |
+          docker build -f apps/relay/Dockerfile -t ace-relay:test .
+          node apps/relay/bench/docker-smoke.ts
