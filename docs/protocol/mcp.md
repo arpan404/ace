@@ -38,41 +38,23 @@ Example:
 {
   "thread": {
     "acpAgentId": "example",
-    "acpSupport": {
-      "capabilities": {
-        "imageInput": true,
-        "planMode": true,
-        "resume": true
-      },
-      "coverage": "generic",
-      "mcp": "stdio",
-      "modeSelection": false,
-      "modelSelection": false,
-      "raw": {
-        "json": "example",
-        "truncated": false
-      },
-      "subagentSessions": false,
-      "visibility": "limited"
-    },
-    "archivedAt": 4,
-    "createdAt": 4,
+    "createdAt": 1,
     "id": "example",
     "imported": {
-      "importedAt": 5,
+      "importedAt": 2,
       "instanceId": "example",
       "native": {
-        "installationId": "example",
-        "provider": "antigravity"
+        "provider": "codex"
       },
       "sourceId": "example"
     },
-    "provider": "codex",
+    "instanceId": "example",
+    "provider": "cursor",
     "status": {
-      "state": "new"
+      "state": "done"
     },
     "title": "example",
-    "updatedAt": 4,
+    "updatedAt": 6,
     "workspaceId": "example"
   }
 }
@@ -96,7 +78,9 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{}
+{
+  "cursor": "example"
+}
 ```
 
 ## ace_list_agents.output
@@ -113,7 +97,7 @@ Example:
 ```json
 {
   "agents": [],
-  "nextCursor": null
+  "nextCursor": "example"
 }
 ```
 
@@ -178,7 +162,6 @@ Example:
 
 ```json
 {
-  "name": "example",
   "provider": "acp",
   "task": "example"
 }

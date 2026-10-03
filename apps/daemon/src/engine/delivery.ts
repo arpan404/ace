@@ -82,11 +82,13 @@ export async function executeIntent(
         p.type === "thread.send" && p.delivery === "steer" && capabilities.steer
           ? "steer"
           : "queue",
+        intent.command.id,
       );
     } catch (error) {
       actor.releaseInput(intent.id);
       throw error;
     }
+
     return;
   }
   if (!actor.session) throw new Error("Provider session is not live");

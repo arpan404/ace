@@ -95,7 +95,7 @@ export class IntentDelivery {
       this.dependencies.repo.beginSend(intent, intent.id);
       const session = actor.session;
       if (!session) throw new Error("Provider exited before continuation");
-      await session.send([{ type: "text", text: queue.continuation }], "queue");
+      await session.send([{ type: "text", text: queue.continuation }], "queue", intent.command.id);
     } else {
       this.dependencies.repo.beginSend(intent, undefined);
       this.dependencies.recovery.begin(actor.id, token);

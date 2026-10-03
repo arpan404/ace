@@ -847,6 +847,7 @@ Example:
   "resolution": {
     "answers": {},
     "dismissed": false,
+    "feedback": "example",
     "kind": "question"
   },
   "type": "interaction.resolve"
@@ -886,7 +887,31 @@ Example:
 ```json
 {
   "commandId": "example",
-  "error": "example",
-  "ok": true
+  "health": {
+    "activeSessions": 1,
+    "at": 8,
+    "eventLoop": {
+      "maxMs": 7,
+      "meanMs": 6,
+      "p99Ms": 7
+    },
+    "logs": {
+      "dropped": 9,
+      "failed": 1,
+      "queued": 2
+    },
+    "memory": {
+      "heapTotalBytes": 4,
+      "heapUsedBytes": 7,
+      "rssBytes": 5
+    },
+    "openHandles": 7,
+    "queues": {},
+    "sqlite": {
+      "pageBytes": 7,
+      "walBytes": 4
+    }
+  },
+  "ok": false
 }
 ```

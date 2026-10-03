@@ -1,4 +1,5 @@
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
+import type { StatementSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { Command, CommandId, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
@@ -20,6 +21,12 @@ export class EngineRepository {
   private commandId: () => string;
   private opening = new Set<ThreadId>();
   private snapshots = new Map<ThreadId, Snapshot>();
+  private admissionStatements: {
+    has: StatementSync;
+    mark: StatementSync;
+    ack: StatementSync;
+    correlated: StatementSync;
+  };
   constructor(
     store: Store,
     ids: IdSource = { next: () => randomUUID() },
@@ -34,6 +41,20 @@ export class EngineRepository {
     this.queue = new QueueStore(store);
     this.pending = new IntentStore(store, this.queue);
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
+    this.admissionStatements = store.atomic((db) => ({
+      has: db.prepare(
+        "SELECT 1 FROM engine_state_records WHERE thread_id=? AND section='engineAdmission' AND key='root'",
+      ),
+      mark: db.prepare(
+        "INSERT OR IGNORE INTO engine_state_records VALUES (?, 'engineAdmission', 'root', 'true')",
+      ),
+      correlated: db.prepare(
+        `UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND command_id=? AND awaiting=1 RETURNING id`,
+      ),
+      ack: db.prepare(`UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND awaiting=1 AND ack_target=(
+        SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
+      ) RETURNING id`),
+    }));
   }
   nextCommandId() {
     return CommandId.parse(this.commandId());
@@ -51,7 +72,7 @@ export class EngineRepository {
         Boolean(
           db
             .prepare(
-              "SELECT 1 FROM intents WHERE thread_id=? AND kind IN ('thread.resume','queue.resume','thread.limit') AND awaiting=1 LIMIT 1",
+              "SELECT 1 FROM intents i JOIN engine_state_records r ON r.thread_id=i.thread_id AND r.section='engineRecovery' AND r.key='root' AND i.id=CAST(r.value AS INTEGER) WHERE i.thread_id=? AND i.status<>'failed' AND (i.awaiting=1 OR i.acknowledged=1) LIMIT 1",
             )
             .get(id),
         ),
@@ -160,23 +181,38 @@ export class EngineRepository {
             finish();
           }
         });
-        for (const event of events)
-          if (
+        // Admission-based providers transfer queue ownership before a run starts.
+        // Persist the acknowledgement policy in the existing per-thread record store,
+        // so a later run cannot acknowledge the next, unrelated engine input.
+        const root = state.agents[state.rootKey ?? ""]?.agent.id;
+        for (const event of events) {
+          const admitted =
+            event.type === "input.admitted" && event.agentId === root && !this.opening.has(id);
+          if (admitted) this.admissionStatements.mark.run(id);
+          const started =
             event.type === "run.started" &&
             !this.opening.has(id) &&
+            event.run.agentId === root &&
             ["user", "queue", "unknown", "restart", "limit_resume"].includes(event.run.trigger) &&
-            event.run.agentId === state.agents[state.rootKey ?? ""]?.agent.id
-          )
-            this.store.atomic((db) => {
-              const acknowledged = db
-                .prepare(`UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND awaiting=1 AND ack_target=(
-                SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
-              ) RETURNING id`)
-                .all(id, id);
-              for (const row of acknowledged) this.queue.prune(Number(row.id));
-            });
-        if (continuationStarted && this.queue.get(id).trigger)
+            !this.admissionStatements.has.get(id);
+          const acknowledged =
+            event.type === "input.admitted" && admitted && event.commandId !== undefined
+              ? this.admissionStatements.correlated.all(id, event.commandId)
+              : admitted || started
+                ? this.admissionStatements.ack.all(id, id)
+                : [];
+          for (const row of acknowledged) this.queue.prune(Number(row.id));
+        }
+        if (continuationStarted && this.queue.get(id).trigger) {
           this.queue.set(id, { continuation: null, trigger: null }, now);
+          this.store.atomic((db) =>
+            db
+              .prepare(
+                "DELETE FROM engine_state_records WHERE thread_id=? AND section='engineRecovery' AND key='root'",
+              )
+              .run(id),
+          );
+        }
         this.save(state, events, now);
         this.observe?.(state, facts, events, now);
         return state;

@@ -71,3 +71,9 @@ The real-delta benchmark uses the production Codex translator, including its gen
 uses indexed lightweight headers and decodes only one claimed payload. Repeated
 activity-only facts skip retry/status work when unchanged, recovery agent scans,
 engine queue counting and worker wakeups. Throughput and peak RSS **need run at merge**.
+
+OpenCode v2 integration mutation cases, also **not executed (tests run at merge)**:
+drop send correlation at account binding; acknowledge a newer input from an older
+run; lose the continuation trigger between admission and delayed run start;
+reclassify durable admission as uncertain after an RPC rejection; automatically
+resume provider-owned work on restart with auto-continue disabled.

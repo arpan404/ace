@@ -184,6 +184,7 @@ export class ThreadActor {
           facts.some(
             (fact) =>
               fact.type === "turn.started" ||
+              fact.type === "input.admitted" ||
               fact.type === "turn.ended" ||
               fact.type === "process.exited" ||
               fact.type === "queue.changed" ||
@@ -198,6 +199,7 @@ export class ThreadActor {
         facts.some(
           (fact) =>
             fact.type === "turn.started" ||
+            fact.type === "input.admitted" ||
             fact.type === "turn.ended" ||
             fact.type === "queue.changed" ||
             fact.type === "process.exited" ||

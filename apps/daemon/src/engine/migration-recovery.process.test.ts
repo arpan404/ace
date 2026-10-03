@@ -67,7 +67,23 @@ for (const locked of [false, true]) {
         native = {
           ...original,
           async openSession(ctx) {
-            return { ...(await original.openSession(ctx)), nativeSessionId: nativeId };
+            const session = await original.openSession(ctx);
+            return {
+              ...session,
+              nativeSessionId: nativeId,
+              async send(input, delivery, commandId) {
+                if (!commandId) throw new Error("Provider requires command correlation");
+                ctx.onFrame(
+                  frames.frame({
+                    type: "input.admitted",
+                    agent: "root",
+                    nativeInputId: commandId,
+                    commandId,
+                  }),
+                );
+                await session.send(input, delivery, commandId);
+              },
+            };
           },
         };
         const bound = accounts.bindAdapter({ ...original, create: () => native }, (context) => ({
@@ -90,7 +106,28 @@ for (const locked of [false, true]) {
           { on: "send", frames: [frames.frame(start, end)] },
           { on: "send", frames: [frames.frame(start, end)] },
         ]);
-        native = h.registry.get("codex").adapter;
+        const destination = h.registry.get("codex").adapter;
+        native = {
+          ...destination,
+          async openSession(ctx) {
+            const session = await destination.openSession(ctx);
+            return {
+              ...session,
+              async send(input, delivery, commandId) {
+                if (!commandId) throw new Error("Provider requires continuation correlation");
+                ctx.onFrame(
+                  frames.frame({
+                    type: "input.admitted",
+                    agent: "root",
+                    nativeInputId: commandId,
+                    commandId,
+                  }),
+                );
+                await session.send(input, delivery, commandId);
+              },
+            };
+          },
+        };
         h.registry.register(bound, { installed: true, auth: "logged_in", loginHint: "unused" });
         expect(
           h.command({
@@ -113,6 +150,11 @@ for (const locked of [false, true]) {
           expect(replacement.commands.filter((command) => command.type === "send")).toHaveLength(0);
         } else {
           expect(await readFile(join(target, relative), "utf8")).toBe(history);
+          expect(
+            Object.values(h.store.snapshotThread(id).runs).some(
+              (run) => run.trigger === "limit_resume",
+            ),
+          ).toBe(true);
           expect(h.engine.sessionMetadata(id)).toMatchObject({
             instanceId: "account-b",
             nativeSessionId: nativeId,

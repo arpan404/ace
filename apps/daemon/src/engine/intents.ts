@@ -171,6 +171,13 @@ export class IntentStore {
     });
   }
   beginSend(intent: IntentHeader, target: number | undefined): void {
+    if (
+      target !== undefined &&
+      ["thread.resume", "queue.resume", "thread.limit"].includes(intent.kind)
+    )
+      this.sql(
+        "INSERT INTO engine_state_records VALUES (?, 'engineRecovery', 'root', ?) ON CONFLICT(thread_id,section,key) DO UPDATE SET value=excluded.value",
+      ).run(intent.threadId, String(intent.id));
     this.sql("UPDATE intents SET awaiting=?, ack_target=? WHERE id=?").run(
       target === undefined ? 0 : 1,
       target ?? null,

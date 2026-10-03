@@ -1,73 +1,39 @@
-import type { Frame } from "@ace/engine-api";
-import { object, array, string } from "./data.ts";
-import type { OpenCodeServer } from "./server.ts";
-/** Page native history without retaining message bodies. Later reads stop at the prior head. */
+import { Page, ProjectedMessage } from "./boundaries.ts";
+import { object, string } from "./data.ts";
+/** Opaque pagination. Refresh the mutable head; stop at the previous immutable message. */
 export class HistoryReader {
   private heads = new Map<string, string>();
-  private server: OpenCodeServer;
-  private directory: string;
-  private frame: (dir: Frame["dir"], channel: string, data: unknown) => void;
-  private signal: AbortSignal;
-  private receive: (data: unknown, started: number) => void;
-  constructor(
-    server: OpenCodeServer,
-    directory: string,
-    frame: HistoryReader["frame"],
-    signal: AbortSignal,
-    receive: HistoryReader["receive"],
-  ) {
-    this.server = server;
-    this.directory = directory;
-    this.frame = frame;
-    this.signal = signal;
-    this.receive = receive;
-  }
-  async read(id: string): Promise<void> {
+  async read(
+    id: string,
+    list: (cursor?: string) => Promise<unknown>,
+    receive: (message: unknown) => void,
+  ): Promise<void> {
     const head = this.heads.get(id);
-    let before = "";
-    let newest = "";
+    let cursor: string | undefined,
+      newest = "";
     const cursors = new Set<string>();
-    while (!this.signal.aborted) {
-      const query = new URLSearchParams({ limit: "128" });
-      if (before) query.set("before", before);
-      let count = 0;
-      let oldest = "";
-      let reachedHead = false;
-      const started = this.server.eventWatermark;
-      for await (const message of this.server.history(
-        `/session/${id}/message?${query}`,
-        this.directory,
-        this.frame,
-        this.signal,
-      )) {
-        const m = object(message);
-        const msg = string(object(m.info).id);
-        if (!msg) continue;
-        count++;
-        if (!oldest || msg < oldest) oldest = msg;
-        if (!newest || msg > newest) newest = msg;
-        if (head && msg <= head) reachedHead = true;
-        this.receive(
-          {
-            payload: {
-              type: "message.updated",
-              properties: { sessionID: id, info: m.info, historical: true },
-            },
-          },
-          started,
-        );
-        for (const part of array(m.parts))
-          this.receive(
-            {
-              payload: { type: "message.part.updated", properties: { sessionID: id, part } },
-            },
-            started,
-          );
+    for (let n = 0; n < 512; n++) {
+      const page = Page.parse(await list(cursor));
+      let reached = false;
+      for (const message of page.data) {
+        const key = string(object(message).id);
+        if (!key) throw new Error("Invalid projected message identity");
+        if (!newest) newest = key;
+        receive(ProjectedMessage.parse(message));
+        if (key === head) {
+          reached = true;
+          break;
+        }
       }
-      if (count < 128 || reachedHead || !oldest || cursors.has(oldest)) break;
-      cursors.add(oldest);
-      before = oldest;
+      const next = page.cursor.next;
+      if (!next || reached) {
+        if (newest) this.heads.set(id, newest);
+        return;
+      }
+      if (cursors.has(next)) throw new Error("Repeated OpenCode history cursor");
+      cursors.add(next);
+      cursor = next;
     }
-    if (newest) this.heads.set(id, newest);
+    throw new Error("OpenCode history page limit reached");
   }
 }

@@ -81,6 +81,14 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
       if (fact.error?.kind === "quota")
         ensureAgent(state, fact.agent, ctx, events).limited = { message: fact.error.message };
       break;
+    case "input.admitted":
+      emit(events, {
+        type: "input.admitted",
+        agentId: ensureAgent(state, fact.agent, ctx, events).agent.id,
+        nativeInputId: fact.nativeInputId,
+        ...(fact.commandId === undefined ? {} : { commandId: fact.commandId }),
+      });
+      break;
     case "activity": {
       const record = ensureAgent(state, fact.agent, ctx, events);
       record.activity = fact.activity;

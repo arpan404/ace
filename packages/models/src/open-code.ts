@@ -47,3 +47,48 @@ export class OpenCodeParser {
     return this.#rows;
   }
 }
+
+/** The v2 network catalog is location-scoped and has array-valued variants. */
+export function normalizeOpenCodeV2(payload: unknown, instance: ModelInstance): CatalogModel[] {
+  const parsed = V2Catalog.parse(payload);
+  if (parsed.location.directory !== instance.cwd)
+    throw new Error("OpenCode model location mismatch");
+  return parsed.data.map((native) => {
+    const model = base(instance, `${native.providerID}/${native.modelID}`, native.name, native);
+    model.nativeProviderId = native.providerID;
+    model.nativeModelId = native.modelID;
+    model.contextWindow = native.limit.context;
+    model.inputModalities = Object.entries(native.capabilities.input)
+      .filter(([, enabled]) => enabled)
+      .map(([name]) => name);
+    model.reasoningEfforts = native.variants.map((variant) => variant.id);
+    model.hidden = !native.enabled;
+    model.deprecated = native.status === "deprecated";
+    return CatalogModel.parse(model);
+  });
+}
+import { z } from "zod";
+const V2Catalog = z
+  .object({
+    location: z.object({ directory: z.string() }),
+    data: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(256),
+            modelID: z.string().min(1).max(256),
+            providerID: z.string().min(1).max(256),
+            name: z.string().min(1).max(256),
+            enabled: z.boolean(),
+            status: z.string(),
+            limit: z
+              .object({ context: z.number().int().positive(), output: z.number().int().positive() })
+              .passthrough(),
+            capabilities: z.object({ input: z.record(z.string(), z.boolean()) }).passthrough(),
+            variants: z.array(z.object({ id: z.string().min(1).max(256) }).passthrough()).max(32),
+          })
+          .passthrough(),
+      )
+      .max(512),
+  })
+  .passthrough();

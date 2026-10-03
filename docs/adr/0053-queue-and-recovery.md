@@ -89,3 +89,10 @@ stays uncertain even during a usage limit; only a typed preconsumption deferral 
 requeue a send. Scheduling reads indexed headers and decodes payloads at claim.
 Cold held sends do not occupy active capacity; releases are fenced by live sessions,
 native opening operations, running intents and runnable work.
+
+Admission-based adapters may report `input.admitted` before any run. Correlated
+admission sets the same durable consumption bit, and subsequent run starts cannot
+acknowledge a different input. Send and native continuation pass the command ID
+through account binding. A persisted continuation-intent reference retains the
+restart/limit-resume trigger until the corresponding run begins, including when
+admission and the RPC reply precede that run.

@@ -1,8 +1,8 @@
 import { fileURLToPath } from "node:url";
-import { OpenCodeServer } from "./index.ts";
+import { OpenCodeServer } from "./testing/v1/index.ts";
 import { readSse } from "@ace/provider-kit/sse";
 import { expect, it } from "vitest";
-import { object } from "./data.ts";
+import { object } from "./testing/v1/data.ts";
 import { setup } from "./testing/session-harness.ts";
 import { recoveryBarrier } from "./testing/recovery-barriers.ts";
 const sentPrompts = (frames: { dir: string; channel: string; data: unknown }[]) =>

@@ -248,6 +248,10 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       view.contextMeters ??= {};
       put(view.contextMeters, p.meter.agentId, structuredCopy(p.meter));
       break;
+    case "input.admitted":
+      // Queue ownership is reconciled by the host; admission creates no transcript/run.
+
+      break;
     case "usage.updated":
       if (p.usageScope === "provider_session" || p.usageScope === "model_session")
         put(view.usageSnapshots, usageSnapshotKey(p), structuredCopy(p));
