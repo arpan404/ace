@@ -36,7 +36,9 @@ Example:
 
 ```json
 {
-  "contextWindow": 7,
+  "contextWindow": 3,
+  "defaultEffort": "example",
+  "defaultTier": "example",
   "deprecated": true,
   "displayName": "example",
   "hidden": false,
@@ -45,13 +47,12 @@ Example:
   "instance": "example",
   "isDefault": false,
   "nativeModelId": "example",
-  "provider": "acp",
+  "provider": "cursor",
   "raw": {
     "json": "example",
-    "truncated": false
+    "truncated": true
   },
   "reasoningEfforts": [],
-  "resolvedModelId": "example",
   "serviceTiers": []
 }
 ```
@@ -69,7 +70,7 @@ Example:
 
 ```json
 {
-  "provider": "codex"
+  "instance": "example"
 }
 ```
 
@@ -90,12 +91,10 @@ Example:
 
 ```json
 {
-  "error": "discovery_failed",
   "instance": "example",
-  "provider": "claude",
-  "refreshedAt": 3,
-  "refreshing": false,
-  "stale": false
+  "provider": "acp",
+  "refreshing": true,
+  "stale": true
 }
 ```
 
@@ -114,7 +113,8 @@ Example:
 
 ```json
 {
-  "offset": 6,
+  "instance": "example",
+  "limit": 7,
   "provider": "cursor"
 }
 ```
@@ -157,9 +157,10 @@ Example:
 
 ```json
 {
-  "effort": "example",
   "model": {
-    "deprecated": true,
+    "contextWindow": 3,
+    "defaultEffort": "example",
+    "deprecated": false,
     "displayName": "example",
     "hidden": false,
     "id": "example",
@@ -167,19 +168,17 @@ Example:
     "instance": "example",
     "isDefault": true,
     "nativeModelId": "example",
-    "nativeProviderId": "example",
-    "provider": "antigravity",
+    "provider": "cursor",
     "raw": {
       "json": "example",
-      "truncated": true
+      "truncated": false
     },
     "reasoningEfforts": [],
-    "resolvedModelId": "example",
     "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": false
+  "stale": true
 }
 ```
 
@@ -219,7 +218,6 @@ Example:
 
 ```json
 {
-  "effort": "example",
   "preferenceOrder": [],
   "role": "example"
 }
@@ -239,6 +237,9 @@ Example:
 
 ```json
 {
+  "options": {
+    "offset": 7
+  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -280,10 +281,8 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "effort": "example",
-    "instance": "example",
-    "model": "example",
-    "role": "example"
+    "role": "example",
+    "selection": "default"
   },
   "type": "models.resolve"
 }
@@ -329,6 +328,7 @@ Example:
 {
   "id": "example",
   "name": "example",
+  "parameters": {},
   "speed": "fast"
 }
 ```
