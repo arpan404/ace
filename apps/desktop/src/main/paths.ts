@@ -8,6 +8,8 @@ export interface AppPaths {
   /** The macOS helper's pinned hashes; outside `Contents/Helpers`, which may hold only code. */
   screenHelperManifest: string | undefined;
   binDirectory: string;
+  /** The bundled Node runtime the daemon runs on (absent on Windows, which has no daemon). */
+  node: string;
 }
 
 const helperNames: Partial<Record<NodeJS.Platform, string>> = {
@@ -48,5 +50,6 @@ export function appPaths(options: {
           ? join(options.resourcesPath, "screen-helper-manifest.json")
           : join(resources, "helpers", "manifest.json"),
     binDirectory: join(resources, "bin"),
+    node: join(resources, "runtime", "bin", "node"),
   };
 }

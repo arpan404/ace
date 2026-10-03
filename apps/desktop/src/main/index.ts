@@ -71,6 +71,8 @@ function main(): void {
       screenHelper: paths.screenHelper,
       screenHelperManifest: paths.screenHelperManifest,
       binDirectory: paths.binDirectory,
+      node: paths.node,
+      packaged: app.isPackaged,
     },
     env: process.env,
     log,

@@ -4,17 +4,33 @@ import { existsSync } from "node:fs";
 import { cp } from "node:fs/promises";
 import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
-import { desktop, dist, electronVersion } from "./common.ts";
+import { desktop, dist, electronVersion, targetArch } from "./common.ts";
+import { verifyNatives } from "./verify-natives.ts";
 
 /**
  * `bun run desktop:build`: an unsigned app for this machine (macOS: `.app` and dmg).
- * `bun run desktop:package`: the full platform package (macOS dmg+zip for arm64 and x64,
+ * `bun run desktop:package`: the full platform package for one architecture (macOS dmg+zip,
  * Windows NSIS, Linux AppImage and deb), signed and notarized when the release credentials
  * are present (CSC_LINK / CSC_NAME, APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER).
+ *
+ * One run builds one architecture, the host's (`--arch` may name it and must match): the
+ * daemon's native modules, ripgrep and the screen helper are built for the host, and the
+ * build fails rather than ship them inside another architecture's package. Release CI
+ * runs this once per architecture on a matching runner.
  */
 const full = process.argv.includes("--full");
+const arch = targetArch(process.argv);
 if (!process.argv.includes("--skip-build"))
-  execFileSync(process.execPath, [join(desktop, "scripts/build.ts")], { stdio: "inherit" });
+  execFileSync(process.execPath, [join(desktop, "scripts/build.ts"), "--arch", arch], {
+    stdio: "inherit",
+    // A release package without its screen helper would silently lose screen use.
+    env: full
+      ? { ...process.env, ACE_REQUIRE_SCREEN_HELPER: "1", ACE_SCREEN_SIGN_RELEASE: "1" }
+      : process.env,
+  });
+
+// Also after --skip-build: dist/ may hold another architecture's build.
+await verifyNatives(arch);
 
 const notarize = Boolean(process.env.APPLE_API_KEY && process.env.APPLE_API_ISSUER);
 const helper = join(dist, "helpers/AceScreenHelper.app");
@@ -39,6 +55,8 @@ const config: Configuration = {
   asarUnpack: ["**/*.node", "**/spawn-helper", "**/rg", "**/rg.exe"],
   extraResources: [
     { from: join(dist, "bin"), to: "bin" },
+    // The daemon's own Node runtime (none on Windows, which runs no local daemon yet).
+    ...(existsSync(join(dist, "runtime")) ? [{ from: join(dist, "runtime"), to: "runtime" }] : []),
     ...(process.platform === "darwin"
       ? existsSync(helper)
         ? [{ from: join(dist, "helpers/manifest.json"), to: "screen-helper-manifest.json" }]
@@ -64,8 +82,10 @@ const config: Configuration = {
   },
   protocols: [{ name: "ace", schemes: ["ace"] }],
   electronFuses: {
-    // The bundled daemon runs on Electron's own Node: ELECTRON_RUN_AS_NODE must stay on.
-    runAsNode: true,
+    // The daemon runs on the bundled Node runtime, so nothing needs Electron as Node: with
+    // this off, no local process can run arbitrary JS as the signed ace app.
+    runAsNode: false,
+    grantFileProtocolExtraPrivileges: false,
     enableCookieEncryption: true,
     enableNodeOptionsEnvironmentVariable: false,
     enableNodeCliInspectArguments: false,
@@ -76,10 +96,10 @@ const config: Configuration = {
     category: "public.app-category.developer-tools",
     target: full
       ? [
-          { target: "dmg", arch: ["arm64", "x64"] },
-          { target: "zip", arch: ["arm64", "x64"] },
+          { target: "dmg", arch: [arch] },
+          { target: "zip", arch: [arch] },
         ]
-      : [{ target: "dmg", arch: [process.arch === "arm64" ? "arm64" : "x64"] }],
+      : [{ target: "dmg", arch: [arch] }],
     hardenedRuntime: true,
     entitlements: join(desktop, "build/entitlements.mac.plist"),
     entitlementsInherit: join(desktop, "build/entitlements.mac.plist"),
@@ -105,10 +125,13 @@ const config: Configuration = {
     },
   },
   dmg: { sign: false },
-  win: { target: [{ target: "nsis", arch: ["x64", "arm64"] }] },
+  win: { target: [{ target: "nsis", arch: [arch] }] },
   nsis: { oneClick: false, perMachine: false, include: join(desktop, "build/installer.nsh") },
   linux: {
-    target: ["AppImage", "deb"],
+    target: [
+      { target: "AppImage", arch: [arch] },
+      { target: "deb", arch: [arch] },
+    ],
     category: "Development",
     mimeTypes: ["x-scheme-handler/ace", "inode/directory"],
   },

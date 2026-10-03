@@ -12,6 +12,28 @@ export interface DaemonResources {
   screenHelperManifest?: string | undefined;
   /** Directory with the bundled `rg`, prepended to the daemon's PATH. */
   binDirectory?: string | undefined;
+  /**
+   * The bundled Node runtime (`runtime/bin/node`). Packaged apps run the daemon on it, so
+   * Electron's `runAsNode` fuse stays off. Unpackaged development may fall back to
+   * Electron as Node, whose fuses are not flipped.
+   */
+  node?: string | undefined;
+  /** A packaged app must never fall back to Electron as Node: its fuse is off. */
+  packaged?: boolean;
+}
+
+/** The program that runs the daemon bundle, and what its environment needs for that. */
+export function daemonProgram(
+  resources: DaemonResources,
+  execPath: string,
+  exists: (path: string) => boolean = existsSync,
+): { command: string; env: NodeJS.ProcessEnv } {
+  if (resources.node && exists(resources.node)) return { command: resources.node, env: {} };
+  if (resources.packaged)
+    throw new Error(
+      `The bundled Node runtime is missing (${resources.node ?? "runtime/bin/node"})`,
+    );
+  return { command: execPath, env: { ELECTRON_RUN_AS_NODE: "1" } };
 }
 
 export interface SpawnOptions {
@@ -24,20 +46,24 @@ export interface SpawnOptions {
   onOutput(line: string): void;
 }
 
-/** Environment for the daemon child. Electron's own binary runs it as plain Node. */
-export function daemonEnvironment(options: Omit<SpawnOptions, "onOutput">): NodeJS.ProcessEnv {
+/** Environment for the daemon child, run by `program`. */
+export function daemonEnvironment(
+  options: Omit<SpawnOptions, "onOutput">,
+  program: NodeJS.ProcessEnv,
+): NodeJS.ProcessEnv {
   const { resources } = options;
   const path = resources.binDirectory
     ? [resources.binDirectory, options.path].join(delimiter)
     : options.path;
   const env: NodeJS.ProcessEnv = {
     ...options.env,
-    ELECTRON_RUN_AS_NODE: "1",
+    ...program,
     ACE_HOME: options.home,
     ACE_VERSION: options.version,
     PATH: path,
   };
   // Electron-only switches must not leak into the Node child.
+  if (!program.ELECTRON_RUN_AS_NODE) delete env.ELECTRON_RUN_AS_NODE;
   delete env.ELECTRON_ENABLE_LOGGING;
   delete env.NODE_OPTIONS;
   if (resources.screenHelper && existsSync(resources.screenHelper)) {
@@ -49,9 +75,10 @@ export function daemonEnvironment(options: Omit<SpawnOptions, "onOutput">): Node
 }
 
 export function spawnDaemon(options: SpawnOptions): DaemonProcess {
-  const child = spawn(process.execPath, [options.resources.entry, "start"], {
+  const program = daemonProgram(options.resources, process.execPath);
+  const child = spawn(program.command, [options.resources.entry, "start"], {
     cwd: dirname(options.resources.entry),
-    env: daemonEnvironment(options),
+    env: daemonEnvironment(options, program.env),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -82,9 +109,10 @@ export function runDaemonCommand(
   timeoutMs = 60_000,
 ): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [options.resources.entry, ...args], {
+    const program = daemonProgram(options.resources, process.execPath);
+    const child = spawn(program.command, [options.resources.entry, ...args], {
       cwd: dirname(options.resources.entry),
-      env: daemonEnvironment(options),
+      env: daemonEnvironment(options, program.env),
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true,
       timeout: timeoutMs,

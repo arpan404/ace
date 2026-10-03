@@ -91,3 +91,15 @@ export function appEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   delete result.ELECTRON_RUN_AS_NODE;
   return result;
 }
+
+/**
+ * The architecture a build targets: `--arch arm64|x64`, or this machine's. Native code is
+ * built for the host, so the build scripts refuse any other.
+ */
+export function targetArch(argv: readonly string[]): "arm64" | "x64" {
+  const index = argv.indexOf("--arch");
+  const value = index === -1 ? process.arch : argv[index + 1];
+  if (value !== "arm64" && value !== "x64")
+    throw new Error(`Unsupported architecture ${String(value)}: use --arch arm64 or --arch x64`);
+  return value;
+}

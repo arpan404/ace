@@ -7,7 +7,9 @@ import { dirname, join } from "node:path";
 import { build } from "esbuild";
 import { z } from "zod";
 import { bundleDaemon } from "@ace/release";
-import { desktop, dist, electronBundles, releasePublicKey, repo } from "./common.ts";
+import { stageNodeRuntime } from "@ace/release/node-runtime";
+import { desktop, dist, electronBundles, releasePublicKey, repo, targetArch } from "./common.ts";
+import { verifyNatives } from "./verify-natives.ts";
 
 /**
  * Builds everything the packaged app ships, into `apps/desktop/dist`:
@@ -15,10 +17,18 @@ import { desktop, dist, electronBundles, releasePublicKey, repo } from "./common
  * - `daemon/`: the daemon bundle from `@ace/release`, its worker bundles, staged runtime
  *   packages (koffi, playwright-core, the Claude SDK), `descriptor.node` and node-pty;
  * - `helpers/`: the screen helper for this platform;
- * - `bin/rg`: ripgrep for workspace search.
- * Native code is built for the host platform; build each OS on that OS.
+ * - `bin/rg`: ripgrep for workspace search;
+ * - `runtime/`: the pinned Node runtime the daemon runs on (macOS and Linux).
+ * Native code is built for the host, so a build targets the host's OS and architecture
+ * (`--arch` must match it; release CI builds each architecture on its own runner). Before it
+ * finishes, every staged native binary is checked against the target architecture.
  */
 const log = (message: string) => console.log(`[build] ${message}`);
+const arch = targetArch(process.argv);
+if (arch !== process.arch)
+  throw new Error(
+    `This machine builds ${process.arch} native code; build the ${arch} app on a ${arch} machine`,
+  );
 const run = (command: string, args: string[], cwd = repo) =>
   execFileSync(command, args, { cwd, stdio: "inherit" });
 
@@ -68,6 +78,29 @@ await stageRipgrep(join(dist, "bin"));
 
 log("screen helper");
 await stageScreenHelper(join(dist, "helpers"));
+
+const releaseTarget = `${process.platform}-${arch}`;
+if (
+  releaseTarget === "darwin-arm64" ||
+  releaseTarget === "darwin-x64" ||
+  releaseTarget === "linux-arm64" ||
+  releaseTarget === "linux-x64"
+) {
+  log("node runtime");
+  const runtime = join(dist, "runtime");
+  const cacheDir = join(desktop, "node_modules/.cache/ace-node");
+  await mkdir(runtime, { recursive: true });
+  await mkdir(cacheDir, { recursive: true });
+  await stageNodeRuntime({
+    target: releaseTarget,
+    version: process.env.ACE_VERSION ?? manifest.version,
+    cacheDir,
+    destination: runtime,
+  });
+}
+
+log(`native code for ${process.platform}-${arch}`);
+await verifyNatives(arch);
 log(`done: ${dist}`);
 
 /**
