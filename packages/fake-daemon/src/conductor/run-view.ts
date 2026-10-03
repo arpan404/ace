@@ -1,5 +1,5 @@
 import { ConductorRunView } from "@ace/protocol";
-import type { FakeDeckCard, FakeDeckRun, FakeRole } from "./types.ts";
+import type { FakeDeckCard, FakeDeckRun } from "./types.ts";
 
 /*
  * The fake conductor's runs as the daemon publishes them (`ConductorRunView`): workstreams with
@@ -25,13 +25,6 @@ const laneStatus: Record<Exclude<FakeDeckCard["state"], "merge">, string> = {
   escalated: "waiting",
   merged: "done",
 };
-
-/** "Codex · personal" → "codex-personal": the account ids the fake account list serves. */
-function accountId(role: FakeRole): string {
-  const suffix = role.account.split("·").at(-1)?.trim().toLowerCase() ?? "default";
-  const provider = role.provider === "acp" ? "gemini" : role.provider;
-  return `${provider}-${suffix}`.replace(/[^a-z0-9._-]/g, "-");
-}
 
 function phase(run: FakeDeckRun): ConductorRunView["phase"] {
   switch (run.phase) {
@@ -59,7 +52,7 @@ function lanes(run: FakeDeckRun, cards: readonly FakeDeckCard[]) {
         agentId: agent,
         role: "worker",
         workstream: card.id,
-        account: accountId(lane.worker),
+        account: lane.worker.account,
         model: lane.worker.detail,
         generation,
         status,
@@ -69,7 +62,7 @@ function lanes(run: FakeDeckRun, cards: readonly FakeDeckCard[]) {
         agentId: `${agent}.review`,
         role: "reviewer",
         workstream: card.id,
-        account: accountId(lane.reviewer),
+        account: lane.reviewer.account,
         model: lane.reviewer.detail,
         generation,
         status: card.state === "in_review" ? "working" : status === "working" ? "waiting" : status,

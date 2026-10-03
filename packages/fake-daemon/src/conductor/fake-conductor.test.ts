@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
+import { accountSummaries } from "../services/accounts.ts";
 import { FakeConductor } from "./fake-conductor.ts";
+import { runView } from "./run-view.ts";
 
 const relay = (conductor: FakeConductor) => {
   const run = conductor.runs().find((r) => r.id === "relay-streams");
@@ -47,4 +49,12 @@ test("pause and resume return the deck to the phase it was in", () => {
   expect(paused?.phase).toBe("paused");
   conductor.command({ type: "conductor.resume", runId: "mobile-cold-start" });
   expect(conductor.runs().find((r) => r.id === "mobile-cold-start")?.phase).toBe("dealing");
+});
+
+test("every lane runs on an account the fake accounts.list serves", () => {
+  const conductor = new FakeConductor({ clock: () => 1 });
+  const listed = new Set(accountSummaries(1).map((account) => account.id));
+  const lanes = conductor.runs().flatMap((run) => runView(run).lanes);
+  expect(lanes.length).toBeGreaterThan(0);
+  expect(lanes.filter((lane) => !listed.has(lane.account))).toEqual([]);
 });

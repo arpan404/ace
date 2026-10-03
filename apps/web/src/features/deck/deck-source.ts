@@ -9,10 +9,11 @@ import { useDeckSnapshot, useDeckStore } from "./use-deck-store.ts";
 
 export { useDeckSender } from "./use-deck-store.ts";
 
-function useAccountNames(): DeckAccounts {
-  const accounts = useAccountViews().data;
-  const byId = new Map(accounts?.map((account) => [account.id, account]));
-  return (id) => {
+/** Lane accounts named from `accounts.list`; not settled until that read lands or fails. */
+function useAccountNames(): { settled: boolean; accounts: DeckAccounts } {
+  const query = useAccountViews();
+  const byId = new Map(query.data?.map((account) => [account.id, account]));
+  const accounts: DeckAccounts = (id) => {
     const account = byId.get(id);
     return (
       account && {
@@ -21,15 +22,17 @@ function useAccountNames(): DeckAccounts {
       }
     );
   };
+  return { settled: !query.isPending, accounts };
 }
 
 export function useDeckRuns(): { ready: boolean; error: string | undefined; runs: DeckRun[] } {
   const snapshot = useDeckSnapshot();
-  const accounts = useAccountNames();
+  const { settled, accounts } = useAccountNames();
   const runs = snapshot.entries.map((entry) =>
     entry.view ? deckFromView(entry.view, accounts) : deckFromSummary(entry.summary),
   );
-  return { ready: snapshot.ready, error: snapshot.error, runs };
+  // Wait for the account names too, so a lane never flashes "Account removed" while they load.
+  return { ready: snapshot.ready && settled, error: snapshot.error, runs };
 }
 
 export function useDeckRun(id: string): { ready: boolean; run: DeckRun | undefined } {

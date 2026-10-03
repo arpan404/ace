@@ -65,8 +65,9 @@ function cardState(node: Node): CardState {
 function role(lane: ViewLane | undefined, accounts: DeckAccounts): LaneRole | null {
   if (!lane) return null;
   const account = accounts(lane.account);
+  // Never show a raw account id: the daemon no longer lists this account.
   return {
-    account: account?.label ?? lane.account,
+    account: account?.label ?? "Account removed",
     provider: account?.provider,
     detail: lane.model,
   };

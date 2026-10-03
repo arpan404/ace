@@ -18,7 +18,7 @@ export interface Round {
   verdict: string;
 }
 export interface LaneRole {
-  /** The account's label ("Claude Code · Work"), or its id when the daemon doesn't list it. */
+  /** The account's label ("Claude Code · Work"), or "Account removed" when the daemon doesn't list it. */
   account: string;
   /** Unknown when the lane's account isn't one the daemon lists. */
   provider: ProviderKind | undefined;

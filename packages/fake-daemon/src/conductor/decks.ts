@@ -35,12 +35,12 @@ function card(
 
 const sequenceNumbers: FakeLane = {
   worker: {
-    account: "Claude Code · personal",
+    account: "claude-personal",
     provider: "claude",
     detail: "Sonnet 4.6, worktree lanes/sequence-numbers",
   },
   reviewer: {
-    account: "Codex · personal",
+    account: "codex-personal",
     provider: "codex",
     detail: "Adversarial: replays out-of-order and duplicated frames",
   },
@@ -57,12 +57,12 @@ const sequenceNumbers: FakeLane = {
 
 const clientAck: FakeLane = {
   worker: {
-    account: "Codex · personal",
+    account: "codex-personal",
     provider: "codex",
     detail: "GPT-5.3 Codex, worktree lanes/client-ack",
   },
   reviewer: {
-    account: "Claude Code · work",
+    account: "claude-work",
     provider: "claude",
     detail: "Adversarial: tries to break the ack ordering",
   },
@@ -86,12 +86,12 @@ const clientAck: FakeLane = {
 
 const replayCursor: FakeLane = {
   worker: {
-    account: "Claude Code · personal",
+    account: "claude-personal",
     provider: "claude",
     detail: "Opus 4.6, worktree lanes/replay-cursor",
   },
   reviewer: {
-    account: "Codex · personal",
+    account: "codex-personal",
     provider: "codex",
     detail: "Adversarial: replays with gaps and out-of-order seqs",
   },
@@ -108,11 +108,11 @@ const replayCursor: FakeLane = {
 
 const coldStartReplay: FakeLane = {
   worker: {
-    account: "Gemini CLI · google",
+    account: "gemini-google",
     provider: "acp",
     detail: "Worktree lanes/mobile-cold-start on build-box",
   },
-  reviewer: { account: "Claude Code · work", provider: "claude", detail: "Adversarial" },
+  reviewer: { account: "claude-work", provider: "claude", detail: "Adversarial" },
   threadId: null,
   rounds: [
     {
@@ -128,12 +128,12 @@ const coldStartReplay: FakeLane = {
 
 const soakTest: FakeLane = {
   worker: {
-    account: "OpenCode · personal",
+    account: "opencode",
     provider: "opencode",
     detail: "Soak harness: 500 reconnects per run",
   },
   reviewer: {
-    account: "Codex · work",
+    account: "codex-team",
     provider: "codex",
     detail: "Checks the harness itself for false passes",
   },
@@ -242,7 +242,7 @@ function coldStartLane(
   return {
     worker: { account, provider, detail },
     reviewer: {
-      account: "Claude Code · work",
+      account: "claude-work",
       provider: "claude",
       detail: "Adversarial: measures cold start on a throttled device profile",
     },
@@ -281,7 +281,7 @@ function mobileColdStart(now: number): FakeDeckRun {
       card("trace", "Startup trace baseline", [], "merged", {
         round: 1,
         lane: {
-          ...coldStartLane("Codex · personal", "codex", "GPT-5.3 Codex, worktree lanes/trace"),
+          ...coldStartLane("codex-personal", "codex", "GPT-5.3 Codex, worktree lanes/trace"),
           rounds: [
             { label: "Round 1", verdict: "Approved", detail: "merged as #88", findings: [] },
           ],
@@ -290,19 +290,15 @@ function mobileColdStart(now: number): FakeDeckRun {
       }),
       card("lazy-fonts", "Lazy-load fonts and icons", ["trace"], "working", {
         round: 1,
-        lane: coldStartLane(
-          "Claude Code · personal",
-          "claude",
-          "Sonnet 4.6, worktree lanes/lazy-fonts",
-        ),
+        lane: coldStartLane("claude-personal", "claude", "Sonnet 4.6, worktree lanes/lazy-fonts"),
       }),
       card("hermes-bytecode", "Precompile Hermes bytecode", ["trace"], "working", {
         round: 1,
-        lane: coldStartLane("Codex · personal", "codex", "GPT-5.3 Codex, worktree lanes/hermes"),
+        lane: coldStartLane("codex-personal", "codex", "GPT-5.3 Codex, worktree lanes/hermes"),
       }),
       card("defer-sync", "Defer the first relay sync", ["trace"], "escalated", {
         round: 2,
-        lane: coldStartLane("OpenCode · personal", "opencode", "Worktree lanes/defer-sync"),
+        lane: coldStartLane("opencode", "opencode", "Worktree lanes/defer-sync"),
       }),
       card("merge", "Merge to main", ["lazy-fonts", "hermes-bytecode", "defer-sync"], "merge", {
         note: "Merges once every card passes review and you approve the merge.",

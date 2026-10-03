@@ -80,13 +80,28 @@ test("node states read as card states, and fix rounds become review rounds", () 
     provider: "codex",
     detail: "gpt-5.3-codex",
   });
-  // An account the daemon doesn't list keeps its id and shows no provider.
-  expect(ack?.lane?.reviewer?.account).toBe("claude-work");
+  // An account the daemon doesn't list never shows its raw id.
+  expect(ack?.lane?.reviewer?.account).toBe("Account removed");
   expect(ack?.lane?.reviewer?.provider).toBeUndefined();
   expect(cursor?.state).toBe("in_review");
   expect(docs?.state).toBe("planned");
   expect(docs?.note).toBe("Starts after ack, cursor.");
   expect(deckRunSummary(run)).toBe("Dealing · 2 lanes active");
+});
+
+test("a lane on an account the daemon no longer lists reads 'Account removed', not its id", () => {
+  const run = deckFromView(
+    view({
+      dag: [node("seq", { state: "working" })],
+      lanes: [lane({ account: "opencode-personal" })],
+    }),
+    accounts,
+  );
+  expect(run.cards[0]?.lane?.worker).toEqual({
+    account: "Account removed",
+    provider: undefined,
+    detail: "gpt-5.3-codex",
+  });
 });
 
 test("a lane's newest generation replaces a retired one on its card", () => {
