@@ -49,6 +49,17 @@ test("the preview shows the page an agent is driving and follows its frames", as
   expect(decodeURIComponent(frame.getAttribute("src") ?? "")).toContain("iPhone 16 Pro Max");
 });
 
+test("the agent's browser is sized to the pane, so the page shows at full size", async () => {
+  const { panel, browser } = await openPreview();
+  await within(panel).findByText("is controlling the browser", { exact: false });
+  // jsdom lays every element out 800px wide; the browser starts at 760.
+  await waitFor(() => expect(browser.frame("thread-cold-start")?.width).toBe(800));
+  const page = within(panel).getByRole("img", {
+    name: "Live view of localhost:5173/settings/devices",
+  });
+  expect(decodeURIComponent(page.getAttribute("src") ?? "")).toContain('width="800"');
+});
+
 test("taking control pauses the agent, forwards clicks and keys, and hands back", async () => {
   const { panel, browser } = await openPreview();
   // Before you take control, the page is a picture: nothing is forwarded.

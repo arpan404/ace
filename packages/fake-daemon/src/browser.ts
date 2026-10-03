@@ -38,7 +38,13 @@ interface Entry {
   view?: BrowserView;
   frame?: ScreenFrame;
   servers: PreviewServer[];
+  typed: string;
+  /** The page's viewport in CSS pixels; a real browser starts at 760x900 here too. */
+  viewport: { width: number; height: number };
 }
+
+/** BrowserCommand `resize` bounds in `@ace/protocol`. */
+const clampDimension = (value: number) => Math.min(4096, Math.max(100, Math.round(value)));
 
 export class FakeBrowser {
   private entries = new Map<string, Entry>();
@@ -73,6 +79,19 @@ export class FakeBrowser {
     if (this.view(threadId)?.controller !== "human") return;
     this.inputs.push({ threadId, input });
   }
+  /**
+   * Size the page's viewport (BrowserCommand `resize`); the next frame is painted at that size,
+   * so a client showing it 1:1 fills its pane.
+   */
+  resize(threadId: string, width: number, height: number): void {
+    const entry = this.entries.get(threadId);
+    if (!entry) return;
+    const viewport = { width: clampDimension(width), height: clampDimension(height) };
+    if (viewport.width === entry.viewport.width && viewport.height === entry.viewport.height)
+      return;
+    entry.viewport = viewport;
+    if (entry.view && !entry.view.closed) this.paint(entry, entry.typed);
+  }
   /** Scripting: an agent opens the browser on a page and starts typing into it. */
   drive(threadId: string, options: { url: string; typed?: string }): void {
     const entry = this.entry(threadId);
@@ -97,18 +116,20 @@ export class FakeBrowser {
     this.changed();
   }
   private paint(entry: Entry, typed: string): void {
+    entry.typed = typed;
+    const { width, height } = entry.viewport;
     entry.frame = {
       sequence: (entry.frame?.sequence ?? 0) + 1,
-      src: pairPhoneFrame(typed),
-      width: 760,
-      height: 900,
+      src: pairPhoneFrame(typed, width, height),
+      width,
+      height,
     };
     this.changed();
   }
   private entry(threadId: string): Entry {
     let entry = this.entries.get(threadId);
     if (!entry) {
-      entry = { servers: [] };
+      entry = { servers: [], typed: "", viewport: { width: 760, height: 900 } };
       this.entries.set(threadId, entry);
     }
     return entry;

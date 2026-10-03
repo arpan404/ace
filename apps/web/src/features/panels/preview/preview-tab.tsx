@@ -5,7 +5,7 @@ import {
   HandIcon,
   LockSimpleIcon,
 } from "@phosphor-icons/react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog.tsx";
@@ -14,11 +14,13 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { cn } from "@/lib/cn.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { usePanelServices } from "../services.ts";
 import { useVersion } from "../store.ts";
 import { useBrowserDriver } from "./use-browser-driver.ts";
+import { useViewportSync } from "./use-viewport-sync.ts";
 import type { BrowserView, PreviewSource, ScreenFrame } from "../sources.ts";
 
 function usePreview(source: PreviewSource, threadId: string) {
@@ -62,7 +64,7 @@ function LiveBrowser(props: {
   const control = useControl(props.source, props.threadId, props.view);
   const frame = (
     <BrowserFrame url={props.view.url}>
-      <LiveFrame {...props} interactive={props.view.controller === "human"} />
+      <LiveFrame {...props} interactive={props.view.controller === "human"} active={!full} />
       <div className="glass absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full p-1">
         <ControlButton control={control} view={props.view} />
       </div>
@@ -89,7 +91,7 @@ function LiveBrowser(props: {
           <DialogTitle className="sr-only">Live view of {props.view.url}</DialogTitle>
           <div className="min-h-0 flex-1">
             <BrowserFrame url={props.view.url}>
-              <LiveFrame {...props} interactive={props.view.controller === "human"} />
+              <LiveFrame {...props} interactive={props.view.controller === "human"} active />
             </BrowserFrame>
           </div>
           <div className="glass mx-auto flex items-center gap-3 rounded-full py-1.5 pr-1.5 pl-4 text-ui">
@@ -193,14 +195,21 @@ function LiveFrame(props: {
   view: BrowserView;
   frame: ScreenFrame;
   interactive: boolean;
+  /** This pane sets the remote viewport (the full view takes over while it is open). */
+  active: boolean;
 }) {
   const { frame } = props;
+  const pane = useRef<HTMLDivElement>(null);
+  const page = useRef<HTMLImageElement>(null);
+  useViewportSync(props.source, props.threadId, pane, props.active);
+  // Pointer positions map back to page pixels through the picture's rendered box, which is
+  // 1:1 once the viewport follows the pane and scaled to fit when the backend can't resize.
   const point = (event: MouseEvent<HTMLElement>) => {
-    const box = event.currentTarget.getBoundingClientRect();
-    const scale = box.width ? frame.width / box.width : 1;
+    const box = page.current?.getBoundingClientRect();
+    const scale = box?.width ? frame.width / box.width : 1;
     return {
-      x: Math.round((event.clientX - box.left) * scale),
-      y: Math.round((event.clientY - box.top) * scale),
+      x: Math.round((event.clientX - (box?.left ?? 0)) * scale),
+      y: Math.round((event.clientY - (box?.top ?? 0)) * scale),
     };
   };
   const send = (event: "mousePressed" | "mouseReleased") => (mouse: MouseEvent<HTMLElement>) =>
@@ -215,36 +224,39 @@ function LiveFrame(props: {
       ...(event.key.length === 1 ? { text: event.key } : {}),
     });
   };
-  // The page fits the pane's width, scaled down uniformly (never up), as the design shows it;
-  // a tall page scrolls. Pointer positions are mapped back through the same scale.
-  const size = { maxWidth: frame.width, aspectRatio: `${frame.width} / ${frame.height}` };
   const image = (
     <img
+      ref={page}
       src={frame.src}
       alt={`Live view of ${props.view.url}`}
       draggable={false}
-      style={size}
-      className="block h-auto w-full"
+      width={frame.width}
+      height={frame.height}
+      className="block h-auto max-h-full w-auto max-w-full object-contain"
     />
   );
-  return (
-    <div className="absolute inset-0 overflow-auto overscroll-contain">
-      {props.interactive ? (
-        <div
-          role="application"
-          aria-label={`Control ${props.view.url}`}
-          tabIndex={0}
-          style={size}
-          onMouseDown={send("mousePressed")}
-          onMouseUp={send("mouseReleased")}
-          onKeyDown={onKeyDown}
-          className="relative w-full cursor-default outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-        >
-          {image}
-        </div>
-      ) : (
-        image
+  // The page sits top-left like a browser's; any space a frame doesn't cover (scaled to fit,
+  // or the moment between a resize and its next frame) is letterboxed in --muted.
+  const className = "absolute inset-0 flex items-start justify-start overflow-hidden bg-muted";
+  return props.interactive ? (
+    <div
+      ref={pane}
+      role="application"
+      aria-label={`Control ${props.view.url}`}
+      tabIndex={0}
+      onMouseDown={send("mousePressed")}
+      onMouseUp={send("mouseReleased")}
+      onKeyDown={onKeyDown}
+      className={cn(
+        className,
+        "cursor-default outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
       )}
+    >
+      {image}
+    </div>
+  ) : (
+    <div ref={pane} className={className}>
+      {image}
     </div>
   );
 }

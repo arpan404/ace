@@ -74,6 +74,11 @@ export interface PreviewSource {
   takeover(threadId: string): Promise<void>;
   handback(threadId: string): Promise<void>;
   input(threadId: string, input: ForwardedInput): void;
+  /**
+   * Size the page's viewport to the pane, in CSS pixels (BrowserCommand `resize`, 100–4096).
+   * Absent when the backend can't resize; the view then scales the frame to fit.
+   */
+  resize?: ((threadId: string, width: number, height: number) => void) | undefined;
 }
 
 const none: readonly never[] = [];
