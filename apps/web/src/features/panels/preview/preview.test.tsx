@@ -145,9 +145,14 @@ test("the first browser shows the daemon's Chromium download until it is ready",
   browser.requireDownload(150_000_000);
   await userEvent.click(await within(panel).findByRole("button", { name: "Open a browser" }));
 
-  expect((await within(panel).findByRole("status")).textContent).toContain(
-    "Downloading the browser · 40%",
-  );
+  expect(
+    await within(panel).findByRole("heading", { name: "Getting the browser ready" }),
+  ).toBeTruthy();
+  const bar = within(panel).getByRole("progressbar", { name: "Downloading the browser" });
+  expect(bar.getAttribute("aria-valuenow")).toBe("40");
+  expect(bar.getAttribute("aria-valuetext")).toBe("Downloading the browser · 40%");
+  // Nothing else to do meanwhile: the port form waits until the browser is ready.
+  expect(within(panel).queryByRole("form", { name: "Preview a dev server" })).toBeNull();
   act(() => browser.finishDownload());
   expect(await within(panel).findByRole("img", { name: "Live view of about:blank" })).toBeTruthy();
   expect(within(panel).queryByText(/Downloading the browser/)).toBeNull();

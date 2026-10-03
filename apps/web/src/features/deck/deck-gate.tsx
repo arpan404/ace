@@ -126,6 +126,15 @@ export function DeckGate(props: { run: DeckRun; gate: Gate; onOpenCard(cardId: s
         <p className="text-ui leading-[1.45] text-muted-foreground">{props.gate.body}</p>
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-2">
+        {review && (
+          <Button variant="secondary" disabled={sending} onClick={review}>
+            Review changes
+          </Button>
+        )}
+        <Button variant="primary" disabled={sending} onClick={() => void decide("approve")}>
+          {approveLabel[props.gate.kind]}
+        </Button>
+        {/* Last, after the primary decision: the rarer choices sit at the edge. */}
         <Menu>
           <MenuTrigger
             render={<IconButton icon={DotsThreeIcon} label="More decisions" disabled={sending} />}
@@ -136,14 +145,6 @@ export function DeckGate(props: { run: DeckRun; gate: Gate; onOpenCard(cardId: s
             </MenuItem>
           </MenuContent>
         </Menu>
-        {review && (
-          <Button variant="secondary" disabled={sending} onClick={review}>
-            Review changes
-          </Button>
-        )}
-        <Button variant="primary" disabled={sending} onClick={() => void decide("approve")}>
-          {approveLabel[props.gate.kind]}
-        </Button>
       </div>
       {reviewing && plan && <PlanReview plan={plan} onClose={() => setReviewing(false)} />}
       <Dialog open={rejecting} onOpenChange={setRejecting}>

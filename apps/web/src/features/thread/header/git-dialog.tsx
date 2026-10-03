@@ -86,13 +86,13 @@ export function GitDialog(props: {
               {commit ? (
                 <>
                   {uncommitted(checkout.changed)} on{" "}
-                  <span className="font-mono">{checkout.branch ?? "HEAD"}</span>
+                  <span className="font-mono whitespace-nowrap">{checkout.branch ?? "HEAD"}</span>
                   {push && ", then pushed to origin"}.
                 </>
               ) : (
                 <>
-                  <span className="font-mono">{checkout.branch}</span> into{" "}
-                  <span className="font-mono">{checkout.baseBranch}</span>
+                  <span className="font-mono whitespace-nowrap">{checkout.branch}</span> into{" "}
+                  <span className="font-mono whitespace-nowrap">{checkout.baseBranch}</span>
                   {checkout.repository &&
                     ` on ${checkout.repository.owner}/${checkout.repository.name}`}
                   .

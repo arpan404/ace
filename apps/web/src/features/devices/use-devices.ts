@@ -118,7 +118,10 @@ export function useDevices(threadId: string) {
       : snapshot.error
         ? problem(snapshot.error)
         : snapshot.closed
-          ? { message: "The devices connection closed.", hint: "Reconnect to see them again." }
+          ? {
+              message: "Lost the connection to this machine's simulators and emulators.",
+              hint: "Reconnect to see them again.",
+            }
           : undefined,
     enabled,
     rows,

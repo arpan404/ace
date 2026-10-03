@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { DeviceInput } from "@ace/protocol";
 import { leaseLeft, type DeviceRow } from "@ace/ui-core";
 import {
@@ -9,7 +10,7 @@ import {
   HouseSimpleIcon,
 } from "@phosphor-icons/react";
 import { useState } from "react";
-import { ControlBar, ControlToggle } from "@/components/control-toggle.tsx";
+import { ControlToggle } from "@/components/control-toggle.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
@@ -101,7 +102,13 @@ function TypeText(props: { disabled: boolean; onInput(input: DeviceInput): void 
 type Devices = ReturnType<typeof useDevices>;
 
 /** Home, Back (Android) and Rotate, then a line to type on the device. */
-function DeviceKeys(props: { devices: Devices; android: boolean; controlled: boolean }) {
+function DeviceKeys(props: {
+  devices: Devices;
+  android: boolean;
+  controlled: boolean;
+  /** Take control / Hand back, in the same row as the keys. */
+  control: ReactNode;
+}) {
   const { devices, controlled } = props;
   return (
     <div className="flex shrink-0 flex-col gap-2">
@@ -126,6 +133,7 @@ function DeviceKeys(props: { devices: Devices; android: boolean; controlled: boo
           disabled={!controlled}
           onClick={() => devices.input({ kind: "key", key: "rotate" })}
         />
+        <span className="ml-2">{props.control}</span>
       </div>
       <TypeText disabled={!controlled} onInput={devices.input} />
     </div>
@@ -204,18 +212,19 @@ function SelectedDevice(props: { devices: Devices }) {
                 onInput={devices.input}
               />
             </div>
-            <ControlBar>
+          </div>
+          {/* Under the screen, in flow, so it never covers what the device shows. */}
+          <DeviceKeys
+            devices={devices}
+            android={selected.platform === "android"}
+            controlled={controlled}
+            control={
               <ControlToggle
                 inControl={controlled}
                 disabled={view.pending || !controls.running}
                 onToggle={toggle}
               />
-            </ControlBar>
-          </div>
-          <DeviceKeys
-            devices={devices}
-            android={selected.platform === "android"}
-            controlled={controlled}
+            }
           />
         </>
       ) : (

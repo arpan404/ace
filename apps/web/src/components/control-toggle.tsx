@@ -1,8 +1,6 @@
 import { HandIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import { cn } from "@/lib/cn.ts";
 import { keymap } from "@/lib/keymap.ts";
 
 /**
@@ -26,19 +24,5 @@ export function ControlToggle(props: { inControl: boolean; disabled?: boolean; o
         className="ml-0.5 bg-[rgb(255_255_255/0.18)] text-current"
       />
     </Button>
-  );
-}
-
-/** A glass bar floating over the bottom of a live screen, for its control switch. */
-export function ControlBar(props: { children: ReactNode; className?: string }) {
-  return (
-    <div
-      className={cn(
-        "glass absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full p-1",
-        props.className,
-      )}
-    >
-      {props.children}
-    </div>
   );
 }

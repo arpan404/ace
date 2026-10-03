@@ -177,6 +177,9 @@ test("a dropped devices channel says so, and Reconnect opens a fresh one", async
   act(() => app.daemon.appDevices.dropAll());
 
   expect(await within(panel).findByText("Devices disconnected")).toBeTruthy();
+  expect(
+    within(panel).getByText(/Lost the connection to this machine's simulators and emulators/),
+  ).toBeTruthy();
   await userEvent.click(within(panel).getByRole("button", { name: "Reconnect" }));
   expect(await within(panel).findByRole("button", { name: "Enable devices" })).toBeTruthy();
 });

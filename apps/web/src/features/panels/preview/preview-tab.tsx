@@ -7,7 +7,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useThreadMeta } from "@ace/client-react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
-import { ControlBar, ControlToggle } from "@/components/control-toggle.tsx";
+import { ControlToggle } from "@/components/control-toggle.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
@@ -98,20 +98,28 @@ function NoPreview(props: {
       () => setState("failed"),
     );
   };
+  const download = state === "opening" ? props.download : undefined;
+  if (download)
+    return (
+      <EmptyState
+        icon={BrowserIcon}
+        title="Getting the browser ready"
+        description={
+          <span className="flex flex-col items-center gap-3">
+            <DownloadBar download={download} />
+            <span>The first browser on this machine takes a few minutes.</span>
+          </span>
+        }
+      />
+    );
   return (
     <EmptyState
       icon={BrowserIcon}
       title="Nothing to preview"
       description={
-        state === "failed" ? (
-          "The daemon couldn't open a browser for this thread."
-        ) : state === "opening" && props.download ? (
-          <span role="status">
-            {downloadText(props.download)}. The first browser on this machine takes a few minutes.
-          </span>
-        ) : (
-          "When an agent opens a browser or starts a dev server, its page shows here."
-        )
+        state === "failed"
+          ? "The daemon couldn't open a browser for this thread."
+          : "When an agent opens a browser or starts a dev server, its page shows here."
       }
       action={
         workspaceId ? (
@@ -125,6 +133,41 @@ function NoPreview(props: {
         ) : undefined
       }
     />
+  );
+}
+
+/**
+ * The daemon fetching Chromium: a thin bar, determinate while it knows the size, sweeping while
+ * it checks and unpacks.
+ */
+function DownloadBar(props: { download: BrowserDownload }) {
+  const { download } = props;
+  const percent =
+    download.phase === "downloading" && download.fraction !== undefined
+      ? Math.floor(Math.min(1, Math.max(0, download.fraction)) * 100)
+      : undefined;
+  return (
+    <span className="flex w-[220px] flex-col items-center gap-1.5">
+      <span
+        role="progressbar"
+        aria-label={downloadPhases[download.phase]}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+        aria-valuetext={downloadText(download)}
+        className="relative block h-1 w-full overflow-hidden rounded-full bg-secondary"
+      >
+        {percent === undefined ? (
+          <span className="fx-indeterminate absolute inset-y-0 w-1/3 rounded-full bg-foreground/70" />
+        ) : (
+          <span
+            className="absolute inset-0 origin-left rounded-full bg-foreground/70 transition-transform duration-(--dur-2) ease-smooth"
+            style={{ transform: `scaleX(${percent / 100})` }}
+          />
+        )}
+      </span>
+      <span className="text-xs text-subtle-foreground tabular-nums">{downloadText(download)}</span>
+    </span>
   );
 }
 
@@ -187,9 +230,6 @@ function LiveBrowser(props: {
   const frame = (
     <BrowserFrame url={props.view.url}>
       <LiveFrame {...props} interactive={props.view.controller === "human"} active={!full} />
-      <ControlBar>
-        <ControlButton control={control} view={props.view} />
-      </ControlBar>
     </BrowserFrame>
   );
   return (
@@ -208,6 +248,10 @@ function LiveBrowser(props: {
         </p>
       )}
       <div className="min-h-0 flex-1">{frame}</div>
+      {/* Under the frame, in flow, so it never covers the page. */}
+      <div className="flex shrink-0 justify-center">
+        <ControlButton control={control} view={props.view} />
+      </div>
       <Dialog open={full} onOpenChange={setFull}>
         <DialogContent className="flex h-[calc(100vh-4rem)] w-[calc(100vw-4rem)] max-w-none flex-col gap-3 bg-background p-6">
           <DialogTitle className="sr-only">Live view of {props.view.url}</DialogTitle>
