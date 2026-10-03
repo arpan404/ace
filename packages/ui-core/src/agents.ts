@@ -1,4 +1,12 @@
 import type { Agent, AgentStatus, BackgroundTask } from "@ace/protocol";
+import { providerNames } from "./providers.ts";
+
+/** How an agent is named in trees and status lines: the provider for the root, else its name. */
+export function agentName(agent: Pick<Agent, "origin" | "native" | "name" | "role">): string {
+  return agent.origin === "root"
+    ? providerNames[agent.native.provider]
+    : (agent.name ?? agent.role ?? "Subagent");
+}
 
 /** What an agent is doing, in the quiet lower-case phrasing of the tree ("waiting for subagents"). */
 export function describeActivity(status: AgentStatus, toolTitle?: string): string {

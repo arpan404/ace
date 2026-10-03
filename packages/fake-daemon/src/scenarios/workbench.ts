@@ -3,6 +3,7 @@ import type { ProviderKind } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
 import { dedupeReconnect } from "./dedupe-reconnect.ts";
 import { endTurn, message, output, rootAgent, tool, toolDone, turn } from "./facts.ts";
+import { installPageEdits, refundTaxEdits, retryBudgetEdits } from "./workbench-edits.ts";
 
 /**
  * A realistic Home list across five projects, matching the approved design: three threads
@@ -78,6 +79,7 @@ function retryBudget(): Scenario {
             "The relay restarts app-server forever when it crashes on boot. Give it a retry budget.",
             "/Users/dev/relay",
           ),
+          ...retryBudgetEdits(),
           message(
             "root",
             "plan",
@@ -179,6 +181,7 @@ function refundTax(): Scenario {
             "A partial refund on a taxed order refunds the tax twice. Fix it and add a regression test.",
             "/Users/dev/billing-api",
           ),
+          ...refundTaxEdits(),
           message(
             "root",
             "plan",
@@ -216,6 +219,7 @@ function installPage(): Scenario {
             "Rewrite the install page around `ace start` and the service install.",
             "/Users/dev/docs-site",
           ),
+          ...installPageEdits(),
           message(
             "root",
             "draft",

@@ -4,7 +4,7 @@ import { useCallback } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { formatClock } from "@ace/ui-core";
 import { InteractionCard } from "../interactions/interaction-card.tsx";
-import { agentName } from "../items/agent-row.tsx";
+import { agentName } from "@ace/ui-core";
 
 function list(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? "";

@@ -109,6 +109,13 @@ export function fileDiffKey(file: FileChanges, hash: (text: string) => string): 
   return hash(parts.join("|"));
 }
 
+/** What happened to a file across its changes: added, deleted, moved or modified. Cheap. */
+export function fileStatus(changes: readonly FileChange[]): FileDiff["status"] {
+  if (changes[0]?.kind === "add") return "added";
+  if (changes.at(-1)?.kind === "delete") return "deleted";
+  return changes.some((change) => change.kind === "move") ? "moved" : "modified";
+}
+
 /**
  * One file's diff. Successive full-text edits compose into one before/after diff; provider
  * patches are shown hunk by hunk. Linear to quadratic in the file's size: run it off the main
@@ -116,17 +123,8 @@ export function fileDiffKey(file: FileChanges, hash: (text: string) => string): 
  */
 export function diffFile(file: FileChanges): FileDiff {
   const { path, changes } = file;
-  const first = changes[0];
-  const last = changes.at(-1);
   const rows = rowsFor(changes);
-  const status =
-    first?.kind === "add"
-      ? "added"
-      : last?.kind === "delete"
-        ? "deleted"
-        : changes.some((change) => change.kind === "move")
-          ? "moved"
-          : "modified";
+  const status = fileStatus(changes);
   const { additions, deletions } = countChanges(rows);
   const diff: FileDiff = { path, status, rows, additions, deletions };
   const moved = changes.find((change) => change.kind === "move");

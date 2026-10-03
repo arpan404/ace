@@ -105,7 +105,7 @@ export function threadLog(
     }
     const notice = noticeOf(item);
     if (notice) push(notice);
-    for (const line of shellLines(item, (id) => reader.agent(id), root)) push(line);
+    for (const line of shellLines(item, (agentId) => reader.agent(agentId), root)) push(line);
   }
   for (const id of reader.taskIds()) {
     const task = reader.task(id);

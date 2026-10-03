@@ -157,6 +157,12 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
         agoMs: 5 * m + 50 * s,
         facts: [
           toolDone("audit", "edit-outbox"),
+          // reconnect-audit checks pairing in the browser; the Preview tab names it as the driver.
+          tool("audit", "browse-pairing", {
+            kind: "browser",
+            title: "Pair a phone on localhost:5173/settings/devices",
+            detail: { kind: "browser" },
+          }),
           activity("audit", "Reading apps/mobile/src/resume.ts"),
           tool("test", "run-tests", {
             kind: "shell",
@@ -223,6 +229,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
             "assistant",
             "The mobile client also resumes with seq 0 when its cache is empty; the cap covers it.",
           ),
+          toolDone("audit", "browse-pairing"),
           endTurn("audit", "audit-1"),
           toolDone("root", "spawn-audit"),
         ],

@@ -5,17 +5,18 @@
  * details, and transfers need files.request's binary channels, which @ace/client can't carry
  * yet; both use the fake backend in fake mode.
  */
+import type { FileChange } from "@ace/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { fileStatus } from "@ace/ui-core";
 import { UnavailableError, useFakeBackend, type FakeBackend } from "@/boot/fake-backend.ts";
 
+/** A file one thread changed, with the changes its tool calls carried (the Changes tab's). */
 export interface ChangedFile {
   threadId: string;
   threadTitle: string;
   workspaceId: string;
   path: string;
-  change: "modified" | "added" | "deleted" | "renamed";
-  additions: number;
-  deletions: number;
+  changes: readonly FileChange[];
   updatedAt: number;
 }
 
@@ -45,7 +46,8 @@ export function useDownloadFile() {
       const found = (await loaded(backend)).files.find(
         (entry) => entry.threadId === file.threadId && entry.path === file.path,
       );
-      if (!found || found.change === "deleted") throw new Error(`${file.path} no longer exists.`);
+      if (!found || fileStatus(found.changes) === "deleted")
+        throw new Error(`${file.path} no longer exists.`);
       return { name: found.path.split("/").at(-1) ?? found.path, text: found.text };
     },
   });
@@ -66,9 +68,7 @@ export function useUploadFile() {
           threadTitle: uploadsThread.title,
           workspaceId: input.workspaceId,
           path,
-          change: "added",
-          additions: text ? text.split("\n").length : 0,
-          deletions: 0,
+          changes: [{ path, kind: "add", newText: text }],
           updatedAt: input.now,
           text,
         },

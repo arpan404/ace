@@ -41,7 +41,8 @@ test("the Agents tab shows what each agent is doing, the background shell, and w
   expect(within(root).getByText("Claude Code")).toBeTruthy();
   expect(within(root).getByText("waiting for subagents")).toBeTruthy();
   const audit = within(panel).getByRole("group", { name: "reconnect-audit: Working" });
-  expect(within(audit).getByText("Reading apps/mobile/src/resume.ts")).toBeTruthy();
+  // Its running browser call is what it is doing (the Preview tab names it as the driver).
+  expect(within(audit).getByText("Pair a phone on localhost:5173/settings/devices")).toBeTruthy();
   const tester = within(panel).getByRole("group", { name: "regression-test: Working" });
   expect(within(tester).getByText("Run the replay tests")).toBeTruthy();
 

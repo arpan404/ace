@@ -85,6 +85,16 @@ function sumQuick(changes: readonly FileChange[]): DiffStat | undefined {
   return { added, removed };
 }
 
+/**
+ * One file's stat across all its changes, as the Changes tab's "All turns" counts it: the
+ * quick count while the worker diffs it, then the diff's.
+ */
+export function useFileStat(file: FileChanges): DiffStat | undefined {
+  const groups = useMemo(() => keyed([file]), [file]);
+  const [diff] = useReadyDiffs(groups);
+  return diff ? statOf(diff) : sumQuick(file.changes);
+}
+
 const none: readonly FileChange[] = [];
 
 /** Lines added and removed by one tool call's changes, each diffed in the worker. */

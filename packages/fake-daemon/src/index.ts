@@ -15,6 +15,8 @@ export { replayCursor } from "./scenarios/replay-cursor.ts";
 export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";
 export { coldStartReplay } from "./scenarios/cold-start-replay.ts";
 export { panelServices } from "./scenarios/panels.ts";
+export { devWorld } from "./scenarios/dev-world.ts";
+export type { WorldThread } from "./scenarios/dev-world.ts";
 export { FakeReviewDesk } from "./review-desk.ts";
 export { FakeTerminals } from "./terminals.ts";
 export type { TerminalEvent, TerminalInfo, TerminalLink, OpenRequest } from "./terminals.ts";

@@ -19,6 +19,7 @@ import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { usePanelServices } from "../services.ts";
 import { useVersion } from "../store.ts";
+import { useBrowserDriver } from "./use-browser-driver.ts";
 import type { BrowserView, PreviewSource, ScreenFrame } from "../sources.ts";
 
 function usePreview(source: PreviewSource, threadId: string) {
@@ -124,6 +125,7 @@ function useControl(source: PreviewSource, threadId: string, view: BrowserView) 
 }
 
 function ControlStatus(props: { view: BrowserView }) {
+  const driver = useBrowserDriver(props.view.threadId);
   if (props.view.controller === "human")
     return (
       <span className="flex min-w-0 items-center gap-2">
@@ -137,8 +139,8 @@ function ControlStatus(props: { view: BrowserView }) {
     <span className="flex min-w-0 items-center gap-2">
       <Spinner className="text-status-working" />
       <span className="truncate">
-        <b className="font-medium text-foreground">{props.view.owner ?? "An agent"}</b> is
-        controlling the browser
+        <b className="font-medium text-foreground">{driver ?? "An agent"}</b> is controlling the
+        browser
       </span>
     </span>
   );

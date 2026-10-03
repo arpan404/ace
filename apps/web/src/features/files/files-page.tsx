@@ -11,7 +11,9 @@ import { Select } from "@/components/ui/select.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { PageTitle, Screen } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
-import { formatAge } from "@ace/ui-core";
+import { fileStatus, formatAge } from "@ace/ui-core";
+import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
+import { useFileStat } from "@/lib/diffs/use-file-diffs.ts";
 import {
   uploadsThread,
   useChangedFiles,
@@ -38,17 +40,48 @@ function groups(files: readonly ChangedFile[]) {
   return [...byThread.values()];
 }
 
-/** Files the agents changed in every thread, with download and upload. */
+const allProjects = "\u0000all";
+const statusWords = { added: "added", deleted: "deleted", moved: "renamed", modified: "modified" };
+
+/**
+ * Files the agents changed in every thread, with download and upload. The project picker
+ * narrows the list; the text filter narrows it further by path.
+ */
 export function FilesPage() {
   const files = useChangedFiles();
   const [filter, setFilter] = useState("");
+  const [project, setProject] = useState(allProjects);
   const text = filter.trim().toLowerCase();
-  const shown = (files.data ?? []).filter(
-    (file) => !text || file.path.toLowerCase().includes(text) || file.workspaceId.includes(text),
-  );
   const projects = [...new Set((files.data ?? []).map((file) => file.workspaceId))].toSorted();
+  const shown = (files.data ?? []).filter(
+    (file) =>
+      (project === allProjects || file.workspaceId === project) &&
+      (!text || file.path.toLowerCase().includes(text) || file.workspaceId.includes(text)),
+  );
   return (
-    <Screen title="Files" actions={files.data && <UploadButton projects={projects} />}>
+    <Screen
+      title="Files"
+      actions={
+        files.data && (
+          <div className="flex items-center gap-1.5">
+            <Select
+              label="Project"
+              value={project}
+              options={[
+                { value: allProjects, label: "All projects" },
+                ...projects.map((id) => ({ value: id, label: id })),
+              ]}
+              onValueChange={setProject}
+              className="h-[26px] min-w-32 text-[12px]"
+            />
+            <UploadButton
+              projects={projects}
+              project={project === allProjects ? undefined : project}
+            />
+          </div>
+        )
+      }
+    >
       <div className="h-full overflow-auto">
         <div className="mx-auto max-w-(--column) px-8 pt-11 pb-20">
           <PageTitle title="Files" lede="Files the agents changed, in every thread and project." />
@@ -71,7 +104,7 @@ export function FilesPage() {
           ) : !shown.length ? (
             <EmptyState
               icon={FilesIcon}
-              title={text ? "No files match" : "No changed files"}
+              title={text || project !== allProjects ? "No files match" : "No changed files"}
               description="Files the agents change, in every thread, collect here."
             />
           ) : (
@@ -112,15 +145,18 @@ function FileRow(props: { file: ChangedFile }) {
   const now = useNow();
   const download = useDownloadFile();
   const toast = useToast();
+  const status = fileStatus(file.changes);
+  // Counted from the same diff the thread's Changes tab shows (off the main thread).
+  const stat = useFileStat(file);
   return (
     <li className="flex items-center gap-3 border-t py-2 text-ui last:border-b">
       <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">{file.path}</span>
-      <span className="w-16 text-sm text-subtle-foreground">{file.change}</span>
+      <span className="w-16 text-sm text-subtle-foreground">{statusWords[status]}</span>
       <span className="w-20 text-right font-mono text-[12px] tabular-nums">
         {/* Only the sides that changed: a new file reads +42, not +42 −0. */}
-        {file.additions > 0 && <span className="text-status-done">+{file.additions}</span>}
-        {file.additions > 0 && file.deletions > 0 && " "}
-        {file.deletions > 0 && <span className="text-status-failed">−{file.deletions}</span>}
+        {stat && stat.added > 0 && <span className="text-status-done">+{stat.added}</span>}
+        {stat && stat.added > 0 && stat.removed > 0 && " "}
+        {stat && stat.removed > 0 && <span className="text-status-failed">−{stat.removed}</span>}
       </span>
       <span className="w-8 text-right text-xs text-subtle-foreground">
         {formatAge(file.updatedAt, now)}
@@ -129,7 +165,7 @@ function FileRow(props: { file: ChangedFile }) {
         icon={DownloadSimpleIcon}
         label={`Download ${file.path}`}
         size="sm"
-        disabled={file.change === "deleted"}
+        disabled={status === "deleted"}
         onClick={() =>
           download.mutate(file, {
             onSuccess: (result) => {
@@ -144,25 +180,46 @@ function FileRow(props: { file: ChangedFile }) {
   );
 }
 
-function UploadButton(props: { projects: readonly string[] }) {
+/** Upload into the picked project, or choose one first when the list shows every project. */
+function UploadButton(props: { projects: readonly string[]; project: string | undefined }) {
   const input = useRef<HTMLInputElement>(null);
-  const [project, setProject] = useState(props.projects[0] ?? "");
+  const [target, setTarget] = useState<string>();
   const upload = useUploadFile();
   const toast = useToast();
   const now = useNow();
+  const pick = (project: string) => {
+    setTarget(project);
+    input.current?.click();
+  };
+  const button = (
+    <>
+      <Icon icon={UploadSimpleIcon} size={14} />
+      Upload
+    </>
+  );
   return (
-    <div className="flex items-center gap-1.5">
-      <Select
-        label="Upload to project"
-        value={project || props.projects[0] || ""}
-        options={props.projects.map((id) => ({ value: id, label: id }))}
-        onValueChange={setProject}
-        className="h-[26px] min-w-28 text-[12px]"
-      />
-      <Button variant="ghost" size="sm" onClick={() => input.current?.click()}>
-        <Icon icon={UploadSimpleIcon} size={14} />
-        Upload
-      </Button>
+    <>
+      {props.project ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Upload to ${props.project}`}
+          onClick={() => pick(props.project ?? "")}
+        >
+          {button}
+        </Button>
+      ) : (
+        <Menu>
+          <MenuTrigger render={<Button variant="ghost" size="sm" />}>{button}</MenuTrigger>
+          <MenuContent align="end" className="min-w-[180px]">
+            {props.projects.map((id) => (
+              <MenuItem key={id} onClick={() => pick(id)}>
+                Upload to {id}
+              </MenuItem>
+            ))}
+          </MenuContent>
+        </Menu>
+      )}
       <input
         ref={input}
         type="file"
@@ -171,16 +228,17 @@ function UploadButton(props: { projects: readonly string[] }) {
         onChange={(event) => {
           const file = event.target.files?.[0];
           event.target.value = "";
-          if (!file) return;
+          const workspaceId = target ?? props.project;
+          if (!file || !workspaceId) return;
           upload.mutate(
-            { workspaceId: project || props.projects[0] || "", file, now },
+            { workspaceId, file, now },
             {
-              onSuccess: (path) => toast.add({ title: `Uploaded ${path}` }),
+              onSuccess: (path) => toast.add({ title: `Uploaded ${path} to ${workspaceId}` }),
               onError: (error) => toast.add({ title: error.message }),
             },
           );
         }}
       />
-    </div>
+    </>
   );
 }

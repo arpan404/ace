@@ -1,5 +1,5 @@
 import {
-  providerNames,
+  agentName,
   agentStatusLabel,
   describeActivity,
   formatSpan,
@@ -119,9 +119,7 @@ function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
   const stop = useIntentSender();
   if (!agent || !status) return null;
   const root = agent.origin === "root";
-  const name = root
-    ? providerNames[agent.native.provider]
-    : (agent.name ?? agent.role ?? "Subagent");
+  const name = agentName(agent);
   const label = agentStatusLabel(status).label;
   const activity = describeActivity(
     status,
