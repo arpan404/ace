@@ -1,9 +1,12 @@
+import { cursorHosts } from "./cursor-hosts.ts";
 import { openDaemonModels } from "../models.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startModels(context: ServiceContext): Promise<void> {
   const { config, options, resources, services } = context;
 
-  const models = openDaemonModels(config.dataDir, options.modelInstances ?? []);
+  const models = openDaemonModels(config.dataDir, options.modelInstances ?? [], {
+    cursorSlots: cursorHosts(context),
+  });
   resources.own(() => models.close());
   services.models = models;
 }

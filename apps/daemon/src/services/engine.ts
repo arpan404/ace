@@ -1,3 +1,4 @@
+import { cursorHosts } from "./cursor-hosts.ts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
@@ -13,6 +14,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     engineOptions.registry ??
     (await discoverAdapters(engineOptions.adapterDiscovery, {
       ...engineOptions.cursor,
+      slots: cursorHosts(context),
       mcp:
         engineOptions.cursor?.mcp ??
         (async (session) => {

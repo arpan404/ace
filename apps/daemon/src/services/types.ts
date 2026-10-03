@@ -1,3 +1,4 @@
+import type { CursorHostSlots } from "@ace/adapter-cursor";
 import type { createLogger } from "@ace/diagnostics";
 import type { BrowserService } from "@ace/browser";
 import type { ContextService } from "@ace/context";
@@ -21,6 +22,7 @@ import type { Resources } from "./resources.ts";
 export interface Services {
   handler: CommandHandler;
   engine?: Engine;
+  cursorHosts?: CursorHostSlots;
   plugins: PluginService;
   preparePlugins(provider: Provider, root: string): ReturnType<typeof preparePluginSession>;
   launchPlugins(

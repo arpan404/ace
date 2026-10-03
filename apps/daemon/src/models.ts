@@ -6,6 +6,7 @@ import {
   openModelStorage,
   type InstanceInput,
   type ModelCatalogApi,
+  type DiscoveryOptions,
 } from "@ace/models";
 import { z } from "zod";
 import type { ClientMessage, ServerMessage } from "@ace/protocol";
@@ -20,13 +21,14 @@ export function readModelInstances(env: NodeJS.ProcessEnv = process.env): Instan
 export function openDaemonModels(
   dataDir: string,
   instances: readonly InstanceInput[],
+  discoveryOptions: DiscoveryOptions = {},
 ): ModelCatalog {
   const storage = openModelStorage(join(dataDir, "models.sqlite"));
   try {
     return new ModelCatalog({
       storage,
       instances,
-      discover: createModelDiscovery(),
+      discover: createModelDiscovery(discoveryOptions),
       now: Date.now,
       deadline(expire, ms) {
         const timer = setTimeout(expire, ms);

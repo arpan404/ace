@@ -68,6 +68,7 @@ export function readyServices(services: Partial<Services>): Services {
     review,
     usage,
     ...(services.engine ? { engine: services.engine } : {}),
+    ...(services.cursorHosts ? { cursorHosts: services.cursorHosts } : {}),
     ...(services.history ? { history: services.history } : {}),
   };
 }
