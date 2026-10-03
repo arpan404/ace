@@ -1,18 +1,20 @@
 import { ChatsIcon, MagnifyingGlassIcon, NotePencilIcon } from "@phosphor-icons/react";
-import { useSidebarLoaded, useSidebarThread } from "@ace/client-react";
+import { useClient, useSidebarLoaded, useSidebarThread } from "@ace/client-react";
+import { ThreadId } from "@ace/protocol";
 import { Link, useParams } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { SidebarHeader } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { activityOf, isUnread } from "@ace/ui-core";
 import { ProjectFilter } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { useHomeArrangement } from "./use-home-threads.ts";
 import { rememberThread } from "./last-thread.ts";
-import { useOrganizer, useOrganizerState } from "./use-organizer.ts";
+import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
 /**
  * Home's second sidebar: New thread, search, and every thread from every project and machine
@@ -82,23 +84,35 @@ export function HomeSidebar() {
 }
 
 /**
- * The open thread counts as read: record what was seen, and again as it moves. It is also the
- * thread Home returns to.
+ * The open thread counts as read: tell the daemon once it has news, and again as it moves, so
+ * every device sees it read. It is also the thread Home returns to.
  */
 function useSeenWhileOpen() {
   const params = useParams({ strict: false });
   const threadId = params.threadId;
   const entry = useSidebarThread(threadId ?? "");
   const organizer = useOrganizer();
+  const client = useClient();
   const { storage } = useLayout();
-  const updatedAt = entry?.updatedAt;
+  const unread = entry ? isUnread(entry, organizer.getState().baseline) : false;
+  const activity = entry ? activityOf(entry) : undefined;
+  const sent = useRef<string>(undefined);
   useEffect(() => {
     if (threadId) rememberThread(storage, threadId);
   }, [storage, threadId]);
   useEffect(() => {
-    if (!threadId || updatedAt === undefined) return;
-    const mark = organizer.mark(threadId);
-    if (mark?.seenAt === updatedAt && !mark.unread) return;
-    organizer.update(threadId, (current) => ({ ...current, seenAt: updatedAt, unread: false }));
-  }, [organizer, threadId, updatedAt]);
+    if (!threadId || activity === undefined) return;
+    // Once per thread and activity: marking the open thread unread by hand sticks until it
+    // moves again or is opened anew.
+    const key = `${threadId}@${activity}`;
+    if (sent.current === key) return;
+    sent.current = key;
+    if (!unread) return;
+    client
+      .command({ type: "thread.read", threadId: ThreadId.parse(threadId), unread: false })
+      .catch(() => {
+        // Offline: try again when the list next changes.
+        sent.current = undefined;
+      });
+  }, [client, threadId, unread, activity]);
 }

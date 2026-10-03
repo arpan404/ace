@@ -232,6 +232,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       switch (p.type) {
         case "thread.created":
         case "thread.updated":
+        case "thread.client.updated":
           view.thread = { ...view.thread };
           keys.add("thread");
           break;

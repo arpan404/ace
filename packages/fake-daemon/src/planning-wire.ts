@@ -2,13 +2,20 @@ import { compileSchedule } from "@ace/automations/recurrence";
 import {
   type AutomationRun,
   ServerMessage,
-  ConductorRunView,
   Automation,
   type ClientMessage,
   type ServerMessage as Message,
   type ConductorCommandPayload,
 } from "@ace/protocol";
 import type { FakeConductor } from "./conductor/fake-conductor.ts";
+import { runView } from "./conductor/run-view.ts";
+import type { FakeDeckRun } from "./conductor/types.ts";
+
+export interface PlanningSeed {
+  decks?: FakeDeckRun[];
+  automations?: Automation[];
+  runs?: AutomationRun[];
+}
 export class FakePlanningWire {
   private conductor: FakeConductor;
   private now: () => number;
@@ -25,64 +32,14 @@ export class FakePlanningWire {
   }
   private view(id: string) {
     const run = this.conductor.runs().find((entry) => entry.id === id);
-    if (!run) return undefined;
-    return ConductorRunView.parse({
-      id,
-      workspaceId: run.workspaceId,
-      goal: run.goal,
-      phase:
-        run.phase === "merged"
-          ? "done"
-          : run.phase === "paused" || run.phase === "cancelled" || run.phase === "planning"
-            ? run.phase
-            : "running",
-      spent: 0,
-      budget: 0,
-      plan: run.cards.some((card) => card.kind === "work")
-        ? {
-            summary: run.goal,
-            workstreams: run.cards
-              .filter((card) => card.kind === "work")
-              .map((card) => ({
-                id: card.id,
-                title: card.title,
-                dependencies: card.dependencies.filter((dependency) =>
-                  run.cards.some((other) => other.id === dependency && other.kind === "work"),
-                ),
-                priority: 0,
-                brief: {
-                  objective: card.title,
-                  instructions: card.note || card.title,
-                  acceptance: [card.title],
-                  files: [],
-                  packages: [],
-                  risks: [],
-                },
-              })),
-          }
-        : null,
-      planApproved: run.planApproved,
-      needsUser: run.gate
-        ? [
-            {
-              id: run.gate.id,
-              kind: run.gate.kind,
-              workstream: null,
-              lane: null,
-              generation: null,
-              message: run.gate.body.slice(0, 2048),
-            },
-          ]
-        : [],
-      lanes: [],
-      dag: run.cards.map((card) => ({
-        id: card.id,
-        title: card.title,
-        dependencies: card.dependencies,
-        state: card.state,
-      })),
-      truncated: false,
-    });
+    return run && runView(run);
+  }
+  /** Seed decks, automations and their past runs, as a daemon that has been running a while. */
+  seed(seed: PlanningSeed): void {
+    if (seed.decks) this.conductor.load(seed.decks);
+    for (const automation of seed.automations ?? [])
+      this.automations.set(automation.id, Automation.parse(automation));
+    for (const run of seed.runs ?? []) this.runs.set(run.id, run);
   }
   handle(
     message: ClientMessage,

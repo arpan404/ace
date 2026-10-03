@@ -4,7 +4,7 @@ import type { ThreadListEntry } from "@ace/protocol";
 import { useCallback, useMemo } from "react";
 import { useNow } from "@/lib/time.ts";
 import { arrange, projectCounts, type Arrangement, type ProjectCount } from "@ace/ui-core";
-import { useOrganizerState } from "./use-organizer.ts";
+import { useOrganizerState } from "@/features/organize/index.ts";
 
 const none: readonly string[] = [];
 const empty: Arrangement = { active: [], settled: [] };

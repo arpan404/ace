@@ -4,7 +4,8 @@ import type { ProviderKind } from "@ace/protocol";
 import { use, useCallback, useMemo, useSyncExternalStore } from "react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import type { SettingsBackend } from "./backend.ts";
-import { unavailableAccess } from "./access-source.ts";
+import { unavailableGaps } from "./access-gaps.ts";
+import { accessSource } from "./access-source.ts";
 import { daemonSettingsBackend } from "./daemon-backend.ts";
 import { settingKeys, type SettingDef } from "./setting-keys.ts";
 
@@ -12,14 +13,14 @@ const backends = new WeakMap<ClientApi, SettingsBackend>();
 type FakeAccessModule = typeof import("./access-fake.ts");
 let fakeModule: Promise<FakeAccessModule> | undefined;
 
-/** The fake daemon's access fixture is loaded on demand, so real-daemon builds never run it. */
+/** The fake machines and ACP agents are loaded on demand, so real-daemon builds never run them. */
 function loadFake(): Promise<FakeAccessModule> {
   return (fakeModule ??= import("./access-fake.ts"));
 }
 
-/** The browser's clock and randomness, injected at this boundary. */
+/** The browser's clock, injected at this boundary. */
 function withBrowserClock(module: FakeAccessModule) {
-  return module.fakeAccess({ now: () => Date.now(), random: () => Math.random() });
+  return module.fakeGaps({ now: () => Date.now() });
 }
 
 const defaults = Object.fromEntries(
@@ -33,11 +34,12 @@ const defaults = Object.fromEntries(
  */
 export function useSettingsBackend(): SettingsBackend {
   const client = useClient();
-  const fake = useDaemonConnection().mode === "fake";
-  const module = fake ? use(loadFake()) : undefined;
+  const connection = useDaemonConnection();
+  const module = connection.mode === "fake" ? use(loadFake()) : undefined;
   let backend = backends.get(client);
   if (!backend) {
-    const access = module ? withBrowserClock(module) : unavailableAccess();
+    const gaps = module ? withBrowserClock(module) : unavailableGaps();
+    const access = accessSource(connection.endpoint, gaps);
     backend = daemonSettingsBackend(client, { access, defaults });
     backends.set(client, backend);
   }

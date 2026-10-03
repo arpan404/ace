@@ -51,6 +51,19 @@ const visit =
     await heading(page, title);
   };
 
+/**
+ * Stage the fake daemon before the app's first request: `aceFakeSetup` runs in the fake boot
+ * with the daemon (failing or holding requests, emptying scripts, requiring a download).
+ */
+const staged =
+  (stage: string, then: Setup): Setup =>
+  async (page) => {
+    await page.addInitScript((body) => {
+      Object.assign(globalThis, { aceFakeSetup: new Function("daemon", body) });
+    }, stage);
+    await then(page);
+  };
+
 /** The design's hero thread with a message queued behind the busy agent. */
 async function heroWithQueue(page: Page) {
   await openThread("/t/thread-dedupe")(page);
@@ -68,8 +81,10 @@ const screens: Record<string, Setup> = {
   },
   "home-settled": async (page) => {
     await home(page);
+    // The list is virtual: Settled is rendered once it scrolls into view.
     const settled = page.getByRole("button", { name: /^Settled \(\d+\)$/ });
-    await settled.scrollIntoViewIfNeeded();
+    await page.getByRole("complementary", { name: "Threads" }).hover();
+    while (!(await settled.isVisible())) await page.mouse.wheel(0, 600);
     await settled.click();
     await page.getByRole("complementary", { name: "Threads" }).hover();
     await page.mouse.wheel(0, 2000);
@@ -120,7 +135,63 @@ const screens: Record<string, Setup> = {
     await rightTab("/t/thread-dedupe", "Agents", false)(page);
   },
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
+  // Nothing to preview yet: open a browser, or preview a dev server by its port.
+  "thread-preview-empty": rightTab("/t/thread-install-page", "Preview"),
+  // A thread stopped at its account's usage limit, with the recovery choices.
+  "thread-limited": async (page) => {
+    await openThread("/t/thread-limit-search")(page);
+    await page.getByRole("region", { name: "Usage limit reached" }).waitFor();
+  },
+  // A queued message's options: Send now, Edit, Move, Remove.
+  "thread-queue-menu": async (page) => {
+    await heroWithQueue(page);
+    await page.getByRole("button", { name: /^Queued message options:/ }).click();
+    await page.getByRole("menu").waitFor();
+  },
+  "thread-devices": async (page) => {
+    await rightTab("/t/thread-install-page", "Devices")(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("button", { name: "Enable devices" }).click();
+    const phone = panel.getByRole("region", { name: "iPhone 16 Pro" });
+    await phone.getByRole("button", { name: "Start live view" }).click();
+    await phone.getByRole("img", { name: "iPhone 16 Pro screen" }).waitFor();
+  },
+  "thread-devices-off": rightTab("/t/thread-install-page", "Devices"),
+  "thread-git-menu": async (page) => {
+    await openThread("/t/thread-retry-budget")(page);
+    await page.getByRole("button", { name: "Git actions" }).click();
+    await page.getByRole("menu", { name: "Git actions" }).waitFor();
+  },
+  "thread-commit": async (page) => {
+    await openThread("/t/thread-retry-budget")(page);
+    await page.getByRole("button", { name: "Commit", exact: true }).click();
+    await page.getByRole("dialog", { name: "Commit changes" }).waitFor();
+  },
+  "thread-create-pr": async (page) => {
+    await openThread("/t/thread-sheet-rotate")(page);
+    await page.getByRole("button", { name: "Create PR" }).click();
+    await page.getByRole("dialog", { name: "Open a pull request" }).waitFor();
+  },
+  "thread-run-menu": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("button", { name: "Choose a script" }).click();
+    await page.getByRole("menu").waitFor();
+  },
+  "thread-menu": async (page) => {
+    await openThread("/t/thread-install-page")(page);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menu", { name: "More actions" }).waitFor();
+  },
   "thread-terminal": bottomTab("/t/thread-cold-start", "Terminal"),
+  // A script started from Run, in its own terminal tab.
+  "thread-terminal-run": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("button", { name: "Run bun run dev:relay" }).click();
+    await page
+      .getByRole("region", { name: "Bottom panel" })
+      .getByRole("tab", { name: "dev:relay" })
+      .waitFor();
+  },
   "thread-logs": bottomTab("/t/thread-cold-start", "Logs"),
   activity: visit("/activity", "Activity"),
   // Automations opens on the first automation.
@@ -168,6 +239,77 @@ const screens: Record<string, Setup> = {
   "settings-keyboard": visit("/settings/keyboard", "Settings"),
   "settings-advanced": visit("/settings/advanced", "Settings"),
   "settings-theme-editor": visit("/settings/theme-editor", "Settings"),
+
+  // Offline, disconnected, loading and failure states, so they can be checked for intent.
+  "state-offline": async (page) => {
+    await openThread("/t/thread-dedupe")(page);
+    // The network goes away under the client (what the page's offline event does in a real
+    // connection); the dev server stays reachable for lazy modules.
+    await page.evaluate(() =>
+      (
+        globalThis as unknown as { ace: { client: { networkOnline(online: boolean): void } } }
+      ).ace.client.networkOnline(false),
+    );
+    await page.getByText(/^Offline\./).waitFor();
+  },
+  "state-reconnecting": async (page) => {
+    await openThread("/t/thread-dedupe")(page);
+    await page.evaluate(() =>
+      (
+        globalThis as unknown as { ace: { daemon: { refuseConnections(on: boolean): void } } }
+      ).ace.daemon.refuseConnections(true),
+    );
+    await page.getByText("Reconnecting to the daemon…").waitFor();
+  },
+  "state-devices-disconnected": async (page) => {
+    await rightTab("/t/thread-install-page", "Devices")(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("button", { name: "Enable devices" }).waitFor();
+    await page.evaluate(() =>
+      (
+        globalThis as unknown as { ace: { daemon: { appDevices: { dropAll(): void } } } }
+      ).ace.daemon.appDevices.dropAll(),
+    );
+    await panel.getByRole("button", { name: "Reconnect" }).waitFor();
+  },
+  "state-run-no-scripts": staged('daemon.setScripts("relay", []);', async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("button", { name: "Choose a script" }).click();
+    await page.getByRole("menuitem", { name: /No scripts in this project/ }).waitFor();
+  }),
+  "state-accounts-loading": staged('daemon.holdRequests("accounts.list");', async (page) => {
+    await visit("/more", "Usage & accounts")(page);
+    await page.getByRole("status", { name: /Loading accounts/ }).waitFor();
+  }),
+  "state-accounts-error": staged('daemon.failRequests("accounts.list");', async (page) => {
+    await visit("/more", "Usage & accounts")(page);
+    await page.getByText("Accounts unavailable").waitFor();
+  }),
+  "state-automations-loading": staged('daemon.holdRequests("automation.list");', async (page) => {
+    await page.goto("/automations");
+    await page.getByRole("status", { name: "Loading automations" }).waitFor();
+  }),
+  "state-automations-error": staged('daemon.failRequests("automation.list");', async (page) => {
+    await page.goto("/automations");
+    await page.getByRole("main").getByText("Automations unavailable").waitFor();
+  }),
+  "state-deck-loading": staged('daemon.holdRequests("conductor.request");', async (page) => {
+    await page.goto("/deck");
+    await page
+      .getByRole("status", { name: /^Loading/ })
+      .first()
+      .waitFor();
+  }),
+  "state-deck-error": staged('daemon.failRequests("conductor.request");', async (page) => {
+    await page.goto("/deck");
+    await page.getByText("Decks unavailable").waitFor();
+  }),
+  "state-preview-download": staged("daemon.browser.requireDownload(180_000_000);", async (page) => {
+    await rightTab("/t/thread-install-page", "Preview")(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("button", { name: "Open a browser" }).click();
+    await panel.getByRole("heading", { name: "Getting the browser ready" }).waitFor();
+  }),
 };
 
 for (const theme of ["dark", "light"] as const)
@@ -222,9 +364,10 @@ const sized: Record<string, { width: number; height: number; setup: Setup }> = {
     height: 900,
     setup: async (page) => {
       await openThread("/t/thread-dedupe")(page);
-      // From the first row through its Settle and Snooze to the second row.
+      // From the first row (it needs you, so it offers no Settle) through its Snooze to the
+      // second row.
       await threadList(page).getByRole("link").first().focus();
-      for (let step = 0; step < 3; step++) await page.keyboard.press("Tab");
+      for (let step = 0; step < 2; step++) await page.keyboard.press("Tab");
       await expect(threadList(page).getByRole("link").nth(1)).toBeFocused();
     },
   },

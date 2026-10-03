@@ -15,6 +15,7 @@ export function createTurnProvider(options: {
   provider: ProviderKind;
   reply: string;
   config: ScriptedTurnConfig;
+  markers?: { hold: string; limit: string; notice: string };
   now(): number;
   schedule(delayMs: number, callback: () => void): () => void;
 }): ProviderAdapter {
@@ -28,7 +29,7 @@ export function createTurnProvider(options: {
     return { seq: sequence, t: options.now(), dir: "recv", channel, data: payload.data, payload };
   };
   const capabilities = Capabilities.parse({
-    steer: false,
+    steer: Boolean(options.markers),
     interruptCascades: false,
     resume: true,
     fork: false,
@@ -87,7 +88,22 @@ export function createTurnProvider(options: {
         nativeSessionId:
           ctx.resume?.nativeSessionId ?? `scripted-${options.provider}-${ctx.threadId}`,
         async send(input) {
-          if (closed || active) throw new Error("Scripted session unavailable");
+          if (closed) throw new Error("Scripted session unavailable");
+          if (active) {
+            if (!options.markers) throw new Error("Scripted session unavailable");
+            const turn = active;
+            active = undefined;
+            cancel?.();
+            await emit([
+              { type: "item.upsert", agent: "root", item: `steer-${++sequence}`,
+                draft: { type: "message", role: "user", complete: true, parts: input } },
+              { type: "item.upsert", agent: "root", item: `reply-${turn}`,
+                draft: { type: "message", role: "assistant", complete: true,
+                  parts: [{ type: "text", text: options.reply }] } },
+              { type: "turn.ended", agent: "root", nativeTurnId: turn, outcome: "completed" },
+            ]);
+            return;
+          }
           const turn = `turn-${++sequence}`;
           active = turn;
           const text = input
@@ -107,6 +123,12 @@ export function createTurnProvider(options: {
               },
             },
           ]);
+          if (closed || active !== turn) return;
+          if (options.markers && text.includes(options.markers.hold)) return;
+          if (options.markers && text.includes(options.markers.limit)) {
+            await emit([{ type: "retry", agent: "root", on: "rate_limit", message: options.markers.notice }]);
+            return;
+          }
           const finish = async () => {
             if (closed || active !== turn) return;
             active = undefined;

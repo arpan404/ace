@@ -1,18 +1,34 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { createTurnProvider, ScriptedTurnConfig } from "@ace/adapter-testkit";
 import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
 import { ServerMessage, type ProviderKind } from "@ace/protocol";
 import {
   daemonHome,
   daemonPort,
+  pluginMarketPath,
+  pluginName,
+  holdMarker,
+  limitMarker,
+  limitNotice,
   scriptedReply,
   screensTitle,
   seededTitle,
   workerTitle,
   workspaceName,
+  workspaceTitle,
+  scriptOutput,
+  previewTitle,
+  settleTitle,
+  snoozeTitle,
+  forkTitle,
+  deleteTitle,
+  queueTitle,
+  limitTitle,
+  webOrigin,
+  pairedDeviceName,
 } from "./real-daemon-config.ts";
 
 /**
@@ -30,6 +46,7 @@ function scriptedProvider(provider: ProviderKind) {
     provider,
     reply: scriptedReply,
     config: scriptedConfig,
+    markers: { hold: holdMarker, limit: limitMarker, notice: limitNotice },
     now: Date.now,
     schedule(delayMs, callback) {
       const timer = setTimeout(callback, delayMs);
@@ -49,8 +66,38 @@ const git = (...args: string[]) =>
     stdio: "ignore",
   });
 git("init", "-q", "-b", "main");
+// The daemon commits as whoever the checkout names, as it does on a person's machine.
+git("config", "user.name", "ace e2e");
+git("config", "user.email", "e2e@ace.invalid");
 git("add", "README.md");
 git("commit", "-q", "-m", "Initial commit");
+// A script for the header's Run button, and an uncommitted edit for its git control.
+writeFileSync(
+  join(project, "package.json"),
+  `${JSON.stringify(
+    {
+      name: "e2e-project",
+      private: true,
+      scripts: {
+        greet: `echo ${scriptOutput}`,
+      },
+    },
+    null,
+    2,
+  )}\n`,
+);
+git("add", "package.json");
+git("commit", "-q", "-m", "Add a script");
+writeFileSync(join(project, "README.md"), "# e2e project\n\nEdited by the workspace journey.\n");
+
+seedPluginMarket();
+
+// An editor on the daemon's PATH, so Open has the same choice on every machine. The daemon only
+// lists and validates it; the app hands the launch to this machine, so it never runs.
+const editors = join(daemonHome, "bin");
+mkdirSync(editors, { recursive: true });
+writeFileSync(join(editors, "zed"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+process.env.PATH = `${editors}${delimiter}${process.env.PATH ?? ""}`;
 
 const registry = new AdapterRegistry();
 for (const provider of ["claude", "codex"] as const)
@@ -61,7 +108,13 @@ for (const provider of ["claude", "codex"] as const)
   });
 
 const daemon = await startDaemon({
-  config: { ...readConfig({}), dataDir: daemonHome, port: daemonPort, logLevel: "warn" },
+  config: {
+    ...readConfig({}),
+    dataDir: daemonHome,
+    port: daemonPort,
+    logLevel: "warn",
+    webOrigins: [webOrigin],
+  },
   engine: { registry },
 });
 // Context and files resolve only canonical roots (macOS's tmpdir is behind a symlink).
@@ -76,6 +129,15 @@ await seedThread(
 );
 await seedThread(daemon.url, daemonToken, workspace, screensTitle, "List what is in this project.");
 await seedThread(daemon.url, daemonToken, workspace, workerTitle, "Greet both tabs.");
+await seedThread(daemon.url, daemonToken, workspace, workspaceTitle, "Get the project ready.");
+await seedThread(daemon.url, daemonToken, workspace, settleTitle, "Tidy the README.");
+await seedThread(daemon.url, daemonToken, workspace, snoozeTitle, "Look at this tomorrow.");
+await seedThread(daemon.url, daemonToken, workspace, forkTitle, "Tidy the README.");
+await seedThread(daemon.url, daemonToken, workspace, deleteTitle, "Try something throwaway.");
+await seedThread(daemon.url, daemonToken, workspace, previewTitle, "Show me the page.");
+await seedThread(daemon.url, daemonToken, workspace, queueTitle, "Warm up the queue.");
+await seedThread(daemon.url, daemonToken, workspace, limitTitle, "Warm up before the limit.");
+daemon.store.devices.create(pairedDeviceName, ["read", "operate"], Date.now());
 process.stdout.write(`e2e daemon ready on ${daemon.url}\n`);
 
 const stop = () => void daemon.close().finally(() => process.exit(0));
@@ -123,4 +185,52 @@ async function seedThread(
   );
   await result;
   socket.close();
+}
+
+/** A marketplace with one plugin: a skill, a command and an MCP server its review shows. */
+function seedPluginMarket(): void {
+  const root = join(pluginMarketPath, "plugins", pluginName);
+  const files: Record<string, string> = {
+    "marketplace.json": JSON.stringify({
+      name: "e2e-market",
+      plugins: [{ name: pluginName, source: `./plugins/${pluginName}` }],
+    }),
+    [`plugins/${pluginName}/ace-plugin.json`]: JSON.stringify({
+      schemaVersion: 1,
+      name: pluginName,
+      version: "1.0.0",
+      description: "Tools for the e2e project",
+      skills: [{ name: "greet", path: "skills/greet" }],
+      commands: [{ name: "standup", path: "commands/standup.md" }],
+      agents: [],
+      rules: [],
+      mcpServers: {
+        notes: { type: "stdio", command: "node", args: ["${PLUGIN_ROOT}/server.js"], env: {} },
+      },
+    }),
+    [`plugins/${pluginName}/skills/greet/SKILL.md`]:
+      "---\nname: greet\ndescription: Greet the team\n---\nSay hello to everyone in the thread.\n",
+    [`plugins/${pluginName}/commands/standup.md`]:
+      "---\ndescription: Summarise the day\n---\nSummarise what moved today.\n",
+    [`plugins/${pluginName}/server.js`]: "throw new Error('never runs during the e2e');\n",
+  };
+  mkdirSync(root, { recursive: true });
+  for (const [path, content] of Object.entries(files)) {
+    const target = join(pluginMarketPath, path);
+    mkdirSync(join(target, ".."), { recursive: true });
+    writeFileSync(target, content);
+  }
+  commitAll(pluginMarketPath, "Plugin market");
+}
+
+/** A fresh repository at `cwd` holding everything in it as one commit. */
+function commitAll(cwd: string, subject: string): void {
+  const run = (...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=ace e2e", "-c", "user.email=e2e@ace.invalid", ...args], {
+      cwd,
+      stdio: "ignore",
+    });
+  run("init", "-q", "-b", "main");
+  run("add", ".");
+  run("commit", "-q", "-m", subject);
 }

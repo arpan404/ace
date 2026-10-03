@@ -5,7 +5,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { expect, it, onTestFinished } from "vitest";
 import { FilesService, attachFilesSocket } from "@ace/files";
 import { ClientMessage } from "@ace/protocol";
-import { downloadArtifact, authenticatedChannel } from "./index.ts";
+import { downloadArtifact, authenticatedChannel } from "./devices.ts";
 function deferred() {
   let resolve = noop;
   const promise = new Promise<void>((done) => {

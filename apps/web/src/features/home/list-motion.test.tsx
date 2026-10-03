@@ -25,10 +25,17 @@ async function openHome() {
   return app;
 }
 
-test("a settled card leaves the list at once for assistive tech, then fades out of the way", async () => {
+async function archive(title: RegExp) {
+  const target = within(threads()).getByRole("link", { name: title });
+  await userEvent.pointer({ keys: "[MouseRight]", target });
+  const menu = await screen.findByRole("menu", { name: /^Actions for/ });
+  await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
+}
+
+test("an archived card leaves the list at once for assistive tech, then fades out of the way", async () => {
   await openHome();
   const before = within(threads()).getAllByRole("listitem").length;
-  await userEvent.click(screen.getByRole("button", { name: "Settle Invoice PDF locale fallback" }));
+  await archive(/Invoice PDF locale fallback/);
 
   // It is no longer offered as a thread while it fades, and it can't be clicked meanwhile.
   expect(within(threads()).queryByRole("link", { name: /Invoice PDF locale fallback/ })).toBeNull();
@@ -42,9 +49,9 @@ test("a settled card leaves the list at once for assistive tech, then fades out 
   expect(within(threads()).getAllByRole("listitem")).toHaveLength(before - 1);
 });
 
-test("with reduced motion a settled card is gone in the same moment", async () => {
+test("with reduced motion an archived card is gone in the same moment", async () => {
   vi.stubGlobal("matchMedia", reducedMotion);
   await openHome();
-  await userEvent.click(screen.getByRole("button", { name: "Settle Invoice PDF locale fallback" }));
+  await archive(/Invoice PDF locale fallback/);
   expect(within(threads()).queryByText("Invoice PDF locale fallback")).toBeNull();
 });

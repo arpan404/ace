@@ -44,15 +44,51 @@ function MenuContent({
   );
 }
 
-/** One action. `icon` and `keys` render the leading glyph and trailing shortcut. */
+/**
+ * One action. `icon` and `keys` render the leading glyph and trailing shortcut. `reason` is a
+ * muted second line, for saying why a disabled item can't be chosen yet.
+ */
 function MenuItem({
   className,
   icon,
   keys,
   danger,
+  reason,
   children,
   ...props
-}: MenuPrimitive.Item.Props & { icon?: ReactNode; keys?: string; danger?: boolean }) {
+}: MenuPrimitive.Item.Props & {
+  icon?: ReactNode;
+  keys?: string;
+  danger?: boolean;
+  reason?: string | undefined;
+}) {
+  if (reason)
+    // Two lines: the row grows past 30px, and only the label and icon dim when disabled, so
+    // the reason keeps its contrast.
+    return (
+      <MenuPrimitive.Item
+        className={cn(
+          menuItem,
+          "group/item h-auto min-h-[30px] items-start py-1.5 data-disabled:opacity-100",
+          danger && menuDanger,
+          className,
+        )}
+        {...props}
+      >
+        {icon && (
+          <span className="mt-0.5 flex shrink-0 group-data-disabled/item:opacity-50">{icon}</span>
+        )}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate group-data-disabled/item:opacity-50">{children}</span>
+          <span className="text-xs whitespace-normal text-subtle-foreground">{reason}</span>
+        </span>
+        {keys && (
+          <span className={cn(menuShortcut, "group-data-disabled/item:opacity-50")}>
+            {formatKeys(keys)}
+          </span>
+        )}
+      </MenuPrimitive.Item>
+    );
   return (
     <MenuPrimitive.Item className={cn(menuItem, danger && menuDanger, className)} {...props}>
       {icon}

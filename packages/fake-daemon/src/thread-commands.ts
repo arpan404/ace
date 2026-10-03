@@ -10,7 +10,10 @@ import type { ThreadHost } from "./thread-host.ts";
 export type ThreadCommandOutcome = { ok: true; facts: Fact[] } | { ok: false; error: string };
 
 /** Text sent to the agent, with file mentions written the way a provider would see them. */
-function inputText(input: readonly ContentPart[], context: MessageContext | undefined): string {
+export function inputText(
+  input: readonly ContentPart[],
+  context: MessageContext | undefined,
+): string {
   const text = input
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("")
@@ -21,7 +24,7 @@ function inputText(input: readonly ContentPart[], context: MessageContext | unde
     : text;
 }
 
-function busy(host: ThreadHost): boolean {
+export function busy(host: ThreadHost): boolean {
   return !["new", "done", "failed"].includes(
     deriveThreadStatus({ ...host.state, queueCount: host.state.queueSources.provider }).state,
   );
@@ -33,6 +36,20 @@ export function startTurn(host: ThreadHost, key: string, text: string): Fact[] {
   if (root === undefined) return [];
   return [
     { type: "turn.started", agent: root, nativeTurnId: `turn-${key}`, trigger: "user" },
+    {
+      type: "item.upsert",
+      agent: root,
+      item: `input-${key}`,
+      draft: { type: "message", role: "user", complete: true, parts: [{ type: "text", text }] },
+    },
+  ];
+}
+
+/** A user message delivered into the running turn without ending it. */
+export function steerFacts(host: ThreadHost, key: string, text: string): Fact[] {
+  const root = host.state.rootKey;
+  if (root === undefined) return [];
+  return [
     {
       type: "item.upsert",
       agent: root,
@@ -56,46 +73,43 @@ export function sendFacts(
   const root = host.state.rootKey;
   if (root === undefined) return { ok: false, error: "no_agent" };
   const text = inputText(payload.input, payload.context);
-  if (!busy(host)) {
+  // A held queue (paused, limited, after a restart) keeps every send in order.
+  if (!busy(host) && !host.queue.paused) {
     host.nextSelection = {
       ...(payload.model ? { model: payload.model } : {}),
       ...(payload.options ? { options: payload.options } : {}),
     };
     return { ok: true, facts: startTurn(host, commandId, text) };
   }
-  if (payload.delivery === "steer" && payload.model === undefined && payload.options === undefined)
-    return {
-      ok: true,
-      facts: [
-        {
-          type: "item.upsert",
-          agent: root,
-          item: `input-${commandId}`,
-          draft: {
-            type: "message",
-            role: "user",
-            complete: true,
-            parts: [{ type: "text", text }],
-          },
-        },
-      ],
-    };
+  if (
+    payload.delivery === "steer" &&
+    !host.queue.paused &&
+    payload.model === undefined &&
+    payload.options === undefined
+  )
+    return { ok: true, facts: steerFacts(host, commandId, text) };
   if (host.queued.length >= 256) return { ok: false, error: "queue_limit" };
   host.queued.push({
     key: commandId,
     text,
+    input: [...payload.input],
+    ...(payload.context ? { context: payload.context } : {}),
+    delivery: payload.delivery,
+    state: "queued",
     ...(payload.model ? { model: payload.model } : {}),
     ...(payload.options ? { options: payload.options } : {}),
   });
+  host.queueDirty = true;
   return { ok: true, facts: [{ type: "queue.changed", count: host.queued.length }] };
 }
 
 /** Once the root agent is free, the oldest queued message starts the next turn. */
 export function drainQueue(host: ThreadHost): Fact[] {
   const root = host.state.rootKey;
-  if (root === undefined || busy(host)) return [];
+  if (root === undefined || busy(host) || host.queue.paused) return [];
   const next = host.queued.shift();
   if (!next) return [];
+  host.queueDirty = true;
   host.nextSelection = {
     ...(next.model ? { model: next.model } : {}),
     ...(next.options ? { options: next.options } : {}),

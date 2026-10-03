@@ -22,7 +22,18 @@ export interface Host {
   snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined;
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[];
   page(threadId: string, before: number, limit: number): ItemsPage | undefined;
+  /** Full shell output for `output.read`; a host without a stream store answers not_found. */
+  output?(
+    streamId: string,
+    offset: number,
+    limit: number,
+  ): { bytes: Uint8Array; nextOffset: number; eof: boolean } | undefined;
   command(command: Command): CommandResult;
+  /**
+   * Fault injection: "fail" answers a correlated request with the daemon's `unavailable` error,
+   * "hold" never answers it (a read that hangs), undefined serves it normally.
+   */
+  fault?(type: ClientMessage["type"]): "fail" | "hold" | undefined;
   /** Catalog request/response services; false when the message isn't one of them. */
   service(message: ClientMessage, connection: Connection): boolean;
   /** This socket's stateful services (context, terminals, browser, plugins, planning). */
@@ -94,6 +105,18 @@ export class Connection {
       this.close(4001);
       return;
     }
+    const fault =
+      "requestId" in message && message.requestId ? this.host.fault?.(message.type) : undefined;
+    if (fault === "hold") return;
+    if (fault === "fail" && "requestId" in message && message.requestId) {
+      this.send({
+        type: "error",
+        requestId: message.requestId,
+        code: "unavailable",
+        message: "The daemon couldn't answer that right now.",
+      });
+      return;
+    }
     this.handle(message);
   }
   private handle(message: ClientMessage): void {
@@ -118,9 +141,21 @@ export class Connection {
         this.send({ type: "commandResult", ...result });
         return;
       }
-      case "output.read":
-        this.error("not_found", { requestId: message.requestId });
+      case "output.read": {
+        const page = this.host.output?.(message.streamId, message.offset, message.limit);
+        if (!page) this.error("not_found", { requestId: message.requestId });
+        else
+          this.send({
+            type: "output.data",
+            requestId: message.requestId,
+            streamId: message.streamId,
+            offset: message.offset,
+            nextOffset: page.nextOffset,
+            bytes: base64(page.bytes),
+            eof: page.eof,
+          });
         return;
+      }
       default:
         if (this.host.service(message, this)) return;
         void this.session.handle(message, this.device);
@@ -175,4 +210,11 @@ export class Connection {
     this.host.release(this);
     this.wire.close(code);
   }
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let at = 0; at < bytes.length; at += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
+  return btoa(binary);
 }

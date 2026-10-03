@@ -20,12 +20,14 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { ViewSidebarError } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
-import { runSummary } from "./labels.ts";
+import { runNeedsAttention, runSummary } from "./labels.ts";
 import { describeTrigger } from "./schedule.ts";
 import { useAutomationRuns, useAutomations } from "./use-automations.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 const triggerIcons: Record<Automation["trigger"]["kind"], PhosphorIcon> = {
   schedule: ClockIcon,
@@ -47,10 +49,12 @@ function triggerIcon(trigger: Automation["trigger"]): PhosphorIcon {
 
 /** Automations' second sidebar: every schedule and trigger, then the latest runs. */
 export function AutomationsSidebar() {
-  const automations = useAutomations().data;
+  const list = useAutomations();
+  const automations = list.data;
   const runs = useAutomationRuns().data;
   const selected = useParams({ strict: false }).automationId;
   const now = useNow();
+  const projectName = useProjectName();
   return (
     <ViewSidebar
       title="Automations"
@@ -66,8 +70,10 @@ export function AutomationsSidebar() {
         </Tip>
       }
     >
-      {!automations ? (
-        <ListSkeleton label="automations" shape="card" rows={4} />
+      {!automations && list.isError ? (
+        <ViewSidebarError onRetry={() => void list.refetch()} />
+      ) : !automations ? (
+        <ListSkeleton label="automations" shape="tile" rows={4} />
       ) : !automations.length ? (
         <EmptyState
           icon={ClockIcon}
@@ -85,7 +91,7 @@ export function AutomationsSidebar() {
                 selected={selected === automation.id}
                 icon={<Icon icon={triggerIcon(automation.trigger)} size={16} />}
                 title={automation.title}
-                description={`${describeTrigger(automation.trigger)} · ${automation.workspace}`}
+                description={`${describeTrigger(automation.trigger)} · ${projectName(automation.workspace)}`}
                 trailing={automation.enabled ? undefined : "off"}
               />
             ))}
@@ -113,7 +119,11 @@ export function AutomationsSidebar() {
 
 function runMark(run: AutomationRun): ReactNode {
   if (run.status === "running") return <Spinner />;
-  return <Icon icon={run.status === "failed" ? WarningIcon : CheckIcon} size={16} />;
+  return runNeedsAttention(run) ? (
+    <Icon icon={WarningIcon} size={16} label="Needs a look" />
+  ) : (
+    <Icon icon={CheckIcon} size={16} label="Finished" />
+  );
 }
 
 function Section(props: { label: string; children: ReactNode }) {

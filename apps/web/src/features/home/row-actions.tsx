@@ -4,11 +4,10 @@ import { cn } from "@/lib/cn.ts";
 import type { ComponentProps, ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
-import { SnoozeItems } from "./snooze-items.tsx";
-import { useThreadActions } from "./use-thread-actions.ts";
+import { SnoozeItems, useThreadActions } from "@/features/organize/index.ts";
 
 /**
- * Settle and Snooze (or Unsettle on a settled row), floating at the row's top right while the
+ * Settle (finished threads) and Snooze, or Unsettle on a settled row,, floating at the row's top right while the
  * pointer or keyboard focus is on the row. They cover the age, which hides meanwhile, and step
  * aside while the row's context menu is open.
  */
@@ -37,13 +36,15 @@ export function RowActions(props: {
         </HoverButton>
       ) : (
         <>
-          <HoverButton
-            icon={<Icon icon={CheckIcon} size={14} />}
-            aria-label={`Settle ${title}`}
-            onClick={() => actions.settle(props.entry)}
-          >
-            Settle
-          </HoverButton>
+          {props.entry.status.state === "done" && (
+            <HoverButton
+              icon={<Icon icon={CheckIcon} size={14} />}
+              aria-label={`Settle ${title}`}
+              onClick={() => actions.settle(props.entry)}
+            >
+              Settle
+            </HoverButton>
+          )}
           <Menu>
             <MenuTrigger
               render={

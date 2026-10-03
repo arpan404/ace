@@ -2,7 +2,14 @@ import { CatalogModel, type ProviderKind } from "@ace/protocol";
 import { AccountSummary } from "@ace/protocol/accounts";
 import { expect, test } from "vitest";
 import { accountView, blockingReset } from "./accounts.ts";
-import { choiceLine, defaultModelChoice, modelChoices, newThreadOptions } from "./models.ts";
+import {
+  choiceLine,
+  choiceSelection,
+  currentModelChoice,
+  defaultModelChoice,
+  modelChoices,
+  newThreadOptions,
+} from "./models.ts";
 
 const account = (
   id: string,
@@ -133,4 +140,36 @@ test("a model choice reads as provider, lower-case account tag and model", () =>
 
   expect(choiceLine({ ...choice, account: "Work" })).toBe("Claude Code · work · Sonnet 4.5");
   expect(choiceLine({ ...choice, account: "" })).toBe("Claude Code · Sonnet 4.5");
+});
+
+test("a thread's picker shows what it runs on, or the switch waiting for its next turn", () => {
+  const choices = modelChoices(
+    [
+      model("claude", "claude-personal", "opus", true),
+      model("claude", "claude-work", "opus", true),
+      model("codex", "codex-team", "gpt-5"),
+    ],
+    [
+      account("claude-personal", "claude", {}),
+      account("claude-work", "claude", {}),
+      account("codex-team", "codex", {}),
+    ],
+  );
+  expect(
+    currentModelChoice(choices, { provider: "claude", model: "opus", instanceId: "claude-work" })
+      ?.id,
+  ).toBe("claude-work:opus");
+  expect(currentModelChoice(choices, { provider: "codex", model: "gpt-5" })?.id).toBe(
+    "codex-team:gpt-5",
+  );
+  // A model the catalog no longer lists falls back to the provider's default.
+  expect(currentModelChoice(choices, { provider: "claude", model: "retired" })?.provider).toBe(
+    "claude",
+  );
+  const work = choices.find((choice) => choice.id === "claude-work:opus");
+  expect(work && choiceSelection(work)).toEqual({
+    provider: "claude",
+    model: "opus",
+    instanceId: "claude-work",
+  });
 });

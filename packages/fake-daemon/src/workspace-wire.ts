@@ -11,7 +11,7 @@ import type { FakeServiceContext } from "./service-context.ts";
 export class FakeWorkspaceWire {
   readonly terminals = new FakeTerminals();
   private context: FakeServiceContext;
-  private forge: FakeForgeWire;
+  readonly forge: FakeForgeWire;
   constructor(context: FakeServiceContext) {
     this.context = context;
     this.forge = new FakeForgeWire(context);
@@ -20,14 +20,24 @@ export class FakeWorkspaceWire {
     { id: "code", name: "Visual Studio Code", command: "code" },
     { id: "zed", name: "Zed", command: "zed" },
   ];
-  readonly scripts = [
-    {
-      id: "package.json:dev",
-      name: "dev",
+  /** The project's scripts as the daemon lists them from package.json, by workspace. */
+  private scriptOverrides = new Map<string, readonly string[]>();
+  setScripts(workspaceId: string, names: readonly string[]): void {
+    this.scriptOverrides.set(workspaceId, names);
+  }
+  scripts(workspaceId: string | undefined) {
+    const names =
+      (workspaceId === undefined ? undefined : this.scriptOverrides.get(workspaceId)) ??
+      (workspaceId === "relay"
+        ? ["dev:relay", "test", "soak", "typecheck"]
+        : ["dev", "test", "build", "typecheck"]);
+    return names.map((name) => ({
+      id: `package.json:${name}`,
+      name,
       source: "package.json" as const,
-      command: "bun run dev",
-    },
-  ];
+      command: `bun run ${name}`,
+    }));
+  }
   read(request: WorkspaceActionRequest) {
     const op = request.operation;
     if (op.op === "runs.list") {
@@ -52,7 +62,10 @@ export class FakeWorkspaceWire {
       op.op === "editors.list"
         ? { kind: "editors", editors: this.editors }
         : op.op === "scripts.list"
-          ? { kind: "scripts", scripts: this.scripts }
+          ? {
+              kind: "scripts",
+              scripts: this.scripts(this.context.thread(op.threadId)?.thread.workspaceId),
+            }
           : op.op === "branches.list"
             ? { kind: "branches", branches: ["main", "develop"], truncated: false }
             : op.op === "pr.status"
@@ -138,7 +151,9 @@ export class FakeWorkspaceWire {
         : { ok: false, error: "editor_not_found" };
     }
     if (payload.type === "workspace.script.run") {
-      const script = this.scripts.find((entry) => entry.id === payload.scriptId);
+      const script = this.scripts(thread?.workspaceId).find(
+        (entry) => entry.id === payload.scriptId,
+      );
       if (!script) return { ok: false, error: "script_not_found" };
       const terminal = this.terminals.openNow({
         threadId: payload.threadId,
@@ -147,7 +162,7 @@ export class FakeWorkspaceWire {
         cols: 80,
         rows: 24,
       });
-      this.terminals.output(terminal.id, `$ ${script.command}\r\n`);
+      this.terminals.output(terminal.id, `${script.command}\r\n`);
       return { ok: true, terminalId: terminal.id };
     }
     if (payload.type === "git.commit") {

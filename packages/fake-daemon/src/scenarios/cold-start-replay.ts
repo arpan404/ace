@@ -2,6 +2,7 @@ import type { Fact } from "@ace/core";
 import type { Scenario } from "../scenario.ts";
 import { message, output, rootAgent, subagent, tool, toolDone } from "./facts.ts";
 import { outboxDiff, replayTs } from "./replay-sources.ts";
+import { checkout } from "./checkouts.ts";
 
 const turn = (agent: string, id: string, trigger: "user" | "spawn" = "user"): Fact => ({
   type: "turn.started",
@@ -38,6 +39,13 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
       workspaceId: "ace",
       title: "Cap cold-start replay at 200 events",
       provider: "claude",
+      details: checkout({
+        workspaceId: "ace",
+        branch: "fix/cold-start-cap",
+        path: "/Users/dev/ace",
+        head: "51f0aa",
+        diff: { files: 2, additions: 38, deletions: 6 },
+      }),
     },
     steps: [
       {

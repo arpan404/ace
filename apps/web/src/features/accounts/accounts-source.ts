@@ -1,16 +1,18 @@
 /*
  * Accounts and usage from the daemon: `accounts.list` (quota and availability per signed-in CLI
- * account) and `usage.series` / `usage.summary`. What the daemon can't report yet (plan, default
- * account, threads per account, the run-out policy) comes from account-details-source.ts.
+ * account) and `usage.series` / `usage.summary`, with each account's threads from the live list.
  */
 import { UsageQuery, type UsageResult } from "@ace/protocol";
-import { accountView, type AccountView } from "@ace/ui-core";
+import { accountView, type AccountThreadCounts, type AccountView } from "@ace/ui-core";
 import { useQueryClient } from "@tanstack/react-query";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
-import { useAccountDetails, type AccountDetails } from "./account-details-source.ts";
+import { useAccountThreads } from "./account-threads-source.ts";
 
 export type { QuotaWindowView as QuotaWindow } from "@ace/ui-core";
-export type Account = AccountView & Partial<AccountDetails>;
+/** An account with its threads; `threads` is absent until the thread list has loaded. */
+export type Account = AccountView & { threads?: AccountThreadCounts };
+
+const noThreads: AccountThreadCounts = { running: 0, limited: 0, limitedIds: [] };
 
 const keys = {
   accounts: ["accounts", "list"] as const,
@@ -28,14 +30,13 @@ export function useAccountViews() {
   });
 }
 
-/** Accounts with the details the accounts screen shows beside the daemon's report. */
+/** Accounts with the threads running on each, as the accounts screen shows them. */
 export function useAccounts() {
   const accounts = useAccountViews();
-  const details = useAccountDetails();
-  const data = accounts.data?.map((account): Account => ({
-    ...account,
-    ...details.data?.get(account.id),
-  }));
+  const threads = useAccountThreads();
+  const data = accounts.data?.map((account): Account =>
+    threads ? { ...account, threads: threads.get(account.id) ?? noThreads } : account,
+  );
   return { ...accounts, data };
 }
 

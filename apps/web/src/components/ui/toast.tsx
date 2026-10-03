@@ -4,16 +4,17 @@ import type { ReactNode } from "react";
 import { buttonVariants } from "./button.tsx";
 
 /**
- * Toasts: glass pills at the bottom centre with an optional action (Undo). Queue them from
- * anywhere under <ToastProvider> with `useToast().add({ title, actionProps })`. They stand
- * clear of the composer (`useToastClearance`) and of the phone's tab bar, never over an input.
+ * Toasts: glass pills in the bottom-right corner of the main pane (`useToastAnchor`), 12px in,
+ * with an optional action (Undo). Queue them from anywhere under <ToastProvider> with
+ * `useToast().add({ title, actionProps })`. They stand clear of the composer
+ * (`useToastClearance`), of open panels and of the phone's tab bar, never over an input.
  */
 function ToastProvider(props: { children: ReactNode }) {
   return (
     <Toast.Provider limit={3} timeout={5000}>
       {props.children}
       <Toast.Portal>
-        <Toast.Viewport className="fixed bottom-[var(--toast-bottom,22px)] left-1/2 max-sm:bottom-[var(--toast-bottom,78px)] z-[115] flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col items-center gap-2 outline-none">
+        <Toast.Viewport className="fixed right-[var(--toast-pane-right,22px)] bottom-[var(--toast-bottom,var(--toast-pane-bottom,22px))] z-[115] flex w-max max-w-[min(420px,calc(100vw-2rem))] flex-col items-end gap-2 outline-none max-sm:right-auto max-sm:bottom-[var(--toast-bottom,78px)] max-sm:left-1/2 max-sm:-translate-x-1/2 max-sm:items-center">
           <ToastList />
         </Toast.Viewport>
       </Toast.Portal>

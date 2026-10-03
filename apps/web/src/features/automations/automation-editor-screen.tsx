@@ -3,7 +3,8 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useWorkspaces, Page, PageTitle, Screen } from "@/features/shell/index.ts";
+import { Page, PageTitle, Screen } from "@/features/shell/index.ts";
+import { useProjectChoices } from "@/lib/projects.ts";
 import { AutomationEditor } from "./automation-form.tsx";
 import { automationFromForm, blankForm, formFromAutomation } from "./automation-values.ts";
 import { localTimeZone } from "./schedule.ts";
@@ -11,7 +12,7 @@ import { useAutomation, useAutomationActions } from "./use-automations.ts";
 
 /** /automations/new: a blank form; saving opens the new automation. */
 export function NewAutomationScreen() {
-  const workspaces = useWorkspaces();
+  const { ids: workspaces, name: workspaceName } = useProjectChoices();
   const { save } = useAutomationActions();
   const navigate = useNavigate();
   const toast = useToast();
@@ -25,6 +26,7 @@ export function NewAutomationScreen() {
         <AutomationEditor
           initial={blankForm(workspaces[0] ?? "")}
           workspaces={workspaces}
+          workspaceName={workspaceName}
           submitLabel="Create automation"
           cancel={
             <Link to="/automations" className={buttonVariants({ variant: "ghost" })}>
@@ -53,7 +55,7 @@ export function NewAutomationScreen() {
 /** /automations/$id/edit: the same form over an existing definition. */
 export function EditAutomationScreen(props: { id: string }) {
   const { entry, pending } = useAutomation(props.id);
-  const workspaces = useWorkspaces();
+  const { ids: workspaces, name: workspaceName } = useProjectChoices();
   const { save } = useAutomationActions();
   const navigate = useNavigate();
   if (!entry)
@@ -74,6 +76,7 @@ export function EditAutomationScreen(props: { id: string }) {
         <AutomationEditor
           initial={formFromAutomation(previous)}
           workspaces={workspaces}
+          workspaceName={workspaceName}
           submitLabel="Save changes"
           cancel={
             <Link {...back} className={buttonVariants({ variant: "ghost" })}>

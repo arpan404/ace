@@ -47,6 +47,8 @@ function daemon(layout: DevLayout): ProcessSpec {
       ACE_HOME: layout.home,
       ACE_PORT: String(layout.daemonPort),
       ACE_LISTEN: "local",
+      // The dev web app (and the dev desktop renderer, which loads it) manages devices cross-origin.
+      ACE_WEB_ORIGINS: new URL(webUrl(layout)).origin,
     },
   };
 }

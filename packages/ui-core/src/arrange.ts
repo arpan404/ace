@@ -1,63 +1,45 @@
 import type { ThreadListEntry } from "@ace/protocol";
-import type { AutoSettle, OrganizerState, ThreadMark } from "./organizer.ts";
+import type { OrganizerState } from "./organizer.ts";
 
-const day = 24 * 60 * 60 * 1000;
-export const autoSettleAfter: Record<AutoSettle, number | undefined> = {
-  never: undefined,
-  "1d": day,
-  "3d": 3 * day,
-  "1w": 7 * day,
-};
+/*
+ * Home ordering over the daemon's organization facts (ADR 0057). Settling, auto-settling and
+ * snooze expiry are decided by the daemon and arrive on the entry; these rules only read them.
+ */
 
-/** Hidden from Home altogether: archived by the daemon, deleted here, or archiving. */
-export function isRemoved(entry: ThreadListEntry, state: OrganizerState): boolean {
+/** Hidden from Home altogether: archived or deleted on the daemon, or hiding here for Undo. */
+export function isRemoved(entry: ThreadListEntry, state: Pick<OrganizerState, "hiding">): boolean {
   return (
-    entry.archivedAt !== undefined ||
-    state.archiving.has(entry.id) ||
-    state.marks[entry.id]?.deleted === true
+    entry.archivedAt !== undefined || entry.deletedAt !== undefined || state.hiding.has(entry.id)
   );
 }
 
-/**
- * Settled threads drop to the collapsed section. A thread that needs you never settles. A
- * settled thread comes back when it moves again; a thread unsettled by hand stays until it
- * moves again too. Otherwise a thread that is done settles once it has been quiet for the
- * auto-settle window.
- */
-export function isSettled(
-  entry: ThreadListEntry,
-  mark: ThreadMark | undefined,
-  autoSettle: AutoSettle,
-  now: number,
-): boolean {
-  if (entry.status.state === "needs_you") return false;
-  if (mark?.settledAt !== undefined && entry.updatedAt <= mark.settledAt) return true;
-  if (mark?.unsettledAt !== undefined && entry.updatedAt <= mark.unsettledAt) return false;
-  const after = autoSettleAfter[autoSettle];
-  return entry.status.state === "done" && after !== undefined && now - entry.updatedAt >= after;
+/** In the Settled section. A thread that needs you is never shown settled. */
+export function isSettled(entry: ThreadListEntry): boolean {
+  return entry.settledAt !== undefined && entry.status.state !== "needs_you";
 }
 
-export function isSnoozed(mark: ThreadMark | undefined, now: number): boolean {
-  return mark?.snoozedUntil !== undefined && mark.snoozedUntil > now;
+/** Snoozed until a moment still ahead. The daemon clears it once it passes. */
+export function isSnoozed(entry: ThreadListEntry, now: number): boolean {
+  return entry.snoozedUntil !== undefined && entry.snoozedUntil > now;
 }
+
+/** When the thread last did work; organization changes don't count. */
+export const activityOf = (entry: ThreadListEntry): number => entry.activityAt ?? entry.updatedAt;
 
 /**
  * New activity the person hasn't opened. Working threads move constantly, so only finished
- * work (done, failed) or a hand-set mark counts.
+ * work (done, failed) newer than the last read, or a thread marked unread by hand, counts.
+ * Threads never read anywhere compare against this device's first launch.
  */
-export function isUnread(
-  entry: ThreadListEntry,
-  mark: ThreadMark | undefined,
-  baseline: number,
-): boolean {
-  if (mark?.unread) return true;
+export function isUnread(entry: ThreadListEntry, baseline: number): boolean {
+  if (entry.unread === true) return true;
   if (entry.status.state !== "done" && entry.status.state !== "failed") return false;
-  return entry.updatedAt > (mark?.seenAt ?? baseline);
+  return activityOf(entry) > (entry.readAt ?? baseline);
 }
 
 /** Needs you, then moving, then trouble, then the rest; a snooze sinks a thread to the end. */
-export function rank(entry: ThreadListEntry, mark: ThreadMark | undefined, now: number): number {
-  if (isSnoozed(mark, now)) return 4;
+export function rank(entry: ThreadListEntry, now: number): number {
+  if (isSnoozed(entry, now)) return 4;
   switch (entry.status.state) {
     case "needs_you":
       return 0;
@@ -81,7 +63,7 @@ export interface Arrangement {
 /** Home order: by rank, pinned first within a rank, then most recent. Settled by recency. */
 export function arrange(
   entries: readonly ThreadListEntry[],
-  state: OrganizerState,
+  state: Pick<OrganizerState, "hiding" | "project">,
   now: number,
 ): Arrangement {
   const active: { entry: ThreadListEntry; rank: number; pinned: boolean }[] = [];
@@ -89,17 +71,16 @@ export function arrange(
   for (const entry of entries) {
     if (isRemoved(entry, state)) continue;
     if (state.project !== null && entry.workspaceId !== state.project) continue;
-    const mark = state.marks[entry.id];
-    if (isSettled(entry, mark, state.autoSettle, now)) settled.push(entry);
-    else active.push({ entry, rank: rank(entry, mark, now), pinned: mark?.pinned === true });
+    if (isSettled(entry)) settled.push(entry);
+    else active.push({ entry, rank: rank(entry, now), pinned: entry.pinned === true });
   }
   active.sort(
     (a, b) =>
       a.rank - b.rank ||
       Number(b.pinned) - Number(a.pinned) ||
-      b.entry.updatedAt - a.entry.updatedAt,
+      activityOf(b.entry) - activityOf(a.entry),
   );
-  settled.sort((a, b) => b.updatedAt - a.updatedAt);
+  settled.sort((a, b) => activityOf(b) - activityOf(a));
   return {
     active: active.map((row) => row.entry.id),
     settled: settled.map((entry) => entry.id),
@@ -114,7 +95,7 @@ export interface ProjectCount {
 /** Every project with at least one listed thread, by name. */
 export function projectCounts(
   entries: readonly ThreadListEntry[],
-  state: OrganizerState,
+  state: Pick<OrganizerState, "hiding">,
 ): ProjectCount[] {
   const counts = new Map<string, number>();
   for (const entry of entries)
@@ -123,4 +104,25 @@ export function projectCounts(
   return [...counts]
     .map(([id, threads]) => ({ id, threads }))
     .toSorted((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * The machine most listed threads run on: the one the daemon itself lives on. Cards name a
+ * machine only when it differs from this one.
+ */
+export function homeMachine(entries: readonly ThreadListEntry[]): string | undefined {
+  const counts = new Map<string, number>();
+  let best: string | undefined;
+  let most = 0;
+  for (const entry of entries) {
+    const host = entry.details?.machine?.host;
+    if (host === undefined) continue;
+    const count = (counts.get(host) ?? 0) + 1;
+    counts.set(host, count);
+    if (count > most) {
+      most = count;
+      best = host;
+    }
+  }
+  return best;
 }

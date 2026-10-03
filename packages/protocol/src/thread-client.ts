@@ -2,6 +2,7 @@ import { ExecutionOptions } from "./thread-transitions.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
 import { ThreadId, Timestamp } from "./ids.ts";
+import { ForgeRepository } from "./forge.ts";
 
 export const TurnOptions = ExecutionOptions;
 export type TurnOptions = z.infer<typeof TurnOptions>;
@@ -43,6 +44,8 @@ export const ThreadDetails = z.object({
   ahead: z.number().int().nonnegative().optional(),
   behind: z.number().int().nonnegative().optional(),
   baseBranch: z.string().max(1024).optional(),
+  /** The forge repository behind the checkout's origin remote, for `forge.pr.create`. */
+  repository: ForgeRepository.optional(),
   linkedPr: z
     .object({
       number: z.number().int().positive(),

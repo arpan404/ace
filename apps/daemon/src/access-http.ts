@@ -18,23 +18,61 @@ async function body(request: IncomingMessage): Promise<unknown> {
     throw new AccessError(400, "JSON object required");
   }
 }
-export function accessHttp(
-  auth: RemoteAuth,
-  authenticate: (token: string) => Device | undefined,
-  pairing: () => { origin: string; fingerprint: string } | undefined,
-  sourceAddress: (request: IncomingMessage) => string = (request) =>
-    request.socket.remoteAddress ?? "unknown",
-  maintenance?: MaintenanceGate,
+/**
+ * Routes a web app served from another origin may call with the daemon's token: paired devices,
+ * pairing and revoking. Only origins on the allowlist (`web-origins.ts`) get CORS headers, so other
+ * sites can neither preflight these routes nor read any response. The token travels only in the
+ * Authorization header and no cookie is ever accepted, so no credentials mode is granted. Pairing
+ * redemption and tickets stay same-origin.
+ */
+function crossOrigin(path: string): boolean {
+  return path === "/v1/devices" || path === "/v1/pairings" || /^\/v1\/devices\/[^/]+$/.test(path);
+}
+export interface AccessHttpOptions {
+  auth: RemoteAuth;
+  authenticate: (token: string) => Device | undefined;
+  pairing: () => { origin: string; fingerprint: string } | undefined;
+  /** Origins whose pages may read the cross-origin routes. */
+  allowedOrigins: ReadonlySet<string>;
+  sourceAddress?: (request: IncomingMessage) => string;
+  maintenance?: MaintenanceGate;
+  version?: string;
+  serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
+  ready?: () => boolean;
+}
+export function accessHttp({
+  auth,
+  authenticate,
+  pairing,
+  allowedOrigins,
+  sourceAddress = (request) => request.socket.remoteAddress ?? "unknown",
+  maintenance,
   version = "development",
-  serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[],
-  ready: () => boolean = () => true,
-) {
+  serviceStatus,
+  ready = () => true,
+}: AccessHttpOptions) {
   return (request: IncomingMessage, response: ServerResponse) => {
     void (async () => {
       response.setHeader("Cache-Control", "no-store");
       response.setHeader("Referrer-Policy", "no-referrer");
       response.setHeader("Content-Type", "application/json");
+      response.setHeader("Vary", "Origin");
       const path = request.url ?? "";
+      if (crossOrigin(path)) {
+        const origin = request.headers.origin;
+        const allowed = origin !== undefined && allowedOrigins.has(origin);
+        if (allowed) response.setHeader("Access-Control-Allow-Origin", origin);
+        if (request.method === "OPTIONS") {
+          request.resume();
+          if (!allowed) throw new AccessError(403, "Origin not allowed");
+          response.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE");
+          response.setHeader("Access-Control-Allow-Headers", "authorization, content-type");
+          response.setHeader("Access-Control-Max-Age", "600");
+          response.statusCode = 204;
+          response.end();
+          return;
+        }
+      }
       // Match exact paths. Credentials and fragments never belong in HTTP URLs.
       const token = request.headers.authorization?.match(/^Bearer ([0-9a-f]{64})$/)?.[1] ?? "";
       const actor = () => authenticate(token);

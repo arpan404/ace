@@ -18,6 +18,11 @@ export class FakeForgeWire {
   status(id: string): ForgePrStatus | null {
     return this.links.get(id) ?? null;
   }
+  /** Link a pull request the forge already knows: its checks, comments and state. */
+  seed(threadId: string, status: ForgePrStatus): void {
+    if (!this.context.thread(threadId)) throw new Error(`No thread ${threadId} to link`);
+    this.publish(threadId, ForgePrStatus.parse(status));
+  }
   private publish(id: string, status: ForgePrStatus): void {
     this.links.set(id, status);
     const thread = this.context.thread(id)?.thread;

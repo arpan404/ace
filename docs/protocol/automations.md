@@ -29,20 +29,16 @@ Example:
 
 ```json
 {
-  "concurrency": 7,
-  "enabled": true,
+  "concurrency": 8,
+  "enabled": false,
   "id": "example",
-  "jitterMs": 2,
-  "missedRun": "run_once",
-  "model": "example",
+  "jitterMs": 1,
+  "missedRun": "skip",
   "prompt": "example",
-  "provider": "codex",
+  "provider": "antigravity",
   "title": "example",
   "trigger": {
-    "kind": "file",
-    "paths": [
-      "example"
-    ]
+    "kind": "manual"
   },
   "workspace": "example",
   "worktree": false
@@ -80,7 +76,7 @@ Example:
 
 ```json
 {
-  "before": 8,
+  "before": null,
   "runs": []
 }
 ```
@@ -102,20 +98,20 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 9,
+    "concurrency": 10,
     "enabled": false,
     "id": "example",
-    "jitterMs": 4,
-    "missedRun": "skip",
+    "jitterMs": 6,
+    "missedRun": "run_once",
     "model": "example",
     "prompt": "example",
-    "provider": "claude",
+    "provider": "acp",
     "title": "example",
     "trigger": {
       "kind": "manual"
     },
     "workspace": "example",
-    "worktree": false
+    "worktree": true
   },
   "requestId": "example",
   "type": "automation.put"
@@ -189,7 +185,8 @@ Example:
 
 ```json
 {
-  "limit": 4,
+  "before": 6,
+  "limit": 9,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -214,7 +211,7 @@ Example:
 
 ```json
 {
-  "automations": [],
+  "error": "example",
   "ok": true,
   "requestId": "example",
   "type": "automation.result"
@@ -244,7 +241,9 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
+  "finishedAt": 7,
   "id": "example",
+  "result": "example",
   "startedAt": 1,
   "status": "succeeded",
   "title": "example",
@@ -268,7 +267,7 @@ Example:
 ```json
 {
   "expression": "example",
-  "kind": "rrule",
+  "kind": "cron",
   "startAt": 0,
   "timezone": "example"
 }
@@ -328,11 +327,11 @@ Example:
 
 ```json
 {
-  "event": "review_comment",
+  "event": "pr_changed",
   "kind": "github",
-  "pollIntervalMs": 60003,
-  "pullRequest": 5,
-  "repository": "iaDraTL21/wtKG3Cg9R"
+  "pollIntervalMs": 60009,
+  "pullRequest": 6,
+  "repository": "7_ENDfw1fd/TaDA"
 }
 ```
 

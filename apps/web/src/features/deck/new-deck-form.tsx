@@ -1,8 +1,6 @@
-import { useSidebar, useSidebarIds, type SidebarKey } from "@ace/client-react";
-import type { SidebarReader } from "@ace/client";
 import { useForm } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { z } from "zod";
 import { Button } from "@/components/ui/button.tsx";
@@ -12,7 +10,7 @@ import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { Textarea } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useDeckRuns, useDeckSource } from "./deck-source.ts";
+import { useDeckRuns, useDeckSender } from "./deck-source.ts";
 import {
   NewDeckInput,
   deckId,
@@ -20,6 +18,7 @@ import {
   type DeckProvider,
   type MergePolicy,
 } from "./deck-spec.ts";
+import { useProjectChoices } from "@/lib/projects.ts";
 
 const providers: readonly { value: DeckProvider; label: string }[] = [
   { value: "claude", label: "Claude Code" },
@@ -45,18 +44,11 @@ const merges: readonly { value: MergePolicy; title: string; description: string 
 ];
 const counts = (values: number[]) => values.map((n) => ({ value: String(n), label: String(n) }));
 
-const readWorkspaces = (reader: SidebarReader) =>
-  reader.ids.flatMap((id) => reader.thread(id)?.workspaceId ?? []).join("\n");
-
-/** Projects the user already works in: from the thread list and existing decks. */
-function useProjects(): string[] {
-  const ids = useSidebarIds() ?? [];
-  const keys: SidebarKey[] = ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)];
-  const fromThreads = useSidebar(keys, readWorkspaces) ?? "";
+/** Every project on this daemon, plus any an existing deck runs in. */
+function useProjects() {
   const { runs } = useDeckRuns();
-  return [...new Set([...fromThreads.split("\n"), ...runs.map((run) => run.workspaceId)])]
-    .filter(Boolean)
-    .toSorted();
+  const fromRuns = useMemo(() => runs.map((run) => run.workspaceId), [runs]);
+  return useProjectChoices(fromRuns);
 }
 
 function message(errors: readonly unknown[]): string | undefined {
@@ -69,8 +61,8 @@ function message(errors: readonly unknown[]): string | undefined {
 
 /** ⌘⇧N: describe the goal, choose who works and who reviews, and how the deck may merge. */
 export function NewDeckForm() {
-  const projects = useProjects();
-  const source = useDeckSource();
+  const { ids: projects, name: projectName } = useProjects();
+  const send = useDeckSender();
   const navigate = useNavigate();
   const toast = useToast();
   const [error, setError] = useState<string>();
@@ -100,7 +92,7 @@ export function NewDeckForm() {
       const input = parsed.data;
       const runId = deckId(input.goal, Date.now().toString(36));
       try {
-        await source.send({
+        await send({
           type: "conductor.start",
           runId,
           spec: deckSpec(input, `deck-${runId}`),
@@ -156,7 +148,7 @@ export function NewDeckForm() {
                 <Select
                   label="Project"
                   value={field.state.value || projects[0] || ""}
-                  options={projects.map((id) => ({ value: id, label: id }))}
+                  options={projects.map((id) => ({ value: id, label: projectName(id) }))}
                   onValueChange={field.handleChange}
                   className="w-full"
                 />

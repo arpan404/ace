@@ -27,14 +27,15 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await beat(1200);
   const threads = page.getByRole("navigation", { name: "Threads" });
   // Settling a row: it fades out where it was and the rows below close the gap.
-  const row = threads.getByRole("link").nth(3);
+  // The list is virtual: scroll the finished thread into view first.
+  const row = threads.getByRole("link", { name: /Haptics on approval and send/ });
+  await page.getByRole("complementary", { name: "Threads" }).hover();
+  while (!(await row.isVisible())) await page.mouse.wheel(0, 300);
   await row.hover();
   await beat(400);
-  await threads
-    .getByRole("button", { name: /^Settle / })
-    .first()
-    .click();
+  await threads.getByRole("button", { name: "Settle Haptics on approval and send" }).click();
   await beat(1200);
+  await page.mouse.wheel(0, -5000);
   await threads.getByRole("link", { name: /Replay cursor resets on every resume/ }).click();
   const transcript = page.getByRole("feed", { name: "Transcript" });
   await transcript.waitFor();
@@ -53,6 +54,15 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await message.press("Enter");
   await expect(page.getByText("Queued", { exact: true })).toBeVisible();
   await beat();
+  // Send now steers it into the running turn.
+  await page.getByRole("button", { name: /^Queued message options:/ }).click();
+  await beat(500);
+  await page.getByRole("menuitem", { name: "Send now" }).click();
+  await beat();
+
+  // Run: the project's script in its own terminal tab.
+  await page.getByRole("button", { name: "Run bun run dev:relay" }).click();
+  await beat(1200);
 
   // The agent tree, then Changes with a line comment.
   await page.keyboard.press("ControlOrMeta+j");
@@ -78,9 +88,32 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await page.getByRole("button", { name: "Right panel" }).click();
   await beat(900);
 
-  // The bottom panel's terminal.
-  await page.getByRole("button", { name: "Bottom panel" }).click();
-  await beat(1000);
+  // The bottom panel stays open on the terminal Run started.
+  // Devices: enable them, then watch the simulator live.
+  await panel.getByRole("tab", { name: "Devices" }).click();
+  await panel.getByRole("button", { name: "Enable devices" }).click();
+  const phone = panel.getByRole("region", { name: "iPhone 16 Pro" });
+  await phone.getByRole("button", { name: "Start live view" }).click();
+  await beat(1500);
+
+  // Commit what changed, from the git control.
+  await page.goto("/t/thread-retry-budget");
+  await transcript.waitFor();
+  await page.getByRole("button", { name: "Commit", exact: true }).click();
+  await beat(900);
+  await page
+    .getByRole("dialog", { name: "Commit changes" })
+    .getByRole("button", { name: "Commit" })
+    .click();
+  await beat(1200);
+
+  // A thread stopped at its account's limit moves to another account.
+  await page.goto("/t/thread-limit-search");
+  const limit = page.getByRole("region", { name: "Usage limit reached" });
+  await limit.waitFor();
+  await beat(1200);
+  await limit.getByRole("button", { name: "Move to another account" }).click();
+  await beat(1200);
 
   // A new thread whose first message streams in.
   await page.keyboard.press("ControlOrMeta+n");

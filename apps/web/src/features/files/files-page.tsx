@@ -11,16 +11,17 @@ import { Select } from "@/components/ui/select.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { PageTitle, Screen } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
-import { fileStatus, formatAge } from "@ace/ui-core";
+import { fileStatus, formatAge, writtenText } from "@ace/ui-core";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useFileStat } from "@/lib/diffs/use-file-diffs.ts";
 import {
   uploadsThread,
   useChangedFiles,
-  useDownloadFile,
   useUploadFile,
+  useUploadsAvailable,
   type ChangedFile,
 } from "./files-source.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 /** Hand a text file to the browser as a download. Boundary code: DOM and object URLs. */
 function saveAs(name: string, text: string) {
@@ -44,19 +45,23 @@ const allProjects = "\u0000all";
 const statusWords = { added: "added", deleted: "deleted", moved: "renamed", modified: "modified" };
 
 /**
- * Files the agents changed in every thread, with download and upload. The project picker
+ * Files the agents changed in every thread, with download of what an agent created. The project picker
  * narrows the list; the text filter narrows it further by path.
  */
 export function FilesPage() {
   const files = useChangedFiles();
+  const uploads = useUploadsAvailable();
   const [filter, setFilter] = useState("");
   const [project, setProject] = useState(allProjects);
+  const projectName = useProjectName();
   const text = filter.trim().toLowerCase();
   const projects = [...new Set((files.data ?? []).map((file) => file.workspaceId))].toSorted();
   const shown = (files.data ?? []).filter(
     (file) =>
       (project === allProjects || file.workspaceId === project) &&
-      (!text || file.path.toLowerCase().includes(text) || file.workspaceId.includes(text)),
+      (!text ||
+        file.path.toLowerCase().includes(text) ||
+        projectName(file.workspaceId).toLowerCase().includes(text)),
   );
   return (
     <Screen
@@ -69,15 +74,17 @@ export function FilesPage() {
               value={project}
               options={[
                 { value: allProjects, label: "All projects" },
-                ...projects.map((id) => ({ value: id, label: id })),
+                ...projects.map((id) => ({ value: id, label: projectName(id) })),
               ]}
               onValueChange={setProject}
               className="h-[26px] min-w-32 text-[12px]"
             />
-            <UploadButton
-              projects={projects}
-              project={project === allProjects ? undefined : project}
-            />
+            {uploads && (
+              <UploadButton
+                projects={projects}
+                project={project === allProjects ? undefined : project}
+              />
+            )}
           </div>
         )
       }
@@ -117,6 +124,7 @@ export function FilesPage() {
 }
 
 function ThreadFiles(props: { files: readonly ChangedFile[] }) {
+  const projectName = useProjectName();
   const first = props.files[0];
   if (!first) return null;
   return (
@@ -129,7 +137,9 @@ function ThreadFiles(props: { files: readonly ChangedFile[] }) {
             {first.threadTitle}
           </Link>
         )}
-        <small className="text-sm font-normal text-subtle-foreground">{first.workspaceId}</small>
+        <small className="text-sm font-normal text-subtle-foreground">
+          {projectName(first.workspaceId)}
+        </small>
       </h2>
       <ul className="mt-2.5">
         {props.files.map((file) => (
@@ -143,9 +153,9 @@ function ThreadFiles(props: { files: readonly ChangedFile[] }) {
 function FileRow(props: { file: ChangedFile }) {
   const { file } = props;
   const now = useNow();
-  const download = useDownloadFile();
   const toast = useToast();
   const status = fileStatus(file.changes);
+  const written = writtenText(file);
   // Counted from the same diff the thread's Changes tab shows (off the main thread).
   const stat = useFileStat(file);
   return (
@@ -165,16 +175,13 @@ function FileRow(props: { file: ChangedFile }) {
         icon={DownloadSimpleIcon}
         label={`Download ${file.path}`}
         size="sm"
-        disabled={status === "deleted"}
-        onClick={() =>
-          download.mutate(file, {
-            onSuccess: (result) => {
-              saveAs(result.name, result.text);
-              toast.add({ title: `Downloaded ${result.name}` });
-            },
-            onError: (error) => toast.add({ title: error.message }),
-          })
-        }
+        disabled={written === undefined}
+        onClick={() => {
+          if (written === undefined) return;
+          const name = file.path.split("/").at(-1) ?? file.path;
+          saveAs(name, written);
+          toast.add({ title: `Downloaded ${name}` });
+        }}
       />
     </li>
   );
@@ -187,6 +194,7 @@ function UploadButton(props: { projects: readonly string[]; project: string | un
   const upload = useUploadFile();
   const toast = useToast();
   const now = useNow();
+  const projectName = useProjectName();
   const pick = (project: string) => {
     setTarget(project);
     input.current?.click();
@@ -203,7 +211,7 @@ function UploadButton(props: { projects: readonly string[]; project: string | un
         <Button
           variant="ghost"
           size="sm"
-          aria-label={`Upload to ${props.project}`}
+          aria-label={`Upload to ${projectName(props.project)}`}
           onClick={() => pick(props.project ?? "")}
         >
           {button}
@@ -214,7 +222,7 @@ function UploadButton(props: { projects: readonly string[]; project: string | un
           <MenuContent align="end" className="min-w-[180px]">
             {props.projects.map((id) => (
               <MenuItem key={id} onClick={() => pick(id)}>
-                Upload to {id}
+                Upload to {projectName(id)}
               </MenuItem>
             ))}
           </MenuContent>
@@ -233,7 +241,8 @@ function UploadButton(props: { projects: readonly string[]; project: string | un
           upload.mutate(
             { workspaceId, file, now },
             {
-              onSuccess: (path) => toast.add({ title: `Uploaded ${path} to ${workspaceId}` }),
+              onSuccess: (path) =>
+                toast.add({ title: `Uploaded ${path} to ${projectName(workspaceId)}` }),
               onError: (error) => toast.add({ title: error.message }),
             },
           );

@@ -11,6 +11,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Screen } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { useSearch, type SearchHit, type SearchKind } from "./search-source.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 export type KindFilter = "all" | SearchKind;
 const filters = [
@@ -76,6 +77,7 @@ export function SearchPage(props: {
   const [active, setActive] = useState(0);
   const navigate = useNavigate();
   const now = useNow();
+  const projectName = useProjectName();
   const results = useSearch(deferred, props.kind === "all" ? undefined : props.kind);
   const hits = deferred.trim() ? (results.data ?? []) : [];
   const open = (hit: SearchHit | undefined) =>
@@ -182,7 +184,7 @@ export function SearchPage(props: {
                   >
                     <span className="flex items-center gap-2 text-xs text-subtle-foreground">
                       <ProviderMark provider={hit.provider} />
-                      {hit.workspaceId} · {kindLabel[hit.kind]}
+                      {projectName(hit.workspaceId)} · {kindLabel[hit.kind]}
                       <span className="ml-auto tabular-nums">{formatAge(hit.createdAt, now)}</span>
                     </span>
                     <span className="mt-0.5 block text-base font-medium">{hit.threadTitle}</span>

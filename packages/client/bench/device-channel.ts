@@ -3,7 +3,7 @@ import { WebSocket } from "ws";
 import { startRelay, connectHostToRelay } from "@ace/relay";
 import { keyPair, fingerprint } from "@ace/secure-channel";
 import { HostId } from "@ace/protocol";
-import { DeviceClient, deviceTransport } from "../src/index.ts";
+import { DeviceClient, deviceTransport } from "../src/devices.ts";
 
 // Non-gating authenticated transport benchmark; run only when the owner permits it.
 const relay = await startRelay({ port: 0, bind: "127.0.0.1" });

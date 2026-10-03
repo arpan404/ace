@@ -39,7 +39,7 @@ test("the bottom panel's terminal shows the background shell and runs a new term
   await expect(terminals.getByRole("tab", { name: /relay:soak/ })).toBeVisible();
 
   await bottom.getByRole("button", { name: "New terminal" }).click();
-  const terminal = bottom.getByRole("group", { name: /^zsh( \d+)? terminal$/ });
+  const terminal = bottom.getByRole("group", { name: /^Terminal( \d+)? terminal$/ });
   // Keys go to the shell as they are typed, like a real terminal.
   const input = terminal.getByRole("textbox", { name: "Terminal input" });
   await input.pressSequentially("pwd");

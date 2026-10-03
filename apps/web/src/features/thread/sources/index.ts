@@ -1,17 +1,14 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import { useDaemonConnection } from "@/boot/connection.tsx";
 import { daemonCommandSource, type CommandSource } from "./command-source.ts";
 import { daemonContextSource, type ContextSource } from "./context-source.ts";
-import { fakeThreadActionsSource, type ThreadActionsSource } from "./thread-actions-source.ts";
-import { unavailableThreadActions, unavailableWorkspaceSource } from "./unavailable.ts";
-import { fakeWorkspaceSource, type WorkspaceSource } from "./workspace-source.ts";
+import { daemonThreadActions, type ThreadActionsSource } from "./thread-actions-source.ts";
+import { daemonWorkspaceSource, type WorkspaceSource } from "./workspace-source.ts";
 
 /**
- * What the thread screen reads or does beyond the live thread store. Slash commands, mentions
- * and uploads go to the daemon in every mode. Workspace and organization actions have no
- * protocol on main yet: the fake daemon's stand-ins serve dev:fake and tests, and a real daemon
- * gets sources that report them unavailable.
+ * What the thread screen reads or does beyond the live thread store. Slash commands, mentions,
+ * uploads, thread organization and the checkout's scripts, editors, git and forge all go to the
+ * daemon in every mode; fake mode gets the same behaviour from @ace/fake-daemon.
  */
 export interface ThreadSources {
   workspace: WorkspaceSource;
@@ -20,11 +17,10 @@ export interface ThreadSources {
   actions: ThreadActionsSource;
 }
 
-function createSources(client: ClientApi, fake: boolean): ThreadSources {
+function createSources(client: ClientApi): ThreadSources {
   return {
-    // TODO(client-gaps): feat/client-protocol-gaps routes workspace and organization commands.
-    workspace: fake ? fakeWorkspaceSource() : unavailableWorkspaceSource(),
-    actions: fake ? fakeThreadActionsSource() : unavailableThreadActions(),
+    workspace: daemonWorkspaceSource(client),
+    actions: daemonThreadActions(client),
     context: daemonContextSource(client),
     commands: daemonCommandSource(client),
   };
@@ -35,13 +31,13 @@ const perClient = new WeakMap<ClientApi, ThreadSources>();
 
 export function useThreadSources(): ThreadSources {
   const client = useClient();
-  const fake = useDaemonConnection().mode === "fake";
   let sources = perClient.get(client);
   if (!sources) {
-    sources = createSources(client, fake);
+    sources = createSources(client);
     perClient.set(client, sources);
   }
   return sources;
 }
 
 export type { ThreadRef } from "./workspace-source.ts";
+export type { Selection } from "./thread-actions-source.ts";

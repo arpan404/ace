@@ -8,7 +8,7 @@ const settle = 150;
  * Keep the remote browser's viewport the size of the pane showing it, so the page renders 1:1
  * rather than as a scaled-down picture. Sends the size once on mount (and whenever `active`
  * turns on, e.g. when the full view closes and the pane takes over again), then debounced on
- * every resize. Does nothing when the backend can't resize; the frame is scaled to fit instead.
+ * every resize. A backend that can't resize keeps its size, and the frame is scaled to fit.
  */
 export function useViewportSync(
   source: PreviewSource,
@@ -19,8 +19,7 @@ export function useViewportSync(
   const last = useRef("");
   useLayoutEffect(() => {
     const el = pane.current;
-    const resize = source.resize?.bind(source);
-    if (!el || !active || !resize) return;
+    if (!el || !active) return;
     last.current = "";
     const send = () => {
       const width = Math.floor(el.offsetWidth);
@@ -30,7 +29,7 @@ export function useViewportSync(
       const key = `${width}x${height}`;
       if (key === last.current) return;
       last.current = key;
-      resize(threadId, width, height);
+      source.resize(threadId, width, height);
     };
     send();
     if (typeof ResizeObserver === "undefined") return;

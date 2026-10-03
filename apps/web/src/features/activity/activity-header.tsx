@@ -15,7 +15,7 @@ import {
 import { useAutomationRuns } from "@/features/automations/index.ts";
 import { useActivityState } from "./activity-state.tsx";
 import { useFeed, useFeedSource } from "./feed-source.ts";
-import { useWorkspaces } from "@/features/shell/index.ts";
+import { useProjectChoices } from "@/lib/projects.ts";
 
 const allProjects = "*";
 
@@ -51,14 +51,14 @@ export function ActivityActions() {
 
 function ProjectFilter() {
   const { project, setProject } = useActivityState();
-  const projects = useProjects();
+  const { ids: projects, name } = useProjects();
   return (
     <Menu>
       <MenuTrigger
         render={
           <IconButton
             icon={FunnelSimpleIcon}
-            label={project ? `Filter: ${project}` : "Filter"}
+            label={project ? `Filter: ${name(project)}` : "Filter"}
             pressed={project !== undefined}
           />
         }
@@ -70,9 +70,9 @@ function ProjectFilter() {
         >
           <MenuLabel>Project</MenuLabel>
           <MenuRadioItem value={allProjects}>All projects</MenuRadioItem>
-          {projects.map((name) => (
-            <MenuRadioItem key={name} value={name}>
-              {name}
+          {projects.map((id) => (
+            <MenuRadioItem key={id} value={id}>
+              {name(id)}
             </MenuRadioItem>
           ))}
         </MenuRadioGroup>
@@ -81,14 +81,11 @@ function ProjectFilter() {
   );
 }
 
-/** Projects with threads on this daemon, plus any the feed mentions. */
-function useProjects(): string[] {
-  const workspaces = useWorkspaces();
+/** Every project on this daemon, plus any the feed mentions. */
+function useProjects() {
   const { events } = useFeed();
-  return useMemo(
-    () => [...new Set([...workspaces, ...events.map((event) => event.project)])].toSorted(),
-    [workspaces, events],
-  );
+  const mentioned = useMemo(() => events.map((event) => event.project), [events]);
+  return useProjectChoices(mentioned);
 }
 
 /** The ⋯ menu beside the title. */

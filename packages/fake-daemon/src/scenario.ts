@@ -1,6 +1,7 @@
 import type { Fact, Key } from "@ace/core";
 import type { InteractionResolution } from "@ace/protocol";
 import type { FakeDaemon, ThreadInit } from "./daemon.ts";
+import { withCardDetails } from "./scenarios/card-details.ts";
 
 export type Step =
   | {
@@ -46,7 +47,7 @@ export class ScenarioPlayer {
     this.agoMs = options.agoMs ?? 0;
     const first = scenario.steps[0];
     daemon.createThread(
-      scenario.thread,
+      withCardDetails(scenario.thread),
       this.agoMs + (first?.kind === "facts" ? (first.agoMs ?? 0) : 0),
     );
   }

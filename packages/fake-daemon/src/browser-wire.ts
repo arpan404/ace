@@ -31,11 +31,26 @@ export function fakeBrowserSession(
       }
       let result: unknown;
       switch (message.type) {
-        case "browser.open":
+        case "browser.open": {
           if (thread.thread.workspaceId !== message.options.workspaceId)
             throw new Error("workspace_mismatch");
+          const download = browser.pendingDownload();
+          if (download) {
+            const progress = (phase: "downloading" | "ready", received: number) =>
+              send({
+                type: "browser.download.progress",
+                version: "fake-chromium",
+                phase,
+                received,
+                total: download.total,
+              });
+            progress("downloading", Math.round(download.total * 0.4));
+            await download.done;
+            progress("ready", download.total);
+          }
           browser.drive(id, { url: "about:blank" });
           break;
+        }
         case "browser.close":
           browser.close(id);
           break;

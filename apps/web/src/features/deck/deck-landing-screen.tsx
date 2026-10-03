@@ -1,17 +1,33 @@
 import { landingDeck } from "@ace/ui-core";
 import { CardsIcon } from "@phosphor-icons/react";
 import { Link, Navigate } from "@tanstack/react-router";
-import { buttonVariants } from "@/components/ui/button.tsx";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Page, PageTitle, Screen } from "@/features/shell/index.ts";
-import { useDeckRuns } from "./deck-source.ts";
+import { useDeckRetry, useDeckRuns } from "./deck-source.ts";
 import { NewDeckForm } from "./new-deck-form.tsx";
 
 /** Deck opens on the deck that most needs a look; with none, it invites the first. */
 export function DeckLandingScreen() {
-  const { ready, runs } = useDeckRuns();
+  const { ready, error, runs } = useDeckRuns();
+  const retry = useDeckRetry();
   const first = landingDeck(runs);
   if (first) return <Navigate to="/deck/$runId" params={{ runId: first.id }} replace />;
+  if (error && !runs.length)
+    return (
+      <Screen title="Deck">
+        <EmptyState
+          icon={CardsIcon}
+          title="Decks unavailable"
+          description={error}
+          action={
+            <Button size="sm" onClick={retry}>
+              Try again
+            </Button>
+          }
+        />
+      </Screen>
+    );
   return (
     <Screen title="Deck">
       {ready && (

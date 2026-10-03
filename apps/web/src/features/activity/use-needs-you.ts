@@ -3,7 +3,8 @@ import { useSidebar, useSidebarIds, type SidebarKey } from "@ace/client-react";
 import { useCallback, useMemo } from "react";
 import { useThreadIdsWhere } from "@/features/shell/index.ts";
 import { inProject, useActivityState } from "./activity-state.tsx";
-import { useFeed, type FeedEvent } from "./feed-source.ts";
+import { useEscalations } from "./escalations.ts";
+import type { FeedEvent } from "./feed-events.ts";
 
 const none: readonly string[] = [];
 
@@ -18,15 +19,13 @@ export function useNeedsYou(): { threadIds: readonly string[]; escalations: Feed
     [project],
   );
   const threadIds = useThreadIdsWhere(predicate);
-  const { events } = useFeed();
+  const events = useEscalations();
   const escalations = useMemo(
-    () => events.filter((event) => openEscalation(event) && inProject(project, event.project)),
+    () => events.filter((event) => inProject(project, event.project)),
     [events, project],
   );
   return { threadIds, escalations };
 }
-
-export const openEscalation = (event: FeedEvent) => event.kind === "escalation" && !event.resolved;
 
 const pendingTotal = (reader: SidebarReader) =>
   reader.ids.reduce((sum, id) => {
@@ -42,6 +41,6 @@ export function useNeedsYouCount(): number {
     [ids],
   );
   const pending = useSidebar(keys, pendingTotal) ?? 0;
-  const { events } = useFeed();
-  return pending + events.filter(openEscalation).length;
+  const escalations = useEscalations();
+  return pending + escalations.length;
 }

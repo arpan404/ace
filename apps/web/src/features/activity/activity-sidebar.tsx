@@ -77,7 +77,7 @@ function FeedList() {
   const others = useMemo(() => {
     const events = feed.events.filter(
       (event) =>
-        (event.kind !== "escalation" || event.resolved) &&
+        event.kind !== "escalation" &&
         inProject(project, event.project) &&
         (tab === "all" || (tab === "mentions" && event.kind === "mention")),
     );

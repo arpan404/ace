@@ -22,6 +22,12 @@ export class FakeConductor {
   runs(): readonly FakeDeckRun[] {
     return this.list;
   }
+  /** Replace every run, as a conductor restored from its store. */
+  load(runs: FakeDeckRun[]): void {
+    this.list = runs;
+    this.paused.clear();
+    this.emit();
+  }
   subscribe(listener: () => void): () => void {
     if (this.listeners.size >= 64) throw new Error("subscription_limit");
     this.listeners.add(listener);

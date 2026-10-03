@@ -127,6 +127,16 @@ test("the live line says which subagents the agent is waiting on", async () => {
   ).toBeTruthy();
 });
 
+test("a network retry holds still: no spinner, no shimmer", async () => {
+  const { app } = await openReplay("finding");
+  app.daemon.apply("thread-replay-cursor", [
+    { type: "retry", agent: "root", on: "network", message: "connection reset" },
+  ]);
+  const line = await screen.findByRole("status", { name: "Network trouble" });
+  expect(line.querySelector('[data-slot="spinner"]')).toBeNull();
+  expect(line.querySelector(".shimmer")).toBeNull();
+});
+
 test("stopping a background task waits for the daemon to report it stopped", async () => {
   const { feed } = await openReplay("background");
   const line = await within(feed).findByRole("group", {
