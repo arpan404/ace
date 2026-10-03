@@ -1,14 +1,16 @@
 import { expect, test } from "vitest";
 import { unlink, writeFile, readFile } from "node:fs/promises";
 import { sessionHarness } from "./testing/harness.ts";
-import { obj, str } from "./native.ts";
+import { obj, str, list } from "./native.ts";
 const text = (value: string) => [{ type: "text" as const, text: value }];
 async function context(h: Awaited<ReturnType<typeof sessionHarness>>) {
   await h.session.send(text("context-proof"), "queue");
   const observed = await h.wait(
     (frame) => frame.dir === "recv" && obj(frame.data).type === "message_end",
   );
-  return str(obj(obj(observed.data).message).contextProof);
+  return list(obj(obj(observed.data).message).content)
+    .map((block) => str(obj(block).text))
+    .join("");
 }
 test.each(["missing", "empty", "replaced"])(
   "%s saved history is rejected on reopen before input delivery",

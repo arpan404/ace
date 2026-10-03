@@ -19,15 +19,23 @@ Pi's interactive `/login` on the local machine. Never read auth files.
 
 ## State and native history
 
-Only `agent_settled` ends the root run. `agent_end` can be followed by compaction,
+`agent_settled` permits ending the root run once all native dialogs have closed or
+expired. Keep its outcome while dialogs remain; core turn termination retires interactions. `agent_end` can be followed by compaction,
 retry or queued input. Open dialogs and surviving tool calls keep whole-tree
 status live. Unexpected process exit expires interactions through core. Unknown
 frames are retained as raw notices; unknown tools remain custom tools.
 
-Resume uses the native session file returned by `get_state`. Fork uses `clone`
+Saved references encode the native session file and ID returned by `get_state`.
+Resume validates a bounded existing header and matches the saved ID against both
+the file and the running process. Legacy raw file paths remain accepted and are
+upgraded to identity-bearing references. Missing header versions mean v1. Fork uses `clone`
 or `fork(entryId)`, reads the resulting file and switches back to the source.
 Rollback uses an explicitly loaded ace extension command calling Pi's
-`navigateTree` without summarization. It changes conversation context, not files.
+`navigateTree` without summarization. After successful navigation, `appendEntry("ace-navigation", {targetId})` persists
+a native custom entry on the new leaf before success is acknowledged. Reopening
+and source restoration therefore select that branch, including an empty root
+context. These custom entries never enter model context. It changes conversation
+context, not workspace files.
 The adapter exports optional native history controls alongside ADR 0007's session
 contract. The daemon registers bounded, operate-scoped Pi controls through its
 service registry; these return native references for the generic fork worker.
@@ -69,7 +77,9 @@ model-generated slash commands cannot invoke rollback.
 Strict LF JSONL preserves Unicode separators. Reuse provider-kit's bounded write
 owner, with caps on lines, outgoing requests, dialogs and active tool tracking.
 Delta translation is proportional to each delta. Cumulative tool output contributes
-only a suffix, tracked by length, with no accumulated output retained in the adapter.
+only a suffix, tracked by length, without joining historical text blocks. Final
+messages admit at most 256 blocks and retain the full raw envelope once, with
+block-local raw on remaining items. No accumulated output is retained in the adapter.
 Fail closed on live bookkeeping overflow rather than dropping work and reporting done.
 A non-gating benchmark source covers frame translation and LF framing. Measurements,
 behaviour tests and at least eight documented mutation cases need execution at merge,

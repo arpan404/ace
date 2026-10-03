@@ -55,3 +55,27 @@ Further cases, all **not executed (tests run at merge)**:
 - Ignore native stream errors. The LF stream failure test must deliver no later records.
 
 - Remove cold-fork admission or fail to release it after rejection. The concurrent cold-fork test must fail.
+
+## Review regressions
+
+All cases are **not executed (tests run at merge)**. Runtime confirmation needs run at merge.
+
+| Mutation                                                                 | Public behaviour guard                                                                                         |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| Emit turn.ended while native dialogs remain, or discard deferred failure | Translator pending-dialog, timeout-isolation and deferred-failed-outcome tests apply facts through core        |
+| Skip saved header validation or ignore its expected native ID            | Missing, empty and replaced saved histories fail public session reopen before input                            |
+| Accept a different native ID at the same pathname                        | Native identity mismatch process test rejects resume                                                           |
+| Forget navigation marker or append it before navigating                  | Earlier-user/assistant and root rollback retain actual context through clone, source restoration and reopen    |
+| Append a marker after cancelled navigation                               | Cancelled navigation preserves native file bytes and active context                                            |
+| Remove control-secret redaction                                          | Injected asserted secret is echoed on send, recv and stderr and must be absent in all three                    |
+| Repeat full raw per final block                                          | Public translator facts retain unknown metadata while aggregate serialized bytes stay below three input frames |
+| Remove final block cap                                                   | 257 final blocks cannot produce messages or successful completion                                              |
+| Repeat or misplace cumulative block separators/suffixes                  | Multi-block shell output yields exactly abc, def, ghi with two separators and eleven bytes                     |
+| Reject a legacy header without version                                   | Public cold-fork and reopen accept native v1 headers and preserve source                                       |
+| Discard known safe history diagnostics                                   | Public daemon socket returns navigation-not-acknowledged, without pointing at nonexistent notices              |
+
+Additional scaling benchmarks in `bench/scaling.ts` include final-envelope persistence
+serialization at 16–256 blocks and cumulative multi-block output at 1–256 KiB prefixes.
+Ops/s, serialized bytes/frame, emitted bytes and peak RSS require a merge-time run.
+No measurements are claimed. Incoming cumulative frames must still be parsed in full;
+ace copies only their new output suffix.

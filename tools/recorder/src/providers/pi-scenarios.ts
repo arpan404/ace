@@ -54,7 +54,9 @@ export const PI_SCENARIOS = [
     steps: [
       "Navigate before a user entry and after an assistant entry with summarize:false",
       "Capture explicit ace_rollback acknowledgement",
-      "Verify abandoned entries remain in native tree and files are untouched",
+      "Verify abandoned entries remain in native tree and workspace files are untouched",
+      "Close and reopen before another append; verify selected context and root rollback persist",
+      "Clone after navigation; restore source and resume clone with the same selected context",
       "Repeat with cancellation",
     ],
   },

@@ -200,7 +200,9 @@ async function handle(line: string) {
               : "write unavailable"
             : message === "env-proof"
               ? (process.env.ACE_PI_MCP_BEARER ?? "")
-              : "hello\u2028world\u2029!";
+              : message === "context-proof"
+                ? history.context()
+                : "hello\u2028world\u2029!";
         emit({ type: "message_start", message: { role: "assistant", content: [] } });
         emit({
           type: "message_update",
@@ -217,7 +219,6 @@ async function handle(line: string) {
             content: [{ type: "text", text: responseText }],
             stopReason: "stop",
             usage: { input: 5, output: 3 },
-            contextProof: message === "context-proof" ? history.context() : undefined,
           },
         });
       }

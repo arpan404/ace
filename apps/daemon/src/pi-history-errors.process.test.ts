@@ -16,7 +16,16 @@ test("Pi history cancellation returns a bounded specific diagnostic through the 
   const home = await mkdtemp(join(tmpdir(), "ace-pi-diagnostic-"));
   await writeFile(
     join(home, "source.jsonl"),
-    JSON.stringify({ type: "session", version: 3, id: "native", cwd: home }) + "\n",
+    JSON.stringify({ type: "session", version: 3, id: "native", cwd: home }) +
+      "\n" +
+      JSON.stringify({
+        type: "message",
+        id: "entry",
+        parentId: null,
+        timestamp: "2026-10-03T00:00:00.000Z",
+        message: { role: "assistant", content: "synthetic" },
+      }) +
+      "\n",
   );
   const { promise: settled, resolve: settle } = Promise.withResolvers<void>();
   const absent = { installed: false, auth: "unknown" as const, loginHint: "unused" };

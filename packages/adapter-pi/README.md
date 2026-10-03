@@ -7,7 +7,11 @@ and [ADR 0050](../../docs/adr/0050-pi-local-rpc-adapter.md).
 The public API is `createPiAdapter`, `createPiTranslator`, `openPiSession`,
 `piCapabilities`, `piProfile` and `piPermissionArgs`. A `PiSession` implements
 ADR 0007 and adds `fork(entryId?)` and `rollback(entryId)`. Fork returns a native
-session file and restores the source process. Native conversation navigation
+identity-bearing session reference and restores the source process.
+`nativeSessionFile` exposes its native path. Saved references retain the expected
+header ID; legacy raw paths are accepted and upgraded on reopen. Missing, empty
+and replaced history fails resume. Headers are limited to 64 KiB; missing versions
+mean native v1. Native conversation navigation
 never restores files. The generic adapter `forkSession` also cold-clones a saved session, reading only
 a bounded header for its cwd and granting no thread MCP lease. Fork/switch
 integration can use these methods when capability-gated; this package does not manufacture a canonical child thread.
@@ -28,17 +32,23 @@ The explicit ace extension forwards scoped ace MCP tools through the existing
 loopback server. Its lease lives only in process environment and memory, is
 redacted before frame persistence and is revoked on every close/exit/failure.
 Only `agents` and `notify` are granted by the default daemon integration. It
-registers native conversation navigation and acknowledges success explicitly.
+registers native conversation navigation and appends a custom marker before
+acknowledging success. The marker preserves the active branch across restart and
+fork restoration, including navigation to root.
 The adapter verifies the command's source path before using it.
 
 Caps are 1 MiB per native frame, 2 MiB queued writes, 64 pending RPC commands,
-256 live tools/content blocks, 128 pending dialogs, 128 live daemon sessions,
+256 live tools/final content blocks, 128 pending dialogs, 128 live daemon sessions,
 8 concurrent cold forks, 8 controls per socket and 128 replay receipts. Overflow terminates
 transport or keeps completion uncertain; live state is never silently evicted.
 MCP forwarding has 16 calls, 256 tool descriptors, 64 KiB arguments and 1 MiB
-response bodies. No transcript/history buffer lives in the adapter.
+response bodies. No transcript/history buffer lives in the adapter. Final envelopes are retained
+once, with block-local raw on remaining items; cumulative output joins only its
+new suffix. Settlement is deferred while native dialogs are pending.
 
 Synthetic behaviour tests, mutation cases and benchmarks are written but **not
 executed**. Tests run once at merge. The non-gating benchmark is
 `bun run --filter @ace/adapter-pi bench`; ops/s and peak RSS need a run at merge.
+`bench/scaling.ts` also covers final raw serialization and cumulative multi-block
+output at increasing sizes. Measurements remain unexecuted.
 Recorder recipes need separate owner approval and are not wired to default runs.
