@@ -86,11 +86,21 @@ export async function runSupervisor(ports: SupervisorPorts): Promise<number> {
       daily();
     });
   };
+  const stopDaemon = () => {
+    if (
+      daemon &&
+      daemon.pid !== undefined &&
+      daemon.pid > 0 &&
+      daemon.exitCode === null &&
+      daemon.signalCode === null
+    )
+      daemon.kill("SIGTERM");
+  };
   const stop = () => {
     stopping = true;
     cancelDaily?.();
     cancelRecovery?.();
-    daemon?.kill("SIGTERM");
+    stopDaemon();
   };
   const logError = (error: Error) => {
     ports.report(error);
@@ -120,7 +130,7 @@ export async function runSupervisor(ports: SupervisorPorts): Promise<number> {
     return await result;
   } finally {
     stopping = true;
-    if (daemon && daemon.exitCode === null && daemon.signalCode === null) daemon.kill("SIGTERM");
+    stopDaemon();
     cancelDaily?.();
     cancelRecovery?.();
     unsubscribe?.();

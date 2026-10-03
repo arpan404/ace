@@ -78,6 +78,7 @@ The first full gate exposed integration regressions and invalid fixtures. Focuse
 - Reserve Codex recovery capacity for admitted children so unknown timer floods cannot occupy every RPC slot.
 - Preserve child repository filter ownership when staging HEAD-seeded ignored nested repositories. Discovery also checks tracked leaf paths replaced by repository directories, preserving administrative data and safety checkpoints under hidden index flags. The deletion race fixture handles an already-written release marker.
 - Retry transient macOS readlink errors during atomic pointer replacement only while the path remains a symlink; malformed regular pointers still fail.
+- Signal only a spawned, live supervisor child with a positive PID. An injected asynchronous spawn failure previously signaled the runner process group during cleanup, terminating full gates. The unchanged spawn-failure, recovery and packaged supervisor regressions now pass.
 - Collect CLI probe bytes without synthetic newlines, preserving exact UTF-8 limits and cancellation.
 - Recover missing-directory settings changes with bounded stat polling until the actual parent can be watched. A deterministic native-notification-loss regression and the existing real watcher assertions keep the original timeout.
 - Keep read-only diagnostics available while draining. Prevent revoked commands from passing an asynchronous admission boundary.
