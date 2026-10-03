@@ -58,7 +58,7 @@ export function ThreadComposer(props: {
       .catch(() => toast.add({ title: "Couldn't stop the agent" }));
 
   return (
-    <div className="relative flex-none px-8 pb-3.5 before:pointer-events-none before:absolute before:inset-x-0 before:-top-10 before:h-10 before:bg-linear-to-b before:from-transparent before:to-reading">
+    <div className="relative flex-none px-8 pb-3.5 before:pointer-events-none before:absolute before:inset-x-0 before:-top-10 before:h-10 before:bg-reading before:[mask-image:linear-gradient(to_bottom,transparent,black_85%)]">
       <div className="mx-auto max-w-(--column)">
         <QueuedPills
           queued={queue.queued}

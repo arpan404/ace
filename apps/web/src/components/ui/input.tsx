@@ -8,12 +8,19 @@ function Input({ className, ...props }: InputPrimitive.Props) {
   return <InputPrimitive data-slot="input" className={cn(field, "h-8", className)} {...props} />;
 }
 
-/** Multi-line field. The composer owns its own auto-growing textarea. */
+/**
+ * Multi-line field that grows with its text up to 40% of the window, with no resize grip.
+ * The composer owns its own textarea.
+ */
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea
       data-slot="textarea"
-      className={cn(field, "min-h-20 resize-y py-2 leading-normal", className)}
+      className={cn(
+        field,
+        "max-h-[40vh] min-h-20 resize-none py-2 leading-normal [field-sizing:content]",
+        className,
+      )}
       {...props}
     />
   );

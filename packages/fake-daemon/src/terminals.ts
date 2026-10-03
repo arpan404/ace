@@ -219,7 +219,7 @@ function respond(command: string, cwd: string): string {
     case "bun":
       if (args[0] === "run" && args[1] === "test")
         return lines(
-          "$ vitest run apps/server/src/replay.test.ts",
+          "\x1b[2mvitest run apps/server/src/replay.test.ts\x1b[0m",
           " \x1b[32m✓\x1b[0m replays only events after lastAckedSeq (12 ms)",
           " \x1b[32m✓\x1b[0m treats seq 0 as a cold start (4 ms)",
           " \x1b[32m✓\x1b[0m drops duplicates already acked by the client (3 ms)",

@@ -168,7 +168,7 @@ function Split(props: RowsProps) {
                 className={cn(
                   "group/line relative grid min-w-0 grid-cols-[40px_minmax(0,1fr)] overflow-hidden",
                   side === "right" && "border-l",
-                  line && tone(line),
+                  line ? tone(line) : empty,
                   target && props.highlighted(target) && commented,
                 )}
               >
@@ -192,6 +192,9 @@ function Split(props: RowsProps) {
   });
 }
 
+/** The side of a split row with no line (an add's left, a delete's right): faintly hatched. */
+const empty =
+  "bg-[repeating-linear-gradient(-45deg,transparent_0_5px,color-mix(in_oklab,var(--foreground)_4%,transparent)_5px_6px)]";
 const commented =
   "bg-[color-mix(in_oklab,var(--ring)_8%,transparent)] shadow-[inset_2px_0_0_var(--ring)]";
 const tone = (line: DiffLine) =>

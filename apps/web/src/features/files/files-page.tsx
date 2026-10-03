@@ -49,7 +49,7 @@ export function FilesPage() {
   return (
     <Screen title="Files" actions={files.data && <UploadButton projects={projects} />}>
       <div className="h-full overflow-auto">
-        <div className="mx-auto max-w-[920px] px-8 pt-11 pb-20">
+        <div className="mx-auto max-w-(--column) px-8 pt-11 pb-20">
           <PageTitle title="Files" lede="Files the agents changed, in every thread and project." />
           <Input
             type="search"
@@ -114,8 +114,10 @@ function FileRow(props: { file: ChangedFile }) {
       <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">{file.path}</span>
       <span className="w-16 text-sm text-subtle-foreground">{file.change}</span>
       <span className="w-20 text-right font-mono text-[12px] tabular-nums">
-        <span className="text-status-done">+{file.additions}</span>{" "}
-        <span className="text-status-failed">−{file.deletions}</span>
+        {/* Only the sides that changed: a new file reads +42, not +42 −0. */}
+        {file.additions > 0 && <span className="text-status-done">+{file.additions}</span>}
+        {file.additions > 0 && file.deletions > 0 && " "}
+        {file.deletions > 0 && <span className="text-status-failed">−{file.deletions}</span>}
       </span>
       <span className="w-8 text-right text-xs text-subtle-foreground">
         {formatAge(file.updatedAt, now)}

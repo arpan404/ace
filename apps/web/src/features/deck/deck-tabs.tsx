@@ -26,7 +26,7 @@ export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) 
             <button
               type="button"
               onClick={() => props.onOpen(card.id)}
-              className="grid w-full grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.4fr)] items-center gap-4 rounded-md px-2 py-3 text-left transition-colors duration-(--dur-1) hover:bg-accent"
+              className="grid w-full grid-cols-[minmax(0,1.2fr)_auto_minmax(0,1.4fr)] items-center gap-4 rounded-md px-2 py-3 text-left transition-colors duration-(--dur-1) hover:bg-accent"
             >
               <span className="min-w-0">
                 <span className="block truncate text-[13.5px] font-medium">{card.title}</span>
@@ -35,11 +35,12 @@ export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) 
                   {status.label}
                 </span>
               </span>
-              <span className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+              {/* Who works and who reviews, always in full; the round summary gives way. */}
+              <span className="flex items-center gap-1.5 text-sm whitespace-nowrap text-muted-foreground">
                 {lane && <ProviderMark provider={lane.worker.provider} />}
-                <span className="truncate">{lane?.worker.account}</span>
+                <span>{lane?.worker.account}</span>
                 <Icon icon={ArrowRightIcon} size={12} className="text-subtle-foreground" />
-                <span className="truncate">{lane?.reviewer.account}</span>
+                <span>{lane?.reviewer.account}</span>
               </span>
               <span className="truncate text-sm text-muted-foreground">
                 {latest && (

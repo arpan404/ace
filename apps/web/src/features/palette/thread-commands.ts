@@ -55,7 +55,8 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
         {
           id: `thread-${id}`,
           label: state.marks[id]?.title ?? entry.title,
-          detail: branch ? `${entry.workspaceId} · ${branch}` : entry.workspaceId,
+          detail: entry.workspaceId,
+          ...(branch ? { more: branch } : {}),
           icon: "thread",
           run: run(() => void navigate({ to: "/t/$threadId", params: { threadId: id } })),
         },

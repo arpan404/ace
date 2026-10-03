@@ -24,8 +24,8 @@ import { formatKeys } from "@/lib/keymap.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { usePaletteGroups, type PaletteCommand, type PaletteGroup } from "./commands.ts";
 
-// Label and detail are both searched, so a branch or project name finds its thread.
-const label = (item: PaletteCommand) => `${item.label} ${item.detail ?? ""}`;
+// Label, detail and branch are all searched, so a branch or project name finds its thread.
+const label = (item: PaletteCommand) => `${item.label} ${item.detail ?? ""} ${item.more ?? ""}`;
 const icons = {
   thread: ChatCircleIcon,
   project: FolderSimpleIcon,
@@ -70,6 +70,9 @@ function PaletteBody(props: { close(): void }) {
                     {item.detail && (
                       <span className="ml-1 min-w-0 shrink truncate text-[12px] text-subtle-foreground">
                         {item.detail}
+                        {item.more && (
+                          <span className="hidden in-data-highlighted:inline"> · {item.more}</span>
+                        )}
                       </span>
                     )}
                     {item.keys && <CommandShortcut>{formatKeys(item.keys)}</CommandShortcut>}

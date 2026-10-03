@@ -1,8 +1,9 @@
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { cn } from "@/lib/cn.ts";
 import { useDeferredValue, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
 import { formatAge } from "@ace/ui-core";
@@ -49,7 +50,7 @@ function Snippet(props: { snippet: SearchHit["snippet"] }) {
         part.hit ? (
           <mark
             key={part.at}
-            className="rounded-[3px] bg-accent px-0.5 font-medium text-foreground"
+            className="rounded-[2px] bg-[color-mix(in_oklab,var(--ring)_22%,transparent)] font-medium text-foreground"
           >
             {part.text}
           </mark>
@@ -112,8 +113,21 @@ export function SearchPage(props: {
                   open(hits[active]);
                 }
               }}
-              className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-subtle-foreground"
+              className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-subtle-foreground [&::-webkit-search-cancel-button]:appearance-none"
             />
+            {text && (
+              <IconButton
+                icon={XIcon}
+                label="Clear search"
+                size="sm"
+                className="fx-view-in"
+                onClick={() => {
+                  setText("");
+                  setActive(0);
+                  props.onChange({ q: undefined });
+                }}
+              />
+            )}
           </label>
           <SegmentedControl
             label="Kind"

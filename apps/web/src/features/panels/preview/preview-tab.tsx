@@ -211,28 +211,38 @@ function LiveFrame(props: {
       ...(event.key.length === 1 ? { text: event.key } : {}),
     });
   };
+  // The page at 1:1, like the browser it is: text stays legible and the pane scrolls rather
+  // than shrinking the page into a thumbnail.
+  const size = { width: frame.width, height: frame.height };
   const image = (
     <img
       src={frame.src}
       alt={`Live view of ${props.view.url}`}
       draggable={false}
-      className="absolute inset-0 size-full object-contain object-top"
+      style={size}
+      className="block max-w-none"
     />
   );
-  if (!props.interactive) return image;
   return (
-    <div
-      role="application"
-      aria-label={`Control ${props.view.url}`}
-      tabIndex={0}
-      onMouseDown={send("mousePressed")}
-      onMouseUp={send("mouseReleased")}
-      onKeyDown={onKeyDown}
-      className={cn(
-        "absolute inset-0 cursor-default outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    <div className="absolute inset-0 overflow-auto overscroll-contain">
+      {props.interactive ? (
+        <div
+          role="application"
+          aria-label={`Control ${props.view.url}`}
+          tabIndex={0}
+          style={size}
+          onMouseDown={send("mousePressed")}
+          onMouseUp={send("mouseReleased")}
+          onKeyDown={onKeyDown}
+          className={cn(
+            "relative cursor-default outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          )}
+        >
+          {image}
+        </div>
+      ) : (
+        image
       )}
-    >
-      {image}
     </div>
   );
 }
