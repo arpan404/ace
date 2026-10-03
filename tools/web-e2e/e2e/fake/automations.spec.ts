@@ -5,7 +5,11 @@ test("a new automation is created, listed, and runs by hand once automations are
   page,
 }) => {
   await page.goto("/settings/general");
+  // The design's machine runs its automations; turn them off and on again to see the switch work.
   const enabled = page.getByRole("switch", { name: "Run automations" });
+  await expect(enabled).toHaveAttribute("aria-checked", "true");
+  await enabled.click();
+  await expect(enabled).toHaveAttribute("aria-checked", "false");
   await enabled.click();
   await expect(enabled).toHaveAttribute("aria-checked", "true");
 

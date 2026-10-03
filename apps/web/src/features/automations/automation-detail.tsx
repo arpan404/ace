@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useModelChoices } from "@/features/models/index.ts";
 import { Page, Screen } from "@/features/shell/index.ts";
+import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useNow } from "@/lib/time.ts";
 import { missedRunLabels, runsOn } from "./labels.ts";
 import { RecentRuns } from "./recent-runs.tsx";
@@ -105,7 +106,10 @@ export function AutomationScreen(props: { id: string }) {
           <SettingRow title="Runs on" description={runsOn(automation, choices)}>
             <EditLink id={automation.id} label="Change" />
           </SettingRow>
-          <SettingRow title="Next run" description={nextRunText(automation, nextRunAt, now)}>
+          <SettingRow
+            title="Next run"
+            description={<NextRun automation={automation} nextRunAt={nextRunAt} now={now} />}
+          >
             <Button size="sm" onClick={actions.runNow}>
               Run now
             </Button>
@@ -123,9 +127,24 @@ export function AutomationScreen(props: { id: string }) {
   );
 }
 
-function nextRunText(automation: Automation, nextRunAt: number | undefined, now: number): string {
+/**
+ * When it runs next. With automations off on the daemon's machine nothing runs, so it says so
+ * and links to the setting; a schedule the daemon hasn't placed yet says that, not a guess.
+ */
+function NextRun(props: { automation: Automation; nextRunAt: number | undefined; now: number }) {
+  const { automation, nextRunAt } = props;
+  const [running] = useDaemonSetting("automations.enabled");
   if (!automation.enabled) return "Paused. Resume to schedule the next run.";
-  if (nextRunAt !== undefined) return formatNextRun(nextRunAt, now);
+  if (running === false)
+    return (
+      <>
+        Automations are off on this machine.{" "}
+        <Link to="/settings/general" className="text-foreground underline-offset-4 hover:underline">
+          Turn on Run automations
+        </Link>
+      </>
+    );
+  if (nextRunAt !== undefined) return formatNextRun(nextRunAt, props.now);
   switch (automation.trigger.kind) {
     case "github":
       return "On the next matching event";
@@ -134,7 +153,7 @@ function nextRunText(automation: Automation, nextRunAt: number | undefined, now:
     case "manual":
       return "Only when you run it";
     case "schedule":
-      return "Calculated by the daemon";
+      return "Not scheduled yet";
   }
 }
 

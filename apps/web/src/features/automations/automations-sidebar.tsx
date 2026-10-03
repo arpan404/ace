@@ -23,7 +23,7 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
-import { runSummary } from "./labels.ts";
+import { runNeedsAttention, runSummary } from "./labels.ts";
 import { describeTrigger } from "./schedule.ts";
 import { useAutomationRuns, useAutomations } from "./use-automations.ts";
 import { useProjectName } from "@/lib/projects.ts";
@@ -115,7 +115,11 @@ export function AutomationsSidebar() {
 
 function runMark(run: AutomationRun): ReactNode {
   if (run.status === "running") return <Spinner />;
-  return <Icon icon={run.status === "failed" ? WarningIcon : CheckIcon} size={16} />;
+  return runNeedsAttention(run) ? (
+    <Icon icon={WarningIcon} size={16} label="Needs a look" />
+  ) : (
+    <Icon icon={CheckIcon} size={16} label="Finished" />
+  );
 }
 
 function Section(props: { label: string; children: ReactNode }) {

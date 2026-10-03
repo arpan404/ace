@@ -16,5 +16,7 @@ export function workbenchServices(now: number, timeZone = "UTC"): ServicesSeed {
     runs: automationRuns(now),
     plugins: pluginCatalog(now),
     pullRequests: pullRequests(now),
+    // The design's machine runs its automations, so schedules show their next run.
+    settings: { "automations.enabled": true },
   };
 }

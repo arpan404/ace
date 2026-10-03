@@ -24,6 +24,8 @@ export interface ServicesSeed extends PlanningSeed {
   plugins?: PluginSeed;
   /** Pull requests linked to existing threads, by thread id. */
   pullRequests?: Record<string, ForgePrStatus>;
+  /** Global settings the person has changed from the shipped defaults. */
+  settings?: Readonly<Record<string, unknown>>;
 }
 export interface FakeWireSession {
   handle(message: ClientMessage, device: string): Promise<void>;
@@ -51,8 +53,10 @@ export class FakeServicesWire {
   private planning: FakePlanningWire;
   private plugins = new FakePluginsWire();
   private host: FakeServiceContext;
+  private settings: FakeSettings;
   constructor(context: FakeServiceContext, settings: FakeSettings) {
     this.host = context;
+    this.settings = settings;
     this.context = new FakeContextWire(context);
     this.workspace = new FakeWorkspaceWire(context);
     this.planning = new FakePlanningWire(
@@ -62,6 +66,7 @@ export class FakeServicesWire {
     );
   }
   seed(seed: ServicesSeed): void {
+    if (seed.settings) this.settings.seed(seed.settings);
     this.planning.seed(seed);
     if (seed.plugins) this.plugins.seed(seed.plugins);
     // A seed describes the whole world; pull requests for threads this daemon lacks are skipped.

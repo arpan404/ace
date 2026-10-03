@@ -43,7 +43,11 @@ export class FakeSettings {
     workspaceOf: (threadId: string) => string | undefined = () => undefined,
   ) {
     this.workspaceOf = workspaceOf;
-    for (const [key, value] of Object.entries(initial))
+    this.seed(initial);
+  }
+  /** Global values as a long-running daemon holds them; unknown keys are ignored. */
+  seed(values: Readonly<Record<string, unknown>>): void {
+    for (const [key, value] of Object.entries(values))
       if (SettingsKey.safeParse(key).success) this.global.set(key, value);
   }
   /** The effective global value, as tests check what a page wrote. */

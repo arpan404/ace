@@ -18,12 +18,12 @@ async function open(path: string) {
   return { app, sidebar };
 }
 
-/** Turn the daemon's automation service on, as Settings › Automations does. */
-const enableAutomations = (app: ReturnType<typeof harness>) =>
+/** Turn the daemon's automation service on or off, as Settings › General does. */
+const setAutomations = (app: ReturnType<typeof harness>, value: boolean) =>
   app.client.request({
     type: "settings.set",
     key: "automations.enabled",
-    value: true,
+    value,
     layer: { kind: "global" },
   });
 
@@ -63,6 +63,28 @@ test("an automation shows its prompt, where it runs and its recent runs with out
   expect(runs.getByText("2 advisories · opened a thread in ace")).toBeTruthy();
   expect(runs.getByText("Failed: npm registry timeout, retried once")).toBeTruthy();
   expect(runs.getByRole("img", { name: "failed" })).toBeTruthy();
+});
+
+test("the next run is the daemon's schedule, or says automations are off on this machine", async () => {
+  const { app } = await open("/automations/auto-dependency-audit");
+  await heading("Nightly dependency audit");
+  const next = () => screen.getByText("Next run").parentElement?.textContent ?? "";
+  await waitFor(() => expect(next()).toMatch(/Tonight|Today|Tomorrow|In \d+[mh]|Any moment/));
+
+  await setAutomations(app, false);
+  expect(await screen.findByText(/Automations are off on this machine/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Turn on Run automations" })).toBeTruthy();
+  expect(next()).not.toContain("Calculated by the daemon");
+});
+
+test("recent runs that failed or were asked for changes are marked for a look", async () => {
+  await open("/automations");
+  const aside = within(screen.getByRole("complementary", { name: "Automations" }));
+  const runs = within(await aside.findByRole("region", { name: "Recent runs" }));
+  const review = runs.getByRole("link", { name: /#209 · requested changes/ });
+  expect(within(review).getByRole("img", { name: "Needs a look" })).toBeTruthy();
+  const approved = runs.getByRole("link", { name: /#212 · approved with 1 note/ });
+  expect(within(approved).getByRole("img", { name: "Finished" })).toBeTruthy();
 });
 
 test("a recent run that left a thread opens it", async () => {
@@ -110,7 +132,7 @@ test("pausing stops the schedule and resuming from the menu restarts it", async 
 test("Run now starts a run on the daemon and lists it as running", async () => {
   const { app } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
-  await enableAutomations(app);
+  await setAutomations(app, true);
 
   await userEvent.click(screen.getAllByRole("button", { name: "Run now" })[0] ?? document.body);
 
@@ -123,6 +145,7 @@ test("Run now starts a run on the daemon and lists it as running", async () => {
 test("Run now while automations are off says how to turn them on, and that works", async () => {
   const { app } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
+  await setAutomations(app, false);
 
   await userEvent.click(screen.getAllByRole("button", { name: "Run now" })[0] ?? document.body);
 
