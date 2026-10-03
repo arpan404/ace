@@ -15,6 +15,7 @@ import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
   claude?: DaemonClaudeOptions;
+  pi?: import("./pi.ts").PiDaemonOptions;
   screen?: ScreenManager;
   commands?: DaemonCommandIntegration;
   config?: Config;

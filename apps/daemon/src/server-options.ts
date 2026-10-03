@@ -29,6 +29,7 @@ import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
+  pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
   accounts?: AccountService;
   commands?: CommandService;
