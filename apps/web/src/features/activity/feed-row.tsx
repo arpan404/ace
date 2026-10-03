@@ -1,5 +1,6 @@
 import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
+import { useArrival } from "@/lib/arrival.tsx";
 
 /**
  * One Activity sidebar row: a 26px icon tile, the title (13/500) with its context under it,
@@ -18,10 +19,12 @@ export function FeedRow(props: {
   onSelect(): void;
   actions?: ReactNode;
 }) {
+  const arrival = useArrival();
   return (
     <li
       className={cn(
         "relative rounded-[10px] transition-colors duration-(--dur-1) hover:bg-sidebar-accent",
+        arrival,
         props.selected &&
           "bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] hover:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
       )}

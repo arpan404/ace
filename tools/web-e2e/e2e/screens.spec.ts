@@ -85,7 +85,18 @@ const screens: Record<string, Setup> = {
     await openThread("/t/thread-dedupe")(page);
     await page.getByRole("button", { name: /^Worked for/ }).click();
   },
-  "thread-changes": rightTab("/t/thread-cold-start", /^Changes/),
+  // With a line comment on the diff, as the design's hero state shows.
+  "thread-changes": async (page) => {
+    await rightTab("/t/thread-cold-start", /^Changes/)(page);
+    const file = page.getByRole("region", { name: "apps/server/src/replay.ts" });
+    const line = file.getByText(/client.send\(\{ type: "resume.ack", headSeq/);
+    await line.hover();
+    await line.getByRole("button", { name: /^Comment on line \d+$/ }).click();
+    await file
+      .getByRole("textbox", { name: /Comment on line/ })
+      .fill("Should the ack also carry coldStartWindow?");
+    await file.getByRole("button", { name: "Comment", exact: true }).click();
+  },
   "thread-changes-split": async (page) => {
     await rightTab("/t/thread-cold-start", /^Changes/)(page);
     await page.getByRole("button", { name: "Split" }).click();

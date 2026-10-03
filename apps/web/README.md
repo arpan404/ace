@@ -32,6 +32,27 @@ Headless view logic (status wording, Home ordering and settling, thread cards, w
 summaries, relative time, the Deck model) lives in `packages/ui-core` (`@ace/ui-core`) so the Expo
 app shares it. Put a pure rule there, with its tests, rather than in a slice.
 
+## Motion and states
+
+One motion system, in `styles/motion.css` (tokens `--dur-1..4`, `--dur-exit`, curves `--ease`,
+`--spring`, `--sheet`, `--leave`, distances `--rise`, `--slide`, all zeroed under
+`prefers-reduced-motion`) and `lib/motion.ts` (when things enter, leave or move). Animate
+transform and opacity only.
+
+- Popovers, menus, selects and tooltips use `popupMotion` from `components/ui/menu-styles.ts`.
+- Panels and the second sidebar: `usePresence(open)` keeps them mounted for their exit;
+  `panelMotion(presence)` plays `fx-panel-in` / `fx-panel-out` only after a toggle.
+- Virtualized lists: `useListMotion(items, keyOf)` gives each row a phase (`rowMotion`) and a
+  `moving` flag for `fx-list-moving`; put the class on an inner wrapper, never on the row that
+  carries the virtualizer's transform. The list choreography itself is `diffList` /
+  `withLeaving` in `@ace/ui-core`.
+- Plain lists: wrap in `ArrivalScope` and give rows `useArrival()`; rows that mount after the
+  list painted rise in.
+- Theme and accent switches cross-fade through `withViewTransition`.
+- Loading: `ListSkeleton`, `SkeletonText` and `LoadingRegion` from `components/ui/skeleton.tsx`,
+  shaped like the content. Never show an empty state before the data has arrived
+  (`useSidebarLoaded()` for the thread list, `query.data === undefined` for reads).
+
 ## Module boundaries
 
 `bun run check:deps` (dependency-cruiser, config in `.dependency-cruiser.cjs`, part of `bun run check`) enforces:

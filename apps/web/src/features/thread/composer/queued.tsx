@@ -71,7 +71,7 @@ function QueuedPill(props: { message: QueuedMessage; onRemove(message: QueuedMes
   const short = text.length > 60 ? `${text.slice(0, 60)}…` : text;
   const failed = intent?.state === "failed";
   return (
-    <li className="glass inline-flex h-7 max-w-full animate-in items-center gap-[7px] rounded-full pr-1.5 pl-2.5 text-sm text-muted-foreground duration-(--dur-2) fade-in">
+    <li className="fx-rise-in glass inline-flex h-7 max-w-full items-center gap-[7px] rounded-full pr-1.5 pl-2.5 text-sm text-muted-foreground">
       <ClockIcon aria-hidden size={14} />
       <span className={failed ? "text-status-failed" : undefined}>
         {failed ? "Not queued" : "Queued"}

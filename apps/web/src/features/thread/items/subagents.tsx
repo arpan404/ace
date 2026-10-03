@@ -63,10 +63,7 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
         />
       </button>
       {open && (
-        <div
-          id={tree}
-          className="mt-1 mb-2 ml-2.5 animate-in border-l-2 pl-2.5 duration-(--dur-2) fade-in slide-in-from-top-1"
-        >
+        <div id={tree} className="fx-rise-in mt-1 mb-2 ml-2.5 border-l-2 pl-2.5">
           <div role="tree" aria-label="Subagents">
             {parent && <AgentRow threadId={props.threadId} agentId={parent} depth={0} />}
             {children.map((child) => (

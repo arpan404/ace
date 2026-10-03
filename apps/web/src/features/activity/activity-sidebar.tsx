@@ -11,6 +11,7 @@ import { inProject, useActivityState, type ActivityTab } from "./activity-state.
 import { useFeed, type FeedEvent } from "./feed-source.ts";
 import { EventRow, RunRow, ThreadNeedsRows } from "./feed-rows.tsx";
 import { useNeedsYou, useNeedsYouCount } from "./use-needs-you.ts";
+import { ArrivalScope } from "@/lib/arrival.tsx";
 
 const tabs: { id: ActivityTab; label: string }[] = [
   { id: "all", label: "All" },
@@ -104,15 +105,17 @@ function FeedList() {
     );
   return (
     <ul aria-label="Activity" className="flex flex-col gap-px">
-      {showNeeds && (
-        <>
-          {needs.threadIds.map((id) => (
-            <ThreadNeedsRows key={id} threadId={id} />
-          ))}
-          {needs.escalations.map((event) => eventRow(event, feed.read))}
-        </>
-      )}
-      {others}
+      <ArrivalScope>
+        {showNeeds && (
+          <>
+            {needs.threadIds.map((id) => (
+              <ThreadNeedsRows key={id} threadId={id} />
+            ))}
+            {needs.escalations.map((event) => eventRow(event, feed.read))}
+          </>
+        )}
+        {others}
+      </ArrivalScope>
     </ul>
   );
 }
