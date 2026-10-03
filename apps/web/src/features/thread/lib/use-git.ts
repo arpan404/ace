@@ -13,6 +13,17 @@ const prKey = (threadId: string) => ["thread", "pr", threadId];
  * and a linked PR's status is a one-off forge read.
  */
 export function useCheckout(thread: ThreadRef): Checkout | undefined {
+  return useCheckoutState(thread).checkout;
+}
+
+/**
+ * The checkout with how far its read got: `loading` until the daemon has answered, `none` when
+ * it answered and the thread's directory isn't a git checkout (or the read failed).
+ */
+export function useCheckoutState(thread: ThreadRef): {
+  checkout: Checkout | undefined;
+  state: "loading" | "ready" | "none";
+} {
   const sources = useThreadSources();
   const live = useThreadMeta(thread.id)?.details;
   const read = useDaemonQuery({
@@ -31,7 +42,10 @@ export function useCheckout(thread: ThreadRef): Checkout | undefined {
     retry: false,
     read: (_client, signal) => sources.workspace.prStatus(thread, signal),
   });
-  return checkoutOf(details, pr.data);
+  const checkout = checkoutOf(details, pr.data);
+  if (checkout) return { checkout, state: "ready" };
+  const answered = details !== undefined || read.isError;
+  return { checkout, state: answered ? "none" : "loading" };
 }
 
 export type GitChange =

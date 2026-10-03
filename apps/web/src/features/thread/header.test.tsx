@@ -61,7 +61,11 @@ test("Open launches the checkout in the editor, and picking another makes it the
 test("the git control walks the branch from Commit to Push to Create PR to the PR", async () => {
   const app = await openThread("checkout");
   const opened = vi.spyOn(window, "open").mockImplementation(() => null);
-  await userEvent.click(await screen.findByRole("button", { name: "Commit" }));
+  // Commit holds its place, disabled, until the checkout has been read.
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Commit" }).getAttribute("aria-disabled")).toBeNull(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Commit" }));
   const commit = await screen.findByRole("dialog", { name: "Commit changes" });
   const message = within(commit).getByRole("textbox", { name: "Commit message" });
   expect((message as HTMLInputElement).value).toBe("Fix flaky checkout test");
@@ -124,6 +128,27 @@ test("Create PR says why it can't run when the checkout has no GitHub or GitLab 
   );
   await userEvent.click(create);
   expect(screen.queryByRole("dialog", { name: "Open a pull request" })).toBeNull();
+});
+
+test("Commit stays in the header, disabled, when the thread's directory isn't a git checkout", async () => {
+  const plain: Scenario = {
+    thread: {
+      id: "thread-no-git",
+      workspaceId: "scratch",
+      title: "Notes",
+      provider: "claude",
+      details: { workspace: { id: "scratch", name: "scratch", path: "/Users/dev/notes" } },
+    },
+    steps: [{ kind: "facts", facts: [facts.rootAgent("claude")] }],
+  };
+  const app = harness();
+  app.play(plain).runUntilBlocked();
+  await app.open("/t/thread-no-git");
+  await screen.findByRole("feed", { name: "Transcript" });
+  const commit = await screen.findByRole("button", { name: "Commit" });
+  await waitFor(() => expect(commit.getAttribute("aria-description")).toBe("Not a git checkout"));
+  expect(commit.getAttribute("aria-disabled")).toBe("true");
+  expect(screen.getByRole("button", { name: "Git actions" })).toHaveProperty("disabled", true);
 });
 
 test("View diff in the git menu shows the Changes tab", async () => {

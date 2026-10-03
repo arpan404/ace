@@ -1,6 +1,5 @@
 import {
   ArrowSquareOutIcon,
-  CheckIcon,
   CodeIcon,
   CursorIcon,
   FileCodeIcon,
@@ -26,7 +25,7 @@ import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useEditors } from "@/lib/editors.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { useCheckout, useGitActions, type GitChange } from "../lib/use-git.ts";
+import { useCheckoutState, useGitActions, type GitChange } from "../lib/use-git.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import type { Script } from "../sources/workspace-source.ts";
 import { GitDialog, type GitDialogKind } from "./git-dialog.tsx";
@@ -159,8 +158,6 @@ const stepIcon = (step: GitStep) =>
     <GitCommitIcon aria-hidden size={16} />
   ) : step.kind === "push" ? (
     <UploadSimpleIcon aria-hidden size={16} />
-  ) : step.kind === "create-pr" ? (
-    <CheckIcon aria-hidden size={16} />
   ) : (
     <GitPullRequestIcon aria-hidden size={16} />
   );
@@ -171,14 +168,44 @@ const ci: Record<string, string> = {
   failure: "checks failed",
 };
 
+/**
+ * Commit, disabled, while the checkout loads or when there is none: the header keeps its shape
+ * instead of shifting when the read lands.
+ */
+function GitPlaceholder(props: { actionLabel: string }) {
+  return (
+    <SplitButton
+      icon={<GitCommitIcon aria-hidden size={16} />}
+      label="Commit"
+      actionLabel={props.actionLabel}
+      menuLabel="Git actions"
+      disabled
+      actionDisabled
+      onAction={() => undefined}
+      menu={null}
+    />
+  );
+}
+
 /** Commit → Push → Create PR → PR #N: the next step towards a merged change. */
 export function GitButton(props: { thread: ThreadRef }) {
-  const checkout = useCheckout(props.thread);
+  const { checkout, state } = useCheckoutState(props.thread);
   const { change, pending } = useGitActions(props.thread, checkout);
   const [dialog, setDialog] = useState<GitDialogKind>();
   const toast = useToast();
   const { setTab, setPanelOpen } = useLayout();
-  if (!checkout) return null;
+  if (!checkout)
+    return (
+      <GitPlaceholder
+        actionLabel={
+          props.thread.draft
+            ? "Nothing to commit yet"
+            : state === "loading"
+              ? "Reading the checkout"
+              : "Not a git checkout"
+        }
+      />
+    );
   const step = nextGitStep(checkout);
   const blocked = prBlocker(checkout);
   const submit = async (next: GitChange) => {
