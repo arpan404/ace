@@ -5,7 +5,7 @@ import {
   fakeTransport,
   flakyCheckout,
   longHistory,
-  workbench,
+  homeList,
 } from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
 import { createBrowserClient, memoryStorage } from "./client.ts";
@@ -19,9 +19,15 @@ const timer = {
 
 /** `bun run --filter @ace/web dev:fake`: the whole app against scripted scenarios in-page. */
 export function bootFake(): { client: Client; daemon: FakeDaemon } {
-  const daemon = new FakeDaemon({ clock: () => Date.now(), snapshotItems: 40 });
+  // Scenarios that happened earlier are played with the daemon clock set back by their age.
+  let agoMs = 0;
+  const daemon = new FakeDaemon({ clock: () => Date.now() - agoMs, snapshotItems: 40 });
   new ScenarioPlayer(daemon, longHistory(120)).runUntilBlocked();
-  for (const scenario of workbench()) new ScenarioPlayer(daemon, scenario).runUntilBlocked();
+  for (const aged of homeList()) {
+    agoMs = aged.agoMs;
+    new ScenarioPlayer(daemon, aged.scenario).runUntilBlocked();
+  }
+  agoMs = 0;
   const checkout = new ScenarioPlayer(daemon, flakyCheckout());
   const settings = new ScenarioPlayer(daemon, failingSubagent());
   checkout.autoplay(timer);

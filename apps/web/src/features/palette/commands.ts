@@ -1,76 +1,39 @@
-import type { SidebarReader } from "@ace/client";
-import { useSidebar } from "@ace/client-react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { railViews, type RailView } from "@/features/shell/views.ts";
 import { keymap } from "@/lib/keymap.ts";
+import { useLayout } from "@/lib/layout.tsx";
 import { useTheme } from "@/theme/theme-provider.tsx";
+import { useThreadCommands } from "./thread-commands.ts";
+import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
-export type PaletteIcon = "thread" | "view" | "action" | "theme";
-export interface PaletteCommand {
-  id: string;
-  label: string;
-  /** Muted text after the label (the project on a thread). */
-  detail?: string;
-  /** Keymap notation, shown at the right. */
-  keys?: string;
-  icon: PaletteIcon;
-  run(): void;
-}
-export interface PaletteGroup {
-  value: string;
-  items: PaletteCommand[];
-}
+export type { PaletteCommand, PaletteGroup, PaletteIcon } from "./types.ts";
 
-interface ThreadTarget {
-  id: string;
-  workspaceId: string;
-  title: string;
-}
-const readTargets = (reader: SidebarReader): ThreadTarget[] =>
-  reader.ids.toReversed().flatMap((id) => {
-    const entry = reader.thread(id);
-    return entry && entry.archivedAt === undefined
-      ? [{ id, workspaceId: entry.workspaceId, title: entry.title }]
-      : [];
-  });
-const targetsEqual = (a: ThreadTarget[], b: ThreadTarget[]) =>
-  a.length === b.length && a.every((t, i) => t.id === b[i]?.id && t.title === b[i]?.title);
-
-const noTargets: ThreadTarget[] = [];
 type Destination =
   | RailView["to"]
   | "/new"
   | "/deck/new"
   | "/more/accounts"
   | "/more/search"
-  | "/settings";
+  | "/settings"
+  | "/settings/theme-editor";
 
-/** Commands are plain data so features register entries without touching the dialog. */
+/**
+ * Every ⌘K group. Commands are plain data, so features register entries without touching the
+ * dialog: threads, projects and thread actions come from `thread-commands.ts`.
+ */
 export function usePaletteGroups(close: () => void): PaletteGroup[] {
   const navigate = useNavigate();
-  const { themes, update } = useTheme();
-  // Titles can change, but the palette is short-lived; ids cover membership.
-  const threads = useSidebar(["ids"], readTargets, targetsEqual) ?? noTargets;
-  return useMemo(() => {
-    const go = (to: Destination) => () => {
+  const { themes, theme, update } = useTheme();
+  const { layout, togglePanel, toggleTab } = useLayout();
+  const threadGroups = useThreadCommands(close);
+  const staticGroups = useMemo(() => {
+    const run = (action: () => void) => () => {
       close();
-      void navigate({ to });
+      action();
     };
+    const go = (to: Destination) => run(() => void navigate({ to }));
     const groups: PaletteGroup[] = [
-      {
-        value: "Threads",
-        items: threads.map((thread) => ({
-          id: `thread-${thread.id}`,
-          label: thread.title,
-          detail: thread.workspaceId,
-          icon: "thread",
-          run: () => {
-            close();
-            void navigate({ to: "/t/$threadId", params: { threadId: thread.id } });
-          },
-        })),
-      },
       {
         value: "Create",
         items: [
@@ -115,29 +78,65 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
         ],
       },
       {
+        value: "Actions",
+        items: [
+          {
+            id: "toggle-changes",
+            label: "Toggle right panel · Changes",
+            keys: keymap.changes.keys,
+            icon: "action",
+            run: run(() => toggleTab("right", "changes")),
+          },
+          {
+            id: "open-agents",
+            label: "Open agent tree",
+            keys: keymap.agents.keys,
+            icon: "action",
+            run: run(() => toggleTab("right", "agents")),
+          },
+          {
+            id: "toggle-bottom",
+            label: `${layout.bottom.open ? "Hide" : "Show"} bottom panel · Terminal`,
+            keys: keymap.bottomPanel.keys,
+            icon: "action",
+            run: run(() => togglePanel("bottom")),
+          },
+          {
+            id: "theme-editor",
+            label: "Theme editor",
+            icon: "theme",
+            run: go("/settings/theme-editor"),
+          },
+        ],
+      },
+      {
         value: "Theme",
         items: [
+          {
+            id: "theme-toggle",
+            label: `Switch to ${theme.scheme === "dark" ? "light" : "dark"}`,
+            icon: "theme",
+            run: run(() => update({ theme: theme.scheme === "dark" ? "light" : "dark" })),
+          },
           {
             id: "theme-system",
             label: "Match system theme",
             icon: "theme",
-            run: () => {
-              close();
-              update({ theme: "system" });
-            },
+            run: run(() => update({ theme: "system" })),
           },
-          ...themes.map((theme) => ({
-            id: `theme-${theme.id}`,
-            label: `Use ${theme.name} theme`,
-            icon: "theme" as const,
-            run: () => {
-              close();
-              update({ theme: theme.id });
-            },
+          ...themes.map((option): PaletteCommand => ({
+            id: `theme-${option.id}`,
+            label: `Use ${option.name} theme`,
+            icon: "theme",
+            run: run(() => update({ theme: option.id })),
           })),
         ],
       },
     ];
-    return groups.filter((group) => group.items.length > 0);
-  }, [close, navigate, threads, themes, update]);
+    return groups;
+  }, [close, navigate, themes, theme.scheme, update, layout.bottom.open, togglePanel, toggleTab]);
+  return useMemo(
+    () => [...threadGroups, ...staticGroups].filter((group) => group.items.length > 0),
+    [threadGroups, staticGroups],
+  );
 }

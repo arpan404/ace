@@ -38,6 +38,8 @@ interface LayoutValue {
   setPanelSize(side: PanelSide, size: number, persist?: boolean): void;
   paletteOpen: boolean;
   setPaletteOpen(open: boolean): void;
+  /** The injected key-value storage, for features that persist their own local UI state. */
+  storage: KeyValueStorage | undefined;
 }
 const LayoutContext = createContext<LayoutValue | undefined>(undefined);
 
@@ -66,6 +68,7 @@ export function LayoutProvider(props: {
       layout,
       paletteOpen,
       setPaletteOpen,
+      storage,
       toggleSidebar: () => change((p) => ({ ...p, sidebarOpen: !p.sidebarOpen })),
       setSidebarOpen: (open) => change((p) => ({ ...p, sidebarOpen: open })),
       setPanelOpen: (side, open) => panel(side, (p) => ({ ...p, open })),
@@ -77,7 +80,7 @@ export function LayoutProvider(props: {
       setTab: (side, tab) => panel(side, (p) => ({ ...p, tab })),
       setPanelSize: (side, size, persist = false) => panel(side, (p) => ({ ...p, size }), persist),
     };
-  }, [layout, paletteOpen, change]);
+  }, [layout, paletteOpen, change, storage]);
   return <LayoutContext.Provider value={value}>{props.children}</LayoutContext.Provider>;
 }
 

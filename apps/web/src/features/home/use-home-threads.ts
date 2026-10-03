@@ -1,38 +1,58 @@
 import type { SidebarReader } from "@ace/client";
 import { arrayEqual, useSidebar, useSidebarIds, type SidebarKey } from "@ace/client-react";
-import { useMemo } from "react";
-
-const rank: Record<string, number> = {
-  needs_you: 0,
-  failed: 1,
-  unresponsive: 1,
-  working: 2,
-  waiting: 2,
-  new: 3,
-  done: 3,
-};
-
-/** Order by obligation: needs you, then failing, then moving, then the rest; newest first. */
-const readIds = (reader: SidebarReader): string[] =>
-  reader.ids
-    .flatMap((id) => {
-      const entry = reader.thread(id);
-      return entry && entry.archivedAt === undefined ? [entry] : [];
-    })
-    .toSorted(
-      (a, b) =>
-        (rank[a.status.state] ?? 3) - (rank[b.status.state] ?? 3) || b.updatedAt - a.updatedAt,
-    )
-    .map((entry) => entry.id);
+import type { ThreadListEntry } from "@ace/protocol";
+import { useCallback, useMemo } from "react";
+import { useNow } from "@/lib/time.ts";
+import { arrange, projectCounts, type Arrangement, type ProjectCount } from "./arrange.ts";
+import { useOrganizerState } from "./use-organizer.ts";
 
 const none: readonly string[] = [];
+const empty: Arrangement = { active: [], settled: [] };
+const noProjects: ProjectCount[] = [];
 
-/** Every thread in Home order. Only the order is selected, so rows re-render on their own. */
-export function useHomeThreadIds(): readonly string[] {
+const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
+  reader.ids.flatMap((id) => {
+    const entry = reader.thread(id);
+    return entry ? [entry] : [];
+  });
+
+/** Keys for every entry, so a selection over the whole list sees each status change. */
+function useEveryEntryKey(): SidebarKey[] {
   const ids = useSidebarIds() ?? none;
-  const keys = useMemo<SidebarKey[]>(
+  return useMemo<SidebarKey[]>(
     () => ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)],
     [ids],
   );
-  return useSidebar(keys, readIds, arrayEqual) ?? none;
+}
+
+const arrangementEqual = (a: Arrangement, b: Arrangement) =>
+  arrayEqual(a.active, b.active) && arrayEqual(a.settled, b.settled);
+
+/**
+ * Home order (needs you, moving, trouble, the rest; settled apart). Only ids are selected,
+ * so a status change re-renders its own row and moves rows only when the order changes.
+ */
+export function useHomeArrangement(): Arrangement {
+  const keys = useEveryEntryKey();
+  const state = useOrganizerState();
+  const now = useNow();
+  const select = useCallback(
+    (reader: SidebarReader) => arrange(entriesOf(reader), state, now),
+    [state, now],
+  );
+  return useSidebar(keys, select, arrangementEqual) ?? empty;
+}
+
+const countsEqual = (a: ProjectCount[], b: ProjectCount[]) =>
+  a.length === b.length && a.every((p, i) => p.id === b[i]?.id && p.threads === b[i]?.threads);
+
+/** Projects that have threads here, with how many. */
+export function useProjects(): ProjectCount[] {
+  const keys = useEveryEntryKey();
+  const state = useOrganizerState();
+  const select = useCallback(
+    (reader: SidebarReader) => projectCounts(entriesOf(reader), state),
+    [state],
+  );
+  return useSidebar(keys, select, countsEqual) ?? noProjects;
 }
