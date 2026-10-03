@@ -1,7 +1,7 @@
 import { useAgent, useItem } from "@ace/client-react";
 import { FileIcon } from "@phosphor-icons/react";
 import { formatClock } from "../lib/clock.ts";
-import { Markdown } from "../markdown/markdown.tsx";
+import { Prose } from "../markdown/prose.tsx";
 
 /** The person's message: a right-aligned bubble with its time below. */
 export function UserMessage(props: { threadId: string; itemId: string }) {
@@ -60,7 +60,7 @@ export function AssistantMessage(props: { threadId: string; itemId: string }) {
   return (
     <div className="text-prose leading-[1.6] tracking-[-0.005em]">
       {name && <p className="mb-1 text-ui font-medium text-muted-foreground">{name}</p>}
-      <Markdown text={text} />
+      <Prose text={text} />
       {!item.complete && (
         <span
           role="status"

@@ -2,7 +2,7 @@ import { useAgent, useInteraction, useIntentSender, useItem } from "@ace/client-
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
-import { Markdown } from "../markdown/markdown.tsx";
+import { Prose } from "../markdown/prose.tsx";
 import { agentName } from "../items/agent-row.tsx";
 import { QuestionForm } from "./question-form.tsx";
 import { PlanReview } from "./plan-review.tsx";
@@ -104,7 +104,7 @@ export function InteractionCard(props: { threadId: string; interactionId: string
       )}
       {request.kind === "plan_review" && (
         <PlanReview disabled={sending} onAnswer={answer}>
-          <Markdown text={request.markdown} className="text-ui leading-[1.55]" />
+          <Prose text={request.markdown} className="text-ui leading-[1.55]" />
         </PlanReview>
       )}
       {request.kind === "elicitation" && (
