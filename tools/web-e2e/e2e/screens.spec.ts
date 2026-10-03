@@ -68,8 +68,10 @@ const screens: Record<string, Setup> = {
   },
   "home-settled": async (page) => {
     await home(page);
+    // The list is virtual: Settled is rendered once it scrolls into view.
     const settled = page.getByRole("button", { name: /^Settled \(\d+\)$/ });
-    await settled.scrollIntoViewIfNeeded();
+    await page.getByRole("complementary", { name: "Threads" }).hover();
+    while (!(await settled.isVisible())) await page.mouse.wheel(0, 600);
     await settled.click();
     await page.getByRole("complementary", { name: "Threads" }).hover();
     await page.mouse.wheel(0, 2000);
@@ -120,7 +122,63 @@ const screens: Record<string, Setup> = {
     await rightTab("/t/thread-dedupe", "Agents", false)(page);
   },
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
+  // Nothing to preview yet: open a browser, or preview a dev server by its port.
+  "thread-preview-empty": rightTab("/t/thread-install-page", "Preview"),
+  // A thread stopped at its account's usage limit, with the recovery choices.
+  "thread-limited": async (page) => {
+    await openThread("/t/thread-limit-search")(page);
+    await page.getByRole("region", { name: "Usage limit reached" }).waitFor();
+  },
+  // A queued message's options: Send now, Edit, Move, Remove.
+  "thread-queue-menu": async (page) => {
+    await heroWithQueue(page);
+    await page.getByRole("button", { name: /^Queued message options:/ }).click();
+    await page.getByRole("menu").waitFor();
+  },
+  "thread-devices": async (page) => {
+    await rightTab("/t/thread-install-page", "Devices")(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("button", { name: "Enable devices" }).click();
+    const phone = panel.getByRole("region", { name: "iPhone 16 Pro" });
+    await phone.getByRole("button", { name: "Start live view" }).click();
+    await phone.getByRole("img", { name: "iPhone 16 Pro screen" }).waitFor();
+  },
+  "thread-devices-off": rightTab("/t/thread-install-page", "Devices"),
+  "thread-git-menu": async (page) => {
+    await openThread("/t/thread-retry-budget")(page);
+    await page.getByRole("button", { name: "Git actions" }).click();
+    await page.getByRole("menu", { name: "Git actions" }).waitFor();
+  },
+  "thread-commit": async (page) => {
+    await openThread("/t/thread-retry-budget")(page);
+    await page.getByRole("button", { name: "Commit", exact: true }).click();
+    await page.getByRole("dialog", { name: "Commit changes" }).waitFor();
+  },
+  "thread-create-pr": async (page) => {
+    await openThread("/t/thread-sheet-rotate")(page);
+    await page.getByRole("button", { name: "Create PR" }).click();
+    await page.getByRole("dialog", { name: "Open a pull request" }).waitFor();
+  },
+  "thread-run-menu": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("button", { name: "Choose a script" }).click();
+    await page.getByRole("menu").waitFor();
+  },
+  "thread-menu": async (page) => {
+    await openThread("/t/thread-install-page")(page);
+    await page.getByRole("button", { name: "More actions" }).click();
+    await page.getByRole("menu", { name: "More actions" }).waitFor();
+  },
   "thread-terminal": bottomTab("/t/thread-cold-start", "Terminal"),
+  // A script started from Run, in its own terminal tab.
+  "thread-terminal-run": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("button", { name: "Run bun run dev:relay" }).click();
+    await page
+      .getByRole("region", { name: "Bottom panel" })
+      .getByRole("tab", { name: "dev:relay" })
+      .waitFor();
+  },
   "thread-logs": bottomTab("/t/thread-cold-start", "Logs"),
   activity: visit("/activity", "Activity"),
   // Automations opens on the first automation.
