@@ -1,7 +1,7 @@
 /* oxlint-disable unicorn/require-post-message-target-origin -- Node worker_threads has no targetOrigin. */
 import { Worker, type WorkerOptions } from "node:worker_threads";
-import { IdleWorker, type WorkerPort } from "@ace/provider-kit/idle-worker";
-import { InventoryWatch } from "./inventory-watch.ts";
+import { IdleWorker, type WorkerPort, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
+import { InventoryWatch, type WatchDirectory } from "./inventory-watch.ts";
 type HistoryWorker = WorkerPort & { idle?(): void; started?: boolean };
 import { Agent, ThreadId } from "@ace/protocol";
 import {
@@ -29,12 +29,17 @@ import {
 export type { HistoryOptions, ImportSink, ProviderHome } from "./contracts.ts";
 export type { HistorySession } from "@ace/protocol/history";
 
+export interface HistoryRuntime {
+  watch?: WatchDirectory;
+  delay?: IdleWorkerRuntime["delay"];
+}
 const Iteration = z.object({ done: z.boolean(), values: z.array(Packet).max(16) });
 /** One worker owns writes; up to eight bounded reads may overlap its yielded scan. */
 export async function openHistory(
   options: HistoryOptions,
   spawnWorker: (url: URL, options: WorkerOptions) => Worker = (url, workerOptions) =>
     new Worker(url, workerOptions),
+  runtime: HistoryRuntime = {},
 ): Promise<HistoryService> {
   const worker = new IdleWorker(
     new URL("./worker.ts", import.meta.url),
@@ -44,14 +49,16 @@ export async function openHistory(
     },
     {
       spawn: spawnWorker,
-      delay(callback, milliseconds) {
-        const timer = setTimeout(callback, milliseconds);
-        timer.unref();
-        return () => clearTimeout(timer);
-      },
+      delay:
+        runtime.delay ??
+        ((callback, milliseconds) => {
+          const timer = setTimeout(callback, milliseconds);
+          timer.unref();
+          return () => clearTimeout(timer);
+        }),
     },
   );
-  const inventory = new InventoryWatch(Options.parse(options).instances);
+  const inventory = new InventoryWatch(Options.parse(options).instances, runtime.watch);
   const service = new HistoryService(worker, inventory);
   worker.start();
   try {
@@ -98,8 +105,19 @@ export class HistoryService {
       if (progress) {
         void Promise.resolve()
           .then(() => this.onProgress?.(progress.progress, progress.result))
-          .finally(() => this.worker.postMessage({ progressAck: progress.progressId }))
-          .catch(() => this.worker.postMessage("cancel"));
+          .then(
+            () => {
+              if (!this.closed && !this.closing)
+                this.worker.postMessage({ progressAck: progress.progressId });
+            },
+            () => {
+              if (!this.closed && !this.closing) this.worker.postMessage("cancel");
+            },
+          )
+          .catch((error: unknown) => {
+            if (!this.closed && !this.closing)
+              this.fail(error instanceof Error ? error : new Error("History progress failed"));
+          });
         return;
       }
       const reply = Reply.parse(value);
@@ -164,6 +182,11 @@ export class HistoryService {
     signal?: AbortSignal,
     onProgress?: (files: number, result: z.infer<typeof ScanResult>) => void | Promise<void>,
   ) {
+    if (this.importing || this.pending || this.scanning || this.closed || this.closing)
+      throw new Error("History operation already in progress or closed");
+    // The authoritative scan covers already observed paths. Keep changes arriving
+    // during the scan for the next batch rather than retaining startup debris.
+    this.inventory?.take();
     return this.runScan({ op: "scan" }, signal, onProgress);
   }
   /** Consume observed changes. Explicit scan() stays authoritative when native events are delayed. */
