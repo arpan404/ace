@@ -29,13 +29,26 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     result(message["id"], {
       protocolVersion: process.argv.includes("--protocol-v2") ? 2 : 1,
       agentInfo: { name: "antigravity-acp", version: "1.2.1" },
+      agentCapabilities: { loadSession: true, promptCapabilities: { image: true } },
     });
   else if (method === "session/new" || method === "session/load") {
     if (process.argv.includes("--new-replay"))
       process.stdout.write(
-        `${JSON.stringify({ id: message["id"], result: { sessionId: "native-root" } })}\n${JSON.stringify({ method: "session/update", params: { sessionId: "native-root", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "initial notification" } } } })}\n`,
+        `${JSON.stringify({ id: message["id"], result: { sessionId: "native-root", configOptions: [{ id: "synthetic-model", category: "model", type: "select", options: [{ value: "test-model", name: "Synthetic" }] }] } })}\n${JSON.stringify({ method: "session/update", params: { sessionId: "native-root", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "initial notification" } } } })}\n`,
       );
-    else result(message["id"], { sessionId: "native-root" });
+    else
+      result(message["id"], {
+        sessionId: "native-root",
+        configOptions: [
+          {
+            id: "synthetic-model",
+            category: "model",
+            type: "select",
+            currentValue: "test-model",
+            options: [{ value: "test-model", name: "Synthetic model" }],
+          },
+        ],
+      });
   } else if (method === "session/set_config_option") result(message["id"], {});
   else if (method === "session/prompt") {
     if (held) {

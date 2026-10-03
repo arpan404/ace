@@ -23,10 +23,12 @@ export async function bundleDaemon(repo: string, root: string, publicKey: string
           ctx.onLoad(
             {
               filter:
-                /(?:worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search)\.ts$/,
+                /(?:worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
+              if (args.path.endsWith("/mcp-server/src/injection.ts"))
+                contents = contents.replace('"./stdio-entry.ts"', '"./acp-mcp-bridge.mjs"');
               if (args.path.endsWith("/workspace/src/descriptor.ts"))
                 contents = contents.replace('"../dist/descriptor.node"', '"./descriptor.node"');
               if (args.path.endsWith("/workspace/src/node-search.ts"))
@@ -93,6 +95,7 @@ export async function bundleDaemon(repo: string, root: string, publicKey: string
   if (workspaceIncluded)
     await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
   const helpers = [
+    ["packages/mcp-server/src/stdio-entry.ts", "acp-mcp-bridge.mjs"],
     ["packages/usage/src/worker-entry.ts", "usage-worker.mjs"],
     ["packages/review/src/worker.ts", "review-worker.mjs"],
     ["packages/history-import/src/worker.ts", "history-import-worker.mjs"],
