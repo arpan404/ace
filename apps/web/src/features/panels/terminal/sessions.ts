@@ -85,6 +85,21 @@ export class TerminalSessions {
     await this.source.refresh(threadId);
     this.select(threadId, id);
   }
+  /**
+   * Shows the thread's terminal called `name` if it is still running (a script started again
+   * goes back to its terminal rather than a second copy). False when there is none.
+   */
+  async revealRunning(threadId: string, name: string): Promise<boolean> {
+    await this.source.refresh(threadId);
+    const running = this.source
+      .list(threadId)
+      .find(
+        (terminal) =>
+          terminal.name === name && !terminal.exited && this.exitCode(terminal.id) === null,
+      );
+    if (running) this.select(threadId, running.id);
+    return running !== undefined;
+  }
   close(id: string): Promise<void> {
     const entry = this.attached.get(id);
     entry?.detach?.();

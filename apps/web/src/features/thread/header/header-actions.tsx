@@ -20,7 +20,7 @@ import { launchEditor } from "@/boot/editor-launch.ts";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { revealTerminal } from "@/features/panels/index.ts";
+import { revealRunningTerminal, revealTerminal } from "@/features/panels/index.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useEditors } from "@/lib/editors.ts";
 import { keymap } from "@/lib/keymap.ts";
@@ -36,51 +36,94 @@ const GitDialog = lazy(() => import("./git-dialog.tsx").then((m) => ({ default: 
 const failure = (error: unknown) =>
   error instanceof Error ? error.message : "The daemon couldn't do that.";
 
-/** Run ▶: the project's first script, or another from the picker, in a new bottom terminal. */
+/**
+ * Run ▶: the project's first script, or another from the picker, in a bottom terminal. A script
+ * still running goes back to its terminal instead of starting a second copy. While the scripts
+ * load, fail to load or don't exist, the caret's menu says so.
+ */
 export function RunButton(props: { thread: ThreadRef }) {
   const sources = useThreadSources();
   const client = useClient();
   const toast = useToast();
   const { setTab, setPanelOpen } = useLayout();
-  const scripts = useDaemonQuery({
+  const query = useDaemonQuery({
     queryKey: ["thread", "scripts", props.thread.id],
     staleTime: 60_000,
     retry: false,
     read: (_client, signal) => sources.workspace.scripts(props.thread, signal),
-  }).data;
+  });
+  const scripts = query.data;
   const first = scripts?.[0];
-  const run = (script: Script) => {
-    sources.workspace.runScript(props.thread, script).then(
-      (terminalId) => {
-        setTab("bottom", "terminal");
-        setPanelOpen("bottom", true);
-        // The bottom panel opening on the new, running tab is the confirmation.
-        void revealTerminal(client, props.thread.id, terminalId);
-      },
-      (error: unknown) =>
-        toast.add({ title: `Couldn't run ${script.command}`, description: failure(error) }),
-    );
+  const show = (terminalId?: string) => {
+    setTab("bottom", "terminal");
+    setPanelOpen("bottom", true);
+    // The bottom panel opening on the running tab is the confirmation.
+    if (terminalId) void revealTerminal(client, props.thread.id, terminalId);
   };
+  const run = async (script: Script) => {
+    try {
+      if (await revealRunningTerminal(client, props.thread.id, script.name)) return show();
+      show(await sources.workspace.runScript(props.thread, script));
+    } catch (error) {
+      toast.add({ title: `Couldn't run ${script.command}`, description: failure(error) });
+    }
+  };
+  const status = scriptsStatus(query.status, scripts?.length ?? 0);
   return (
     <SplitButton
       variant="ghost"
       icon={<PlayIcon aria-hidden size={16} />}
-      actionLabel={first ? `Run ${first.command}` : "No scripts in this project"}
+      actionLabel={first ? `Run ${first.command}` : runLabels[status]}
       menuLabel="Choose a script"
-      disabled={!first}
-      onAction={() => first && run(first)}
-      menu={scripts?.map((script, index) => (
-        <MenuItem
-          key={script.id}
-          icon={<PlayIcon aria-hidden size={16} />}
-          onClick={() => run(script)}
-        >
-          <span className="font-mono text-[12px]">{script.command}</span>
-          {index === 0 && <span className="ml-3 text-xs text-subtle-foreground">default</span>}
-        </MenuItem>
-      ))}
+      actionDisabled={status === "error" || status === "empty"}
+      onAction={() => first && void run(first)}
+      menu={
+        status === "loading" ? (
+          <MenuItem disabled reason="They show here once the daemon has read them">
+            Loading scripts
+          </MenuItem>
+        ) : status === "error" ? (
+          <>
+            <MenuItem disabled reason="Couldn't read this project's scripts">
+              No scripts to run
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem onClick={() => void query.refetch()}>Try again</MenuItem>
+          </>
+        ) : status === "empty" ? (
+          <MenuItem disabled reason="Add one to package.json and it shows here">
+            No scripts in this project
+          </MenuItem>
+        ) : (
+          scripts?.map((script, index) => (
+            <MenuItem
+              key={script.id}
+              icon={<PlayIcon aria-hidden size={16} />}
+              onClick={() => void run(script)}
+            >
+              <span className="font-mono text-[12px]">{script.command}</span>
+              {index === 0 && <span className="ml-3 text-xs text-subtle-foreground">default</span>}
+            </MenuItem>
+          ))
+        )
+      }
     />
   );
+}
+
+type ScriptsStatus = "loading" | "error" | "empty" | "ready";
+
+const runLabels: Record<ScriptsStatus, string> = {
+  loading: "Loading scripts",
+  error: "Couldn't read this project's scripts",
+  empty: "No scripts in this project",
+  ready: "Run",
+};
+
+function scriptsStatus(query: "pending" | "error" | "success", count: number): ScriptsStatus {
+  if (query === "pending") return "loading";
+  if (query === "error") return "error";
+  return count ? "ready" : "empty";
 }
 
 const editorIcons: Record<string, PhosphorIcon> = {

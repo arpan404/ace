@@ -21,6 +21,16 @@ export function shellLabel(command: string): string {
   return command.trim().split(/\s+/)[0]?.split("/").pop() || command;
 }
 
+/** Two tabs never read the same: a repeated label gets " 2", " 3"... in tab order. */
+export function distinctLabels<T extends { label: string }>(tabs: readonly T[]): T[] {
+  const seen = new Map<string, number>();
+  return tabs.map((tab) => {
+    const count = (seen.get(tab.label) ?? 0) + 1;
+    seen.set(tab.label, count);
+    return count === 1 ? tab : { ...tab, label: `${tab.label} ${count}` };
+  });
+}
+
 const readShells = (reader: ThreadReader) =>
   reader.taskIds().flatMap((id) => {
     const task = reader.task(id);
@@ -74,7 +84,7 @@ export function TerminalTab(props: { threadId: string }) {
   const { list, selected, link } = useTerminalList(sessions, threadId);
   const [closeError, setCloseError] = useState<string>();
   const opener = useOpenTerminal(threadId);
-  const tabs = [
+  const tabs = distinctLabels([
     ...shells.map((task) => ({
       id: `task:${task.id}`,
       label: shellLabel(task.title),
@@ -82,7 +92,7 @@ export function TerminalTab(props: { threadId: string }) {
       closable: false,
     })),
     ...list.map((info) => ({ id: info.id, label: info.name, live: !info.exited, closable: true })),
-  ];
+  ]);
   const active = tabs.find((tab) => tab.id === selected) ?? tabs[0];
   // Remember which tab is showing (not chosen), so Clear acts on it.
   const shown = active?.id;

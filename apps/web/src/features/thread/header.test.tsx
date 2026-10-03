@@ -43,6 +43,53 @@ test("Run's picker runs another of the project's scripts", async () => {
   expect(app.daemon.terminals.list("thread-replay-cursor").map((t) => t.name)).toEqual(["soak"]);
 });
 
+test("running a script that is still running goes back to its terminal instead of a second one", async () => {
+  const app = await openThread();
+  // The agent's own `bun run dev:relay` shell may be listed too; then this one reads "dev:relay 2".
+  const devRelay = /^dev:relay( 2)?, running$/;
+  await userEvent.click(await screen.findByRole("button", { name: "Run bun run dev:relay" }));
+  const bottom = await screen.findByRole("region", { name: "Bottom panel" });
+  await within(bottom).findByRole("tab", { name: devRelay, selected: true });
+
+  await userEvent.click(screen.getByRole("button", { name: "Choose a script" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: /bun run soak/ }));
+  await within(bottom).findByRole("tab", { name: "soak, running", selected: true });
+
+  await userEvent.click(screen.getByRole("button", { name: "Run bun run dev:relay" }));
+  expect(await within(bottom).findByRole("tab", { name: devRelay, selected: true })).toBeTruthy();
+  expect(app.daemon.terminals.list("thread-replay-cursor").map((t) => t.name)).toEqual([
+    "dev:relay",
+    "soak",
+  ]);
+});
+
+test("a project without scripts says so in Run's menu", async () => {
+  const app = harness();
+  app.daemon.setScripts("relay", []);
+  app.play(replayCursor()).runThrough("finding");
+  await app.open("/t/thread-replay-cursor");
+  await screen.findByRole("feed", { name: "Transcript" });
+
+  await userEvent.click(await screen.findByRole("button", { name: "Choose a script" }));
+  const item = await screen.findByRole("menuitem", { name: /No scripts in this project/ });
+  expect(item.getAttribute("aria-disabled")).toBe("true");
+  expect(within(item).getByText("Add one to package.json and it shows here")).toBeTruthy();
+});
+
+test("when the scripts can't be read, Run's menu says so and reads them again", async () => {
+  const app = harness();
+  app.daemon.failRequests("workspace.request");
+  app.play(replayCursor()).runThrough("finding");
+  await app.open("/t/thread-replay-cursor");
+  await screen.findByRole("feed", { name: "Transcript" });
+
+  await userEvent.click(await screen.findByRole("button", { name: "Choose a script" }));
+  expect(await screen.findByText("Couldn't read this project's scripts")).toBeTruthy();
+  app.daemon.restoreRequests();
+  await userEvent.click(screen.getByRole("menuitem", { name: "Try again" }));
+  expect(await screen.findByRole("button", { name: "Run bun run dev:relay" })).toBeTruthy();
+});
+
 test("Open launches the checkout in the editor, and picking another makes it the default", async () => {
   await openThread();
   const launched = vi.spyOn(window, "open").mockImplementation(() => null);

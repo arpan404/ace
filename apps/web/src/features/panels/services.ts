@@ -87,3 +87,13 @@ export async function revealTerminal(
   const services = await panelServices(client);
   await services.terminals.reveal(threadId, terminalId);
 }
+
+/** Shows the thread's running terminal called `name`; false when none is running. */
+export async function revealRunningTerminal(
+  client: ClientApi,
+  threadId: string,
+  name: string,
+): Promise<boolean> {
+  const services = await panelServices(client);
+  return services.terminals.revealRunning(threadId, name);
+}
