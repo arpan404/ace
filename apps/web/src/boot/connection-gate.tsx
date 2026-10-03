@@ -22,12 +22,14 @@ export function ConnectionGate(props: {
   createClient(target: DaemonTarget): Client;
   /** `location.hash` at boot, for the daemon's `#token=` hand-off. */
   fragment?: string;
+  /** A target handed over by the desktop app's preload bridge; wins over the fragment. */
+  handed?: DaemonTarget | undefined;
   onFragmentRead?(): void;
   children(client: Client): ReactNode;
 }) {
   const { stores, defaultUrl, createClient, fragment, onFragmentRead } = props;
   const [state, setState] = useState(() => {
-    const handed = fragment ? targetFromFragment(fragment, defaultUrl) : undefined;
+    const handed = props.handed ?? (fragment ? targetFromFragment(fragment, defaultUrl) : undefined);
     if (handed) saveTarget(stores, handed, false);
     const stored = loadTarget(stores, defaultUrl);
     return { target: stored.target, url: stored.url, remembered: stored.remembered };

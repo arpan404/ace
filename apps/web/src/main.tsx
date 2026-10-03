@@ -5,6 +5,7 @@ import { App, AppFrame } from "./app.tsx";
 import { ConnectionGate } from "./boot/connection-gate.tsx";
 import { defaultDaemonUrl } from "./boot/connection-settings.ts";
 import { createDaemonClient } from "./boot/daemon.ts";
+import { desktopTarget } from "./boot/desktop.ts";
 import "./styles/index.css";
 
 const environment = {
@@ -22,10 +23,12 @@ async function content() {
     await client.start();
     return app(client);
   }
+  const desktop = await desktopTarget();
   return (
     <ConnectionGate
       stores={{ local: localStorage, session: sessionStorage }}
-      defaultUrl={import.meta.env.VITE_ACE_DAEMON_URL ?? defaultDaemonUrl}
+      defaultUrl={desktop?.url ?? import.meta.env.VITE_ACE_DAEMON_URL ?? defaultDaemonUrl}
+      handed={desktop}
       createClient={createDaemonClient}
       fragment={location.hash}
       onFragmentRead={forgetFragment}
