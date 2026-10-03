@@ -57,14 +57,19 @@ export function createSystemProbes(
     antigravity: (signal) =>
       discoverAntigravity({ env: options.env, timeoutMs, signal, probe: runtime.probe }),
     git: async (signal) => {
-      const git = await findExecutable("git", options.env);
+      // Finder can launch with no PATH. Prefer an explicit PATH installation,
+      // then check the standard system location without invoking a shell.
+      const git =
+        (await findExecutable("git", options.env)) ??
+        (await findExecutable("/usr/bin/git", options.env)) ??
+        (await findExecutable("/bin/git", options.env));
       if (!git) return undefined;
       const result = await runtime.probe(git, ["--version"], {
         timeoutMs,
         env: options.env,
         signal,
       });
-      return result.code === 0 && /^git version [\w.+-]+$/.test(result.stdout)
+      return result.code === 0 && /^git version \d[\w.+-]*(?: \([^\r\n]+\))?$/.test(result.stdout)
         ? result.stdout
         : undefined;
     },

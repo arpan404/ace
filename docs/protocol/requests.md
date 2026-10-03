@@ -149,6 +149,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"history.list"` |  |
+| requestId | no | string | {"minLength":1,"maxLength":256} |
 | cwd | yes | string |  |
 | limit | no | integer | {"default":50,"minimum":1,"maximum":200} |
 | before | no | object | {"properties":{"lastActivity":{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},"id":{"type":"string"}},"required":["lastActivity","id"]} |
@@ -157,11 +158,8 @@ Example:
 
 ```json
 {
-  "before": {
-    "id": "example",
-    "lastActivity": 3
-  },
   "cwd": "example",
+  "limit": 4,
   "type": "history.list"
 }
 ```
@@ -189,6 +187,8 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"history.scan"` |  |
+| requestId | no | string | {"minLength":1,"maxLength":256} |
+| action | no | ["start","status"] |  |
 
 Example:
 
@@ -213,7 +213,7 @@ Example:
 ```json
 {
   "input": [],
-  "mode": "fork",
+  "mode": "resume",
   "threadId": "example",
   "type": "history.continue"
 }
@@ -230,7 +230,7 @@ Example:
   "name": "example",
   "requestId": "example",
   "threadId": "example",
-  "type": "mcp.disable"
+  "type": "mcp.reconnect"
 }
 ```
 
@@ -309,11 +309,8 @@ Example:
 ```json
 {
   "operation": {
-    "destination": "example",
-    "destinationExpected": null,
-    "expected": null,
-    "op": "rename",
-    "path": "example"
+    "op": "upload.cancel",
+    "uploadId": "example"
   },
   "requestId": "example",
   "type": "files.request"
@@ -332,8 +329,8 @@ Example:
 
 ```json
 {
-  "channel": 5,
-  "credits": 5,
+  "channel": 6,
+  "credits": 1,
   "type": "files.credit"
 }
 ```
@@ -349,7 +346,7 @@ Example:
 
 ```json
 {
-  "channel": 2,
+  "channel": 5,
   "type": "files.cancel"
 }
 ```
@@ -368,7 +365,7 @@ Example:
 
 ```json
 {
-  "limit": 9,
+  "query": "example",
   "requestId": "example",
   "threadId": "example",
   "type": "commands.list"

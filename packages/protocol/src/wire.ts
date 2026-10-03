@@ -18,6 +18,7 @@ import {
   HistoryImportResponse,
   HistoryScanRequest,
   HistoryScanResponse,
+  HistoryScanUpdated,
   HistoryContinueRequest,
   HistoryContinueResponse,
 } from "./history.ts";
@@ -228,6 +229,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   HistoryListResponse,
   HistoryImportResponse,
   HistoryScanResponse,
+  HistoryScanUpdated,
   HistoryContinueResponse,
   McpProviderResult,
   UsageMessage,

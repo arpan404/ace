@@ -22,6 +22,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       (adapters) => registerPi(context, adapters),
     ));
   if (!engineOptions.registry) resources.own(() => registry.close());
+  context.signal.throwIfAborted();
   const acp =
     services.agentRegistry && services.models && services.mcp
       ? acpEngineOptions({

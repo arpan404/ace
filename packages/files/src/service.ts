@@ -39,10 +39,14 @@ export class FilesService {
     await mkdir(join(options.dataDir, "trash"), { recursive: true, mode: 0o700 });
     const roots = new Map<string, SafeRoot>();
     for (const root of options.artifactRoots ?? []) {
-      const safe = await SafeRoot.create(root);
+      const safe = await SafeRoot.create(root, options.workspaceRuntime);
       roots.set(safe.root, safe);
     }
-    return new FilesService(await SafeRoot.create(options.workspace), options, roots);
+    return new FilesService(
+      await SafeRoot.create(options.workspace, options.workspaceRuntime),
+      options,
+      roots,
+    );
   }
   authorize(device: string, capability: "files.read" | "files.write"): void {
     if (this.closed) throw new FileError("CLOSED", "File service closed");
@@ -345,8 +349,9 @@ export class FilesService {
     });
   }
   /** Called by the daemon's maintenance owner with its injected clock. */
-  sweep(): Promise<void> {
+  sweep(signal?: AbortSignal): Promise<void> {
     return this.serial(async () => {
+      signal?.throwIfAborted();
       await this.uploads.removeMany(
         this.catalog
           .list("upload")
@@ -354,10 +359,13 @@ export class FilesService {
             (record) => record.expires <= this.options.now() || UploadRecord.parse(record).cleanup,
           )
           .map((record) => UploadRecord.parse(record)),
+        signal,
       );
-      for (const record of this.catalog.list("trash"))
+      for (const record of this.catalog.list("trash")) {
+        signal?.throwIfAborted();
         if (record.expires <= this.options.now())
           await this.mutations.expire(TrashRecord.parse(record));
+      }
       for (const [id, preview] of this.previews)
         if (preview.expires <= this.options.now()) this.previews.delete(id);
     });

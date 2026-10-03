@@ -41,6 +41,7 @@ export interface ServerOptions {
   usage?: UsageCommands;
   maintenance?: boolean;
   version?: string;
+  serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
   models?: ModelCatalogApi;
   agentRegistry?: Pick<import("@ace/agent-registry").AgentRegistry, "handle">;
   port: number;

@@ -1,3 +1,9 @@
+import {
+  HistoryScanStatus,
+  HistoryScanResponse,
+  HistoryListRequest,
+  HistoryListResponse,
+} from "@ace/protocol/history";
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
@@ -35,6 +41,7 @@ export class Client {
   private sidebar: Sidebar;
   private intents: Intents;
   private notifications: Notifications;
+  private historyState: HistoryScanStatus | undefined;
   private closed = false;
   private hostId: string | undefined;
   constructor(options: ClientOptions) {
@@ -55,6 +62,8 @@ export class Client {
             if (this.hostId && this.hostId !== message.hostId)
               throw new ClientError("protocol", "Transport changed daemon identity");
             this.hostId = message.hostId;
+            this.historyState = undefined;
+            this.notifications.emit(["historyScan"]);
             this.subscriptions.reconnect();
             this.sidebar.reconnect();
             this.intents.replay();
@@ -64,6 +73,18 @@ export class Client {
             void this.intents
               .acknowledge(message)
               .catch(() => this.connection.fail(new ClientError("storage")));
+            break;
+          case "history.scan.updated":
+            this.historyState = message.scan;
+            this.notifications.emit(["historyScan"]);
+            break;
+          case "history.scan":
+          case "history.list":
+            if (message.scan) {
+              this.historyState = message.scan;
+              this.notifications.emit(["historyScan"]);
+            }
+            if (message.requestId) this.requests.resolve(message.requestId, message);
             break;
           case "registry.result":
           case "items.page":
@@ -187,6 +208,47 @@ export class Client {
         if (!this.connection.send(request)) throw new ClientError("offline");
       },
     );
+  }
+  historyScan(): Selection<HistoryScanStatus | undefined> {
+    return this.notifications.select(["historyScan"], () => this.historyState);
+  }
+  scanHistory(options: RequestOptions = {}) {
+    return this.historyRequest(
+      { type: "history.scan", action: "start" },
+      HistoryScanResponse.parse,
+      options,
+    );
+  }
+  historyScanStatus(options: RequestOptions = {}) {
+    return this.historyRequest(
+      { type: "history.scan", action: "status" },
+      HistoryScanResponse.parse,
+      options,
+    );
+  }
+  listHistory(
+    input: Omit<import("zod").input<typeof HistoryListRequest>, "type" | "requestId">,
+    options: RequestOptions = {},
+  ) {
+    return this.historyRequest(
+      { type: "history.list", ...input },
+      HistoryListResponse.parse,
+      options,
+    );
+  }
+  private historyRequest<T>(
+    input:
+      | import("zod").input<typeof HistoryListRequest>
+      | { type: "history.scan"; action: "start" | "status" },
+    decode: (value: unknown) => T,
+    options: RequestOptions,
+  ): Promise<T> {
+    if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
+    const requestId = this.options.id();
+    const request = ClientMessage.parse({ ...input, requestId });
+    return this.requests.wait(requestId, decode, options, () => {
+      if (!this.connection.send(request)) throw new ClientError("offline");
+    });
   }
   private async read<T>(
     payload:

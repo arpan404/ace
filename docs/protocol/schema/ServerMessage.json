@@ -30,6 +30,9 @@
       "$ref": "https://ace.local/protocol/v1/HistoryScanResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/HistoryScanUpdated.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/HistoryContinueResponse.json"
     },
     {

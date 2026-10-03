@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { mkdtemp, mkdir, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, chmod } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startDaemon, readConfig } from "./index.ts";
@@ -33,7 +33,11 @@ async function setup() {
   };
 }
 it("ace doctor emits JSON and fix hints without opening a writable database or starting a daemon", async () => {
-  const { dataDir, env } = await setup();
+  const { root, dataDir, env } = await setup();
+  // A failing explicit installation must not fall back to a different system git.
+  await writeFile(join(root, "git"), "#!/bin/sh\nexit 1\n");
+  await chmod(join(root, "git"), 0o700);
+  env.PATH = root;
   let stdout = "";
   try {
     const result = await exec(

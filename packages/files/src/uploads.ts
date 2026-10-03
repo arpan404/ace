@@ -150,11 +150,13 @@ export class Uploads {
     await this.removeMany([record]);
   }
   /** Missing/replaced files keep their durable reservation until their inode is removed. */
-  async removeMany(records: UploadRecord[]): Promise<void> {
+  async removeMany(records: UploadRecord[], signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
     for (const record of records) this.catalog.markUploadCleanup(record.id);
     const debt = new Map(records.map((record) => [record.temp, record]));
     const removeAt = async (record: UploadRecord, destination: string): Promise<boolean> => {
       try {
+        signal?.throwIfAborted();
         const target = await this.safe.target(destination);
         const temp = join(dirname(target.path), record.temp);
         const info = await lstat(temp);
@@ -163,6 +165,7 @@ export class Uploads {
         // Recheck after parent verification; never unlink a replacement inode.
         const current = await lstat(temp);
         if (!current.isFile() || `${current.dev}:${current.ino}` !== record.identity) return false;
+        signal?.throwIfAborted();
         await rm(temp);
         await target.verify();
         this.catalog.delete(record.id);
@@ -183,7 +186,10 @@ export class Uploads {
         throw error;
       }
     };
-    for (const record of records) if (await removeAt(record, record.path)) debt.delete(record.temp);
+    for (const record of records) {
+      signal?.throwIfAborted();
+      if (await removeAt(record, record.path)) debt.delete(record.temp);
+    }
     if (!debt.size) return;
     // One bounded traversal per cleanup batch, including ignored directories, never links.
     const ignore = await GitIgnore.create(this.safe);
@@ -192,8 +198,10 @@ export class Uploads {
         dir: "",
         depth: Number.MAX_SAFE_INTEGER,
         includeIgnored: true,
+        ...(signal ? { signal } : {}),
         exclude: () => false,
       })) {
+        signal?.throwIfAborted();
         if (entry.type !== "file") continue;
         const record = debt.get(basename(entry.path));
         if (record && (await removeAt(record, join(dirname(entry.path), basename(record.path)))))
@@ -201,6 +209,7 @@ export class Uploads {
         if (!debt.size) break;
       }
     } catch (error) {
+      signal?.throwIfAborted();
       // A capped or raced scan leaves debt accounted for; future sweeps can retry.
       if (!["LIMIT_EXCEEDED", "NOT_FOUND", "PATH_CHANGED", "PATH_ESCAPE"].includes(codeOf(error)))
         throw error;

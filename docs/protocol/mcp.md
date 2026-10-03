@@ -37,27 +37,54 @@ Example:
 ```json
 {
   "thread": {
-    "archivedAt": 2,
-    "createdAt": 4,
-    "id": "example",
-    "installationId": "example",
-    "lineage": {
-      "lossy": true,
-      "mode": "native",
-      "parentAgentId": "example",
-      "parentThreadId": "example",
-      "point": {
-        "runId": "example",
-        "type": "turn"
-      }
+    "acpAgentId": "example",
+    "createdAt": 6,
+    "effectiveCapabilities": {
+      "backgroundTaskControl": true,
+      "backgroundVisibility": "partial",
+      "fork": true,
+      "forkSubagents": false,
+      "imageInput": false,
+      "interruptCascades": true,
+      "planMode": false,
+      "resume": true,
+      "rewindFiles": true,
+      "sessionOptions": true,
+      "steer": true,
+      "subagentTranscripts": true,
+      "tokenUsage": true
     },
+    "id": "example",
+    "imported": {
+      "importedAt": 3,
+      "instanceId": "example",
+      "native": {
+        "acpAgentId": "example",
+        "instanceId": "example",
+        "provider": "antigravity"
+      },
+      "sourceId": "example"
+    },
+    "installationId": "example",
+    "instanceId": "example",
     "provider": "acp",
     "status": {
-      "on": "queue",
+      "on": "background_task",
       "state": "waiting"
     },
+    "switch": {
+      "at": 5,
+      "lossy": false,
+      "selection": {
+        "instanceId": "example",
+        "model": "example",
+        "options": {},
+        "provider": "codex"
+      },
+      "state": "applied"
+    },
     "title": "example",
-    "updatedAt": 9,
+    "updatedAt": 4,
     "workspaceId": "example"
   }
 }
@@ -81,10 +108,7 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{
-  "cursor": "example",
-  "limit": 6
-}
+{}
 ```
 
 ## ace_list_agents.output
@@ -124,7 +148,7 @@ Example:
 
 ```json
 {
-  "level": "warning",
+  "level": "info",
   "text": "example"
 }
 ```
@@ -167,6 +191,7 @@ Example:
 
 ```json
 {
+  "name": "example",
   "task": "example"
 }
 ```
@@ -209,8 +234,6 @@ Example:
 
 ```json
 {
-  "before": 1,
-  "limit": 1,
   "sourceThreadId": "example"
 }
 ```
@@ -256,6 +279,7 @@ Example:
 
 ```json
 {
+  "offset": 3,
   "sourceThreadId": "example",
   "streamId": "example"
 }
@@ -277,8 +301,8 @@ Example:
 ```json
 {
   "bytes": "example",
-  "encoding": "utf-8",
-  "eof": false,
-  "nextOffset": 5
+  "encoding": "utf-16le",
+  "eof": true,
+  "nextOffset": 0
 }
 ```
