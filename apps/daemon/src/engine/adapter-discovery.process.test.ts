@@ -14,9 +14,11 @@ afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
 });
 
-test.each(["claude", "codex", "opencode", "cursor"] as const)(
+test.each(["claude", "codex", "opencode", "cursor", "cursor-sdk"] as const)(
   "daemon uses installed %s discovery before accepting a workspace",
   async (provider) => {
+    const sdk = provider === "cursor-sdk";
+    const kind = sdk ? "cursor" : provider;
     for (const installed of [true, false]) {
       const home = mkdtempSync(join(tmpdir(), "ace-discovery-"));
       cleanups.push(() => rmSync(home, { recursive: true, force: true }));
@@ -26,8 +28,8 @@ test.each(["claude", "codex", "opencode", "cursor"] as const)(
         codex: absent,
         cursor: absent,
         opencode: absent,
-        [provider]: {
-          installed,
+        [kind]: {
+          installed: sdk ? false : installed,
           auth: "logged_in",
           version: "2.1.286",
           path: "/not-a-real-cli",
@@ -38,6 +40,27 @@ test.each(["claude", "codex", "opencode", "cursor"] as const)(
         config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
         engine: {
           adapterDiscovery: async () => discovered,
+          // Both CLI and SDK discovery are isolated from the checkout.
+          cursor: {
+            instance: { id: "cursor-sdk-default", homeDir: join(home, "sdk-account") },
+            discovery: {
+              platform: "linux",
+              arch: "x64",
+              nodeVersion: "24.0.0",
+              resolve(id) {
+                if (!sdk || !installed)
+                  throw Object.assign(new Error("Synthetic SDK absence"), {
+                    code: "MODULE_NOT_FOUND",
+                  });
+                return id === "@cursor/sdk" ? "/sdk/index.js" : "/helper/package.json";
+              },
+              read: async (path) =>
+                path === "/sdk/package.json"
+                  ? '{"name":"@cursor/sdk","version":"1.0.35"}'
+                  : '{"name":"@cursor/sdk-linux-x64","version":"1.0.35"}',
+              executable: async () => {},
+            },
+          },
         },
       });
       cleanups.push(() => daemon.close());
@@ -63,7 +86,7 @@ test.each(["claude", "codex", "opencode", "cursor"] as const)(
           payload: {
             type: "thread.create",
             workspaceId,
-            provider,
+            provider: kind,
             input: [{ type: "text", text: "unused" }],
           },
         }),

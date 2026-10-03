@@ -17,7 +17,7 @@ import type { SessionContext } from "@ace/engine-api";
 
 const deliver = (context: SessionContext, value: CursorEnvelope) => {
   const payload = new ProviderPayload(JSON.stringify(value));
-  context.onFrame({
+  return context.onFrame({
     seq: (value.boundaryOffset ?? 0) * 1024,
     t: 1,
     dir: value.kind === "send" ? "send" : "recv",
@@ -67,10 +67,10 @@ it("recovers a killed daemon's committed deltas once and holds new input until e
           });
           after = context.resume?.afterFrameOffset ?? -1;
           await journal.recover(after, async (value) => {
-            deliver(context, value);
+            await deliver(context, value);
           });
           // An intentionally repeated committed delta must not reach core again.
-          deliver(context, {
+          await deliver(context, {
             schemaVersion: 1,
             generation: "before-crash",
             operationId: "first-command",
@@ -121,7 +121,12 @@ it("recovers a killed daemon's committed deltas once and holds new input until e
       { installed: true, auth: "logged_in", loginHint: "offline" },
     );
     engine = new Engine(store, { registry, selectInstance: () => "account-b" });
-    expect(store.getThread(ThreadId.parse("crashed-thread"))?.status.state).toBe("failed");
+    // The failed native run is retained while explicit continuation keeps the queue waiting.
+    expect(store.getThread(ThreadId.parse("crashed-thread"))?.status.state).toBe("waiting");
+    const terminal = store
+      .readEvents({ afterSeq: 0, limit: 256 })
+      .findLast((event) => event.payload.type === "run.ended")?.payload;
+    expect(terminal).toMatchObject({ type: "run.ended", state: "failed" });
     const recoveryNotices = store
       .readItems(ThreadId.parse("crashed-thread"), store.headSeq() + 1, 200)
       .items.filter((item) => item.type === "notice");

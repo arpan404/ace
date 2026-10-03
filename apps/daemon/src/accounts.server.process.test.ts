@@ -88,13 +88,16 @@ test("the accounts CLI and default daemon routes share the ACE_HOME registry", a
       ["packages/accounts/src/cli.ts", "accounts", "list"],
       { env: { ...process.env, ACE_HOME: root, ACE_ACCOUNTS_DB: undefined } },
     );
-    expect(JSON.parse(stdout)).toMatchObject([{ id: "shared", label: "Shared" }]);
+    const accounts: unknown = JSON.parse(stdout);
+    expect(accounts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "shared", label: "Shared" })]),
+    );
     const delegated = await promisify(execFile)(
       process.execPath,
       ["apps/daemon/src/cli.ts", "accounts", "list"],
       { env: { ...process.env, ACE_HOME: root, ACE_ACCOUNTS_DB: undefined } },
     );
-    expect(JSON.parse(delegated.stdout)).toMatchObject([{ id: "shared", label: "Shared" }]);
+    expect(JSON.parse(delegated.stdout)).toEqual(accounts);
     const { readFile } = await import("node:fs/promises");
     const actualToken = (await readFile(daemon.tokenPath, "utf8")).trim();
     client.socket.send(
@@ -102,7 +105,7 @@ test("the accounts CLI and default daemon routes share the ACE_HOME registry", a
     );
     await client.next();
     client.send({ type: "accounts.list", requestId: "list" });
-    expect(await client.next()).toMatchObject({ accounts: [{ id: "shared", label: "Shared" }] });
+    expect(await client.next()).toMatchObject({ accounts });
   } finally {
     await client.close();
     await daemon.close();

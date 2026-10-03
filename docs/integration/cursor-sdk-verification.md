@@ -369,3 +369,49 @@ The shared scripted provider was structured-cloning `ProviderPayload`, losing it
 Child terminal guards assert canonical item-update events using the canonical ID instead of indexing internal native item keys. The quota guard retains the failed run/error and absence of retries, while expecting main's durable limited thread status. Browser auth rejects whitespace-decorated URLs with an aborting HTTPS constraint before URL normalization can produce conflicting intersection results; schema generation and explicit invalid-challenge guards pass. Protocol references were regenerated.
 
 Checkpoint quota guards now compare bytes across SDK Buffer/Uint8Array representations. The host output stub supplies the pinned SDK schema's required `modelCallId`, so the test reaches bounded output and disposal instead of failing schema validation before send. The orchestrator's main merge `4dc670a3` was pulled before repair.
+
+## Remaining merge-time failure repair
+
+The owner's next exception authorized only these ten process-test files: adapter discovery, Claude registration, accounts server, release bundle, Cursor daemon recovery, supervisor diagnostics, Cursor auth composition, SDK checkpoint recovery, SDK account binding and SDK account CLI. The baseline reproduced all eleven reported failures plus two unhandled Claude frame errors. After repair, **26 tests in those ten files pass**, with no unhandled errors. The extra discovery case exercises installed SDK admission without a CLI. Typecheck, lint and scoped formatting pass. No full suite, other tests, CI, benchmark, mutation, browser login, recording or provider turn was run.
+
+- Cursor-only capture, raw chunks and durable offsets are gated by the pinned Cursor SDK backend. Claude still uses the SDK channel, without needing Cursor generation metadata or entering its journal. Boundary admission and actor poisoning stay strict.
+- Account auth projects the registered account to the SDK identity schema for status, login and logout. CLI account creation uses the registry's canonical home after registration. Its guard supplies a real home alias and verifies the browser challenge and completed login through the public command API.
+- Release packaging externalizes the exact SDK and subpaths, stages its installed dependency/peer closure and target helper, and bundles the supervised host separately. Manifest reads cap at 64 KiB and the graph at 64 entries; incompatible helper/version or conflicting dependency versions refuse staging. Archive normalization retains executable helpers.
+- The artifact guard writes and reopens an SDK SQLite checkpoint in the isolated release directory and checks executable helper access. It uses no authentication or model request. Existing standalone startup, diagnostic export and supervisor failure guards pass.
+- CLI discovery is injected independently from SDK discovery; accounts-list guards compare CLI, delegated CLI and socket lists while allowing the automatically registered default SDK account.
+- Crash recovery asserts the native run's failed terminal event and the queue's waiting status, then verifies explicit pinned continuation and replay deduplication. Synthetic recovered callbacks await durable ACKs. Checkpoint guards compare preserved bytes across Buffer and Uint8Array implementations.
+
+These targeted results do not establish full-suite success or live SDK lifecycle evidence. The fixture scenarios remain pending owner approval with composer-2.5.
+
+## Second merge-time failure repair
+
+The owner authorized only the ten process files named in the second failure report.
+`git pull` was already current at `6b7f89e8`. The first focused run reproduced
+11 failed tests and two unhandled rejections across those ten files.
+
+- Claude shares the `sdk` channel. Cursor checkpoint capture, raw chunk handling
+  and durable-offset reconciliation now require the selected Cursor SDK backend;
+  Claude frames retain their own translation and account/MCP behavior. Poisoning
+  and frame certificate validation stay enabled.
+- Accounts explicitly projects its registered account into the strict SDK
+  identity contract. SDK account addition uses the canonical registered home.
+  Tests retain canonical macOS temp-path identity instead of requiring an alias.
+- Release packaging stages SDK 1.0.35, the installed runtime dependency closure
+  and the selected platform helper unchanged. The SDK stays external to esbuild;
+  its supervised host is built beside the daemon. Manifest reads and closure
+  discovery are bounded. Archive mode normalization preserves helper executability.
+  The isolated artifact guard creates a real local SDK checkpoint, closes and
+  reopens it, verifies retained bytes and admits the packaged executable helper,
+  without browser authentication or provider inference.
+- Discovery guards inject both CLI and SDK availability and cover a CLI-free SDK.
+  Registry guards compare the CLI/delegated/socket account inventories while
+  allowing the automatically registered SDK account. Restart guards assert the
+  crashed run failed and the thread waits on its durable continuation; replay
+  callbacks await committed acknowledgements. Checkpoint preservation compares
+  bytes across Buffer and Uint8Array readers.
+
+Final permitted run: **10 files passed, 26 tests passed, no unhandled errors**.
+`bun run typecheck`, `bun run lint` and scoped `bun run fmt` passed. No full suite,
+other test files, CI, benchmarks, mutation execution, UI edits, recordings, browser
+sign-in or provider prompts were run. Full-suite integration remains with the
+orchestrator. All live fixture scenarios remain pending owner approval.

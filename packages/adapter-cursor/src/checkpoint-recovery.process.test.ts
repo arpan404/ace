@@ -196,9 +196,9 @@ it("fences oversized native checkpoint writes while retaining the previous check
       }),
     ).rejects.toThrow("exceeds budget");
     expect(visible).toBe("checkpoint failed");
-    expect(await base.checkpoints.get({ agentId: "agent", blobId: "original" })).toEqual(
-      new Uint8Array([1, 2]),
-    );
+    expect(
+      new Uint8Array((await base.checkpoints.get({ agentId: "agent", blobId: "original" })) ?? []),
+    ).toEqual(new Uint8Array([1, 2]));
     expect(await base.checkpoints.get({ agentId: "agent", blobId: "too-large" })).toBeNull();
     await expect(
       store.checkpoints.update({ agentId: "agent", blobId: "original", data: new Uint8Array([3]) }),
