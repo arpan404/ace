@@ -94,12 +94,9 @@ export function LogsTab(props: { threadId: string }) {
         {shown.map((line) => (
           <li key={line.key} className="grid grid-cols-[auto_8ch_minmax(0,1fr)] gap-x-3">
             <span className="text-subtle-foreground tabular-nums">{time.format(line.at)}</span>
-            <span
-              className={cn(
-                line.level === "error" && "text-status-failed",
-                line.level === "warn" && "text-status-needs-you",
-              )}
-            >
+            {/* Warnings and errors share the failed colour (the design's Logs); amber stays
+                reserved for "needs you". */}
+            <span className={cn(line.level !== "info" && "text-status-failed")}>
               {line.level === "info" ? line.source : line.level === "warn" ? "warn" : "error"}
             </span>
             <span className="break-words whitespace-pre-wrap">{line.text}</span>

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ProviderKind } from "@ace/protocol";
-import { SettingRow } from "@/components/setting-row.tsx";
+import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useDaemonConnection } from "@/boot/connection.tsx";
@@ -26,10 +26,10 @@ export function GeneralSettings() {
   const fake = useDaemonConnection().mode === "fake";
   return (
     <>
-      <section className="mt-7" aria-label="You">
+      <SettingSection label="You">
         <ProfileNameRow />
-      </section>
-      <section className="mt-7" aria-label="Threads">
+      </SettingSection>
+      <SettingSection label="Threads">
         <SettingRow
           title="Default provider for new threads"
           description="You can change it per thread in the composer."
@@ -54,7 +54,7 @@ export function GeneralSettings() {
         </SettingRow>
         <SettingSwitch setting={settingKeys.settleOnMerge} title="Settle when the PR merges" />
         <SettingSwitch setting={settingKeys.openAtLogin} title="Open ace at login" />
-      </section>
+      </SettingSection>
       {!fake && <DaemonSettings />}
     </>
   );

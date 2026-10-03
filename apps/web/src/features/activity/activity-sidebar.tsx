@@ -36,7 +36,12 @@ function FeedTabs() {
   const { tab, setTab } = useActivityState();
   const count = useNeedsYouCount();
   return (
-    <div role="tablist" aria-label="Activity filter" className="flex shrink-0 px-2.5 pb-2">
+    // A narrow sidebar scrolls the filters sideways instead of clipping the last one.
+    <div
+      role="tablist"
+      aria-label="Activity filter"
+      className="flex shrink-0 overflow-x-auto px-2.5 pb-2 [scrollbar-width:none] *:shrink-0"
+    >
       {tabs.map((entry) => (
         <button
           key={entry.id}
@@ -45,7 +50,7 @@ function FeedTabs() {
           aria-selected={tab === entry.id}
           onClick={() => setTab(entry.id)}
           className={cn(
-            "h-[26px] rounded-[7px] px-2 text-[12px] font-medium whitespace-nowrap text-muted-foreground transition-colors duration-(--dur-1) hover:bg-sidebar-accent hover:text-foreground",
+            "h-[26px] rounded-[7px] px-[7px] text-[12px] font-medium whitespace-nowrap text-muted-foreground transition-colors duration-(--dur-1) hover:bg-sidebar-accent hover:text-foreground",
             tab === entry.id &&
               "bg-[color-mix(in_oklab,var(--foreground)_10%,transparent)] text-foreground hover:bg-[color-mix(in_oklab,var(--foreground)_10%,transparent)]",
           )}
