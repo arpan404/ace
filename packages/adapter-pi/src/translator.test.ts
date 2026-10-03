@@ -65,17 +65,24 @@ test("deferred settlement keeps its failed outcome until the last dialog closes"
 test("fire-and-forget and unknown extension updates retain raw data without blocking", () => {
   const h = replay();
   h.recv(start);
-  h.recv({ type: "extension_ui_request", id: "n", method: "notify", message: "hello" });
+  const notification = {
+    type: "extension_ui_request",
+    id: "n",
+    method: "notify",
+    message: "hello",
+  };
+  h.recv(notification);
+  expect(h.state.status.state).toBe("working");
   const unknown = { type: "future_event", future: { opaque: 42 } };
   h.recv(unknown);
+  expect(h.state.status.state).toBe("working");
   h.recv(settled);
   expect(h.state.status.state).toBe("done");
-  expect(
-    Object.values(h.state.items).some(
-      (item) =>
-        item.type === "notice" && item.raw.some((raw) => "data" in raw && raw.data === unknown),
-    ),
-  ).toBe(true);
+  const retained = Object.values(h.state.items)
+    .filter((item) => item.type === "notice")
+    .flatMap((item) => item.raw);
+  expect(retained).toContainEqual({ type: notification.type, data: notification });
+  expect(retained).toContainEqual({ type: unknown.type, data: unknown });
 });
 test("shell output appends only new suffixes and completion cannot erase surviving work", () => {
   const h = replay();
