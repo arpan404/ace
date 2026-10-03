@@ -11,6 +11,7 @@ import {
   probeOutput,
   spawnSupervised,
   spawnRawSupervised,
+  spawnTextSupervised,
   type SupervisedProcess,
 } from "./process.ts";
 
@@ -373,11 +374,11 @@ it("newline-free probe output is stopped by its byte budget before a line can ac
 });
 
 it.each(["stdout", "stderr"] as const)(
-  "raw supervision rejects oversized newline-free %s before exposing an unbounded buffer",
+  "text supervision rejects oversized newline-free %s before exposing an unbounded buffer",
   async (stream) => {
     let overflow: Error | undefined;
     let received = 0;
-    const proc = spawnRawSupervised({
+    const proc = spawnTextSupervised({
       command: process.execPath,
       args: [
         "-e",

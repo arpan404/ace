@@ -160,20 +160,19 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
   return handle;
 }
 
-/** Raw bytes share the aggregate budget without imposing line framing on binary data. */
+/** Binary bytes share the aggregate budget without imposing line framing. */
 export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess {
-  return spawnOwned(
-    options,
-    options.maxLineBytes === undefined
-      ? undefined
-      : byteLimit(options.maxLineBytes, "maxLineBytes"),
-  );
+  return spawnOwned(options, undefined);
 }
 
-/** Line-oriented facade over the same process-group owner. */
+/** Bounded text bytes for callers that own their decoding/framing. */
+export function spawnTextSupervised(options: SpawnOptions): RawSupervisedProcess {
+  return spawnOwned(options, byteLimit(options.maxLineBytes ?? 16 * 1024 * 1024, "maxLineBytes"));
+}
+
+/** Line-oriented facade over the same bounded text-stream owner. */
 export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
-  const maxLineBytes = byteLimit(options.maxLineBytes ?? 16 * 1024 * 1024, "maxLineBytes");
-  const raw = spawnOwned(options, maxLineBytes);
+  const raw = spawnTextSupervised(options);
   return {
     ...raw,
     stdout: createInterface({ input: raw.stdout, crlfDelay: Infinity }),
