@@ -1,0 +1,71 @@
+{
+  "count": 5000,
+  "runtime": "v26.8.1",
+  "fullScans": false,
+  "cold": {
+    "milliseconds": 1106.9137500000002,
+    "result": {
+      "files": 5000,
+      "reads": 5000,
+      "bytes": 935000,
+      "skipped": 0,
+      "unsupported": []
+    }
+  },
+  "unchanged": {
+    "milliseconds": 163.10191699999996,
+    "result": {
+      "files": 5000,
+      "reads": 0,
+      "bytes": 0,
+      "skipped": 5000,
+      "unsupported": []
+    }
+  },
+  "oneChange": {
+    "milliseconds": 6.022040999999945,
+    "result": {
+      "files": 1,
+      "reads": 1,
+      "bytes": 284,
+      "skipped": 0,
+      "unsupported": []
+    }
+  },
+  "restart": {
+    "milliseconds": 226.8081659999998,
+    "result": {
+      "files": 5000,
+      "reads": 0,
+      "bytes": 0,
+      "skipped": 5000,
+      "unsupported": []
+    }
+  },
+  "plans": {
+    "changedPath": [
+      {
+        "id": 3,
+        "parent": 0,
+        "notused": 61,
+        "detail": "SEARCH sources USING INDEX source_path (instance=? AND path=?)"
+      }
+    ],
+    "ancestors": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 61,
+        "detail": "SEARCH sources USING INDEX source_parent (instance=? AND parent=?)"
+      }
+    ],
+    "workspace": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 54,
+        "detail": "SEARCH sources USING COVERING INDEX source_workspace (cwd=?)"
+      }
+    ]
+  }
+}
