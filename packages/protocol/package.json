@@ -11,7 +11,8 @@
     "./forge": "./src/forge.ts",
     "./accounts": "./src/accounts.ts",
     "./thread-transitions": "./src/thread-transitions.ts",
-    "./handoff-read": "./src/handoff-read.ts"
+    "./handoff-read": "./src/handoff-read.ts",
+    "./pi": "./src/pi.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

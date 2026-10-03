@@ -103,7 +103,7 @@ Example:
 {
   "selection": {
     "model": "example",
-    "provider": "claude"
+    "provider": "codex"
   },
   "threadId": "example",
   "type": "thread.switch"
@@ -595,7 +595,7 @@ Example:
     }
   ],
   "instanceId": "example",
-  "provider": "opencode",
+  "provider": "cursor",
   "type": "thread.create",
   "workspaceId": "example"
 }

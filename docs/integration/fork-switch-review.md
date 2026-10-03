@@ -1,6 +1,6 @@
 # Fork/switch integration contract after PR #69 review
 
-The branch merges `origin/main` at 8fca9b38, preserving ACP registry metadata,
+The branch merges `origin/main` at c7ca5923, preserving ACP registry metadata,
 dynamic capabilities and native coding configuration. Migration 10 accepts
 either migration-9 owner (`acp` or `transitions`), adding only missing columns.
 Migration 11 retains text revisions independently of the current item and uses
@@ -44,11 +44,21 @@ no history-sized memory index is introduced.
 Non-gating benchmarks are written in `packages/handoff/bench/selection.ts`,
 `apps/daemon/bench/thread-transitions.ts` and
 `apps/daemon/bench/history-revisions.ts`. The latter reports append, bounded count/page and UTF-8 shell suffix costs with 100 and 10,000 historical items. Ops/s, microseconds/op and
-peak RSS are **unmeasured: needs run at merge**. No runtime tests, probes,
-mutations, benchmarks, provider prompts, recorder or CI checks were executed.
-Only the owner's permitted static checks are development gates.
+peak RSS are **unmeasured: needs run at merge**. Earlier feature regressions remain unexecuted. Under the owner's merge-conflict
+exception, the Pi socket coexistence and protocol reference generation test files
+passed after resolving the Pi merge. No full suite, probes, mutation runs,
+benchmarks, provider prompts, recorder or CI checks were executed.
 
 The legacy SQLite fixture builder removes newer append targets, immutable history
 tables and their one-time marker before resetting the schema version. The
 oversized-text upgrade case also guards indexed historical reconstruction and
 subsequent appends. Genuine old database migrations remain unchanged.
+
+The Pi merge retains both service factories, ready-service values, socket
+registrations, public protocol entry points and documentation catalog entries.
+Pi's provider-specific history controls and generic `forkSession` API currently
+do not declare `forkPoints` or implement `SessionContext.fork`. Generic thread
+forks therefore continue through the capability-gated portable path. Bridging
+native point selection and opening lifetimes is a separate adapter change; this
+conflict resolution does not invent that contract. The transition socket service
+already uses the shared remote-access `DeviceScope` authorization API.

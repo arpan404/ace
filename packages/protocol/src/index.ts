@@ -51,3 +51,4 @@ export { ScreenAgentScope, ScreenUITree, ScreenUIBounds } from "./screen-ui.ts";
 
 export * from "./thread-transitions.ts";
 export * from "./handoff-read.ts";
+export * from "./pi.ts";
