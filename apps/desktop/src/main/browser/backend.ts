@@ -1,300 +1,332 @@
 import { z } from "zod";
-import { BackendDown, maxPayloadBytes, type BackendUp, type FrameChannel } from "./contract.ts";
-import { ControllerLease, type Controller } from "./lease.ts";
+import type { BrowserOpen } from "@ace/protocol";
+import {
+  relayLimits,
+  type BrowserBackendClientMessage,
+  type BrowserBackendOperation,
+  type BrowserBackendRequest,
+  type BrowserBackendServerMessage,
+  type BrowserControllerLease,
+} from "./protocol.ts";
 
-/** One embedded browser view, as the backend sees it (an Electron WebContentsView in the app). */
-export interface CdpTarget {
-  send(method: string, params: Record<string, unknown>): Promise<Record<string, unknown>>;
-  onEvent(listener: (method: string, params: Record<string, unknown>) => void): () => void;
-  /** Mouse, keyboard or wheel input from the person in the view. */
-  onHumanInput(listener: () => void): () => void;
+/** One embedded browser view, as the backend sees it (a WebContentsView in the app). */
+export interface ViewPage {
+  /** Exact CDP: the result is relayed to the daemon unchanged. */
+  cdp(method: string, params?: Record<string, unknown>): Promise<unknown>;
+  /** CDP events, plus `ace.permissionDenied`, `ace.downloadDenied` and `Inspector.detached`. */
+  onEvent(listener: (method: string, params: unknown) => void): () => void;
+  /** The person clicked or pressed a key in the view while its native input was off. */
+  onBlockedInput(listener: () => void): () => void;
+  /** Resolves with the final URL once the main frame fired DOMContentLoaded. */
+  navigate(url: string, timeoutMs: number): Promise<string>;
+  /** A Playwright-compatible key or chord. */
+  press(key: string): Promise<void>;
+  resize(width: number, height: number): Promise<void>;
+  /** Whether the person's own pointer and keyboard reach the page. */
+  setNativeInput(enabled: boolean): void;
   url(): string;
-  close(): void;
+  /** Destroy the view, detach CDP and drop ephemeral partition data. */
+  close(): Promise<void>;
 }
 
 export interface ViewHost {
   open(request: {
     sessionId: string;
-    workspaceId: string;
-    threadId?: string;
-    url?: string;
-  }): CdpTarget;
-}
-
-export interface BackendOptions {
-  /** Forwarded CDP events per session per second; the excess is counted and reported. */
-  eventsPerSecond?: number;
-  now(): number;
-  onController?(sessionId: string, controller: Controller): void;
-}
-
-const Metadata = z.record(z.string(), z.unknown()).catch({});
-
-/** Event domains worth relaying: navigation, page lifecycle, console and network logs. */
-const relayed =
-  /^(Page\.(frameNavigated|loadEventFired|domContentEventFired|javascriptDialogOpening)|Runtime\.(consoleAPICalled|exceptionThrown)|Log\.entryAdded|Network\.(requestWillBeSent|responseReceived|loadingFailed))$/;
-
-interface Session {
-  target: CdpTarget;
-  lease: ControllerLease;
-  stops: (() => void)[];
-  screencast: boolean;
-  /** Frame sent and not yet acknowledged by the daemon. */
-  inFlight: boolean;
-  /** The newest frame waiting for that acknowledgement; replaced, never queued. */
-  latest:
-    | Omit<Extract<BackendUp, { type: "browser.backend.frame" }>, "type" | "sessionId">
-    | undefined;
-  frames: number;
-  window: { start: number; count: number; dropped: number };
+    options: BrowserOpen;
+    viewport: { width: number; height: number };
+  }): Promise<ViewPage>;
 }
 
 /**
- * Registers this app as the daemon's "embedded" browser backend and relays CDP between the
- * daemon and the app's own browser views. Calls and events are size-bounded, events are
- * rate-limited per session, and screencast frames are flow-controlled by daemon acks with
- * only the latest frame kept.
+ * The registered backend socket. `send` gets the message already serialized; it returns
+ * false when the socket refused it, and the connection then drops the backend.
+ */
+export interface BackendLink {
+  backendId: string;
+  connectionId: string;
+  send(serialized: string): boolean;
+}
+
+export interface ControllerState {
+  threadId: string;
+  controller: BrowserControllerLease["controller"];
+  /** The lease belongs to this app's own connection, so the person can use the view here. */
+  here: boolean;
+}
+
+export interface BackendOptions {
+  onController?(state: ControllerState): void;
+  /** The person tried to use a view they do not control: ask the daemon for control. */
+  onTakeover?(threadId: string): void;
+  log(message: string): void;
+}
+
+const Frame = z.object({ data: z.string(), sessionId: z.number().int() });
+
+interface Session {
+  id: string;
+  threadId: string;
+  page: ViewPage;
+  lease: BrowserControllerLease;
+  stops: (() => void)[];
+  /** The CDP screencast frame id sent and not yet acknowledged by the daemon. */
+  inFlight: number | undefined;
+  /** The newest frame waiting for that acknowledgement; replaced, never queued. */
+  latest: { frameId: number; params: unknown } | undefined;
+}
+
+/**
+ * The desktop side of the embedded browser backend (ADR 0055, version 1). The daemon sends
+ * `browser.backend.request` operations; each gets exactly one `browser.backend.response`
+ * with the same ids. CDP events are forwarded at once. Screencast frames keep one in flight
+ * and one replaceable latest frame per session, released by the daemon's `frameAck`.
+ * Controller leases decide whether the person's own input reaches a view.
  */
 export class BrowserBackend {
   private sessions = new Map<string, Session>();
-  private origins = new Map<number, (allowed: boolean) => void>();
-  private nextOrigin = 0;
-  private stops: (() => void)[] = [];
-  private channel: FrameChannel;
+  private opening = new Set<string>();
+  private link: BackendLink | undefined;
   private host: ViewHost;
   private options: BackendOptions;
 
-  constructor(channel: FrameChannel, host: ViewHost, options: BackendOptions) {
-    this.channel = channel;
+  constructor(host: ViewHost, options: BackendOptions) {
     this.host = host;
     this.options = options;
-    this.stops.push(
-      channel.onReady(() => this.register()),
-      channel.onFrame((frame) => this.receive(frame)),
-      channel.onClose(() => {
-        // Undelivered acks die with the socket; resume frames after the next registration.
-        for (const session of this.sessions.values()) session.inFlight = false;
-        for (const resolve of this.origins.values()) resolve(false);
-        this.origins.clear();
+  }
+
+  /** The daemon accepted this app's registration on a new connection. */
+  attach(link: BackendLink): void {
+    this.detach();
+    this.link = link;
+  }
+
+  /**
+   * The connection is gone. The daemon has already dropped every session of this backend
+   * and never reuses their ids, so the views close here too.
+   */
+  detach(): void {
+    this.link = undefined;
+    for (const session of this.sessions.values()) void this.dispose(session);
+  }
+
+  /** The thread's embedded session, if one is open here. */
+  controller(threadId: string): ControllerState | undefined {
+    const session = this.byThread(threadId);
+    return session && this.controllerState(session);
+  }
+
+  handle(message: BrowserBackendServerMessage): void {
+    const link = this.link;
+    if (!link || message.type === "browser.backend.registered") return;
+    if (message.backendId !== link.backendId) return;
+    if (message.type === "browser.backend.frameAck") {
+      const session = this.sessions.get(message.sessionId);
+      if (!session || session.inFlight !== message.frameId) return;
+      session.inFlight = undefined;
+      const latest = session.latest;
+      session.latest = undefined;
+      if (latest) this.sendFrame(session, latest.frameId, latest.params);
+      return;
+    }
+    void this.request(link, message);
+  }
+
+  private async request(link: BackendLink, request: BrowserBackendRequest): Promise<void> {
+    let result: unknown;
+    try {
+      result = (await this.run(link, request.sessionId, request.operation)) ?? {};
+    } catch (error) {
+      this.respond(link, request, {
+        error: (error instanceof Error ? error.message : String(error)).slice(0, 2048),
+      });
+      return;
+    }
+    this.respond(link, request, { result });
+  }
+
+  private async run(
+    link: BackendLink,
+    sessionId: string,
+    operation: BrowserBackendOperation,
+  ): Promise<unknown> {
+    if (operation.kind === "open") return this.open(link, sessionId, operation);
+    const session = this.sessions.get(sessionId);
+    if (!session) throw new Error("Unknown browser session");
+    switch (operation.kind) {
+      case "cdp":
+        return session.page.cdp(operation.method, operation.params);
+      case "navigate":
+        return { url: await session.page.navigate(operation.url, operation.timeout) };
+      case "press":
+        await session.page.press(operation.key);
+        return {};
+      case "resize":
+        await session.page.resize(operation.width, operation.height);
+        return {};
+      case "controller":
+        this.applyLease(session, operation.lease);
+        return {};
+      case "close":
+        await this.dispose(session);
+        return {};
+    }
+  }
+
+  private async open(
+    link: BackendLink,
+    sessionId: string,
+    operation: Extract<BrowserBackendOperation, { kind: "open" }>,
+  ): Promise<unknown> {
+    if (this.sessions.has(sessionId) || this.opening.has(sessionId))
+      throw new Error("Browser session already open");
+    if (this.sessions.size + this.opening.size >= relayLimits.sessions)
+      throw new Error("Embedded browser session limit");
+    this.opening.add(sessionId);
+    let page: ViewPage;
+    try {
+      page = await this.host.open({
+        sessionId,
+        options: operation.options,
+        viewport: operation.viewport,
+      });
+    } finally {
+      this.opening.delete(sessionId);
+    }
+    if (this.link !== link) {
+      // The connection dropped while the view was being made; the daemon forgot the session.
+      await page.close().catch(() => {});
+      throw new Error("Desktop browser backend lost");
+    }
+    const session: Session = {
+      id: sessionId,
+      threadId: operation.options.threadId,
+      page,
+      lease: { generation: -1, controller: "none" },
+      stops: [],
+      inFlight: undefined,
+      latest: undefined,
+    };
+    this.sessions.set(sessionId, session);
+    session.stops.push(
+      page.onEvent((method, params) => this.event(session, method, params)),
+      page.onBlockedInput(() => {
+        if (session.lease.controller !== "human" || session.lease.owner !== link.connectionId)
+          this.options.onTakeover?.(session.threadId);
       }),
     );
+    this.applyLease(session, operation.lease);
+    return { url: page.url() };
   }
 
-  controller(sessionId: string): Controller | undefined {
-    return this.sessions.get(sessionId)?.lease.controller;
+  private applyLease(session: Session, lease: BrowserControllerLease): void {
+    if (lease.generation < session.lease.generation)
+      throw new Error("Obsolete controller lease generation");
+    session.lease = lease;
+    const here = this.isHere(lease);
+    session.page.setNativeInput(here);
+    this.options.onController?.(this.controllerState(session));
   }
 
-  /** The person handed control back from the app UI. */
-  handBack(sessionId: string): void {
-    this.setController(sessionId, "agent");
-  }
-
-  /** Ask the daemon whether a non-local origin may load (a per-site approval interaction). */
-  requestOrigin(sessionId: string, origin: string, timeoutMs = 120_000): Promise<boolean> {
-    const requestId = this.nextOrigin++;
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => finish(false), timeoutMs);
-      const finish = (allowed: boolean) => {
-        clearTimeout(timer);
-        this.origins.delete(requestId);
-        resolve(allowed);
-      };
-      this.origins.set(requestId, finish);
-      this.channel.send({ type: "browser.backend.origin", sessionId, requestId, origin });
+  private event(session: Session, method: string, params: unknown): void {
+    const link = this.link;
+    if (!link || this.sessions.get(session.id) !== session) return;
+    if (method === "Page.screencastFrame") return this.frame(session, params);
+    this.send({
+      type: "browser.backend.event",
+      backendId: link.backendId,
+      sessionId: session.id,
+      method,
+      params,
     });
+    // The view is gone (closed by the person, crashed, or the debugger detached).
+    if (method === "Inspector.detached") void this.dispose(session);
   }
 
-  /** App quit: tell the daemon first so it fails over to its headless backend at once. */
-  shutdown(): void {
-    for (const [sessionId, session] of this.sessions) {
-      this.channel.send({ type: "browser.backend.closed", sessionId, reason: "quit" });
-      this.dispose(session);
-    }
-    this.sessions.clear();
-    this.channel.send({ type: "browser.backend.unregister", reason: "quit" });
-    for (const stop of this.stops.splice(0)) stop();
-  }
-
-  private register(): void {
-    this.channel.send({
-      type: "browser.backend.register",
-      backend: "embedded",
-      version: 1,
-      capabilities: { screencast: true, input: true, takeover: true },
-      sessions: [...this.sessions].map(([sessionId, session]) => ({
-        sessionId,
-        url: session.target.url(),
-      })),
-    });
-  }
-
-  private receive(raw: unknown): void {
-    const parsed = BackendDown.safeParse(raw);
-    if (!parsed.success) return;
-    const frame = parsed.data;
-    if (frame.type === "browser.backend.open") return this.open(frame);
-    if (frame.type === "browser.backend.originDecision") {
-      this.origins.get(frame.requestId)?.(frame.allowed);
-      return;
-    }
-    const session = this.sessions.get(frame.sessionId);
-    if (!session) {
-      if (frame.type === "browser.backend.call")
-        this.channel.send({ ...result(frame), error: "unknown_session" });
-      return;
-    }
-    switch (frame.type) {
-      case "browser.backend.close":
-        this.dispose(session);
-        this.sessions.delete(frame.sessionId);
-        this.channel.send({
-          type: "browser.backend.closed",
-          sessionId: frame.sessionId,
-          reason: "requested",
-        });
-        return;
-      case "browser.backend.call":
-        return void this.call(session, frame);
-      case "browser.backend.screencast":
-        return this.screencast(session, frame.enabled);
-      case "browser.backend.ack":
-        session.inFlight = false;
-        if (session.latest) this.sendFrame(frame.sessionId, session);
-        return;
-      case "browser.backend.handback":
-        return this.setController(frame.sessionId, "agent");
-    }
-  }
-
-  private open(frame: Extract<BackendDown, { type: "browser.backend.open" }>): void {
-    if (this.sessions.has(frame.sessionId)) return;
-    const target = this.host.open({
-      sessionId: frame.sessionId,
-      workspaceId: frame.workspaceId,
-      ...(frame.threadId ? { threadId: frame.threadId } : {}),
-      ...(frame.url ? { url: frame.url } : {}),
-    });
-    const session: Session = {
-      target,
-      lease: new ControllerLease(),
-      stops: [],
-      screencast: false,
-      inFlight: false,
-      latest: undefined,
-      frames: 0,
-      window: { start: this.options.now(), count: 0, dropped: 0 },
-    };
-    session.stops.push(
-      target.onEvent((method, params) => this.event(frame.sessionId, session, method, params)),
-      target.onHumanInput(() => this.setController(frame.sessionId, "human")),
-    );
-    this.sessions.set(frame.sessionId, session);
-    this.channel.send({
-      type: "browser.backend.opened",
-      sessionId: frame.sessionId,
-      url: target.url(),
-    });
-  }
-
-  private async call(
-    session: Session,
-    frame: Extract<BackendDown, { type: "browser.backend.call" }>,
-  ): Promise<void> {
-    if (!session.lease.agentMay(frame.method)) {
-      this.channel.send({ ...result(frame), error: "human_in_control" });
-      return;
-    }
-    try {
-      const value = await session.target.send(frame.method, frame.params);
-      if (JSON.stringify(value).length > maxPayloadBytes)
-        this.channel.send({ ...result(frame), error: "payload_too_large" });
-      else this.channel.send({ ...result(frame), result: value });
-    } catch (error) {
-      this.channel.send({
-        ...result(frame),
-        error: String(error instanceof Error ? error.message : error).slice(0, 2000),
-      });
-    }
-  }
-
-  private screencast(session: Session, enabled: boolean): void {
-    if (session.screencast === enabled) return;
-    session.screencast = enabled;
-    session.latest = undefined;
-    void session.target
-      .send(
-        enabled ? "Page.startScreencast" : "Page.stopScreencast",
-        enabled ? { format: "jpeg", quality: 70, maxWidth: 1600, maxHeight: 1600 } : {},
-      )
+  private frame(session: Session, params: unknown): void {
+    const frame = Frame.safeParse(params);
+    if (!frame.success) return;
+    // Chromium waits for this before producing the next frame; never wait for the daemon.
+    void session.page
+      .cdp("Page.screencastFrameAck", { sessionId: frame.data.sessionId })
       .catch(() => {});
+    if (frame.data.data.length > relayLimits.frameBytes) return;
+    if (session.inFlight !== undefined) {
+      session.latest = { frameId: frame.data.sessionId, params };
+      return;
+    }
+    this.sendFrame(session, frame.data.sessionId, params);
   }
 
-  private event(
-    sessionId: string,
-    session: Session,
-    method: string,
-    params: Record<string, unknown>,
+  private sendFrame(session: Session, frameId: number, params: unknown): void {
+    const link = this.link;
+    if (!link) return;
+    session.inFlight = frameId;
+    this.send({
+      type: "browser.backend.event",
+      backendId: link.backendId,
+      sessionId: session.id,
+      method: "Page.screencastFrame",
+      params,
+    });
+  }
+
+  private respond(
+    link: BackendLink,
+    request: BrowserBackendRequest,
+    outcome: { result: unknown } | { error: string },
   ): void {
-    if (method === "Page.screencastFrame") {
-      // Chrome waits for this ack before producing the next frame.
-      void session.target
-        .send("Page.screencastFrameAck", { sessionId: params.sessionId })
-        .catch(() => {});
-      if (!session.screencast || typeof params.data !== "string") return;
-      const metadata = Metadata.parse(params.metadata);
-      session.latest = { seq: session.frames++, data: params.data, metadata };
-      if (!session.inFlight) this.sendFrame(sessionId, session);
-      return;
-    }
-    if (!relayed.test(method)) return;
-    const now = this.options.now();
-    const window = session.window;
-    if (now - window.start >= 1_000) {
-      if (window.dropped)
-        this.channel.send({
-          type: "browser.backend.event",
-          sessionId,
-          method: "ace.eventsDropped",
-          params: { count: window.dropped },
-        });
-      session.window = { start: now, count: 0, dropped: 0 };
-    }
-    if (
-      session.window.count >= (this.options.eventsPerSecond ?? 200) ||
-      JSON.stringify(params).length > 64 * 1024
-    ) {
-      session.window.dropped++;
-      return;
-    }
-    session.window.count++;
-    this.channel.send({ type: "browser.backend.event", sessionId, method, params });
+    if (this.link !== link) return;
+    const ids = {
+      type: "browser.backend.response" as const,
+      backendId: request.backendId,
+      sessionId: request.sessionId,
+      id: request.id,
+    };
+    // A result over the relay limit still gets its one response, as an error.
+    if (!this.send({ ...ids, ...outcome }))
+      this.send({ ...ids, error: "Browser relay payload limit" });
   }
 
-  private sendFrame(sessionId: string, session: Session): void {
-    const latest = session.latest;
-    if (!latest) return;
-    session.latest = undefined;
-    session.inFlight = true;
-    this.channel.send({ type: "browser.backend.frame", sessionId, ...latest });
+  /** Serializes once; false when the message is over the relay limit and was not sent. */
+  private send(message: BrowserBackendClientMessage): boolean {
+    const link = this.link;
+    if (!link) return true;
+    const serialized = JSON.stringify(message);
+    if (Buffer.byteLength(serialized) > relayLimits.messageBytes) {
+      this.options.log(`Dropped an oversized ${message.type} from the embedded browser`);
+      return false;
+    }
+    link.send(serialized);
+    return true;
   }
 
-  private setController(sessionId: string, controller: Controller): void {
-    const session = this.sessions.get(sessionId);
-    if (!session || !session.lease.take(controller)) return;
-    this.channel.send({ type: "browser.backend.controller", sessionId, controller });
-    this.options.onController?.(sessionId, controller);
-  }
-
-  private dispose(session: Session): void {
+  private async dispose(session: Session): Promise<void> {
+    if (this.sessions.get(session.id) !== session) return;
+    this.sessions.delete(session.id);
     for (const stop of session.stops.splice(0)) stop();
-    session.target.close();
+    session.lease = { generation: session.lease.generation, controller: "none" };
+    this.options.onController?.(this.controllerState(session));
+    await session.page.close().catch((error: unknown) => this.options.log(String(error)));
   }
-}
 
-function result(frame: { sessionId: string; callId: number }) {
-  return {
-    type: "browser.backend.result" as const,
-    sessionId: frame.sessionId,
-    callId: frame.callId,
-  };
+  private isHere(lease: BrowserControllerLease): boolean {
+    return (
+      lease.controller === "human" &&
+      this.link !== undefined &&
+      lease.owner === this.link.connectionId
+    );
+  }
+
+  private controllerState(session: Session): ControllerState {
+    return {
+      threadId: session.threadId,
+      controller: session.lease.controller,
+      here: this.sessions.has(session.id) && this.isHere(session.lease),
+    };
+  }
+
+  private byThread(threadId: string): Session | undefined {
+    for (const session of this.sessions.values()) if (session.threadId === threadId) return session;
+    return undefined;
+  }
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   AppInfo,
+  BrowserControlRequest,
   BrowserController,
   BrowserPlacement,
   DaemonConnection,
@@ -52,7 +53,8 @@ export const requests = {
   "permissions.status": { request: None, result: Permissions },
   "permissions.open": { request: PermissionPane, result: z.boolean() },
   "browser.place": { request: BrowserPlacement, result: None },
-  "browser.control": { request: BrowserController, result: BrowserController },
+  /** The new lease arrives as a `browser.controller` event once the daemon grants it. */
+  "browser.control": { request: BrowserControlRequest, result: None },
   "updates.check": { request: None, result: UpdateStatus },
 } as const;
 export type RequestChannel = keyof typeof requests;

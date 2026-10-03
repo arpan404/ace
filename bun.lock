@@ -70,6 +70,8 @@
         "zod": "^4.6.5",
       },
       "devDependencies": {
+        "@ace/browser": "workspace:*",
+        "@ace/daemon": "workspace:*",
         "@ace/release": "workspace:*",
         "@electron/rebuild": "4.2.0",
         "@types/ws": "^8.18.1",

@@ -6,7 +6,6 @@ import {
   type CommandPayload,
   type ThreadListEntry,
 } from "@ace/protocol";
-import type { FrameChannel } from "../browser/contract.ts";
 import type { Alert } from "../notifications/router.ts";
 import { alertFromDaemon } from "../notifications/router.ts";
 import { derivedAlerts, summarize, type WorkSummary } from "./thread-watch.ts";
@@ -27,6 +26,10 @@ export interface LinkOptions {
  * receives the daemon's notifications (the daemon delivers them over this socket first, so
  * they work with every window closed), watches the thread list for the badge, progress and
  * power-save state, reports presence and sends notification actions as durable intents.
+ *
+ * It only ever sends frames every daemon version understands. Optional capabilities (the
+ * embedded browser backend) use their own sockets, so a daemon that rejects one can never
+ * fail this link: the client treats an uncorrelated protocol error as fatal.
  */
 export class DesktopLink {
   private client: Client;
@@ -35,7 +38,6 @@ export class DesktopLink {
   private entries = new Map<string, ThreadListEntry>();
   private stops: (() => void)[] = [];
   private options: LinkOptions;
-  private extensions = new Set<(frame: unknown) => void>();
 
   constructor(options: LinkOptions) {
     this.options = options;
@@ -91,31 +93,6 @@ export class DesktopLink {
     });
   }
 
-  /**
-   * A frame channel on this authenticated socket for `browser.backend.*` frames. It follows
-   * the client's reconnects: `onReady` fires after every successful hello.
-   */
-  channel(): FrameChannel {
-    const connection = this.client.connectionState();
-    const on = (wanted: (state: string) => boolean) => (listener: () => void) => {
-      let previous = connection.getSnapshot();
-      return connection.subscribe(() => {
-        const next = connection.getSnapshot();
-        if (next !== previous && wanted(next) !== wanted(previous) && wanted(next)) listener();
-        previous = next;
-      });
-    };
-    return {
-      send: (frame) => this.send?.(frame),
-      onFrame: (listener) => {
-        this.extensions.add(listener);
-        return () => this.extensions.delete(listener);
-      },
-      onReady: on((state) => state === "ready"),
-      onClose: on((state) => state !== "ready"),
-    };
-  }
-
   enqueue(id: string, payload: CommandPayload): Promise<string> {
     return this.client.enqueue(payload, id);
   }
@@ -142,10 +119,6 @@ export class DesktopLink {
             if (data.includes('"type":"notification"')) {
               const parsed = parseNotification(data);
               if (parsed) this.options.onAlert(alertFromDaemon(parsed.notification));
-            } else if (this.extensions.size && data.includes('"type":"browser.backend.')) {
-              const frame = parseJson(data);
-              for (const listener of this.extensions) listener(frame);
-              return;
             }
             events.message(data);
           },
@@ -195,14 +168,6 @@ export class DesktopLink {
       release();
     });
     sync();
-  }
-}
-
-function parseJson(data: string): unknown {
-  try {
-    return JSON.parse(data);
-  } catch {
-    return undefined;
   }
 }
 

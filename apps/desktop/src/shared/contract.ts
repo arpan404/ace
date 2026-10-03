@@ -172,9 +172,9 @@ export type Permissions = z.infer<typeof Permissions>;
 export const PermissionPane = z.enum(["screen-recording", "accessibility", "notifications"]);
 export type PermissionPane = z.infer<typeof PermissionPane>;
 
-/** Where the renderer wants an embedded browser view drawn, in CSS pixels of the window. */
+/** Where the renderer wants a thread's embedded browser view drawn, in CSS pixels. */
 export const BrowserPlacement = z.object({
-  sessionId: z.string().min(1).max(200),
+  threadId: z.string().min(1).max(256),
   bounds: z.object({
     x: z.number().min(0),
     y: z.number().min(0),
@@ -184,9 +184,17 @@ export const BrowserPlacement = z.object({
   visible: z.boolean(),
 });
 export type BrowserPlacement = z.infer<typeof BrowserPlacement>;
-export const BrowserController = z.object({
-  sessionId: z.string(),
+/** Ask the daemon for control of a thread's embedded view (`human`) or give it back. */
+export const BrowserControlRequest = z.object({
+  threadId: z.string().min(1).max(256),
   controller: z.enum(["agent", "human"]),
+});
+export type BrowserControlRequest = z.infer<typeof BrowserControlRequest>;
+/** Who drives a thread's embedded view; `here` when the person in this app does. */
+export const BrowserController = z.object({
+  threadId: z.string().min(1).max(256),
+  controller: z.enum(["agent", "human", "none"]),
+  here: z.boolean(),
 });
 export type BrowserController = z.infer<typeof BrowserController>;
 

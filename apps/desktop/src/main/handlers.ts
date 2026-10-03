@@ -92,8 +92,8 @@ export function createHandlers(options: {
       return undefined;
     },
     "browser.control": (request) => {
-      if (request.controller === "agent") background.handBack(request.sessionId);
-      return request;
+      background.browserControl(request.threadId, request.controller);
+      return undefined;
     },
     "updates.check": () => checkForUpdate(options.info.version),
   };

@@ -4,7 +4,9 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BrowserWindow } from "electron";
 import type { DeepLink, DesktopSettings } from "../shared/contract.ts";
-import { BrowserBackend } from "./browser/backend.ts";
+import { BrowserBackend, type ControllerState } from "./browser/backend.ts";
+import { BackendConnection } from "./browser/connection.ts";
+import { readDesktopCredential } from "./browser/credential.ts";
 import { EmbeddedViews } from "./browser/views.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import { DesktopLink } from "./link/desktop-link.ts";
@@ -21,12 +23,20 @@ export interface BackgroundOptions {
   open(link?: DeepLink): void;
   quitAll(): void;
   log(message: string): void;
-  onController(sessionId: string, controller: "agent" | "human"): void;
+  onController(state: ControllerState): void;
 }
+
+const timers = {
+  set(delayMs: number, callback: () => void) {
+    const timer = setTimeout(callback, delayMs);
+    return () => clearTimeout(timer);
+  },
+};
 
 /**
  * The parts that keep working with every window closed: the daemon link (notifications,
- * badge, power save), the tray, and the embedded browser backend.
+ * badge, power save) and the tray. The embedded browser backend is here too, but it is only
+ * offered while a window exists to draw its views in.
  */
 export class Background {
   readonly router: NotificationRouter;
@@ -34,7 +44,8 @@ export class Background {
   readonly tray: StatusTray;
   readonly views: EmbeddedViews;
   private link: DesktopLink | undefined;
-  private backend: BrowserBackend | undefined;
+  private backend: BrowserBackend;
+  private browser: BackendConnection | undefined;
   private notifier: NativeNotifier;
   private options: BackgroundOptions;
 
@@ -56,8 +67,12 @@ export class Background {
     });
     this.views = new EmbeddedViews({
       window: options.window,
-      allowOrigin: (sessionId, origin) =>
-        this.backend?.requestOrigin(sessionId, origin) ?? Promise.resolve(false),
+      platform: process.platform,
+      log: options.log,
+    });
+    this.backend = new BrowserBackend(this.views, {
+      onController: options.onController,
+      onTakeover: (threadId) => this.browser?.takeover(threadId),
       log: options.log,
     });
     this.notifier = new NativeNotifier({
@@ -72,6 +87,7 @@ export class Background {
   /** Connect once the daemon is reachable; the fake target has no daemon to link to. */
   async start(): Promise<void> {
     if (this.options.runtime.target.kind === "fake") return;
+    this.startBrowser();
     const connection = await this.options.runtime.connection();
     if (connection.mode !== "daemon") return;
     const link = new DesktopLink({
@@ -96,11 +112,47 @@ export class Background {
       },
     });
     this.link = link;
-    this.backend = new BrowserBackend(link.channel(), this.views, {
-      now: Date.now,
-      onController: this.options.onController,
-    });
     await link.start();
+  }
+
+  /**
+   * The embedded browser backend, on its own socket (never the notification link). It is
+   * local only: the credential lives in the daemon's ACE_HOME, so a remote daemon gets none.
+   */
+  private startBrowser(): void {
+    const { runtime } = this.options;
+    const target = runtime.target;
+    if (target.kind !== "managed" && target.kind !== "attach") return;
+    const home = target.home;
+    const browser = new BackendConnection(this.backend, {
+      daemon: async () => {
+        const daemon = await runtime.local();
+        return { url: daemon.url, token: daemon.token };
+      },
+      credential: () => readDesktopCredential(home),
+      socket: (url) => new WebSocket(url),
+      timers,
+      id: randomUUID,
+      log: this.options.log,
+    });
+    this.browser = browser;
+    browser.onState((state) => this.options.log(`Embedded browser backend: ${state}`));
+    runtime.onStatus((status) => {
+      if (status.state === "running") browser.wake();
+    });
+    this.windowChanged();
+  }
+
+  /** Views need a window to draw in: offer the backend only while one exists. */
+  windowChanged(): void {
+    const window = this.options.window();
+    this.browser?.setAvailable(Boolean(window && !window.isDestroyed()));
+  }
+
+  /** The person asked for control of a thread's view (`human`) or gave it back. */
+  browserControl(threadId: string, controller: "agent" | "human"): void {
+    if (controller === "human") this.browser?.takeover(threadId);
+    else this.browser?.handback(threadId);
   }
 
   /** Route an alert and show it if the rules allow; true when shown. */
@@ -108,10 +160,6 @@ export class Background {
     const decision = this.router.route(alert);
     if (decision.kind === "show") this.notifier.show(decision.notification);
     return decision.kind === "show";
-  }
-
-  handBack(sessionId: string): void {
-    this.backend?.handBack(sessionId);
   }
 
   setFocus(windowFocused: boolean, threadId: string | undefined): void {
@@ -129,11 +177,12 @@ export class Background {
 
   wake(): void {
     this.link?.wake();
+    this.browser?.wake();
   }
 
+  /** Quit: dropping the backend socket tells the daemon to pause or move its sessions. */
   async stop(): Promise<void> {
-    this.backend?.shutdown();
-    this.views.closeAll();
+    this.browser?.close();
     await this.link?.close().catch(() => {});
     this.tray.hide();
   }
