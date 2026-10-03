@@ -290,3 +290,17 @@ it("fences the host when an old segment overflows its shared checkpoint or callb
     expect(deriveThreadStatus(r.state).state).not.toBe("done");
   }
 });
+
+it("uses the observed shell kind after an earlier partial call had no tool name", () => {
+  const r = replay();
+  r.frame("delta", { type: "partial-tool-call", callId: "shell", toolCall: {} });
+  r.frame("delta", {
+    type: "tool-call-started",
+    callId: "shell",
+    toolCall: { type: "shell", args: { command: "synthetic" } },
+  });
+  r.frame("shell-output", { callId: "shell", text: "live", toolCall: { type: "shell" } });
+  expect(Object.values(r.state.items).find((item) => item.type === "tool_call")).toMatchObject({
+    call: { kind: "shell", status: "running", detail: { output: { tail: "live" } } },
+  });
+});

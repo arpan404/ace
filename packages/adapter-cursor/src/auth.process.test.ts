@@ -95,3 +95,30 @@ it("refuses another account's linked SDK credential store without reading or rem
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("reports an empty environment override as logged out without pretending to use stored credentials", async () => {
+  expect(
+    await cursorAuthInHost("status", {
+      sdk: {
+        Cursor: {
+          auth: {
+            async login() {
+              throw new Error("Status must not log in");
+            },
+            async logout() {
+              throw new Error("Status must not log out");
+            },
+            async status() {
+              return { status: "logged-in", backendUrl: "https://synthetic.invalid" };
+            },
+          },
+        },
+      },
+      environmentKeyPresent: () => true,
+      environmentKeyUsable: () => false,
+      credentialFileAbsent: async () => false,
+      signal: new AbortController().signal,
+      loginUrl: () => {},
+    }),
+  ).toEqual({ status: "logged-out", source: "environment" });
+});

@@ -60,3 +60,5 @@ export function boundedJson(value: unknown, maxBytes = 1_048_576): string {
   visit(value, 0);
   return chunks.join("");
 }
+
+export { jsonPieces } from "./json-pieces.ts";

@@ -4,6 +4,7 @@ import { SafeAuth } from "./contracts.ts";
 export interface SdkAuthBoundary {
   sdk: { Cursor: Pick<SdkModule["Cursor"], "auth"> };
   environmentKeyPresent(): boolean;
+  environmentKeyUsable?(): boolean;
   credentialFileAbsent(): Promise<boolean>;
   signal: AbortSignal;
   loginUrl(url: string): void;
@@ -27,7 +28,10 @@ export async function cursorAuthInHost(
   const stored = await sdk.Cursor.auth.status();
   return SafeAuth.parse(
     boundary.environmentKeyPresent()
-      ? { status: "logged-in", source: "environment" }
+      ? {
+          status: boundary.environmentKeyUsable?.() === false ? "logged-out" : "logged-in",
+          source: "environment",
+        }
       : { status: stored.status, source: stored.status === "logged-in" ? "sdk-store" : "none" },
   );
 }

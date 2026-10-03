@@ -275,7 +275,7 @@ export class AccountService {
               observedAt: this.now(),
               timeZone: this.timeZone,
             });
-          context.onFrame(frame);
+          return context.onFrame(frame);
         },
         onExit: (exit) => {
           if (frameFailed || released) return;

@@ -88,6 +88,9 @@ const migrations = [
    CREATE TABLE history_blob_chunks(blob_id TEXT NOT NULL REFERENCES history_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));`,
   `CREATE TABLE usage_deletions (seq INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, at INTEGER NOT NULL);`,
   `ALTER TABLE threads ADD COLUMN acp JSON;`,
+  `CREATE TABLE streamed_blobs(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,size INTEGER NOT NULL,sha256 TEXT,storage_id TEXT NOT NULL,chunks INTEGER NOT NULL DEFAULT 0);
+   CREATE TABLE streamed_blob_chunks(blob_id TEXT NOT NULL REFERENCES streamed_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));
+   CREATE INDEX streamed_blob_hash ON streamed_blobs(thread_id,sha256);`,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");

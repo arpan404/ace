@@ -99,7 +99,8 @@ export interface SessionContext {
   onCapabilities?(capabilities: Capabilities, support?: AcpSessionSupport): void;
   onSessionMetadata?(metadata: unknown): void;
   /** Every sent and received frame goes to the engine for translation and persistence. */
-  onFrame(frame: Frame): void;
+  /** A returned promise acknowledges durable storage; its resolved value is ignored. */
+  onFrame(frame: Frame): unknown;
   onExit(exit: { deliberate: boolean; message?: string }): void;
   signal: AbortSignal;
 }

@@ -43,7 +43,7 @@ export class CursorHost {
   private limits: CursorLimits;
   constructor(
     options: HostOptions,
-    onFrame: (frame: CursorEnvelope, payload: ProviderPayload) => void,
+    onFrame: (frame: CursorEnvelope, payload: ProviderPayload) => void | Promise<void>,
     onLoginUrl: (url: string) => void = () => {},
   ) {
     this.generation = (options.generation ?? randomUUID)();
@@ -85,22 +85,31 @@ export class CursorHost {
         void this.stop();
       },
     });
+    const receiveFrame = async (params: unknown) => {
+      const payload = new ProviderPayload(boundedJson(params, this.limits.maxFrameBytes));
+      const frame = Envelope.parse(payload.data);
+      if (frame.generation !== this.generation && !(frame.replayed && frame.boundaryOffset))
+        throw new Error("SDK generation mismatch");
+      await onFrame(frame, payload);
+      if (frame.kind === "error") void this.stop();
+    };
+    this.rpc.onRequest = async ({ method, params }) => {
+      if (method !== "frame") throw new Error("Unknown SDK host request");
+      await receiveFrame(params);
+      return { committed: true };
+    };
     this.rpc.onNotification = ({ method, params }) => {
       if (method === "login-url") {
-        // Deliberately outside frame capture. Caller must use authorized ephemeral UI.
         const url =
           typeof params === "object" && params !== null && "url" in params ? params.url : undefined;
         if (typeof url !== "string" || url.length > 8192 || !url.startsWith("https://"))
           throw new Error("Unsafe login URL");
         onLoginUrl(url);
-      } else if (method === "frame") {
-        const payload = new ProviderPayload(boundedJson(params, this.limits.maxFrameBytes));
-        const frame = Envelope.parse(payload.data);
-        if (frame.generation !== this.generation && !(frame.replayed && frame.boundaryOffset))
-          throw new Error("SDK generation mismatch");
-        onFrame(frame, payload);
-        if (frame.kind === "error") void this.stop();
-      } else throw new Error("Unknown host notification");
+      } else if (method === "frame")
+        void receiveFrame(params).catch(() => {
+          void this.stop();
+        });
+      else throw new Error("Unknown host notification");
     };
     // Drain diagnostics, but never persist SDK stderr or auth diagnostic text.
     this.process.stderr.on("line", () => {});

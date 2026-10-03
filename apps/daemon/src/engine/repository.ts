@@ -368,12 +368,35 @@ export class EngineRepository {
     const generation = z
       .object({ generation: z.string().min(1).max(512) })
       .parse(frame.data).generation;
+    const blob = z
+      .object({
+        kind: z.literal("blob"),
+        body: z.object({
+          id: z.string(),
+          offset: z.number(),
+          text: z.string().optional(),
+          done: z.boolean().optional(),
+        }),
+      })
+      .safeParse(frame.data);
+    // Shared raw storage already owns chunk bytes. Hydration needs only ordered provenance.
+    const data = blob.success
+      ? {
+          ...z.object({}).loose().parse(frame.data),
+          body: {
+            id: blob.data.body.id,
+            offset: blob.data.body.offset,
+            done: blob.data.body.done,
+            bytes: Buffer.byteLength(blob.data.body.text ?? ""),
+          },
+        }
+      : frame.data;
     const json = boundedJson({
       seq: frame.seq,
       t: frame.t,
       dir: frame.dir,
       channel: frame.channel,
-      data: frame.data,
+      data,
     });
     this.store.atomic(() => this.capture.run(id, generation, frame.seq, json));
   }

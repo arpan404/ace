@@ -173,7 +173,7 @@ export class CursorTranslator implements Translator {
           ),
           { type: "process.exited", deliberate: false, message: "SDK host resource budget failed" },
         ];
-      if (event.kind === "blob") return [];
+      if (event.kind === "blob") return [{ type: "signal", agent: this.root }];
       if (event.kind === "shell-output") {
         const parent = nativeIdentity(body.parentCallId);
         const child = parent ? this.children.calls.get(`${namespace}:call:${parent}`) : undefined;

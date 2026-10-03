@@ -50,6 +50,7 @@ const wire = hostWire(async (method, params) => {
       sdk,
       signal: lifetime.signal,
       environmentKeyPresent: () => process.env.CURSOR_API_KEY !== undefined,
+      environmentKeyUsable: () => Boolean(process.env.CURSOR_API_KEY?.length),
       loginUrl: (url) => {
         void wire.notify("login-url", { url }).catch(stop);
       },
@@ -69,7 +70,7 @@ const wire = hostWire(async (method, params) => {
     const safe: unknown = JSON.parse(scrub(boundedJson(await sdk.Cursor.models.list(), 262144)));
     return safe;
   }
-  runtime ??= new HostRuntime(sdk, (frame) => wire.notify("frame", frame));
+  runtime ??= new HostRuntime(sdk, (frame) => wire.confirmed("frame", frame));
   if (method === "open") return runtime.open(params);
   if (method === "send") return runtime.send(params);
   if (method === "cancel") {

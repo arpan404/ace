@@ -2,10 +2,17 @@
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CursorJournal, openSdkCheckpointStore } from "../src/index.ts";
+import {
+  CursorJournal,
+  openSdkCheckpointStore,
+  boundedCheckpointStore,
+  CheckpointQuota,
+} from "../src/index.ts";
 import { JsonlLocalAgentStore } from "@cursor/sdk";
 
 const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-checkpoint-bench-")));
+let journal: CursorJournal | undefined;
+let replay: CursorJournal | undefined;
 let owned: Awaited<ReturnType<typeof openSdkCheckpointStore>> | undefined;
 const report = (path: string, count: number, elapsed: number) =>
   console.log(
@@ -17,7 +24,18 @@ const report = (path: string, count: number, elapsed: number) =>
     }),
   );
 try {
-  const journal = new CursorJournal(root, 8_388_608, 4096);
+  owned = await openSdkCheckpointStore({ JsonlLocalAgentStore }, root, root);
+  const quota = new CheckpointQuota(root, 8_388_608);
+  const store = boundedCheckpointStore(
+    owned.store,
+    root,
+    8_388_608,
+    async () => {
+      throw new Error("Bench overflow");
+    },
+    quota,
+  );
+  journal = new CursorJournal(root, 8_388_608, 4096, { quota });
   await journal.recover(0, async () => {});
   let start = performance.now();
   for (let i = 0; i < 1000; i++)
@@ -32,11 +50,13 @@ try {
   report("sdk-boundary-journal-fsync", 1000, performance.now() - start);
   let replayed = 0;
   start = performance.now();
-  await new CursorJournal(root, 8_388_608, 4096).recover(0, async () => {
+  await journal.close();
+  replay = new CursorJournal(root, 8_388_608, 4096);
+  await replay.recover(0, async () => {
     replayed++;
   });
   report("sdk-boundary-journal-recovery", replayed, performance.now() - start);
-  owned = await openSdkCheckpointStore({ JsonlLocalAgentStore }, root, root);
+  await replay.close();
   const agent = {
     agentId: "agent-bench",
     cwd: root,
@@ -44,12 +64,14 @@ try {
     createdAt: 1,
     updatedAt: 1,
   } as const;
-  await owned.store.agents.create({ agent });
+  await store.agents.create({ agent });
   start = performance.now();
   for (let i = 0; i < 1000; i++)
-    await owned.store.agents.update({ agent: { ...agent, updatedAt: i + 1 } });
-  report("sdk-native-sqlite-checkpoint-metadata", 1000, performance.now() - start);
+    await store.agents.update({ agent: { ...agent, updatedAt: i + 1 } });
+  report("sdk-bounded-native-sqlite-checkpoint-metadata", 1000, performance.now() - start);
 } finally {
+  await journal?.close();
+  await replay?.close();
   await owned?.close();
   await rm(root, { recursive: true, force: true });
 }

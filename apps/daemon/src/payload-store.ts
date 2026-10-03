@@ -1,3 +1,4 @@
+import { StreamingBlobs } from "./streaming-blobs.ts";
 import { z } from "zod";
 import { createHash } from "node:crypto";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
@@ -38,6 +39,7 @@ const LegacyShellPayload = z.object({
 
 /** Event writes run inside Store's transaction. Startup conversion owns its transaction. */
 export class PayloadStore {
+  readonly streamed: StreamingBlobs;
   private readonly db: DatabaseSync;
   private readonly reads = new Map<string, StatementSync>();
   private outputInsert: StatementSync | undefined;
@@ -50,6 +52,7 @@ export class PayloadStore {
     statement: (sql: string) => StatementSync,
   ) {
     this.statement = statement;
+    this.streamed = new StreamingBlobs(statement);
     this.db = db;
     this.items = new ItemStore(db, statement);
     this.nextBlobId = nextBlobId;
@@ -240,7 +243,11 @@ export class PayloadStore {
       "SELECT rowid, thread_id AS threadId, length(bytes) AS size, sha256 FROM blobs WHERE id=?",
     );
     const row = metadata.get(blobRef);
-    if (!row) throw new Error("Unknown blob reference");
+    if (!row) {
+      const streamed = this.streamed.info(blobRef);
+      if (!streamed) throw new Error("Unknown blob reference");
+      return streamed;
+    }
     return z
       .object({
         rowid: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),

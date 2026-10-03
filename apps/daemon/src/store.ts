@@ -592,6 +592,12 @@ export class Store {
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
     return { ...this.payloads.wirePage(threadId, before, limit, byteLimit), seq: this.headSeq() };
   }
+  appendRawChunk(threadId: ThreadId, chunk: unknown): void {
+    this.payloads.streamed.append(threadId, chunk);
+  }
+  readRawChunk(blobRef: string, offset: number, limit: number): Uint8Array {
+    return this.payloads.streamed.read(blobRef, offset, limit);
+  }
   blobInfo(blobRef: string) {
     return this.payloads.blobInfo(blobRef);
   }

@@ -1,4 +1,6 @@
-import type { SDKAgent, Run, LocalAgentStore } from "@cursor/sdk";
+import { ShellStreams } from "./shell-streams.ts";
+import { streamSdkBody } from "./body-stream.ts";
+import type { LocalAgentStore } from "@cursor/sdk";
 import { homedir } from "node:os";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { createRedactor } from "@ace/redaction";
@@ -12,15 +14,17 @@ import {
   type SendOptions,
 } from "./contracts.ts";
 import { openSdkCheckpointStore, checkpointRevision } from "./sdk-store.ts";
+import { CheckpointQuota } from "./checkpoint-quota.ts";
 import { boundedCheckpointStore } from "./checkpoint-store.ts";
 import { CursorJournal } from "./journal.ts";
 import { recoverCursorCheckpoint } from "./recovery.ts";
 import { localPolicy } from "./policy.ts";
 
-export type SdkModule = typeof import("@cursor/sdk");
+export type { SdkModule } from "./runtime-boundary.ts";
+import type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";
 export class HostRuntime {
-  private agent: SDKAgent | undefined;
-  private run: Run | undefined;
+  private agent: SdkAgentBoundary | undefined;
+  private run: SdkRunBoundary | undefined;
   private completion: Promise<void> | undefined;
   private opening = false;
   private closing: Promise<void> | undefined;
@@ -28,6 +32,8 @@ export class HostRuntime {
   private options: OpenOptions | undefined;
   private sendOptions: SendOptions | undefined;
   private callbacks = 0;
+  private bodyId = 0;
+  private shellStreams: ShellStreams | undefined;
   private transportFenced = false;
   private callbackBytes = 0;
   private root: string | undefined;
@@ -35,9 +41,15 @@ export class HostRuntime {
   private store: LocalAgentStore | undefined;
   private storeOwner: Awaited<ReturnType<typeof openSdkCheckpointStore>> | undefined;
   private scrub = createRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } }, ["text"]);
-  private sdk: SdkModule;
+  private sdk: RuntimeSdkBoundary;
   private emit: (frame: CursorEnvelope) => Promise<void>;
-  constructor(sdk: SdkModule, emit: (frame: CursorEnvelope) => Promise<void>) {
+  private home: () => string;
+  constructor(
+    sdk: RuntimeSdkBoundary,
+    emit: (frame: CursorEnvelope) => Promise<void>,
+    home = homedir,
+  ) {
+    this.home = home;
     this.sdk = sdk;
     this.emit = emit;
   }
@@ -45,7 +57,7 @@ export class HostRuntime {
     kind: CursorEnvelope["kind"],
     body: unknown,
     scope = this.sendOptions,
-    nativeRun?: Run,
+    nativeRun?: SdkRunBoundary,
   ): Promise<void> {
     const options = this.options;
     if (!options) return;
@@ -57,7 +69,27 @@ export class HostRuntime {
     }
     let admittedBytes = 0;
     try {
-      const encoded = boundedJson(body, Math.min(options.limits.maxFrameBytes - 2048, 262144));
+      const prepared = !["blob", "shell-output", "delta-chunk", "error"].includes(kind)
+        ? await streamSdkBody(
+            body,
+            `${options.generation}:${++this.bodyId}`,
+            (partKind, part) => this.frame(partKind, part, scope, nativeRun),
+            {
+              env: {
+                CURSOR_API_KEY: process.env.CURSOR_API_KEY,
+                ACE_MCP_BEARER: options.mcp?.bearer,
+              },
+            },
+            16777216,
+            this.shellStreams,
+            `${options.generation}:${scope?.operationId}:${scope?.segment}`,
+            options.limits.maxFrameBytes,
+          )
+        : { body };
+      const encoded = boundedJson(
+        prepared.body,
+        Math.min(options.limits.maxFrameBytes - 2048, 262144),
+      );
       const encodedBytes = Buffer.byteLength(encoded);
       if (this.callbackBytes + encodedBytes > options.limits.maxPendingBytes)
         throw new Error("SDK callback byte backlog exceeded budget");
@@ -74,6 +106,7 @@ export class HostRuntime {
         ...(nativeRun ? { runId: nativeRun.id } : {}),
         kind,
         body: safe,
+        ...(prepared.raw ? { raw: prepared.raw } : {}),
       };
       await this.emit(this.journal ? await this.journal.append(envelope) : envelope);
     } catch (error) {
@@ -108,13 +141,16 @@ export class HostRuntime {
     try {
       const options = Open.parse(value);
       this.options = options;
+      this.shellStreams = new ShellStreams(options.limits.maxIdentities);
       const policy = localPolicy(options.policy, options.autoReviewAvailable);
+      if (process.env.CURSOR_API_KEY === "")
+        throw new Error("Empty Cursor SDK environment authentication override");
       const status = await this.sdk.Cursor.auth.status();
       if (process.env.CURSOR_API_KEY === undefined && status.status !== "logged-in")
         throw new Error(
           "Cursor SDK requires separate SDK sign-in or launch-environment authentication",
         );
-      this.root = checkpointDirectory(homedir(), options.threadId);
+      this.root = checkpointDirectory(this.home(), options.threadId);
       const checkpoint = await checkCheckpointBudget(this.root, options.limits.maxCheckpointBytes);
       if (checkpoint.bytes > options.limits.maxCheckpointBytes)
         throw new Error("SDK checkpoint exceeds budget");
@@ -124,6 +160,7 @@ export class HostRuntime {
         options.cwd,
         options.limits.maxCheckpointBytes,
       );
+      const quota = new CheckpointQuota(this.root, options.limits.maxCheckpointBytes);
       this.store = boundedCheckpointStore(
         this.storeOwner.store,
         this.root,
@@ -134,6 +171,7 @@ export class HostRuntime {
             message:
               "SDK checkpoint write failed or exceeded budget. Execution is fenced; preserve this thread and use explicit bounded context handoff.",
           }),
+        quota,
       );
       const journal = new CursorJournal(
         this.root,
@@ -143,6 +181,7 @@ export class HostRuntime {
           maxIdentities: options.limits.maxIdentities,
           maxPendingBytes: options.limits.maxPendingBytes,
           maxCallbacks: options.limits.maxCallbacks,
+          quota,
         },
       );
       await journal.recover(options.afterFrameOffset, (frame) => this.emit(frame));
@@ -154,8 +193,13 @@ export class HostRuntime {
         },
         ["text"],
       );
-      const recovered: { kind: string; body: unknown; runId?: string; observeOffset?: string }[] =
-        [];
+      const recovered: {
+        kind: string;
+        body: unknown;
+        raw?: CursorEnvelope["raw"];
+        runId?: string;
+        observeOffset?: string;
+      }[] = [];
       const nativeId = await recoverCursorCheckpoint(
         this.sdk,
         this.store,
@@ -163,7 +207,25 @@ export class HostRuntime {
         async (kind, body, runId, observeOffset) => {
           if (recovered.length >= options.limits.maxIdentities)
             throw new Error("SDK recovery metadata exceeds budget");
-          const encoded = boundedJson(body, Math.min(262144, options.limits.maxFrameBytes - 2048));
+          const prepared = await streamSdkBody(
+            body,
+            `${options.generation}:recovery:${++this.bodyId}`,
+            (partKind, part) => this.frame(partKind, part),
+            {
+              env: {
+                CURSOR_API_KEY: process.env.CURSOR_API_KEY,
+                ACE_MCP_BEARER: options.mcp?.bearer,
+              },
+            },
+            16777216,
+            this.shellStreams,
+            "recovery",
+            options.limits.maxFrameBytes,
+          );
+          const encoded = boundedJson(
+            prepared.body,
+            Math.min(262144, options.limits.maxFrameBytes - 2048),
+          );
           recoveryBytes += Buffer.byteLength(encoded);
           if (recoveryBytes > options.limits.maxPendingBytes)
             throw new Error("SDK recovery metadata bytes exceed budget");
@@ -171,6 +233,7 @@ export class HostRuntime {
           recovered.push({
             kind,
             body: safe,
+            ...(prepared.raw ? { raw: prepared.raw } : {}),
             ...(runId ? { runId } : {}),
             ...(observeOffset ? { observeOffset } : {}),
           });
@@ -248,7 +311,7 @@ export class HostRuntime {
         else if (part.type === "image") images.push({ url: part.url });
         else texts.push(`Referenced workspace file: ${part.path}`);
       }
-      let segmentRun: Run | undefined;
+      let segmentRun: SdkRunBoundary | undefined;
       segmentRun = await this.agent.send(
         { text: texts.join("\n"), ...(images.length ? { images } : {}) },
         {
@@ -279,7 +342,7 @@ export class HostRuntime {
       this.sending = false;
     }
   }
-  private async consume(run: Run, scope: SendOptions): Promise<void> {
+  private async consume(run: SdkRunBoundary, scope: SendOptions): Promise<void> {
     try {
       for await (const message of run.stream()) await this.frame("message", message, scope, run);
       const result = await run.wait();
@@ -333,7 +396,11 @@ export class HostRuntime {
       }
       await this.frame("close", { disposed: true });
     } finally {
-      await this.storeOwner?.close();
+      try {
+        await this.journal?.close();
+      } finally {
+        await this.storeOwner?.close();
+      }
       this.storeOwner = undefined;
       this.agent = undefined;
     }

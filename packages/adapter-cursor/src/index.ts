@@ -22,3 +22,10 @@ export { boundedCheckpointStore } from "./checkpoint-store.ts";
 export { openSdkCheckpointStore } from "./sdk-store.ts";
 
 export { validateCursorAuthHome } from "./auth-home.ts";
+
+export { streamSdkBody } from "./body-stream.ts";
+export { ShellStreams } from "./shell-streams.ts";
+export { CheckpointQuota } from "./checkpoint-quota.ts";
+
+export { HostRuntime } from "./host-runtime.ts";
+export type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";

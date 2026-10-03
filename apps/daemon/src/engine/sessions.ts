@@ -109,7 +109,12 @@ export class Sessions {
             ...(parsed.nativeSessionId ? { nativeSessionId: parsed.nativeSessionId } : {}),
           });
         },
-        onFrame: (frame) => actor.frame(frame, generation),
+        onFrame: (frame) => {
+          actor.frame(frame, generation);
+          return actor.flush().then(() => {
+            if (actor.poisoned) throw new Error("Provider frame failed to commit");
+          });
+        },
         onExit: (exit) =>
           actor.enqueue(() => {
             if (generation !== actor.generation) return;

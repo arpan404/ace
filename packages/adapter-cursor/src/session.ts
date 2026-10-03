@@ -58,7 +58,7 @@ export async function openCursorSession(
       payload,
     });
   };
-  const host = new CursorHost(options, (data, payload) => {
+  const host = new CursorHost(options, async (data, payload) => {
     if (data.boundaryOffset) seq = data.boundaryOffset * 1024 - 1;
     if (data.kind === "open" && data.agentId)
       context.onSessionIdentity?.({
@@ -79,7 +79,7 @@ export async function openCursorSession(
         active = false;
       else uncertain = true;
     }
-    context.onFrame({
+    await context.onFrame({
       seq: ++seq,
       t: now() - started,
       dir: data.kind === "send" ? "send" : "recv",

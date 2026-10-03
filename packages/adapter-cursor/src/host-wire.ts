@@ -28,6 +28,33 @@ export function hostWire(
     const line = boundedJson(message, maxFrameBytes - 1) + "\n";
     await writer.send(line, Buffer.byteLength(line));
   };
+  let outbound = 0;
+  const acknowledgements = new Map<
+    string,
+    { resolve(): void; reject(): void; timer: ReturnType<typeof setTimeout> }
+  >();
+  const confirmed = async (method: string, params: unknown) => {
+    if (acknowledgements.size >= 32) throw new Error("SDK storage acknowledgements exceed budget");
+    const id = `host:${++outbound}`;
+    const completion = Promise.withResolvers<void>();
+    void completion.promise.catch(() => {});
+    const timer = setTimeout(() => {
+      acknowledgements.delete(id);
+      completion.reject(new Error("SDK storage acknowledgement expired"));
+    }, 30000);
+    acknowledgements.set(id, {
+      resolve: () => completion.resolve(),
+      reject: () => completion.reject(new Error("SDK storage refused frame")),
+      timer,
+    });
+    try {
+      await send({ jsonrpc: "2.0", id, method, params });
+      await completion.promise;
+    } finally {
+      clearTimeout(timer);
+      acknowledgements.delete(id);
+    }
+  };
   let lineBytes = 0;
   const input = new Transform({
     transform(chunk: Buffer, _encoding, callback) {
@@ -42,6 +69,20 @@ export function hostWire(
   let pending = 0;
   const lines = createInterface({ input, crlfDelay: Infinity });
   lines.on("line", (line) => {
+    const decoded: unknown = JSON.parse(line);
+    const reply = z
+      .object({ id: z.string(), result: z.unknown().optional(), error: z.unknown().optional() })
+      .safeParse(decoded);
+    if (reply.success && reply.data.id.startsWith("host:")) {
+      const acknowledgement = acknowledgements.get(reply.data.id);
+      if (!acknowledgement) {
+        disconnected();
+        return;
+      }
+      if (reply.data.error !== undefined) acknowledgement.reject();
+      else acknowledgement.resolve();
+      return;
+    }
     if (++pending > 16) {
       disconnected();
       return;
@@ -49,7 +90,7 @@ export function hostWire(
     void (async () => {
       let id: string | number | undefined;
       try {
-        const request = Request.parse(JSON.parse(line));
+        const request = Request.parse(decoded);
         id = request.id;
         const result = await dispatch(request.method, request.params);
         await send({ jsonrpc: "2.0", id, result: result ?? null });
@@ -72,5 +113,8 @@ export function hostWire(
   });
   input.on("error", disconnected);
   process.stdin.on("end", disconnected);
-  return { notify: (method: string, params: unknown) => send({ jsonrpc: "2.0", method, params }) };
+  return {
+    confirmed,
+    notify: (method: string, params: unknown) => send({ jsonrpc: "2.0", method, params }),
+  };
 }

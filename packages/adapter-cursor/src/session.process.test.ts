@@ -82,3 +82,64 @@ it("supervises a real host, keeps steering in one ace run and rejects child cont
     await rm(home, { recursive: true, force: true });
   }
 });
+
+it("waits for the engine's durable frame acknowledgement before completing the host send", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cursor-frame-ack-"));
+  const received = Promise.withResolvers<void>(),
+    commit = Promise.withResolvers<void>();
+  let sent = false;
+  const entry = join(root, "ack.mjs");
+  await writeFile(
+    entry,
+    `
+import {createInterface} from 'node:readline';
+let options, pending;
+const out=value=>process.stdout.write(JSON.stringify(value)+'\\n');
+createInterface({input:process.stdin}).on('line',line=>{
+ const input=JSON.parse(line);
+ if(input.method==='open') { options=input.params;out({id:input.id,result:{agentId:'native'}}); }
+ else if(input.method==='send') { pending=input.id;out({id:'host:1',method:'frame',params:{schemaVersion:1,generation:options.generation,operationId:input.params.operationId,segment:0,kind:'delta',body:{type:'text-delta',text:'await storage'}}}); }
+ else if(input.id==='host:1') { if(input.error)process.exit(1);out({id:pending,result:{runId:'native-run'}}); }
+ else if(input.method==='close')out({id:input.id,result:{disposed:true}});
+});
+`,
+  );
+  const session = await openCursorSession(
+    {
+      threadId: ThreadId.parse("ack-thread"),
+      cwd: root,
+      signal: new AbortController().signal,
+      onExit: () => {},
+      onFrame: async (frame) => {
+        if (frame.dir === "recv" && frame.channel === "sdk") {
+          received.resolve();
+          await commit.promise;
+        }
+      },
+    },
+    {
+      env: { HOME: root },
+      instanceId: "instance",
+      entry,
+      policy: "full-access",
+      generation: () => "host",
+      now: () => 1,
+    },
+  );
+  try {
+    const sending = session
+      .send([{ type: "text", text: "synthetic" }], "queue", "intent")
+      .then(() => {
+        sent = true;
+      });
+    await received.promise;
+    expect(sent).toBe(false);
+    commit.resolve();
+    await sending;
+    expect(sent).toBe(true);
+  } finally {
+    commit.resolve();
+    await session.close("shutdown");
+    await rm(root, { recursive: true, force: true });
+  }
+});

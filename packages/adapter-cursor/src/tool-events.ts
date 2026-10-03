@@ -17,6 +17,7 @@ interface Tool {
 export class ToolEvents {
   readonly calls = new Map<Key, Tool>();
   private retainedBytes = 0;
+  private pendingByOwner = new Map<Key, Set<Key>>();
   constructor(privateOptions: { children: Children; limit: number; retainedLimit: number }) {
     this.children = privateOptions.children;
     this.limit = privateOptions.limit;
@@ -73,7 +74,14 @@ export class ToolEvents {
           surviving: false,
         };
         this.calls.set(call, tool);
+        let pending = this.pendingByOwner.get(agent);
+        if (!pending) {
+          pending = new Set();
+          this.pendingByOwner.set(agent, pending);
+        }
+        pending.add(call);
       }
+      tool.name = name;
       if (native.args !== undefined) {
         const argsBytes = Buffer.byteLength(boundedJson(native.args, 262144));
         if (this.retainedBytes - tool.argsBytes + argsBytes > this.retainedLimit)
@@ -89,6 +97,11 @@ export class ToolEvents {
       tool.failed ||= status === "failed";
       if (tool.terminal && type !== "tool-call-completed") return [];
       tool.terminal ||= status !== "running";
+      if (tool.terminal || toolKind(tool.name) === "agent.spawn") {
+        const pending = this.pendingByOwner.get(tool.agent);
+        pending?.delete(call);
+        if (pending?.size === 0) this.pendingByOwner.delete(tool.agent);
+      }
       const staleCompletion = event?.operationId !== operation || event?.segment !== segment;
       const facts = staleCompletion ? [] : transcript.boundary(agent);
       if (tool.terminal && tool.surviving) {
@@ -201,30 +214,34 @@ export class ToolEvents {
   }
   preserve(owner?: Key): Fact[] {
     const facts: Fact[] = [];
-    for (const [item, tool] of this.calls)
-      if (
-        (owner === undefined || tool.agent === owner) &&
-        !tool.terminal &&
-        !tool.surviving &&
-        toolKind(tool.name) !== "agent.spawn"
-      ) {
-        tool.surviving = true;
-        facts.push({
-          type: "background.started",
-          agent: tool.agent,
-          task: `surviving:${item}`,
-          kind: toolKind(tool.name) === "shell" ? "shell" : "other",
-          title: `Unresolved SDK ${tool.name}`,
-          item,
-          stoppable: false,
-        });
-        facts.push({
-          type: "background.ended",
-          task: `surviving:${item}`,
-          status: "unknown",
-          uncertain: true,
-        });
+    const owners = owner === undefined ? this.pendingByOwner.keys() : [owner];
+    for (const key of owners) {
+      const pending = this.pendingByOwner.get(key);
+      if (!pending) continue;
+      for (const item of pending) {
+        const tool = this.calls.get(item);
+        if (tool && !tool.terminal && !tool.surviving && toolKind(tool.name) !== "agent.spawn") {
+          tool.surviving = true;
+          pending.delete(item);
+          facts.push({
+            type: "background.started",
+            agent: tool.agent,
+            task: `surviving:${item}`,
+            kind: toolKind(tool.name) === "shell" ? "shell" : "other",
+            title: `Unresolved SDK ${tool.name}`,
+            item,
+            stoppable: false,
+          });
+          facts.push({
+            type: "background.ended",
+            task: `surviving:${item}`,
+            status: "unknown",
+            uncertain: true,
+          });
+        }
       }
+      if (!pending.size) this.pendingByOwner.delete(key);
+    }
     return facts;
   }
 }

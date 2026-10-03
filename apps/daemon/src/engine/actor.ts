@@ -157,6 +157,9 @@ export class ThreadActor {
       if (this.repo.recovery.committed(this.id, decoded)) return;
       const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
       this.repo.store.atomic(() => {
+        const body = z.object({ kind: z.string(), body: z.unknown() }).safeParse(decoded.data);
+        if (decoded.channel === "sdk" && body.success && body.data.kind === "blob")
+          this.repo.store.appendRawChunk(this.id, body.data.body);
         this.repo.captureFrame(this.id, decoded);
         this.apply(facts);
         this.syncQueue();

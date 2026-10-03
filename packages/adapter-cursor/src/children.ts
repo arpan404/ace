@@ -14,6 +14,7 @@ export interface Child {
 export class Children {
   readonly calls = new Map<Key, Child>();
   private native = new Map<string, Key>();
+  private pendingByParent = new Map<Key, Set<Key>>();
   private limit: number;
   constructor(limit: number) {
     this.limit = limit;
@@ -40,6 +41,12 @@ export class Children {
       ...(native ? { native } : {}),
     };
     this.calls.set(call, child);
+    let pending = this.pendingByParent.get(parent);
+    if (!pending) {
+      pending = new Set();
+      this.pendingByParent.set(parent, pending);
+    }
+    pending.add(call);
     if (native) this.native.set(native, key);
     const name = string(input.description);
     const model = string(input.model);
@@ -78,6 +85,9 @@ export class Children {
       }
     } else if (failed || object(result).status === "success") {
       child.settled = true;
+      const pending = this.pendingByParent.get(child.parent);
+      pending?.delete(call);
+      if (pending?.size === 0) this.pendingByParent.delete(child.parent);
       facts.push({
         type: "turn.ended",
         agent: child.key,
@@ -133,18 +143,27 @@ export class Children {
   }
   private preserveChildren(parent?: Key): Fact[] {
     const facts: Fact[] = [];
-    for (const child of this.calls.values())
-      if ((parent === undefined || child.parent === parent) && !child.settled && !child.uncertain) {
-        child.uncertain = true;
-        child.background = true;
-        facts.push(this.surviving(child));
-        facts.push({
-          type: "background.ended",
-          task: `background:${child.call}`,
-          status: "unknown",
-          uncertain: true,
-        });
+    const parents = parent === undefined ? this.pendingByParent.keys() : [parent];
+    for (const key of parents) {
+      const pending = this.pendingByParent.get(key);
+      if (!pending) continue;
+      for (const call of pending) {
+        const child = this.calls.get(call);
+        if (child && !child.settled && !child.uncertain) {
+          child.uncertain = true;
+          pending.delete(call);
+          child.background = true;
+          facts.push(this.surviving(child));
+          facts.push({
+            type: "background.ended",
+            task: `background:${child.call}`,
+            status: "unknown",
+            uncertain: true,
+          });
+        }
       }
+      if (!pending.size) this.pendingByParent.delete(key);
+    }
     return facts;
   }
   trim(): void {
