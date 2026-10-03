@@ -44,6 +44,18 @@ export function restartDelay(attempt: number): number {
 
 type Source = DaemonStatus["source"];
 
+/** A status that will not turn into a running daemon without the repair flow or a restart. */
+export function startFailed(status: DaemonStatus): boolean {
+  if (status.state === "failed" || status.state === "stopping" || status.state === "stopped")
+    return true;
+  // A crash restart carries the exit as its message; a slow start or a user restart does not.
+  return status.state === "restarting" && status.message !== undefined;
+}
+
+function failure(status: DaemonStatus): Error {
+  return new Error(status.message ?? `The daemon is ${status.state}`);
+}
+
 /** A child this app spawned. `intentional` is set before any stop this app asks for. */
 interface Child {
   process: DaemonProcess;
@@ -66,7 +78,8 @@ interface Child {
 export class DaemonSupervisor {
   private ports: SupervisorPorts;
   private options: Required<SupervisorOptions>;
-  private status: DaemonStatus = { state: "stopped", source: "app", restarts: 0, paused: false };
+  /** "starting" from the outset: the app starts its supervisor as it launches. */
+  private status: DaemonStatus = { state: "starting", source: "app", restarts: 0, paused: false };
   private daemon: LocalDaemon | undefined;
   private child: Child | undefined;
   private crashes = 0;
@@ -106,6 +119,27 @@ export class DaemonSupervisor {
     return new Promise((resolve) => this.waiters.add(resolve));
   }
 
+  /**
+   * Like `ready`, for a client waiting to connect: a slow start (a first start scans the
+   * person's provider history before answering) is waited out however long it takes, while
+   * a real failure rejects at once: our daemon exited (for example on the ACE_HOME lock of a
+   * daemon that no longer answers), the supervisor gave up, or the app is stopping it.
+   */
+  reachable(): Promise<LocalDaemon> {
+    if (startFailed(this.status)) return Promise.reject(failure(this.status));
+    return new Promise((resolve, reject) => {
+      const stop = this.onStatus((status) => {
+        if (!startFailed(status)) return;
+        stop();
+        reject(failure(status));
+      });
+      void this.ready().then((daemon) => {
+        stop();
+        resolve(daemon);
+      });
+    });
+  }
+
   start(): Promise<void> {
     return this.transition(true, (generation) => this.bringUp(generation));
   }
@@ -114,6 +148,9 @@ export class DaemonSupervisor {
   async restart(): Promise<DaemonStatus> {
     await this.transition(true, async (generation) => {
       this.crashes = 0;
+      // A repair starts fresh: the last crash no longer describes what happens next.
+      const { message: _message, ...rest } = this.status;
+      this.status = rest;
       await this.stopChild();
       await this.bringUp(generation);
     });
@@ -205,17 +242,12 @@ export class DaemonSupervisor {
 
   private spawnChild(spawn: () => DaemonProcess): Child {
     const handle = spawn();
-    let resolveExit: () => void = () => {};
-    const child: Child = {
-      process: handle,
-      exited: new Promise((resolve) => (resolveExit = resolve)),
-      done: false,
-      intentional: false,
-    };
+    const exit = Promise.withResolvers<void>();
+    const child: Child = { process: handle, exited: exit.promise, done: false, intentional: false };
     this.child = child;
     handle.onExit((code, signal) => {
       child.done = true;
-      resolveExit();
+      exit.resolve();
       this.onChildExit(child, code, signal);
     });
     return child;

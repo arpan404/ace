@@ -101,12 +101,16 @@ export class DaemonRuntime {
     return () => this.listeners.delete(listener);
   }
 
-  /** The renderer's connection: resolves once the daemon answers. */
+  /**
+   * The renderer's connection: resolves once the daemon answers, however slow its start.
+   * Rejects only on a real failure, so the page shows its connection screen only then.
+   */
   async connection(): Promise<DaemonConnection> {
     if (this.target.kind === "fake") return { mode: "fake" };
     if (this.target.kind === "remote")
       return { mode: "daemon", url: this.target.url, token: this.target.token };
-    const daemon = await this.local();
+    if (!this.supervisor) throw new Error("No local daemon for this target");
+    const daemon = await this.supervisor.reachable();
     return { mode: "daemon", url: daemon.url, token: daemon.token };
   }
 

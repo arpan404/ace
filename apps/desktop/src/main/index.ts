@@ -16,6 +16,7 @@ import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
 import { acceleratorToKey, applicationMenu } from "./menu.ts";
+import { backgroundArgument, startHidden } from "./os/login.ts";
 import { appPaths } from "./paths.ts";
 import { applyDevCsp, registerAppScheme, serveRenderer } from "./renderer.ts";
 import { SettingsStore } from "./settings-store.ts";
@@ -89,8 +90,7 @@ function main(): void {
     open: (link) => open(link),
     quitAll: () => app.quit(),
     log: (message) => log("warn", message),
-    onController: (sessionId, controller) =>
-      emit(contents(), "browser.controller", { sessionId, controller }),
+    onController: (state) => emit(contents(), "browser.controller", state),
   });
 
   /** Show the window (creating it if needed) and follow a deep link. */
@@ -137,9 +137,12 @@ function main(): void {
     });
     window.on("closed", () => {
       window = undefined;
-      background.views.closeAll();
+      // Embedded views live in the window: without one the app stops offering the backend,
+      // so the daemon pauses or moves those sessions instead of driving dead views.
+      background.windowChanged();
       focusChanged();
     });
+    background.windowChanged();
   }
 
   function applySettings(next: DesktopSettings): void {
@@ -150,7 +153,7 @@ function main(): void {
       process.platform !== "linux" &&
       app.getLoginItemSettings().openAtLogin !== next.openAtLogin
     )
-      app.setLoginItemSettings({ openAtLogin: next.openAtLogin, args: ["--background"] });
+      app.setLoginItemSettings({ openAtLogin: next.openAtLogin, args: [backgroundArgument] });
     globalShortcut.unregisterAll();
     if (next.globalShortcut)
       try {
@@ -209,23 +212,16 @@ function main(): void {
       rendererUrl = devUrl;
     } else rendererUrl = await serveRenderer(paths.renderer, remote);
 
-    // The page waits for its daemon at boot. If the daemon is not up within a few seconds the
-    // page falls back to its connection screen, and reloads once the daemon is running.
+    // The page shows "Starting ace…" until its daemon answers, however long a first start
+    // takes. Only a real failure rejects; the page then shows its connection screen and
+    // reloads once the daemon is running again.
     let missedConnection = false;
     const connection = async () => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        return await Promise.race([
-          runtime.connection(),
-          new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(() => {
-              missedConnection = true;
-              reject(new Error("The daemon is still starting"));
-            }, 15_000);
-          }),
-        ]);
-      } finally {
-        clearTimeout(timer);
+        return await runtime.connection();
+      } catch (error) {
+        missedConnection = true;
+        throw error;
       }
     };
     runtime.onStatus((status) => {
@@ -278,8 +274,14 @@ function main(): void {
     });
 
     applySettings(settings.get());
-    // Launched at login (`--background`): daemon and tray only, no window.
-    const hidden = process.argv.includes("--background");
+    // Launched at login with background mode on: daemon and tray only, no window.
+    const hidden = startHidden({
+      platform: process.platform,
+      argv: process.argv,
+      wasOpenedAtLogin:
+        process.platform === "darwin" && app.getLoginItemSettings().wasOpenedAtLogin,
+      background: settings.get().background,
+    });
     if (!hidden) createWindow();
     void runtime
       .start()

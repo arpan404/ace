@@ -313,6 +313,35 @@ describe("daemon supervisor", () => {
     expect(m.children[0]?.alive).toBe(false);
   });
 
+  it("lets a client wait out a slow first start instead of failing it", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    const reachable = supervisor.reachable();
+    let settled = false;
+    void reachable.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    await supervisor.start();
+    // Scanning a large provider history keeps the daemon silent for a long while.
+    await m.advance(90_000);
+    expect(settled).toBe(false);
+    m.state.answering = true;
+    await m.advance(300);
+    await expect(reachable).resolves.toEqual(local);
+  });
+
+  it("fails a waiting client as soon as its starting daemon exits", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    const reachable = supervisor.reachable();
+    m.children[0]?.die(1); // for example, another daemon that no longer answers holds the lock
+    await expect(reachable).rejects.toThrow("The daemon exited (code 1)");
+    // A client that asks again during the crash restart is told at once, not left waiting.
+    await expect(supervisor.reachable()).rejects.toThrow("The daemon exited");
+  });
+
   it("drains before an update and reopens admission when work is still running", async () => {
     const m = machine();
     const supervisor = new DaemonSupervisor(m.ports);
