@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/TerminalResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "terminal": {
+      "$ref": "https://ace.local/protocol/v1/TerminalDescriptor.json"
+    },
+    "terminals": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/TerminalDescriptor.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "type": {
+      "const": "terminal.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "ok"
+  ],
+  "type": "object"
+}

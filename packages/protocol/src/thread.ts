@@ -1,4 +1,6 @@
+import { ThreadClientFields } from "./thread-client.ts";
 import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
+import { RunCheckpoints } from "./run-client.ts";
 import { z } from "zod";
 import { AgentId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
 import { ImportedProvenance } from "./history.ts";
@@ -33,6 +35,9 @@ export const Run = z.object({
   trigger: RunTrigger,
   /** Provider's turn id, when it has one. */
   nativeId: z.string().optional(),
+  /** Stable root-turn number; subagent runs do not consume it. */
+  ordinal: z.number().int().positive().optional(),
+  checkpoints: RunCheckpoints.optional(),
   state: z.enum(["active", "completed", "interrupted", "failed"]),
   startedAt: Timestamp,
   endedAt: Timestamp.optional(),
@@ -65,6 +70,7 @@ export const ThreadProviderMetadata = AcpIdentity.partial().extend({
 export type ThreadProviderMetadata = z.infer<typeof ThreadProviderMetadata>;
 
 export const Thread = z.object({
+  ...ThreadClientFields.shape,
   id: ThreadId,
   workspaceId: WorkspaceId,
   title: z.string(),

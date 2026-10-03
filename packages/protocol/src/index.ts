@@ -48,3 +48,18 @@ export * from "./agent-registry.ts";
 export * from "./command-library.ts";
 export * from "./screen-v2.ts";
 export { ScreenAgentScope, ScreenUITree, ScreenUIBounds } from "./screen-ui.ts";
+
+export * from "./thread-client.ts";
+export * from "./plugins.ts";
+
+export * from "./workspace-actions.ts";
+
+export * from "./forge.ts";
+export * from "./terminal-client.ts";
+
+export * from "./conductor-client.ts";
+
+export * from "./preview-client.ts";
+export { PreviewPort, PreviewDescriptor } from "./preview.ts";
+
+export * from "./run-client.ts";

@@ -5,6 +5,9 @@
     "agentId": {
       "$ref": "https://ace.local/protocol/v1/AgentId.json"
     },
+    "checkpoints": {
+      "$ref": "https://ace.local/protocol/v1/RunCheckpoints.json"
+    },
     "endedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
@@ -13,6 +16,11 @@
     },
     "nativeId": {
       "type": "string"
+    },
+    "ordinal": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
     },
     "startedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"

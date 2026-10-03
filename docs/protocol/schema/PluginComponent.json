@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginComponent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "description": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "kind": {
+      "enum": [
+        "skill",
+        "command",
+        "agent",
+        "rule"
+      ],
+      "type": "string"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/PluginName.json"
+    },
+    "path": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "plugin": {
+      "$ref": "https://ace.local/protocol/v1/PluginName.json"
+    },
+    "providers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+      },
+      "maxItems": 6,
+      "type": "array"
+    }
+  },
+  "required": [
+    "plugin",
+    "name",
+    "kind",
+    "path",
+    "description",
+    "enabled",
+    "providers"
+  ],
+  "type": "object"
+}

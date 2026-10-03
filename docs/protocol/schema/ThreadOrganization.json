@@ -1,0 +1,40 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadOrganization.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "activityAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "autoSettleAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "deletedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "pinned": {
+      "type": "boolean"
+    },
+    "readAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "settledAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "settledReason": {
+      "enum": [
+        "manual",
+        "inactivity",
+        "pr_merged",
+        "pr_closed"
+      ],
+      "type": "string"
+    },
+    "snoozedUntil": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "unread": {
+      "type": "boolean"
+    }
+  },
+  "type": "object"
+}

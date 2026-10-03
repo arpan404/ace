@@ -1,3 +1,4 @@
+import { ProviderKind } from "./provider.ts";
 import { z } from "zod";
 
 export const PluginName = z
@@ -60,7 +61,49 @@ export const PluginInstall = z.strictObject({
 });
 export type PluginInstall = z.infer<typeof PluginInstall>;
 export const PluginReviewOffset = z.number().int().min(0).max(1024);
+export const PluginAvailability = z.object({
+  name: PluginName,
+  enabled: z.boolean(),
+  providers: z.array(ProviderKind).max(6),
+});
+export type PluginAvailability = z.infer<typeof PluginAvailability>;
+export const PluginComponent = z.object({
+  plugin: PluginName,
+  name: PluginName,
+  kind: z.enum(["skill", "command", "agent", "rule"]),
+  path: z.string().max(512),
+  description: text,
+  enabled: z.boolean(),
+  providers: z.array(ProviderKind).max(6),
+});
+export type PluginComponent = z.infer<typeof PluginComponent>;
 export const PluginRequest = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("plugins.availability"),
+    name: PluginName,
+    enabled: z.boolean(),
+    providers: z.array(ProviderKind).max(6),
+  }),
+  z.strictObject({
+    type: z.literal("plugins.catalog"),
+    offset: z.number().int().min(0).max(262144).default(0),
+    limit: z.number().int().min(1).max(50).default(50),
+  }),
+  z.strictObject({
+    type: z.literal("plugins.source"),
+    name: PluginName,
+    path: z.string().min(1).max(512),
+    offset: z.number().int().nonnegative().default(0),
+    limit: z.number().int().min(4).max(65536).default(65536),
+  }),
+  z.strictObject({
+    type: z.literal("plugins.edit"),
+    name: PluginName,
+    path: z.string().min(1).max(512),
+    expectedHash: PluginHash,
+    text: z.string().max(262144),
+  }),
+
   z.strictObject({ type: z.literal("plugins.update"), name: PluginName }),
   z.strictObject({ type: z.literal("plugins.cancel"), id: PluginReview.shape.id }),
   z.strictObject({
@@ -84,6 +127,23 @@ export const PluginRequest = z.discriminatedUnion("type", [
   }),
 ]);
 export const PluginResponse = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("plugins.availability"), availability: PluginAvailability }),
+  z.strictObject({
+    type: z.literal("plugins.catalog"),
+    components: z.array(PluginComponent).max(50),
+    nextOffset: z.number().int().nonnegative().optional(),
+  }),
+  z.strictObject({
+    type: z.literal("plugins.source"),
+    path: z.string().max(4096),
+    hash: PluginHash,
+    bytes: z.number().int().nonnegative(),
+    offset: z.number().int().nonnegative(),
+    nextOffset: z.number().int().nonnegative(),
+    text: z.string().max(65536),
+    readonly: z.literal(true),
+  }),
+
   z.strictObject({ type: z.literal("plugins.cancelled"), id: PluginReview.shape.id }),
   z.strictObject({ type: z.literal("plugins.review"), review: PluginReview }),
   z.strictObject({ type: z.literal("plugins.installed"), install: PluginInstall }),
@@ -91,6 +151,7 @@ export const PluginResponse = z.discriminatedUnion("type", [
     type: z.literal("plugins.list"),
     installs: z.array(PluginInstall).max(256),
     reviews: z.array(PluginReviewSummary).max(32),
+    availability: z.array(PluginAvailability).max(256).optional(),
   }),
   z.strictObject({ type: z.literal("plugins.removed"), name: PluginName }),
   z.strictObject({

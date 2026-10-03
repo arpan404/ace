@@ -1,0 +1,127 @@
+{
+  "$id": "https://ace.local/protocol/v1/TerminalOutput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "event": {
+      "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "maxLength": 65536,
+              "type": "string"
+            },
+            "endOffset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "offset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncatedBefore": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "data",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "offset",
+            "endOffset",
+            "data",
+            "truncatedBefore"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "nextOffset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "oldestOffset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "resync",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "oldestOffset",
+            "nextOffset"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "nextOffset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "properties": {
+                "code": {
+                  "maximum": 9007199254740991,
+                  "minimum": -9007199254740991,
+                  "type": "integer"
+                },
+                "signal": {
+                  "anyOf": [
+                    {
+                      "maximum": 9007199254740991,
+                      "minimum": -9007199254740991,
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "code",
+                "signal"
+              ],
+              "type": "object"
+            },
+            "type": {
+              "const": "exit",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "nextOffset",
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "subscriptionId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "terminal.output",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "subscriptionId",
+    "event"
+  ],
+  "type": "object"
+}

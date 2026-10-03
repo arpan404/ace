@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/ConductorChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "run": {
+      "$ref": "https://ace.local/protocol/v1/ConductorRunView.json"
+    },
+    "subscriptionId": {
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "type": {
+      "const": "conductor.changed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "subscriptionId",
+    "run"
+  ],
+  "type": "object"
+}

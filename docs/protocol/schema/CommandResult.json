@@ -5,6 +5,13 @@
     "commandId": {
       "$ref": "https://ace.local/protocol/v1/CommandId.json"
     },
+    "commit": {
+      "pattern": "^[a-f0-9]{40,64}$",
+      "type": "string"
+    },
+    "editor": {
+      "$ref": "https://ace.local/protocol/v1/EditorLaunch.json"
+    },
     "error": {
       "type": "string"
     },
@@ -14,8 +21,22 @@
     "ok": {
       "type": "boolean"
     },
+    "pr": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+    },
+    "prStatus": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrStatus.json"
+    },
     "review": {
       "$ref": "https://ace.local/protocol/v1/ReviewData.json"
+    },
+    "terminalId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     }
   },
   "required": [

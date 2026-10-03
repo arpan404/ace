@@ -5,6 +5,99 @@
     {
       "additionalProperties": false,
       "properties": {
+        "availability": {
+          "$ref": "https://ace.local/protocol/v1/PluginAvailability.json"
+        },
+        "type": {
+          "const": "plugins.availability",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "availability"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "components": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/PluginComponent.json"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        "nextOffset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "plugins.catalog",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "components"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "bytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hash": {
+          "$ref": "https://ace.local/protocol/v1/PluginHash.json"
+        },
+        "nextOffset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "readonly": {
+          "const": true,
+          "type": "boolean"
+        },
+        "text": {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        "type": {
+          "const": "plugins.source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "path",
+        "hash",
+        "bytes",
+        "offset",
+        "nextOffset",
+        "text",
+        "readonly"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "id": {
           "pattern": "^[a-zA-Z0-9-]{1,80}$",
           "type": "string"
@@ -57,6 +150,13 @@
     {
       "additionalProperties": false,
       "properties": {
+        "availability": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/PluginAvailability.json"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
         "installs": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/PluginInstall.json"

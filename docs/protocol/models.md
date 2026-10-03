@@ -41,20 +41,20 @@ Example:
 
 ```json
 {
-  "defaultEffort": "example",
+  "acpAgentId": "example",
+  "defaultTier": "example",
   "deprecated": false,
   "displayName": "example",
   "hidden": true,
   "id": "example",
   "inputModalities": [],
-  "installationId": "example",
   "instance": "example",
   "isDefault": false,
   "nativeModelId": "example",
-  "provider": "opencode",
+  "provider": "claude",
   "raw": {
     "json": "example",
-    "truncated": false
+    "truncated": true
   },
   "reasoningEfforts": [],
   "serviceTiers": []
@@ -76,7 +76,11 @@ Example:
 Example:
 
 ```json
-{}
+{
+  "acpAgentId": "example",
+  "installationId": "example",
+  "instance": "example"
+}
 ```
 
 ## ModelInstanceStatus
@@ -99,12 +103,10 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "error": "timeout",
   "installationId": "example",
   "instance": "example",
-  "provider": "codex",
-  "refreshing": false,
+  "provider": "cursor",
+  "refreshing": true,
   "stale": true
 }
 ```
@@ -127,8 +129,7 @@ Example:
 
 ```json
 {
-  "instance": "example",
-  "provider": "claude"
+  "offset": 8
 }
 ```
 
@@ -172,25 +173,27 @@ Example:
 {
   "effort": "example",
   "model": {
-    "deprecated": true,
+    "defaultEffort": "example",
+    "deprecated": false,
     "displayName": "example",
     "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
+    "instanceId": "example",
     "isDefault": true,
     "nativeModelId": "example",
-    "provider": "acp",
+    "provider": "codex",
     "raw": {
       "json": "example",
-      "truncated": false
+      "truncated": true
     },
     "reasoningEfforts": [],
     "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": false
+  "stale": true
 }
 ```
 
@@ -234,9 +237,8 @@ Example:
 ```json
 {
   "effort": "example",
-  "preferenceOrder": [],
   "role": "example",
-  "tier": "example"
+  "selection": "default"
 }
 ```
 
@@ -255,8 +257,8 @@ Example:
 ```json
 {
   "options": {
-    "installationId": "example",
-    "provider": "claude"
+    "limit": 10,
+    "offset": 2
   },
   "requestId": "example",
   "type": "models.list"
@@ -298,9 +300,9 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "imageInput": true,
-    "model": "example",
-    "provider": "claude",
+    "acpAgentId": "example",
+    "instance": "example",
+    "preferenceOrder": [],
     "role": "example"
   },
   "type": "models.resolve"
@@ -324,8 +326,7 @@ Example:
   "requestId": "example",
   "result": {
     "instances": [],
-    "models": [],
-    "nextOffset": 0
+    "models": []
   },
   "type": "models.result"
 }
@@ -347,7 +348,6 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example",
-  "parameters": {}
+  "name": "example"
 }
 ```

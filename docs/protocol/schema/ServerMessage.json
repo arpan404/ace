@@ -3,7 +3,97 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "$ref": "https://ace.local/protocol/v1/PreviewResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ConductorResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ConductorChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/AutomationResponse.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/RegistryResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceActionResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/TerminalResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/TerminalOutput.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/PluginServerMessage.json"
+    },
+    {
+      "properties": {
+        "error": {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "result": {},
+        "type": {
+          "const": "browser.result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "ok"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "$ref": "https://ace.local/protocol/v1/BrowserState.json"
+        },
+        "type": {
+          "const": "browser.state",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "frame": {
+          "$ref": "https://ace.local/protocol/v1/BrowserFrame.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.frame",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "frame"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/DiagnosticsHealthResult.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/ContextResult.json"
@@ -498,6 +588,13 @@
         "commandId": {
           "$ref": "https://ace.local/protocol/v1/CommandId.json"
         },
+        "commit": {
+          "pattern": "^[a-f0-9]{40,64}$",
+          "type": "string"
+        },
+        "editor": {
+          "$ref": "https://ace.local/protocol/v1/EditorLaunch.json"
+        },
         "error": {
           "type": "string"
         },
@@ -507,8 +604,22 @@
         "ok": {
           "type": "boolean"
         },
+        "pr": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+        },
+        "prStatus": {
+          "$ref": "https://ace.local/protocol/v1/ForgePrStatus.json"
+        },
         "review": {
           "$ref": "https://ace.local/protocol/v1/ReviewData.json"
+        },
+        "terminalId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
         "type": {
           "const": "commandResult",

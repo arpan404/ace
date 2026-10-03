@@ -12,6 +12,25 @@
       "oneOf": [
         {
           "properties": {
+            "draftId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[\\w-]+$",
+              "type": "string"
+            },
+            "kind": {
+              "const": "draft",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "draftId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
             "code": {
               "$ref": "https://ace.local/protocol/v1/ContextErrorCode.json"
             },

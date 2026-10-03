@@ -4,6 +4,106 @@
   "oneOf": [
     {
       "properties": {
+        "op": {
+          "const": "draft.create",
+          "type": "string"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "op",
+        "workspaceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "draftId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[\\w-]+$",
+          "type": "string"
+        },
+        "op": {
+          "const": "draft.release",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "draftId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "bytes": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "draftId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[\\w-]+$",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 255,
+          "minLength": 1,
+          "type": "string"
+        },
+        "op": {
+          "const": "draft.upload.begin",
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+        }
+      },
+      "required": [
+        "op",
+        "draftId",
+        "sha256",
+        "bytes",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "draftId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[\\w-]+$",
+          "type": "string"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "draft.mention.complete",
+          "type": "string"
+        },
+        "query": {
+          "maxLength": 128,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "draftId",
+        "query"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "bytes": {
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991,

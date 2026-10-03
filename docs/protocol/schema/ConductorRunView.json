@@ -1,0 +1,258 @@
+{
+  "$id": "https://ace.local/protocol/v1/ConductorRunView.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "budget": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "dag": {
+      "items": {
+        "properties": {
+          "dependencies": {
+            "items": {
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+              "type": "string"
+            },
+            "maxItems": 256,
+            "type": "array"
+          },
+          "fixRounds": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+            "type": "string"
+          },
+          "revision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "maxLength": 64,
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 256,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "dependencies"
+        ],
+        "type": "object"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "executionError": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "goal": {
+      "maxLength": 16384,
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "lanes": {
+      "items": {
+        "properties": {
+          "account": {
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "generation": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+            "type": "string"
+          },
+          "model": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "planner",
+              "worker",
+              "reviewer",
+              "integrator"
+            ],
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "starting",
+              "working",
+              "waiting",
+              "done",
+              "failed",
+              "unresponsive",
+              "limited",
+              "migrating"
+            ],
+            "type": "string"
+          },
+          "workstream": {
+            "anyOf": [
+              {
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "agentId",
+          "role",
+          "workstream",
+          "account",
+          "model",
+          "generation",
+          "status"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "needsUser": {
+      "items": {
+        "properties": {
+          "generation": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "plan",
+              "merge",
+              "budget",
+              "escalation",
+              "deadline",
+              "destructive"
+            ],
+            "type": "string"
+          },
+          "lane": {
+            "anyOf": [
+              {
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "workstream": {
+            "anyOf": [
+              {
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "workstream",
+          "lane",
+          "generation",
+          "message"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "phase": {
+      "enum": [
+        "planning",
+        "running",
+        "paused",
+        "cancelling",
+        "cancelled",
+        "done"
+      ],
+      "type": "string"
+    },
+    "plan": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ConductorPlan.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "planApproved": {
+      "type": "boolean"
+    },
+    "spent": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "id",
+    "workspaceId",
+    "goal",
+    "phase",
+    "spent",
+    "budget",
+    "plan",
+    "planApproved",
+    "needsUser",
+    "lanes",
+    "dag",
+    "truncated"
+  ],
+  "type": "object"
+}

@@ -1,3 +1,6 @@
+import { WorkspaceCommands } from "./workspace-actions.ts";
+import { ForgeCommand } from "./forge.ts";
+import { ThreadOrganizationCommands, TurnOptions } from "./thread-client.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 import { DiagnosticsHealthCommand } from "./diagnostics.ts";
@@ -25,6 +28,9 @@ import {
 
 export const CommandPayload = z.discriminatedUnion("type", [
   DiagnosticsHealthCommand,
+  ...ThreadOrganizationCommands,
+  ...WorkspaceCommands,
+  ...ForgeCommand.options,
   ...ConductorCommandPayload.options,
   ...ReviewCommands,
   OrchestrationCreateCommand,
@@ -35,13 +41,19 @@ export const CommandPayload = z.discriminatedUnion("type", [
     workspaceId: WorkspaceId,
     provider: ProviderKind,
     ...AcpIdentity.partial().shape,
-    model: z.string().optional(),
+    model: z.string().min(1).max(256).optional(),
+    account: z.string().min(1).max(256).optional(),
+    mode: z.enum(["local", "worktree"]).optional(),
+    baseBranch: z.string().min(1).max(1024).optional(),
+    options: TurnOptions.optional(),
     title: z.string().optional(),
     input: z.array(ContentPart).min(1),
     context: MessageContext.optional(),
   }),
   z.object({
     type: z.literal("thread.send"),
+    model: z.string().min(1).max(256).optional(),
+    options: TurnOptions.optional(),
     threadId: ThreadId,
     input: z.array(ContentPart).min(1),
     context: MessageContext.optional(),

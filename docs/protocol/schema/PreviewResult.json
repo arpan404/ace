@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/PreviewResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "previews": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PreviewDescriptor.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "preview.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "ok"
+  ],
+  "type": "object"
+}

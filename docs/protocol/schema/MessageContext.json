@@ -18,6 +18,12 @@
       "maxItems": 64,
       "type": "array"
     },
+    "draftId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[\\w-]+$",
+      "type": "string"
+    },
     "mentions": {
       "default": [],
       "items": {

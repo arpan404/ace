@@ -1,0 +1,102 @@
+{
+  "$id": "https://ace.local/protocol/v1/ConductorRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operation": {
+      "oneOf": [
+        {
+          "properties": {
+            "after": {
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+              "type": "string"
+            },
+            "limit": {
+              "default": 16,
+              "maximum": 32,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "op": {
+              "const": "list",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "get",
+              "type": "string"
+            },
+            "runId": {
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "runId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "subscribe",
+              "type": "string"
+            },
+            "runId": {
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+              "type": "string"
+            },
+            "subscriptionId": {
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "runId",
+            "subscriptionId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "unsubscribe",
+              "type": "string"
+            },
+            "subscriptionId": {
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "subscriptionId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "requestId": {
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "type": {
+      "const": "conductor.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "operation"
+  ],
+  "type": "object"
+}

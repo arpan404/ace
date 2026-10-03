@@ -1,3 +1,5 @@
+import { RunClientUpdated } from "./run-client.ts";
+import { ThreadClientUpdated } from "./thread-client.ts";
 import { AcpSessionSupport } from "./agent-registry.ts";
 import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
@@ -32,6 +34,7 @@ export const UsageUpdated = UsageMetadata.safeExtend({
 export type UsageUpdated = z.infer<typeof UsageUpdated>;
 
 export const EventPayload = z.discriminatedUnion("type", [
+  ThreadClientUpdated,
   z.object({ type: z.literal("thread.created"), thread: Thread }),
   z.object({
     type: z.literal("thread.updated"),
@@ -60,6 +63,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     background: z.boolean().optional(),
     endedAt: Timestamp.optional(),
   }),
+  RunClientUpdated,
   z.object({ type: z.literal("run.started"), run: Run }),
   z.object({
     type: z.literal("run.ended"),

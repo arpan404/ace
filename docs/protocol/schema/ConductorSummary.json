@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/ConductorSummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "budget": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "goal": {
+      "maxLength": 16384,
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "phase": {
+      "enum": [
+        "planning",
+        "running",
+        "paused",
+        "cancelling",
+        "cancelled",
+        "done"
+      ],
+      "type": "string"
+    },
+    "spent": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "id",
+    "workspaceId",
+    "goal",
+    "phase",
+    "spent",
+    "budget"
+  ],
+  "type": "object"
+}
