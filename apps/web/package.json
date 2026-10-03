@@ -3,6 +3,12 @@
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
+  "sideEffects": [
+    "*.css",
+    "./src/main.tsx",
+    "./src/boot/client-worker.ts",
+    "./src/**/*.worker.ts"
+  ],
   "scripts": {
     "dev": "vite",
     "dev:fake": "vite --mode fake",
