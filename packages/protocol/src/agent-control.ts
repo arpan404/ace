@@ -63,6 +63,7 @@ export const DelegationRecord = z.object({
   phase: z.enum(["created", "running", "cancelling", "settled"]),
   generation: z.number().int().nonnegative().default(0),
   outcome: DelegationOutcome.optional(),
+  resultDelivery: z.enum(["parent", "owner"]).optional(),
 });
 export type DelegationRecord = z.infer<typeof DelegationRecord>;
 export const ControlThreadInput = z.strictObject({ threadId: ThreadId });
@@ -178,6 +179,7 @@ export type AgentControlResult = z.infer<typeof AgentControlResult>;
 
 export const ThreadPrepareCommand = z.object({
   type: z.literal("thread.prepare"),
+  handoffFrom: ThreadId.optional(),
   threadId: ThreadId,
   workspaceId: WorkspaceId,
   title: z.string().min(1).max(256),

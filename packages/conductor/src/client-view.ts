@@ -1,7 +1,10 @@
 import { ConductorRunView, ConductorSummary } from "@ace/protocol";
 import type { Lane, Node, State } from "./schema.ts";
 
-type Root = Pick<State, "id" | "spec" | "plan" | "phase" | "spent" | "planApproved" | "gates">;
+type Root = Pick<
+  State,
+  "id" | "spec" | "plan" | "phase" | "spent" | "planApproved" | "gates" | "startedAt" | "updatedAt"
+>;
 export function clientSummary(
   root: Pick<Root, "id" | "spec" | "phase" | "spent">,
 ): ConductorSummary {
@@ -27,6 +30,8 @@ export function clientView(
   const index = new Map(nodes.map((node) => [node.id, node]));
   return ConductorRunView.parse({
     ...clientSummary(root),
+    startedAt: root.startedAt,
+    updatedAt: root.updatedAt,
     plan: root.plan,
     planApproved: root.planApproved,
     needsUser: gates

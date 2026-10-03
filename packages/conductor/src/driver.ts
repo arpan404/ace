@@ -76,7 +76,7 @@ export class ConductorDriver {
         } else if (effect.type === "gate" && !state.gates[effect.gate.id]) {
           this.store.complete(run, effect.id, [], this.env);
         } else {
-          const facts = await this.execute(effect);
+          const facts = await this.execute(effect, state);
           this.store.complete(run, effect.id, facts, this.env);
         }
         count++;

@@ -110,11 +110,14 @@ export const Gate = z.object({
   lane: Key.nullable(),
   generation: z.number().int().nonnegative().nullable(),
   message: Text,
+  gatedAt: z.number().int().nonnegative().default(0),
 });
 export type Gate = z.infer<typeof Gate>;
 export const State = z
   .object({
     version: z.literal(1),
+    startedAt: z.number().int().nonnegative().default(0),
+    updatedAt: z.number().int().nonnegative().default(0),
     id: Key,
     spec: ConductorSpec,
     phase: z.enum(["planning", "running", "paused", "cancelling", "cancelled", "done"]),

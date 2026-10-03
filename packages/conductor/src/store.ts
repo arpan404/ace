@@ -26,6 +26,7 @@ export class ConductorStore {
       CREATE TABLE IF NOT EXISTS conductor_outbox (ordinal INTEGER PRIMARY KEY, run TEXT NOT NULL REFERENCES conductor_runs(id) ON DELETE CASCADE, id TEXT UNIQUE NOT NULL, payload TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS conductor_outbox_run ON conductor_outbox(run,ordinal);
       CREATE INDEX IF NOT EXISTS conductor_pending_runs ON conductor_runs(id) WHERE pending>0;
+      CREATE INDEX IF NOT EXISTS conductor_active_runs ON conductor_runs(id) WHERE pending>0 OR json_extract(payload,'$.phase') NOT IN ('done','cancelled');
       CREATE TRIGGER IF NOT EXISTS conductor_inputs_count AFTER INSERT ON conductor_inputs BEGIN UPDATE conductor_runs SET inputs=inputs+1 WHERE id=NEW.run; END;
       CREATE TRIGGER IF NOT EXISTS conductor_pending_add AFTER INSERT ON conductor_outbox BEGIN UPDATE conductor_runs SET pending=pending+1 WHERE id=NEW.run; END;
       CREATE TRIGGER IF NOT EXISTS conductor_pending_remove AFTER DELETE ON conductor_outbox BEGIN UPDATE conductor_runs SET pending=pending-1 WHERE id=OLD.run; END;`);
@@ -72,10 +73,12 @@ export class ConductorStore {
     const last = ids.at(-1);
     return { ids, ...(rows.length > limit && last ? { next: last } : {}) };
   }
-  /** Restart admission visits indexed pending runs only. */
+  /** Restart admission visits indexed nonterminal runs, including empty outboxes. */
   resumable(): string[] {
     return this.db
-      .prepare("SELECT id FROM conductor_runs WHERE pending>0 ORDER BY id LIMIT 8")
+      .prepare(
+        "SELECT id FROM conductor_runs WHERE pending>0 OR json_extract(payload,'$.phase') NOT IN ('done','cancelled') ORDER BY id LIMIT 8",
+      )
       .all()
       .map((row) => Key.parse(row.id));
   }

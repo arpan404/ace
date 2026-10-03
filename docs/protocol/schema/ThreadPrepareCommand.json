@@ -10,6 +10,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "handoffFrom": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
     "installationId": {
       "maxLength": 256,
       "minLength": 1,

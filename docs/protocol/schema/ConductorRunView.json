@@ -51,6 +51,87 @@
       "maxItems": 256,
       "type": "array"
     },
+    "delegations": {
+      "default": [],
+      "items": {
+        "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "agentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "generation": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "laneId": {
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+            "type": "string"
+          },
+          "parentAgentId": {
+            "type": "string"
+          },
+          "parentThreadId": {
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "created",
+              "running",
+              "cancelling",
+              "settled"
+            ],
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "threadId": {
+            "type": "string"
+          },
+          "workstream": {
+            "anyOf": [
+              {
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "laneId",
+          "workstream",
+          "threadId",
+          "agentId",
+          "parentThreadId",
+          "parentAgentId",
+          "provider",
+          "account",
+          "generation",
+          "phase"
+        ],
+        "type": "object"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
     "executionError": {
       "maxLength": 128,
       "type": "string"
@@ -138,6 +219,12 @@
     "needsUser": {
       "items": {
         "properties": {
+          "gatedAt": {
+            "default": 0,
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
           "generation": {
             "anyOf": [
               {
@@ -154,6 +241,9 @@
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
             "type": "string"
           },
+          "interactionId": {
+            "type": "string"
+          },
           "kind": {
             "enum": [
               "plan",
@@ -161,7 +251,8 @@
               "budget",
               "escalation",
               "deadline",
-              "destructive"
+              "destructive",
+              "provider"
             ],
             "type": "string"
           },
@@ -178,6 +269,9 @@
           },
           "message": {
             "maxLength": 2048,
+            "type": "string"
+          },
+          "threadId": {
             "type": "string"
           },
           "workstream": {
@@ -233,8 +327,20 @@
       "minimum": 0,
       "type": "number"
     },
+    "startedAt": {
+      "default": 0,
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
     "truncated": {
       "type": "boolean"
+    },
+    "updatedAt": {
+      "default": 0,
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
     },
     "workspaceId": {
       "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"

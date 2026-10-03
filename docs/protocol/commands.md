@@ -38,6 +38,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"thread.prepare"` |  |
+| handoffFrom | no | [ThreadId.json](schema/ThreadId.json) |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | title | yes | string | {"minLength":1,"maxLength":256} |
@@ -53,10 +54,11 @@ Example:
 
 ```json
 {
-  "installationId": "example",
-  "model": "example",
-  "options": {},
-  "provider": "claude",
+  "accountId": "example",
+  "acpAgentId": "example",
+  "handoffFrom": "example",
+  "instanceId": "example",
+  "provider": "antigravity",
   "threadId": "example",
   "title": "example",
   "type": "thread.prepare",
@@ -80,12 +82,11 @@ Example:
 
 ```json
 {
-  "expectedRevision": 8,
+  "expectedRevision": 9,
   "input": [
     {
-      "mimeType": "example",
-      "type": "image",
-      "url": "example"
+      "path": "example",
+      "type": "file"
     }
   ],
   "messageId": "example",

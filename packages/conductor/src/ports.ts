@@ -1,4 +1,4 @@
-import type { Completion, Effect, Fact, Gate, Lane } from "./schema.ts";
+import type { Completion, Effect, Fact, Gate, Lane, State } from "./schema.ts";
 
 /** All effect ids are durable idempotency keys, including preparation and attachment.
  * Adapters validate external responses before returning facts. No credentials cross these ports. */
@@ -52,4 +52,4 @@ export interface Ports {
   verification: VerificationPort;
   interactions: InteractionPort;
 }
-export type Executor = (effect: Effect) => Promise<Fact[]>;
+export type Executor = (effect: Effect, state?: State) => Promise<Fact[]>;
