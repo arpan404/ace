@@ -13,4 +13,6 @@ export default defineConfig({
   ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   build: { target: "es2023", sourcemap: true },
+  // Workers (the client worker, markdown, diffs) are ES modules so they can share chunks.
+  worker: { format: "es" },
 });

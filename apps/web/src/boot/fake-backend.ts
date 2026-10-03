@@ -7,7 +7,7 @@
  *
  * The fake daemon is loaded lazily so a production bundle never fetches it.
  */
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import type {
   FakeAccount,
   FakeChangedFile,
@@ -31,7 +31,7 @@ export interface FakeBackend {
   files: FakeChangedFile[];
 }
 
-const backends = new WeakMap<Client, Promise<FakeBackend>>();
+const backends = new WeakMap<ClientApi, Promise<FakeBackend>>();
 
 // Wall-clock time is the boundary here: fixtures are laid out relative to "now".
 const now = () => Date.now();
@@ -50,7 +50,7 @@ function load(): Promise<FakeBackend> {
   });
 }
 
-export function fakeBackend(client: Client): Promise<FakeBackend> {
+export function fakeBackend(client: ClientApi): Promise<FakeBackend> {
   let backend = backends.get(client);
   if (!backend) {
     backend = load();

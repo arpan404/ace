@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { fakeCommandSource, type CommandSource } from "./command-source.ts";
 import { fakeContextSource, type ContextSource } from "./context-source.ts";
@@ -20,7 +20,7 @@ export interface ThreadSources {
 
 // TODO(train-2): wire to protocol when merged. Replace the fakes with daemon-backed sources
 // built from `client`; nothing else changes.
-function createSources(_client: Client): ThreadSources {
+function createSources(_client: ClientApi): ThreadSources {
   return {
     workspace: fakeWorkspaceSource(),
     context: fakeContextSource(),
@@ -31,7 +31,7 @@ function createSources(_client: Client): ThreadSources {
 }
 
 // One set per client, so each connection (and each test's client) gets its own state.
-const perClient = new WeakMap<Client, ThreadSources>();
+const perClient = new WeakMap<ClientApi, ThreadSources>();
 
 export function useThreadSources(): ThreadSources {
   const client = useClient();

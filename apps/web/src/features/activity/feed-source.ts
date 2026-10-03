@@ -2,7 +2,7 @@
 // ADR 0016) and Deck escalations (ADR 0017) have no daemon wire messages on main yet, so the
 // feed is served by an in-memory source with realistic content. Components depend only on
 // `FeedSource`; swapping in the daemon changes this file alone.
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { useSyncExternalStore } from "react";
 
@@ -124,7 +124,7 @@ export function memoryFeedSource(events: FeedEvent[]): FeedSource {
 }
 
 // One source per daemon client, so each connection (and each test) starts from the seed.
-const sources = new WeakMap<Client, FeedSource>();
+const sources = new WeakMap<ClientApi, FeedSource>();
 
 export function useFeedSource(): FeedSource {
   const client = useClient();

@@ -3,7 +3,7 @@
 // routed through the daemon wire or @ace/client, so this file serves them from memory with
 // the approved design's content. Components depend only on `AutomationsSource`; wiring the
 // daemon replaces `memoryAutomationsSource` and `useAutomationsSource` here and nothing else.
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { Automation, type AutomationRun } from "@ace/protocol";
 import { seedAutomations, seedRuns } from "./automations-seed.ts";
@@ -155,7 +155,7 @@ const timer = {
 };
 
 // One source per daemon client, so each connection (and each test) starts from the seed.
-const sources = new WeakMap<Client, AutomationsSource>();
+const sources = new WeakMap<ClientApi, AutomationsSource>();
 
 export function useAutomationsSource(): AutomationsSource {
   const client = useClient();

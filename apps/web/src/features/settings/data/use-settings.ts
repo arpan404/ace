@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import type { ProviderKind } from "@ace/protocol";
 import { use, useCallback, useMemo, useSyncExternalStore } from "react";
@@ -7,7 +7,7 @@ import type { SettingsBackend } from "./backend.ts";
 import { pendingSettingsBackend } from "./pending-backend.ts";
 import type { SettingDef } from "./setting-keys.ts";
 
-const backends = new WeakMap<Client, SettingsBackend>();
+const backends = new WeakMap<ClientApi, SettingsBackend>();
 type FakeModule = typeof import("./fake-backend.ts");
 let fakeModule: Promise<FakeModule> | undefined;
 

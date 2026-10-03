@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, AppFrame } from "./app.tsx";
@@ -12,7 +12,7 @@ const environment = {
   matchMedia: (query: string) => matchMedia(query),
   root: document.documentElement,
 };
-const app = (client: Client) => <App client={client} storage={localStorage} />;
+const app = (client: ClientApi) => <App client={client} storage={localStorage} />;
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 async function content() {

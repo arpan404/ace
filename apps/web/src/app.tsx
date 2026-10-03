@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { ClientProvider } from "@ace/client-react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, type RouterHistory } from "@tanstack/react-router";
@@ -29,7 +29,7 @@ export function AppFrame(props: { environment: Environment; children: ReactNode 
 
 /** Everything bound to one daemon client. Shared by the browser entry, Electron and tests. */
 export function App(props: {
-  client: Client;
+  client: ClientApi;
   queryClient?: QueryClient;
   storage?: KeyValueStorage | undefined;
   history?: RouterHistory;

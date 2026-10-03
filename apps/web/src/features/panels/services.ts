@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import type { ReviewDraft } from "./changes/drafts.ts";
@@ -31,11 +31,11 @@ async function load(): Promise<Pick<PanelServices, "terminals" | "preview">> {
   return { terminals: new TerminalSessions(unavailableTerminals), preview: unavailablePreview };
 }
 
-const byClient = new WeakMap<Client, Promise<PanelServices>>();
-const ready = new WeakMap<Client, PanelServices>();
+const byClient = new WeakMap<ClientApi, Promise<PanelServices>>();
+const ready = new WeakMap<ClientApi, PanelServices>();
 
 /** The panel services bound to a client, created once and reused across threads and tabs. */
-export function panelServices(client: Client): Promise<PanelServices> {
+export function panelServices(client: ClientApi): Promise<PanelServices> {
   let services = byClient.get(client);
   if (!services) {
     services = load().then((sources) => {
