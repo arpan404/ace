@@ -52,6 +52,7 @@ export class SettingsService {
   private subscriptions = new Set<Subscription>();
   private options: SettingsOptions;
   private closed = false;
+  private changes = new Set<(layer: Layer, keys: readonly SettingsKey[]) => void>();
   private pendingSubscriptions = 0;
   constructor(options: SettingsOptions) {
     this.options = options;
@@ -79,7 +80,7 @@ export class SettingsService {
         io: this.options.io ?? fileIO,
         timers: this.options.scheduler ?? scheduler,
         delay: this.options.debounceMs ?? 75,
-        changed: (change) => this.notify(file, change),
+        changed: (change) => this.notify(file, change, layer),
       });
       return file;
     });
@@ -227,7 +228,27 @@ export class SettingsService {
       }
     }
   }
-  private notify(file: SettingsFile, change: FileChange): void {
+  /** Observe effective-file writes at the owning daemon boundary, including scoped layers. */
+  onChange(listener: (layer: Layer, keys: readonly SettingsKey[]) => void): () => void {
+    if (this.closed || this.changes.size >= 64)
+      throw new SettingsError("limit", "Settings change listener limit reached");
+    this.changes.add(listener);
+    return () => {
+      this.changes.delete(listener);
+    };
+  }
+  private notify(file: SettingsFile, change: FileChange, layer: Layer): void {
+    for (const listener of this.changes) {
+      try {
+        listener(layer, change.keys);
+      } catch (error) {
+        try {
+          this.options.onListenerError?.(error);
+        } catch {
+          /* Reporting cannot undo committed settings. */
+        }
+      }
+    }
     const index = this.index.get(file);
     if (!index) return;
     const affected = new Map<Subscription, Set<SettingsKey>>();
@@ -283,6 +304,7 @@ export class SettingsService {
     this.closed = true;
     await this.cache.close();
     await this.workspaces.close();
+    this.changes.clear();
     this.subscriptions.clear();
     this.index.clear();
   }
