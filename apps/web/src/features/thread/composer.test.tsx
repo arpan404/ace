@@ -103,18 +103,18 @@ test("attached files upload before sending and can be removed", async () => {
 
 test("the model picker shows each account's usage and blocks an exhausted one", async () => {
   await open("busy");
-  await userEvent.click(await screen.findByRole("button", { name: "Model: Opus 4.1, Personal" }));
-  const work = await screen.findByRole("menuitemradio", { name: "Opus 4.1 · Work" });
+  await userEvent.click(await screen.findByRole("button", { name: "Model: Opus 4.1, personal" }));
+  const work = await screen.findByRole("menuitemradio", { name: "Opus 4.1 · work" });
   expect(
-    within(work).getByRole("meter", { name: "Work usage" }).getAttribute("aria-valuenow"),
+    within(work).getByRole("meter", { name: "work usage" }).getAttribute("aria-valuenow"),
   ).toBe("57");
   expect(work.textContent).toContain("57% of Weekly window used");
-  const team = screen.getByRole("menuitemradio", { name: "GPT-5 Codex · Team" });
+  const team = screen.getByRole("menuitemradio", { name: "GPT-5 Codex · team" });
   expect(team.getAttribute("aria-disabled")).toBe("true");
   expect(team.textContent).toMatch(/Limit reached · resets \d\d:\d\d/);
 
-  await userEvent.click(screen.getByRole("menuitemradio", { name: "Sonnet 4.5 · Personal" }));
-  expect(await screen.findByRole("button", { name: "Model: Sonnet 4.5, Personal" })).toBeTruthy();
+  await userEvent.click(screen.getByRole("menuitemradio", { name: "Sonnet 4.5 · personal" }));
+  expect(await screen.findByRole("button", { name: "Model: Sonnet 4.5, personal" })).toBeTruthy();
 });
 
 test("the context bar shows the checkout and switches branch", async () => {

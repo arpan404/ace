@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn.ts";
 import { Fragment } from "react";
 import { Menu, MenuContent, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { menuItem } from "@/components/ui/menu-styles.ts";
-import { providerNames } from "@ace/ui-core";
+import { accountTag, providerNames } from "@ace/ui-core";
 import type { ModelChoice } from "@ace/ui-core";
 
 /** "Opus 4.6 personal ▾": model and account, with usage meters where the choice is made. */
@@ -18,14 +18,18 @@ export function ModelPicker(props: {
     <Menu>
       <MenuTrigger
         aria-label={
-          props.value ? `Model: ${props.value.model}, ${props.value.account}` : "Choose a model"
+          props.value
+            ? `Model: ${props.value.model}, ${accountTag(props.value.account)}`
+            : "Choose a model"
         }
         className="inline-flex h-[30px] items-center gap-[5px] rounded-[9px] px-[9px] text-sm font-medium text-muted-foreground transition-colors duration-(--dur-1) outline-none hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
       >
         {props.value ? (
           <>
             {props.value.model}
-            <span className="font-normal text-subtle-foreground">{props.value.account}</span>
+            <span className="font-normal text-subtle-foreground">
+              {accountTag(props.value.account)}
+            </span>
           </>
         ) : (
           "Model"
@@ -74,7 +78,7 @@ function ChoiceItem(props: { choice: ModelChoice }) {
     <MenuPrimitive.RadioItem
       value={choice.id}
       disabled={exhausted}
-      aria-label={`${choice.model} · ${choice.account}`}
+      aria-label={`${choice.model} · ${accountTag(choice.account)}`}
       className={cn(menuItem, "h-auto items-start py-[7px]")}
     >
       <span className="mt-px grid w-4 shrink-0 place-items-center">
@@ -84,7 +88,7 @@ function ChoiceItem(props: { choice: ModelChoice }) {
       </span>
       <span className="flex min-w-0 flex-col">
         <span>
-          {choice.model} · {choice.account}
+          {choice.model} · {accountTag(choice.account)}
         </span>
         <span className="mt-px text-xs text-subtle-foreground">
           {exhausted ? limitReached(choice.resetsAt) : choice.note}
@@ -92,7 +96,7 @@ function ChoiceItem(props: { choice: ModelChoice }) {
         {choice.used !== undefined && (
           <span
             role="meter"
-            aria-label={`${choice.account} usage`}
+            aria-label={`${accountTag(choice.account)} usage`}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(choice.used * 100)}

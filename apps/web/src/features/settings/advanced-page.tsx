@@ -15,7 +15,9 @@ import { Select } from "@/components/ui/select.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { settingKeys, type LogRetention, type UnresponsiveAfter } from "./data/setting-keys.ts";
 import { useSetting, useSettingsBackend } from "./data/use-settings.ts";
+import { useDaemonConnection } from "@/boot/connection.tsx";
 import { DaemonHealth } from "./daemon-health.tsx";
+import { DaemonSettings } from "./daemon-settings.tsx";
 
 const unresponsiveOptions: { value: UnresponsiveAfter; label: string }[] = [
   { value: "2m", label: "2 minutes" },
@@ -32,44 +34,49 @@ const retentionOptions: { value: LogRetention; label: string }[] = [
 export function AdvancedSettings() {
   const [unresponsive, setUnresponsive] = useSetting(settingKeys.unresponsiveAfter);
   const [retention, setRetention] = useSetting(settingKeys.logRetention);
+  const fake = useDaemonConnection().mode === "fake";
   return (
-    <section className="mt-7" aria-label="Advanced">
-      <SettingRow
-        title="Theme editor"
-        description="Every colour, glass and shape token, with import, export and contrast checks. Saved themes appear under Appearance."
-      >
-        <Link to="/settings/theme-editor" className={buttonVariants({ size: "sm" })}>
-          <SwatchesIcon aria-hidden size={14} />
-          Open theme editor
-        </Link>
-      </SettingRow>
-      <SettingRow
-        title="Unresponsive after"
-        description="No provider events for this long marks a thread unresponsive."
-      >
-        <Select
-          label="Unresponsive after"
-          value={unresponsive}
-          options={unresponsiveOptions}
-          onValueChange={(value) => void setUnresponsive(value)}
-        />
-      </SettingRow>
-      <DaemonDiagnostics />
-      <SettingRow title="Keep event logs">
-        <Select
-          label="Keep event logs"
-          value={retention}
-          options={retentionOptions}
-          onValueChange={(value) => void setRetention(value)}
-        />
-      </SettingRow>
-      <SettingRow
-        title="Reset all settings"
-        description="Daemon settings go back to their defaults. Themes and appearance on this device stay."
-      >
-        <ResetAll />
-      </SettingRow>
-    </section>
+    <>
+      <section className="mt-7" aria-label="Advanced">
+        <SettingRow
+          title="Theme editor"
+          description="Every colour, glass and shape token, with import, export and contrast checks. Saved themes appear under Appearance."
+        >
+          <Link to="/settings/theme-editor" className={buttonVariants({ size: "sm" })}>
+            <SwatchesIcon aria-hidden size={14} />
+            Open theme editor
+          </Link>
+        </SettingRow>
+        <SettingRow
+          title="Unresponsive after"
+          description="No provider events for this long marks a thread unresponsive."
+        >
+          <Select
+            label="Unresponsive after"
+            value={unresponsive}
+            options={unresponsiveOptions}
+            onValueChange={(value) => void setUnresponsive(value)}
+          />
+        </SettingRow>
+        <DaemonDiagnostics />
+        <SettingRow title="Keep event logs">
+          <Select
+            label="Keep event logs"
+            value={retention}
+            options={retentionOptions}
+            onValueChange={(value) => void setRetention(value)}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Reset all settings"
+          description="Daemon settings go back to their defaults. Themes and appearance on this device stay."
+        >
+          <ResetAll />
+        </SettingRow>
+      </section>
+      {/* The in-page development daemon: a developer detail, so not on General. */}
+      {fake && <DaemonSettings />}
+    </>
   );
 }
 

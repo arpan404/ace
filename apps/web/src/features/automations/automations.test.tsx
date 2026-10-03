@@ -45,11 +45,37 @@ test("an automation shows its prompt, where it runs and its recent runs with out
   await heading("Nightly dependency audit");
   expect(main().getByText("Every day at 02:00 · ace")).toBeTruthy();
   expect(screen.getByText(/Audit dependencies in each project for advisories/)).toBeTruthy();
-  expect(screen.getByText("Claude Code · Sonnet 4.6, in a fresh worktree")).toBeTruthy();
+  expect(
+    await screen.findByText("Claude Code · work · Sonnet 4.5, in a fresh worktree"),
+  ).toBeTruthy();
   const runs = within(screen.getByRole("list", { name: "Recent runs" }));
   expect(runs.getByText("2 advisories · opened a thread in ace")).toBeTruthy();
   expect(runs.getByText("Failed: npm registry timeout, retried once")).toBeTruthy();
   expect(runs.getByRole("img", { name: "failed" })).toBeTruthy();
+});
+
+test("a recent run that left a thread opens it", async () => {
+  await open("/automations/auto-pr-review");
+  await heading("Review pull requests on open");
+  const runs = within(await screen.findByRole("list", { name: "Recent runs" }));
+  await userEvent.click(
+    runs.getByRole("link", { name: "Open the thread for #212 · approved with 1 note" }),
+  );
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Bump Codex app-server to 0.48" }),
+  ).toBeTruthy();
+});
+
+test("a recent run without a thread opens what started it and what it found", async () => {
+  await open("/automations/auto-flaky-triage");
+  await heading("Flaky test triage");
+  const flaky = within(await screen.findByRole("list", { name: "Recent runs" }));
+  await userEvent.click(
+    flaky.getByRole("button", { name: "Open the run Nothing flaky across 3 runs" }),
+  );
+  const details = await screen.findByRole("dialog", { name: "Flaky test triage" });
+  expect(within(details).getByText("On its schedule")).toBeTruthy();
+  expect(within(details).getByText("4 min")).toBeTruthy();
 });
 
 test("pausing stops the schedule and resuming from the menu restarts it", async () => {

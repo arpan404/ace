@@ -1,7 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ProviderKind } from "@ace/protocol";
 import { SettingRow } from "@/components/setting-row.tsx";
+import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useProfileName } from "@/lib/profile.ts";
 import { settingKeys, type AutoSettle } from "./data/setting-keys.ts";
 import { settingsQueries, useSetting, useSettingsBackend } from "./data/use-settings.ts";
 import { DaemonSettings } from "./daemon-settings.tsx";
@@ -14,11 +17,18 @@ const autoSettleOptions: { value: AutoSettle; label: string }[] = [
   { value: "never", label: "Never" },
 ];
 
-/** Defaults for new threads, settling, launch at login, and the daemon this window uses. */
+/**
+ * Your name, defaults for new threads, settling, launch at login, and the daemon this window
+ * uses. The in-page development daemon is listed under Advanced instead.
+ */
 export function GeneralSettings() {
   const [autoSettle, setAutoSettle] = useSetting(settingKeys.autoSettle);
+  const fake = useDaemonConnection().mode === "fake";
   return (
     <>
+      <section className="mt-7" aria-label="You">
+        <ProfileNameRow />
+      </section>
       <section className="mt-7" aria-label="Threads">
         <SettingRow
           title="Default provider for new threads"
@@ -45,7 +55,7 @@ export function GeneralSettings() {
         <SettingSwitch setting={settingKeys.settleOnMerge} title="Settle when the PR merges" />
         <SettingSwitch setting={settingKeys.openAtLogin} title="Open ace at login" />
       </section>
-      <DaemonSettings />
+      {!fake && <DaemonSettings />}
     </>
   );
 }
@@ -68,5 +78,29 @@ function DefaultProvider() {
       onValueChange={(value) => void setProvider(value)}
       disabled={providers.isPending}
     />
+  );
+}
+
+function ProfileNameRow() {
+  const [name, setName] = useProfileName();
+  return (
+    <SettingRow
+      title="Your name"
+      description="Its initials mark your account button. Kept on this device."
+      htmlFor="profile-name"
+    >
+      <Input
+        id="profile-name"
+        className="w-52"
+        defaultValue={name}
+        placeholder="Name"
+        autoComplete="name"
+        maxLength={80}
+        onBlur={(event) => setName(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") setName(event.currentTarget.value);
+        }}
+      />
+    </SettingRow>
   );
 }

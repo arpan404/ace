@@ -1,7 +1,9 @@
 import { useConnectionState } from "@ace/client-react";
 import { ChartBarIcon, PlugsIcon, SignOutIcon, UserIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
+import { initials } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
+import { useProfileName } from "@/lib/profile.ts";
 import { Icon } from "@/components/icon.tsx";
 import {
   Menu,
@@ -22,9 +24,14 @@ const stateLabels = {
   fatal: "Disconnected",
 } as const;
 
-/** The account button at the foot of the rail. Its dot is the daemon connection, nothing more. */
+/**
+ * The account button at the foot of the rail: the person's initials on a neutral disc (a
+ * silhouette until they give a name in Settings › General). Its dot is the daemon connection.
+ */
 export function AccountMenu() {
   const state = useConnectionState();
+  const [name] = useProfileName();
+  const letters = initials(name);
   const connection = useDaemonConnection();
   const navigate = useNavigate();
   const label = stateLabels[state];
@@ -34,7 +41,13 @@ export function AccountMenu() {
         aria-label="Account and connection"
         className="relative mt-0.5 grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] outline-none transition-[color,transform] duration-(--dur-1) hover:text-foreground active:scale-[0.94]"
       >
-        <Icon icon={UserIcon} size={14} />
+        {letters ? (
+          <span aria-hidden className="text-[11px] font-semibold tracking-[0.02em] text-foreground">
+            {letters}
+          </span>
+        ) : (
+          <Icon icon={UserIcon} size={14} />
+        )}
         <span
           role="status"
           aria-label={`Daemon: ${label}`}
@@ -48,6 +61,9 @@ export function AccountMenu() {
       </MenuTrigger>
       <MenuContent side="right" align="end">
         <MenuGroup>
+          {name && (
+            <div className="truncate px-2.5 pt-1.5 text-ui font-medium text-foreground">{name}</div>
+          )}
           <MenuLabel>
             {connection.mode === "fake" ? "Fake daemon (dev)" : "Daemon"} · {label}
           </MenuLabel>

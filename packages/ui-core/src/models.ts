@@ -24,6 +24,20 @@ export interface ModelChoice {
   isDefault: boolean;
 }
 
+/**
+ * An account label as the quiet tag shown beside a model ("Opus 4.1 personal",
+ * "Claude Code · work"). The label stays as the provider gave it on the Accounts page.
+ */
+export function accountTag(label: string): string {
+  return label.toLocaleLowerCase();
+}
+
+/** Provider, account and model in one line: "Claude Code · work · Sonnet 4.5". */
+export function choiceLine(choice: ModelChoice): string {
+  const account = choice.account ? ` · ${accountTag(choice.account)}` : "";
+  return `${providerNames[choice.provider]}${account} · ${choice.model}`;
+}
+
 function note(model: CatalogModel, account: AccountView | undefined): string {
   if (!account) return model.isDefault ? "Default model" : "";
   if (!account.signedIn) return "Signed out";

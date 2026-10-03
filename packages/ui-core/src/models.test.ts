@@ -2,7 +2,7 @@ import { CatalogModel, type ProviderKind } from "@ace/protocol";
 import { AccountSummary } from "@ace/protocol/accounts";
 import { expect, test } from "vitest";
 import { accountView, blockingReset } from "./accounts.ts";
-import { defaultModelChoice, modelChoices, newThreadOptions } from "./models.ts";
+import { choiceLine, defaultModelChoice, modelChoices, newThreadOptions } from "./models.ts";
 
 const account = (
   id: string,
@@ -122,4 +122,15 @@ test("with no model catalog, New thread still offers each provider on its defaul
     false,
   ]);
   expect(options.models.filter((m) => m.isDefault)).toHaveLength(1);
+});
+
+test("a model choice reads as provider, lower-case account tag and model", () => {
+  const [choice] = modelChoices(
+    [model("claude", "claude-work", "Sonnet 4.5", true)],
+    [account("claude-work", "claude", { five_hour: { usedPercent: 10, resetsAt: 5 } })],
+  );
+  if (!choice) throw new Error("expected a choice");
+
+  expect(choiceLine({ ...choice, account: "Work" })).toBe("Claude Code · work · Sonnet 4.5");
+  expect(choiceLine({ ...choice, account: "" })).toBe("Claude Code · Sonnet 4.5");
 });

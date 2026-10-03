@@ -28,7 +28,13 @@ export interface SeenSeed {
 }
 
 /** `bun run --filter @ace/web dev:fake`: the whole app against scripted scenarios in-page. */
-export function bootFake(): { client: Client; daemon: FakeDaemon; seen: SeenSeed[] } {
+export function bootFake(): {
+  client: Client;
+  daemon: FakeDaemon;
+  seen: SeenSeed[];
+  /** The name the design's account disc shows ("AB"), used when this device has none yet. */
+  profileName: string;
+} {
   const daemon = new FakeDaemon({ clock: () => Date.now(), snapshotItems: 40 });
   // Scenarios that happened earlier are stamped back by their age.
   new ScenarioPlayer(daemon, longHistory(120), { agoMs: 2 * 24 * 60 * minute }).runUntilBlocked();
@@ -54,5 +60,5 @@ export function bootFake(): { client: Client; daemon: FakeDaemon; seen: SeenSeed
   const seen = relay ? [{ threadId: "thread-dedupe", itemId: relay }] : [];
   // Exposed for poking at fault injection from the console, e.g. ace.daemon.disconnectAll().
   Object.assign(globalThis, { ace: { daemon, client } });
-  return { client, daemon, seen };
+  return { client, daemon, seen, profileName: "Arpan Bhandari" };
 }
