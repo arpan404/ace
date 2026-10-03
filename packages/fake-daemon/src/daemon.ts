@@ -34,6 +34,7 @@ import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import { FakeServicesWire, type FakeWireSession } from "./services-wire.ts";
+import { FakeOutputStore } from "./output-store.ts";
 import type { FakeBrowser } from "./browser.ts";
 import type { FakeTerminals } from "./terminals.ts";
 import { startedThread } from "./scenarios/started-thread.ts";
@@ -80,6 +81,7 @@ export class FakeDaemon implements Host {
   private connections = new Set<Connection>();
   private receipts = new Map<string, { deviceId: Command["deviceId"]; result: CommandResult }>();
   private resolvedListeners = new Set<ResolvedListener>();
+  private outputs = new FakeOutputStore();
   /** Review mode sessions and comments; sent comments arrive in the thread as a user message. */
   readonly review: FakeReviewDesk;
   /** Accounts, usage, models, settings, search and slash commands, over the wire. */
@@ -128,6 +130,10 @@ export class FakeDaemon implements Host {
   }
   session(send: (message: ServerMessage) => void): FakeWireSession {
     return this.servicesWire.session(send);
+  }
+  /** A page of a shell's full output (`output.read`), or undefined for an unknown stream. */
+  output(streamId: string, offset: number, limit: number) {
+    return this.outputs.read(streamId, offset, limit);
   }
   get head(): number {
     return this.seq;
@@ -211,6 +217,7 @@ export class FakeDaemon implements Host {
           type: "thread.client.updated",
           changes: { activityAt: now },
         });
+      this.outputs.record(payload);
       const seq = ++this.seq;
       const event: DeliveryEvent = {
         seq,
