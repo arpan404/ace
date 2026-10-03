@@ -292,9 +292,10 @@ function main(): void {
       background: settings.get().background,
     });
     if (!hidden) createWindow();
+    // The background link follows the daemon from here on: it attaches whenever one is ready.
+    background.start();
     void runtime
       .start()
-      .then(() => background.start())
       .catch((error: unknown) => log("error", `Daemon start failed: ${String(error)}`));
   });
 }

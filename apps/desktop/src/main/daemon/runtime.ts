@@ -11,7 +11,8 @@ import {
   type LocalDaemon,
 } from "./probe.ts";
 import { loginService } from "./service.ts";
-import { runDaemonCommand, spawnDaemon, type DaemonResources } from "./spawn.ts";
+import { runDaemonCommand, spawnDaemon, type DaemonResources, type SpawnOptions } from "./spawn.ts";
+import type { DaemonProcess } from "./supervisor.ts";
 import { DaemonSupervisor } from "./supervisor.ts";
 import { resolveTarget, type DaemonTarget } from "./target.ts";
 
@@ -21,6 +22,8 @@ export interface RuntimeOptions {
   resources: DaemonResources;
   env: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
+  /** Starts the bundled daemon; tests substitute their own. */
+  spawnDaemon?: (options: SpawnOptions) => DaemonProcess;
   log(level: "info" | "warn" | "error", message: string): void;
 }
 
@@ -65,7 +68,7 @@ export class DaemonRuntime {
           spawn:
             this.target.kind === "managed"
               ? () =>
-                  spawnDaemon({
+                  (options.spawnDaemon ?? spawnDaemon)({
                     ...this.spawnOptions(home, this.resolvedPath),
                     onOutput: (line) => options.log("info", `daemon: ${line}`),
                   })

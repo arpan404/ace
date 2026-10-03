@@ -78,6 +78,11 @@ export class DesktopLink {
     this.client.networkOnline(true);
   }
 
+  /** The client gave up for good (for example, the daemon refused its token). */
+  fatal(): boolean {
+    return this.client.connectionState().getSnapshot() === "fatal";
+  }
+
   /** The thread on screen (null when none), so phones stay quiet while you watch it here. */
   setPresence(threadId: string | null): void {
     if (threadId === this.presence) return;

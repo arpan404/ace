@@ -10,6 +10,7 @@ import { readDesktopCredential } from "./browser/credential.ts";
 import { EmbeddedViews } from "./browser/views.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import { DesktopLink } from "./link/desktop-link.ts";
+import { LinkKeeper, runtimeLinkSource, type Endpoint } from "./link/link-keeper.ts";
 import { NativeNotifier } from "./notifications/native.ts";
 import { NotificationRouter, type Alert } from "./notifications/router.ts";
 import { Attention } from "./os/attention.ts";
@@ -43,7 +44,7 @@ export class Background {
   readonly attention: Attention;
   readonly tray: StatusTray;
   readonly views: EmbeddedViews;
-  private link: DesktopLink | undefined;
+  private links: LinkKeeper<DesktopLink> | undefined;
   private backend: BrowserBackend;
   private browser: BackendConnection | undefined;
   private notifier: NativeNotifier;
@@ -84,15 +85,29 @@ export class Background {
     options.runtime.onStatus((status) => this.tray.update({ status }));
   }
 
-  /** Connect once the daemon is reachable; the fake target has no daemon to link to. */
-  async start(): Promise<void> {
+  /**
+   * Follow the daemon for the app's whole life: the link attaches whenever a daemon becomes
+   * ready, however many failed starts came first. The fake target has no daemon to link to.
+   */
+  start(): void {
     if (this.options.runtime.target.kind === "fake") return;
     this.startBrowser();
-    const connection = await this.options.runtime.connection();
-    if (connection.mode !== "daemon") return;
-    const link = new DesktopLink({
-      url: connection.url,
-      token: connection.token,
+    this.links = new LinkKeeper(
+      runtimeLinkSource(this.options.runtime),
+      (endpoint) => this.createLink(endpoint),
+      this.options.log,
+    );
+    this.links.start();
+  }
+
+  private get link(): DesktopLink | undefined {
+    return this.links?.link();
+  }
+
+  private createLink(endpoint: Endpoint): DesktopLink {
+    return new DesktopLink({
+      url: endpoint.url,
+      token: endpoint.token,
       deviceId: this.deviceId(),
       storage: this.outbox(),
       quietHours: () => {
@@ -111,8 +126,6 @@ export class Background {
         this.tray.update({ summary });
       },
     });
-    this.link = link;
-    await link.start();
   }
 
   /**
@@ -176,14 +189,14 @@ export class Background {
   }
 
   wake(): void {
-    this.link?.wake();
+    this.links?.wake();
     this.browser?.wake();
   }
 
   /** Quit: dropping the backend socket tells the daemon to pause or move its sessions. */
   async stop(): Promise<void> {
     this.browser?.close();
-    await this.link?.close().catch(() => {});
+    await this.links?.close().catch(() => {});
     this.tray.hide();
   }
 
