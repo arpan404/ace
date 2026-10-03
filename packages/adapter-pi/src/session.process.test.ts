@@ -190,6 +190,16 @@ test("missing ace extension fails startup without falling through to a model pro
     "extension did not load",
   );
 });
+test("unrepresentable blocking dialogs close the transport without reporting completion", async () => {
+  const h = await sessionHarness();
+  try {
+    await expect(h.session.send(text("large-dialog"), "queue")).rejects.toThrow("closed");
+    expect(h.h.state.status.state).not.toBe("done");
+    await expect(h.session.send(text("later"), "queue")).rejects.toThrow("closed");
+  } finally {
+    await h.dispose();
+  }
+});
 
 test("oversized input and reserved commands fail without provider delivery", async () => {
   const h = await sessionHarness();

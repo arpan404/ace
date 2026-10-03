@@ -8,8 +8,9 @@ The public API is `createPiAdapter`, `createPiTranslator`, `openPiSession`,
 `piCapabilities`, `piProfile` and `piPermissionArgs`. A `PiSession` implements
 ADR 0007 and adds `fork(entryId?)` and `rollback(entryId)`. Fork returns a native
 session file and restores the source process. Native conversation navigation
-never restores files. Generic fork/switch integration can use these methods
-when capability-gated; this package does not manufacture a canonical child thread.
+never restores files. The generic adapter `forkSession` also cold-clones a saved session, reading only
+a bounded header for its cwd and granting no thread MCP lease. Fork/switch
+integration can use these methods when capability-gated; this package does not manufacture a canonical child thread.
 
 The daemon Pi service registers `pi.control` and `pi.result` through the socket
 registry. Profile needs read scope; fork and rollback need operate scope, thread
@@ -32,7 +33,7 @@ The adapter verifies the command's source path before using it.
 
 Caps are 1 MiB per native frame, 2 MiB queued writes, 64 pending RPC commands,
 256 live tools/content blocks, 128 pending dialogs, 128 live daemon sessions,
-8 concurrent controls per socket and 128 replay receipts. Overflow terminates
+8 concurrent cold forks, 8 controls per socket and 128 replay receipts. Overflow terminates
 transport or keeps completion uncertain; live state is never silently evicted.
 MCP forwarding has 16 calls, 256 tool descriptors, 64 KiB arguments and 1 MiB
 response bodies. No transcript/history buffer lives in the adapter.

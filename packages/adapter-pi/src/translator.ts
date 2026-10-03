@@ -1,7 +1,7 @@
 import type { Fact, Key } from "@ace/core";
 import type { Translator, Frame } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
-import { Dialog, Envelope, obj, str, list } from "./native.ts";
+import { Dialog, Envelope, obj, str, list, isBlockingDialogMethod } from "./native.ts";
 import { dialogRequest } from "./dialogs.ts";
 import { toolDetail, resultText } from "./tools.ts";
 
@@ -45,7 +45,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
   function overflow(frame: Frame): Fact[] {
     poisoned = true;
     return [
-      notice(frame, "Pi live bookkeeping limit exceeded; completion is uncertain", "error"),
+      notice(frame, "Pi live state cannot be represented; completion is uncertain", "error"),
       { type: "agent.disconnected", agent },
     ];
   }
@@ -291,6 +291,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
         }
         case "extension_ui_request": {
           const p = Dialog.safeParse(e);
+          if (!p.success && isBlockingDialogMethod(e.method)) return overflow(frame);
           if (!p.success)
             return [
               notice(

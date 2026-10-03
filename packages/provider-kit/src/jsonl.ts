@@ -51,11 +51,15 @@ export function readJsonLines(
     accept(decoder.end());
     if (bytes) fail("Incomplete JSONL record");
   };
+  const error = (cause: unknown) =>
+    fail(cause instanceof Error ? cause.message : "JSONL stream failed");
   input.on("data", data);
   input.once("end", end);
+  input.once("error", error);
   return () => {
     input.removeListener("data", data);
     input.removeListener("end", end);
+    input.removeListener("error", error);
     parts = [];
   };
 }

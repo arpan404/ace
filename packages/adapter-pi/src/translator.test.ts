@@ -117,6 +117,18 @@ test("live tool capacity overflow cannot turn into a successful settled thread",
   h.recv(settled);
   expect(h.state.status.state).not.toBe("done");
 });
+test("oversized blocking dialogs cannot be demoted to a notice and successful completion", () => {
+  const h = replay();
+  h.recv(start);
+  h.recv({
+    type: "extension_ui_request",
+    id: "large",
+    method: "select",
+    options: Array.from({ length: 257 }, (_, index) => String(index)),
+  });
+  h.recv(settled);
+  expect(h.state.status.state).not.toBe("done");
+});
 test("unexpected exit expires dialogs and does not report successful completion", () => {
   const h = replay();
   h.recv(start);

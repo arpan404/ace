@@ -31,7 +31,9 @@ Rollback uses an explicitly loaded ace extension command calling Pi's
 The adapter exports optional native history controls alongside ADR 0007's session
 contract. The daemon registers bounded, operate-scoped Pi controls through its
 service registry; these return native references for the generic fork worker.
-They do not claim to create a second canonical ace thread.
+They do not claim to create a second canonical ace thread. The adapter also implements
+the generic `forkSession` contract for cold clones: parse a bounded session header,
+resume in its saved cwd, clone without input or a thread MCP lease, then close.
 
 Pi's `prompt.streamingBehavior` implements steering and follow-up. ace's durable
 engine queue remains the owner of ordinary queued delivery. Interrupt clears

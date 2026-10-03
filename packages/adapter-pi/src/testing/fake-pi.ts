@@ -3,7 +3,8 @@ import { createInterface } from "node:readline";
 import { z } from "zod";
 const Command = z.looseObject({ type: z.string(), id: z.string().optional() });
 let session = "/synthetic/source.jsonl",
-  queue = false;
+  queue = false,
+  inputDelivered = false;
 const extension = process.argv[process.argv.indexOf("-e") + 1] ?? "";
 function emit(data: unknown) {
   process.stdout.write(JSON.stringify(data) + "\n");
@@ -40,6 +41,19 @@ input.on("line", (line) => {
       return;
     case "clone":
     case "fork":
+      if (
+        process.env.FAKE_PI_COLD_CWD &&
+        (process.cwd() !== process.env.FAKE_PI_COLD_CWD || inputDelivered)
+      ) {
+        emit({
+          type: "response",
+          id: c.id,
+          command: c.type,
+          success: false,
+          error: "Cold fork received input or wrong cwd",
+        });
+        return;
+      }
       if (process.env.FAKE_PI_CANCEL_FORK) {
         reply(c, { cancelled: true });
         return;
@@ -73,6 +87,7 @@ input.on("line", (line) => {
       });
       return;
     case "prompt": {
+      inputDelivered = true;
       const message = typeof c.message === "string" ? c.message : "";
       if (message.startsWith("/ace-rollback ")) {
         const parts = message.split(" ");
@@ -97,7 +112,14 @@ input.on("line", (line) => {
         method: "notify",
         message: JSON.stringify(c),
       });
-      if (message === "dialogs") {
+      if (message === "large-dialog") {
+        emit({
+          type: "extension_ui_request",
+          id: "large",
+          method: "select",
+          options: Array.from({ length: 257 }, (_, index) => String(index)),
+        });
+      } else if (message === "dialogs") {
         emit({
           type: "extension_ui_request",
           id: "select",

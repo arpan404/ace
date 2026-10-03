@@ -7,7 +7,7 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { readJsonLines } from "@ace/provider-kit/jsonl";
 import { PiRpc } from "./rpc.ts";
 import { runtime, type PiRuntime } from "./runtime.ts";
-import { Dialog, State, Cancelled, obj, str, list } from "./native.ts";
+import { Dialog, State, Cancelled, obj, str, list, isBlockingDialogMethod } from "./native.ts";
 import { piPermissionArgs, piProfile } from "./capabilities.ts";
 import { piInput } from "./input.ts";
 import { dialogResponse } from "./dialogs.ts";
@@ -153,6 +153,14 @@ export async function openPiSession(
         }
       }
       const p = Dialog.safeParse(payload.data);
+      if (
+        !p.success &&
+        event.type === "extension_ui_request" &&
+        isBlockingDialogMethod(event.method)
+      ) {
+        fatal();
+        return;
+      }
       if (p.success) {
         const d = p.data;
         if (dialogs.has(d.id)) return;

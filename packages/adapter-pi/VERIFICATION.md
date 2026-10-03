@@ -47,3 +47,11 @@ Further cases, all **not executed (tests run at merge)**:
 - Ignore operate authorization. The read-scoped wire client test must receive a native-history result.
 - Re-execute a duplicate receipt or accept changed content. The Pi wire receipt test must return another native reference.
 - Accept an unknown Pi version. The Pi discovery admission test must report workspace rather than provider availability.
+
+- Remove cold-fork source cwd or deliver input before cloning. The cold clone process test must fail.
+- Remove the native header byte bound or absolute cwd validation. The cold header rejection test must fail before process launch.
+
+- Demote oversized blocking dialogs to notices. The translator and transport dialog-cap tests must reject successful completion.
+- Ignore native stream errors. The LF stream failure test must deliver no later records.
+
+- Remove cold-fork admission or fail to release it after rejection. The concurrent cold-fork test must fail.

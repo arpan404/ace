@@ -35,3 +35,20 @@ test("an unterminated oversized JSONL record fails before another record can be 
   detach();
   input.destroy();
 });
+test("stream failure is reported and cannot deliver later records", () => {
+  const input = new PassThrough(),
+    lines: string[] = [],
+    errors: Error[] = [];
+  const detach = readJsonLines(
+    input,
+    128,
+    (line) => lines.push(line),
+    (error) => errors.push(error),
+  );
+  input.emit("error", new Error("synthetic pipe failure"));
+  input.write("later\n");
+  expect(errors.map((error) => error.message)).toEqual(["synthetic pipe failure"]);
+  expect(lines).toEqual([]);
+  detach();
+  input.destroy();
+});

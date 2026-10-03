@@ -37,4 +37,7 @@ export const Dialog = z.looseObject({
   prefill: z.string().optional(),
 });
 export type Dialog = z.infer<typeof Dialog>;
+export function isBlockingDialogMethod(value: unknown): boolean {
+  return Dialog.shape.method.safeParse(value).success;
+}
 export const Cancelled = z.looseObject({ cancelled: z.boolean() });
