@@ -55,6 +55,10 @@ export class ThreadHost {
   interaction(key: Key): Interaction | undefined {
     return Object.hasOwn(this.state.interactions, key) ? this.state.interactions[key] : undefined;
   }
+  taskKey(id: string): Key | undefined {
+    for (const [key, task] of Object.entries(this.state.tasks)) if (task.id === id) return key;
+    return undefined;
+  }
   interactionKey(id: InteractionId): Key | undefined {
     for (const [key, interaction] of Object.entries(this.state.interactions))
       if (interaction.id === id) return key;

@@ -18,6 +18,7 @@ import {
 } from "@ace/protocol";
 import { Connection, matches, type Host, type Wire } from "./connection.ts";
 import { fakeHealth } from "./health.ts";
+import { FakeReviewDesk } from "./review-desk.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 
@@ -53,8 +54,20 @@ export class FakeDaemon implements Host {
   private connections = new Set<Connection>();
   private receipts = new Map<string, CommandResult>();
   private resolvedListeners = new Set<ResolvedListener>();
+  /** Review mode sessions and comments; sent comments arrive in the thread as a user message. */
+  readonly review: FakeReviewDesk;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
+    this.review = new FakeReviewDesk(options.clock, (threadId, text) =>
+      this.apply(threadId, [
+        {
+          type: "item.upsert",
+          agent: "root",
+          item: `review-${this.seq + 1}`,
+          draft: { type: "message", role: "user", complete: true, parts: [{ type: "text", text }] },
+        },
+      ]),
+    );
   }
   get head(): number {
     return this.seq;
@@ -184,6 +197,29 @@ export class FakeDaemon implements Host {
         }
         return { commandId, ok: false, error: "not_found" };
       }
+      case "background_task.stop": {
+        for (const host of this.threads.values()) {
+          const key = host.taskKey(payload.taskId);
+          if (key === undefined) continue;
+          const task = host.state.tasks[key];
+          if (!task?.stoppable) return { commandId, ok: false, error: "not_stoppable" };
+          if (task.status !== "running") return { commandId, ok: true };
+          this.apply(host.id, [{ type: "background.ended", task: key, status: "stopped" }]);
+          return { commandId, ok: true };
+        }
+        return { commandId, ok: false, error: "not_found" };
+      }
+      case "review.open":
+      case "review.comment":
+      case "review.reply":
+      case "review.resolve":
+      case "review.applySuggestion":
+      case "review.sendToAgent":
+      case "review.askReviewer":
+      case "review.refresh":
+      case "review.status":
+      case "review.list":
+        return { commandId, ...this.review.execute(payload) };
       default:
         return { commandId, ok: false, error: "unsupported_by_fake_daemon" };
     }
