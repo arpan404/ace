@@ -1,57 +1,14 @@
-import { createHash } from "node:crypto";
+import { AgentPreviews } from "./previews.ts";
+export { AgentPreviews } from "./previews.ts";
+import { createHandoffs } from "./handoffs.ts";
 import { join } from "node:path";
-import { mkdir } from "node:fs/promises";
 import { z } from "zod";
-import { PreviewDescriptor } from "@ace/protocol/preview";
 import { AutomationService, AutomationStore } from "@ace/automations";
-import { GitService } from "@ace/git";
 import { AgentId, ThreadId, type AgentControlResult, type McpAttribution } from "@ace/protocol";
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "./delegations.ts";
 import type { ExtensionOperation } from "./tools.ts";
 
-const OwnedPreviewDescriptor = PreviewDescriptor.extend({
-  name: z.string().min(1).max(128).optional(),
-  origin: z.url().max(2048).optional(),
-});
-
-/** Only host-owned previews can be registered. No tool can claim an arbitrary port. */
-export class AgentPreviews {
-  private entries = new Map<
-    string,
-    { threadId: ThreadId; descriptor: z.infer<typeof PreviewDescriptor>; close(): Promise<void> }
-  >();
-  register(id: string, threadId: ThreadId, descriptor: unknown, close: () => Promise<void>) {
-    z.string()
-      .min(1)
-      .max(128)
-      .regex(/^[a-zA-Z0-9_.-]+$/)
-      .parse(id);
-    if (this.entries.has(id) || this.entries.size >= 64)
-      throw new Error("Preview capacity or duplicate id");
-    // Bound descriptors before retaining host data or returning it through MCP.
-    const bounded = OwnedPreviewDescriptor.parse(descriptor);
-    if (Buffer.byteLength(JSON.stringify(bounded)) > 3072)
-      throw new Error("Preview descriptor byte budget");
-    const entry = { threadId, descriptor: bounded, close };
-    this.entries.set(id, entry);
-    return () => {
-      if (this.entries.get(id) === entry) this.entries.delete(id);
-    };
-  }
-  list(threadId: ThreadId) {
-    return [...this.entries].flatMap(([id, entry]) =>
-      entry.threadId === threadId ? [{ id, descriptor: entry.descriptor }] : [],
-    );
-  }
-  async close(threadId: ThreadId, id: string): Promise<AgentControlResult> {
-    const entry = this.entries.get(id);
-    if (!entry || entry.threadId !== threadId) return { ok: false, code: "forbidden" };
-    await entry.close();
-    if (this.entries.get(id) === entry) this.entries.delete(id);
-    return { ok: true };
-  }
-}
 const owner = z.object({ thread_id: ThreadId, agent_id: AgentId });
 export function createAgentOwners(context: ServiceContext, delegations: DelegationService) {
   const { store, config, now, id, resources, log } = context;
@@ -140,61 +97,8 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
   resources.own(() => automations.stop());
   resources.onShutdown(() => automations.stop());
   context.onListen.push(() => automations.start());
-  const git = new GitService();
-  resources.own(() => git.close());
   const previews = new AgentPreviews();
-  const handoffs = new Map<
-    string,
-    { threadId: ThreadId; branch: string; work: Promise<AgentControlResult> }
-  >();
-  async function handoff(
-    caller: McpAttribution,
-    operation: Extract<ExtensionOperation, { op: "thread.handoff" }>,
-  ) {
-    const key = createHash("sha256")
-      .update(JSON.stringify([caller.threadId, operation.requestId]))
-      .digest("hex");
-    const receipt = delegations.journal.receipt(caller.threadId, `handoff-${key}`);
-    if (receipt) {
-      if (
-        receipt.request.role !== `handoff: ${operation.branch}` ||
-        receipt.request.task !==
-          `Continue thread ${operation.threadId} in this worktree. Page its transcript with ace_thread_read before starting.`
-      )
-        return { ok: false, code: "invalid" as const };
-      delegations.launch(receipt, receipt.request.task);
-      return { ok: true, data: { threadId: receipt.childId } };
-    }
-    const source = store.getThread(operation.threadId);
-    if (!source) return { ok: false, code: "not_found" as const };
-    const repo = store.getWorkspacePath(source.workspaceId);
-    if (!repo) return { ok: false, code: "not_found" as const };
-    const root = join(config.dataDir, "agent-worktrees");
-    await mkdir(root, { recursive: true, mode: 0o700 });
-    const path = join(root, key);
-    const existing = (await git.listWorktrees(repo)).find((tree) => tree.path === path);
-    if (existing && existing.branch !== operation.branch)
-      return { ok: false, code: "invalid" as const };
-    if (!existing)
-      await git.createWorktree({ repo, path, baseRef: "HEAD", branch: operation.branch });
-    const workspace = store.createWorkspace(path, operation.branch);
-    return store.atomic(() => {
-      const child = delegations.prepareInWorkspace(
-        caller,
-        {
-          requestId: `handoff-${key}`,
-          provider: source.provider,
-          role: `handoff: ${operation.branch}`,
-          task: `Continue thread ${operation.threadId} in this worktree. Page its transcript with ace_thread_read before starting.`,
-          wait: false,
-          estimatedLoad: 0,
-        },
-        workspace,
-      );
-      delegations.launch(child, child.request.task);
-      return { ok: true, data: { threadId: child.childId, workspaceId: workspace } };
-    });
-  }
+  const handoffs = createHandoffs(context, delegations);
   return {
     previews,
     async execute(
@@ -208,22 +112,8 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
           return { ok: true, data: previews.list(operation.threadId) };
         case "preview.close":
           return previews.close(operation.threadId, operation.previewId);
-        case "thread.handoff": {
-          const key = `${caller.threadId}:${operation.requestId}`;
-          const pending = handoffs.get(key);
-          if (pending)
-            return pending.threadId === operation.threadId && pending.branch === operation.branch
-              ? pending.work
-              : { ok: false, code: "invalid" };
-          if (handoffs.size >= 4) return { ok: false, code: "limit" };
-          const work = handoff(caller, operation);
-          handoffs.set(key, { threadId: operation.threadId, branch: operation.branch, work });
-          try {
-            return await work;
-          } finally {
-            handoffs.delete(key);
-          }
-        }
+        case "thread.handoff":
+          return handoffs.execute(caller, operation, signal);
         case "automation.manage": {
           const request = operation.request;
           if (request.type === "automation.list")

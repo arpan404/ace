@@ -16,6 +16,8 @@ import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
   agentControl?: {
     policy?: Partial<import("@ace/protocol").DelegationPolicy>;
+    /** Inject the host Git boundary; never exposed as MCP input. */
+    handoffGit?: () => import("../agent-control/handoffs.ts").HandoffGit;
     extensions?: import("../agent-control/tools.ts").AgentControlExtensions;
   };
   claude?: DaemonClaudeOptions;

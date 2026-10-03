@@ -4,60 +4,13 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { readConfig, startDaemon } from "@ace/daemon";
 import {
   AgentControlResult,
   ThreadId,
   WorkspaceId,
-  type McpAttribution,
   type AgentControlOperation,
 } from "@ace/protocol";
-import { setup } from "./test-support.ts";
-
-async function daemonFixture() {
-  const h = setup();
-  const daemon = await startDaemon({
-    config: readConfig({
-      ACE_HOME: join(h.home, "daemon"),
-      ACE_PORT: "0",
-      ACE_LOG_LEVEL: "silent",
-    }),
-    engine: { registry: h.registry, clock: h.clock },
-    modelInstances: [],
-  });
-  const controls = daemon.agentControl;
-  if (!controls || !daemon.engine) {
-    await daemon.close();
-    throw new Error("Agent control unavailable");
-  }
-  const workspace = daemon.store.createWorkspace(h.home, "project");
-  const result = controls.delegations.command("create-parent", {
-    type: "thread.create",
-    workspaceId: workspace,
-    provider: "codex",
-    input: [{ type: "text", text: "plan" }],
-  });
-  await daemon.engine.flush();
-  const thread = result.threadId ? daemon.store.getThread(result.threadId) : undefined;
-  if (!thread?.rootAgentId) {
-    await daemon.close();
-    throw new Error("Parent unavailable");
-  }
-  const caller: McpAttribution = {
-    sessionId: "test",
-    threadId: thread.id,
-    agentId: thread.rootAgentId,
-  };
-  return {
-    h,
-    daemon,
-    controls,
-    workspace,
-    caller,
-    call: (operation: AgentControlOperation) =>
-      controls.port.execute(caller, operation, new AbortController().signal),
-  };
-}
+import { daemonFixture } from "./daemon-test-support.ts";
 
 test("daemon service manages owned projects, PR metadata and manual automation definitions", async () => {
   const f = await daemonFixture();
@@ -331,6 +284,36 @@ test("closing an old preview cannot remove a replacement registered while cleanu
       { id: "dev", descriptor: { port: 3001, source: "launch" } },
     ]);
   } finally {
+    await f.daemon.close();
+  }
+});
+
+test("concurrent preview closes share one owner cleanup and release the registration", async () => {
+  const f = await daemonFixture();
+  const entered = Promise.withResolvers<void>(),
+    finished = Promise.withResolvers<void>();
+  let closing = false;
+  try {
+    f.controls.previews.register(
+      "dev",
+      f.caller.threadId,
+      { port: 3000, source: "launch" },
+      async () => {
+        if (closing) throw new Error("Preview cleanup invoked twice");
+        closing = true;
+        entered.resolve();
+        await finished.promise;
+      },
+    );
+    const first = f.call({ op: "preview.close", threadId: f.caller.threadId, previewId: "dev" });
+    await entered.promise;
+    const second = f.call({ op: "preview.close", threadId: f.caller.threadId, previewId: "dev" });
+    finished.resolve();
+    expect((await first).ok).toBe(true);
+    expect((await second).ok).toBe(true);
+    expect((await f.call({ op: "preview.list", threadId: f.caller.threadId })).data).toEqual([]);
+  } finally {
+    finished.resolve();
     await f.daemon.close();
   }
 });
