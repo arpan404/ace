@@ -13,9 +13,14 @@ Settings use the existing layered settings API:
 | `threads.limitPolicy`          | `manual` | Usage limit: manual / resume at reset / snooze until reset / migrate now |
 
 An omitted `thread.send.delivery` resolves the server setting at admission. Explicit
-`steer` or `queue` overrides it for that message. Clients use
-`oppositeFollowUpBehavior(defaultBehavior)` for Cmd/Ctrl+Enter. This branch contains
-daemon, protocol and client foundations; it has no desktop, web or mobile composer.
+`steer` or `queue` overrides it for that message. Clients can use
+`oppositeFollowUpBehavior(defaultBehavior)` for Cmd/Ctrl+Enter. Read the default with
+`Client.settingsGet("threads.followUpBehavior", {threadId, workspaceId})` and send its
+opposite as `thread.send.delivery` via `Client.command` or `Client.enqueue`.
+Ordinary sends omit the override so the server resolves the default. Read/write
+recovery policies with `Client.settingsGet` / `Client.settingsSet`. The Claude web
+agent owns keyboard wiring, visible settings, server queue pills and controls,
+context meters and Limited actions; this PR contains no UI implementation.
 
 Read the queue with `queue.get` or `Client.queue(threadId)`. Results include revision,
 hold reason, reset deadline, total messages and an optional `next` command ID.
@@ -57,7 +62,8 @@ queue held. Claimed recovery operations interrupted by another restart are not
 replayed automatically; the operator can issue a fresh resume command.
 
 Rate-limit facts and structured quota errors derive `limited`; process exit does
-not erase that evidence. Human interactions and live agents retain ADR 0004
+not erase that evidence. Generic `retry.cleared` from shell output also preserves
+it; only authoritative `limit.cleared` or explicit resume clears quota evidence. Human interactions and live agents retain ADR 0004
 precedence. Queued messages stay held. `thread.limit.action` supports:
 
 - `resume_now`: continue immediately through native resume.

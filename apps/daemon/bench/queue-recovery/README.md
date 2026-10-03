@@ -5,7 +5,7 @@ Not executed. The owner requires tests and benchmarks to run at merge.
 Definitions: `queue.ts` measures SQLite CAS edits with transactional command receipts
 and a fixed 128-message held queue; `context.ts` measures a million pure occupancy
 transitions; `persistence.ts` measures SQLite context samples and projected events.
-`deltas.ts` measures persisted deltas with 128 large held messages, exercising the
+`deltas.ts` measures persisted production-translated Codex deltas with 256 large held messages, exercising the
 path that skips queue payload decoding on ordinary stream events. Each reports ops/s, microseconds per operation and peak RSS. Runtime numbers need
 run at merge. These definitions use controlled data and never open a provider CLI.
 
@@ -22,6 +22,8 @@ All cases below are **not executed (tests run at merge)**.
 
 | Mutation                                            | Behaviour expected to kill it                                 |
 | --------------------------------------------------- | ------------------------------------------------------------- |
+| Ignore command receipt replay                       | Two-device command replay cannot edit a second time           |
+| Drop the restart run trigger                        | Native continuation run records restart as its trigger        |
 | Remove queue revision comparison                    | Two devices racing the same revision get one winner           |
 | Ignore stored queue position on delivery            | Restart preserves reordering                                  |
 | Preserve old attachments on queue edit              | Editing attachments changes surviving deliveries              |
@@ -48,3 +50,24 @@ overloaded upstream retries as usage limits; fail to wake delivery when the prov
 queue drains without a visible status change; discard a failed unacknowledged send;
 allow reordering around an uncertain send; drop automatic continuation after a
 temporary actor-capacity refusal; silently skip unavailable attachment preparation.
+
+Review regression mutations, also **not executed (tests run at merge)**:
+
+| Mutation                                              | Intended killing behavior                                           |
+| ----------------------------------------------------- | ------------------------------------------------------------------- |
+| Clear quota on generic retry clearing                 | Surviving real Codex shell output preserves Limited                 |
+| Requeue a consumed send on RPC rejection              | Acknowledged input plus quota plus transport exit is never replayed |
+| Requeue unacknowledged input on quota or process exit | Missing acknowledgement stays uncertain                             |
+| Reserve a slot for a cold held send                   | Capacity-one pause/enqueue/remove permits another thread            |
+| Keep an empty resume reservation                      | Capacity-one empty resume permits another thread                    |
+| Release a slot while native opening is pending        | Opening barrier refuses another thread at capacity                  |
+| Discard context fallback diagnostics                  | Real context resolution emits a warning and sends remaining input   |
+| Omit dead-work details from provider input            | Continuation contains shell, monitor and subagent details           |
+| Bypass accounts copying or bind before success        | Native history is copied before destination resume                  |
+| Ignore native writer locks                            | Locked native migration preserves source binding and history        |
+
+The real-delta benchmark uses the production Codex translator, including its generic
+`retry.cleared`, with 256 held messages of 250,000 text bytes each. Queue scheduling
+uses indexed lightweight headers and decodes only one claimed payload. Repeated
+activity-only facts skip retry/status work when unchanged, recovery agent scans,
+engine queue counting and worker wakeups. Throughput and peak RSS **need run at merge**.

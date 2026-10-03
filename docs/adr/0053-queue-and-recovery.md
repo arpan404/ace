@@ -79,3 +79,13 @@ scripted adapter boundaries, with injected clocks and explicit barriers.
 Non-gating benchmark definitions report throughput and peak RSS. Under the
 owner's current rule, tests, mutations and benchmarks are written but not run;
 runtime evidence and numbers need run at merge.
+
+Review refinements: generic retry/activity clearing is independent of quota recovery.
+The `limit.cleared` adapter fact requires authoritative quota evidence; explicit
+resume emits it through the same core boundary. Native run starts persist an
+acknowledgement bit independently of the outstanding acknowledgement latch.
+Transport rejection never makes consumed input runnable again. Unknown consumption
+stays uncertain even during a usage limit; only a typed preconsumption deferral can
+requeue a send. Scheduling reads indexed headers and decodes payloads at claim.
+Cold held sends do not occupy active capacity; releases are fenced by live sessions,
+native opening operations, running intents and runnable work.
