@@ -3,14 +3,15 @@ import { screen, within } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-test("the rail badge counts what the Activity header counts, Deck escalations included", async () => {
+test("the rail badge counts what the Activity header counts, Deck decisions included", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   app.daemon.seedServices(workbenchServices(Date.now()));
   await app.open("/activity");
   const header = await screen.findByRole("banner");
   const rail = screen.getByRole("navigation", { name: "Views" });
-  // Three threads wait on an answer and one deck escalated a decision.
-  expect(await within(header).findByText("4 need you")).toBeTruthy();
-  expect(within(rail).getByLabelText("4 need you")).toBeTruthy();
+  // Three threads wait on an answer; one deck waits on its plan, the other on an escalation and
+  // a worker's question. A deck's own threads aren't counted again for the same decisions.
+  expect(await within(header).findByText("6 need you")).toBeTruthy();
+  expect(within(rail).getByLabelText("6 need you")).toBeTruthy();
 });

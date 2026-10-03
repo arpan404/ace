@@ -40,6 +40,28 @@ export class GitHubForge implements Forge {
   async status(number: number, signal: AbortSignal): Promise<ForgePrStatus> {
     return this.#status.read(this.#api, this.#root, this.repository, number, signal);
   }
+  async findPr(branch: string, base: string, signal: AbortSignal): Promise<ForgePrRef | null> {
+    z.string().min(1).max(256).parse(branch);
+    z.string().min(1).max(256).parse(base);
+    // GitHub documents head as owner:branch. All states prevent recreating a closed PR.
+    const query = new URLSearchParams({
+      state: "all",
+      head: `${this.repository.owner}:${branch}`,
+      base,
+      per_page: "2",
+    });
+    const response = await this.#api.request(`${this.#root}/pulls?${query}`, signal);
+    const results = z
+      .array(GitHubPr.extend({ base: z.looseObject({ ref: z.string().max(256) }) }))
+      .max(2)
+      .safeParse(response.body);
+    if (!results.success) throw new ForgeError("invalid_data");
+    if (results.data.length > 1) throw new ForgeError("conflict");
+    const found = results.data[0];
+    if (found && (found.head.ref !== branch || found.base.ref !== base))
+      throw new ForgeError("invalid_data");
+    return found ? this.#ref(found.number) : null;
+  }
   async createPr(
     threadId: string,
     input: ForgeCreatePrInput,

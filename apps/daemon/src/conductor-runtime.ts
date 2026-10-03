@@ -1,21 +1,31 @@
 import {
+  StartSpec,
   ConductorStore,
   ConductorDriver,
   type Executor,
   type Environment,
   type Fact,
   type Account,
+  type State,
 } from "@ace/conductor";
 import {
   ConductorRunView,
   ConductorCommandPayload,
   type CommandResult,
   type Command,
+  type ConductorSpec,
+  ConductorApproval,
 } from "@ace/protocol";
 import type { Store } from "./store.ts";
 export interface ConductorRuntimeOptions {
   execute?: Executor;
-  accounts?(): readonly Account[];
+  validateStart?(spec: ConductorSpec): string | undefined;
+  accounts?(spec?: ConductorSpec, run?: string): readonly Account[];
+  decorate?(view: ConductorRunView): ConductorRunView;
+  changed?(run: string): void;
+  autostart?: boolean;
+  observations?(): Promise<void>;
+  onError?(error: unknown): void;
 }
 export class ConductorRuntime {
   private storage: ConductorStore;
@@ -45,14 +55,36 @@ export class ConductorRuntime {
         }),
       env,
     );
-    if (options.execute)
-      for (const run of storage.resumable()) queueMicrotask(() => this.wake(run));
+    if (options.autostart !== false) this.start();
+  }
+  start(): void {
+    if (this.options.execute) for (const run of this.storage.resumable()) this.wake(run);
+  }
+  active(): string[] {
+    return this.storage.resumable();
+  }
+  state(id: string): State | null {
+    return this.storage.read(id);
+  }
+  approveInteraction(
+    id: string,
+    receipt: string,
+    approval: import("zod").infer<typeof ConductorApproval>,
+  ): void {
+    this.fact(id, receipt, { type: "approve", approval });
+  }
+  retry(id: string): void {
+    this.wake(id);
+  }
+  refresh(id: string): void {
+    this.publish(id);
+    this.wake(id);
   }
   get(id: string): ConductorRunView | undefined {
     const view = this.storage.view(id);
     if (!view) return undefined;
     return ConductorRunView.parse({
-      ...view,
+      ...(this.options.decorate?.(view) ?? view),
       ...(this.errors.has(id) ? { executionError: this.errors.get(id) } : {}),
     });
   }
@@ -97,47 +129,77 @@ export class ConductorRuntime {
       return { commandId: command.id, ok: false, error: "conductor_executor_unavailable" };
     const result = this.receipts.recordCommand(command.id, command.deviceId, () => {
       try {
-        this.driver.command(command.id, payload);
-        if (payload.type === "conductor.start" && this.options.accounts)
-          this.driver.fact(payload.runId, `accounts-${command.id}`.slice(0, 128), {
-            type: "accounts",
-            accounts: this.options.accounts(),
-          });
+        if (payload.type === "conductor.start") {
+          const validated = StartSpec.safeParse(payload.spec);
+          if (!validated.success)
+            return { commandId: command.id, ok: false, error: "conductor_invalid_root_agent" };
+          // Replays of an admitted run do not re-check transient availability.
+          if (!this.storage.read(payload.runId)) {
+            const error = this.options.validateStart?.(validated.data);
+            if (error) return { commandId: command.id, ok: false, error };
+          }
+          this.storage.create(
+            payload.runId,
+            validated.data,
+            this.env,
+            this.options.accounts?.(validated.data, payload.runId),
+          );
+        } else this.driver.command(command.id, payload);
         return { commandId: command.id, ok: true };
       } catch {
         return { commandId: command.id, ok: false, error: "conductor_command_failed" };
       }
     });
-    this.publish(payload.runId);
-    if (result.ok) this.wake(payload.runId);
+    if (result.ok) {
+      this.options.changed?.(payload.runId);
+      this.publish(payload.runId);
+      this.wake(payload.runId);
+    }
     return result;
   }
   private wake(id: string): void {
     if (this.closing || this.tasks.has(id) || this.tasks.size >= 8) return;
-    if (!this.options.execute) return;
+    if (!this.options.execute || !this.storage.pending(id).length) return;
     const driver = new ConductorDriver(this.storage, this.options.execute, this.env);
     let more = false;
+    let processed = false;
+    let errorChanged = false;
     const task = driver
       .drain(id)
       .then((count) => {
         more = count === 128;
-        this.errors.delete(id);
+        processed = count > 0;
+        errorChanged = this.errors.delete(id);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        this.options.onError?.(error);
         if (this.errors.size >= 64) {
           const oldest = this.errors.keys().next().value;
           if (oldest) this.errors.delete(oldest);
         }
-        this.errors.set(id, "conductor_execution_failed");
+        const message =
+          error instanceof Error && /^deck_[a-z_]+$/.test(error.message)
+            ? error.message
+            : "conductor_execution_failed";
+        errorChanged = this.errors.get(id) !== message;
+        this.errors.set(id, message);
       })
       .finally(() => {
         this.tasks.delete(id);
-        this.publish(id);
+        if (processed || errorChanged) this.publish(id);
+        if (processed) this.options.changed?.(id);
         const state = this.storage.read(id);
         if (state && ["done", "cancelled"].includes(state.phase)) this.storage.release(id);
         if (more) queueMicrotask(() => this.wake(id));
       });
     this.tasks.set(id, task);
+  }
+  /** Wait for admitted effects and observations, without advancing clocks. */
+  async flush(): Promise<void> {
+    do {
+      await Promise.allSettled(this.tasks.values());
+      await this.options.observations?.();
+    } while (this.tasks.size);
   }
   async close(): Promise<void> {
     this.closing = true;

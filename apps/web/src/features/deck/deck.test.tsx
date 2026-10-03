@@ -33,11 +33,11 @@ test("Deck opens on a gated deck and approving its plan deals the split card", a
   expect(within(section("Active")).getByText("Resumable relay streams")).toBeTruthy();
 });
 
-test("a plan gate's Review changes shows the plan, and Reject asks before it sends", async () => {
+test("a plan gate's Review plan shows the plan, and Reject asks before it sends", async () => {
   await open("/deck/relay-streams");
   const gate = await screen.findByRole("region", { name: planGate });
 
-  await userEvent.click(within(gate).getByRole("button", { name: "Review changes" }));
+  await userEvent.click(within(gate).getByRole("button", { name: "Review plan" }));
   const review = await screen.findByRole("dialog", { name: "The deck's plan" });
   const cards = within(within(review).getByRole("list", { name: "Cards in this plan" }));
   const titles = cards.getAllByRole("listitem").map((item) => item.firstChild?.textContent);
@@ -67,7 +67,11 @@ test("a card's lane names its accounts from the daemon and lists its review roun
   await userEvent.click(card(/Client ack and buffer flush/));
 
   const lane = screen.getByRole("region", { name: "Lane: Client ack and buffer flush" });
-  expect(await within(lane).findByText("Codex · Personal")).toBeTruthy();
+  const agents = within(await within(lane).findByRole("list", { name: /^Agents on/ }));
+  expect(agents.getByRole("listitem", { name: "Worker, round 2: Codex · Personal" })).toBeTruthy();
+  expect(
+    agents.getByRole("listitem", { name: "Reviewer, round 2: Claude Code · Work" }),
+  ).toBeTruthy();
   const rounds = within(within(lane).getByRole("list", { name: "Review rounds" }));
   expect(rounds.getAllByRole("listitem").map((round) => round.textContent)).toEqual([
     "Round 1Changes required",
@@ -76,7 +80,7 @@ test("a card's lane names its accounts from the daemon and lists its review roun
   expect(card(/Client ack and buffer flush/).ariaPressed).toBe("true");
 });
 
-test("a lane whose agent is a thread on this daemon opens it", async () => {
+test("each of a card's delegated agents opens its own thread", async () => {
   const app = harness();
   app.daemon.createThread({
     id: "thread-dedupe",
@@ -88,10 +92,12 @@ test("a lane whose agent is a thread on this daemon opens it", async () => {
   await app.open("/deck/relay-streams?card=client-ack");
 
   const lane = await screen.findByRole("region", { name: "Lane: Client ack and buffer flush" });
-  expect(await within(lane).findByRole("link", { name: "Open thread" })).toBeTruthy();
-  await userEvent.click(card(/Reconnect soak test/));
-  const other = screen.getByRole("region", { name: "Lane: Reconnect soak test" });
-  expect(within(other).queryByRole("link", { name: "Open thread" })).toBeNull();
+  const reviewer = await within(lane).findByRole("listitem", { name: /^Reviewer/ });
+  await userEvent.click(within(reviewer).getByRole("link", { name: /Open the reviewer/ }));
+
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Deck reviewer: client-ack" }),
+  ).toBeTruthy();
 });
 
 test("approving an escalation lets its card carry on and clears the deck's gate", async () => {

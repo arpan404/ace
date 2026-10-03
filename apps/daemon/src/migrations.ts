@@ -115,6 +115,9 @@ const migrations = [
   `CREATE TABLE IF NOT EXISTS streamed_blobs(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,size INTEGER NOT NULL,sha256 TEXT,storage_id TEXT NOT NULL,chunks INTEGER NOT NULL DEFAULT 0);
    CREATE TABLE IF NOT EXISTS streamed_blob_chunks(blob_id TEXT NOT NULL REFERENCES streamed_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));
    CREATE INDEX IF NOT EXISTS streamed_blob_hash ON streamed_blobs(thread_id,sha256);`,
+  // The Store owns threads.status, guaranteed by migration 1. Engine metadata has its own version.
+  `CREATE INDEX IF NOT EXISTS engine_live_threads ON threads(id)
+    WHERE json_extract(status,'$.state') NOT IN ('new','done','failed');`,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");

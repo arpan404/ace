@@ -43,13 +43,13 @@ export function createFileWatcher(directory: DirectoryWatch = watchDirectory) {
         stop: directory(
           parent,
           (filename) => {
-            for (const listener of [...listeners]) listener.changed(filename);
+            for (const listener of Array.from(listeners)) listener.changed(filename);
           },
           () => {
             // Failed sources cannot satisfy a subsequent retry. Existing leases
             // keep their source until the last release; retries acquire a new one.
             if (parents.get(key) === owned) parents.delete(key);
-            for (const listener of [...listeners]) listener.failed();
+            for (const listener of Array.from(listeners)) listener.failed();
           },
         ),
       };

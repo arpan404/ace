@@ -67,6 +67,7 @@ it("preserves pre-SDK session identity during the additive metadata migration", 
     );
     db.prepare("INSERT INTO engine_schema_version VALUES (1,?)").run(engineSchemaVersion);
     migrateEngine(db);
+    migrateEngine(db);
     const row = db.prepare("SELECT * FROM engine_sessions WHERE thread_id='old'").get();
     expect(row).toMatchObject({
       native_session_id: "acp-native-id",

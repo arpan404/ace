@@ -50,6 +50,8 @@ export type { HistoryAdapterPort } from "./history-continuation.ts";
 
 export async function startDaemon(options: DaemonOptions = {}) {
   options.signal?.throwIfAborted();
+  const clock = options.engine?.clock;
+  const now = clock ? () => clock.now() : Date.now;
   const config = options.config ?? readConfig();
   const unlock = acquireLock(config.dataDir);
   const resources = new Resources();
@@ -100,7 +102,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     }));
     const log = createLogger({
       sink,
-      now: Date.now,
+      now,
       redact: createRedactor(context),
       level: config.logLevel,
     });
@@ -110,7 +112,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       signal: lifetime.signal,
       config,
       options,
-      now: Date.now,
+      now,
       id: randomUUID,
       log,
       resources,
@@ -120,15 +122,17 @@ export async function startDaemon(options: DaemonOptions = {}) {
         },
       },
       onListen: [],
-      store: new Store(join(config.dataDir, "events.sqlite"), (error) =>
-        log.log("error", "Event subscriber failed", error),
+      store: new Store(
+        join(config.dataDir, "events.sqlite"),
+        (error) => log.log("error", "Event subscriber failed", error),
+        { now },
       ),
     };
     const store = serviceContext.store;
     resources.own(() => store.close());
     const health = createHealthMonitor({
       database: join(config.dataDir, "events.sqlite"),
-      now: Date.now,
+      now,
       workload: () => {
         const current = options.workload?.() ??
           serviceContext.services.engine?.workload() ?? { activeSessions: null, queues: {} };
@@ -257,6 +261,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
         return services.devices;
       },
       engine: services.engine,
+      conductor: services.conductor,
       agentControl: services.agentControl,
       accounts: services.accounts,
       cursorAuth: services.cursorAuth,

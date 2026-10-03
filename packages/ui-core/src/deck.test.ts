@@ -1,11 +1,13 @@
 import { expect, test } from "vitest";
 import {
   cardColumns,
+  cardStatus,
   deckMerge,
   deckStepper,
   landingDeck,
   type DeckCard,
   type DeckRun,
+  type Gate,
 } from "./deck.ts";
 
 const card = (id: string, dependencies: string[] = []): DeckCard => ({
@@ -16,6 +18,9 @@ const card = (id: string, dependencies: string[] = []): DeckCard => ({
   round: 0,
   lane: null,
   note: "",
+  agents: [],
+  startedAt: undefined,
+  updatedAt: undefined,
 });
 const titles = (columns: DeckCard[][]) => columns.map((column) => column.map((c) => c.id));
 
@@ -50,8 +55,11 @@ const run = (patch: Partial<DeckRun>): DeckRun => ({
   phase: "planning",
   planApproved: false,
   gate: null,
-  gates: 0,
+  gates: [],
+  startedAt: 0,
+  updatedAt: 0,
   cards: [],
+  agents: [],
   spent: 0,
   budget: 0,
   error: undefined,
@@ -61,8 +69,15 @@ const run = (patch: Partial<DeckRun>): DeckRun => ({
 });
 const labels = (r: DeckRun) => deckStepper(r).steps.map((s) => `${s.state}:${s.label}`);
 
-test("the stepper moves from plan to dealing with merged progress, then to merged", () => {
-  expect(labels(run({}))).toEqual(["done:Goal", "current:Plan", "todo:Dealing", "todo:Merge"]);
+test("the stepper moves from drafting the plan to dealing with merged progress, then to merged", () => {
+  expect(labels(run({}))).toEqual([
+    "done:Goal",
+    "current:Drafting the plan",
+    "todo:Dealing",
+    "todo:Merge",
+  ]);
+  const plan = { summary: "Two cards", workstreams: [] };
+  expect(labels(run({ plan }))[1]).toBe("current:Plan ready");
   const cards = [{ ...card("a"), state: "merged" as const }, card("b")];
   expect(labels(run({ phase: "dealing", planApproved: true, cards }))).toEqual([
     "done:Goal",
@@ -76,22 +91,75 @@ test("the stepper moves from plan to dealing with merged progress, then to merge
     "done:Dealing · 1 of 2 merged",
     "done:Merged",
   ]);
+  expect(labels(run({ phase: "cancelled", planApproved: true, cards })).slice(2)).toEqual([
+    "done:Dealing · 1 of 2 merged",
+    "current:Cancelled",
+  ]);
 });
 
-test("a paused or cancelled deck's stepper stops moving", () => {
+const gate = (patch: Partial<Gate> = {}): Gate => ({
+  id: "g",
+  kind: "plan",
+  title: "",
+  body: "",
+  workstream: null,
+  gatedAt: 0,
+  interaction: null,
+  ...patch,
+});
+
+test("a paused, stopped or gated deck's stepper stops moving", () => {
   expect(deckStepper(run({ phase: "paused", planApproved: true })).paused).toBe(true);
+  expect(deckStepper(run({ phase: "failed", planApproved: true })).paused).toBe(true);
+  expect(deckStepper(run({ phase: "dealing", planApproved: true, gate: gate() })).paused).toBe(
+    true,
+  );
   expect(deckStepper(run({ phase: "dealing", planApproved: true })).paused).toBe(false);
 });
 
-test("Deck lands on a gated deck first, then an active one, then the latest", () => {
-  const gate = { id: "g", kind: "plan" as const, title: "", body: "", workstream: null };
-  const finished = run({ id: "finished", phase: "merged" });
-  const active = run({ id: "active", phase: "dealing" });
-  const gated = run({ id: "gated", gate });
-  expect(landingDeck([finished, active, gated])?.id).toBe("gated");
-  expect(landingDeck([finished, active])?.id).toBe("active");
-  expect(landingDeck([finished])?.id).toBe("finished");
+test("Deck lands on the deck waiting longest on a decision, then the latest active one", () => {
+  const finished = run({ id: "finished", phase: "merged", updatedAt: 900 });
+  const older = run({ id: "older", phase: "dealing", updatedAt: 100 });
+  const recent = run({ id: "recent", phase: "dealing", updatedAt: 500 });
+  const waiting = run({ id: "waiting", gate: gate({ gatedAt: 50 }) });
+  const fresh = run({ id: "fresh", gate: gate({ gatedAt: 400 }) });
+  expect(landingDeck([finished, older, fresh, recent, waiting])?.id).toBe("waiting");
+  expect(landingDeck([finished, older, recent])?.id).toBe("recent");
+  expect(landingDeck([run({ id: "a", phase: "merged", updatedAt: 1 }), finished])?.id).toBe(
+    "finished",
+  );
   expect(landingDeck([])).toBeUndefined();
+});
+
+const lane = (status: "limited" | "unresponsive" | "working") => ({
+  ...card("a"),
+  state: "working" as const,
+  round: 1,
+  lane: { worker: null, reviewer: null, threadId: "t", status, rounds: [] },
+});
+
+test("a working card says when its lane ran out of quota, stopped answering, or its deck holds it", () => {
+  const dealing = run({ phase: "dealing", planApproved: true });
+  expect(cardStatus(lane("limited"), dealing)).toMatchObject({ label: "Waiting for quota" });
+  expect(cardStatus(lane("unresponsive"), dealing)).toMatchObject({
+    label: "Not responding",
+    tone: "needs-you",
+  });
+  expect(cardStatus(lane("working"), dealing)).toMatchObject({ label: "Working", mark: "spinner" });
+  expect(cardStatus(lane("working"), run({ phase: "paused" })).label).toBe("Paused");
+  expect(cardStatus(lane("working"), run({ phase: "stopping" }))).toMatchObject({
+    label: "Stopping",
+    mark: "spinner",
+  });
+  // A cancelled deck's cards stop where they were; merged ones stay merged.
+  expect(cardStatus(lane("working"), run({ phase: "cancelled" })).label).toBe("Cancelled");
+  expect(cardStatus({ ...card("b"), state: "merged" }, run({ phase: "cancelled" })).label).toBe(
+    "Merged",
+  );
+  const merge = gate({ kind: "merge", workstream: "a" });
+  expect(cardStatus(lane("working"), run({ gate: merge, gates: [merge] })).label).toBe(
+    "Ready to merge",
+  );
 });
 
 test("the plan ends in one merge after every card nothing else waits on", () => {
