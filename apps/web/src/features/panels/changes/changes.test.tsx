@@ -1,4 +1,4 @@
-import { coldStartReplay } from "@ace/fake-daemon";
+import { coldStartReplay, facts } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -183,4 +183,43 @@ test("Changes says what is uncommitted in the checkout, and follows a commit", a
       "Everything is committed on fix/cold-start-cap · 1 to push",
     ),
   );
+});
+
+test("a turn that changed many files mounts only the files near the view, and lists every one", async () => {
+  const { app, panel } = await openChanges("test-done");
+  // jsdom applies no stylesheet: give the tab's scrolling panel the overflow its class sets.
+  const scroller = within(panel).getByRole("tabpanel");
+  scroller.style.overflowY = "auto";
+  const paths = Array.from({ length: 60 }, (_, n) => `packages/fixtures/src/case-${n}.ts`);
+  const [first = "", last = ""] = [paths[0], paths[59]];
+  act(() =>
+    app.daemon.apply("thread-cold-start", [
+      facts.turn("root"),
+      facts.tool("root", "edit-fixtures", {
+        kind: "file.edit",
+        title: "Add fixtures",
+        detail: {
+          kind: "file.edit",
+          changes: paths.map((path, n) => ({
+            path,
+            kind: "add" as const,
+            newText: Array.from(
+              { length: 50 },
+              (_, line) => `export const c${n}_${line} = ${line};`,
+            )
+              .join("\n")
+              .concat("\n"),
+          })),
+        },
+      }),
+      facts.toolDone("root", "edit-fixtures"),
+      facts.endTurn("root"),
+    ]),
+  );
+  const list = await within(panel).findByRole("navigation", { name: "Changed files" });
+  await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(60));
+  expect(within(panel).getByRole("region", { name: first })).toBeTruthy();
+  // 3,000 rows across 60 files: only the first few files are mounted.
+  expect(within(panel).queryByRole("region", { name: last })).toBeNull();
+  expect(within(panel).getAllByRole("region").length).toBeLessThan(20);
 });

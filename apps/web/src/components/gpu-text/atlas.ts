@@ -3,10 +3,19 @@ import type { GlyphRect } from "./layout.ts";
 /*
  * Glyphs rasterised once into a canvas the GPU samples as a texture: white ink on transparent,
  * tinted per quad. Glyphs are added as they first appear; a full atlas starts over (the view
- * then redraws), so memory stays fixed.
+ * then redraws), so memory stays fixed. Views drawing the same font at the same scale share one
+ * atlas (`acquireAtlas`), freed when the last of them lets go.
  */
 
 const size = 2048;
+
+export interface AtlasSpec {
+  fontPx: number;
+  family: string;
+  cellWidth: number;
+  lineHeight: number;
+  scale: number;
+}
 
 export class GlyphAtlas {
   readonly canvas: HTMLCanvasElement;
@@ -23,13 +32,7 @@ export class GlyphAtlas {
   private slots = new Map<string, GlyphRect>();
   private next = 1;
   private font: string;
-  constructor(options: {
-    fontPx: number;
-    family: string;
-    cellWidth: number;
-    lineHeight: number;
-    scale: number;
-  }) {
+  constructor(options: AtlasSpec) {
     this.canvas = document.createElement("canvas");
     this.canvas.width = size;
     this.canvas.height = size;
@@ -84,4 +87,35 @@ export class GlyphAtlas {
     this.version++;
     return rect;
   }
+  /** Frees the canvas's pixels now rather than whenever it is collected. */
+  dispose(): void {
+    this.slots.clear();
+    this.canvas.width = 0;
+    this.canvas.height = 0;
+  }
+}
+
+const shared = new Map<string, { atlas: GlyphAtlas; users: number }>();
+
+/** The atlas for `spec`, shared with every view drawing the same cells; release when done. */
+export function acquireAtlas(spec: AtlasSpec): { atlas: GlyphAtlas; release(): void } {
+  const key = [spec.fontPx, spec.family, spec.cellWidth, spec.lineHeight, spec.scale].join("|");
+  let entry = shared.get(key);
+  if (!entry) {
+    entry = { atlas: new GlyphAtlas(spec), users: 0 };
+    shared.set(key, entry);
+  }
+  entry.users++;
+  const held = entry;
+  let released = false;
+  return {
+    atlas: held.atlas,
+    release() {
+      if (released) return;
+      released = true;
+      if (--held.users > 0) return;
+      shared.delete(key);
+      held.atlas.dispose();
+    },
+  };
 }
