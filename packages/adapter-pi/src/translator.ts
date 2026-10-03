@@ -3,7 +3,8 @@ import type { Translator, Frame } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
 import { Dialog, Envelope, obj, str, list, isBlockingDialogMethod } from "./native.ts";
 import { dialogRequest } from "./dialogs.ts";
-import { toolDetail, resultText } from "./tools.ts";
+import { toolDetail, resultSuffix } from "./tools.ts";
+import { messageFacts } from "./messages.ts";
 
 const raw = (data: unknown) => [{ type: str(obj(data).type) || "unknown", data }];
 export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
@@ -13,6 +14,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
     message = 0,
     outcome: "completed" | "failed" | "interrupted" = "completed";
   let poisoned = false;
+  let settled = false;
   let prefix = "pi",
     deadline: number | undefined;
   const refreshDeadline = () => {
@@ -35,6 +37,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
     draft: { type: "notice", complete: true, text, level, raw: raw(frame.data) },
   });
   const start = (): Fact[] => {
+    settled = false;
     if (active) return [];
     active = true;
     outcome = "completed";
@@ -49,6 +52,14 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
       { type: "agent.disconnected", agent },
     ];
   }
+  function finish(): Fact[] {
+    if (!active || !settled || poisoned || dialogs.size) return [];
+    active = false;
+    return [
+      { type: "retry.cleared", agent },
+      { type: "turn.ended", agent, nativeTurnId: `${prefix}:run:${run}`, outcome },
+    ];
+  }
   return {
     nextDeadline() {
       return deadline;
@@ -61,6 +72,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
           facts.push({ type: "interaction.closed", interaction: id, state: "expired" });
         }
       refreshDeadline();
+      facts.push(...finish());
       return facts;
     },
     translate(frame, now) {
@@ -80,6 +92,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
           dialogs.clear();
           deadline = undefined;
           active = false;
+          settled = false;
           return [
             { type: "process.exited", deliberate: e.deliberate === true, message: str(e.message) },
           ];
@@ -88,7 +101,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
           const id = str(e.id);
           if (!dialogs.delete(id)) return [];
           refreshDeadline();
-          return [{ type: "interaction.closed", interaction: id, state: "expired" }];
+          return [{ type: "interaction.closed", interaction: id, state: "expired" }, ...finish()];
         }
       }
       if (frame.dir === "send") {
@@ -102,6 +115,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
               interaction: id,
               state: e.cancelled === true ? "cancelled" : "resolved",
             },
+            ...finish(),
           ];
         }
         return [];
@@ -114,6 +128,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
           return [];
         case "agent_settled": {
           if (!active || poisoned) return [];
+          settled = true;
           const facts: Fact[] = [];
           for (const [id, tool] of tools)
             if (!tool.surviving) {
@@ -128,11 +143,7 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
                 stoppable: false,
               });
             }
-          facts.push(
-            { type: "retry.cleared", agent },
-            { type: "turn.ended", agent, nativeTurnId: `${prefix}:run:${run}`, outcome },
-          );
-          active = false;
+          facts.push(...finish());
           return facts;
         }
         case "message_start": {
@@ -159,65 +170,10 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
           ];
         }
         case "message_end": {
-          const m = obj(e.message),
-            facts: Fact[] = [];
-          if (m.role === "assistant") {
-            list(m.content).forEach((block, index) => {
-              const b = obj(block);
-              if (b.type !== "text" && b.type !== "thinking") return;
-              facts.push({
-                type: "item.upsert",
-                agent,
-                item: `${prefix}:message:${message}:${index}`,
-                draft:
-                  b.type === "text"
-                    ? {
-                        type: "message",
-                        role: "assistant",
-                        complete: true,
-                        ...(!streamed.has(index)
-                          ? { parts: [{ type: "text", text: str(b.text) }] }
-                          : {}),
-                        raw: raw(e),
-                      }
-                    : {
-                        type: "reasoning",
-                        complete: true,
-                        ...(!streamed.has(index) ? { text: str(b.thinking) } : {}),
-                        raw: raw(e),
-                      },
-              });
-            });
-            if (["stop", "length"].includes(str(m.stopReason))) outcome = "completed";
-            if (m.stopReason === "aborted") outcome = "interrupted";
-            if (m.stopReason === "error") outcome = "failed";
-            const u = obj(m.usage),
-              cost = obj(u.cost);
-            if (typeof u.input === "number" && typeof u.output === "number")
-              facts.push({
-                type: "usage",
-                agent,
-                inputTokens: u.input,
-                outputTokens: u.output,
-                ...(typeof u.cacheRead === "number" ? { cachedInputTokens: u.cacheRead } : {}),
-                ...(typeof cost.total === "number" ? { costUsd: cost.total } : {}),
-              });
-          } else if (m.role === "user")
-            facts.push({
-              type: "item.upsert",
-              agent,
-              item: `${prefix}:user:${message}`,
-              draft: {
-                type: "message",
-                role: "user",
-                complete: true,
-                parts: [
-                  { type: "text", text: typeof m.content === "string" ? m.content : resultText(m) },
-                ],
-                raw: raw(e),
-              },
-            });
-          return facts;
+          const translated = messageFacts({ agent, prefix, message, streamed, data: frame.data });
+          if (!translated) return overflow(frame);
+          if (translated.outcome) outcome = translated.outcome;
+          return translated.facts;
         }
         case "tool_execution_start": {
           const id = str(e.toolCallId),
@@ -253,16 +209,22 @@ export function createPiTranslator(init: { threadId: ThreadId; rootKey: Key }): 
             tool = tools.get(id),
             facts: Fact[] = [];
           if (!tool) return [notice(frame, "Pi tool result has no known start", "warning")];
-          const text = resultText(e.type === "tool_execution_end" ? e.result : e.partialResult);
-          if (tool.name === "bash" && text.length > tool.length) {
+          const suffix =
+            tool.name === "bash"
+              ? resultSuffix(
+                  e.type === "tool_execution_end" ? e.result : e.partialResult,
+                  tool.length,
+                )
+              : undefined;
+          if (suffix && suffix.length > tool.length) {
             facts.push({
               type: "item.delta",
               agent,
               item: `${prefix}:tool:${id}`,
               field: "output",
-              append: text.slice(tool.length),
+              append: suffix.append,
             });
-            tool.length = text.length;
+            tool.length = suffix.length;
           }
           if (e.type === "tool_execution_end") {
             facts.push({

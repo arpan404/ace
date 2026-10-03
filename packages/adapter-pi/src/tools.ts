@@ -25,3 +25,21 @@ export function resultText(value: unknown): string {
     .map((block) => str(obj(block).text))
     .join("\n");
 }
+/** Visit cumulative blocks without joining or copying their historical prefix. */
+export function resultSuffix(value: unknown, seen: number): { append: string; length: number } {
+  const parts: string[] = [];
+  let length = 0,
+    first = true;
+  for (const block of list(obj(value).content)) {
+    if (!first) {
+      if (length >= seen) parts.push("\n");
+      length++;
+    }
+    first = false;
+    const text = str(obj(block).text),
+      end = length + text.length;
+    if (end > seen) parts.push(text.slice(Math.max(0, seen - length)));
+    length = end;
+  }
+  return { append: parts.join(""), length };
+}

@@ -45,6 +45,22 @@ test("native dialog timeout expires only the timed interaction", () => {
   expect(h.state.interactions.timed?.state).toBe("expired");
   expect(h.state.interactions.open?.state).toBe("pending");
   expect(h.state.status.state).toBe("needs_you");
+  h.send({ type: "extension_ui_response", id: "open", value: "answer" }, 31);
+  expect(h.state.status.state).toBe("done");
+});
+test("deferred settlement keeps its failed outcome until the last dialog closes", () => {
+  const h = replay();
+  h.recv(start);
+  h.recv({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error" } });
+  h.recv({ type: "extension_ui_request", id: "first", method: "input" });
+  h.recv({ type: "extension_ui_request", id: "last", method: "input", timeout: 10 });
+  h.recv(settled);
+  expect(h.state.interactions.first?.state).toBe("pending");
+  h.send({ type: "extension_ui_response", id: "first", value: "answer" });
+  expect(h.state.interactions.last?.state).toBe("pending");
+  h.facts(h.translator.tick(10), 10);
+  expect(h.state.interactions.last?.state).toBe("expired");
+  expect(h.state.status.state).toBe("failed");
 });
 test("fire-and-forget and unknown extension updates retain raw data without blocking", () => {
   const h = replay();

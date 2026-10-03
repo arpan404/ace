@@ -4,6 +4,7 @@ import { PassThrough } from "node:stream";
 import { ThreadId } from "@ace/protocol";
 import { readJsonLines } from "@ace/provider-kit/jsonl";
 import { createPiTranslator } from "../src/index.ts";
+import { runScalingBenchmark } from "./scaling.ts";
 const count = 1_000_000;
 const translator = createPiTranslator({ threadId: ThreadId.parse("bench"), rootKey: "root" });
 translator.translate(
@@ -54,3 +55,5 @@ console.log(
     peakRssKiB: process.resourceUsage().maxRSS,
   }),
 );
+
+runScalingBenchmark();
