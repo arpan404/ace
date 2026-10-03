@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/GitActionError.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "git_head_moved",
+    "git_conflicts",
+    "git_hook_failed",
+    "git_auth_failed",
+    "git_failed",
+    "git_dirty_worktree",
+    "git_invalid_ref"
+  ],
+  "type": "string"
+}

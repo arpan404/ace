@@ -1,3 +1,4 @@
+import { MachinesRequest, MachinesResult } from "./machines.ts";
 import { PreviewRequest, PreviewResult } from "./preview-client.ts";
 import { ConductorRequest, ConductorResult, ConductorChanged } from "./conductor-client.ts";
 import { AutomationRequest, AutomationResponse } from "./automations.ts";
@@ -32,6 +33,7 @@ import { QueueGet, QueueResult, QueueState } from "./queue.ts";
 import { ContextMeter } from "./context-meter.ts";
 import { ContextRequest, ContextResult } from "./context.ts";
 import {
+  HistoryOperationProgress,
   HistoryListRequest,
   HistoryListResponse,
   HistoryImportRequest,
@@ -169,6 +171,7 @@ export const ItemsPage = z.object({
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  MachinesRequest,
   PreviewRequest,
   ConductorRequest,
   ...AutomationRequest.options,
@@ -269,6 +272,7 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  MachinesResult,
   PreviewResult,
   ConductorResult,
   ConductorChanged,
@@ -290,6 +294,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   HistoryImportResponse,
   HistoryScanResponse,
   HistoryScanUpdated,
+  HistoryOperationProgress,
   HistoryContinueResponse,
   McpProviderResult,
   UsageMessage,

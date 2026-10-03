@@ -1,4 +1,4 @@
-import { commitChanges, pushBranch, listBranches } from "./actions.ts";
+import { commitChanges, pushBranch, listBranches, switchBranch } from "./actions.ts";
 import { deleteBranch, type BranchCleanup } from "./branch-cleanup.ts";
 import { GitCli } from "./cli.ts";
 import { tmpdir } from "node:os";
@@ -50,6 +50,13 @@ export class GitService {
   }
   push(options: { worktree: string; remote: string }): Promise<void> {
     return pushBranch(this.repository, options);
+  }
+  switchBranch(options: {
+    worktree: string;
+    branch: string;
+    allowUncommitted: boolean;
+  }): Promise<void> {
+    return switchBranch(this.repository, options);
   }
   branches(worktree: string): Promise<{ branches: string[]; truncated: boolean }> {
     return listBranches(this.repository, worktree);

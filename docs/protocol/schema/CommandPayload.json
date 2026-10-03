@@ -481,6 +481,39 @@
     },
     {
       "properties": {
+        "allowUncommitted": {
+          "default": false,
+          "type": "boolean"
+        },
+        "branch": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "local",
+            "worktree"
+          ],
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.workspace.set",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "mode"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "scriptId": {
           "maxLength": 128,
           "minLength": 1,

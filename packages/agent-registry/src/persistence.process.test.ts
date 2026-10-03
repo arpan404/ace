@@ -8,7 +8,7 @@ import {
   fileInventoryStorage,
   type InventoryStorage,
 } from "./index.ts";
-import { temporary, body, sample } from "./testing/support.ts";
+import { temporary, body, sample, executable } from "./testing/support.ts";
 
 async function setup(root: string, storage: InventoryStorage) {
   const catalog = await AgentCatalog.open({
@@ -105,6 +105,62 @@ test("post-rename durability failure retains the published artifact across resta
       expect(await readFile((await restarted.resolve(installed)).command, "utf8")).toBe(
         "synthetic artifact",
       );
+    } finally {
+      await restarted.close();
+    }
+  } finally {
+    await registry.close();
+    await work.close();
+  }
+});
+
+test("published client bindings stay usable and survive the next binding after directory sync failure", async () => {
+  const work = await temporary();
+  const path = join(work.root, "bindings.json");
+  let writes = 0;
+  const registry = await setup(
+    work.root,
+    fileInventoryStorage(path, () => `write-${++writes}`, {
+      syncDirectory: async () => {
+        if (writes === 1) throw new Error("sync failed");
+      },
+    }),
+  );
+  const command = await executable(work.root, "local-agent");
+  const bind = (installationId: string) =>
+    registry.handle({
+      type: "registry.bind",
+      requestId: installationId,
+      acpAgentId: "local:agent",
+      installationId,
+      instanceId: installationId,
+      version: "1",
+      command,
+      args: [],
+    });
+  try {
+    expect((await bind("first")).result).toMatchObject({ ok: true, durability: "uncertain" });
+    expect(
+      await registry.resolve({
+        acpAgentId: "local:agent",
+        installationId: "first",
+        instanceId: "first",
+      }),
+    ).toMatchObject({ command });
+    expect((await bind("second")).result).toMatchObject({ ok: true });
+    const restarted = await setup(
+      work.root,
+      fileInventoryStorage(path, () => "restart"),
+    );
+    try {
+      for (const installationId of ["first", "second"])
+        expect(
+          await restarted.resolve({
+            acpAgentId: "local:agent",
+            installationId,
+            instanceId: installationId,
+          }),
+        ).toMatchObject({ command });
     } finally {
       await restarted.close();
     }

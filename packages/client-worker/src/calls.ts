@@ -13,7 +13,12 @@ import { z } from "zod";
  * request again on its way to the daemon, as it does for an in-process caller.
  */
 
-const Options = z.object({ timeoutMs: z.number().positive().optional() }).optional();
+const Options = z
+  .object({
+    requestId: z.string().min(1).max(256).optional(),
+    timeoutMs: z.number().positive().optional(),
+  })
+  .optional();
 const Read = z.object({
   streamId: z.string(),
   offset: z.number().int().nonnegative(),
@@ -48,8 +53,21 @@ const schemas = {
   request: z.tuple([ServiceInput, Options]),
 };
 
-const options = (parsed: { timeoutMs?: number | undefined } | undefined, signal: AbortSignal) =>
-  parsed?.timeoutMs === undefined ? { signal } : { signal, timeoutMs: parsed.timeoutMs };
+const options = (
+  parsed: { timeoutMs?: number | undefined; requestId?: string | undefined } | undefined,
+  signal: AbortSignal,
+) => ({
+  signal,
+  ...(parsed?.timeoutMs === undefined ? {} : { timeoutMs: parsed.timeoutMs }),
+  ...(parsed?.requestId === undefined ? {} : { requestId: parsed.requestId }),
+});
+
+/** A tab's request input as a plain record; anything else reads as an empty one. */
+export function objectInput(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? Object.fromEntries(Object.entries(value))
+    : {};
+}
 
 function decode<T extends z.ZodType>(schema: T, args: unknown[]): z.infer<T> {
   const parsed = schema.safeParse(args);

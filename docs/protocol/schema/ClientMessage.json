@@ -3,6 +3,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "$ref": "https://ace.local/protocol/v1/MachinesRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/PreviewRequest.json"
     },
     {
@@ -194,6 +197,85 @@
     },
     {
       "properties": {
+        "sourceRequestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "files.abort",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sourceRequestId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "exclusiveMinimum": 0,
+          "maximum": 4294967295,
+          "type": "integer"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "files.pull",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "channel"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "exclusiveMinimum": 0,
+          "maximum": 4294967295,
+          "type": "integer"
+        },
+        "data": {
+          "maxLength": 87384,
+          "minLength": 4,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "type": "string"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "files.chunk",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "channel",
+        "offset",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "operation": {
           "$ref": "https://ace.local/protocol/v1/FileOperation.json"
         },
@@ -201,6 +283,9 @@
           "maxLength": 128,
           "minLength": 1,
           "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
         "type": {
           "const": "files.request",
@@ -570,6 +655,11 @@
           "minLength": 1,
           "type": "string"
         },
+        "subscriberId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
@@ -588,6 +678,11 @@
     {
       "properties": {
         "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "subscriberId": {
           "maxLength": 256,
           "minLength": 1,
           "type": "string"

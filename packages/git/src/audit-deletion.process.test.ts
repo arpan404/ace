@@ -107,7 +107,8 @@ test("deletion failure before gate readiness is reported and subsequent work rem
     async (_deletion, ready) => {
       await expect(ready).rejects.toMatchObject({
         code: "git_failed",
-        message: "intentional early Git failure",
+        message: "Git command failed",
+        details: { code: 23 },
       });
     },
   );

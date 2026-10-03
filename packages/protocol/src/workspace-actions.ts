@@ -77,6 +77,13 @@ export const WorkspaceActionResult = z.object({
 });
 export type WorkspaceActionResult = z.infer<typeof WorkspaceActionResult>;
 export const WorkspaceCommands = [
+  z.object({
+    type: z.literal("thread.workspace.set"),
+    threadId: ThreadId,
+    mode: z.enum(["local", "worktree"]),
+    branch: z.string().min(1).max(1024).optional(),
+    allowUncommitted: z.boolean().default(false),
+  }),
   z.object({ type: z.literal("workspace.script.run"), threadId: ThreadId, scriptId: id }),
   z.object({ type: z.literal("workspace.editor.open"), threadId: ThreadId, editorId: id }),
   z.object({
@@ -99,3 +106,15 @@ export const WorkspaceCommands = [
     remote: z.string().min(1).max(128).default("origin"),
   }),
 ] as const;
+
+/** Safe command receipt codes. Git diagnostic text never crosses the wire. */
+export const GitActionError = z.enum([
+  "git_head_moved",
+  "git_conflicts",
+  "git_hook_failed",
+  "git_auth_failed",
+  "git_failed",
+  "git_dirty_worktree",
+  "git_invalid_ref",
+]);
+export type GitActionError = z.infer<typeof GitActionError>;

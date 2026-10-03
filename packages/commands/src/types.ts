@@ -38,3 +38,9 @@ export function metadata(d: Definition): PaletteCommand {
     ...(d.argumentHint === undefined ? {} : { argumentHint: d.argumentHint }),
   };
 }
+
+export interface LibraryContext {
+  workspace: string;
+  provider: ProviderKind;
+  instance: string;
+}

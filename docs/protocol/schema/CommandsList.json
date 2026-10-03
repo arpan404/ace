@@ -2,6 +2,32 @@
   "$id": "https://ace.local/protocol/v1/CommandsList.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "draft": {
+      "properties": {
+        "draftId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "instanceId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "workspaceId": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+        }
+      },
+      "required": [
+        "draftId",
+        "workspaceId",
+        "provider"
+      ],
+      "type": "object"
+    },
     "limit": {
       "default": 50,
       "maximum": 100,
@@ -28,8 +54,8 @@
   },
   "required": [
     "requestId",
-    "threadId",
     "type"
   ],
-  "type": "object"
+  "type": "object",
+  "x-ace-constraint": "Exactly one of threadId or draft is required."
 }
