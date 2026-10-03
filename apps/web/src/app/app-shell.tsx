@@ -1,14 +1,25 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
+import { cn } from "@/lib/cn.ts";
 import { ActivityNotifier, useNeedsYouCount } from "@/features/activity/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
-import { GlobalHotkeys, Rail } from "@/features/shell/index.ts";
+import { GlobalHotkeys, Rail, TabBar } from "@/features/shell/index.ts";
+import { usePhone } from "@/lib/breakpoints.ts";
+import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 
 /** Wallpaper, the rail of views, and the selected view (its sidebar and main column). */
 export function AppShell() {
   const shell = useRouteFocus();
+  const phone = usePhone();
+  // The static boot shell from index.html fades into this one.
+  useDismissBootSplash();
+  // Activity's count on the rail (or the phone's tab bar): the same number its header shows.
+  const badges = { activity: useNeedsYouCount() };
   return (
-    <div ref={shell} className="relative flex h-dvh min-h-0 overflow-hidden">
+    <div
+      ref={shell}
+      className={cn("relative flex h-dvh min-h-0 overflow-hidden", phone && "flex-col")}
+    >
       <div className="wallpaper" />
       <a
         href="#main"
@@ -16,21 +27,16 @@ export function AppShell() {
       >
         Skip to content
       </a>
-      <ViewRail />
+      {!phone && <Rail badges={badges} />}
       <div className="relative z-[1] flex min-h-0 min-w-0 flex-1">
         <Outlet />
       </div>
+      {phone && <TabBar badges={badges} />}
       <CommandPalette />
       <GlobalHotkeys />
       <ActivityNotifier />
     </div>
   );
-}
-
-/** The rail with Activity's count: the same number its header shows. */
-function ViewRail() {
-  const needsYou = useNeedsYouCount();
-  return <Rail badges={{ activity: needsYou }} />;
 }
 
 /** After client-side navigation, move focus to the new view's title so keyboard and
