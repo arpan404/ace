@@ -46,7 +46,7 @@
       "type": "string"
     },
     "options": {
-      "$ref": "https://ace.local/protocol/v1/TurnOptions.json"
+      "$ref": "https://ace.local/protocol/v1/ExecutionOptions.json"
     },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

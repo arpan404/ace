@@ -1,3 +1,4 @@
+import type { ThreadTransitions } from "./transitions.ts";
 import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -9,15 +10,17 @@ export async function executeIntent(
   repo: EngineRepository,
   registry: AdapterRegistry,
   sessions: Sessions,
+  transitions: ThreadTransitions,
   beforeSend?: (
     threadId: import("@ace/protocol").ThreadId,
     commandId: import("@ace/protocol").CommandId,
   ) => Promise<void>,
 ): Promise<void> {
   const p = intent.command.payload;
-  if (p.type === "thread.create" || p.type === "thread.send") {
+  if (p.type === "thread.create" || p.type === "thread.send" || p.type === "thread.fork") {
     if (repo.store.getThread(actor.id)?.deletedAt !== undefined) throw new Error("Thread deleted");
-    await sessions.select(actor, p.model, p.options);
+    if (p.type === "thread.fork") await transitions.freezeForkSource(p.threadId, actor.id);
+    if (p.type === "thread.send") await transitions.selectNext(actor, intent, p.model, p.options);
     await sessions.open(actor);
     const capabilities =
       actor.effectiveCapabilities ??
@@ -28,9 +31,14 @@ export async function executeIntent(
       ?.activeRun;
     if (!active) await beforeSend?.(actor.id, intent.command.id);
     await session.send(
-      p.input,
+      [
+        ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
+        ...(p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input),
+      ],
       p.type === "thread.send" && p.delivery === "steer" && capabilities.steer ? "steer" : "queue",
+      intent.command.id,
     );
+    transitions.delivered(actor.id);
     return;
   }
   if (!actor.session) throw new Error("Provider session is not live");

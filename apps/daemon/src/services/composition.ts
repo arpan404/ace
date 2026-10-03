@@ -3,6 +3,7 @@ import { startConductor } from "./conductor.ts";
 import { startAutomations } from "./automations.ts";
 import { startWorkspaceActions } from "./workspace-actions.ts";
 import { startThreadOrganization } from "./thread-organization.ts";
+import { startThreadTransitions } from "./thread-transitions.ts";
 import { startAgentRegistry } from "./agent-registry.ts";
 import { startScreen } from "./screen.ts";
 import { startAccounts } from "./accounts.ts";
@@ -19,6 +20,7 @@ import { startUsage } from "./usage.ts";
 import { startModels } from "./models.ts";
 import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
+import { startPi } from "./pi.ts";
 import { startEngine } from "./engine.ts";
 import type { ServiceContext, Services } from "./types.ts";
 /** Ordered composition: provider sessions are admitted only after their services open. */
@@ -38,6 +40,8 @@ export const serviceFactories = [
   startModels,
   startMcp,
   startNotifications,
+  startThreadTransitions,
+  startPi,
   startAgentRegistry,
   startPreviewClient,
   startWorkspaceActions,
@@ -100,6 +104,8 @@ export function readyServices(services: Partial<Services>): Services {
     ...(services.commands ? { commands: services.commands } : {}),
     ...(services.files ? { files: services.files } : {}),
     ...(services.relay ? { relay: services.relay } : {}),
+    ...(services.transitions ? { transitions: services.transitions } : {}),
+    ...(services.pi ? { pi: services.pi } : {}),
     ...(services.engine ? { engine: services.engine } : {}),
     ...(services.history ? { history: services.history } : {}),
   };

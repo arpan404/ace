@@ -4,6 +4,8 @@ import { createAutomationsSession } from "./automations.ts";
 import { createWorkspaceActionsSession } from "./workspace-actions.ts";
 import { createTerminalSession } from "./terminal.ts";
 import { createThreadOrganizationSession } from "./thread-organization.ts";
+import { createThreadTransitionsSession } from "./thread-transitions.ts";
+import { createPiSocketSession } from "./pi.ts";
 import { createAgentRegistrySession } from "./agent-registry.ts";
 import { createScreenSession } from "./screen.ts";
 import { Simulators } from "@ace/screen";
@@ -33,6 +35,7 @@ export const socketServiceFactories = [
   createThreadOrganizationSession,
   createWorkspaceActionsSession,
   createTerminalSession,
+  createPiSocketSession,
   createSearchSession,
   createAccountsSession,
   createCommandsSession,
@@ -48,6 +51,7 @@ export const socketServiceFactories = [
   createModelsSession,
   createAgentRegistrySession,
   createReviewSession,
+  createThreadTransitionsSession,
   createEngineSession,
   createDiagnosticsSession,
 ];

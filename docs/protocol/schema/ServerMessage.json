@@ -15,6 +15,9 @@
       "$ref": "https://ace.local/protocol/v1/AutomationResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/PiControlResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/RegistryResult.json"
     },
     {
@@ -597,6 +600,9 @@
         },
         "error": {
           "type": "string"
+        },
+        "forkThreadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
         "health": {
           "$ref": "https://ace.local/protocol/v1/DiagnosticsHealth.json"

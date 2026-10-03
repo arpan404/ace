@@ -1,14 +1,9 @@
+import { ExecutionOptions } from "./thread-transitions.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
 import { ThreadId, Timestamp } from "./ids.ts";
 
-export const TurnOptions = z
-  .record(
-    z.string().min(1).max(128),
-    z.union([z.string().max(1024), z.number().finite(), z.boolean(), z.null()]),
-  )
-  .refine((value) => Object.keys(value).length <= 32)
-  .meta({ "x-ace-constraint": "At most 32 provider options." });
+export const TurnOptions = ExecutionOptions;
 export type TurnOptions = z.infer<typeof TurnOptions>;
 export const ThreadOrganization = z.object({
   pinned: z.boolean().optional(),
@@ -77,6 +72,7 @@ export const ThreadClientFields = ThreadOrganization.extend({
   details: ThreadDetails.optional(),
   live: ThreadRunMetadata.optional(),
 });
+export type ThreadClientFields = z.infer<typeof ThreadClientFields>;
 export const ThreadClientUpdated = z.object({
   type: z.literal("thread.client.updated"),
   changes: ThreadClientFields.partial().extend({

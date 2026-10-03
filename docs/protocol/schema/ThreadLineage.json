@@ -1,0 +1,33 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadLineage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "lossy": {
+      "type": "boolean"
+    },
+    "mode": {
+      "enum": [
+        "native",
+        "portable"
+      ],
+      "type": "string"
+    },
+    "parentAgentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "parentThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "point": {
+      "$ref": "https://ace.local/protocol/v1/ForkPoint.json"
+    }
+  },
+  "required": [
+    "parentThreadId",
+    "parentAgentId",
+    "point",
+    "mode",
+    "lossy"
+  ],
+  "type": "object"
+}

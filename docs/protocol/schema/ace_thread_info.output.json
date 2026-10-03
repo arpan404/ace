@@ -293,6 +293,21 @@
             "fork": {
               "type": "boolean"
             },
+            "forkPoints": {
+              "items": {
+                "enum": [
+                  "turn",
+                  "item",
+                  "end"
+                ],
+                "type": "string"
+              },
+              "maxItems": 2,
+              "type": "array"
+            },
+            "forkSubagents": {
+              "type": "boolean"
+            },
             "imageInput": {
               "type": "boolean"
             },
@@ -306,6 +321,9 @@
               "type": "boolean"
             },
             "rewindFiles": {
+              "type": "boolean"
+            },
+            "sessionOptions": {
               "type": "boolean"
             },
             "steer": {
@@ -330,6 +348,64 @@
             "tokenUsage",
             "imageInput",
             "rewindFiles"
+          ],
+          "type": "object"
+        },
+        "execution": {
+          "additionalProperties": false,
+          "properties": {
+            "instanceId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "model": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "options": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "maxLength": 1024,
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "default": {},
+              "propertyNames": {
+                "maxLength": 128,
+                "type": "string"
+              },
+              "type": "object",
+              "x-ace-constraint": "At most 32 provider option entries."
+            },
+            "provider": {
+              "enum": [
+                "claude",
+                "codex",
+                "opencode",
+                "cursor",
+                "antigravity",
+                "acp",
+                "pi"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "provider",
+            "options"
           ],
           "type": "object"
         },
@@ -391,7 +467,8 @@
                     "opencode",
                     "cursor",
                     "antigravity",
-                    "acp"
+                    "acp",
+                    "pi"
                   ],
                   "type": "string"
                 }
@@ -423,6 +500,77 @@
           "maxLength": 256,
           "minLength": 1,
           "type": "string"
+        },
+        "lineage": {
+          "additionalProperties": false,
+          "properties": {
+            "lossy": {
+              "type": "boolean"
+            },
+            "mode": {
+              "enum": [
+                "native",
+                "portable"
+              ],
+              "type": "string"
+            },
+            "parentAgentId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "parentThreadId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "point": {
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "runId": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "turn",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "runId"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "itemId": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "type": {
+                      "const": "item",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "itemId"
+                  ],
+                  "type": "object"
+                }
+              ]
+            }
+          },
+          "required": [
+            "parentThreadId",
+            "parentAgentId",
+            "point",
+            "mode",
+            "lossy"
+          ],
+          "type": "object"
         },
         "live": {
           "additionalProperties": false,
@@ -493,11 +641,10 @@
               },
               "propertyNames": {
                 "maxLength": 128,
-                "minLength": 1,
                 "type": "string"
               },
               "type": "object",
-              "x-ace-constraint": "At most 32 provider options."
+              "x-ace-constraint": "At most 32 provider option entries."
             },
             "provider": {
               "enum": [
@@ -506,7 +653,8 @@
                 "opencode",
                 "cursor",
                 "antigravity",
-                "acp"
+                "acp",
+                "pi"
               ],
               "type": "string"
             },
@@ -528,7 +676,8 @@
             "opencode",
             "cursor",
             "antigravity",
-            "acp"
+            "acp",
+            "pi"
           ],
           "type": "string"
         },
@@ -677,6 +826,100 @@
               "type": "object"
             }
           ]
+        },
+        "switch": {
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "error": {
+              "maxLength": 2048,
+              "type": "string"
+            },
+            "lossy": {
+              "type": "boolean"
+            },
+            "recommendation": {
+              "const": "delegate_task",
+              "type": "string"
+            },
+            "selection": {
+              "additionalProperties": false,
+              "properties": {
+                "instanceId": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "model": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "options": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "maxLength": 1024,
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "default": {},
+                  "propertyNames": {
+                    "maxLength": 128,
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "x-ace-constraint": "At most 32 provider option entries."
+                },
+                "provider": {
+                  "enum": [
+                    "claude",
+                    "codex",
+                    "opencode",
+                    "cursor",
+                    "antigravity",
+                    "acp",
+                    "pi"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "provider",
+                "options"
+              ],
+              "type": "object"
+            },
+            "state": {
+              "enum": [
+                "queued",
+                "applied",
+                "failed"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "selection",
+            "state",
+            "lossy",
+            "at"
+          ],
+          "type": "object"
         },
         "title": {
           "type": "string"

@@ -1,6 +1,11 @@
+import { TransitionReadiness } from "./transition-readiness.ts";
+import { captureExecutionSources } from "./execution-provenance.ts";
+import { quiescent } from "./transition-history.ts";
+import { TransitionState } from "./transition-state.ts";
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
+import type { StatementSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
-import { TurnOptions, Command, ThreadId, type EventPayload } from "@ace/protocol";
+import { Command, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
 import { capFact, readRawBlob } from "./raw.ts";
@@ -18,15 +23,37 @@ export interface Intent {
 }
 export class EngineRepository {
   readonly store: Store;
+  readonly transitions: TransitionState;
   private ids: IdSource;
   private capacity: number;
+  private readiness: TransitionReadiness;
   private snapshots = new Map<ThreadId, Snapshot>();
+  private admissionStatements: {
+    has: StatementSync;
+    mark: StatementSync;
+    ack: StatementSync;
+    correlated: StatementSync;
+  };
   constructor(store: Store, ids: IdSource = { next: () => randomUUID() }, capacity = 64) {
     this.capacity = capacity;
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    this.transitions = new TransitionState(store);
+    this.readiness = store.atomic((db) => new TransitionReadiness(db));
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
+    this.admissionStatements = store.atomic((db) => ({
+      has: db.prepare(
+        "SELECT 1 FROM engine_state_records WHERE thread_id=? AND section='engineAdmission' AND key='root'",
+      ),
+      mark: db.prepare(
+        "INSERT OR IGNORE INTO engine_state_records VALUES (?, 'engineAdmission', 'root', 'true')",
+      ),
+      correlated: db.prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND command_id=?`),
+      ack: db.prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND awaiting=1 AND ack_target=(
+        SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
+      )`),
+    }));
   }
   state(id: ThreadId): ThreadState | undefined {
     return this.store.atomic((db) => {
@@ -64,6 +91,23 @@ export class EngineRepository {
     this.store.atomic((db) => {
       let snapshot = this.snapshots.get(state.threadId);
       if (!snapshot || snapshot.state !== state) snapshot = new Snapshot(db, state);
+      if (
+        payloads.some(
+          (event) =>
+            event.type === "run.started" ||
+            event.type === "item.created" ||
+            event.type === "item.updated",
+        )
+      ) {
+        const session = this.session(state.threadId);
+        const selection = this.transitions.get(state.threadId).selection ?? {
+          provider: state.config.provider,
+          options: {},
+          ...session,
+        };
+        captureExecutionSources(state, payloads, selection, session.nativeSessionId);
+      }
+      this.readiness.capture(state, payloads);
       snapshot.retainChanges(payloads);
       this.store.appendEvents(state.threadId, payloads, at);
       db.prepare(`INSERT INTO thread_state VALUES (?, ?, ?)
@@ -110,24 +154,28 @@ export class EngineRepository {
             if (fact.type === "item.delta" && emitted.some((event) => event.type === "item.delta"))
               snapshot?.delta(fact);
             snapshot?.remember(fact, emitted);
+            if (fact.type === "tick") this.readiness.refreshBlocked(state);
             return emitted;
           } finally {
             finish();
           }
         });
-        for (const event of events)
-          if (
+        // Admission-based providers transfer queue ownership before a run starts.
+        // Persist the acknowledgement policy in the existing per-thread record store,
+        // so a later run cannot acknowledge the next, unrelated engine input.
+        const root = state.agents[state.rootKey ?? ""]?.agent.id;
+        for (const event of events) {
+          const admitted = event.type === "input.admitted" && event.agentId === root;
+          if (admitted) this.admissionStatements.mark.run(id);
+          const started =
             event.type === "run.started" &&
+            event.run.agentId === root &&
             ["user", "queue", "unknown"].includes(event.run.trigger) &&
-            event.run.agentId === state.agents[state.rootKey ?? ""]?.agent.id
-          )
-            this.store.atomic((db) =>
-              db
-                .prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND awaiting=1 AND ack_target=(
-          SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
-        )`)
-                .run(id, id),
-            );
+            !this.admissionStatements.has.get(id);
+          if (event.type === "input.admitted" && admitted && event.commandId !== undefined)
+            this.admissionStatements.correlated.run(id, event.commandId);
+          else if (admitted || started) this.admissionStatements.ack.run(id, id);
+        }
         this.save(state, events, now);
         return state;
       });
@@ -135,6 +183,10 @@ export class EngineRepository {
       this.evict(id);
       throw error;
     }
+  }
+
+  quiescent(state: ThreadState): boolean {
+    return quiescent(state, this.readiness.agentsReady(state));
   }
 
   add(command: Command, id: ThreadId, resolutionId?: string): void {
@@ -236,7 +288,6 @@ export class EngineRepository {
   session(id: ThreadId): {
     cwd: string;
     model?: string;
-    options?: TurnOptions;
     nativeSessionId?: string;
     instanceId?: string;
   } {
@@ -245,9 +296,6 @@ export class EngineRepository {
       if (!row) throw new Error("Missing engine session metadata");
       return {
         cwd: String(row.cwd),
-        ...(row.options == null
-          ? {}
-          : { options: TurnOptions.parse(JSON.parse(String(row.options))) }),
         ...(typeof row.instance_id === "string" ? { instanceId: row.instance_id } : {}),
         ...(row.model === null ? {} : { model: String(row.model) }),
         ...(row.native_session_id === null
@@ -256,19 +304,13 @@ export class EngineRepository {
       };
     });
   }
-  createSession(
-    id: ThreadId,
-    cwd: string,
-    model?: string,
-    instanceId?: string,
-    options?: TurnOptions,
-  ): void {
+  createSession(id: ThreadId, cwd: string, model?: string, instanceId?: string): void {
     this.store.atomic((db) =>
       db
         .prepare(
-          "INSERT INTO engine_sessions (thread_id, cwd, model, native_session_id, instance_id, options) VALUES (?, ?, ?, NULL, ?, ?)",
+          "INSERT INTO engine_sessions (thread_id, cwd, model, native_session_id, instance_id) VALUES (?, ?, ?, NULL, ?)",
         )
-        .run(id, cwd, model ?? null, instanceId ?? null, options ? JSON.stringify(options) : null),
+        .run(id, cwd, model ?? null, instanceId ?? null),
     );
   }
   nativeSession(id: ThreadId, nativeId: string, instanceId?: string): void {

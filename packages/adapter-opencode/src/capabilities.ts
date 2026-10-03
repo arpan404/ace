@@ -1,27 +1,20 @@
 import type { Capabilities } from "@ace/protocol";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
-/** The oldest HTTP generation covered by this adapter's recordings. */
-export function supportedVersion(version: string | undefined): boolean {
-  const parts = /^(\d+)\.(\d+)\.(\d+)(?:$|[-+])/.exec(version ?? "");
-  if (!parts) return false;
-  const major = Number(parts[1]);
-  const minor = Number(parts[2]);
-  const patch = Number(parts[3]);
-  return major === 1 && (minor > 18 || (minor === 18 && patch >= 33));
-}
+import { version } from "./boundaries.ts";
+export const supportedVersion = version;
 export function capabilities(cli: DiscoveryResult): Capabilities {
-  const supported = cli.installed && supportedVersion(cli.version);
+  const supported = cli.installed && version(cli.version);
   return {
-    steer: false,
+    steer: supported,
     interruptCascades: supported,
     resume: supported,
-    fork: supported,
+    fork: false,
     subagentTranscripts: supported,
     backgroundTaskControl: supported,
-    backgroundVisibility: supported ? "partial" : "none",
-    planMode: supported,
+    backgroundVisibility: supported ? "full" : "none",
+    planMode: false,
     tokenUsage: supported,
     imageInput: supported,
-    rewindFiles: supported,
+    rewindFiles: false,
   };
 }

@@ -36,6 +36,77 @@
             "minLength": 1,
             "type": "string"
           },
+          "lineage": {
+            "additionalProperties": false,
+            "properties": {
+              "lossy": {
+                "type": "boolean"
+              },
+              "mode": {
+                "enum": [
+                  "native",
+                  "portable"
+                ],
+                "type": "string"
+              },
+              "parentAgentId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "parentThreadId": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "point": {
+                "oneOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "runId": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "type": {
+                        "const": "turn",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "runId"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "itemId": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "type": {
+                        "const": "item",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "itemId"
+                    ],
+                    "type": "object"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "parentThreadId",
+              "parentAgentId",
+              "point",
+              "mode",
+              "lossy"
+            ],
+            "type": "object"
+          },
           "model": {
             "type": "string"
           },
@@ -84,7 +155,8 @@
                   "opencode",
                   "cursor",
                   "antigravity",
-                  "acp"
+                  "acp",
+                  "pi"
                 ],
                 "type": "string"
               }

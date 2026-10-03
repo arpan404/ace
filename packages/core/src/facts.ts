@@ -1,4 +1,5 @@
 import type {
+  ThreadLineage,
   UsageMetadata,
   AgentActivity,
   AgentFidelity,
@@ -72,6 +73,7 @@ export type Fact =
       parent?: Key;
       spawnedBy?: Key;
       origin: AgentOrigin;
+      lineage?: ThreadLineage;
       fidelity: AgentFidelity;
       native: NativeRef;
       cwd: string;
@@ -89,6 +91,8 @@ export type Fact =
       name?: string;
       model?: string;
     }
+  /** Durable provider admission transfers queue ownership; it is not a model turn. */
+  | { type: "input.admitted"; agent: Key; nativeInputId: string; commandId?: string }
   | { type: "turn.started"; agent: Key; nativeTurnId?: string; trigger: RunTrigger }
   | {
       type: "turn.ended";

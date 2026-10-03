@@ -130,6 +130,9 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/PiControlRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/RegistryRequest.json"
     },
     {

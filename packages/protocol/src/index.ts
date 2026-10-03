@@ -63,3 +63,6 @@ export * from "./preview-client.ts";
 export { PreviewPort, PreviewDescriptor } from "./preview.ts";
 
 export * from "./run-client.ts";
+export * from "./thread-transitions.ts";
+export * from "./handoff-read.ts";
+export * from "./pi.ts";

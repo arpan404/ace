@@ -45,6 +45,46 @@ it("upgrades existing oversized text and appended code units into bounded previe
     const result = store.readOutput(part.source.streamId, part.source.bytes - 4, 4);
     expect(Buffer.from(result.bytes, "base64").toString("utf16le")).toBe("😀");
     expect(result.eof).toBe(true);
+    const through = store.headSeq();
+    const historical = store.readHistoricalItemPage(thread.id, through, through + 1, 1).items[0];
+    expect(historical).toMatchObject({ parts: [{ text: "x".repeat(4096) }] });
+    expect(store.historicalItemCount(thread.id, through)).toBe(1);
+    if (
+      historical?.type !== "message" ||
+      historical.parts[0]?.type !== "text" ||
+      !historical.parts[0].source
+    )
+      throw new Error("Missing rebuilt historical source");
+    const frozenSource = historical.parts[0].source;
+    store.appendEvents(thread.id, [
+      {
+        type: "item.delta",
+        itemId: item.id,
+        agentId: item.agentId,
+        field: "text",
+        append: " future",
+      },
+    ]);
+    expect(
+      store
+        .readHistoricalStream(
+          thread.id,
+          frozenSource.streamId,
+          through,
+          frozenSource.bytes - 4,
+          100,
+        )
+        .bytes.toString("utf16le"),
+    ).toBe("😀");
+    const live = store.readItemPage(thread.id, store.headSeq() + 1, 1).items[0];
+    if (live?.type !== "message" || live.parts[0]?.type !== "text" || !live.parts[0].source)
+      throw new Error("Missing upgraded append target");
+    expect(
+      Buffer.from(
+        store.readOutput(live.parts[0].source.streamId, part.source.bytes, 100).bytes,
+        "base64",
+      ).toString("utf16le"),
+    ).toBe(" future");
   } finally {
     store?.close();
     rmSync(directory, { recursive: true, force: true });

@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/MergedForkContext.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "citations": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/HandoffCitation.json"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "type": "array"
+    },
+    "patchApplied": {
+      "type": "boolean"
+    },
+    "sourceThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "summary": {
+      "maxLength": 16384,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "sourceThreadId",
+    "summary",
+    "citations",
+    "patchApplied"
+  ],
+  "type": "object"
+}

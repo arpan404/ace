@@ -11,6 +11,9 @@
     "endedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "executionSource": {
+      "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+    },
     "id": {
       "$ref": "https://ace.local/protocol/v1/RunId.json"
     },

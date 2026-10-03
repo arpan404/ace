@@ -29,6 +29,8 @@ export interface Services {
   automations?: import("@ace/automations").AutomationService;
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntime;
   canReadThread?: NonNullable<import("../server-options.ts").ServerOptions["canReadThread"]>;
+  transitions?: import("../engine/transitions.ts").TransitionIO;
+  pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
   accounts?: AccountService;
   accountRegistry?: AccountRegistry;

@@ -17,7 +17,12 @@ export function liveMetadata(
       changes: { settledAt: null, settledReason: null, autoSettleAt: null },
     };
   const live = { provider: thread.provider, ...thread.live };
-  if (payload.type === "agent.created") {
+  if (payload.type === "thread.updated" && payload.execution) {
+    live.provider = payload.execution.provider;
+    live.model = payload.execution.model;
+    live.account = payload.execution.instanceId;
+    live.options = payload.execution.options;
+  } else if (payload.type === "agent.created") {
     const count =
       Number(payload.agent.origin !== "root") -
       Number(previousAgent !== undefined && previousAgent.origin !== "root");

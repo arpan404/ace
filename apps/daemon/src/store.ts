@@ -6,7 +6,9 @@ import {
   liveMetadataChange,
 } from "./thread-client-storage.ts";
 import { ThreadClientFields } from "@ace/protocol";
+import { ThreadTransitionView } from "@ace/protocol";
 import { ThreadProviderMetadata } from "@ace/protocol";
+import { HistoryIndex } from "./history-index.ts";
 import { setImmediate } from "node:timers/promises";
 import type { ArchiveReader } from "@ace/history-import";
 import { installArchive, readHistoryBlob } from "./history-storage.ts";
@@ -23,6 +25,7 @@ import {
   type EventPayload,
   type RawPayload,
   ThreadId,
+  type ItemId,
   type ThreadView,
   WorkspaceId,
   WorkspaceFileChange,
@@ -58,6 +61,7 @@ export class Store {
   private readonly stopSearchTimer: () => void;
   private closing: Promise<void> | undefined;
   private readonly payloads: PayloadStore;
+  private readonly history: HistoryIndex;
   private readonly status: StatusStore;
   private readonly nextId: () => string;
   private readonly now: () => number;
@@ -96,6 +100,14 @@ export class Store {
         "CREATE INDEX IF NOT EXISTS threads_workspace_live ON threads(workspace_id, archived_at, id)",
       );
       this.payloads.initialize();
+      this.history = new HistoryIndex(
+        this.db,
+        (sql) => this.statement(sql),
+        (stream, offset, limit) => this.payloads.readOutputBytes(stream, offset, limit),
+        (thread, item, stream, offset, text) =>
+          this.payloads.archiveOutput(thread, item, stream, offset, text),
+      );
+      this.history.initialize();
       this.status.initialize((id) => this.getThread(id));
       this.atomic(migrateRunClient);
       this.atomic((db) => seedThreadClient(db, (id) => this.getThread(id)));
@@ -355,6 +367,9 @@ export class Store {
   private decodeThread(row: Record<string, SQLOutputValue>): Thread {
     return Thread.parse({
       ...(row.client == null ? {} : ThreadClientFields.parse(JSON.parse(String(row.client)))),
+      ...(row.transitions == null
+        ? {}
+        : ThreadTransitionView.parse(JSON.parse(String(row.transitions)))),
       id: row.id,
       workspaceId: row.workspace_id,
       title: row.title,
@@ -434,13 +449,19 @@ export class Store {
             thread.id,
           );
         this.statement(
-          "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ? WHERE id = ?",
+          "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ?, provider = ?, transitions = ? WHERE id = ?",
         ).run(
           thread.title,
           JSON.stringify(thread.status),
           thread.updatedAt,
           thread.archivedAt ?? null,
           thread.rootAgentId ?? null,
+          thread.provider,
+          JSON.stringify({
+            lineage: thread.lineage,
+            execution: thread.execution,
+            switch: thread.switch,
+          }),
           thread.id,
         );
         if (
@@ -456,6 +477,7 @@ export class Store {
         }
         event.payload = this.payloads.cap(event.payload, threadId);
         this.payloads.persist(event);
+        this.history.record(event);
         this.status.persist(event, thread);
         this.statement("INSERT INTO events VALUES (?, ?, ?, ?, ?, ?)").run(
           seq,
@@ -626,11 +648,36 @@ export class Store {
     return { ...this.payloads.page(threadId, before, limit), seq: this.headSeq() };
   }
   outputThread(streamId: string) {
-    return this.payloads.streamThread(streamId);
+    return this.payloads.liveStreamThread(streamId);
   }
   readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
     return { ...this.payloads.wirePage(threadId, before, limit, byteLimit), seq: this.headSeq() };
+  }
+  historicalItemCount(threadId: ThreadId, through: number): number {
+    return this.history.count(threadId, through);
+  }
+  historicalItemCompletion(threadId: ThreadId, itemId: ItemId) {
+    return this.history.completion(threadId, itemId);
+  }
+  readHistoricalItemPage(
+    threadId: ThreadId,
+    through: number,
+    before: number,
+    limit: number,
+    byteLimit = 1024 * 1024,
+  ) {
+    if (!this.getThread(threadId)) throw new Error("Unknown thread");
+    return this.history.page(threadId, through, before, limit, byteLimit);
+  }
+  readHistoricalStream(
+    threadId: ThreadId,
+    streamId: string,
+    through: number,
+    offset: number,
+    limit: number,
+  ) {
+    return this.history.readStream(threadId, streamId, through, offset, limit);
   }
   blobInfo(blobRef: string) {
     return this.payloads.blobInfo(blobRef);
@@ -639,7 +686,7 @@ export class Store {
     return this.payloads.outputInfo(streamId);
   }
   readOutputBytes(streamId: string, offset: number, limit: number) {
-    return this.payloads.readOutputBytes(streamId, offset, limit);
+    return this.payloads.readLiveOutputBytes(streamId, offset, limit);
   }
   readOutput(streamId: string, offset: number, limit: number) {
     return this.payloads.readOutput(streamId, offset, limit);

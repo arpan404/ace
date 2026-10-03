@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/HandoffChunk.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bytes": {
+      "maxLength": 43692,
+      "type": "string"
+    },
+    "encoding": {
+      "enum": [
+        "utf-16le",
+        "utf-8"
+      ],
+      "type": "string"
+    },
+    "eof": {
+      "type": "boolean"
+    },
+    "nextOffset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "bytes",
+    "encoding",
+    "nextOffset",
+    "eof"
+  ],
+  "type": "object"
+}

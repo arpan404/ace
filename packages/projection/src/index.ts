@@ -8,6 +8,7 @@ export {
   outputStreamId,
   summarizeOutput,
   utf8Slice,
+  utf8Tail,
 } from "./delta.ts";
 export { applyItemsPage, trackItem } from "./window.ts";
 import type {
@@ -127,6 +128,10 @@ export function updateThread(thread: Thread, event: Event): void {
     }
   }
   if (payload.type === "thread.updated") {
+    if (payload.provider !== undefined) thread.provider = payload.provider;
+    if (payload.lineage !== undefined) thread.lineage = structuredCopy(payload.lineage);
+    if (payload.execution !== undefined) thread.execution = structuredCopy(payload.execution);
+    if (payload.switch !== undefined) thread.switch = structuredCopy(payload.switch);
     if (payload.title !== undefined) thread.title = payload.title;
     if (payload.effectiveCapabilities !== undefined)
       thread.effectiveCapabilities = structuredCopy(payload.effectiveCapabilities);
@@ -263,6 +268,9 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       }
       break;
     }
+    case "input.admitted":
+      // Queue ownership is reconciled by the host; admission creates no transcript/run.
+      break;
     case "usage.updated":
       if (p.usageScope === "provider_session" || p.usageScope === "model_session")
         put(view.usageSnapshots, usageSnapshotKey(p), structuredCopy(p));

@@ -1,4 +1,4 @@
-import { AcpIdentity, type TurnOptions } from "@ace/protocol";
+import { AcpIdentity } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
 import type { ThreadActor, EngineClock } from "./actor.ts";
@@ -44,6 +44,7 @@ export class Sessions {
         );
         metadata = this.dependencies.repo.session(actor.id);
       }
+      const transition = this.dependencies.repo.transitions.get(actor.id);
       if (state.config.provider !== "acp" && metadata.nativeSessionId && !capabilities.resume)
         throw new Error("Provider cannot resume this thread");
       const rootKey = state.rootKey ?? "root";
@@ -79,9 +80,12 @@ export class Sessions {
         threadId: actor.id,
         rootKey,
         cwd: metadata.cwd,
+        ...(transition.selection ? { options: transition.selection.options } : {}),
+        ...(transition.fork && metadata.nativeSessionId === undefined
+          ? { fork: transition.fork }
+          : {}),
         ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
         ...(metadata.model === undefined ? {} : { model: metadata.model }),
-        ...(metadata.options ? { options: metadata.options } : {}),
         ...(metadata.nativeSessionId === undefined
           ? {}
           : { resume: { nativeSessionId: metadata.nativeSessionId } }),
@@ -108,35 +112,20 @@ export class Sessions {
         throw new Error("Provider session closed while opening");
       }
       actor.session = session;
-      if (metadata.options && Object.keys(metadata.options).length > 0) {
-        if (!session.configure) {
-          await session.close("shutdown");
-          actor.session = undefined;
-          throw new Error("Provider options configuration unavailable");
-        }
-        await session.configure({
-          provider: state.config.provider,
-          ...(metadata.model ? { model: metadata.model } : {}),
-          ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
-          options: metadata.options,
-        });
-      }
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
-      this.dependencies.repo.nativeSession(actor.id, session.nativeSessionId, session.instanceId);
-      if (session.instanceId && session.instanceId !== thread?.live?.account) {
-        const current = this.dependencies.repo.store.getThread(actor.id);
-        if (current)
+      this.dependencies.repo.store.atomic(() => {
+        this.dependencies.repo.nativeSession(actor.id, session.nativeSessionId, session.instanceId);
+        delete transition.fork;
+        if (transition.selection && session.instanceId)
+          transition.selection.instanceId = session.instanceId;
+        this.dependencies.repo.transitions.set(actor.id, transition);
+        if (transition.selection)
           this.dependencies.repo.store.appendEvents(
             actor.id,
-            [
-              {
-                type: "thread.client.updated",
-                changes: { live: { ...current.live, account: session.instanceId } },
-              },
-            ],
+            [{ type: "thread.updated", execution: transition.selection }],
             this.dependencies.clock.now(),
           );
-      }
+      });
       this.dependencies.wake(actor.id);
     } catch (error) {
       await actor.flush();
@@ -166,99 +155,39 @@ export class Sessions {
     }
   }
 
-  async select(
-    actor: ThreadActor,
-    model: string | undefined,
-    options: TurnOptions | undefined,
-  ): Promise<void> {
-    if (model === undefined && options === undefined) return;
-    const metadata = this.dependencies.repo.session(actor.id);
-    const state = this.dependencies.repo.requireState(actor.id);
-    const selectedModel = model ?? metadata.model;
-    const selectedOptions = options ?? metadata.options ?? {};
-    const selection = {
-      provider: state.config.provider,
-      ...(selectedModel ? { model: selectedModel } : {}),
-      ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
-      options: selectedOptions,
-    };
-    if (actor.session?.configure) await actor.session.configure(selection);
-    else if (actor.session && Object.keys(selectedOptions).length > 0)
-      throw new Error("Provider options configuration unavailable");
-    else if (actor.session && selectedModel !== metadata.model) {
-      if (actor.session.setModel && selectedModel) await actor.session.setModel(selectedModel);
-      else {
-        const capability =
-          actor.effectiveCapabilities ??
-          this.dependencies.registry.get(state.config.provider).capabilities;
-        if (!capability.resume)
-          throw new Error("Provider cannot change model without losing history");
-        await this.close(actor, "idle");
-      }
-    }
-    await actor.flush();
-    try {
-      this.dependencies.repo.store.atomic((db) => {
-        const confirmed = this.dependencies.repo.requireState(actor.id);
-        if (selectedModel && selectedModel !== metadata.model && confirmed.rootKey)
-          actor.apply([{ type: "agent.linked", agent: confirmed.rootKey, model: selectedModel }]);
-        db.prepare("UPDATE engine_sessions SET model=?,options=? WHERE thread_id=?").run(
-          selectedModel ?? null,
-          JSON.stringify(selectedOptions),
-          actor.id,
-        );
-        const thread = this.dependencies.repo.store.getThread(actor.id);
-        if (thread)
-          this.dependencies.repo.store.appendEvents(
-            actor.id,
-            [
-              {
-                type: "thread.client.updated",
-                changes: {
-                  live: {
-                    ...thread.live,
-                    ...(selectedModel ? { model: selectedModel } : {}),
-                    options: selectedOptions,
-                  },
-                },
-              },
-            ],
-            this.dependencies.clock.now(),
-          );
-      });
-    } catch (error) {
-      this.dependencies.repo.evict(actor.id);
-      throw error;
-    }
-  }
   async close(actor: ThreadActor, reason: "idle" | "user" | "shutdown"): Promise<void> {
     const session = actor.session;
     if (!session) return;
     const lifetime = actor.lifetime;
     actor.session = undefined;
     const generation = actor.generation;
+    await actor.flush();
     try {
-      await actor.flush();
       await session.close(reason);
-    } finally {
+    } catch (error) {
       await actor.flush();
-      lifetime?.abort();
-      const ownsGeneration = actor.generation === generation;
-      if (ownsGeneration) {
-        actor.generation++;
-        this.dependencies.expireDelivery(actor);
-        actor.idleDue = false;
-        this.dependencies.repo.apply(
-          actor.id,
-          [
-            { type: "process.exited", deliberate: !actor.poisoned },
-            { type: "queue.changed", source: "provider", count: 0 },
-          ],
-          this.dependencies.clock.now(),
-        );
-      }
-      actor.schedule();
-      if (ownsGeneration && !actor.session && !actor.poisoned) this.dependencies.released(actor.id);
+      // No exit acknowledgement means the old process still owns its session.
+      if (actor.generation === generation) actor.session = session;
+      actor.idleDue = false;
+      throw error;
     }
+    await actor.flush();
+    lifetime?.abort();
+    const ownsGeneration = actor.generation === generation;
+    if (ownsGeneration) {
+      actor.generation++;
+      this.dependencies.expireDelivery(actor);
+      actor.idleDue = false;
+      this.dependencies.repo.apply(
+        actor.id,
+        [
+          { type: "process.exited", deliberate: !actor.poisoned },
+          { type: "queue.changed", source: "provider", count: 0 },
+        ],
+        this.dependencies.clock.now(),
+      );
+    }
+    actor.schedule();
+    if (ownsGeneration && !actor.session && !actor.poisoned) this.dependencies.released(actor.id);
   }
 }

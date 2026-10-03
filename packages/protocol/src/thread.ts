@@ -1,4 +1,10 @@
 import { ThreadClientFields } from "./thread-client.ts";
+import {
+  ThreadLineage,
+  ExecutionSelection,
+  ThreadSwitch,
+  ExecutionSource,
+} from "./thread-transitions.ts";
 import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { RunCheckpoints } from "./run-client.ts";
 import { z } from "zod";
@@ -38,6 +44,7 @@ export const Run = z.object({
   /** Stable root-turn number; subagent runs do not consume it. */
   ordinal: z.number().int().positive().optional(),
   checkpoints: RunCheckpoints.optional(),
+  executionSource: ExecutionSource.optional(),
   state: z.enum(["active", "completed", "interrupted", "failed"]),
   startedAt: Timestamp,
   endedAt: Timestamp.optional(),
@@ -82,5 +89,8 @@ export const Thread = z.object({
   updatedAt: Timestamp,
   archivedAt: Timestamp.optional(),
   imported: ImportedProvenance.optional(),
+  lineage: ThreadLineage.optional(),
+  execution: ExecutionSelection.optional(),
+  switch: ThreadSwitch.optional(),
 });
 export type Thread = z.infer<typeof Thread>;

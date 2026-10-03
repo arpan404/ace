@@ -33,6 +33,7 @@ export interface ServerOptions {
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
   workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
+  pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
   accounts?: AccountService;
   commands?: CommandService;

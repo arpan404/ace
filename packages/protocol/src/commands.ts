@@ -1,6 +1,7 @@
 import { WorkspaceCommands } from "./workspace-actions.ts";
 import { ForgeCommand } from "./forge.ts";
 import { ThreadOrganizationCommands, TurnOptions } from "./thread-client.ts";
+import { TransitionCommands } from "./thread-transitions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 import { DiagnosticsHealthCommand } from "./diagnostics.ts";
@@ -27,6 +28,7 @@ import {
 } from "./orchestration-execution.ts";
 
 export const CommandPayload = z.discriminatedUnion("type", [
+  ...TransitionCommands,
   DiagnosticsHealthCommand,
   ...ThreadOrganizationCommands,
   ...WorkspaceCommands,

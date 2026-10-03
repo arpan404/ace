@@ -1,5 +1,6 @@
 import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
+import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
@@ -14,8 +15,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const engineOptions = options.engine ?? {};
   const registry =
     engineOptions.registry ??
-    (await discoverAdapters(engineOptions.adapterDiscovery, (cli) =>
-      daemonClaudeAdapter(context, cli),
+    (await discoverAdapters(
+      engineOptions.adapterDiscovery,
+      (cli) => daemonClaudeAdapter(context, cli),
+      (adapters) => registerPi(context, adapters),
     ));
   if (!engineOptions.registry) resources.own(() => registry.close());
   const acp =
@@ -58,10 +61,15 @@ export async function startEngine(context: ServiceContext): Promise<void> {
             services.workspaceActions?.prepare(id) ??
             Promise.reject(new Error("Workspace unavailable")),
           machine: services.workspaceActions.machine,
-          beforeSend: (threadId, commandId) =>
-            services.workspaceActions?.checkpoints.beforeSend(threadId, commandId) ??
-            Promise.reject(new Error("Workspace unavailable")),
+          beforeSend: async (threadId, commandId) => {
+            await engineOptions.beforeSend?.(threadId, commandId);
+            if (!services.workspaceActions) throw new Error("Workspace unavailable");
+            await services.workspaceActions.checkpoints.beforeSend(threadId, commandId);
+          },
         }
+      : {}),
+    ...((engineOptions.transitions ?? services.transitions)
+      ? { transitions: engineOptions.transitions ?? services.transitions }
       : {}),
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });

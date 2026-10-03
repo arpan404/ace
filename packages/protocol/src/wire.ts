@@ -16,6 +16,7 @@ import { ForgePrStatus, ForgePrRef } from "./forge.ts";
 import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
 import { DiagnosticsHealthRequest, DiagnosticsHealthResult } from "./diagnostics.ts";
+import { PiControlRequest, PiControlResult } from "./pi.ts";
 import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
 import { FilesClientMessage, FilesServerMessage } from "./files.ts";
 import {
@@ -164,6 +165,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   PreviewRequest,
   ConductorRequest,
   ...AutomationRequest.options,
+  PiControlRequest,
   RegistryRequest,
   WorkspaceActionRequest,
   TerminalRequest,
@@ -239,6 +241,7 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 export const CommandResult = z.object({
   commandId: CommandId,
   ok: z.boolean(),
+  forkThreadId: ThreadId.optional(),
   health: DiagnosticsHealth.optional(),
   threadId: ThreadId.optional(),
   error: z.string().optional(),
@@ -258,6 +261,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ConductorResult,
   ConductorChanged,
   AutomationResponse,
+  PiControlResult,
   RegistryResult,
   WorkspaceActionResult,
   TerminalResult,

@@ -17,6 +17,7 @@ export type DaemonOptions = {
   conductor?: import("../conductor-runtime.ts").ConductorRuntimeOptions;
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntimeOptions;
   claude?: DaemonClaudeOptions;
+  pi?: import("./pi.ts").PiDaemonOptions;
   screen?: ScreenManager;
   commands?: DaemonCommandIntegration;
   config?: Config;

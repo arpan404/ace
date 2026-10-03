@@ -1,7 +1,8 @@
 import { realpathSync, statSync } from "node:fs";
 import { validResolution } from "./resolution.ts";
-import { createThreadState } from "@ace/core";
-import { AcpIdentity, Thread, type Command, type CommandResult, ThreadId } from "@ace/protocol";
+import { createEngineThread } from "./create-thread.ts";
+import { acceptTransition } from "./transition-handler.ts";
+import { AcpIdentity, ThreadId, type Command, type CommandResult } from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -17,6 +18,8 @@ export function engineHandler(
 ): CommandHandler {
   return {
     handle(command: Command): CommandResult {
+      const transition = acceptTransition(repo, registry, command, now(), nextId, wake);
+      if (transition) return transition;
       const p = command.payload;
       const fail = (error: string): CommandResult => ({ commandId: command.id, ok: false, error });
       if (
@@ -50,51 +53,44 @@ export function engineHandler(
             return fail("workspace_unavailable");
           }
           const at = now();
-          const thread = Thread.parse({
-            id: nextId(),
+          threadId = ThreadId.parse(nextId());
+          if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
+          createEngineThread(repo, {
+            id: threadId,
             workspaceId: p.workspaceId,
             title: p.title ?? "New thread",
-            provider: p.provider,
-            ...acpIdentity,
-            details: {
-              workspace: {
-                id: p.workspaceId,
-                name: repo.store.getWorkspace(p.workspaceId)?.name ?? p.workspaceId,
-                path: cwd,
-              },
-              mode: p.mode ?? "local",
-              worktree: cwd,
-              ...(p.baseBranch ? { baseBranch: p.baseBranch } : {}),
-              ...(machine ? { machine } : {}),
-            },
-            live: {
+            ...(acpIdentity ? { acpIdentity } : {}),
+            selection: {
               provider: p.provider,
-              ...(p.model ? { model: p.model } : {}),
-              ...(p.account ? { account: p.account } : {}),
-              ...(p.options ? { options: p.options } : {}),
-              subagentCount: 0,
-              backgroundTaskCount: 0,
-            },
-            activityAt: at,
-            status: { state: "new" },
-            createdAt: at,
-            updatedAt: at,
-          });
-          threadId = thread.id;
-          if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
-          const state = createThreadState({
-            threadId,
-            config: { provider: p.provider, silenceMs },
-            rootAgent: {
-              agent: "root",
-              fidelity: "full",
-              native: { provider: p.provider, ...acpIdentity },
-              cwd,
+              options: p.options ?? {},
+              ...(p.account ? { instanceId: p.account } : {}),
               ...(p.model === undefined ? {} : { model: p.model }),
             },
+            cwd,
+            at,
+            silenceMs,
+            client: {
+              details: {
+                workspace: {
+                  id: p.workspaceId,
+                  name: repo.store.getWorkspace(p.workspaceId)?.name ?? p.workspaceId,
+                  path: cwd,
+                },
+                mode: p.mode ?? "local",
+                worktree: cwd,
+                ...(p.baseBranch ? { baseBranch: p.baseBranch } : {}),
+                ...(machine ? { machine } : {}),
+              },
+              live: {
+                provider: p.provider,
+                ...(p.model ? { model: p.model } : {}),
+                ...(p.account ? { account: p.account } : {}),
+                options: p.options ?? {},
+                subagentCount: 0,
+                backgroundTaskCount: 0,
+              },
+            },
           });
-          repo.save(state, [{ type: "thread.created", thread }], at);
-          repo.createSession(threadId, cwd, p.model, p.account, p.options);
         } else if ("threadId" in p) {
           threadId = ThreadId.parse(p.threadId);
           if (p.type === "thread.archive") {
@@ -106,6 +102,8 @@ export function engineHandler(
           if (repo.store.getThread(threadId)?.deletedAt !== undefined)
             return fail("thread_not_found");
           if (!repo.state(threadId)) return fail("thread_not_found");
+          if (p.type === "thread.send" && repo.transitions.guarded(threadId))
+            return fail("thread_transition_in_progress");
           if (
             p.type === "thread.interrupt" &&
             p.agentId !== undefined &&

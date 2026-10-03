@@ -41,20 +41,21 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "defaultTier": "example",
-  "deprecated": false,
+  "contextWindow": 7,
+  "deprecated": true,
   "displayName": "example",
-  "hidden": true,
+  "hidden": false,
   "id": "example",
   "inputModalities": [],
+  "installationId": "example",
   "instance": "example",
-  "isDefault": false,
+  "isDefault": true,
+  "modelConfigId": "example",
   "nativeModelId": "example",
   "provider": "claude",
   "raw": {
     "json": "example",
-    "truncated": true
+    "truncated": false
   },
   "reasoningEfforts": [],
   "serviceTiers": []
@@ -78,8 +79,8 @@ Example:
 ```json
 {
   "acpAgentId": "example",
-  "installationId": "example",
-  "instance": "example"
+  "instance": "example",
+  "instanceId": "example"
 }
 ```
 
@@ -103,9 +104,10 @@ Example:
 
 ```json
 {
-  "installationId": "example",
+  "error": "discovery_failed",
   "instance": "example",
-  "provider": "cursor",
+  "provider": "pi",
+  "refreshedAt": 4,
   "refreshing": true,
   "stale": true
 }
@@ -129,7 +131,7 @@ Example:
 
 ```json
 {
-  "offset": 8
+  "acpAgentId": "example"
 }
 ```
 
@@ -171,18 +173,20 @@ Example:
 
 ```json
 {
-  "effort": "example",
   "model": {
-    "defaultEffort": "example",
-    "deprecated": false,
+    "acpAgentId": "example",
+    "contextWindow": 4,
+    "defaultTier": "example",
+    "deprecated": true,
     "displayName": "example",
     "hidden": true,
     "id": "example",
     "inputModalities": [],
+    "installationId": "example",
     "instance": "example",
-    "instanceId": "example",
     "isDefault": true,
     "nativeModelId": "example",
+    "nativeProviderId": "example",
     "provider": "codex",
     "raw": {
       "json": "example",
@@ -193,7 +197,7 @@ Example:
   },
   "ok": true,
   "reason": "example",
-  "stale": true
+  "stale": false
 }
 ```
 
@@ -236,7 +240,8 @@ Example:
 
 ```json
 {
-  "effort": "example",
+  "acpAgentId": "example",
+  "provider": "pi",
   "role": "example",
   "selection": "default"
 }
@@ -256,10 +261,6 @@ Example:
 
 ```json
 {
-  "options": {
-    "limit": 10,
-    "offset": 2
-  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -301,9 +302,9 @@ Example:
   "requestId": "example",
   "roleSpec": {
     "acpAgentId": "example",
-    "instance": "example",
-    "preferenceOrder": [],
-    "role": "example"
+    "model": "example",
+    "role": "example",
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -348,6 +349,7 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example"
+  "name": "example",
+  "parameters": {}
 }
 ```

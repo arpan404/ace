@@ -39,8 +39,20 @@
         "effectiveCapabilities": {
           "$ref": "https://ace.local/protocol/v1/Capabilities.json"
         },
+        "execution": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"
+        },
+        "lineage": {
+          "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
         "status": {
           "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+        },
+        "switch": {
+          "$ref": "https://ace.local/protocol/v1/ThreadSwitch.json"
         },
         "title": {
           "type": "string"
@@ -108,6 +120,9 @@
         "fidelity": {
           "$ref": "https://ace.local/protocol/v1/AgentFidelity.json"
         },
+        "lineage": {
+          "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
+        },
         "model": {
           "type": "string"
         },
@@ -156,6 +171,33 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/RunClientUpdated.json"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "commandId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "nativeInputId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "input.admitted",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "agentId",
+        "nativeInputId"
+      ],
+      "type": "object"
     },
     {
       "properties": {
