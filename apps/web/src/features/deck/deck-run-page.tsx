@@ -15,6 +15,7 @@ import { useDeckRun, useDeckSender } from "./deck-source.ts";
 import { DeckStepper } from "./deck-stepper.tsx";
 import { LanesTab } from "./deck-tabs.tsx";
 import { LaneDetail } from "./lane-detail.tsx";
+import { useProjectName } from "@/lib/projects.ts";
 
 export type DeckTab = "plan" | "lanes";
 const tabs = [
@@ -60,6 +61,7 @@ function RunScreen(props: {
   const { run } = props;
   const sender = useDeckSender();
   const toast = useToast();
+  const projectName = useProjectName();
   const selected = run.cards.find((c) => c.id === props.card) ?? defaultCard(run);
   const send = (payload: ConductorCommandPayload, done: string) =>
     sender(payload).then(
@@ -73,7 +75,7 @@ function RunScreen(props: {
   return (
     <Screen
       title={run.title}
-      subtitle={`${run.workspaceId} · Deck`}
+      subtitle={`${projectName(run.workspaceId)} · Deck`}
       menu={
         running || paused ? (
           <MenuItem

@@ -8,6 +8,7 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
+import { useProjectDirectory } from "@/lib/projects.ts";
 import { useProjects } from "./use-home-threads.ts";
 import { useOrganizer, useOrganizerState } from "./use-organizer.ts";
 
@@ -18,14 +19,16 @@ export function ProjectFilter() {
   const organizer = useOrganizer();
   const { project } = useOrganizerState();
   const projects = useProjects();
+  const { name } = useProjectDirectory();
+  const label = project === null ? "All projects" : name(project);
   const total = projects.reduce((sum, p) => sum + p.threads, 0);
   return (
     <Menu>
       <MenuTrigger
-        aria-label={`Project filter: ${project ?? "All projects"}`}
+        aria-label={`Project filter: ${label}`}
         className="inline-flex h-[26px] max-w-[140px] items-center gap-1 rounded-[7px] pr-2 pl-[9px] text-sm font-medium text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent aria-expanded:text-foreground"
       >
-        <span className="truncate">{project ?? "All projects"}</span>
+        <span className="truncate">{label}</span>
         <CaretDownIcon aria-hidden size={14} className="shrink-0" />
       </MenuTrigger>
       <MenuContent align="end" className="min-w-[220px]">
@@ -38,7 +41,7 @@ export function ProjectFilter() {
           <ProjectItem value={all} label="All projects" count={total} />
           {projects.length > 0 && <MenuSeparator />}
           {projects.map((p) => (
-            <ProjectItem key={p.id} value={p.id} label={p.id} count={p.threads} />
+            <ProjectItem key={p.id} value={p.id} label={name(p.id)} count={p.threads} />
           ))}
         </MenuRadioGroup>
       </MenuContent>

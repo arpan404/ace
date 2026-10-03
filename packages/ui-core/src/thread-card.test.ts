@@ -24,6 +24,16 @@ test("a card shows the daemon's title, the project and how long ago it last work
   expect(card).toMatchObject({ title: "Renamed on the phone", project: "web", age: "3m" });
 });
 
+test("a card names its project when the daemon's name is known", () => {
+  const card = threadCard(
+    input({
+      entry: entry("t", { state: "done" }, now, { workspaceId: "6f1c2a9e-0d4b" }),
+      projectName: "relay",
+    }),
+  );
+  expect(card.project).toBe("relay");
+});
+
 test("finished work the person hasn't opened is emphasised and announced as unread", () => {
   const card = threadCard(input({ entry: entry("t", { state: "done" }, now - 1000) }));
   expect(card.emphasis).toBe(true);

@@ -16,6 +16,7 @@ import { missedRunLabels, runsOn } from "./labels.ts";
 import { RecentRuns } from "./recent-runs.tsx";
 import { describeTrigger, formatNextRun } from "./schedule.ts";
 import { useAutomation, useAutomationActions } from "./use-automations.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 /** One automation: what it does, where it runs, when next, and its recent runs. */
 export function AutomationScreen(props: { id: string }) {
@@ -23,6 +24,7 @@ export function AutomationScreen(props: { id: string }) {
   const actions = useAutomationControls(entry?.automation);
   const choices = useModelChoices();
   const now = useNow();
+  const projectName = useProjectName();
   if (!entry)
     return (
       <Screen title="Automation">
@@ -86,7 +88,7 @@ export function AutomationScreen(props: { id: string }) {
           <div className="min-w-0 flex-1">
             <h2 className="text-2xl font-semibold tracking-title">{automation.title}</h2>
             <p className="mt-1 text-base text-muted-foreground">
-              {describeTrigger(automation.trigger)} · {automation.workspace}
+              {describeTrigger(automation.trigger)} · {projectName(automation.workspace)}
             </p>
           </div>
           <Switch

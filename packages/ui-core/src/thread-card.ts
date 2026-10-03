@@ -80,6 +80,8 @@ export interface ThreadCardInput {
   settled: boolean;
   now: number;
   locale?: string;
+  /** The project's name; its id when the name isn't known. */
+  projectName?: string | undefined;
 }
 
 /** The view model of one thread in the Home list. Pure: the caller passes the clock. */
@@ -93,7 +95,7 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
   return {
     id: entry.id,
     title: entry.title,
-    project: entry.workspaceId,
+    project: input.projectName ?? entry.workspaceId,
     age: formatAge(activityOf(entry), now),
     flags: {
       settled: input.settled,

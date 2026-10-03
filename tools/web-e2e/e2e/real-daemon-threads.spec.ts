@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { daemonPort, daemonTokenPath, scriptedReply } from "../src/real-daemon-config.ts";
+import {
+  daemonPort,
+  daemonTokenPath,
+  scriptedReply,
+  workspaceName,
+} from "../src/real-daemon-config.ts";
 
 /**
  * Thread journeys against a real apps/daemon with scripted providers (src/real-daemon.ts): New
@@ -17,11 +22,11 @@ test("a new thread opens from the daemon's receipt and its organization survives
   page,
 }) => {
   await connect(page);
-  await page.getByRole("link", { name: /New thread/ }).click();
+  await page.getByRole("link", { name: /^New thread/ }).click();
   await expect(page.getByRole("heading", { level: 1, name: "New thread" })).toBeVisible();
-  // The seeded project is the only one, so it is chosen.
+  // The seeded project is the only one, so it is chosen, and named rather than shown by id.
   await expect(
-    page.getByRole("heading", { level: 2, name: /^What should we work on in / }),
+    page.getByRole("heading", { level: 2, name: `What should we work on in ${workspaceName}?` }),
   ).toBeVisible();
 
   // The local checkout, so the journey doesn't depend on preparing a worktree.

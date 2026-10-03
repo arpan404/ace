@@ -28,6 +28,8 @@ const modes: Record<WorkMode, { label: string; hint: string }> = {
  */
 export function ContextBar(props: {
   projects: readonly string[];
+  /** A project's name by id. */
+  projectName(id: string): string;
   project: string | undefined;
   onProject(project: string): void;
   mode: WorkMode;
@@ -42,10 +44,10 @@ export function ContextBar(props: {
       <Picker
         icon={FolderSimpleIcon}
         name="Project"
-        value={props.project ?? "Choose a project"}
+        value={props.project === undefined ? "Choose a project" : props.projectName(props.project)}
         label="Projects"
         current={props.project ?? ""}
-        options={props.projects.map((p) => ({ value: p, label: p }))}
+        options={props.projects.map((p) => ({ value: p, label: props.projectName(p) }))}
         onChange={props.onProject}
       />
       <Divider />

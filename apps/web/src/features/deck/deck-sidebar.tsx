@@ -10,6 +10,7 @@ import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { deckGroup, deckRunSummary, type DeckRun, type DeckGroup } from "@ace/ui-core";
 import { useDeckRuns } from "./deck-source.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 const groups: readonly { id: DeckGroup; label: string }[] = [
   { id: "gated", label: "Gated" },
@@ -21,6 +22,7 @@ const groups: readonly { id: DeckGroup; label: string }[] = [
 export function DeckSidebar() {
   const { ready, error, runs } = useDeckRuns();
   const [project, setProject] = useState("all");
+  const projectName = useProjectName();
   const projects = [...new Set(runs.map((run) => run.workspaceId))].toSorted();
   const shown = project === "all" ? runs : runs.filter((run) => run.workspaceId === project);
   return (
@@ -32,7 +34,7 @@ export function DeckSidebar() {
           value={project}
           options={[
             { value: "all", label: "All projects" },
-            ...projects.map((id) => ({ value: id, label: id })),
+            ...projects.map((id) => ({ value: id, label: projectName(id) })),
           ]}
           onValueChange={setProject}
         />

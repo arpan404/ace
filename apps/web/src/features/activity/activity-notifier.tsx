@@ -12,6 +12,7 @@ import { Suspense, lazy, useEffect, useMemo, useRef } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNotificationPrefs } from "./notification-prefs.ts";
 import { threadToasts, type ToastCause } from "./toast-rules.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 // Automation runs are read after first paint: their toasts can wait for the shell to draw.
 const RunNotifier = lazy(() => import("./run-notifier.tsx"));
@@ -39,6 +40,7 @@ export function ActivityNotifier() {
 function ThreadNotifier() {
   const [prefs] = useNotificationPrefs();
   const toast = useToast();
+  const projectName = useProjectName();
   const navigate = useNavigate();
   const sidebar = useSidebarStore();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -58,7 +60,7 @@ function ThreadNotifier() {
     const needsYou = cause.kind === "needs_you";
     toast.add({
       title: thread.title,
-      description: `${thread.workspaceId} · ${needsYou ? "needs you" : "failed"}`,
+      description: `${projectName(thread.workspaceId)} · ${needsYou ? "needs you" : "failed"}`,
       actionProps: {
         children: needsYou ? "Answer" : "Open",
         onClick: () =>

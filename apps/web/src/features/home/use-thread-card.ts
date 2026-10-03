@@ -1,6 +1,7 @@
 import { useSidebarThread } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { threadCard, type ThreadCard } from "@ace/ui-core";
+import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { useCardDetails } from "./thread-details.ts";
 import { useOrganizer } from "./use-organizer.ts";
@@ -17,8 +18,19 @@ export function useThreadCard(
   const details = useCardDetails(entry);
   const organizer = useOrganizer();
   const now = useNow();
+  const projectName = useProjectName();
   if (!entry) return undefined;
   // The baseline is fixed when the organizer is first created, so reading it once is enough.
   const { baseline } = organizer.getState();
-  return { entry, card: threadCard({ entry, details, baseline, settled, now }) };
+  return {
+    entry,
+    card: threadCard({
+      entry,
+      details,
+      baseline,
+      settled,
+      now,
+      projectName: projectName(entry.workspaceId),
+    }),
+  };
 }

@@ -24,6 +24,7 @@ import { FeedRow } from "./feed-row.tsx";
 import { useFeedSource, type FeedEvent, type FeedKind } from "./feed-source.ts";
 import { requestTitle } from "./question-card.tsx";
 import { confirmations, useAnswer } from "./use-answer.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 const glyph = (icon: PhosphorIcon) => <Icon icon={icon} size={16} />;
 
@@ -48,6 +49,7 @@ function InteractionRow(props: { threadId: string; interactionId: string }) {
   const { focused, setFocused } = useActivityState();
   const { answer, sending } = useAnswer(props.interactionId);
   const now = useNow();
+  const projectName = useProjectName();
   if (!interaction || interaction.state !== "pending") return null;
   const key = interactionKey(props.threadId, props.interactionId);
   const request = interaction.request;
@@ -57,7 +59,7 @@ function InteractionRow(props: { threadId: string; interactionId: string }) {
     <FeedRow
       icon={glyph(requestIcons[request.kind])}
       title={requestTitle(request)}
-      description={thread ? `${thread.workspaceId} · ${thread.title}` : props.threadId}
+      description={thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : props.threadId}
       age={formatAge(interaction.createdAt, now)}
       mark="needs-you"
       selected={focused === key}
@@ -110,6 +112,7 @@ export function EventRow(props: { event: FeedEvent; read: boolean }) {
   const source = useFeedSource();
   const navigate = useNavigate();
   const now = useNow();
+  const projectName = useProjectName();
   const key = eventKey(event.id);
   const needsYou = event.kind === "escalation";
   const select = () => {
@@ -122,7 +125,7 @@ export function EventRow(props: { event: FeedEvent; read: boolean }) {
     <FeedRow
       icon={glyph(eventIcons[event.kind])}
       title={event.title}
-      description={`${event.project} · ${event.context}`}
+      description={`${projectName(event.project)} · ${event.context}`}
       age={formatAge(event.at, now)}
       mark={needsYou ? "needs-you" : props.read ? undefined : "unread"}
       selected={needsYou && focused === key}

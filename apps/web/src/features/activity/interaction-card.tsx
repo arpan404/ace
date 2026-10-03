@@ -19,18 +19,20 @@ import {
 } from "./card-frame.tsx";
 import { PlanBody, QuestionBody, requestTitle } from "./question-card.tsx";
 import { confirmations, useAnswer } from "./use-answer.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 /** One open interaction as a Needs-you card, answerable by mouse or by keyboard. */
 export function InteractionCard(props: { threadId: string; interactionId: string }) {
   const interaction = useInteraction(props.threadId, props.interactionId);
   const thread = useSidebarThread(props.threadId);
+  const projectName = useProjectName();
   if (!interaction || interaction.state !== "pending") return null;
   const cardKey = interactionKey(props.threadId, props.interactionId);
   return (
     <CardFrame
       cardKey={cardKey}
       title={requestTitle(interaction.request)}
-      context={thread ? `${thread.workspaceId} · ${thread.title}` : props.threadId}
+      context={thread ? `${projectName(thread.workspaceId)} · ${thread.title}` : props.threadId}
       at={interaction.createdAt}
     >
       <CardBody interaction={interaction} cardKey={cardKey} />

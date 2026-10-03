@@ -14,6 +14,7 @@ import { DeleteDialog, RenameDialog, ThreadMenuItems } from "./header/thread-men
 import type { ThreadRef } from "./sources/index.ts";
 import { ForkDialog, ForkOpener } from "./transitions/fork-dialog.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
+import { useProjectName } from "@/lib/projects.ts";
 
 /**
  * A thread: the transcript and composer in the main column, Run · Open · Commit in the header,
@@ -26,6 +27,7 @@ export function ThreadView(props: { threadId: string }) {
   const [forking, setForking] = useState<ForkPoint>();
   const [deleting, setDeleting] = useState(false);
   const id = props.threadId;
+  const projectName = useProjectName();
   const title = meta?.title;
   const thread = useMemo<ThreadRef | undefined>(
     () => (meta && title !== undefined ? { id, workspaceId: meta.workspaceId, title } : undefined),
@@ -34,7 +36,7 @@ export function ThreadView(props: { threadId: string }) {
   return (
     <Screen
       title={title ?? "Loading thread…"}
-      subtitle={meta?.workspaceId}
+      subtitle={meta && projectName(meta.workspaceId)}
       menu={
         thread && (
           <ThreadMenuItems

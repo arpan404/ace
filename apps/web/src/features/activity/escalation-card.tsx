@@ -6,6 +6,7 @@ import { useHotkey } from "@/lib/hotkeys.ts";
 import { eventKey } from "./activity-state.tsx";
 import { ButtonKey, CardActions, CardError, CardFrame, useCardFocused } from "./card-frame.tsx";
 import { useFeedSource, type FeedEvent } from "./feed-source.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 /**
  * A Deck escalation: a lane that keeps failing review, a budget or a deadline. Approve takes
@@ -17,6 +18,7 @@ export function EscalationCard(props: { event: FeedEvent }) {
   const focused = useCardFocused(key);
   const source = useFeedSource();
   const toast = useToast();
+  const projectName = useProjectName();
   const navigate = useNavigate();
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string>();
@@ -48,7 +50,7 @@ export function EscalationCard(props: { event: FeedEvent }) {
     <CardFrame
       cardKey={key}
       title={event.title}
-      context={`${event.project} · ${event.context}`}
+      context={`${projectName(event.project)} · ${event.context}`}
       at={event.at}
     >
       {event.body && (

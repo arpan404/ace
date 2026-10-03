@@ -26,6 +26,7 @@ import { formatAge } from "@ace/ui-core";
 import { runSummary } from "./labels.ts";
 import { describeTrigger } from "./schedule.ts";
 import { useAutomationRuns, useAutomations } from "./use-automations.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 const triggerIcons: Record<Automation["trigger"]["kind"], PhosphorIcon> = {
   schedule: ClockIcon,
@@ -51,6 +52,7 @@ export function AutomationsSidebar() {
   const runs = useAutomationRuns().data;
   const selected = useParams({ strict: false }).automationId;
   const now = useNow();
+  const projectName = useProjectName();
   return (
     <ViewSidebar
       title="Automations"
@@ -85,7 +87,7 @@ export function AutomationsSidebar() {
                 selected={selected === automation.id}
                 icon={<Icon icon={triggerIcon(automation.trigger)} size={16} />}
                 title={automation.title}
-                description={`${describeTrigger(automation.trigger)} · ${automation.workspace}`}
+                description={`${describeTrigger(automation.trigger)} · ${projectName(automation.workspace)}`}
                 trailing={automation.enabled ? undefined : "off"}
               />
             ))}

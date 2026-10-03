@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import { Composer, useDraftScope, type Draft } from "@/features/thread/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { useProjects } from "../use-home-threads.ts";
+import { useProjectChoices } from "@/lib/projects.ts";
 import { useOrganizerState } from "../use-organizer.ts";
 import { loadChoices, pickProject, resolve, saveChoices, type Choices } from "./choices.ts";
 import { ContextBar } from "./context-bar.tsx";
@@ -18,10 +18,11 @@ import { useCreateThread } from "./use-create-thread.ts";
 export function NewThreadPage(props: { project?: string | undefined; base?: string | undefined }) {
   const { storage } = useLayout();
   const { project: filter } = useOrganizerState();
-  const projects = useProjects().map((p) => p.id);
+  const { ids: projects, name } = useProjectChoices();
   const [choices, setChoices] = useState<Choices>(() => loadChoices(storage));
   const [requested, setRequested] = useState(props.project);
   const project = pickProject(projects, requested, choices.project, filter);
+  const projectName = project === undefined ? undefined : name(project);
   const [baseChoice, setBase] = useState(props.base);
   const { create, sending, error } = useCreateThread();
 
@@ -66,11 +67,11 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
   };
 
   return (
-    <Screen title="New thread" subtitle={project}>
+    <Screen title="New thread" subtitle={projectName}>
       <div className="flex h-full flex-col justify-center overflow-y-auto px-8 pt-8 pb-[12vh]">
         <div className="mx-auto w-full max-w-(--column)">
           <h2 className="mb-5 px-1 text-2xl font-semibold tracking-title text-foreground">
-            What should we work on{project ? ` in ${project}` : ""}?
+            What should we work on{projectName ? ` in ${projectName}` : ""}?
           </h2>
           <Composer
             thread={draftThread}
@@ -90,6 +91,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
           />
           <ContextBar
             projects={projects}
+            projectName={name}
             project={project}
             onProject={(next) => {
               setRequested(next);
@@ -109,7 +111,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
           )}
           {!projects.length && (
             <p className="mt-3 px-2 text-ui text-muted-foreground">
-              No projects yet. A project shows up here once the daemon has a thread in it.
+              This daemon has no projects yet.
             </p>
           )}
         </div>
