@@ -117,6 +117,26 @@ describe("daemon supervisor", () => {
     expect(supervisor.current()).toMatchObject({ state: "running", source: "app" });
   });
 
+  it("waits for a development daemon it may not start, and follows its restarts", async () => {
+    const m = machine();
+    m.ports.spawn = undefined;
+    const supervisor = new DaemonSupervisor(m.ports, { healthIntervalMs: 1_000, healthFailures: 1 });
+    void supervisor.start();
+    await m.advance(60_000);
+    expect(supervisor.current().state).toBe("starting");
+    m.state.answering = true;
+    await m.advance(300);
+    expect(supervisor.current()).toMatchObject({ state: "running", source: "external" });
+
+    m.state.answering = false;
+    await m.advance(1_000);
+    expect(supervisor.current().state).not.toBe("running");
+    m.state.answering = true;
+    await m.advance(300);
+    expect(supervisor.current().state).toBe("running");
+    expect(m.children).toHaveLength(0);
+  });
+
   it("uses an installed login service rather than spawning a duplicate", async () => {
     const m = machine();
     let started = false;

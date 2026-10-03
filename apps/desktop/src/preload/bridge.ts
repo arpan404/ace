@@ -37,20 +37,22 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo) {
     const parsed = (spec.request as z.ZodType).safeParse(payload);
     if (!parsed.success)
       throw new BridgeError(`Invalid ${channel} request: ${parsed.error.issues[0]?.message}`);
-    const result = (spec.result as z.ZodType<ResultOf<C>>).safeParse(
-      await ipc.invoke(requestChannel(channel), parsed.data),
-    );
+    const schema: z.ZodType = spec.result;
+    const result = schema.safeParse(await ipc.invoke(requestChannel(channel), parsed.data));
     if (!result.success) throw new BridgeError(`Invalid ${channel} response`);
-    return result.data;
+    // Parsed by this channel's own result schema.
+    return result.data as ResultOf<C>;
   }
   function subscribe<C extends EventChannel>(
     channel: C,
     listener: (value: EventOf<C>) => void,
   ): () => void {
     if (typeof listener !== "function") throw new BridgeError("Listener must be a function");
+    const schema: z.ZodType = events[channel];
     return ipc.on(eventChannel(channel), (payload) => {
-      const parsed = (events[channel] as z.ZodType<EventOf<C>>).safeParse(payload);
-      if (parsed.success) listener(parsed.data);
+      const parsed = schema.safeParse(payload);
+      // Parsed by this channel's own event schema.
+      if (parsed.success) listener(parsed.data as EventOf<C>);
     });
   }
 

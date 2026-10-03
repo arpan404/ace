@@ -21,8 +21,9 @@ export class SettingsStore {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
-  async update(patch: Partial<DesktopSettings>): Promise<DesktopSettings> {
-    this.value = DesktopSettings.parse({ ...this.value, ...patch });
+  async update(patch: { [K in keyof DesktopSettings]?: DesktopSettings[K] | undefined }): Promise<DesktopSettings> {
+    const defined = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+    this.value = DesktopSettings.parse({ ...this.value, ...defined });
     const snapshot = JSON.stringify(this.value, null, 2);
     this.writing = this.writing.then(async () => {
       await mkdir(dirname(this.path), { recursive: true });

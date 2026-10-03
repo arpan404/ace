@@ -1,4 +1,5 @@
 import { Notification } from "@ace/protocol";
+import type { z } from "zod";
 import { describe, expect, it } from "vitest";
 import { DesktopSettings } from "../../shared/contract.ts";
 import { actionCommand, alertFromDaemon, NotificationRouter, type Alert } from "./router.ts";
@@ -15,7 +16,7 @@ function router(settings: Partial<typeof defaults> = {}, clock = { now: 0, minut
   };
 }
 
-function daemonAlert(overrides: Partial<Notification> = {}): Alert {
+function daemonAlert(overrides: Partial<z.input<typeof Notification>> = {}): Alert {
   return alertFromDaemon(
     Notification.parse({
       id: "n-1",

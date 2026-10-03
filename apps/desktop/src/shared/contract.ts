@@ -108,8 +108,9 @@ export function deepLinkRoute(link: DeepLink): string {
     case "settings":
       return `/settings/${link.page ?? "general"}`;
     case "new-thread":
-    case "open-folder":
       return "/new";
+    case "open-folder":
+      return `/new?folder=${encodeURIComponent(link.path)}`;
   }
 }
 

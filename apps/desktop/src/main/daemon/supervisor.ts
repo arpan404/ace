@@ -8,8 +8,11 @@ export interface DaemonProcess {
 }
 
 export interface SupervisorPorts {
-  /** Start the bundled daemon with Electron's own Node (`ELECTRON_RUN_AS_NODE`). */
-  spawn(): DaemonProcess;
+  /**
+   * Start the bundled daemon with Electron's own Node (`ELECTRON_RUN_AS_NODE`). Without it
+   * (development, attached to `bun run daemon`) the supervisor only waits for a daemon.
+   */
+  spawn?: (() => DaemonProcess) | undefined;
   /** A healthy daemon already serving this ACE_HOME, if any. */
   find(): Promise<LocalDaemon | undefined>;
   healthy(daemon: LocalDaemon): Promise<boolean>;
@@ -102,7 +105,14 @@ export class DaemonSupervisor {
       if (found) return this.running(found, "service");
     }
     if (generation !== this.generation) return;
-    this.spawnChild(generation);
+    if (!this.ports.spawn) {
+      for (;;) {
+        const found = await this.waitForDaemon(generation, () => true);
+        if (generation !== this.generation) return;
+        if (found) return this.running(found, "external");
+      }
+    }
+    this.spawnChild(generation, this.ports.spawn);
   }
 
   /** User-requested restart (the "repair" action): forgets earlier crashes. */
@@ -163,9 +173,9 @@ export class DaemonSupervisor {
     }
   }
 
-  private spawnChild(generation: number): void {
+  private spawnChild(generation: number, spawn: () => DaemonProcess): void {
     let exited = false;
-    const child = this.ports.spawn();
+    const child = spawn();
     this.child = child;
     this.childExited = new Promise((resolve) =>
       child.onExit((code, signal) => {
