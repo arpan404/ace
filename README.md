@@ -118,22 +118,28 @@ Remote access relay setup and APIs are described in [encrypted relay](docs/relay
 
 ### Packaging
 
-`apps/desktop` is the Electron shell (ADR 0054). `bun run desktop:package` builds, for the
-platform it runs on:
+`apps/desktop` is the Electron shell (ADR 0054). `bun run desktop:package` builds one
+architecture, the host's, for the platform it runs on. `--arch arm64|x64` may name it and must
+match the host: native code is built for the host, so release CI runs once per architecture on a
+matching runner. The build stops, listing each problem, if a required native piece is missing or
+any staged binary is built for another architecture.
 
-- **macOS:** dmg and zip for arm64 and x64. Signed with `CSC_LINK`/`CSC_NAME` and notarized when
-  `APPLE_API_KEY`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER` are set. The screen helper ships as
+- **macOS:** dmg and zip. Signed with `CSC_LINK`/`CSC_NAME` and notarized when `APPLE_API_KEY`,
+  `APPLE_API_KEY_ID` and `APPLE_API_ISSUER` are set. The screen helper ships as
   `Contents/Helpers/AceScreenHelper.app` (`dev.ace.screen-helper`), signed by
   `native/screen-helper/build.sh` and left untouched by the app's signing; its manifest is
-  `Contents/Resources/screen-helper-manifest.json`.
-- **Windows:** NSIS (x64, arm64), with an "Open in ace" folder entry in Explorer.
-- **Linux:** AppImage and deb.
+  `Contents/Resources/screen-helper-manifest.json`. A full package signs the helper with the
+  Developer ID Application identity in the keychain named by `ACE_SCREEN_SIGN_IDENTITY` (or
+  `CSC_NAME`) and a secure timestamp, and fails without one.
+- **Windows:** NSIS, with an "Open in ace" folder entry in Explorer. Windows runs no local daemon
+  yet; it connects to a remote one.
+- **Linux:** AppImage and deb. Launch at login is not available on Linux yet.
 
-Each package carries the daemon bundle from `tools/release` (`Resources/daemon`, run on
-Electron's Node), node-pty, koffi and the other staged runtime packages, `rg` from
-`@vscode/ripgrep`, and the platform's screen helper. Native code is built for the host, so build
-each platform on that platform. `ACE_RELEASE_PUBLIC_KEY_FILE` embeds the release authority's
-Ed25519 key for update checks (ADR 0041); without it, update checks fail closed.
+Each package carries the daemon bundle from `tools/release` (`Resources/daemon`), the pinned Node
+runtime it runs on (`Resources/runtime`, the same one as the standalone archive), node-pty, koffi
+and the other staged runtime packages, `rg` from `@vscode/ripgrep`, and the platform's screen
+helper. Electron's `runAsNode` fuse is off. `ACE_RELEASE_PUBLIC_KEY_FILE` embeds the release
+authority's Ed25519 key for update checks (ADR 0041); without it, update checks fail closed.
 
 ## License
 
