@@ -1,3 +1,4 @@
+import { startScreen } from "./screen.ts";
 import { startAccounts } from "./accounts.ts";
 import { startCommands } from "./commands.ts";
 import { startFiles } from "./files.ts";
@@ -16,6 +17,7 @@ import { startEngine } from "./engine.ts";
 import type { ServiceContext, Services } from "./types.ts";
 /** Ordered composition: provider sessions are admitted only after their services open. */
 export const serviceFactories = [
+  startScreen,
   startAccounts,
   startCommands,
   startFiles,
@@ -75,6 +77,7 @@ export function readyServices(services: Partial<Services>): Services {
     notifications,
     review,
     usage,
+    ...(services.screen ? { screen: services.screen } : {}),
     ...(services.accounts ? { accounts: services.accounts } : {}),
     ...(services.commands ? { commands: services.commands } : {}),
     ...(services.files ? { files: services.files } : {}),

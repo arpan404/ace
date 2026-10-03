@@ -95,6 +95,8 @@ test.each(["darwin", "win32"] as const)(
       // Callbacks can register the taskkill helper deadline; expire only the original calls.
       const due = Array.from(deadlines);
       for (const expire of due) expire();
+      // The public rejection follows pipe closure, including inherited descendant pipes.
+      await rejected;
       await exited.promise;
       // Parent exit can precede descendant pipe closure. Probe after the public operation settles.
       await rejected;

@@ -13,6 +13,8 @@ export * from "./tools.ts";
 export * from "./wire.ts";
 export * from "./settings.ts";
 export * from "./files.ts";
+
+export * from "./screen.ts";
 export * from "./diagnostics.ts";
 export * from "./context.ts";
 export * from "./search.ts";

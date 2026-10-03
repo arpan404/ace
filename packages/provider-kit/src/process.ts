@@ -38,6 +38,7 @@ export type SpawnOptions = {
   killGroupOnExit?: boolean;
   /** UTF-8 bytes per stdout/stderr line, checked before framing. Defaults to 16 MiB. */
   maxLineBytes?: number;
+  onOutputLimit?: (error: Error) => void;
   /** Optional aggregate raw stdout/stderr budget, primarily for probes. */
   maxOutputBytes?: number;
 };
@@ -67,6 +68,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     return outputBytes <= maxOutputBytes;
   };
   const failOutput = (error: Error) => {
+    options.onOutputLimit?.(error);
     outputLimited = true;
     controller.abort(error);
     if (pid !== undefined) killGroup(pid, "SIGKILL");

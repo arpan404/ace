@@ -43,6 +43,7 @@
         "@ace/redaction": "workspace:*",
         "@ace/relay": "workspace:*",
         "@ace/review": "workspace:*",
+        "@ace/screen": "workspace:*",
         "@ace/search": "workspace:*",
         "@ace/secure-channel": "workspace:*",
         "@ace/service": "workspace:*",
@@ -362,6 +363,14 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/screen": {
+      "name": "@ace/screen",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.1.12",
+      },
+    },
     "packages/search": {
       "name": "@ace/search",
       "dependencies": {
@@ -522,6 +531,8 @@
     "@ace/release": ["@ace/release@workspace:tools/release"],
 
     "@ace/review": ["@ace/review@workspace:packages/review"],
+
+    "@ace/screen": ["@ace/screen@workspace:packages/screen"],
 
     "@ace/search": ["@ace/search@workspace:packages/search"],
 

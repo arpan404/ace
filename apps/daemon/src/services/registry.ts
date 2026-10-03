@@ -1,3 +1,5 @@
+import { createScreenSession } from "./screen.ts";
+import { Simulators } from "@ace/screen";
 import { createSearchSession } from "./search.ts";
 import { createAccountsSession } from "./accounts.ts";
 import { createCommandsSession } from "./commands.ts";
@@ -33,8 +35,12 @@ export const socketServiceFactories = [
   createEngineSession,
   createDiagnosticsSession,
 ];
-export function createServiceSessions(context: SocketContext) {
-  return socketServiceFactories.map((factory) => factory(context));
+export function createSocketRegistry() {
+  const simulators = new Simulators(process.platform);
+  return (context: SocketContext) => [
+    ...socketServiceFactories.map((factory) => factory(context)),
+    createScreenSession(context, simulators),
+  ];
 }
 export function parseSocketMessage(input: unknown): SocketMessage {
   for (const schema of [ClientMessage, PluginClientMessage, BrowserClientMessage]) {

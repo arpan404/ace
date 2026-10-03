@@ -1,5 +1,5 @@
 import { startTransports } from "./services/transports.ts";
-import { createServiceSessions, parseSocketMessage } from "./services/registry.ts";
+import { createSocketRegistry, parseSocketMessage } from "./services/registry.ts";
 import type { SocketMessage } from "./services/socket.ts";
 import { previewHttp } from "./preview-http.ts";
 import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
@@ -150,6 +150,7 @@ export async function startServer(options: ServerOptions): Promise<{
         socket.terminate();
       }
   });
+  const createServiceSessions = createSocketRegistry();
   const serviceTasks = new Set<Promise<void>>();
   const serviceSessions = new Map<WebSocket, ReturnType<typeof createServiceSessions>>();
   const input = new SocketInput();

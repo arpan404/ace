@@ -21,6 +21,7 @@ import {
 } from "./history.ts";
 import { UsageSummary, UsageSeries, UsageMessage } from "./usage.ts";
 import { AccountsRequest, AccountsResponse } from "./accounts.ts";
+import { ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
 import {
   ModelsListRequest,
   ModelsRefreshRequest,
@@ -140,6 +141,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...AccountsRequest.options,
   SearchQueryRequest,
   SearchStatusRequest,
+  ScreenClientMessage,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -209,6 +211,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   SearchQueryResponse,
   SearchStatusResponse,
   SearchErrorResponse,
+  ...ScreenServerMessage.options,
   ModelsResult,
   NotificationMessage,
 

@@ -1,3 +1,4 @@
+import type { ScreenManager } from "@ace/screen";
 import type { AccountService, AccountRegistry } from "@ace/accounts";
 import type { CommandLibrary } from "@ace/commands";
 import type { FilesService } from "@ace/files";
@@ -23,6 +24,7 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  screen?: ScreenManager;
   accounts?: AccountService;
   accountRegistry?: AccountRegistry;
   commands?: CommandLibrary;

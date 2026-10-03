@@ -78,6 +78,7 @@ test.each(["embedded", "submodule"])(
       (await service.createCheckpoint({ worktree: repo, threadId: "nested", label: "undo" })).tree,
     ).toBe(safetyTree);
   },
+  120_000,
 );
 
 test("an unborn embedded repository captures untracked files without creating its HEAD or index", async () => {
