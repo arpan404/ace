@@ -38,19 +38,20 @@ test("with reduced motion a re-sort snaps: nothing slides and no row is raised",
   expect(result.current.rows.some((row) => row.rising)).toBe(false);
 });
 
+const slide = (start: number) => Array.from({ length: 20 }, (_, n) => `row-${start + n}`);
+
 test("a list that never settles keeps only the rows still fading out, not every row that left", () => {
   vi.stubGlobal("matchMedia", media(false));
-  const window = (start: number) => Array.from({ length: 20 }, (_, n) => `row-${start + n}`);
   const { result, rerender } = renderHook(({ items }) => useListMotion(items, keyOf), {
-    initialProps: { items: window(0) },
+    initialProps: { items: slide(0) },
   });
   // Like a streaming transcript: each change drops the oldest row and adds a new one, faster
   // than a fade-out takes, so the list never goes quiet.
-  for (let step = 1; step <= 500; step++) rerender({ items: window(step) });
+  for (let step = 1; step <= 500; step++) rerender({ items: slide(step) });
 
   const leaving = result.current.rows.filter((row) => row.phase === "exit");
   expect(leaving.length).toBeLessThanOrEqual(12);
   expect(result.current.rows.filter((row) => row.phase !== "exit").map((row) => row.key)).toEqual(
-    window(500),
+    slide(500),
   );
 });

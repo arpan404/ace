@@ -5,7 +5,9 @@ import { lazy, type ComponentType } from "react";
  * loaded suspends, like `React.lazy`; once `preload()` (or that first render) has loaded it, it
  * renders synchronously, so warming it while the browser is idle means nobody waits for it.
  */
-export function deferredComponent<P extends object>(load: () => Promise<ComponentType<P>>): {
+export function deferredComponent<P extends object>(
+  load: () => Promise<ComponentType<P>>,
+): {
   Component: ComponentType<P>;
   preload(): Promise<unknown>;
 } {

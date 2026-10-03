@@ -2,9 +2,10 @@ import { renderHook } from "@testing-library/react";
 import { expect, test } from "vitest";
 import { useForgetGoneRows } from "./virtual-cache.ts";
 
+const keys = (start: number) => Array.from({ length: 50 }, (_, n) => `block-${start + n}`);
+
 test("measured sizes of rows that left a sliding list are forgotten; rows still listed keep theirs", () => {
   const virtualizer = { itemSizeCache: new Map<unknown, number>() };
-  const keys = (start: number) => Array.from({ length: 50 }, (_, n) => `block-${start + n}`);
   const { rerender } = renderHook(
     ({ list }) => useForgetGoneRows(virtualizer, list.length, (index) => list[index]),
     { initialProps: { list: keys(0) } },
