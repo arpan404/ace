@@ -49,8 +49,10 @@ test("a hidden window stops polling for dev servers and reads them again once sh
   const timers = manualTimers();
   const window = page();
   const preview = daemonPreview(client, { schedule: timers.schedule, visibility: window });
+  const before = preview.version;
   const stop = preview.watch("thread-settings");
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  // The first read has answered before the window hides.
+  await waitFor(() => expect(preview.version).toBeGreaterThan(before));
 
   window.set(false);
   daemon.browser.serve("thread-settings", {
