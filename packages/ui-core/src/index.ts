@@ -18,6 +18,7 @@ export * from "./organizer.ts";
 export * from "./profile.ts";
 export * from "./providers.ts";
 export * from "./questions.ts";
+export * from "./queue.ts";
 export * from "./snooze.ts";
 export * from "./status.ts";
 export * from "./storage.ts";

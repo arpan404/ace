@@ -96,6 +96,46 @@ export function defaultModelChoice(
   );
 }
 
+/** What a thread runs on, as the daemon reports it: an execution selection or its live fields. */
+export interface ThreadSelection {
+  provider: ProviderKind;
+  model?: string | undefined;
+  instanceId?: string | undefined;
+}
+
+/**
+ * The picker's current choice for a thread: the switch waiting for the next turn, else what it
+ * runs on now, matched by provider, model and account; the provider's default when the catalog
+ * has no exact match.
+ */
+export function currentModelChoice(
+  choices: readonly ModelChoice[],
+  selection: ThreadSelection | undefined,
+): ModelChoice | undefined {
+  if (!selection) return defaultModelChoice(choices, undefined);
+  const sameModel = choices.filter(
+    (choice) =>
+      choice.provider === selection.provider &&
+      (selection.model === undefined || choice.modelId === selection.model),
+  );
+  return (
+    sameModel.find((choice) => choice.accountId === selection.instanceId) ??
+    (selection.model === undefined ? sameModel.find((choice) => choice.isDefault) : undefined) ??
+    sameModel[0] ??
+    defaultModelChoice(choices, selection.provider)
+  );
+}
+
+/** The `thread.switch` selection that moves a thread onto a choice. */
+export function choiceSelection(choice: ModelChoice): ThreadSelection & { model: string } {
+  return {
+    provider: choice.provider,
+    model: choice.modelId,
+    // Only a signed-in account names an instance; otherwise the daemon picks one.
+    ...(choice.account ? { instanceId: choice.accountId } : {}),
+  };
+}
+
 /** A model to start a thread with; the account is picked separately. */
 export interface ModelOption {
   /** `nativeModelId`, which is what thread.create carries. */
@@ -105,6 +145,9 @@ export interface ModelOption {
   isDefault: boolean;
   /** False for "the provider's default" when the catalog is empty: thread.create sends no model. */
   fromCatalog: boolean;
+  /** Reasoning efforts the model takes, in the catalog's order; empty when it has no choice. */
+  efforts: readonly string[];
+  defaultEffort: string | undefined;
 }
 
 /** Providers offered with their own default model when the daemon's catalog is empty. */
@@ -141,6 +184,8 @@ export function newThreadOptions(
       provider: model.provider,
       isDefault: model.isDefault,
       fromCatalog: true,
+      efforts: model.reasoningEfforts,
+      defaultEffort: model.defaultEffort,
     });
   }
   // A daemon with no model catalog configured can still start threads on a provider's default.
@@ -152,6 +197,8 @@ export function newThreadOptions(
         provider,
         isDefault: provider === fallbackProviders[0],
         fromCatalog: false,
+        efforts: [],
+        defaultEffort: undefined,
       });
   const signedIn = accounts.filter((account) => account.signedIn);
   const defaults = new Map<ProviderKind, string>();
