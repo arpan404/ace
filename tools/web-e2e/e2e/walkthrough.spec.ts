@@ -26,6 +26,15 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await page.waitForURL(/\/t\//);
   await beat(1200);
   const threads = page.getByRole("navigation", { name: "Threads" });
+  // Settling a row: it fades out where it was and the rows below close the gap.
+  const row = threads.getByRole("link").nth(3);
+  await row.hover();
+  await beat(400);
+  await threads
+    .getByRole("button", { name: /^Settle / })
+    .first()
+    .click();
+  await beat(1200);
   await threads.getByRole("link", { name: /Replay cursor resets on every resume/ }).click();
   const transcript = page.getByRole("feed", { name: "Transcript" });
   await transcript.waitFor();
@@ -61,6 +70,13 @@ test("walkthrough of the core journeys", async ({ page }) => {
     .pressSequentially("Should the ack also carry `coldStartWindow`?", { delay: 20 });
   await file.getByRole("button", { name: "Comment", exact: true }).click();
   await beat();
+
+  // The right panel closes and opens again on its toggle.
+  await page.mouse.move(700, 880);
+  await page.getByRole("button", { name: "Right panel" }).click();
+  await beat(900);
+  await page.getByRole("button", { name: "Right panel" }).click();
+  await beat(900);
 
   // The bottom panel's terminal.
   await page.getByRole("button", { name: "Bottom panel" }).click();
