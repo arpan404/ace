@@ -10,12 +10,13 @@ export class PluginLaunches {
   private pending = new Set<Promise<Launched>>();
   private active = new Set<Launched>();
   private roots = new Set<string>();
+  private accepting = true;
   private closing: Promise<void> | undefined;
   constructor(launchProcess: Launcher) {
     this.launchProcess = launchProcess;
   }
   launch(provider: Provider, root: string, options: SpawnOptions): Promise<Launched> {
-    if (this.closing) return Promise.reject(new Error("Plugin launcher is closing"));
+    if (!this.accepting) return Promise.reject(new Error("Plugin launcher is closing"));
     if (this.roots.size >= 16) return Promise.reject(new Error("Plugin launch limit"));
     const key = resolve(root);
     if (this.roots.has(key)) return Promise.reject(new Error("Plugin session root already active"));
@@ -27,7 +28,7 @@ export class PluginLaunches {
         this.roots.delete(key);
       };
       void handle.exited.then(release, release);
-      if (this.closing) {
+      if (!this.accepting) {
         await handle.stop({ graceMs: 0 });
         throw new Error("Plugin launcher is closing");
       }
@@ -43,7 +44,11 @@ export class PluginLaunches {
     );
     return task;
   }
+  stopAdmission(): void {
+    this.accepting = false;
+  }
   close(): Promise<void> {
+    this.stopAdmission();
     this.closing ??= Promise.resolve().then(async () => {
       await Promise.allSettled(this.pending);
       const results = await Promise.allSettled(

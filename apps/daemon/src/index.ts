@@ -35,6 +35,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let endpointPath: string | undefined;
   const closeResources = async () => {
+    resources.beginShutdown();
     try {
       await server?.close();
     } finally {
