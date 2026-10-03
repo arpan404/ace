@@ -1,7 +1,8 @@
 import { parseCredential } from "./credentials.ts";
 import { retryDelay, disconnectDecision, networkDecision } from "./lifecycle.ts";
 import { fitsUtf8 } from "./bounds.ts";
-import { ClientMessage, ServerMessage, type ServerMessage as Message } from "@ace/protocol";
+import type { ClientMessage, ServerMessage as Message } from "@ace/protocol";
+import type { WireCodec } from "./wire-codec.ts";
 import {
   ClientError,
   type ClientOptions,
@@ -26,14 +27,19 @@ export class Connection {
   private cancel: (() => void) | undefined;
   private heartbeat: (() => void) | undefined;
   private awaitingPong = false;
+  private codec: WireCodec;
+  /** Frames waiting, in order, for the service schemas a frame among them needs. */
+  private held: string[] | undefined;
   constructor(
     options: ClientOptions,
+    codec: WireCodec,
     limits: Limits,
     received: (message: Message) => void,
     changed: () => void,
     disconnected: () => void,
   ) {
     this.options = options;
+    this.codec = codec;
     this.limits = limits;
     this.received = received;
     this.changed = changed;
@@ -66,6 +72,7 @@ export class Connection {
   }
   private cleanup(): void {
     this.epoch++;
+    this.held = undefined;
     this.cancel?.();
     this.cancel = undefined;
     this.heartbeat?.();
@@ -148,34 +155,60 @@ export class Connection {
         },
         message: (text) => {
           if (epoch !== this.epoch) return;
-          try {
-            if (!fitsUtf8(text, this.limits.frameBytes)) throw new ClientError("limit");
-            const message = ServerMessage.parse(JSON.parse(text));
-            if (message.type === "error" && message.code === "unauthorized") {
-              this.fail(new ClientError("auth"));
-              return;
-            }
-            if (this.state !== "ready") {
-              if (message.type !== "welcome") throw new ClientError("protocol");
-              this.cancel?.();
-              this.cancel = undefined;
-              this.attempt = 0;
-              this.awaitingPong = false;
-              this.state = "ready";
-              this.tick();
-              this.received(message);
-              this.changed();
-              return;
-            } else if (message.type === "welcome") throw new ClientError("protocol");
-            if (message.type === "pong") this.awaitingPong = false;
-            this.received(message);
-          } catch (error) {
-            this.fail(error instanceof ClientError ? error : new ClientError("protocol"));
-          }
+          if (this.held) this.held.push(text);
+          else this.receive(text, epoch);
         },
       });
     } catch {
       this.lost(1006);
+    }
+  }
+  /** Hold `text` and every frame after it until the service schemas load, then go on in order. */
+  private hold(text: string, epoch: number): void {
+    const held = [text];
+    this.held = held;
+    this.codec.load().then(
+      () => {
+        if (epoch !== this.epoch || this.held !== held) return;
+        this.held = undefined;
+        for (const next of held) {
+          if (epoch !== this.epoch) return;
+          this.receive(next, epoch);
+        }
+      },
+      () => {
+        if (epoch === this.epoch) this.fail(new ClientError("protocol"));
+      },
+    );
+  }
+  private receive(text: string, epoch: number): void {
+    try {
+      if (!fitsUtf8(text, this.limits.frameBytes)) throw new ClientError("limit");
+      const message = this.codec.decode(JSON.parse(text));
+      if (!message) {
+        this.hold(text, epoch);
+        return;
+      }
+      if (message.type === "error" && message.code === "unauthorized") {
+        this.fail(new ClientError("auth"));
+        return;
+      }
+      if (this.state !== "ready") {
+        if (message.type !== "welcome") throw new ClientError("protocol");
+        this.cancel?.();
+        this.cancel = undefined;
+        this.attempt = 0;
+        this.awaitingPong = false;
+        this.state = "ready";
+        this.tick();
+        this.received(message);
+        this.changed();
+        return;
+      } else if (message.type === "welcome") throw new ClientError("protocol");
+      if (message.type === "pong") this.awaitingPong = false;
+      this.received(message);
+    } catch (error) {
+      this.fail(error instanceof ClientError ? error : new ClientError("protocol"));
     }
   }
   private tick(): void {
@@ -193,7 +226,10 @@ export class Connection {
   send(message: ClientMessage): boolean {
     if (!this.transport) return false;
     try {
-      const text = JSON.stringify(ClientMessage.parse(message));
+      const encoded = this.codec.encode(message);
+      // A service message before its schemas loaded is not sent, as when offline.
+      if (!encoded) return false;
+      const text = JSON.stringify(encoded);
       if (!fitsUtf8(text, this.limits.sendBytes)) throw new ClientError("limit");
       this.transport.send(text);
       return true;

@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { ServerMessage, ClientMessage } from "@ace/protocol";
+import type { ServerMessage, ClientMessage } from "@ace/protocol";
 import { ClientError } from "./types.ts";
 
 type Correlated<T = z.input<typeof ClientMessage>> = T extends unknown
@@ -144,12 +144,14 @@ function isServiceResponse<Q extends ServiceRequest>(
               : []);
   return "requestId" in response && response.requestId === id && types.includes(response.type);
 }
+/** `schema` is the full `ServerMessage`, which the client loads with the service families. */
 export function decodeServiceResponse<Q extends ServiceRequest>(
+  schema: { parse(value: unknown): ServerMessage },
   query: Q,
   id: string,
   value: unknown,
 ): ServiceResponse<Q> {
-  const response = ServerMessage.parse(value);
+  const response = schema.parse(value);
   if (!isServiceResponse(query, id, response))
     throw new ClientError("protocol", "Unexpected service response");
   return response;

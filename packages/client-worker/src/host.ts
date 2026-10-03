@@ -5,7 +5,7 @@ import {
   type SidebarExport,
   type ThreadExport,
 } from "@ace/client";
-import { ClientMessage, type Item, type ServerMessage } from "@ace/protocol";
+import type { Item, ServerMessage } from "@ace/protocol";
 import { sidebarPatches, threadPatches, type Patch } from "./patches.ts";
 import { callArgs, iterateArgs, objectInput, sendArgs } from "./calls.ts";
 import type { TabChannels } from "./tab-channels.ts";
@@ -484,8 +484,8 @@ class Tab {
     // Only channel controls are decoded here; `sendArgs` decodes every control it passes on.
     const type = objectInput(value).type;
     if (typeof type === "string" && channelControls.has(type)) {
-      const control = ClientMessage.safeParse(value);
-      if (control.success && !this.channels?.admits(control.data)) return;
+      const control = client.decodeOneWay(value);
+      if (control && !this.channels?.admits(control)) return;
     }
     sendArgs(client, value);
   }
