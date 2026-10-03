@@ -12,6 +12,6 @@ export function createRedactor(
       username: userInfo().username,
       ...ctx,
     },
-    literalTextFields,
+    ["text", "delta", ...literalTextFields],
   );
 }

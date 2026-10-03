@@ -213,6 +213,15 @@ const server = createServer(async (req, res) => {
     json({ data: info });
     return;
   }
+  if (url.searchParams.has("cursor") && url.searchParams.has("order")) {
+    res.writeHead(400, { "content-type": "application/json" }).end(
+      JSON.stringify({
+        _tag: "InvalidCursorError",
+        message: "Cursor cannot be combined with order",
+      }),
+    );
+    return;
+  }
   if (path === "/api/session" && req.method === "GET") {
     const parent = url.searchParams.get("parentID"),
       directory = url.searchParams.get("directory"),

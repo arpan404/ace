@@ -34,9 +34,8 @@ export async function recoverSessions(p: RecoveryPorts): Promise<void> {
           parentID: id,
           directory: info.location.directory,
           project: info.projectID,
-          order: "asc",
           limit: 128,
-          ...(cursor ? { cursor } : {}),
+          ...(cursor ? { cursor } : { order: "asc" }),
         }),
       );
       for (const value of children.data) {
@@ -64,8 +63,7 @@ export async function recoverSessions(p: RecoveryPorts): Promise<void> {
         p.client.message.list({
           sessionID: id,
           limit: 128,
-          order: "desc",
-          ...(messageCursor ? { cursor: messageCursor } : {}),
+          ...(messageCursor ? { cursor: messageCursor } : { order: "desc" }),
         }),
       (message) => p.frame("recv", "snapshot.message", { sessionID: id, message }),
     );

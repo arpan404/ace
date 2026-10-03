@@ -1,0 +1,38 @@
+{
+  "checkpoints": [
+    {
+      "t": 4667,
+      "thread": "needs_you"
+    },
+    {
+      "t": 4671,
+      "thread": "working"
+    },
+    {
+      "t": 6288,
+      "thread": "waiting",
+      "on": "background_task",
+      "agentStates": {
+        "root": "blocked"
+      },
+      "note": "Parent execution ended, but the native shell is still running."
+    },
+    {
+      "t": 19702,
+      "thread": "working",
+      "note": "The shell terminal schedules a completion wake before delivery."
+    },
+    {
+      "t": 20898,
+      "thread": "done"
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 1,
+    "interactions": {
+      "resolved": 1,
+      "pending": 0
+    }
+  }
+}
