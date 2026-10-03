@@ -61,7 +61,7 @@ ZIP extraction, real npm/uv package behavior, Windows launch, actual provider ac
 
 ## Static development evidence
 
-`bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed on this candidate. The size check included the new files: 1,345 tracked source paths, all below 1,500 lines. `git diff --check` passed. No test, benchmark, mutation, probe or recorder command was executed; `bun run check` is deferred because it includes tests.
+`bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed on this candidate. The size check included the new files: 1,586 tracked source paths, all below 1,500 lines. `git diff --check` passed. No test, benchmark, mutation, probe or recorder command was executed; `bun run check` is deferred because it includes tests.
 
 ## PR #64 review regressions — not executed (tests run at merge)
 
@@ -82,3 +82,5 @@ Additional intended mutations: acknowledge cancel during commit; delete an artif
 Performance numbers remain **not measured**. The redaction workload now includes property-name collisions, and `accounts/bench/acp.ts` measures indexed account environment resolution. These scripts report ops/s, microseconds/op and peak RSS when authorized; no benchmark was executed. Existing stream, catalog and MCP workloads remain deferred.
 
 Main was merged without rebase, including integration train 2. The schema-driven protocol reference was regenerated as an artifact update. No integration-rehearsal comment was present when the review was reread. Architecture acceptance remains an owner decision in ADR 0044, as expressly required by the brief; this candidate does not mark it accepted on the owner's behalf.
+
+Final static gate after staging all additions: fmt, lint, typecheck and check:size passed; 1,586 source files are below 1,500 lines. Protocol artifacts were regenerated without running tests. `bun run check`, tests, mutation execution, flakiness runs, benchmark numbers and CI remain deferred or disabled by the owner.
