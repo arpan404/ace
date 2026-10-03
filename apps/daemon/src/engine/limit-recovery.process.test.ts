@@ -103,6 +103,32 @@ test("resume at reset uses the account deadline and cannot fire a millisecond ea
   expect(sends(replacement)).toHaveLength(3);
 });
 
+test("a reset deadline that fires while history publication holds the store retries instead of crashing", async () => {
+  const failures: unknown[] = [];
+  const { h, id, replacement } = await limitedThread({
+    recovery: { resetAt: () => 5000, onError: (error) => failures.push(error) },
+  });
+  expect(
+    h.command({
+      type: "thread.limit",
+      threadId: id,
+      expectedRevision: h.engine.queue(id).revision,
+      action: "resume_at_reset",
+    }).ok,
+  ).toBe(true);
+  h.store.setHistoryWriting(true);
+  // A throw here would escape the timer callback and take the daemon process down.
+  expect(() => h.clock.advance(5000)).not.toThrow();
+  expect(failures).toHaveLength(1);
+  h.store.setHistoryWriting(false);
+  await h.engine.flush();
+  expect(sends(replacement)).toHaveLength(0);
+  expect(h.engine.queue(id).resumeAt).toBe(5000);
+  h.clock.advance(6000);
+  await h.engine.flush();
+  expect(sends(replacement)).toHaveLength(3);
+});
+
 test("a persisted reset timer resumes a limited thread even when restart auto-continue is disabled", async () => {
   const { h, id, replacement } = await limitedThread({
     preferences: { limitPolicy: "resume_at_reset" },

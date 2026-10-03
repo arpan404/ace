@@ -1,10 +1,28 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-export function acquireLock(dataDir: string): () => void {
+/**
+ * The data directory holds every transcript, tool output and credential, so only its owner may
+ * enter it. mkdir's mode does not apply to a directory that already exists (for example one a
+ * legacy install created with 0755), so the mode is enforced here, before any store opens.
+ */
+export function secureDataDir(dataDir: string): void {
   mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  const stat = lstatSync(dataDir);
+  if (stat.isSymbolicLink())
+    throw new Error(`Refusing data directory ${dataDir}: it is a symbolic link`);
+  if (!stat.isDirectory()) throw new Error(`Refusing data directory ${dataDir}: not a directory`);
+  // Windows has no POSIX owner or mode bits; its profile ACLs protect the directory.
+  const uid = process.getuid?.();
+  if (uid === undefined) return;
+  if (stat.uid !== uid)
+    throw new Error(`Refusing data directory ${dataDir}: it is owned by another user`);
+  if ((stat.mode & 0o077) !== 0) chmodSync(dataDir, 0o700);
+}
+export function acquireLock(dataDir: string): () => void {
+  secureDataDir(dataDir);
   const path = join(dataDir, "daemon-lock");
   const owner = JSON.stringify({ pid: process.pid, id: randomUUID() });
   // A separate SQLite connection holds the OS lock for the daemon lifetime.

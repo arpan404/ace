@@ -315,3 +315,64 @@ it("rejects an unknown thread even when replay starts at the current head", asyn
   f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Later" }]);
   expect(messages).toEqual([]);
 });
+
+it("thread replay never reads another thread's event payloads", () => {
+  const db = new DatabaseSync(":memory:");
+  const store = new Store(":memory:", undefined, { database: db });
+  cleanups.push(() => store.close());
+  const workspace = store.createWorkspace("/repo", "repo");
+  const thread = createDevThread(store, workspace);
+  const other = createDevThread(store, workspace);
+  const before = store.headSeq();
+  for (let i = 0; i < 20; i++) {
+    store.appendEvents(other.id, [{ type: "thread.updated", title: `Other ${i}` }]);
+    store.appendEvents(thread.id, [{ type: "thread.updated", title: `Mine ${i}` }]);
+  }
+  db.function("read_foreign", (_value) => {
+    throw new Error("Replay read another thread's event");
+  });
+  db.exec(
+    `ALTER TABLE events RENAME TO metered_events; CREATE VIEW events AS SELECT seq, id, thread_id, at, CASE WHEN thread_id = '${other.id}' THEN read_foreign(payload) ELSE payload END AS payload FROM metered_events`,
+  );
+  const messages: ServerMessage[] = [];
+  cleanups.push(
+    subscribe(store, "s", { kind: "thread", threadId: thread.id }, before, 5000, (m) =>
+      messages.push(m),
+    ),
+  );
+  expect(
+    messages.flatMap((m) =>
+      m.type === "events"
+        ? m.events.map((e) => (e.payload.type === "thread.updated" ? e.payload.title : ""))
+        : [],
+    ),
+  ).toEqual(Array.from({ length: 20 }, (_, i) => `Mine ${i}`));
+  expect(messages.at(-1)).toMatchObject({ throughSeq: store.headSeq() });
+});
+
+it("a large replay is split into contiguous frames below the client frame limit", async () => {
+  const f = await setup();
+  const view = createThreadView(f.thread);
+  const before = f.store.headSeq();
+  view.seq = before;
+  const texts = Array.from({ length: 4 }, (_, i) => String(i).repeat(700 * 1024));
+  for (const [i, text] of texts.entries())
+    f.store.appendEvents(f.thread.id, [
+      { type: "item.created", item: transcriptMessage(`big-${i}`, text) },
+    ]);
+  f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Head" }]);
+  const messages: ServerMessage[] = [];
+  cleanups.push(
+    subscribe(f.store, "s", { kind: "thread", threadId: f.thread.id }, before, 5000, (m) =>
+      messages.push(m),
+    ),
+  );
+  expect(messages.length).toBeGreaterThan(1);
+  for (const message of messages) {
+    expect(Buffer.byteLength(JSON.stringify(message))).toBeLessThan(2 * 1024 * 1024);
+    if (message.type !== "events") throw new Error(`Unexpected ${message.type}`);
+    expect(applyDelivery(view, message).kind).toBe("applied");
+  }
+  expect(view.seq).toBe(f.store.headSeq());
+  expect(view.thread.title).toBe("Head");
+});

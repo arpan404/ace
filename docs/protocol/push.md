@@ -1620,6 +1620,8 @@ Example:
 | message | yes | string |  |
 | requestId | no | string |  |
 | subscriptionId | no | string |  |
+| commandId | no | [CommandId.json](schema/CommandId.json) |  |
+| retryable | no | boolean |  |
 
 Example:
 
@@ -1650,7 +1652,7 @@ Example:
   "bytes": "example",
   "eof": false,
   "nextOffset": 5,
-  "offset": 6,
+  "offset": 7,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -1676,7 +1678,7 @@ Example:
   "items": [],
   "itemsBefore": 5,
   "requestId": "example",
-  "seq": 5,
+  "seq": 4,
   "threadId": "example",
   "type": "items.page"
 }

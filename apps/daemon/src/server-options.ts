@@ -74,6 +74,8 @@ export interface ServerOptions {
   review?: ReviewPort;
   replayLimit?: number;
   idleTimeoutMs?: number;
+  /** Budget and hello deadline for sockets that have not authenticated yet. */
+  preAuth?: Partial<import("./socket-admission.ts").PreAuthLimits>;
   pressure?: Partial<PressureOptions>;
   log?: (error: unknown) => void;
   health?: () => Promise<DiagnosticsHealth>;
