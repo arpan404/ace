@@ -1,0 +1,83 @@
+/*
+ * Design tokens. NEUTRAL PLACEHOLDERS: the approved prototype's DESIGN.md replaces the values
+ * in this file only. Components read tokens through Tailwind utilities (bg-background,
+ * text-status-working, ...) and never hard-code colours, so the theme drops in unchanged.
+ */
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+
+  /* Agent and thread status. Each has a foreground and a subtle surface. */
+  --status-working: oklch(0.55 0.13 250);
+  --status-working-surface: oklch(0.95 0.03 250);
+  --status-needs-you: oklch(0.6 0.15 70);
+  --status-needs-you-surface: oklch(0.96 0.05 85);
+  --status-waiting: oklch(0.55 0.02 260);
+  --status-waiting-surface: oklch(0.96 0.005 260);
+  --status-failed: oklch(0.577 0.245 27.325);
+  --status-failed-surface: oklch(0.96 0.03 27);
+  --status-done: oklch(0.55 0.12 150);
+  --status-done-surface: oklch(0.96 0.04 150);
+
+  --font-sans: ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+
+  --status-working: oklch(0.75 0.11 250);
+  --status-working-surface: oklch(0.3 0.05 250);
+  --status-needs-you: oklch(0.8 0.13 80);
+  --status-needs-you-surface: oklch(0.32 0.06 80);
+  --status-waiting: oklch(0.72 0.02 260);
+  --status-waiting-surface: oklch(0.28 0.01 260);
+  --status-failed: oklch(0.704 0.191 22.216);
+  --status-failed-surface: oklch(0.3 0.07 25);
+  --status-done: oklch(0.75 0.12 150);
+  --status-done-surface: oklch(0.3 0.05 150);
+}

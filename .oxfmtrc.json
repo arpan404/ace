@@ -1,4 +1,12 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["node_modules", "dist", "coverage", "bun.lock", "fixtures", ".recordings"]
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    "coverage",
+    "bun.lock",
+    "fixtures",
+    ".recordings",
+    "**/routeTree.gen.ts"
+  ]
 }
