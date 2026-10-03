@@ -6,10 +6,9 @@ injection, selected-instance model discovery, auth host seam and approval-gated 
 scenario recording support. Browser auth backend/protocol and durable checkpoint recovery
 are now assembled; UI implementation is separately owned. The branch is ready
 for static review, with runtime validation deferred to merge under owner policy. No live Cursor turn, browser login,
-fixture recording, benchmark, mutation or test was executed.
+fixture recording, benchmark or mutation was executed. The owner later authorized the eight explicitly listed failing test files plus checkpoint quota and host output named in the lead; all 602 tests in those ten files now pass.
 
-The owner explicitly permits only formatting, lint, typecheck and source-size
-checks before merge. Behavior tests are written for merge-time execution. CI is
+The owner permits static checks and, for the current repair only, the ten failing test files named in the request and lead. All other tests remain deferred to merge. CI is
 disabled by the owner; no CI run, rerun or watch was requested.
 
 Static validation: `bun run fmt`, `bun run lint`, `bun run typecheck` and
@@ -360,3 +359,13 @@ unexecuted; N7/N12/N13 now have the stronger guards named above.
 ## Integration train 3
 
 Merged main `bdc359e2` without rebasing. Cursor auth remains a registered listener service in degraded startup. Prepared-thread `accountId` and direct creation `instanceId` select the same pinned SDK account; conflicting values refuse admission. Queue recovery retains its shared owner, while native frame offsets remain atomic with canonical facts/raw chunks. SDK account migration refuses before session disposal and remains fenced at execution for old durable intents. Crash-live SDK work gets an uncertainty notice, and pending new input stays held until explicit continuation. SDK leases grant no mutating MCP capabilities through either factory. No UI source was edited.
+
+## Merge-time failure repair
+
+The owner authorized the explicitly listed files plus checkpoint quota and host output called out in the lead. The initial reliability run reproduced 12 failures and 17 unhandled errors; Cursor/protocol guards reproduced five failures and checkpoint/host guards reproduced three. After repair, all 602 tests across the ten authorized files pass without unhandled errors. The full suite, other test files, benchmarks, mutations and live provider operations were not run.
+
+The shared scripted provider was structured-cloning `ProviderPayload`, losing its private admission certificate. It now copies metadata separately, retains immutable certified data and awaits frame commits. SDK frame admission stays strict. Void frame consumers no longer create unhandled rejection noise after the actor fences a persistence failure; awaiting consumers still receive a rejected commit. The existing persistence-failure guard now checks both paths.
+
+Child terminal guards assert canonical item-update events using the canonical ID instead of indexing internal native item keys. The quota guard retains the failed run/error and absence of retries, while expecting main's durable limited thread status. Browser auth rejects whitespace-decorated URLs with an aborting HTTPS constraint before URL normalization can produce conflicting intersection results; schema generation and explicit invalid-challenge guards pass. Protocol references were regenerated.
+
+Checkpoint quota guards now compare bytes across SDK Buffer/Uint8Array representations. The host output stub supplies the pinned SDK schema's required `modelCallId`, so the test reaches bounded output and disposal instead of failing schema validation before send. The orchestrator's main merge `4dc670a3` was pulled before repair.

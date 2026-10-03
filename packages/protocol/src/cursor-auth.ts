@@ -26,7 +26,10 @@ export const CursorAuthEvent = z.discriminatedUnion("type", [
     instanceId: AccountId,
     state: z.enum(["starting", "browser", "complete", "failed", "cancelled"]),
     expiresAt: z.number().finite().nonnegative(),
-    url: z.intersection(z.url().max(8192), z.string().regex(/^https:\/\//)).optional(),
+    // Abort on decorated input before URL normalization can conflict with the raw challenge.
+    url: z
+      .intersection(z.url().max(8192), z.string().regex(/^(?!.*\s)https:\/\/\S+$/, { abort: true }))
+      .optional(),
     auth: CursorSdkAuth.optional(),
     error: z.enum(["login_failed", "expired", "cancelled"]).optional(),
   }),

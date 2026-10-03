@@ -3423,7 +3423,7 @@ Example:
 | instanceId | yes | [AccountId.json](schema/AccountId.json) |  |
 | state | yes | ["starting","browser","complete","failed","cancelled"] |  |
 | expiresAt | yes | number | {"minimum":0} |
-| url | no | intersection | {"allOf":[{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":8192,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},{"type":"string","pattern":"^https:\\/\\/"}]} |
+| url | no | intersection | {"allOf":[{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":8192,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."},{"type":"string","pattern":"^(?!.*\\s)https:\\/\\/\\S+$"}]} |
 | auth | no | [CursorSdkAuth.json](schema/CursorSdkAuth.json) |  |
 | error | no | ["login_failed","expired","cancelled"] |  |
 
@@ -3431,10 +3431,6 @@ Example:
 
 ```json
 {
-  "auth": {
-    "source": "sdk-store",
-    "status": "logged-out"
-  },
   "expiresAt": 1,
   "instanceId": "7VRnMAtLrCTcx74z474MxqF4I9DgNd2s0",
   "loginId": "example",

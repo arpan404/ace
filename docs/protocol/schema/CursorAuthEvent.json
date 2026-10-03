@@ -56,7 +56,7 @@
               "x-ace-url-maxLength": 8192
             },
             {
-              "pattern": "^https:\\/\\/",
+              "pattern": "^(?!.*\\s)https:\\/\\/\\S+$",
               "type": "string"
             }
           ]
