@@ -1,5 +1,6 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
+import { ActivityNotifier } from "@/features/activity/activity-notifier.tsx";
 import { CommandPalette } from "@/features/palette/command-palette.tsx";
 import { GlobalHotkeys } from "./global-hotkeys.tsx";
 import { Rail } from "./rail.tsx";
@@ -22,6 +23,7 @@ export function AppShell() {
       </div>
       <CommandPalette />
       <GlobalHotkeys />
+      <ActivityNotifier />
     </div>
   );
 }

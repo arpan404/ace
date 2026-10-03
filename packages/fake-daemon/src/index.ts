@@ -17,4 +17,5 @@ export { FakeTerminals } from "./terminals.ts";
 export type { TerminalEvent, TerminalInfo, TerminalLink, OpenRequest } from "./terminals.ts";
 export { FakeBrowser } from "./browser.ts";
 export type { BrowserView, ScreenFrame, PreviewServer, ForwardedInput } from "./browser.ts";
+export { seedIndex } from "./scenarios/seed-index.ts";
 export * as facts from "./scenarios/facts.ts";
