@@ -5,7 +5,8 @@
     "codex",
     "claude",
     "opencode",
-    "cursor"
+    "cursor",
+    "acp"
   ],
   "type": "string"
 }

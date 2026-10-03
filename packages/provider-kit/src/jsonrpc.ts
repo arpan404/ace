@@ -21,6 +21,7 @@ export type RpcOptions = {
   timeoutMs?: number | null;
   schedule?: DeadlineScheduler;
   maxPendingRequests?: number;
+  maxIncomingRequests?: number;
   maxMessageBytes?: number;
   /** First peer configures the shared queued/in-flight byte cap for this pipe. */
   maxQueuedBytes?: number;
@@ -51,6 +52,8 @@ export class JsonRpcPeer {
   readonly #outgoing = new AbortController();
   readonly #maxMessageBytes: number;
   readonly #maxPendingRequests: number;
+  readonly #maxIncomingRequests: number;
+  #incoming = 0;
   readonly #schedule: DeadlineScheduler;
   #closed: Error | undefined;
   onNotification: (message: Notification) => void = () => {};
@@ -59,6 +62,10 @@ export class JsonRpcPeer {
   };
 
   constructor(proc: SupervisedProcess, options: RpcOptions = {}) {
+    this.#maxIncomingRequests = byteLimit(
+      options.maxIncomingRequests ?? 128,
+      "maxIncomingRequests",
+    );
     this.#maxPendingRequests = byteLimit(options.maxPendingRequests ?? 256, "maxPendingRequests");
     this.#maxMessageBytes = byteLimit(
       options.maxMessageBytes ?? 16 * 1024 * 1024,
@@ -145,10 +152,15 @@ export class JsonRpcPeer {
     return sent;
   }
 
-  /** Dispose the peer without stopping its owning process. */
-  close(error = new Error("JSON-RPC peer closed")): void {
+  /** Reject admission/work while retaining final stdout observation until the pipe drains. */
+  stopRequests(error = new Error("JSON-RPC peer closed")): void {
     this.#closed ??= error;
     this.#outgoing.abort(error);
+    for (const id of this.#pending.keys()) this.#settle(id, error);
+  }
+  /** Dispose the peer without stopping its owning process. */
+  close(error = new Error("JSON-RPC peer closed")): void {
+    this.stopRequests(error);
     this.#process.stdout.removeListener("close", this.#drained);
     this.#process.signal.removeEventListener("abort", this.#end);
     this.#process.stdout.removeListener("line", this.#receive);
@@ -161,16 +173,14 @@ export class JsonRpcPeer {
   };
   #end = (): void => {
     const error = new Error("process exited");
-    this.#closed ??= error;
-    this.#outgoing.abort(error);
     // Keep observing final stdout frames until close, but reject work at exit.
-    for (const id of this.#pending.keys()) this.#settle(id, error);
+    this.stopRequests(error);
   };
   #report(error: Error): void {
     this.#options.onError?.(error);
   }
   #fail = (error: Error): void => {
-    this.close(error);
+    this.stopRequests(error);
     this.#report(error);
   };
   #settle(id: RpcId, error?: Error, result?: unknown): void {
@@ -212,7 +222,15 @@ export class JsonRpcPeer {
     const id = message["id"];
     const method = message["method"];
     if (typeof method === "string" && isId(id)) {
-      void this.#answer({ id, method, params: message["params"] });
+      if (this.#closed) return;
+      if (this.#incoming >= this.#maxIncomingRequests) {
+        this.#fail(new Error("JSON-RPC incoming request limit"));
+        return;
+      }
+      this.#incoming++;
+      void this.#answer({ id, method, params: message["params"] }).finally(() => {
+        this.#incoming--;
+      });
     } else if (typeof method === "string" && id === undefined) {
       try {
         this.onNotification({ method, params: message["params"] });

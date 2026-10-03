@@ -2,6 +2,11 @@
   "$id": "https://ace.local/protocol/v1/CatalogModel.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
     "contextWindow": {
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991,
@@ -42,13 +47,28 @@
       "maxItems": 16,
       "type": "array"
     },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
     "instance": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
     },
     "isDefault": {
       "type": "boolean"
+    },
+    "modelConfigId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
     },
     "nativeModelId": {
       "maxLength": 256,
@@ -92,6 +112,13 @@
     "resolvedModelId": {
       "maxLength": 256,
       "minLength": 1,
+      "type": "string"
+    },
+    "selectorMethod": {
+      "enum": [
+        "session/set_config_option",
+        "session/set_model"
+      ],
       "type": "string"
     },
     "serviceTiers": {

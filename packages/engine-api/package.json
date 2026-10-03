@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@ace/agent-registry": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*"

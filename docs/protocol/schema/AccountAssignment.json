@@ -8,7 +8,7 @@
       "type": "number"
     },
     "instanceId": {
-      "$ref": "https://ace.local/protocol/v1/AccountId.json"
+      "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
     },
     "role": {
       "maxLength": 64,

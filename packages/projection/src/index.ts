@@ -112,6 +112,9 @@ export function updateThread(thread: Thread, event: Event): void {
   const payload = event.payload;
   if (payload.type === "thread.updated") {
     if (payload.title !== undefined) thread.title = payload.title;
+    if (payload.effectiveCapabilities !== undefined)
+      thread.effectiveCapabilities = structuredCopy(payload.effectiveCapabilities);
+    if (payload.acpSupport !== undefined) thread.acpSupport = structuredCopy(payload.acpSupport);
     if (payload.status !== undefined) thread.status = structuredCopy(payload.status);
     if (payload.archivedAt === null) delete thread.archivedAt;
     else if (payload.archivedAt !== undefined) thread.archivedAt = payload.archivedAt;
