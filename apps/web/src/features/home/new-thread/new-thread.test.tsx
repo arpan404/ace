@@ -27,7 +27,7 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
   await userEvent.click(await screen.findByRole("button", { name: /^Model: Opus 4.1/ }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "GPT-5 Codex" }));
   expect(
-    await screen.findByRole("button", { name: "Model: GPT-5 Codex, account Personal" }),
+    await screen.findByRole("button", { name: "Model: GPT-5 Codex, account personal" }),
   ).toBeTruthy();
 
   const field = await prompt();
@@ -58,7 +58,7 @@ test("the last model, account and work mode are remembered for the next thread",
   const storage = memoryKeyValue();
   await app({ storage }).open("/new?project=ace");
   await userEvent.click(await screen.findByRole("button", { name: /^Model:/ }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Account Work" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Account work" }));
   await userEvent.click(screen.getByRole("button", { name: "Where the work happens: Worktree" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Local" }));
   // A worktree's base branch only applies to worktrees.
@@ -68,6 +68,6 @@ test("the last model, account and work mode are remembered for the next thread",
   cleanup();
 
   await app({ storage }).open("/new");
-  expect(await screen.findByRole("button", { name: "Model: Opus 4.1, account Work" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Model: Opus 4.1, account work" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Where the work happens: Local" })).toBeTruthy();
 });

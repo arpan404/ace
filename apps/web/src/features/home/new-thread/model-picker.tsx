@@ -11,7 +11,7 @@ import {
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
 import { ProviderGlyph } from "@/components/ui/provider-glyph.tsx";
-import { providerNames } from "@ace/ui-core";
+import { accountTag, providerNames } from "@ace/ui-core";
 import type { NewThreadOptions, Resolved } from "./choices.ts";
 
 /**
@@ -31,11 +31,13 @@ export function ModelPicker(props: {
     <Menu>
       <MenuTrigger
         disabled={!model}
-        aria-label={`Model: ${model?.label ?? "loading"}${account ? `, account ${account.label}` : ""}`}
+        aria-label={`Model: ${model?.label ?? "loading"}${account ? `, account ${accountTag(account.label)}` : ""}`}
         className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-ui font-medium text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent aria-expanded:bg-accent disabled:opacity-50"
       >
         {model?.label ?? "Loading models…"}
-        {account && <span className="font-normal text-subtle-foreground">{account.label}</span>}
+        {account && (
+          <span className="font-normal text-subtle-foreground">{accountTag(account.label)}</span>
+        )}
         <CaretDownIcon aria-hidden size={12} className="text-muted-foreground" />
       </MenuTrigger>
       <MenuContent align="end" side="top" className="max-h-[60vh] min-w-[260px] overflow-y-auto">
@@ -64,9 +66,9 @@ export function ModelPicker(props: {
                 onValueChange={(id) => props.onAccount(String(id))}
               >
                 {accounts.map((a) => (
-                  <MenuRadioItem key={a.id} value={a.id} aria-label={`Account ${a.label}`}>
+                  <MenuRadioItem key={a.id} value={a.id} aria-label={`Account ${accountTag(a.label)}`}>
                     <span className="flex items-center gap-3">
-                      {a.label}
+                      {accountTag(a.label)}
                       <span className="ml-auto text-xs text-subtle-foreground">{a.usage}</span>
                     </span>
                   </MenuRadioItem>
