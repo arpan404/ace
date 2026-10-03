@@ -1,3 +1,4 @@
+import { commitChanges, pushBranch, listBranches } from "./actions.ts";
 import { GitCli } from "./cli.ts";
 import { tmpdir } from "node:os";
 import { createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
@@ -39,6 +40,19 @@ export class GitService {
     };
   }
 
+  commit(options: {
+    worktree: string;
+    message: string;
+    expectedHead: string | null;
+  }): Promise<string> {
+    return commitChanges(this.repository, options);
+  }
+  push(options: { worktree: string; remote: string }): Promise<void> {
+    return pushBranch(this.repository, options);
+  }
+  branches(worktree: string): Promise<{ branches: string[]; truncated: boolean }> {
+    return listBranches(this.repository, worktree);
+  }
   async repositoryInfo(repo: string) {
     const root = await this.repository.root(repo);
     return serial(root, () => this.repository.info(root));

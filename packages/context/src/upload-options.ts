@@ -26,6 +26,8 @@ export interface UploadOptions {
   now(): number;
   id(): string;
   authorize(device: string, thread: string): boolean | Promise<boolean>;
+  workspace?(id: string): string | undefined | Promise<string | undefined>;
+  threadWorkspace?(id: string): string | undefined | Promise<string | undefined>;
   limits?: Partial<UploadLimits>;
   imageLimits?: ImageLimits;
   /** Trusted storage boundary; resolves only once chunk bytes are durable. */

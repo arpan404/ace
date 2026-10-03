@@ -1,7 +1,13 @@
 import { mkdir, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { withDirectoryLock } from "./lock.ts";
-import { PluginInstall, PluginName, PluginReview, PluginReviewOffset } from "@ace/protocol/plugins";
+import {
+  PluginAvailability,
+  PluginInstall,
+  PluginName,
+  PluginReview,
+  PluginReviewOffset,
+} from "@ace/protocol/plugins";
 import { Marketplace, limits, normalizePath, parseJson } from "./manifest.ts";
 import {
   assertNoSymlinks,
@@ -12,6 +18,7 @@ import {
 } from "./files.ts";
 import { extractPlugin, fetchRepository, readGitFile, gitRuntime, type GitRuntime } from "./git.ts";
 import { importPlugin } from "./import.ts";
+import { PluginClientOperations } from "./client-operations.ts";
 import { Registry } from "./registry.ts";
 import { jsonSize, reviewBytes, reviewPage } from "./review-pages.ts";
 import { reviewPlugin, validateComponents } from "./review.ts";
@@ -25,6 +32,7 @@ export interface PluginManagerOptions {
 }
 export class PluginManager {
   private registry: Registry;
+  private client: PluginClientOperations;
   private root: string;
   private options: PluginManagerOptions;
   private git: GitRuntime;
@@ -33,6 +41,9 @@ export class PluginManager {
     this.options = options;
     this.git = options.git ?? gitRuntime();
     this.registry = new Registry(join(root, "registry.sqlite"));
+    this.client = new PluginClientOperations(this.registry, root, options.id, () =>
+      this.installed(),
+    );
   }
   static async open(options: PluginManagerOptions): Promise<PluginManager> {
     const root = await ownDirectory(options.root);
@@ -224,6 +235,29 @@ export class PluginManager {
       }
       return snapshots;
     });
+  }
+  availability(name: string) {
+    return this.client.availability(name);
+  }
+  configure(value: PluginAvailability) {
+    return this.client.configure(value);
+  }
+  selected(provider: import("./types.ts").Provider) {
+    return this.client.selected(provider);
+  }
+  catalog(offset: number, limit: number) {
+    return this.client.catalog(offset, limit);
+  }
+  source(name: string, path: string, offset: number, limit: number) {
+    return this.client.source(name, path, offset, limit);
+  }
+  edit(request: {
+    name: string;
+    path: string;
+    expectedHash: string;
+    text: string;
+  }): Promise<PluginReview> {
+    return this.lock(() => this.client.edit(request));
   }
   async remove(name: string): Promise<void> {
     await this.lock(async () => {

@@ -1,7 +1,12 @@
 import { reviewSummary } from "./review-pages.ts";
 import { DatabaseSync } from "node:sqlite";
 import { z } from "zod";
-import { PluginInstall, PluginReview, PluginReviewSummary } from "@ace/protocol/plugins";
+import {
+  PluginAvailability,
+  PluginInstall,
+  PluginReview,
+  PluginReviewSummary,
+} from "@ace/protocol/plugins";
 
 export const StoredReview = z.strictObject({
   review: PluginReview,
@@ -23,6 +28,7 @@ export class Registry {
   constructor(path: string) {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+      CREATE TABLE IF NOT EXISTS availability (name TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS installs (name TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY, name TEXT NOT NULL, data TEXT NOT NULL, summary TEXT);`);
     const columns = this.db
@@ -61,6 +67,18 @@ export class Registry {
       .all()
       .map((row) => StoredInstall.parse(JSON.parse(z.string().parse(row.data))));
   }
+  availability(name: string): import("@ace/protocol/plugins").PluginAvailability | undefined {
+    const row = this.db.prepare("SELECT data FROM availability WHERE name=?").get(name);
+    return row ? PluginAvailability.parse(JSON.parse(z.string().parse(row.data))) : undefined;
+  }
+  configure(input: import("@ace/protocol/plugins").PluginAvailability): void {
+    const value = PluginAvailability.parse(input);
+    this.db
+      .prepare(
+        "INSERT INTO availability VALUES (?,?) ON CONFLICT(name) DO UPDATE SET data=excluded.data",
+      )
+      .run(value.name, JSON.stringify(value));
+  }
   summaries(): PluginReviewSummary[] {
     return this.selects.summaries
       .all()
@@ -94,6 +112,7 @@ export class Registry {
   remove(name: string): void {
     this.transaction(() => {
       this.mutations.remove.run(name);
+      this.db.prepare("DELETE FROM availability WHERE name=?").run(name);
       this.mutations.deleteNamedReviews.run(name);
     });
   }

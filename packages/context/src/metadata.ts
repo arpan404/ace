@@ -21,6 +21,8 @@ export class Metadata {
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
+      CREATE TABLE IF NOT EXISTS drafts(id TEXT PRIMARY KEY, device TEXT NOT NULL, workspace TEXT NOT NULL, expires INTEGER NOT NULL, adopted TEXT);
+      CREATE INDEX IF NOT EXISTS draft_expiry ON drafts(expires);
       CREATE TABLE IF NOT EXISTS uploads(id TEXT PRIMARY KEY, device TEXT NOT NULL, thread TEXT NOT NULL, sha256 TEXT NOT NULL, bytes INTEGER NOT NULL, name TEXT NOT NULL, offset INTEGER NOT NULL, expires INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0);
       CREATE INDEX IF NOT EXISTS uploads_expiry ON uploads(expires);
       CREATE INDEX IF NOT EXISTS uploads_hash ON uploads(sha256,done);

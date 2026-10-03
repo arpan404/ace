@@ -1,3 +1,4 @@
+import { clientView, clientSummary } from "./client-view.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { ArtifactCodec } from "./persistence-artifacts.ts";
 import { Payload, StoredLane, StoredNode, StoredRoot, sameFields } from "./persistence-schema.ts";
@@ -10,6 +11,26 @@ export class StatePersistence {
   constructor(db: DatabaseSync) {
     this.sql = persistenceSql(db);
     this.codec = new ArtifactCodec(this.sql);
+  }
+  summary(input: StoredRoot) {
+    const spec = this.codec.decoder(input.id)(input.spec);
+    if (spec.kind !== "spec") throw new Error("artifact_kind_mismatch");
+    return clientSummary({ ...input, spec: spec.data });
+  }
+  view(input: StoredRoot) {
+    const read = this.codec.decoder(input.id);
+    const spec = read(input.spec),
+      plan = input.plan ? read(input.plan) : null;
+    if (spec.kind !== "spec" || (plan && plan.kind !== "plan"))
+      throw new Error("artifact_kind_mismatch");
+    const lanes = this.sql.clientLanes
+      .all(input.id)
+      .map((row) => StoredLane.parse(JSON.parse(Payload.parse(row).payload)));
+    const nodes = this.sql.nodes
+      .all(input.id)
+      .map((row) => StoredNode.parse(JSON.parse(Payload.parse(row).payload)));
+    if (nodes.length > 256) throw new Error("run_indexes_exceed_capacity");
+    return clientView({ ...input, spec: spec.data, plan: plan?.data ?? null }, lanes, nodes);
   }
   /** Cold boundary only. Parse each persisted artifact and the restored state. */
   restore(input: StoredRoot): State {

@@ -61,6 +61,7 @@ export interface SessionContext {
   /** Persist this assignment with the native session ID; resume must reuse the same instance. */
   instanceId?: string;
   model?: string;
+  options?: import("@ace/protocol").TurnOptions;
   acpIdentity?: AcpIdentity;
   /** Immutable daemon-local plan; wrappers retain it when replacing lifetime signals. */
   acpLaunch?: LaunchPlan;
@@ -94,6 +95,12 @@ export interface ProviderSession {
   readonly nativeSessionId: string;
   readonly effectiveCapabilities?: Capabilities | undefined;
   readonly acpSupport?: AcpSessionSupport | undefined;
+  configure?(selection: {
+    provider: ProviderKind;
+    model?: string;
+    instanceId?: string;
+    options: import("@ace/protocol").TurnOptions;
+  }): Promise<void>;
   setModel?(model: string): Promise<void>;
   setMode?(mode: string): Promise<void>;
   send(input: ContentPart[], delivery: "steer" | "queue"): Promise<void>;

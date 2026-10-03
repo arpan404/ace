@@ -98,7 +98,12 @@ export class Terminal {
     );
   }
 
-  snapshot(): TerminalSnapshot {
+  /** Read offsets and process metadata without copying retained output. */
+  info(): Omit<TerminalSnapshot, "data"> {
+    const { data: _data, ...info } = this.snapshotMetadata();
+    return info;
+  }
+  private snapshotMetadata(): TerminalSnapshot {
     this.#assertAvailable();
     return {
       version: 1,
@@ -111,8 +116,15 @@ export class Terminal {
       capacity: this.#ring.capacity,
       oldestOffset: this.#ring.start,
       nextOffset: this.#ring.end,
-      data: this.#ring.read(this.#ring.start).toString("base64"),
+      data: "",
       exit: this.#exit ? { ...this.#exit } : null,
+    };
+  }
+
+  snapshot(): TerminalSnapshot {
+    return {
+      ...this.snapshotMetadata(),
+      data: this.#ring.read(this.#ring.start).toString("base64"),
     };
   }
 

@@ -5,6 +5,7 @@ export function persistenceSql(db: DatabaseSync) {
     CREATE TABLE IF NOT EXISTS conductor_artifacts (run TEXT NOT NULL REFERENCES conductor_runs(id) ON DELETE CASCADE, id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(run,id));
     CREATE TABLE IF NOT EXISTS conductor_lanes (run TEXT NOT NULL REFERENCES conductor_runs(id) ON DELETE CASCADE, id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(run,id));
     CREATE TABLE IF NOT EXISTS conductor_nodes (run TEXT NOT NULL REFERENCES conductor_runs(id) ON DELETE CASCADE, id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(run,id));
+    CREATE INDEX IF NOT EXISTS conductor_lanes_live ON conductor_lanes(run,id) WHERE json_extract(payload,'$.live')=1;
     CREATE TEMP TABLE conductor_artifacts_retained (id TEXT PRIMARY KEY);`);
   return {
     artifact: db.prepare("SELECT payload FROM conductor_artifacts WHERE run=? AND id=?"),
@@ -18,6 +19,9 @@ export function persistenceSql(db: DatabaseSync) {
     ),
     artifactBytes: db.prepare(
       "SELECT coalesce(sum(length(CAST(payload AS BLOB))),0) AS n FROM conductor_artifacts WHERE run=?",
+    ),
+    clientLanes: db.prepare(
+      "SELECT payload FROM conductor_lanes WHERE run=? AND json_extract(payload,'$.live')=1 ORDER BY id LIMIT 65",
     ),
     lanes: db.prepare("SELECT payload FROM conductor_lanes WHERE run=? ORDER BY rowid LIMIT 8193"),
     nodes: db.prepare("SELECT payload FROM conductor_nodes WHERE run=? ORDER BY rowid LIMIT 257"),
