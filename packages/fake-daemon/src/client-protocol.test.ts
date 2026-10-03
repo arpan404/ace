@@ -12,8 +12,7 @@ import {
 } from "@ace/protocol";
 import { settingsFixture, FakeDaemon, fakeTransport } from "./index.ts";
 
-async function fixture() {
-  const daemon = new FakeDaemon({ clock: () => 1000 });
+async function fixture(daemon = new FakeDaemon({ clock: () => 1000 })) {
   let saved: string | null = null,
     sequence = 0;
   const client = new Client({
@@ -732,5 +731,58 @@ test("fake Preview subscribers join with current pixels and survive reopening wi
     );
   } finally {
     await f.client.close();
+  }
+});
+
+test("fake Preview reopening by one client restores the other client's existing subscription", async () => {
+  const a = await fixture();
+  const b = await fixture(a.daemon);
+  a.daemon.createThread({
+    id: "two-previews",
+    workspaceId: "workspace",
+    title: "Preview",
+    provider: "codex",
+  });
+  const threadId = ThreadId.parse("two-previews"),
+    workspaceId = WorkspaceId.parse("workspace");
+  const first: Message[] = [],
+    second: Message[] = [];
+  a.client.onMessage((message) => {
+    first.push(message);
+  });
+  b.client.onMessage((message) => {
+    second.push(message);
+  });
+  try {
+    await a.client.request({ type: "browser.open", options: { threadId, workspaceId } });
+    await a.client.request({ type: "browser.subscribe", threadId });
+    await b.client.request({ type: "browser.subscribe", threadId });
+    await b.client.request({ type: "browser.close", threadId });
+    await a.client.request({ type: "diagnostics.health" });
+    const beforeA = first.length,
+      beforeB = second.length;
+    await b.client.request({ type: "browser.open", options: { threadId, workspaceId } });
+    await a.client.request({ type: "diagnostics.health" });
+    for (const messages of [first.slice(beforeA), second.slice(beforeB)]) {
+      expect(messages).toContainEqual(expect.objectContaining({ type: "browser.frame" }));
+      expect(messages).toContainEqual(
+        expect.objectContaining({
+          type: "browser.state",
+          state: expect.objectContaining({ closed: false }),
+        }),
+      );
+    }
+    const takeover = first.length;
+    await b.client.request({ type: "browser.takeover", threadId });
+    await a.client.request({ type: "diagnostics.health" });
+    expect(first.slice(takeover)).toContainEqual(
+      expect.objectContaining({
+        type: "browser.state",
+        state: expect.objectContaining({ controller: "human" }),
+      }),
+    );
+  } finally {
+    await b.client.close();
+    await a.client.close();
   }
 });

@@ -18,6 +18,7 @@ import type { BrowserBackendLost, BrowserDownloadProgress } from "@ace/protocol"
 import { allowedOrigin } from "./policy.ts";
 import { BrowserSession, type Actor } from "./session.ts";
 import type { FrameSink } from "./fanout.ts";
+import { BrowserSubscriptions } from "./subscriptions.ts";
 
 import { PolicyGate } from "./policy-call.ts";
 import { setMaxListeners } from "node:events";
@@ -31,7 +32,7 @@ export class BrowserService {
   private sequence = 0;
   private opening = new Map<string, Promise<BrowserSession>>();
   private leases = new Set<string>();
-  private listeners = new Map<string, Set<(state: BrowserState) => void>>();
+  private subscriptions: BrowserSubscriptions;
   private frameMessages = new WeakMap<BrowserFrame, string>();
   private now: () => number;
   private id: () => string;
@@ -50,10 +51,12 @@ export class BrowserService {
       this.downloadListeners.delete(listener);
     };
   }
-  private backendEvents = new Map<string, Set<(event: BrowserBackendLost) => void>>();
   private policyScopes = new Map<string, AbortController>();
   constructor(options: BrowserServiceOptions) {
     this.options = options;
+    this.subscriptions = new BrowserSubscriptions(64 * (options.maxSessions ?? 8), (error) =>
+      options.onError?.(error),
+    );
     this.now = options.now ?? Date.now;
     this.id = options.id ?? randomUUID;
     this.headless =
@@ -193,13 +196,7 @@ export class BrowserService {
           } catch (error) {
             this.options.onError?.(error);
           }
-          for (const listener of this.backendEvents.get(options.threadId) ?? []) {
-            try {
-              listener(event);
-            } catch (error) {
-              this.options.onError?.(error);
-            }
-          }
+          this.subscriptions.backendLost(event);
           if (lossPolicy === "headless") {
             const owned = session;
             const recovery = recoverHeadless({
@@ -257,6 +254,7 @@ export class BrowserService {
       await session.live.start();
       this.sessions.set(options.threadId, session);
       this.generations.set(session, ++this.sequence);
+      this.subscriptions.replace(options.threadId, session.live.fanout);
       this.emit(session.state);
       return session;
     } catch (error) {
@@ -323,36 +321,12 @@ export class BrowserService {
     onBackendEvent?: (event: BrowserBackendLost) => void,
   ): () => void {
     const session = this.get(threadId);
-    let listeners = this.listeners.get(threadId);
-    if (!listeners) {
-      listeners = new Set();
-      this.listeners.set(threadId, listeners);
-    }
-    if (listeners.size >= 64) throw new Error("Browser subscriber limit");
-    const stop = session.live.fanout.subscribe(connectionId, sink);
-    listeners.add(onState);
-    let events = this.backendEvents.get(threadId);
-    if (!events) {
-      events = new Set();
-      this.backendEvents.set(threadId, events);
-    }
-    if (onBackendEvent) events.add(onBackendEvent);
-    const unsubscribe = () => {
-      stop();
-      if (onBackendEvent) events.delete(onBackendEvent);
-      if (!events.size && this.backendEvents.get(threadId) === events)
-        this.backendEvents.delete(threadId);
-      listeners.delete(onState);
-      if (!listeners.size && this.listeners.get(threadId) === listeners)
-        this.listeners.delete(threadId);
-    };
-    try {
-      onState(session.state);
-    } catch (error) {
-      unsubscribe();
-      throw error;
-    }
-    return unsubscribe;
+    return this.subscriptions.add(threadId, session.live.fanout, session.state, {
+      connectionId,
+      sink,
+      state: onState,
+      ...(onBackendEvent ? { backendLost: onBackendEvent } : {}),
+    });
   }
   acknowledge(threadId: string, connectionId: string, sequence: number): void {
     this.get(threadId).live.fanout.acknowledge(connectionId, sequence);
@@ -367,18 +341,7 @@ export class BrowserService {
     return message;
   }
   private emit(state: BrowserState): void {
-    for (const listener of this.listeners.get(state.threadId) ?? []) {
-      try {
-        listener(state);
-      } catch (error) {
-        this.options.onError?.(error);
-      }
-    }
-    if (state.closed) {
-      this.listeners.get(state.threadId)?.clear();
-      this.listeners.delete(state.threadId);
-      this.backendEvents.delete(state.threadId);
-    }
+    this.subscriptions.state(state);
   }
   startRecording(threadId: string): Promise<void> {
     return this.get(threadId).startRecording();
@@ -407,8 +370,7 @@ export class BrowserService {
       );
       this.sessions.clear();
       this.policyScopes.clear();
-      this.listeners.clear();
-      this.backendEvents.clear();
+      this.subscriptions.clear();
       this.downloadListeners.clear();
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;

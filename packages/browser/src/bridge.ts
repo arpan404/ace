@@ -25,12 +25,9 @@ export function connectBrowser(
     send: (message: BrowserServerMessage, serialized?: string) => boolean;
   },
 ): { handle(raw: unknown): Promise<void>; close(): void } {
-  type Subscription = { stop(): void; subscribers: Set<string>; generation: number };
+  type Subscription = { stop(): void; subscribers: Set<string> };
   const subscriptions = new Map<string, Subscription>();
   const bind = (threadId: string, entry: Subscription) => {
-    const generation = service.generation(threadId);
-    if (entry.generation === generation) return;
-    entry.stop();
     entry.stop = service.subscribe(
       threadId,
       options.connectionId,
@@ -44,7 +41,6 @@ export function connectBrowser(
       (state) => options.send({ type: "browser.state", state }),
       (event) => options.send(event),
     );
-    entry.generation = generation;
   };
   let pending = 0;
   let closed = false;
@@ -78,8 +74,6 @@ export function connectBrowser(
             });
             try {
               const state = await service.open(message.options);
-              const entry = subscriptions.get(threadId);
-              if (entry) bind(threadId, entry);
               respond(state);
             } finally {
               stopProgress();
@@ -114,16 +108,12 @@ export function connectBrowser(
             if (entry) {
               if (entry.subscribers.size >= 64 && !entry.subscribers.has(subscriber))
                 throw new Error("Browser subscriber limit");
-              const generation = service.generation(threadId);
-              if (entry.generation !== generation) bind(threadId, entry);
-              else {
-                options.send({ type: "browser.state", state: service.state(threadId) });
-                service.replayFrame(threadId, options.connectionId);
-              }
+              options.send({ type: "browser.state", state: service.state(threadId) });
+              service.replayFrame(threadId, options.connectionId);
               entry.subscribers.add(subscriber);
             } else {
               if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
-              entry = { subscribers: new Set([subscriber]), generation: -1, stop() {} };
+              entry = { subscribers: new Set([subscriber]), stop() {} };
               bind(threadId, entry);
               subscriptions.set(threadId, entry);
             }
