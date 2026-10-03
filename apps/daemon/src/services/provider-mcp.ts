@@ -1,3 +1,4 @@
+import { acpInjection, acpStdioInjection } from "@ace/mcp-server";
 import type { ProviderAdapter, ProviderSession } from "@ace/engine-api";
 import type { ServiceContext } from "./types.ts";
 
@@ -10,6 +11,8 @@ export function withDaemonMcp(
   return {
     ...adapter,
     async openSession(ctx) {
+      // Generic ACP already owns a negotiated HTTP/stdio lease from sessionContext.
+      if (ctx.mcp) return adapter.openSession(ctx);
       const mcp = context.services.mcp;
       const agentId = context.store.getThread(ctx.threadId)?.rootAgentId;
       if (!mcp || !agentId) throw new Error("Provider MCP scope unavailable");
@@ -22,10 +25,22 @@ export function withDaemonMcp(
         },
         ctx.signal,
       );
+      const connection = { url: mcp.url, bearer: lease.bearer };
+      const acp = ["acp", "cursor", "antigravity"].includes(adapter.provider);
       try {
         const session = await adapter.openSession({
           ...ctx,
-          aceMcp: { url: mcp.url, bearer: lease.bearer },
+          aceMcp: connection,
+          ...(acp
+            ? {
+                mcp: {
+                  httpServers: acpInjection(connection).mcpServers,
+                  stdioServers: acpStdioInjection(connection).mcpServers,
+                  secrets: [lease.bearer],
+                  end: lease.end,
+                },
+              }
+            : {}),
           onExit(exit) {
             lease.end();
             ctx.onExit(exit);
@@ -38,6 +53,18 @@ export function withDaemonMcp(
           get nativeSessionId() {
             return session.nativeSessionId;
           },
+          get effectiveCapabilities() {
+            return session.effectiveCapabilities;
+          },
+          get acpSupport() {
+            return session.acpSupport;
+          },
+          ...(session.setModel
+            ? { setModel: (model: string) => session.setModel?.(model) ?? Promise.resolve() }
+            : {}),
+          ...(session.setMode
+            ? { setMode: (mode: string) => session.setMode?.(mode) ?? Promise.resolve() }
+            : {}),
           send: (input, delivery) => session.send(input, delivery),
           interrupt: (target) => session.interrupt(target),
           resolve: (key, answer) => session.resolve(key, answer),

@@ -36,7 +36,16 @@ async function setup(quirks = cursorQuirks, resume = false, runtime?: SessionRun
   const session: ProviderSession =
     quirks === genericQuirks
       ? await createAcpAdapter(quirks, { command: process.execPath, args: [fake] }).openSession(ctx)
-      : await openAcpSession(ctx, quirks, { command: process.execPath, args: [fake] }, runtime);
+      : await openAcpSession(
+          ctx,
+          quirks,
+          {
+            command: process.execPath,
+            args: [fake],
+            version: quirks.provider === "cursor" ? "2026.09.26-test" : "1.2.1",
+          },
+          runtime,
+        );
   function wait(predicate: (f: Frame) => boolean): Promise<Frame> {
     return new Promise((resolve) => {
       const check = () => {
@@ -173,8 +182,8 @@ it("loads an existing native session and applies model selection before input", 
         .filter((f) => f.dir === "send")
         .map((f) => object(f.data)["method"])
         .filter(Boolean)
-        .slice(0, 4),
-    ).toEqual(["initialize", "initialized", "session/load", "session/set_config_option"]);
+        .slice(0, 3),
+    ).toEqual(["initialize", "session/load", "session/set_config_option"]);
     expect(
       object(
         object(h.frames.find((f) => f.dir === "send" && method(f, "initialize"))?.data)["params"],
@@ -288,6 +297,7 @@ it("rejects active work and stops the process when stdout ends while it is alive
 });
 it("rejects ACP v2 before creating a native session", async () => {
   const frames: Frame[] = [];
+  let child: ReturnType<typeof spawnSupervised> | undefined;
   await expect(
     openAcpSession(
       {
@@ -299,8 +309,22 @@ it("rejects ACP v2 before creating a native session", async () => {
       },
       cursorQuirks,
       { command: process.execPath, args: [fake, "--protocol-v2"] },
+      {
+        now: () => 0,
+        spawn(options) {
+          child = spawnSupervised(options);
+          return child;
+        },
+      },
     ),
-  ).rejects.toThrow("protocol version");
+  ).rejects.toThrow();
+  expect(
+    frames.some(
+      (f) => f.dir === "recv" && object(object(f.data)["result"])["protocolVersion"] === 2,
+    ),
+  ).toBe(true);
+  if (!child) throw new Error("Synthetic ACP server did not start");
+  expect(await child.exited).toMatchObject({ reason: "stopped" });
   expect(frames.some((f) => method(f, "session/new"))).toBe(false);
 });
 

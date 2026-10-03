@@ -54,6 +54,11 @@ export async function migrateSession(
         from.id === to.id
       )
         throw new MigrationFailure("refused", "Invalid instance pair");
+      if (request.provider === "acp")
+        return {
+          status: "unsupported",
+          reason: "ACP migration has no verified CLI-owned strategy",
+        };
       if (request.provider === "opencode")
         return {
           status: "unsupported",

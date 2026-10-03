@@ -1,8 +1,11 @@
+import type { LaunchPlan } from "@ace/agent-registry";
 import type { Fact, Key } from "@ace/core";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { ProviderPayload } from "@ace/provider-kit/payload";
 import type {
   Capabilities,
+  AcpIdentity,
+  AcpSessionSupport,
   ContentPart,
   InteractionResolution,
   ProviderKind,
@@ -28,7 +31,12 @@ export interface ProviderAdapter {
   readonly provider: ProviderKind;
   /** Probe the installed CLI through provider-kit and report this version's support. */
   capabilities(cli: DiscoveryResult): Capabilities;
-  createTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator;
+  acceptsIdentity?(identity: AcpIdentity): boolean;
+  createTranslator(init: {
+    threadId: ThreadId;
+    rootKey: Key;
+    acpIdentity?: AcpIdentity;
+  }): Translator;
   openSession(ctx: SessionContext): Promise<ProviderSession>;
   /** Idle provider history clone, bound to this adapter's private home. Never sends input. */
   forkSession?(input: { nativeSessionId: string; signal: AbortSignal }): Promise<string>;
@@ -55,6 +63,18 @@ export interface SessionContext {
   /** Persist this assignment with the native session ID; resume must reuse the same instance. */
   instanceId?: string;
   model?: string;
+  acpIdentity?: AcpIdentity;
+  /** Immutable daemon-local plan; wrappers retain it when replacing lifetime signals. */
+  acpLaunch?: LaunchPlan;
+  mcp?: {
+    configuredServers?: readonly unknown[];
+    httpServers: readonly unknown[];
+    stdioServers?: readonly unknown[];
+    secrets: readonly string[];
+    end(): void;
+  };
+  onCapabilities?(capabilities: Capabilities, support?: AcpSessionSupport): void;
+  onSessionMetadata?(metadata: unknown): void;
   resume?: { nativeSessionId: string };
   /** Every sent and received frame goes to the engine for translation and persistence. */
   onFrame(frame: Frame): void;
@@ -74,6 +94,10 @@ export interface ProviderSession {
   readonly mcp?: ProviderMcpControl;
   readonly instanceId?: string;
   readonly nativeSessionId: string;
+  readonly effectiveCapabilities?: Capabilities | undefined;
+  readonly acpSupport?: AcpSessionSupport | undefined;
+  setModel?(model: string): Promise<void>;
+  setMode?(mode: string): Promise<void>;
   send(input: ContentPart[], delivery: "steer" | "queue"): Promise<void>;
   interrupt(target: { agent?: Key; cascade: boolean }): Promise<void>;
   resolve(interaction: Key, resolution: InteractionResolution): Promise<void>;

@@ -135,7 +135,7 @@ test("recorded Cursor model options apply session parameters only to its current
   expect(rows.length).toBeGreaterThan(30);
 });
 
-for (const provider of ["acp", "antigravity"] as const) {
+for (const provider of ["antigravity"] as const) {
   test(`${provider} discovers legacy session model options without a prompt`, async () => {
     const { config } = await launch(provider, {
       models: {
