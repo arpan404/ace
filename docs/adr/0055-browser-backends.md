@@ -88,7 +88,12 @@ per session, bounded to 768 KiB encoded. It acknowledges CDP immediately,
 replaces pending frames under pressure and sends them after daemon
 `browser.backend.frameAck` for the in-flight frame. The daemon validates and
 acknowledges each frame independently of viewer acknowledgements. It removes
-all pending requests/listeners on loss. No reconnect reuses a session id.
+all pending requests/listeners on loss. `Inspector.detached` loses only the
+identified view: its pending requests reject immediately, its listeners and
+abort hook are removed, and other sessions remain usable. A controller lease
+error can pause a session without losing the transport; later view/app loss
+still emits the loss event and applies the configured recovery policy. Backend
+loss is deduplicated independently of paused status. No reconnect reuses a session id.
 
 ## Chromium acquisition
 
@@ -118,7 +123,15 @@ competitor source was read.
 Behavior tests cover a socket-backed fake desktop, backend routing, controller
 handover, disconnect pause/recovery, stale refs, acquisition against a local
 HTTP server and rejected checksums. Existing browser suites use the headless
-implementation through the interface. Add non-gating relay/acquisition benchmarks.
+implementation through the interface. A shared service contract runs against
+both backend test edges. An unskipped first-use integration acquires the owned
+pin and tests the real headless browser; merge must supply host Chromium
+runtime dependencies and publisher access. Fake provider CLIs consume Codex
+argv/env, OpenCode JSONC overlays, and negotiated ACP HTTP/stdio definitions,
+then discover and invoke browser tools over the real MCP server. A gated HTTP
+archive verifies that transfer progress precedes download completion. Relay
+benchmarks include per-view detachment with unrelated pending requests; the
+acquisition benchmark reports throughput and peak RSS.
 Tests, mutation runs and benchmarks are not executed under the owner's policy;
 all runtime claims need run at merge. Version 1 grants no native browser
 permissions or downloads. The desktop agent implements the bridge separately.

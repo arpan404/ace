@@ -17,10 +17,14 @@ async function downloadFixture(
   const home = await mkdtemp(join(tmpdir(), "ace-chromium-"));
   let downloads = 0,
     body = data;
+  let gate: { bytes: number; release: Promise<void> } | undefined;
   const server = createServer((_request, response) => {
     downloads++;
     response.setHeader("content-length", body.length);
-    response.end(body);
+    if (gate) {
+      response.write(body.subarray(0, gate.bytes));
+      void gate.release.then(() => response.end(body.subarray(gate?.bytes ?? 0)));
+    } else response.end(body);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
@@ -42,18 +46,45 @@ async function downloadFixture(
     get downloads() {
       return downloads;
     },
+    gate(bytes: number) {
+      const release = Promise.withResolvers<void>();
+      gate = { bytes, release: release.promise };
+      return release.resolve;
+    },
     replace(replacement: Buffer) {
       body = replacement;
     },
   };
 }
 it("streams and verifies the pinned archive before publishing an ace-owned executable and reports progress", async () => {
-  const f = await downloadFixture();
+  const f = await downloadFixture(
+    archive([
+      { name: "chrome/chrome", data: "browser executable" },
+      { name: "chrome/resources", data: "x".repeat(2 * 1024 * 1024) },
+    ]),
+  );
+  const release = f.gate(64 * 1024);
+  const streamed = Promise.withResolvers<void>();
   const progress: BrowserDownloadProgress[] = [];
-  const path = await installChromium(f.home, {
+  const installing = installChromium(f.home, {
     artifact: f.artifact,
-    progress: (event) => progress.push(event),
+    progress: (event) => {
+      progress.push(event);
+      if (event.phase === "downloading" && event.received > 0) streamed.resolve();
+    },
   });
+  try {
+    await streamed.promise;
+    expect(progress.every((event) => event.phase === "downloading")).toBe(true);
+    expect(progress.at(-1)?.received).toBeGreaterThan(0);
+    expect(progress.at(-1)?.received).toBeLessThan(progress.at(-1)?.total ?? 0);
+    expect(await readdir(join(f.home, "chromium"))).toEqual([
+      expect.stringMatching(/^\.download-/),
+    ]);
+  } finally {
+    release();
+  }
+  const path = await installing;
   expect(path).toContain(join(f.home, "chromium", "1.2.3.4-"));
   expect(await readFile(path, "utf8")).toBe("browser executable");
   expect(progress.map((event) => event.phase)).toContain("verifying");
@@ -80,14 +111,26 @@ it("redownloads a cache whose executable bytes no longer match its verification 
   );
   expect(f.downloads).toBe(2);
 });
-it.each([
-  { entries: [{ name: "../outside", data: "escape" }] },
-  { entries: [{ name: "chrome/link", data: "../../outside", mode: 0o120777 }] },
-])(
-  "rejects checksum-valid archives that escape the installation directory %#",
-  async ({ entries }) => {
-    const f = await downloadFixture(archive(entries));
-    await expect(installChromium(f.home, { artifact: f.artifact })).rejects.toThrow();
+it.each(["traversal", "symlink"] as const)(
+  "rejects checksum-valid %s archives with an otherwise launchable executable and leaves outside files unchanged",
+  async (escape) => {
+    const f = await downloadFixture();
+    const sentinel = join(f.home, "outside");
+    await writeFile(sentinel, "untouched");
+    const data = archive([
+      { name: "chrome/chrome", data: "browser executable" },
+      escape === "symlink"
+        ? { name: "chrome/link", data: sentinel, mode: 0o120777 }
+        : { name: "../outside", data: "overwritten" },
+    ]);
+    f.replace(data);
+    const artifact = { ...f.artifact, checksum: createHash("md5").update(data).digest("hex") };
+    await expect(installChromium(f.home, { artifact })).rejects.toThrow(
+      escape === "symlink"
+        ? "Unsafe Chromium symlink"
+        : /Unsafe Chromium archive path|invalid relative path/,
+    );
+    expect(await readFile(sentinel, "utf8")).toBe("untouched");
     expect(await readdir(join(f.home, "chromium"))).toEqual([]);
   },
 );
