@@ -1,3 +1,4 @@
+import { integrateRevision } from "./integration.ts";
 import { commitChanges, pushBranch, listBranches } from "./actions.ts";
 import { deleteBranch, type BranchCleanup } from "./branch-cleanup.ts";
 import { GitCli } from "./cli.ts";
@@ -39,6 +40,10 @@ export class GitService {
       checkpointCounters: this.repository.numbers.size,
       activeCalls: this.repository.cli.activeCalls,
     };
+  }
+
+  integrate(input: { worktree: string; revision: string; key: string }) {
+    return integrateRevision(this.repository, input);
   }
 
   commit(options: {

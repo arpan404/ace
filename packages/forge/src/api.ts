@@ -11,6 +11,8 @@ export interface Forge {
   readonly revisions?: StatusRevisions;
   /** Immutable validated revisions; reuse unchanged collections and snapshot identity. */
   status(number: number, signal: AbortSignal): Promise<ForgePrStatus>;
+  /** Exact branch/base lookup reconciles publication after an interrupted create. */
+  findPr?(branch: string, base: string, signal: AbortSignal): Promise<ForgePrRef | null>;
   createPr(threadId: string, input: ForgeCreatePrInput, signal: AbortSignal): Promise<ForgePrRef>;
   replyComment(number: number, commentId: number, body: string, signal: AbortSignal): Promise<void>;
   requestReviews(number: number, reviewers: string[], signal: AbortSignal): Promise<void>;

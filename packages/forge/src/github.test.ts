@@ -306,3 +306,47 @@ describe("GitHub CLI boundary", () => {
     await expect(forge.status(7, signal())).rejects.toMatchObject({ kind: "limit" });
   });
 });
+
+describe("Deck publication recovery", () => {
+  it("finds the exact branch/base PR after remote creation without creating another", async () => {
+    const fixtures = standard();
+    const query = new URLSearchParams({
+      state: "all",
+      head: "octo:deck/card",
+      base: "main",
+      per_page: "2",
+    });
+    fixtures[`repos/octo/ace/pulls?${query}`] = [
+      { body: [{ ...pr, head: { sha, ref: "deck/card" }, base: { ref: "main" } }] },
+    ];
+    const { forge } = await setup(fixtures);
+    expect(await forge.findPr("deck/card", "main", signal())).toMatchObject({ number: 7 });
+  });
+  it("does not accept a branch lookup that returns a different head or multiple PRs", async () => {
+    const query = new URLSearchParams({
+      state: "all",
+      head: "octo:deck/card",
+      base: "main",
+      per_page: "2",
+    });
+    const wrong = standard();
+    wrong[`repos/octo/ace/pulls?${query}`] = [{ body: [{ ...pr, base: { ref: "main" } }] }];
+    const first = await setup(wrong);
+    await expect(first.forge.findPr("deck/card", "main", signal())).rejects.toMatchObject({
+      code: "invalid_data",
+    });
+    const ambiguous = standard();
+    ambiguous[`repos/octo/ace/pulls?${query}`] = [
+      {
+        body: [
+          { ...pr, base: { ref: "main" } },
+          { ...pr, number: 8, base: { ref: "main" } },
+        ],
+      },
+    ];
+    const second = await setup(ambiguous);
+    await expect(second.forge.findPr("deck/card", "main", signal())).rejects.toMatchObject({
+      code: "conflict",
+    });
+  });
+});
