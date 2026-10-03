@@ -2,6 +2,13 @@
 
 Researched 2026-10-01/02. Version inspected: `cursor-agent` / `agent` **2026.09.26-dd393fe** (`agent --version`), installed at `~/.local/share/cursor-agent/versions/2026.09.26-dd393fe/`. The CLI is a webpack-bundled Node app (`index.js` plus numbered chunks) launched by a bash shim (`cursor-agent` sets `CURSOR_INVOKED_AS` and runs the bundled `node index.js`).
 
+Follow-up: [Cursor SDK audit](cursor-sdk.md) inspects official `@cursor/sdk` 1.0.35,
+including its local runtime, SDK-owned API-key login and missing interactive
+callbacks. It recommends retaining ACP under ADR 0002. For observed behavior,
+read the [fixture corrections](../fixtures/cursor.md): ACP roots did not write
+JSONL transcripts, child transcripts used top-level child-ID paths, and the
+approval/question recordings did not exercise those interactions.
+
 Citation shorthand:
 
 - `B:<chunk>/<module>` is a source module inside the minified bundle chunk `~/.local/share/cursor-agent/versions/2026.09.26-dd393fe/<chunk>.index.js`. Each chunk is a single line, so I cite the webpack module key (for example `5672/src/acp/agent-session.ts`) and the symbol, not line numbers. The ACP server lives in chunk `5672`. Chunk `8096` bundles `@agentclientprotocol/sdk@0.14.1`. Headless/stream-json lives in `9352/src/headless.ts`.
@@ -194,7 +201,7 @@ Cases where the response doesn't mean done: background subagents without the cap
 
 **Adapter design**
 
-- Spawn `agent [--api-key …] acp` with `cwd` set to the thread workspace. Call `initialize` with `clientCapabilities:{fs:{readTextFile:false,writeTextFile:false},terminal:false,_meta:{subagents:{},parameterizedModelPicker:true}}`. Check `agentCapabilities.sessionCapabilities.subagents`.
+- Spawn the user's installed `agent acp` with `cwd` set to the thread workspace and the login the user configured through `agent login`, as required by ADR 0002. Call `initialize` with `clientCapabilities:{fs:{readTextFile:false,writeTextFile:false},terminal:false,_meta:{subagents:{},parameterizedModelPicker:true}}`. Check `agentCapabilities.sessionCapabilities.subagents`.
 - Build the agent tree: root agent = ACP sessionId. On `subagent_spawned`, create a child agent with `parentId` = the agent owning the update's `sessionId`, `spawnToolCallId=_meta.cursor.toolCallId`, `providerAgentId=_meta.cursor.agentId`, `name`, `task`, `model`. Route all updates by `sessionId` to that agent's transcript. Support the RFD `subagent_update` too.
 - Status derivation per agent:
   - root `working` while the prompt is outstanding;
