@@ -1,12 +1,7 @@
 import { Device, type CatalogModel, type DeviceScope, type ProviderKind } from "@ace/protocol";
 import { settingsFixture } from "@ace/fake-daemon";
-import type {
-  Machine,
-  Pairing,
-  ProviderInstall,
-  SettingsBackend,
-  SettingsValuesMap,
-} from "./backend.ts";
+import type { Machine, Pairing, ProviderInstall, SettingsBackend } from "./backend.ts";
+import { memoryValues } from "./values-store.ts";
 
 // TODO(train-2): wire to protocol when merged. See backend.ts for the request each method maps to.
 
@@ -16,16 +11,11 @@ const codeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 /** Settings against the fake daemon's fixture, held in memory. Clock and randomness injected. */
 export function fakeSettingsBackend(options: { now(): number; random(): number }): SettingsBackend {
   const fixture = settingsFixture(options.now());
-  let values: SettingsValuesMap = { ...fixture.values };
+  const values = memoryValues({ ...fixture.values });
   let providers: ProviderInstall[] = fixture.providers;
   let devices: Device[] = fixture.devices;
   const machines: Machine[] = fixture.machines;
   const models: CatalogModel[] = fixture.models;
-  const listeners = new Set<() => void>();
-  const publish = (next: SettingsValuesMap) => {
-    values = next;
-    for (const listener of listeners) listener();
-  };
   const code = () =>
     Array.from({ length: 8 }, (_, index) => {
       const letter = codeAlphabet[Math.floor(options.random() * codeAlphabet.length)] ?? "A";
@@ -33,18 +23,12 @@ export function fakeSettingsBackend(options: { now(): number; random(): number }
     }).join("");
 
   return {
-    values: {
-      subscribe(listener) {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-      get: () => values,
-    },
+    values,
     async set(key, value) {
-      publish({ ...values, [key]: value });
+      values.set(key, value);
     },
     async reset() {
-      publish({});
+      values.replace({});
     },
     async providers() {
       return providers;

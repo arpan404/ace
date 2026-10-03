@@ -47,6 +47,7 @@ function Machines() {
   return (
     <SettingSection label="Machines">
       {machines.isPending && <Spinner aria-label="Loading machines" />}
+      {machines.isError && <LoadError error={machines.error} />}
       {machines.data?.map((machine) => (
         <SettingRow
           key={machine.id}
@@ -68,6 +69,14 @@ function Machines() {
   );
 }
 
+function LoadError(props: { error: Error }) {
+  return (
+    <p role="alert" className="border-t py-3.5 text-sm text-muted-foreground">
+      {props.error.message}
+    </p>
+  );
+}
+
 function PairedDevices() {
   const backend = useSettingsBackend();
   const devices = useQuery(settingsQueries.devices(backend));
@@ -76,6 +85,7 @@ function PairedDevices() {
   return (
     <SettingSection label="Paired devices">
       {devices.isPending && <Spinner aria-label="Loading paired devices" />}
+      {devices.isError && <LoadError error={devices.error} />}
       {devices.data?.length === 0 && (
         <p className="border-t py-3.5 text-sm text-muted-foreground">
           No phones or browsers are paired with this daemon.
