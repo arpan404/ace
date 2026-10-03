@@ -19,6 +19,7 @@ export async function executeIntent(
     await session.send(
       p.input,
       p.type === "thread.send" && p.delivery === "steer" && capabilities.steer ? "steer" : "queue",
+      intent.command.id,
     );
     return;
   }

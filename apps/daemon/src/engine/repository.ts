@@ -22,7 +22,12 @@ export class EngineRepository {
   private ids: IdSource;
   private capacity: number;
   private snapshots = new Map<ThreadId, Snapshot>();
-  private admissionStatements: { has: StatementSync; mark: StatementSync; ack: StatementSync };
+  private admissionStatements: {
+    has: StatementSync;
+    mark: StatementSync;
+    ack: StatementSync;
+    correlated: StatementSync;
+  };
   constructor(store: Store, ids: IdSource = { next: () => randomUUID() }, capacity = 64) {
     this.capacity = capacity;
     this.ids = ids;
@@ -36,6 +41,7 @@ export class EngineRepository {
       mark: db.prepare(
         "INSERT OR IGNORE INTO engine_state_records VALUES (?, 'engineAdmission', 'root', 'true')",
       ),
+      correlated: db.prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND command_id=?`),
       ack: db.prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND awaiting=1 AND ack_target=(
         SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
       )`),
@@ -140,7 +146,9 @@ export class EngineRepository {
             event.run.agentId === root &&
             ["user", "queue", "unknown"].includes(event.run.trigger) &&
             !this.admissionStatements.has.get(id);
-          if (admitted || started) this.admissionStatements.ack.run(id, id);
+          if (event.type === "input.admitted" && admitted && event.commandId !== undefined)
+            this.admissionStatements.correlated.run(id, event.commandId);
+          else if (admitted || started) this.admissionStatements.ack.run(id, id);
         }
         this.save(state, events, now);
         return state;

@@ -61,7 +61,8 @@ export interface SessionContext {
 export interface ProviderSession {
   readonly instanceId?: string;
   readonly nativeSessionId: string;
-  send(input: ContentPart[], delivery: "steer" | "queue"): Promise<void>;
+  /** Optional engine command correlation for providers with durable admission. */
+  send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void>;
   interrupt(target: { agent?: Key; cascade: boolean }): Promise<void>;
   resolve(interaction: Key, resolution: InteractionResolution): Promise<void>;
   stopTask(task: Key): Promise<void>;

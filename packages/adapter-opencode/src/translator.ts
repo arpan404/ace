@@ -48,8 +48,17 @@ export class OpenCodeTranslator implements Translator {
       }
       return [];
     }
+    if (frame.channel === "input.sending") {
+      const id = string(data.id);
+      if (state.commands.size >= 1024 && !state.commands.has(id))
+        throw new Error("OpenCode command correlation limit");
+      const command = string(data.commandId);
+      if (command) state.commands.set(id, command);
+      return [];
+    }
     if (frame.channel === "input.rejected") {
       state.inputs.delete(string(data.id));
+      state.commands.delete(string(data.id));
       state.admissionPending.delete(string(data.id));
       return state.queue();
     }
@@ -76,12 +85,7 @@ export class OpenCodeTranslator implements Translator {
           state.inputs.get(id) === session &&
           !state.admitted.has(id)
         ) {
-          state.admitted.add(id);
-          state.admissionPending.delete(id);
-          return [
-            { type: "input.admitted", agent: state.key(session), nativeInputId: id },
-            ...state.queue(),
-          ];
+          return [...state.admit(id, session), ...state.queue()];
         }
       }
       // Admission/interrupt receipts never settle a turn.
@@ -93,15 +97,11 @@ export class OpenCodeTranslator implements Translator {
       const delivered = message.type === "user" || message.type === "synthetic";
       const admitted: Fact[] = [];
       if (delivered && state.admissionPending.has(id) && !state.admitted.has(id)) {
-        state.admitted.add(id);
-        admitted.push({
-          type: "input.admitted",
-          agent: state.key(string(data.sessionID)),
-          nativeInputId: id,
-        });
+        admitted.push(...state.admit(id, string(data.sessionID)));
       }
       if (delivered) {
         state.inputs.delete(id);
+        state.commands.delete(id);
         state.admissionPending.delete(id);
       }
       return [
@@ -112,10 +112,11 @@ export class OpenCodeTranslator implements Translator {
     }
     if (frame.channel === "snapshot.info") {
       if (data.root === true && !state.rootNative) state.rootNative = string(object(data.info).id);
-      return state.seen(object(data.info));
+      return [...state.seen(object(data.info)), ...state.reconcileOutcome(object(data.info))];
     }
     if (frame.channel === "snapshot.active") {
       const id = string(data.sessionID);
+      if (data.running !== true && !state.canSettle(id, number(data.idleAt, -1))) return [];
       return data.running === true
         ? state.start(id, `recovered:${id}:${string(data.revision)}`)
         : [
@@ -145,16 +146,13 @@ export class OpenCodeTranslator implements Translator {
       const session = string(data.sessionID),
         entries = array(data.items).map(object),
         ids = new Set(entries.map((p) => string(p.id)));
-      for (const [id, owner] of state.inputs)
-        if (owner === session && !ids.has(id) && state.admissionPending.has(id)) {
-          state.inputs.delete(id);
-          state.admissionPending.delete(id);
-        }
+      // Absence alone cannot distinguish rejection from an accepted input whose
+      // inbox entry was consumed before history caught up. Retain uncertainty
+      // until delivery/history/cancellation or a definite admission rejection.
       const facts: Fact[] = [];
       for (const id of ids) {
         if (state.admissionPending.has(id) && !state.admitted.has(id)) {
-          state.admitted.add(id);
-          facts.push({ type: "input.admitted", agent: state.key(session), nativeInputId: id });
+          facts.push(...state.admit(id, session));
         }
         state.admissionPending.delete(id);
         state.input(id, session);
@@ -217,8 +215,11 @@ export class OpenCodeTranslator implements Translator {
     const id = eventSession(e);
     if (!state.agents.has(id)) return [];
     const agent = state.key(id);
-    if (type === "session.execution.started")
-      return state.start(id, `execution:${id}:${e.durable?.seq ?? e.id}`);
+    if (type === "session.execution.started") {
+      const facts = state.start(id, `execution:${id}:${e.durable?.seq ?? e.id}`);
+      if (facts.length && typeof e.created === "number") state.executionCreated.set(id, e.created);
+      return facts;
+    }
     if (
       type === "session.execution.succeeded" ||
       type === "session.execution.failed" ||
@@ -244,15 +245,19 @@ export class OpenCodeTranslator implements Translator {
         own = state.admissionPending.delete(input);
       const facts = state.input(input, id);
       if (own && !state.admitted.has(input)) {
-        state.admitted.add(input);
-        facts.unshift({ type: "input.admitted", agent, nativeInputId: input });
+        facts.unshift(...state.admit(input, id));
       }
       return facts;
     }
     if (type === "session.inbox.delivered" || type === "session.inbox.cancelled") {
+      const admitted = state.admissionPending.has(string(p.inboxID))
+        ? state.admit(string(p.inboxID), id)
+        : [];
       state.inputs.delete(string(p.inboxID));
+      state.commands.delete(string(p.inboxID));
       state.admissionPending.delete(string(p.inboxID));
       return [
+        ...admitted,
         ...state.queue(),
         ...(type.endsWith("delivered") && !state.active.has(id) ? state.wake(id) : []),
       ];

@@ -12,6 +12,7 @@ import { nativeResolution } from "./interactions.ts";
 import { promptBody, messageId, selectedModel } from "./input.ts";
 import { OpenCodeServer } from "./server.ts";
 import { z } from "zod";
+import { AdmissionQueue } from "./admission.ts";
 import { AncestryProbe } from "./ancestry.ts";
 import { cleanupOwned } from "./cleanup.ts";
 import { SessionOwnership } from "./ownership.ts";
@@ -43,7 +44,8 @@ export class OpenCodeSession implements ProviderSession {
   private waiters = new Set<{ resolve(): void; reject(error: Error): void }>();
   private unsubscribe: () => void = () => {};
   private abortListener: () => void;
-  private sending = false;
+  private admission = new AdmissionQueue();
+  private requestStarted = false;
   private admissionRejected = false;
   private executionObserved = new Set<string>();
   private recoveryRead: Promise<void> | undefined;
@@ -131,9 +133,11 @@ export class OpenCodeSession implements ProviderSession {
       for (const event of s.openingBuffer.splice(0)) s.receive(event);
       if (ctx.resume) {
         s.recovering = true;
+        s.emit("note", "lifecycle", { type: "disconnected" });
         await s.resync();
         s.finalizeSnapshots();
         s.recovering = false;
+        s.emit("note", "lifecycle", { type: "resynced" });
       }
       ctx.signal.throwIfAborted();
       return s;
@@ -154,6 +158,8 @@ export class OpenCodeSession implements ProviderSession {
       Number(object(data).status) >= 400
     )
       this.admissionRejected = true;
+    if (dir === "send" && channel === "http" && String(object(data).path).endsWith("/prompt"))
+      this.requestStarted = true;
     this.translator.translate(frame, t);
     this.ctx.onFrame(frame);
   };
@@ -227,17 +233,30 @@ export class OpenCodeSession implements ProviderSession {
     await new Promise<void>((resolve, reject) => this.waiters.add({ resolve, reject }));
     this.controller.signal.throwIfAborted();
   }
-  async send(input: ContentPart[], delivery: "steer" | "queue"): Promise<void> {
-    await this.barrier();
-    if (this.sending) throw new Error("OpenCode input admission already in progress");
-    this.sending = true;
+  async send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void> {
+    if (commandId !== undefined) z.string().min(1).max(512).parse(commandId);
+    const release = await this.admission.acquire(this.controller.signal);
+    try {
+      await this.barrier();
+      await this.admitInput(input, delivery, commandId);
+    } finally {
+      release();
+    }
+  }
+  private async admitInput(
+    input: ContentPart[],
+    delivery: "steer" | "queue",
+    commandId?: string,
+  ): Promise<void> {
     this.admissionRejected = false;
+    this.requestStarted = false;
     const id = messageId(
       this.server.runtime.wallTime(),
       ++this.promptSequence,
       this.server.runtime.entropy(16),
     );
     try {
+      this.emit("note", "input.sending", { id, commandId });
       // Engine owns waiting-to-send. Native inbox owns an input exactly once after admission.
       const reply = z
         .object({ id: z.literal(id), sessionID: z.literal(this.nativeSessionId) })
@@ -255,7 +274,7 @@ export class OpenCodeSession implements ProviderSession {
         );
       this.emit("note", "input.accepted", reply);
     } catch {
-      if (this.admissionRejected) {
+      if (this.admissionRejected || !this.requestStarted) {
         this.emit("note", "input.rejected", { id });
         throw new Error("OpenCode rejected input admission");
       }
@@ -266,8 +285,6 @@ export class OpenCodeSession implements ProviderSession {
       throw new Error(
         "OpenCode input acknowledgement uncertain; reconcile inbox before sending again",
       );
-    } finally {
-      this.sending = false;
     }
   }
   async interrupt(target: { agent?: Key; cascade: boolean }): Promise<void> {

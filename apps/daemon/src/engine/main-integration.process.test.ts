@@ -261,3 +261,57 @@ test("a run after durable admission cannot acknowledge the next unanswered steer
   await h.engine.flush();
   expect(h.store.getThread(id)?.status.state).toBe("done");
 });
+
+test("a recovered admission for a failed send cannot acknowledge a newer steering input", async () => {
+  const frames = scriptFrames();
+  const h = await harness([], frames, { steer: true });
+  cleanups.push(h.close);
+  const commands: string[] = [];
+  let context: Parameters<typeof h.adapter.openSession>[0] | undefined;
+  h.registry.register(
+    {
+      ...h.adapter,
+      async openSession(ctx) {
+        context = ctx;
+        const session = await h.adapter.openSession(ctx);
+        return {
+          ...session,
+          async send(_input, _delivery, commandId) {
+            if (!commandId) throw new Error("Missing command correlation");
+            commands.push(commandId);
+            if (commands.length === 1) throw new Error("Uncertain admission acknowledgement");
+          },
+        };
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+  const id = await h.create();
+  h.command({ type: "thread.send", threadId: id, input, delivery: "steer" });
+  await h.engine.flush();
+  const [first, second] = commands;
+  if (!context || !first || !second) throw new Error("Missing sent input");
+  context.onFrame(
+    frames.frame(
+      { type: "input.admitted", agent: "root", nativeInputId: "first", commandId: first },
+      { type: "queue.changed", source: "provider", count: 1 },
+    ),
+  );
+  await h.engine.flush();
+  context.onFrame(
+    frames.frame({ type: "queue.changed", source: "provider", count: 0 }, start, end),
+  );
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "queue" });
+  expect(Object.values(h.store.snapshotThread(id).runs)).toHaveLength(1);
+  context.onFrame(
+    frames.frame({
+      type: "input.admitted",
+      agent: "root",
+      nativeInputId: "second",
+      commandId: second,
+    }),
+  );
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("done");
+});

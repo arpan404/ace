@@ -84,6 +84,7 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
         type: "input.admitted",
         agentId: ensureAgent(state, fact.agent, ctx, events).agent.id,
         nativeInputId: fact.nativeInputId,
+        ...(fact.commandId === undefined ? {} : { commandId: fact.commandId }),
       });
       break;
     case "activity": {

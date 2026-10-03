@@ -1,7 +1,7 @@
 import type { RunTrigger } from "@ace/protocol";
 import type { Fact, Key } from "@ace/core";
 import type { Data } from "./data.ts";
-import { object, raw, string } from "./data.ts";
+import { object, raw, string, number } from "./data.ts";
 import { RecentMap, RecentSet } from "./cache.ts";
 export type Tool = { session: string; message: string; name: string; input: Data; live: boolean };
 export class NativeState {
@@ -10,6 +10,9 @@ export class NativeState {
   disconnected = false;
   agents = new Map<string, { parent: string; directory: string }>();
   active = new Map<string, string>();
+  idle = new Map<string, number>();
+  executionBaseline = new Map<string, number>();
+  executionCreated = new Map<string, number>();
   triggers = new Map<string, RunTrigger>();
   ended = new RecentSet();
   events = new RecentSet();
@@ -19,6 +22,7 @@ export class NativeState {
   liveMessages = new Map<string, Map<string, number>>();
   recentTools = new RecentMap<Tool>(1024);
   inputs = new Map<string, string>();
+  commands = new Map<string, string>();
   admitted = new RecentSet();
   admissionPending = new Set<string>();
   pending = new Map<string, { session: string; data: Data; type: string }>();
@@ -78,6 +82,7 @@ export class NativeState {
     const claim = this.childClaims.get(id);
     this.childClaims.delete(id);
     this.agents.set(id, { parent, directory });
+    this.idle.set(id, number(object(p.time).idle, -1));
     return [
       {
         type: "agent.seen",
@@ -112,6 +117,8 @@ export class NativeState {
     this.wakes.delete(id);
     if (this.active.has(id) || this.ended.has(turn)) return [];
     this.active.set(id, turn);
+    this.executionBaseline.set(id, this.idle.get(id) ?? -1);
+    this.executionCreated.delete(id);
     return [
       {
         type: "turn.started",
@@ -121,6 +128,31 @@ export class NativeState {
       },
       { type: "retry.cleared", agent: this.key(id) },
     ];
+  }
+  canSettle(id: string, idleAt: number): boolean {
+    return (
+      !this.active.has(id) ||
+      (idleAt > (this.executionBaseline.get(id) ?? -1) &&
+        idleAt >= (this.executionCreated.get(id) ?? -1))
+    );
+  }
+  reconcileOutcome(info: Data): Fact[] {
+    const id = string(info.id),
+      idleAt = number(object(info.time).idle, -1);
+    if (
+      !this.active.has(id) ||
+      !this.canSettle(id, idleAt) ||
+      !["succeeded", "failed", "interrupted"].includes(string(info.outcome))
+    )
+      return [];
+    return this.end(
+      id,
+      info.outcome === "failed"
+        ? "failed"
+        : info.outcome === "interrupted"
+          ? "interrupted"
+          : "completed",
+    );
   }
   end(id: string, outcome: "completed" | "failed" | "interrupted", error?: unknown): Fact[] {
     const turn = this.active.get(id);
@@ -142,6 +174,20 @@ export class NativeState {
               },
             }
           : {}),
+      },
+    ];
+  }
+  admit(id: string, session: string): Fact[] {
+    if (this.admitted.has(id)) return [];
+    this.admitted.add(id);
+    this.admissionPending.delete(id);
+    const commandId = this.commands.get(id);
+    return [
+      {
+        type: "input.admitted",
+        agent: this.key(session),
+        nativeInputId: id,
+        ...(commandId === undefined ? {} : { commandId }),
       },
     ];
   }

@@ -90,7 +90,7 @@ export type Fact =
       model?: string;
     }
   /** Durable provider admission transfers queue ownership; it is not a model turn. */
-  | { type: "input.admitted"; agent: Key; nativeInputId: string }
+  | { type: "input.admitted"; agent: Key; nativeInputId: string; commandId?: string }
   | { type: "turn.started"; agent: Key; nativeTurnId?: string; trigger: RunTrigger }
   | {
       type: "turn.ended";

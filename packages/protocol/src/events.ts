@@ -63,6 +63,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     type: z.literal("input.admitted"),
     agentId: AgentId,
     nativeInputId: z.string().min(1).max(512),
+    commandId: z.string().min(1).max(512).optional(),
   }),
   z.object({ type: z.literal("run.started"), run: Run }),
   z.object({
