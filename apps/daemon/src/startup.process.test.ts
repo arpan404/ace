@@ -214,7 +214,12 @@ it("a stalled engine start leaves the daemon readable and rejects commands witho
     command: Command.parse({
       id: "unavailable-engine",
       deviceId: "startup-test",
-      payload: { type: "thread.create", workspaceId: "workspace", provider: "codex" },
+      payload: {
+        type: "thread.create",
+        workspaceId: "workspace",
+        provider: "codex",
+        input: [{ type: "text", text: "Reject without invoking a provider" }],
+      },
     }),
   });
   expect(await daemon.client.next()).toMatchObject({
