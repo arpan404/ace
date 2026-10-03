@@ -326,6 +326,11 @@ test("a frame persistence failure stops the session and reports later intents in
   );
   await h.engine.flush();
   expect(h.store.getThread(id)?.status.state).toBe("failed");
+  // Void frame consumers above rely on canonical failure. ACK consumers still
+  // receive a rejected commit, rather than a swallowed success after fencing.
+  await expect(context.onFrame(frames.frame({ type: "signal", agent: "root" }))).rejects.toThrow(
+    "Provider frame failed to commit",
+  );
   h.command({ type: "thread.send", threadId: id, input, delivery: "queue" });
   await h.engine.flush();
   expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);

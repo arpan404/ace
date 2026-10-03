@@ -132,9 +132,13 @@ export class Sessions {
         },
         onFrame: (frame) => {
           actor.frame(frame, generation);
-          return actor.flush().then(() => {
+          const committed = actor.flush().then(() => {
             if (actor.poisoned) throw new Error("Provider frame failed to commit");
           });
+          // Void consumers rely on the actor's failure facts; ACK consumers still
+          // receive the rejecting promise and must stop intake on failed commit.
+          void committed.catch(() => {});
+          return committed;
         },
         onExit: (exit) =>
           actor.enqueue(() => {
