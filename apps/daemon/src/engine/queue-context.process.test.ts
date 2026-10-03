@@ -193,6 +193,33 @@ test("a send failure before acknowledgement remains visible for review instead o
   });
 });
 
+test("missing context preparation holds the complete message instead of sending text without attachments", async () => {
+  const frames = scriptFrames();
+  const h = await fixture([], frames);
+  const context = { mentions: [], attachments: [{ sha256: "a".repeat(64) }] };
+  h.command({
+    type: "thread.create",
+    workspaceId: h.workspace,
+    provider: "codex",
+    input: text("read the attachment"),
+    context,
+  });
+  await h.engine.flush();
+  const id = h.store.listThreads()[0]?.id;
+  if (!id) throw new Error("Missing thread");
+  expect(sends(h.adapter)).toHaveLength(0);
+  expect(h.engine.queue(id)).toMatchObject({
+    paused: true,
+    reason: "uncertain",
+    messages: [{ input: text("read the attachment"), context, state: "uncertain" }],
+  });
+  expect(
+    Object.values(h.store.snapshotThread(id).items).some(
+      (item) => item.type === "notice" && item.text.includes("Context preparation is unavailable"),
+    ),
+  ).toBe(true);
+});
+
 test("a native queue draining wakes the server queue even while the visible waiting status stays the same", async () => {
   const frames = scriptFrames();
   const h = await fixture(

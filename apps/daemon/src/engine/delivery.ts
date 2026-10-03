@@ -17,6 +17,7 @@ export async function executeIntent(
 ): Promise<void> {
   const p = intent.command.payload;
   if (p.type === "thread.create" || p.type === "thread.send") {
+    if (p.context && !prepare) throw new Error("Context preparation is unavailable");
     await sessions.open(actor);
     const capabilities = registry.get(repo.requireState(actor.id).config.provider).capabilities;
     const session = actor.session;

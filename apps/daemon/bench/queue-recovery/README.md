@@ -47,4 +47,4 @@ Further planned mutations, also not executed: discard terminal quota errors; cla
 overloaded upstream retries as usage limits; fail to wake delivery when the provider
 queue drains without a visible status change; discard a failed unacknowledged send;
 allow reordering around an uncertain send; drop automatic continuation after a
-temporary actor-capacity refusal.
+temporary actor-capacity refusal; silently skip unavailable attachment preparation.
