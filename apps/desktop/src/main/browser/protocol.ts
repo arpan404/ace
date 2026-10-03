@@ -3,7 +3,7 @@
  *
  * MIRROR: the daemon side owns these schemas in `packages/protocol/src/browser-backend.ts` on
  * `feat/browser-backends` (PR #74). That branch does not merge cleanly into `feat/desktop`
- * yet, so this module copies its schemas verbatim (as of 6c26ef2b) and is the only place the
+ * yet, so this module copies its schemas verbatim (unchanged through aad6c738) and is the only place the
  * desktop defines them.
  *
  * TODO(feat/browser-backends): once PR #74 is on main, delete this file's schema bodies and
