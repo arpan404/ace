@@ -15,6 +15,8 @@ import {
   seededTitle,
   workerTitle,
   workspaceName,
+  workspaceTitle,
+  scriptOutput,
 } from "./real-daemon-config.ts";
 
 /**
@@ -100,8 +102,19 @@ const git = (...args: string[]) =>
     stdio: "ignore",
   });
 git("init", "-q", "-b", "main");
+// The daemon commits as whoever the checkout names, as it does on a person's machine.
+git("config", "user.name", "ace e2e");
+git("config", "user.email", "e2e@ace.invalid");
 git("add", "README.md");
 git("commit", "-q", "-m", "Initial commit");
+// A script for the header's Run button, and an uncommitted edit for its git control.
+writeFileSync(
+  join(project, "package.json"),
+  `${JSON.stringify({ name: "e2e-project", private: true, scripts: { greet: `echo ${scriptOutput}` } }, null, 2)}\n`,
+);
+git("add", "package.json");
+git("commit", "-q", "-m", "Add a script");
+writeFileSync(join(project, "README.md"), "# e2e project\n\nEdited by the workspace journey.\n");
 
 const registry = new AdapterRegistry();
 for (const provider of ["claude", "codex"] as const)
@@ -127,6 +140,7 @@ await seedThread(
 );
 await seedThread(daemon.url, daemonToken, workspace, screensTitle, "List what is in this project.");
 await seedThread(daemon.url, daemonToken, workspace, workerTitle, "Greet both tabs.");
+await seedThread(daemon.url, daemonToken, workspace, workspaceTitle, "Get the project ready.");
 process.stdout.write(`e2e daemon ready on ${daemon.url}\n`);
 
 const stop = () => void daemon.close().finally(() => process.exit(0));
