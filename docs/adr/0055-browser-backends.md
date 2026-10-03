@@ -1,4 +1,4 @@
-# 0050: Embedded browser and daemon headless fallback
+# 0055: Embedded browser and daemon headless fallback
 
 Date: 2026-10-02. Status: proposed. Amends ADR 0009.
 

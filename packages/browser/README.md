@@ -34,7 +34,7 @@ Production startup never searches personal Chrome installations or profiles.
 `executablePath` option supports CI and packaged executables, always with an
 ace-owned profile. Persistent profiles have exclusive workspace leases.
 
-The desktop bridge contract is [ADR 0050](../../docs/adr/0050-browser-backends.md).
+The desktop bridge contract is [ADR 0055](../../docs/adr/0055-browser-backends.md).
 `BrowserBackend` opens a session with a CDP transport and page operations.
 `HeadlessBackend` wraps Playwright; `registerEmbedded` attaches an authenticated
 transport after the daemon has verified its local desktop credential. Agent
