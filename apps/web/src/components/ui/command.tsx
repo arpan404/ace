@@ -1,12 +1,14 @@
 import * as React from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Dialog } from "@base-ui/react/dialog";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { cn } from "cn";
-import { SearchIcon } from "lucide-react";
+import { Kbd } from "./kbd.tsx";
+import { menuLabel } from "./menu-styles.ts";
 
 /**
- * shadcn-style command palette on Base UI (Dialog + inline Autocomplete), replacing the
- * registry's cmdk-based `command`, which depends on Radix.
+ * ⌘K shell on Base UI (Dialog + inline Autocomplete), replacing the registry's cmdk-based
+ * `command`, which depends on Radix. 620px glass sheet at 18% from the top.
  */
 function CommandDialog({
   open,
@@ -22,10 +24,13 @@ function CommandDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/20 data-closed:animate-out data-closed:fade-out-0 data-open:animate-in data-open:fade-in-0" />
+        <Dialog.Backdrop className="fixed inset-0 z-[100] bg-black/25 transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0" />
         <Dialog.Popup
           aria-label={title}
-          className="fixed top-[15vh] left-1/2 z-50 flex max-h-[min(32rem,70dvh)] w-[calc(100vw-1rem)] max-w-lg -translate-x-1/2 flex-col overflow-hidden rounded-xl bg-popover text-popover-foreground shadow-lg ring-1 ring-foreground/10 outline-none"
+          className={cn(
+            "glass fixed top-[18%] left-1/2 z-[101] flex max-h-[min(540px,70dvh)] w-[min(620px,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl text-popover-foreground outline-none",
+            "transition-[opacity,transform] duration-200 ease-spring data-ending-style:opacity-0 data-starting-style:-translate-y-1.5 data-starting-style:scale-[0.98] data-starting-style:opacity-0",
+          )}
         >
           {children}
           <Dialog.Close className="sr-only">Close {title}</Dialog.Close>
@@ -56,16 +61,17 @@ function Command<Item>(props: {
 
 function CommandInput({ className, ...props }: Autocomplete.Input.Props) {
   return (
-    <div className="flex items-center gap-2 border-b px-3">
-      <SearchIcon aria-hidden="true" className="size-4 shrink-0 opacity-50" />
+    <div className="flex h-[52px] shrink-0 items-center gap-2.5 border-b px-4">
+      <MagnifyingGlassIcon aria-hidden size={18} className="shrink-0 text-muted-foreground" />
       <Autocomplete.Input
         data-slot="command-input"
         className={cn(
-          "h-11 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground",
+          "h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-subtle-foreground",
           className,
         )}
         {...props}
       />
+      <Kbd>esc</Kbd>
     </div>
   );
 }
@@ -74,16 +80,16 @@ function CommandList({ className, ...props }: Autocomplete.List.Props) {
   return (
     <Autocomplete.List
       data-slot="command-list"
-      className={cn("min-h-0 flex-1 scroll-py-1 overflow-y-auto p-1", className)}
+      className={cn("min-h-0 flex-1 scroll-py-2 overflow-y-auto p-2", className)}
       {...props}
     />
   );
 }
 
-function CommandEmpty({ children = "No results found." }: { children?: React.ReactNode }) {
+function CommandEmpty({ children = "No matches." }: { children?: React.ReactNode }) {
   return (
     <Autocomplete.Empty>
-      <div className="py-6 text-center text-sm text-muted-foreground">{children}</div>
+      <div className="py-8 text-center text-ui text-subtle-foreground">{children}</div>
     </Autocomplete.Empty>
   );
 }
@@ -99,12 +105,7 @@ function CommandGroup({ className, ...props }: Autocomplete.Group.Props) {
 }
 
 function CommandGroupLabel({ className, ...props }: Autocomplete.GroupLabel.Props) {
-  return (
-    <Autocomplete.GroupLabel
-      className={cn("px-2 py-1.5 text-xs font-medium text-muted-foreground", className)}
-      {...props}
-    />
-  );
+  return <Autocomplete.GroupLabel className={cn(menuLabel, "pt-2", className)} {...props} />;
 }
 
 const CommandCollection = Autocomplete.Collection;
@@ -114,7 +115,7 @@ function CommandItem({ className, ...props }: Autocomplete.Item.Props) {
     <Autocomplete.Item
       data-slot="command-item"
       className={cn(
-        "flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none select-none data-highlighted:bg-muted data-highlighted:text-foreground",
+        "flex h-9 cursor-default items-center gap-[9px] rounded-md px-2.5 text-[13.5px] text-foreground outline-none select-none data-highlighted:bg-accent [&_svg]:text-muted-foreground",
         className,
       )}
       {...props}
@@ -123,11 +124,27 @@ function CommandItem({ className, ...props }: Autocomplete.Item.Props) {
 }
 
 function CommandShortcut({ className, ...props }: React.ComponentProps<"span">) {
+  return <span className={cn("ml-auto text-xs text-subtle-foreground", className)} {...props} />;
+}
+
+/** Key hints along the bottom edge. */
+function CommandFooter() {
   return (
-    <span
-      className={cn("ml-auto text-xs tracking-widest text-muted-foreground", className)}
-      {...props}
-    />
+    <div className="flex shrink-0 gap-3.5 border-t px-3.5 py-2 text-xs text-subtle-foreground">
+      <span className="inline-flex items-center gap-1.5">
+        <Kbd>↑</Kbd>
+        <Kbd>↓</Kbd>
+        navigate
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <Kbd>↵</Kbd>
+        open
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <Kbd keys="mod+k" />
+        toggle
+      </span>
+    </div>
   );
 }
 
@@ -142,4 +159,5 @@ export {
   CommandCollection,
   CommandItem,
   CommandShortcut,
+  CommandFooter,
 };

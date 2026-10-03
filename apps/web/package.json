@@ -15,6 +15,7 @@
     "@ace/client-react": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@base-ui/react": "^1.8.0",
+    "@phosphor-icons/react": "^2.1.10",
     "@tanstack/react-form": "^1.33.5",
     "@tanstack/react-query": "^5.104.1",
     "@tanstack/react-router": "^1.170.41",
@@ -22,7 +23,6 @@
     "@tanstack/react-virtual": "^3.14.13",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0",
-    "lucide-react": "^1.50.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "zod": "^4.6.5"

@@ -1,93 +1,41 @@
-import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "cn";
+import type { ReactNode } from "react";
+import { Icon, type IconGlyph } from "@/components/icon.tsx";
 
-function Empty({ className, ...props }: React.ComponentProps<"div">) {
+/**
+ * Empty state: a duotone glyph, a plain sentence and at most one action. Calm, never
+ * celebratory.
+ */
+function EmptyState(props: {
+  icon?: IconGlyph;
+  title: string;
+  description?: ReactNode;
+  action?: ReactNode;
+  /** Render the title as the view's h1 (route focus lands on it). */
+  heading?: boolean;
+  className?: string;
+}) {
+  const Title = props.heading ? "h1" : "h2";
   return (
     <div
       data-slot="empty"
       className={cn(
-        "flex w-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-lg border-dashed p-12 text-center text-balance",
-        className,
+        "flex h-full min-h-0 flex-col items-center justify-center gap-2 px-5 py-10 text-center",
+        props.className,
       )}
-      {...props}
-    />
-  );
-}
-
-function EmptyHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="empty-header"
-      className={cn("flex max-w-sm flex-col items-center gap-2", className)}
-      {...props}
-    />
-  );
-}
-
-const emptyMediaVariants = cva(
-  "mb-2 flex shrink-0 items-center justify-center [&_svg]:pointer-events-none [&_svg]:shrink-0",
-  {
-    variants: {
-      variant: {
-        default: "bg-transparent",
-        icon: "flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted text-foreground [&_svg:not([class*='size-'])]:size-6",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-    },
-  },
-);
-
-function EmptyMedia({
-  className,
-  variant = "default",
-  ...props
-}: React.ComponentProps<"div"> & VariantProps<typeof emptyMediaVariants>) {
-  return (
-    <div
-      data-slot="empty-icon"
-      data-variant={variant}
-      className={cn(emptyMediaVariants({ variant, className }))}
-      {...props}
-    />
-  );
-}
-
-function EmptyTitle({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="empty-title"
-      className={cn("font-heading text-lg font-medium tracking-tight", className)}
-      {...props}
-    />
-  );
-}
-
-function EmptyDescription({ className, ...props }: React.ComponentProps<"p">) {
-  return (
-    <div
-      data-slot="empty-description"
-      className={cn(
-        "text-sm/relaxed text-muted-foreground [&>a]:underline [&>a]:underline-offset-4 [&>a:hover]:text-primary",
-        className,
+    >
+      {props.icon && (
+        <Icon icon={props.icon} size={36} empty className="mb-1 text-muted-foreground" />
       )}
-      {...props}
-    />
-  );
-}
-
-function EmptyContent({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="empty-content"
-      className={cn(
-        "flex w-full max-w-sm min-w-0 flex-col items-center gap-4 text-sm text-balance",
-        className,
+      <Title className="text-md font-medium text-foreground">{props.title}</Title>
+      {props.description && (
+        <p className="max-w-[44ch] text-ui leading-normal text-muted-foreground">
+          {props.description}
+        </p>
       )}
-      {...props}
-    />
+      {props.action && <div className="mt-2">{props.action}</div>}
+    </div>
   );
 }
 
-export { Empty, EmptyHeader, EmptyTitle, EmptyDescription, EmptyContent, EmptyMedia };
+export { EmptyState };

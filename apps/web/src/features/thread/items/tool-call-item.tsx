@@ -7,13 +7,13 @@ import {
 import { StatusPill } from "@/components/status-pill.tsx";
 import type { Tone } from "@/lib/status.ts";
 import {
-  BotIcon,
-  ChevronRightIcon,
+  CaretRightIcon,
   FileIcon,
-  SearchIcon,
+  MagnifyingGlassIcon,
+  RobotIcon,
   TerminalIcon,
   WrenchIcon,
-} from "lucide-react";
+} from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 
 type ToolItem = Extract<Item, { type: "tool_call" }>;
@@ -28,11 +28,11 @@ const statuses: Record<ToolStatus, { label: string; tone: Tone }> = {
   cancelled: { label: "Cancelled", tone: "idle" },
 };
 function icon(kind: string): ReactNode {
-  if (kind === "shell") return <TerminalIcon />;
-  if (kind === "search" || kind === "web.search") return <SearchIcon />;
-  if (kind.startsWith("file.")) return <FileIcon />;
-  if (kind === "agent.spawn" || kind === "agent.message") return <BotIcon />;
-  return <WrenchIcon />;
+  if (kind === "shell") return <TerminalIcon size={14} />;
+  if (kind === "search" || kind === "web.search") return <MagnifyingGlassIcon size={14} />;
+  if (kind.startsWith("file.")) return <FileIcon size={14} />;
+  if (kind === "agent.spawn" || kind === "agent.message") return <RobotIcon size={14} />;
+  return <WrenchIcon size={14} />;
 }
 
 /** AI Elements "tool" pattern, adapted to ace's typed ToolCall and Base UI Collapsible. */
@@ -42,7 +42,10 @@ export function ToolCallItemView(props: { item: ToolItem }) {
   return (
     <Collapsible defaultOpen={call.status === "awaiting_approval"} className="rounded-lg border">
       <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:text-muted-foreground">
-        <ChevronRightIcon className="transition-transform group-data-[panel-open]:rotate-90" />
+        <CaretRightIcon
+          size={12}
+          className="transition-transform group-data-[panel-open]:rotate-90"
+        />
         {icon(call.kind)}
         <span className="min-w-0 flex-1 truncate">{call.title}</span>
         <StatusPill tone={status.tone} label={status.label} />

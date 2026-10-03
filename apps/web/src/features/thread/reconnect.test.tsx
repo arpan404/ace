@@ -7,7 +7,7 @@ test("after a dropped connection the transcript catches up by replay, without du
   const app = harness();
   const script = app.play(flakyCheckout());
   script.runThrough("explorer-spawned");
-  await app.open("/w/acme-web/t/thread-checkout");
+  await app.open("/t/thread-checkout");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await within(feed).findByText("I'll look for timing assumptions in the checkout flow first.");
 

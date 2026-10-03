@@ -9,31 +9,58 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from "./routes/__root"
-import { Route as IndexRouteImport } from "./routes/index"
-import { Route as AccountsRouteImport } from "./routes/accounts"
-import { Route as ConductorRouteImport } from "./routes/conductor"
-import { Route as InboxRouteImport } from "./routes/inbox"
+import { Route as HomeRouteImport } from "./routes/_home"
+import { Route as ActivityRouteImport } from "./routes/activity"
+import { Route as AutomationsRouteImport } from "./routes/automations"
+import { Route as DeckRouteImport } from "./routes/deck"
+import { Route as MoreRouteImport } from "./routes/more"
 import { Route as SettingsRouteImport } from "./routes/settings"
-import { Route as WWorkspaceIdTThreadIdRouteImport } from "./routes/w.$workspaceId.t.$threadId"
+import { Route as SkillsRouteImport } from "./routes/skills"
+import { Route as HomeIndexRouteImport } from "./routes/_home.index"
+import { Route as HomeNewRouteImport } from "./routes/_home.new"
+import { Route as ActivityIndexRouteImport } from "./routes/activity.index"
+import { Route as AutomationsIndexRouteImport } from "./routes/automations.index"
+import { Route as DeckIndexRouteImport } from "./routes/deck.index"
+import { Route as DeckRunIdRouteImport } from "./routes/deck.$runId"
+import { Route as DeckNewRouteImport } from "./routes/deck.new"
+import { Route as MoreIndexRouteImport } from "./routes/more.index"
+import { Route as MoreAccountsRouteImport } from "./routes/more.accounts"
+import { Route as MoreFilesRouteImport } from "./routes/more.files"
+import { Route as MoreSearchRouteImport } from "./routes/more.search"
+import { Route as SettingsIndexRouteImport } from "./routes/settings.index"
+import { Route as SettingsAdvancedRouteImport } from "./routes/settings.advanced"
+import { Route as SettingsAppearanceRouteImport } from "./routes/settings.appearance"
+import { Route as SettingsGeneralRouteImport } from "./routes/settings.general"
+import { Route as SettingsKeyboardRouteImport } from "./routes/settings.keyboard"
+import { Route as SettingsNotificationsRouteImport } from "./routes/settings.notifications"
+import { Route as SettingsProvidersRouteImport } from "./routes/settings.providers"
+import { Route as SettingsRemoteRouteImport } from "./routes/settings.remote"
+import { Route as SettingsThemeEditorRouteImport } from "./routes/settings.theme-editor"
+import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
+import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
 
-const IndexRoute = IndexRouteImport.update({
-  id: "/",
-  path: "/",
+const HomeRoute = HomeRouteImport.update({
+  id: "/_home",
   getParentRoute: () => rootRouteImport,
 } as any)
-const AccountsRoute = AccountsRouteImport.update({
-  id: "/accounts",
-  path: "/accounts",
+const ActivityRoute = ActivityRouteImport.update({
+  id: "/activity",
+  path: "/activity",
   getParentRoute: () => rootRouteImport,
 } as any)
-const ConductorRoute = ConductorRouteImport.update({
-  id: "/conductor",
-  path: "/conductor",
+const AutomationsRoute = AutomationsRouteImport.update({
+  id: "/automations",
+  path: "/automations",
   getParentRoute: () => rootRouteImport,
 } as any)
-const InboxRoute = InboxRouteImport.update({
-  id: "/inbox",
-  path: "/inbox",
+const DeckRoute = DeckRouteImport.update({
+  id: "/deck",
+  path: "/deck",
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MoreRoute = MoreRouteImport.update({
+  id: "/more",
+  path: "/more",
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -41,101 +68,341 @@ const SettingsRoute = SettingsRouteImport.update({
   path: "/settings",
   getParentRoute: () => rootRouteImport,
 } as any)
-const WWorkspaceIdTThreadIdRoute = WWorkspaceIdTThreadIdRouteImport.update({
-  id: "/w/$workspaceId/t/$threadId",
-  path: "/w/$workspaceId/t/$threadId",
+const SkillsRoute = SkillsRouteImport.update({
+  id: "/skills",
+  path: "/skills",
   getParentRoute: () => rootRouteImport,
+} as any)
+const HomeIndexRoute = HomeIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => HomeRoute,
+} as any)
+const HomeNewRoute = HomeNewRouteImport.update({
+  id: "/new",
+  path: "/new",
+  getParentRoute: () => HomeRoute,
+} as any)
+const ActivityIndexRoute = ActivityIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => ActivityRoute,
+} as any)
+const AutomationsIndexRoute = AutomationsIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => AutomationsRoute,
+} as any)
+const DeckIndexRoute = DeckIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => DeckRoute,
+} as any)
+const DeckRunIdRoute = DeckRunIdRouteImport.update({
+  id: "/$runId",
+  path: "/$runId",
+  getParentRoute: () => DeckRoute,
+} as any)
+const DeckNewRoute = DeckNewRouteImport.update({
+  id: "/new",
+  path: "/new",
+  getParentRoute: () => DeckRoute,
+} as any)
+const MoreIndexRoute = MoreIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => MoreRoute,
+} as any)
+const MoreAccountsRoute = MoreAccountsRouteImport.update({
+  id: "/accounts",
+  path: "/accounts",
+  getParentRoute: () => MoreRoute,
+} as any)
+const MoreFilesRoute = MoreFilesRouteImport.update({
+  id: "/files",
+  path: "/files",
+  getParentRoute: () => MoreRoute,
+} as any)
+const MoreSearchRoute = MoreSearchRouteImport.update({
+  id: "/search",
+  path: "/search",
+  getParentRoute: () => MoreRoute,
+} as any)
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsAdvancedRoute = SettingsAdvancedRouteImport.update({
+  id: "/advanced",
+  path: "/advanced",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsAppearanceRoute = SettingsAppearanceRouteImport.update({
+  id: "/appearance",
+  path: "/appearance",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsGeneralRoute = SettingsGeneralRouteImport.update({
+  id: "/general",
+  path: "/general",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsKeyboardRoute = SettingsKeyboardRouteImport.update({
+  id: "/keyboard",
+  path: "/keyboard",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
+  id: "/notifications",
+  path: "/notifications",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsProvidersRoute = SettingsProvidersRouteImport.update({
+  id: "/providers",
+  path: "/providers",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsRemoteRoute = SettingsRemoteRouteImport.update({
+  id: "/remote",
+  path: "/remote",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsThemeEditorRoute = SettingsThemeEditorRouteImport.update({
+  id: "/theme-editor",
+  path: "/theme-editor",
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SkillsIndexRoute = SkillsIndexRouteImport.update({
+  id: "/",
+  path: "/",
+  getParentRoute: () => SkillsRoute,
+} as any)
+const HomeTThreadIdRoute = HomeTThreadIdRouteImport.update({
+  id: "/t/$threadId",
+  path: "/t/$threadId",
+  getParentRoute: () => HomeRoute,
 } as any)
 
 export interface FileRoutesByFullPath {
-  "/": typeof IndexRoute
-  "/accounts": typeof AccountsRoute
-  "/conductor": typeof ConductorRoute
-  "/inbox": typeof InboxRoute
-  "/settings": typeof SettingsRoute
-  "/w/$workspaceId/t/$threadId": typeof WWorkspaceIdTThreadIdRoute
+  "/": typeof HomeIndexRoute
+  "/activity": typeof ActivityRouteWithChildren
+  "/automations": typeof AutomationsRouteWithChildren
+  "/deck": typeof DeckRouteWithChildren
+  "/more": typeof MoreRouteWithChildren
+  "/settings": typeof SettingsRouteWithChildren
+  "/skills": typeof SkillsRouteWithChildren
+  "/new": typeof HomeNewRoute
+  "/deck/$runId": typeof DeckRunIdRoute
+  "/deck/new": typeof DeckNewRoute
+  "/more/accounts": typeof MoreAccountsRoute
+  "/more/files": typeof MoreFilesRoute
+  "/more/search": typeof MoreSearchRoute
+  "/settings/advanced": typeof SettingsAdvancedRoute
+  "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/general": typeof SettingsGeneralRoute
+  "/settings/keyboard": typeof SettingsKeyboardRoute
+  "/settings/notifications": typeof SettingsNotificationsRoute
+  "/settings/providers": typeof SettingsProvidersRoute
+  "/settings/remote": typeof SettingsRemoteRoute
+  "/settings/theme-editor": typeof SettingsThemeEditorRoute
+  "/activity/": typeof ActivityIndexRoute
+  "/automations/": typeof AutomationsIndexRoute
+  "/deck/": typeof DeckIndexRoute
+  "/more/": typeof MoreIndexRoute
+  "/settings/": typeof SettingsIndexRoute
+  "/skills/": typeof SkillsIndexRoute
+  "/t/$threadId": typeof HomeTThreadIdRoute
 }
 export interface FileRoutesByTo {
-  "/": typeof IndexRoute
-  "/accounts": typeof AccountsRoute
-  "/conductor": typeof ConductorRoute
-  "/inbox": typeof InboxRoute
-  "/settings": typeof SettingsRoute
-  "/w/$workspaceId/t/$threadId": typeof WWorkspaceIdTThreadIdRoute
+  "/new": typeof HomeNewRoute
+  "/deck/$runId": typeof DeckRunIdRoute
+  "/deck/new": typeof DeckNewRoute
+  "/more/accounts": typeof MoreAccountsRoute
+  "/more/files": typeof MoreFilesRoute
+  "/more/search": typeof MoreSearchRoute
+  "/settings/advanced": typeof SettingsAdvancedRoute
+  "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/general": typeof SettingsGeneralRoute
+  "/settings/keyboard": typeof SettingsKeyboardRoute
+  "/settings/notifications": typeof SettingsNotificationsRoute
+  "/settings/providers": typeof SettingsProvidersRoute
+  "/settings/remote": typeof SettingsRemoteRoute
+  "/settings/theme-editor": typeof SettingsThemeEditorRoute
+  "/": typeof HomeIndexRoute
+  "/activity": typeof ActivityIndexRoute
+  "/automations": typeof AutomationsIndexRoute
+  "/deck": typeof DeckIndexRoute
+  "/more": typeof MoreIndexRoute
+  "/settings": typeof SettingsIndexRoute
+  "/skills": typeof SkillsIndexRoute
+  "/t/$threadId": typeof HomeTThreadIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  "/": typeof IndexRoute
-  "/accounts": typeof AccountsRoute
-  "/conductor": typeof ConductorRoute
-  "/inbox": typeof InboxRoute
-  "/settings": typeof SettingsRoute
-  "/w/$workspaceId/t/$threadId": typeof WWorkspaceIdTThreadIdRoute
+  "/_home": typeof HomeRouteWithChildren
+  "/activity": typeof ActivityRouteWithChildren
+  "/automations": typeof AutomationsRouteWithChildren
+  "/deck": typeof DeckRouteWithChildren
+  "/more": typeof MoreRouteWithChildren
+  "/settings": typeof SettingsRouteWithChildren
+  "/skills": typeof SkillsRouteWithChildren
+  "/_home/new": typeof HomeNewRoute
+  "/deck/$runId": typeof DeckRunIdRoute
+  "/deck/new": typeof DeckNewRoute
+  "/more/accounts": typeof MoreAccountsRoute
+  "/more/files": typeof MoreFilesRoute
+  "/more/search": typeof MoreSearchRoute
+  "/settings/advanced": typeof SettingsAdvancedRoute
+  "/settings/appearance": typeof SettingsAppearanceRoute
+  "/settings/general": typeof SettingsGeneralRoute
+  "/settings/keyboard": typeof SettingsKeyboardRoute
+  "/settings/notifications": typeof SettingsNotificationsRoute
+  "/settings/providers": typeof SettingsProvidersRoute
+  "/settings/remote": typeof SettingsRemoteRoute
+  "/settings/theme-editor": typeof SettingsThemeEditorRoute
+  "/_home/": typeof HomeIndexRoute
+  "/activity/": typeof ActivityIndexRoute
+  "/automations/": typeof AutomationsIndexRoute
+  "/deck/": typeof DeckIndexRoute
+  "/more/": typeof MoreIndexRoute
+  "/settings/": typeof SettingsIndexRoute
+  "/skills/": typeof SkillsIndexRoute
+  "/_home/t/$threadId": typeof HomeTThreadIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | "/"
-    | "/accounts"
-    | "/conductor"
-    | "/inbox"
+    | "/activity"
+    | "/automations"
+    | "/deck"
+    | "/more"
     | "/settings"
-    | "/w/$workspaceId/t/$threadId"
+    | "/skills"
+    | "/new"
+    | "/deck/$runId"
+    | "/deck/new"
+    | "/more/accounts"
+    | "/more/files"
+    | "/more/search"
+    | "/settings/advanced"
+    | "/settings/appearance"
+    | "/settings/general"
+    | "/settings/keyboard"
+    | "/settings/notifications"
+    | "/settings/providers"
+    | "/settings/remote"
+    | "/settings/theme-editor"
+    | "/activity/"
+    | "/automations/"
+    | "/deck/"
+    | "/more/"
+    | "/settings/"
+    | "/skills/"
+    | "/t/$threadId"
   fileRoutesByTo: FileRoutesByTo
   to:
+    | "/new"
+    | "/deck/$runId"
+    | "/deck/new"
+    | "/more/accounts"
+    | "/more/files"
+    | "/more/search"
+    | "/settings/advanced"
+    | "/settings/appearance"
+    | "/settings/general"
+    | "/settings/keyboard"
+    | "/settings/notifications"
+    | "/settings/providers"
+    | "/settings/remote"
+    | "/settings/theme-editor"
     | "/"
-    | "/accounts"
-    | "/conductor"
-    | "/inbox"
+    | "/activity"
+    | "/automations"
+    | "/deck"
+    | "/more"
     | "/settings"
-    | "/w/$workspaceId/t/$threadId"
+    | "/skills"
+    | "/t/$threadId"
   id:
     | "__root__"
-    | "/"
-    | "/accounts"
-    | "/conductor"
-    | "/inbox"
+    | "/_home"
+    | "/activity"
+    | "/automations"
+    | "/deck"
+    | "/more"
     | "/settings"
-    | "/w/$workspaceId/t/$threadId"
+    | "/skills"
+    | "/_home/new"
+    | "/deck/$runId"
+    | "/deck/new"
+    | "/more/accounts"
+    | "/more/files"
+    | "/more/search"
+    | "/settings/advanced"
+    | "/settings/appearance"
+    | "/settings/general"
+    | "/settings/keyboard"
+    | "/settings/notifications"
+    | "/settings/providers"
+    | "/settings/remote"
+    | "/settings/theme-editor"
+    | "/_home/"
+    | "/activity/"
+    | "/automations/"
+    | "/deck/"
+    | "/more/"
+    | "/settings/"
+    | "/skills/"
+    | "/_home/t/$threadId"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AccountsRoute: typeof AccountsRoute
-  ConductorRoute: typeof ConductorRoute
-  InboxRoute: typeof InboxRoute
-  SettingsRoute: typeof SettingsRoute
-  WWorkspaceIdTThreadIdRoute: typeof WWorkspaceIdTThreadIdRoute
+  HomeRoute: typeof HomeRouteWithChildren
+  ActivityRoute: typeof ActivityRouteWithChildren
+  AutomationsRoute: typeof AutomationsRouteWithChildren
+  DeckRoute: typeof DeckRouteWithChildren
+  MoreRoute: typeof MoreRouteWithChildren
+  SettingsRoute: typeof SettingsRouteWithChildren
+  SkillsRoute: typeof SkillsRouteWithChildren
 }
 
 declare module "@tanstack/react-router" {
   interface FileRoutesByPath {
-    "/": {
-      id: "/"
-      path: "/"
+    "/_home": {
+      id: "/_home"
+      path: ""
       fullPath: "/"
-      preLoaderRoute: typeof IndexRouteImport
+      preLoaderRoute: typeof HomeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/accounts": {
-      id: "/accounts"
-      path: "/accounts"
-      fullPath: "/accounts"
-      preLoaderRoute: typeof AccountsRouteImport
+    "/activity": {
+      id: "/activity"
+      path: "/activity"
+      fullPath: "/activity"
+      preLoaderRoute: typeof ActivityRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/conductor": {
-      id: "/conductor"
-      path: "/conductor"
-      fullPath: "/conductor"
-      preLoaderRoute: typeof ConductorRouteImport
+    "/automations": {
+      id: "/automations"
+      path: "/automations"
+      fullPath: "/automations"
+      preLoaderRoute: typeof AutomationsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/inbox": {
-      id: "/inbox"
-      path: "/inbox"
-      fullPath: "/inbox"
-      preLoaderRoute: typeof InboxRouteImport
+    "/deck": {
+      id: "/deck"
+      path: "/deck"
+      fullPath: "/deck"
+      preLoaderRoute: typeof DeckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    "/more": {
+      id: "/more"
+      path: "/more"
+      fullPath: "/more"
+      preLoaderRoute: typeof MoreRouteImport
       parentRoute: typeof rootRouteImport
     }
     "/settings": {
@@ -145,23 +412,285 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    "/w/$workspaceId/t/$threadId": {
-      id: "/w/$workspaceId/t/$threadId"
-      path: "/w/$workspaceId/t/$threadId"
-      fullPath: "/w/$workspaceId/t/$threadId"
-      preLoaderRoute: typeof WWorkspaceIdTThreadIdRouteImport
+    "/skills": {
+      id: "/skills"
+      path: "/skills"
+      fullPath: "/skills"
+      preLoaderRoute: typeof SkillsRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    "/_home/": {
+      id: "/_home/"
+      path: "/"
+      fullPath: "/"
+      preLoaderRoute: typeof HomeIndexRouteImport
+      parentRoute: typeof HomeRoute
+    }
+    "/_home/new": {
+      id: "/_home/new"
+      path: "/new"
+      fullPath: "/new"
+      preLoaderRoute: typeof HomeNewRouteImport
+      parentRoute: typeof HomeRoute
+    }
+    "/activity/": {
+      id: "/activity/"
+      path: "/"
+      fullPath: "/activity/"
+      preLoaderRoute: typeof ActivityIndexRouteImport
+      parentRoute: typeof ActivityRoute
+    }
+    "/automations/": {
+      id: "/automations/"
+      path: "/"
+      fullPath: "/automations/"
+      preLoaderRoute: typeof AutomationsIndexRouteImport
+      parentRoute: typeof AutomationsRoute
+    }
+    "/deck/": {
+      id: "/deck/"
+      path: "/"
+      fullPath: "/deck/"
+      preLoaderRoute: typeof DeckIndexRouteImport
+      parentRoute: typeof DeckRoute
+    }
+    "/deck/$runId": {
+      id: "/deck/$runId"
+      path: "/$runId"
+      fullPath: "/deck/$runId"
+      preLoaderRoute: typeof DeckRunIdRouteImport
+      parentRoute: typeof DeckRoute
+    }
+    "/deck/new": {
+      id: "/deck/new"
+      path: "/new"
+      fullPath: "/deck/new"
+      preLoaderRoute: typeof DeckNewRouteImport
+      parentRoute: typeof DeckRoute
+    }
+    "/more/": {
+      id: "/more/"
+      path: "/"
+      fullPath: "/more/"
+      preLoaderRoute: typeof MoreIndexRouteImport
+      parentRoute: typeof MoreRoute
+    }
+    "/more/accounts": {
+      id: "/more/accounts"
+      path: "/accounts"
+      fullPath: "/more/accounts"
+      preLoaderRoute: typeof MoreAccountsRouteImport
+      parentRoute: typeof MoreRoute
+    }
+    "/more/files": {
+      id: "/more/files"
+      path: "/files"
+      fullPath: "/more/files"
+      preLoaderRoute: typeof MoreFilesRouteImport
+      parentRoute: typeof MoreRoute
+    }
+    "/more/search": {
+      id: "/more/search"
+      path: "/search"
+      fullPath: "/more/search"
+      preLoaderRoute: typeof MoreSearchRouteImport
+      parentRoute: typeof MoreRoute
+    }
+    "/settings/": {
+      id: "/settings/"
+      path: "/"
+      fullPath: "/settings/"
+      preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/advanced": {
+      id: "/settings/advanced"
+      path: "/advanced"
+      fullPath: "/settings/advanced"
+      preLoaderRoute: typeof SettingsAdvancedRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/appearance": {
+      id: "/settings/appearance"
+      path: "/appearance"
+      fullPath: "/settings/appearance"
+      preLoaderRoute: typeof SettingsAppearanceRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/general": {
+      id: "/settings/general"
+      path: "/general"
+      fullPath: "/settings/general"
+      preLoaderRoute: typeof SettingsGeneralRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/keyboard": {
+      id: "/settings/keyboard"
+      path: "/keyboard"
+      fullPath: "/settings/keyboard"
+      preLoaderRoute: typeof SettingsKeyboardRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/notifications": {
+      id: "/settings/notifications"
+      path: "/notifications"
+      fullPath: "/settings/notifications"
+      preLoaderRoute: typeof SettingsNotificationsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/providers": {
+      id: "/settings/providers"
+      path: "/providers"
+      fullPath: "/settings/providers"
+      preLoaderRoute: typeof SettingsProvidersRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/remote": {
+      id: "/settings/remote"
+      path: "/remote"
+      fullPath: "/settings/remote"
+      preLoaderRoute: typeof SettingsRemoteRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/settings/theme-editor": {
+      id: "/settings/theme-editor"
+      path: "/theme-editor"
+      fullPath: "/settings/theme-editor"
+      preLoaderRoute: typeof SettingsThemeEditorRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    "/skills/": {
+      id: "/skills/"
+      path: "/"
+      fullPath: "/skills/"
+      preLoaderRoute: typeof SkillsIndexRouteImport
+      parentRoute: typeof SkillsRoute
+    }
+    "/_home/t/$threadId": {
+      id: "/_home/t/$threadId"
+      path: "/t/$threadId"
+      fullPath: "/t/$threadId"
+      preLoaderRoute: typeof HomeTThreadIdRouteImport
+      parentRoute: typeof HomeRoute
     }
   }
 }
 
+interface HomeRouteChildren {
+  HomeNewRoute: typeof HomeNewRoute
+  HomeIndexRoute: typeof HomeIndexRoute
+  HomeTThreadIdRoute: typeof HomeTThreadIdRoute
+}
+
+const HomeRouteChildren: HomeRouteChildren = {
+  HomeNewRoute: HomeNewRoute,
+  HomeIndexRoute: HomeIndexRoute,
+  HomeTThreadIdRoute: HomeTThreadIdRoute,
+}
+
+const HomeRouteWithChildren = HomeRoute._addFileChildren(HomeRouteChildren)
+
+interface ActivityRouteChildren {
+  ActivityIndexRoute: typeof ActivityIndexRoute
+}
+
+const ActivityRouteChildren: ActivityRouteChildren = {
+  ActivityIndexRoute: ActivityIndexRoute,
+}
+
+const ActivityRouteWithChildren = ActivityRoute._addFileChildren(
+  ActivityRouteChildren,
+)
+
+interface AutomationsRouteChildren {
+  AutomationsIndexRoute: typeof AutomationsIndexRoute
+}
+
+const AutomationsRouteChildren: AutomationsRouteChildren = {
+  AutomationsIndexRoute: AutomationsIndexRoute,
+}
+
+const AutomationsRouteWithChildren = AutomationsRoute._addFileChildren(
+  AutomationsRouteChildren,
+)
+
+interface DeckRouteChildren {
+  DeckRunIdRoute: typeof DeckRunIdRoute
+  DeckNewRoute: typeof DeckNewRoute
+  DeckIndexRoute: typeof DeckIndexRoute
+}
+
+const DeckRouteChildren: DeckRouteChildren = {
+  DeckRunIdRoute: DeckRunIdRoute,
+  DeckNewRoute: DeckNewRoute,
+  DeckIndexRoute: DeckIndexRoute,
+}
+
+const DeckRouteWithChildren = DeckRoute._addFileChildren(DeckRouteChildren)
+
+interface MoreRouteChildren {
+  MoreAccountsRoute: typeof MoreAccountsRoute
+  MoreFilesRoute: typeof MoreFilesRoute
+  MoreSearchRoute: typeof MoreSearchRoute
+  MoreIndexRoute: typeof MoreIndexRoute
+}
+
+const MoreRouteChildren: MoreRouteChildren = {
+  MoreAccountsRoute: MoreAccountsRoute,
+  MoreFilesRoute: MoreFilesRoute,
+  MoreSearchRoute: MoreSearchRoute,
+  MoreIndexRoute: MoreIndexRoute,
+}
+
+const MoreRouteWithChildren = MoreRoute._addFileChildren(MoreRouteChildren)
+
+interface SettingsRouteChildren {
+  SettingsAdvancedRoute: typeof SettingsAdvancedRoute
+  SettingsAppearanceRoute: typeof SettingsAppearanceRoute
+  SettingsGeneralRoute: typeof SettingsGeneralRoute
+  SettingsKeyboardRoute: typeof SettingsKeyboardRoute
+  SettingsNotificationsRoute: typeof SettingsNotificationsRoute
+  SettingsProvidersRoute: typeof SettingsProvidersRoute
+  SettingsRemoteRoute: typeof SettingsRemoteRoute
+  SettingsThemeEditorRoute: typeof SettingsThemeEditorRoute
+  SettingsIndexRoute: typeof SettingsIndexRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsAdvancedRoute: SettingsAdvancedRoute,
+  SettingsAppearanceRoute: SettingsAppearanceRoute,
+  SettingsGeneralRoute: SettingsGeneralRoute,
+  SettingsKeyboardRoute: SettingsKeyboardRoute,
+  SettingsNotificationsRoute: SettingsNotificationsRoute,
+  SettingsProvidersRoute: SettingsProvidersRoute,
+  SettingsRemoteRoute: SettingsRemoteRoute,
+  SettingsThemeEditorRoute: SettingsThemeEditorRoute,
+  SettingsIndexRoute: SettingsIndexRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
+
+interface SkillsRouteChildren {
+  SkillsIndexRoute: typeof SkillsIndexRoute
+}
+
+const SkillsRouteChildren: SkillsRouteChildren = {
+  SkillsIndexRoute: SkillsIndexRoute,
+}
+
+const SkillsRouteWithChildren =
+  SkillsRoute._addFileChildren(SkillsRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  AccountsRoute: AccountsRoute,
-  ConductorRoute: ConductorRoute,
-  InboxRoute: InboxRoute,
-  SettingsRoute: SettingsRoute,
-  WWorkspaceIdTThreadIdRoute: WWorkspaceIdTThreadIdRoute,
+  HomeRoute: HomeRouteWithChildren,
+  ActivityRoute: ActivityRouteWithChildren,
+  AutomationsRoute: AutomationsRouteWithChildren,
+  DeckRoute: DeckRouteWithChildren,
+  MoreRoute: MoreRouteWithChildren,
+  SettingsRoute: SettingsRouteWithChildren,
+  SkillsRoute: SkillsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

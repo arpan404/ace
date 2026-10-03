@@ -40,7 +40,7 @@ export function Transcript(props: { threadId: string }) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex justify-center border-b px-3 py-1.5">
         {hasOlder ? (
-          <Button variant="ghost" size="xs" disabled={loading} onClick={() => void loadOlder()}>
+          <Button variant="ghost" size="sm" disabled={loading} onClick={() => void loadOlder()}>
             {loading && <Spinner />}
             Load earlier messages
           </Button>

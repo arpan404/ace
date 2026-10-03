@@ -1,5 +1,6 @@
 import { failingSubagent } from "@ace/fake-daemon";
 import { act, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
@@ -7,9 +8,12 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
   const app = harness();
   const script = app.play(failingSubagent());
   script.step();
-  await app.open("/w/acme-api/t/thread-settings");
+  await app.open("/t/thread-settings");
+  await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
 
-  const panel = await screen.findByRole("complementary", { name: "Agents" });
+  await userEvent.keyboard("{Meta>}j{/Meta}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  expect(within(panel).getByRole("tab", { name: "Agents", selected: true })).toBeTruthy();
   await within(panel).findByRole("group", { name: "Main agent: Working" });
   expect(within(panel).queryByRole("group", { name: /migration-tester/ })).toBeNull();
 

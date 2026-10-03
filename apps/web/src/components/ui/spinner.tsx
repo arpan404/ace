@@ -1,14 +1,12 @@
 import { cn } from "cn";
-import { Loader2Icon } from "lucide-react";
 
-function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
+/** 11px ring, 1s linear. Grey by default; status colour only where status words are allowed. */
+function Spinner({ className, label }: { className?: string; label?: string }) {
   return (
-    <Loader2Icon
+    <span
       data-slot="spinner"
-      role="status"
-      aria-label="Loading"
-      className={cn("size-4 animate-spin", className)}
-      {...props}
+      {...(label ? { role: "status", "aria-label": label } : { "aria-hidden": true })}
+      className={cn("spin-ring text-muted-foreground", className)}
     />
   );
 }

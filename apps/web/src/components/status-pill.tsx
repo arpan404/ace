@@ -2,17 +2,22 @@ import { cva } from "class-variance-authority";
 import { cn } from "cn";
 import type { Tone } from "@/lib/status.ts";
 
+/** Tinted chip for the thread status chip, agent tree and Activity only (DESIGN-fable.md). */
 const pill = cva(
-  "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+  "inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-[9px] text-[12px] font-medium whitespace-nowrap",
   {
     variants: {
       tone: {
-        working: "bg-status-working-surface text-status-working",
-        "needs-you": "bg-status-needs-you-surface text-status-needs-you",
-        waiting: "bg-status-waiting-surface text-status-waiting",
-        failed: "bg-status-failed-surface text-status-failed",
-        done: "bg-status-done-surface text-status-done",
-        idle: "bg-muted text-muted-foreground",
+        working:
+          "bg-[color-mix(in_oklab,var(--status-working)_13%,transparent)] text-[color-mix(in_oklab,var(--status-working)_80%,var(--foreground))]",
+        "needs-you":
+          "bg-[color-mix(in_oklab,var(--status-needs-you)_13%,transparent)] text-[color-mix(in_oklab,var(--status-needs-you)_80%,var(--foreground))]",
+        waiting:
+          "bg-[color-mix(in_oklab,var(--status-waiting)_13%,transparent)] text-[color-mix(in_oklab,var(--status-waiting)_80%,var(--foreground))]",
+        failed:
+          "bg-[color-mix(in_oklab,var(--status-failed)_13%,transparent)] text-[color-mix(in_oklab,var(--status-failed)_80%,var(--foreground))]",
+        done: "bg-[color-mix(in_oklab,var(--status-done)_13%,transparent)] text-[color-mix(in_oklab,var(--status-done)_80%,var(--foreground))]",
+        idle: "bg-secondary text-muted-foreground",
       },
     },
   },

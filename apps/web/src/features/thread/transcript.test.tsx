@@ -13,7 +13,7 @@ function questionNumbers(feed: HTMLElement): number[] {
 test("the transcript opens on the newest window and pages older history in order", async () => {
   const app = harness({ snapshotItems: 20 });
   app.play(longHistory(60)).runUntilBlocked();
-  await app.open("/w/acme-web/t/thread-router");
+  await app.open("/t/thread-router");
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   await within(feed).findByText("Answer 60: route 60 renders its own panel.");
 

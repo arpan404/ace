@@ -24,29 +24,3 @@ const needsYou = (reader: SidebarReader, id: string) =>
 export function useNeedsYouThreadIds(): readonly string[] {
   return useThreadIdsWhere(needsYou);
 }
-
-export interface WorkspaceGroup {
-  workspaceId: string;
-  threadIds: string[];
-}
-/** Threads grouped by workspace, newest first. Workspace never changes after creation. */
-const readGroups = (reader: SidebarReader): WorkspaceGroup[] => {
-  const groups = new Map<string, string[]>();
-  for (const id of reader.ids.toReversed()) {
-    const entry = reader.thread(id);
-    if (!entry || entry.archivedAt !== undefined) continue;
-    const list = groups.get(entry.workspaceId) ?? [];
-    list.push(id);
-    groups.set(entry.workspaceId, list);
-  }
-  return [...groups].map(([workspaceId, threadIds]) => ({ workspaceId, threadIds }));
-};
-const groupsEqual = (a: WorkspaceGroup[], b: WorkspaceGroup[]) =>
-  a.length === b.length &&
-  a.every(
-    (group, i) =>
-      group.workspaceId === b[i]?.workspaceId && arrayEqual(group.threadIds, b[i]?.threadIds),
-  );
-export function useWorkspaceGroups(): WorkspaceGroup[] {
-  return useSidebar(["ids"], readGroups, groupsEqual) ?? [];
-}
