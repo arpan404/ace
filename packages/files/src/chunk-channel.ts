@@ -3,6 +3,7 @@ import { z } from "zod";
 import { FilesClientMessage, type FilesServerMessage, type ThreadId } from "@ace/protocol";
 import type { FilesService } from "./service.ts";
 import { codeOf, FileError, type Download } from "./types.ts";
+import { drainUpload } from "./upload-lifetime.ts";
 
 const Upload = z.object({
   uploadId: z.string(),
@@ -12,7 +13,14 @@ const Upload = z.object({
 type Binding = { service: FilesService; allowed(access: "read" | "operate"): boolean };
 type Channel = { binding: Binding; threadId: ThreadId; busy: boolean; requestId: string } & (
   | { kind: "download"; value: Download; hash: Hash; offset: number }
-  | { kind: "upload"; uploadId: string; offset: number; size: number; release(): void }
+  | {
+      kind: "upload";
+      uploadId: string;
+      offset: number;
+      size: number;
+      pending?: Promise<unknown>;
+      release(): void;
+    }
 );
 /** Pull/ACK frames bound memory to one 64 KiB chunk per channel, even through a shared worker. */
 export function chunkFilesChannel(options: {
@@ -38,7 +46,7 @@ export function chunkFilesChannel(options: {
     const stopped = Promise.resolve()
       .then(async () => {
         if (channel.kind === "download") await channel.value.close();
-        else channel.release();
+        else await drainUpload(channel);
       })
       .finally(() => {
         closing.delete(id);
@@ -113,19 +121,21 @@ export function chunkFilesChannel(options: {
             message.offset !== channel.offset
           )
             throw new FileError("OFFSET", "Invalid upload chunk or offset");
-          const result = Upload.parse(
-            await channel.binding.service.append(
-              options.device,
-              channel.uploadId,
-              message.offset,
-              bytes,
-              () => {
-                assert(channel.binding, "operate");
-                if (channels.get(message.channel) !== channel)
-                  throw new FileError("ABORTED", "File channel cancelled");
-              },
-            ),
+          channel.pending = channel.binding.service.append(
+            options.device,
+            channel.uploadId,
+            message.offset,
+            bytes,
+            () => {
+              assert(channel.binding, "operate");
+              if (channels.get(message.channel) !== channel)
+                throw new FileError("ABORTED", "File channel cancelled");
+            },
           );
+          const result = Upload.parse(await channel.pending);
+          assert(channel.binding, "operate");
+          if (channels.get(message.channel) !== channel)
+            throw new FileError("ABORTED", "File channel cancelled");
           channel.offset = result.offset;
           send({
             type: "files.upload",

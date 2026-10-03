@@ -5,6 +5,7 @@ import { FilesClientMessage, type FilesServerMessage } from "@ace/protocol";
 import { decodeFileFrame, fillFileFrame } from "./frame.ts";
 import { FilesService } from "./service.ts";
 import { CHUNK_SIZE, codeOf, FileError, MAX_CREDITS, type Download } from "./types.ts";
+import { drainUpload } from "./upload-lifetime.ts";
 
 interface Outgoing {
   download: Download;
@@ -95,9 +96,8 @@ export function attachFilesChannel(
     if (upload) {
       upload.cancelled = true;
       try {
-        await upload.pending;
+        await drainUpload(upload);
       } finally {
-        upload.release();
         incoming.delete(id);
       }
     }
