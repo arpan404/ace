@@ -46,3 +46,16 @@ export {
 export * from "./command-library.ts";
 export * from "./screen-v2.ts";
 export { ScreenAgentScope, ScreenUITree, ScreenUIBounds } from "./screen-ui.ts";
+
+export {
+  AppDevice,
+  AppDeviceId,
+  DeviceInput,
+  DeviceSettings,
+  DeviceFailure,
+  DeviceInventory,
+  DeviceState,
+  DeviceOperation,
+  DeviceClientMessage,
+  DeviceServerMessage,
+} from "./devices.ts";

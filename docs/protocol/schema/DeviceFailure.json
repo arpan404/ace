@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceFailure.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "code": {
+      "enum": [
+        "sdk_missing",
+        "tool_missing",
+        "not_supported",
+        "not_found",
+        "not_booted",
+        "permission_denied",
+        "busy",
+        "timeout",
+        "command_failed",
+        "invalid_data",
+        "lease_required",
+        "stale_ref",
+        "limit"
+      ],
+      "type": "string"
+    },
+    "hint": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 2048,
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "message",
+    "hint"
+  ],
+  "type": "object"
+}

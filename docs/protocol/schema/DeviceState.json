@@ -1,0 +1,54 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "approved": {
+      "type": "boolean"
+    },
+    "controller": {
+      "enum": [
+        "none",
+        "human",
+        "agent"
+      ],
+      "type": "string"
+    },
+    "device": {
+      "$ref": "https://ace.local/protocol/v1/AppDevice.json"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "error": {
+      "$ref": "https://ace.local/protocol/v1/DeviceFailure.json"
+    },
+    "leaseExpiresAt": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "lifecycle": {
+      "enum": [
+        "idle",
+        "starting",
+        "live",
+        "stopping",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "streamId": {
+      "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "device",
+    "enabled",
+    "approved",
+    "lifecycle",
+    "controller"
+  ],
+  "type": "object"
+}

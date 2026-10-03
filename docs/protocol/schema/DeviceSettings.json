@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceSettings.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "appearance": {
+      "enum": [
+        "light",
+        "dark"
+      ],
+      "type": "string"
+    },
+    "locale": {
+      "pattern": "^[a-zA-Z]{2,8}(?:[-_][a-zA-Z0-9]{2,8}){0,2}$",
+      "type": "string"
+    },
+    "location": {
+      "properties": {
+        "latitude": {
+          "maximum": 90,
+          "minimum": -90,
+          "type": "number"
+        },
+        "longitude": {
+          "maximum": 180,
+          "minimum": -180,
+          "type": "number"
+        }
+      },
+      "required": [
+        "latitude",
+        "longitude"
+      ],
+      "type": "object"
+    }
+  },
+  "type": "object"
+}

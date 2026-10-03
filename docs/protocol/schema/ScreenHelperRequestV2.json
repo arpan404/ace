@@ -423,6 +423,11 @@
           ],
           "type": "string"
         },
+        "durationMs": {
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ScreenId.json"
         },

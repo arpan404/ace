@@ -8,7 +8,8 @@
     "notify",
     "agents",
     "forge",
-    "screen"
+    "screen",
+    "devices"
   ],
   "type": "string"
 }
