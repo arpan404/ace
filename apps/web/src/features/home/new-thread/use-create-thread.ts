@@ -1,6 +1,6 @@
 import type { SidebarReader } from "@ace/client";
 import { useClient, useIntent, useSidebar, useSidebarIds } from "@ace/client-react";
-import { WorkspaceId, type CommandPayload } from "@ace/protocol";
+import { WorkspaceId, type CommandPayload, type MessageContext } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -9,6 +9,7 @@ export interface CreateRequest {
   provider: Extract<CommandPayload, { type: "thread.create" }>["provider"];
   model: string | undefined;
   text: string;
+  context?: MessageContext | undefined;
 }
 
 interface Pending {
@@ -26,7 +27,8 @@ const none: readonly string[] = [];
  * project after sending.
  */
 export function useCreateThread(): {
-  create(request: CreateRequest): Promise<void>;
+  /** Resolves false when the request could not be sent, so the draft stays in the composer. */
+  create(request: CreateRequest): Promise<boolean>;
   sending: boolean;
   error: string | undefined;
 } {
@@ -65,13 +67,16 @@ export function useCreateThread(): {
         // TODO(train-2): account, worktree mode and base branch once thread.create carries them.
         ...(request.model ? { model: request.model } : {}),
         input: [{ type: "text", text: request.text }],
+        ...(request.context ? { context: request.context } : {}),
       };
       const before = new Set(ids);
       try {
         const intentId = await client.enqueue(payload);
         setPending({ intentId, project: request.project, before });
+        return true;
       } catch {
         setFailure("Couldn't send the request. Check the connection and try again.");
+        return false;
       }
     },
     [client, ids],

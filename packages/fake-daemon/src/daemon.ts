@@ -21,6 +21,13 @@ import { fakeHealth } from "./health.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { startedThread } from "./scenarios/started-thread.ts";
+import {
+  drainQueue,
+  interruptFacts,
+  sendFacts,
+  stopTaskFacts,
+  type ThreadCommandOutcome,
+} from "./thread-commands.ts";
 
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
@@ -86,11 +93,10 @@ export class FakeDaemon implements Host {
   apply(threadId: string, facts: readonly Fact[]): void {
     const host = this.thread(threadId);
     const now = this.options.clock();
-    this.append(
-      host,
-      facts.flatMap((fact) => host.fold(fact, now)),
-      now,
-    );
+    const payloads = facts.flatMap((fact) => host.fold(fact, now));
+    // A queued message starts the next turn as soon as the root agent is free.
+    const drained = facts.length ? drainQueue(host) : [];
+    this.append(host, [...payloads, ...drained.flatMap((fact) => host.fold(fact, now))], now);
   }
   private append(host: ThreadHost, payloads: EventPayload[], now: number): void {
     if (!payloads.length) return;
@@ -159,6 +165,18 @@ export class FakeDaemon implements Host {
     this.receipts.set(command.id, result);
     return result;
   }
+  private run(
+    commandId: Command["id"],
+    threadId: string,
+    decide: (host: ThreadHost) => ThreadCommandOutcome,
+  ): CommandResult {
+    const host = this.threads.get(threadId);
+    if (!host) return { commandId, ok: false, error: "thread_not_found" };
+    const outcome = decide(host);
+    if (!outcome.ok) return { commandId, ok: false, error: outcome.error };
+    this.apply(threadId, outcome.facts);
+    return { commandId, ok: true };
+  }
   private execute(command: Command): CommandResult {
     const payload = command.payload;
     const commandId = command.id;
@@ -193,6 +211,19 @@ export class FakeDaemon implements Host {
         this.createThread(started.thread);
         this.apply(id, started.facts);
         return { commandId, ok: true };
+      }
+      case "thread.send":
+        return this.run(commandId, payload.threadId, (host) => sendFacts(host, commandId, payload));
+      case "thread.interrupt":
+        return this.run(commandId, payload.threadId, (host) =>
+          interruptFacts(host, payload.agentId, payload.cascade),
+        );
+      case "background_task.stop": {
+        for (const host of this.threads.values()) {
+          const outcome = stopTaskFacts(host, payload.taskId);
+          if (outcome) return this.run(commandId, host.id, () => outcome);
+        }
+        return { commandId, ok: false, error: "not_found" };
       }
       case "thread.archive": {
         const host = this.threads.get(payload.threadId);

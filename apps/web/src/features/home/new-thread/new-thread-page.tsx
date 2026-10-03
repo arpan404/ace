@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Screen } from "@/features/shell/screen.tsx";
+import { Composer, type Draft } from "@/features/thread/composer/composer.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjects } from "../use-home-threads.ts";
 import { useOrganizerState } from "../use-organizer.ts";
@@ -8,7 +9,6 @@ import { loadChoices, pickProject, resolve, saveChoices, type Choices } from "./
 import { ContextBar } from "./context-bar.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import { newThreadSource } from "./options-source.ts";
-import { PromptBox } from "./prompt-box.tsx";
 import { useCreateThread } from "./use-create-thread.ts";
 
 /**
@@ -23,7 +23,6 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
   const [requested, setRequested] = useState(props.project);
   const project = pickProject(projects, requested, choices.project, filter);
   const [baseChoice, setBase] = useState(props.base);
-  const [text, setText] = useState("");
   const { create, sending, error } = useCreateThread();
 
   const options = useQuery({
@@ -40,15 +39,20 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     setChoices(next);
     saveChoices(storage, next);
   };
-  const canSend = text.trim().length > 0 && project !== undefined && resolved.model !== undefined;
-  const send = () => {
-    if (!canSend || !project || !resolved.model) return;
+  // Mentions and uploads complete against the project before the thread exists.
+  const draftThread = useMemo(
+    () => ({ id: "new", workspaceId: project ?? "", title: "" }),
+    [project],
+  );
+  const send = async (draft: Draft) => {
+    if (sending || !project || !resolved.model) return false;
     choose({ project });
-    void create({
+    return create({
       project,
       provider: resolved.model.provider,
       model: resolved.model.id,
-      text: text.trim(),
+      text: draft.text.trim() || "See the attached files.",
+      context: { mentions: draft.mentions, attachments: draft.attachments },
     });
   };
 
@@ -59,12 +63,11 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
           <h2 className="mb-5 px-1 text-2xl font-semibold tracking-title text-foreground">
             What should we work on{project ? ` in ${project}` : ""}?
           </h2>
-          <PromptBox
-            value={text}
-            onChange={setText}
-            onSend={send}
-            canSend={canSend}
-            sending={sending}
+          <Composer
+            thread={draftThread}
+            busy={false}
+            onSubmit={send}
+            autoFocus
             placeholder="Describe the change, a bug, or a question. @ to mention a file"
             controls={
               <ModelPicker

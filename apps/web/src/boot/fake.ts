@@ -6,6 +6,7 @@ import {
   flakyCheckout,
   longHistory,
   homeList,
+  replayCursor,
 } from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
 import { createBrowserClient, memoryStorage } from "./client.ts";
@@ -31,6 +32,7 @@ export function bootFake(): { client: Client; daemon: FakeDaemon } {
   const checkout = new ScenarioPlayer(daemon, flakyCheckout());
   const settings = new ScenarioPlayer(daemon, failingSubagent());
   checkout.autoplay(timer);
+  new ScenarioPlayer(daemon, replayCursor()).autoplay(timer);
   settings.autoplay(timer, 0.5);
   const client = createBrowserClient({
     deviceId: "web-fake-device",

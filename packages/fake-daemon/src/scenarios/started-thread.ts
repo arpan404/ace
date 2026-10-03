@@ -37,7 +37,10 @@ export function startedThread(
       provider: request.provider,
     },
     facts: [
-      rootAgent(request.provider, `/Users/dev/${request.workspaceId}`),
+      {
+        ...rootAgent(request.provider, `/Users/dev/${request.workspaceId}`),
+        ...(request.model ? { model: request.model } : {}),
+      },
       turn("root"),
       message("root", "ask", "user", text),
       message("root", "reading", "assistant", "Reading the project before making changes.", false),

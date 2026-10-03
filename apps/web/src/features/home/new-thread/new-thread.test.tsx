@@ -13,7 +13,7 @@ const listed = (made: ReturnType<typeof harness>) => {
   const view = made.daemon.snapshot({ kind: "threads" });
   return view?.kind === "threads" ? Object.values(view.threads) : [];
 };
-const prompt = () => screen.findByRole("textbox", { name: "What should the agent do?" });
+const prompt = () => screen.findByRole("combobox", { name: "Message" });
 
 test("⌘N, a project, a model and a message start a thread that then opens", async () => {
   const made = app();
@@ -31,9 +31,7 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
   ).toBeTruthy();
 
   const field = await prompt();
-  expect((screen.getByRole("button", { name: "Start thread" }) as HTMLButtonElement).disabled).toBe(
-    true,
-  );
+  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
   await userEvent.type(field, "Log every restart with its backoff delay{Enter}");
 
   // The daemon created it from the request, and the app opened it.

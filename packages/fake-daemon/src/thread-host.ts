@@ -15,6 +15,8 @@ export class ThreadHost {
   readonly view: ThreadView;
   /** Item id to creation sequence; the cursor that history pages are keyed by. */
   readonly creation = new Map<string, number>();
+  /** Messages sent with `delivery: "queue"` while the root agent was busy, oldest first. */
+  readonly queued: { key: string; text: string }[] = [];
   private counter = 0;
   constructor(thread: Thread) {
     this.state = createThreadState({

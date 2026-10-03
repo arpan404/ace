@@ -9,4 +9,5 @@ export { longHistory } from "./scenarios/long-history.ts";
 export { workbench } from "./scenarios/workbench.ts";
 export { homeList } from "./scenarios/home-list.ts";
 export type { AgedScenario } from "./scenarios/home-list.ts";
+export { replayCursor } from "./scenarios/replay-cursor.ts";
 export * as facts from "./scenarios/facts.ts";
