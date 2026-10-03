@@ -624,8 +624,11 @@
     "tools/recorder": {
       "name": "@ace/recorder",
       "dependencies": {
+        "@ace/adapter-cursor": "workspace:*",
         "@ace/adapter-opencode": "workspace:*",
+        "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
+        "@ace/handoff": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@ace/redaction": "workspace:*",
