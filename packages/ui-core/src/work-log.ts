@@ -40,6 +40,35 @@ function statusNote(call: ToolCall): string | undefined {
   }
 }
 
+/**
+ * A step's verb follows its status: "Running `git push`" while in flight, "Run `git push`" while
+ * it waits for approval or was declined (it hasn't happened), "Ran" once done.
+ */
+const inFlight: Record<string, { running: string; awaiting: string }> = {
+  Read: { running: "Reading", awaiting: "Read" },
+  Searched: { running: "Searching", awaiting: "Search" },
+  "Searched the web": { running: "Searching the web", awaiting: "Search the web" },
+  Fetched: { running: "Fetching", awaiting: "Fetch" },
+  Ran: { running: "Running", awaiting: "Run" },
+  Edited: { running: "Editing", awaiting: "Edit" },
+  Wrote: { running: "Writing", awaiting: "Write" },
+  Deleted: { running: "Deleting", awaiting: "Delete" },
+  Moved: { running: "Moving", awaiting: "Move" },
+  Called: { running: "Calling", awaiting: "Call" },
+  "Updated the plan": { running: "Updating the plan", awaiting: "Update the plan" },
+  "Asked a question": { running: "Asking a question", awaiting: "Ask a question" },
+  "Messaged a subagent": { running: "Messaging a subagent", awaiting: "Message a subagent" },
+};
+
+function verbFor(verb: string, status: ToolCall["status"]): string {
+  const forms = inFlight[verb];
+  if (!forms) return verb;
+  // Waiting for approval, or refused one: it never happened.
+  if (status === "awaiting_approval" || status === "declined") return forms.awaiting;
+  if (status === "pending" || status === "running") return forms.running;
+  return verb;
+}
+
 function callText(call: ToolCall): Omit<StepText, "settled" | "failed"> {
   const detail = call.detail;
   switch (detail.kind) {
@@ -128,6 +157,7 @@ export function describeStep(item: Item): StepText {
   const text = callText(call);
   return {
     ...text,
+    verb: verbFor(text.verb, call.status),
     note: statusNote(call) ?? text.note,
     settled: !unsettled.has(call.status),
     failed: call.status === "failed",

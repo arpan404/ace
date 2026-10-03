@@ -98,6 +98,25 @@ test("a full-text edit leaves its stat to a text diff instead of counting on the
   expect(step.added).toBeUndefined();
 });
 
+test("a step's verb follows its status: running, awaiting approval, declined, done", () => {
+  const push = { kind: "shell", command: "git push" } as const;
+  expect(describeStep(call(push, "running", 0))).toMatchObject({ verb: "Running", settled: false });
+  expect(describeStep(call(push, "pending", 0)).verb).toBe("Running");
+  expect(describeStep(call(push, "awaiting_approval", 0))).toMatchObject({
+    verb: "Run",
+    note: "Awaiting approval",
+  });
+  expect(describeStep(call(push, "declined", 0, 1))).toMatchObject({
+    verb: "Run",
+    note: "Declined",
+  });
+  expect(describeStep(call({ ...push, exitCode: 0 }, "succeeded", 0, 1)).verb).toBe("Ran");
+  expect(describeStep(call({ ...push, exitCode: 1 }, "failed", 0, 1)).verb).toBe("Ran");
+  expect(describeStep(call({ kind: "file.read", path: "a.ts" }, "running", 0)).verb).toBe(
+    "Reading",
+  );
+});
+
 test("a shell step notes its exit code, and a declined one says so instead", () => {
   const ran = describeStep(call({ kind: "shell", command: "ls", exitCode: 2 }, "succeeded", 0, 1));
   expect(ran).toMatchObject({ verb: "Ran", target: "ls", note: "exit 2" });
