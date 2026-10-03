@@ -203,14 +203,13 @@ const sized: Record<string, { width: number; height: number; setup: Setup }> = {
   "tablet-thread": { width: 1024, height: 768, setup: openThread("/t/thread-dedupe") },
   "tablet-panel": { width: 1024, height: 768, setup: rightTab("/t/thread-cold-start", /^Changes/) },
   "tablet-activity": { width: 1024, height: 768, setup: visit("/activity", "Activity") },
-  // Keyboard only: Tab from the skip link into the rail, the list, the composer and the panel.
+  // Keyboard only: Tab through the rail, the list, the composer and the panel tabs.
   "focus-rail": {
     width: 1440,
     height: 900,
     setup: async (page) => {
       await openThread("/t/thread-dedupe")(page);
-      await page.locator("body").click({ position: { x: 700, y: 400 } });
-      await page.keyboard.press("Tab");
+      await page.getByRole("navigation", { name: "Views" }).getByRole("link").first().focus();
       await page.keyboard.press("Tab");
     },
   },

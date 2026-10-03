@@ -57,7 +57,7 @@ function RailItem(props: { view: RailView; active: boolean; badge: number }) {
       to={view.to}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative flex w-full flex-col items-center gap-[3px] rounded-card pt-1.5 pb-[5px] text-muted-foreground outline-none hover:text-foreground",
+        "group relative flex w-full flex-col items-center gap-[3px] rounded-card pt-1.5 pb-[5px] text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground focus-visible:[&>span:first-child]:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_70%,transparent)]",
         active && "text-foreground",
       )}
     >

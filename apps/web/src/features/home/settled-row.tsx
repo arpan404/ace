@@ -7,7 +7,7 @@ import { ThreadMenu } from "./thread-menu.tsx";
 import { useThreadCard } from "./use-thread-card.ts";
 
 const row =
-  "flex h-[30px] w-full items-center gap-2 rounded-md px-[11px] text-sm text-subtle-foreground outline-none transition-colors duration-(--dur-1)";
+  "flex h-[30px] w-full items-center gap-2 rounded-md px-[11px] text-sm text-subtle-foreground outline-none transition-colors duration-(--dur-1) focus-visible:shadow-[inset_0_0_0_1.5px_color-mix(in_oklab,var(--ring)_60%,transparent)]";
 
 /** A compact settled row: title and age, Unsettle on hover. Opening it keeps it settled. */
 export function SettledRow(props: { threadId: string }) {
