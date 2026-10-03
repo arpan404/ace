@@ -11,3 +11,5 @@ export type { FilesRelayChannel } from "./relay.ts";
 export { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.ts";
 
 export { createBlobExport } from "./blob-export.ts";
+
+export { chunkFilesChannel } from "./chunk-channel.ts";

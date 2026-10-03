@@ -156,6 +156,12 @@ function builtins(): Definition[] {
   }));
 }
 export interface CommandService {
+  listDraft?(
+    draft: string,
+    context: import("./types.ts").LibraryContext,
+    query: string,
+    limit: number,
+  ): Promise<{ commands: PaletteCommand[]; diagnostics: CommandDiagnostic[] }>;
   list(
     threadId: string,
     query: string,

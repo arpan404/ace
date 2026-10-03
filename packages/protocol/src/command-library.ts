@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
-import { ThreadId } from "./ids.ts";
+import { ThreadId, WorkspaceId } from "./ids.ts";
 
 export const PaletteName = z
   .string()
@@ -76,11 +76,24 @@ export const CommandResolution = z.discriminatedUnion("ok", [
 ]);
 export type CommandResolution = z.infer<typeof CommandResolution>;
 const request = z.object({ requestId: z.string().min(1).max(128), threadId: ThreadId });
-export const CommandsList = request.extend({
-  type: z.literal("commands.list"),
-  query: z.string().max(256).default(""),
-  limit: z.number().int().min(1).max(100).default(50),
-});
+export const CommandsList = request
+  .omit({ threadId: true })
+  .extend({
+    threadId: ThreadId.optional(),
+    draft: z
+      .object({
+        draftId: z.string().min(1).max(128),
+        workspaceId: WorkspaceId,
+        provider: ProviderKind,
+        instanceId: z.string().min(1).max(128).optional(),
+      })
+      .optional(),
+    type: z.literal("commands.list"),
+    query: z.string().max(256).default(""),
+    limit: z.number().int().min(1).max(100).default(50),
+  })
+  .refine((value) => (value.threadId === undefined) !== (value.draft === undefined))
+  .meta({ "x-ace-constraint": "Exactly one of threadId or draft is required." });
 export const CommandsResolve = request.extend({
   type: z.literal("commands.resolve"),
   commandId: z.string().min(1).max(256),

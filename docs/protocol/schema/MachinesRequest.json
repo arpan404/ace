@@ -1,0 +1,62 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachinesRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operation": {
+      "oneOf": [
+        {
+          "properties": {
+            "after": {
+              "$ref": "https://ace.local/protocol/v1/HostId.json"
+            },
+            "limit": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "op": {
+              "const": "list",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "hostId": {
+              "$ref": "https://ace.local/protocol/v1/HostId.json"
+            },
+            "op": {
+              "const": "status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "hostId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "machines.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "operation"
+  ],
+  "type": "object"
+}

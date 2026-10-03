@@ -1,10 +1,10 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, test } from "vitest";
-import { ClientMessage } from "@ace/protocol";
+import { DeviceId, ClientMessage } from "@ace/protocol";
 import { setup, ready, memoryStorage, when } from "./test-support.ts";
 import { AccessClient, ticketCredential } from "./index.ts";
 
@@ -380,4 +380,59 @@ test("listener-phase service routing reads persisted automation changes and Deck
     ok: true,
     automations: [],
   });
+});
+
+test("a workspace draft lists slash commands without creating a thread and refuses another device", async () => {
+  const f = await setup();
+  cleanup = f.cleanup;
+  const { client } = f.make();
+  const { client: other } = f.make({ deviceId: DeviceId.parse("other") });
+  await ready(client);
+  await ready(other);
+  const before = f.daemon.store.listThreads().length;
+  const draft = await client.request({
+    type: "context.request",
+    operation: { op: "draft.create", workspaceId: f.thread.workspaceId },
+  });
+  if (draft.result.kind !== "draft") throw new Error("Expected draft");
+  const input = {
+    type: "commands.list" as const,
+    draft: {
+      draftId: draft.result.draftId,
+      workspaceId: f.thread.workspaceId,
+      provider: "codex" as const,
+    },
+  };
+  const library = f.daemon.commands;
+  if (!library) throw new Error("Command library unavailable");
+  expect(
+    await library.updateRuntime(f.thread.id, {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [{ name: "session-only", description: "Runtime fixture" }],
+    }),
+  ).toBe(true);
+  expect(
+    (await client.request({ type: "commands.list", threadId: f.thread.id })).commands,
+  ).toContainEqual(expect.objectContaining({ name: "session-only", scope: "runtime" }));
+  const listed = await client.request(input);
+  expect(listed.commands.length).toBeGreaterThan(0);
+  const generic = await client.request({
+    ...input,
+    draft: { ...input.draft, provider: "acp", instanceId: "local-agent-instance" },
+  });
+  expect(generic.commands.length).toBeGreaterThan(0);
+  expect(listed.commands.every((command) => command.scope !== "runtime")).toBe(true);
+  expect(f.daemon.store.listThreads()).toHaveLength(before);
+  await expect(other.request(input)).rejects.toMatchObject({ code: "daemon" });
+  const otherRoot = join(f.directory, "other-draft-root");
+  await mkdir(otherRoot);
+  const workspaceId = f.daemon.store.createWorkspace(otherRoot, "Other");
+  await expect(
+    client.request({ ...input, draft: { ...input.draft, workspaceId } }),
+  ).rejects.toMatchObject({ code: "daemon" });
+  await client.request({
+    type: "context.request",
+    operation: { op: "draft.release", draftId: draft.result.draftId },
+  });
+  await expect(client.request(input)).rejects.toMatchObject({ code: "daemon" });
 });

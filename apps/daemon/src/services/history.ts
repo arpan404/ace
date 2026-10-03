@@ -50,7 +50,7 @@ export function createHistorySession(context: SocketContext): SocketService {
             return true;
           }
           if (message.type === "history.continue" && !canReadThread(message.threadId)) {
-            fail("read_denied", "Thread is not readable");
+            fail("read_denied", "Thread is not readable", false, correlation);
             return true;
           }
           if (!options.history) {
@@ -61,10 +61,16 @@ export function createHistorySession(context: SocketContext): SocketService {
             fail("history_busy", "Too many history requests", false, correlation);
             return true;
           }
+          const readable = () =>
+            connected() &&
+            authorize(scope) &&
+            (message.type !== "history.continue" || canReadThread(message.threadId));
           const task = options.history
-            .handle(message, historyLifetime.signal)
+            .handle(message, historyLifetime.signal, (event) => {
+              if (readable()) send(event);
+            })
             .then((result) => {
-              if (connected() && authorize(scope)) send(result);
+              if (readable()) send(result);
             })
             .catch(() => {
               if (connected())

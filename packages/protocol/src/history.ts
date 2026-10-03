@@ -64,17 +64,20 @@ export const HistoryListResponse = z.object({
 });
 export const HistoryImportRequest = z.object({
   type: z.literal("history.import"),
+  requestId: z.string().min(1).max(256).optional(),
   sourceId: z.string().min(1),
   workspaceId: WorkspaceId,
 });
 export const HistoryImportResponse = z.discriminatedUnion("status", [
   z.object({
     type: z.literal("history.import"),
+    requestId: z.string().min(1).max(256).optional(),
     status: z.literal("imported"),
     threadId: ThreadId,
   }),
   z.object({
     type: z.literal("history.import"),
+    requestId: z.string().min(1).max(256).optional(),
     status: z.literal("unsupported"),
     reason: z.string(),
   }),
@@ -94,6 +97,7 @@ export const HistoryScanResponse = z.object({
 });
 export const HistoryContinueRequest = z.object({
   type: z.literal("history.continue"),
+  requestId: z.string().min(1).max(256).optional(),
   threadId: ThreadId,
   mode: z.enum(["resume", "fork"]),
   input: z.array(ContentPart).max(64),
@@ -102,6 +106,7 @@ export const HistoryContinueRequest = z.object({
 export const HistoryContinueResponse = z.discriminatedUnion("status", [
   z.object({
     type: z.literal("history.continue"),
+    requestId: z.string().min(1).max(256).optional(),
     status: z.literal("continued"),
     threadId: ThreadId,
     instanceId: z.string(),
@@ -109,7 +114,26 @@ export const HistoryContinueResponse = z.discriminatedUnion("status", [
   }),
   z.object({
     type: z.literal("history.continue"),
+    requestId: z.string().min(1).max(256).optional(),
     status: z.literal("unsupported"),
     reason: z.string(),
   }),
 ]);
+
+export const HistoryOperationProgress = z.object({
+  type: z.literal("history.operation.progress"),
+  requestId: z.string().min(1).max(256),
+  operation: z.enum(["history.import", "history.continue"]),
+  phase: z.enum([
+    "preparing",
+    "reading",
+    "publishing",
+    "opening",
+    "sending",
+    "completed",
+    "unsupported",
+    "failed",
+  ]),
+  events: z.number().int().nonnegative().optional(),
+});
+export type HistoryOperationProgress = z.infer<typeof HistoryOperationProgress>;

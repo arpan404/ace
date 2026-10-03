@@ -67,6 +67,11 @@ export class FakeContextWire {
     for (const upload of this.uploads.values())
       if (upload.scope === draftId) upload.scope = threadId;
   }
+  draftWorkspace(device: string, draftId: string): string {
+    const draft = this.drafts.get(draftId);
+    if (!draft || draft.device !== device) throw new Error("draft_unavailable");
+    return draft.workspaceId;
+  }
   validateDraft(device: string, draftId: string, workspaceId: string, threadId?: string): void {
     const draft = this.drafts.get(draftId);
     if (

@@ -1,4 +1,10 @@
 import {
+  downloadFile,
+  uploadFile,
+  type FileDownloadInput,
+  type FileUploadInput,
+} from "@ace/client";
+import {
   ClientError,
   isOneWayMessage,
   Notifications,
@@ -249,6 +255,16 @@ export class RemoteClient implements ClientApi {
     if (this.closed || this.current !== "ready") throw new ClientError("offline");
     this.post({ t: "send", message });
   }
+  downloadFile(input: FileDownloadInput, options: RequestOptions = {}): AsyncGenerator<Uint8Array> {
+    return downloadFile(this, input, options);
+  }
+  uploadFile(
+    input: FileUploadInput,
+    source: AsyncIterable<Uint8Array>,
+    options: RequestOptions = {},
+  ): Promise<unknown> {
+    return uploadFile(this, input, source, options);
+  }
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },
     options: RequestOptions = {},
@@ -450,5 +466,7 @@ export class RemoteClient implements ClientApi {
   }
 }
 
-const timeout = (options: RequestOptions) =>
-  options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs };
+const timeout = (options: RequestOptions) => ({
+  ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+  ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
+});

@@ -43,6 +43,7 @@ export interface ServerOptions {
   cursorAuth?: CursorAuthService;
   commands?: CommandService;
   files?: FilesService;
+  threadFiles?: import("./files-workspaces.ts").FilesWorkspaces;
   relay?: { url: string; keys: KeyPair };
   settings?: SettingsService;
   preview?: DaemonPreviewOptions;
@@ -77,6 +78,7 @@ export interface ServerOptions {
   log?: (error: unknown) => void;
   health?: () => Promise<DiagnosticsHealth>;
   context?: {
+    draftWorkspace?(device: string, draftId: string): Promise<string>;
     handle(device: string, request: ContextRequest, access?: () => boolean): Promise<ContextResult>;
   };
   /** Local-token clients can read all threads by default. */

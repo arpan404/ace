@@ -40,6 +40,7 @@ export function createAgentRegistrySession(context: SocketContext): SocketServic
       if (!message.type.startsWith("registry.")) return false;
       if (
         ![
+          "registry.bind",
           "registry.list",
           "registry.refresh",
           "registry.install-plan",

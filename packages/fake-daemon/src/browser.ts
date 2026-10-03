@@ -36,6 +36,7 @@ export type ForwardedInput =
   | { kind: "key"; event: "keyDown"; key: string; text?: string };
 
 interface Entry {
+  generation: number;
   view?: BrowserView;
   frame?: ScreenFrame;
   servers: PreviewServer[];
@@ -81,6 +82,9 @@ export class FakeBrowser {
     if (this.watchers.size >= 64) throw new Error("subscription_limit");
     this.watchers.add(listener);
     return () => this.watchers.delete(listener);
+  }
+  generation(threadId: string): number {
+    return this.entries.get(threadId)?.generation ?? 0;
   }
   view(threadId: string): BrowserView | undefined {
     return this.entries.get(threadId)?.view;
@@ -135,6 +139,7 @@ export class FakeBrowser {
   /** Scripting: an agent opens the browser on a page and starts typing into it. */
   drive(threadId: string, options: { url: string; typed?: string }): void {
     const entry = this.entry(threadId);
+    if (!entry.view || entry.view.closed) entry.generation++;
     entry.view = { threadId, controller: "agent", url: options.url, closed: false };
     this.paint(entry, options.typed ?? "");
   }
@@ -182,7 +187,7 @@ export class FakeBrowser {
     let entry = this.entries.get(threadId);
     if (!entry) {
       if (this.entries.size >= 64) throw new Error("browser_limit");
-      entry = { servers: [], typed: "", viewport: { width: 760, height: 900 } };
+      entry = { generation: 0, servers: [], typed: "", viewport: { width: 760, height: 900 } };
       this.entries.set(threadId, entry);
     }
     return entry;
