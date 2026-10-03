@@ -1,5 +1,9 @@
 # OpenCode: provider research for ace
 
+This file records v1.18.33. For CLI major 2, use [OpenCode v2 research](opencode-v2.md).
+Its API, SDK package names, launch contract and status events differ; the v1
+recommendation below does not apply to the installed v2.0.22 CLI.
+
 Researched 2026-10-01/02. Versions inspected:
 
 - Source: `anomalyco/opencode` (the repo formerly at `sst/opencode`; `gh repo view sst/opencode` resolves to `anomalyco/opencode`, default branch `dev`). Checked out at tag **v1.18.33** = commit `51ef4be1d3c122f18fefb510dca8d778571f4f18` (2026-09-28). This matches the local install.
