@@ -18,6 +18,8 @@ export const ServiceEnvironment = z.object({
   ACE_LISTEN: z.enum(["local", "lan", "tailscale"]).optional(),
   ACE_LOG_LEVEL: z.enum(["debug", "info", "warn", "error", "silent"]).optional(),
   ACE_ADVERTISE_HOST: text.optional(),
+  /** Validated by the daemon's own config (comma-separated http(s) origins). */
+  ACE_WEB_ORIGINS: text.optional(),
 });
 export const ServiceConfig = z.object({
   environment: ServiceEnvironment.default({}),

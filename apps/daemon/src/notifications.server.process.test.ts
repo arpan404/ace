@@ -6,7 +6,7 @@ import { DeviceId, Command, InteractionId, AgentId, type Notification } from "@a
 import { NotificationWorker, attachNotifications, createNotificationRouter } from "@ace/notify";
 import { afterEach, expect, it } from "vitest";
 import { createDaemonNotifications } from "./notifications.ts";
-import { fixture } from "./socket-test-support.ts";
+import { fixture, token } from "./socket-test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -255,4 +255,22 @@ it("refuses daemon notification transport for an operate-only paired device", as
     await notifications.close();
     await f.close();
   }
+});
+it("a dedicated channel never receives the device's notifications; its main socket does", async () => {
+  const { f, client, desktop, attached } = await setup();
+  const devices = await f.open();
+  devices.send({ type: "hello", channel: "devices", protocolVersion: 1, deviceId: desktop, token });
+  expect(await devices.next()).toMatchObject({ type: "welcome" });
+
+  f.store.appendEvents(f.thread.id, [
+    { type: "thread.updated", status: { state: "working", agents: 1 } },
+    { type: "thread.updated", status: { state: "done" } },
+  ]);
+  await attached.tick();
+  expect(await client.next()).toMatchObject({
+    type: "notification",
+    notification: { threadId: f.thread.id, status: "done" },
+  });
+  devices.send({ type: "ping" });
+  expect(await devices.next()).toEqual({ type: "pong" });
 });

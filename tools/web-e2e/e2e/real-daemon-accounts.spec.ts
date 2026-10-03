@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
-import { daemonPort, daemonTokenPath, seededTitle } from "../src/real-daemon-config.ts";
+import {
+  daemonPort,
+  daemonTokenPath,
+  pairedDeviceName,
+  seededTitle,
+} from "../src/real-daemon-config.ts";
 
 /** Opens the app against the real e2e daemon (scripted providers, no CLI runs). */
 async function connect(page: Page, path: string) {
@@ -28,12 +33,18 @@ test("the run-out policy is stored by the daemon and read back after a reload", 
   await expect(manual).toHaveAttribute("aria-checked", "true");
 });
 
-test("paired devices come from the daemon's access routes, called from the app's own origin", async ({
+test("the web app on another origin lists and revokes paired devices through the daemon access routes", async ({
   page,
 }) => {
   await connect(page, "/settings/remote");
   const devices = page.getByRole("region", { name: "Paired devices" });
 
+  // The app (127.0.0.1:5191) calls the daemon (127.0.0.1:4391) cross-origin; the daemon allows it.
+  await expect(devices.getByText(pairedDeviceName)).toBeVisible();
+  await devices.getByRole("button", { name: `Revoke ${pairedDeviceName}` }).click();
+  const revoke = page.getByRole("dialog", { name: `Revoke ${pairedDeviceName}?` });
+  await revoke.getByRole("button", { name: "Revoke" }).click();
+  await expect(revoke).toBeHidden();
   await expect(
     devices.getByText("No phones or browsers are paired with this daemon."),
   ).toBeVisible();

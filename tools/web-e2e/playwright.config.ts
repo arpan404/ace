@@ -1,8 +1,7 @@
 import { defineConfig } from "@playwright/test";
-import { daemonHome } from "./src/real-daemon-config.ts";
+import { daemonHome, webPort as realPort } from "./src/real-daemon-config.ts";
 
 const fakePort = 5190;
-const realPort = 5191;
 const web = new URL("../../apps/web", import.meta.url).pathname;
 
 /**

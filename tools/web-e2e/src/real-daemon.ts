@@ -29,6 +29,8 @@ import {
   deleteTitle,
   queueTitle,
   limitTitle,
+  webOrigin,
+  pairedDeviceName,
 } from "./real-daemon-config.ts";
 
 /**
@@ -195,7 +197,13 @@ for (const provider of ["claude", "codex"] as const)
   });
 
 const daemon = await startDaemon({
-  config: { ...readConfig({}), dataDir: daemonHome, port: daemonPort, logLevel: "warn" },
+  config: {
+    ...readConfig({}),
+    dataDir: daemonHome,
+    port: daemonPort,
+    logLevel: "warn",
+    webOrigins: [webOrigin],
+  },
   engine: { registry },
 });
 // Context and files resolve only canonical roots (macOS's tmpdir is behind a symlink).
@@ -218,6 +226,7 @@ await seedThread(daemon.url, daemonToken, workspace, deleteTitle, "Try something
 await seedThread(daemon.url, daemonToken, workspace, previewTitle, "Show me the page.");
 await seedThread(daemon.url, daemonToken, workspace, queueTitle, "Warm up the queue.");
 await seedThread(daemon.url, daemonToken, workspace, limitTitle, "Warm up before the limit.");
+daemon.store.devices.create(pairedDeviceName, ["read", "operate"], Date.now());
 process.stdout.write(`e2e daemon ready on ${daemon.url}\n`);
 
 const stop = () => void daemon.close().finally(() => process.exit(0));

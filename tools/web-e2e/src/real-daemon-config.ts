@@ -4,6 +4,11 @@ import { join } from "node:path";
 /** Shared by the launcher (src/real-daemon.ts) and the smoke test. */
 /** `ACE_E2E_DAEMON_PORT` and `ACE_E2E_DAEMON_HOME` let two checkouts run their e2e side by side. */
 export const daemonPort = Number(process.env.ACE_E2E_DAEMON_PORT ?? 4391);
+/** The real-daemon project's Vite server; the daemon allows its origin on the access routes. */
+export const webPort = 5191;
+export const webOrigin = `http://127.0.0.1:${webPort}`;
+/** A phone paired before the run, so the remote settings journey can list and revoke it. */
+export const pairedDeviceName = "E2E phone";
 export const daemonHome = join(tmpdir(), process.env.ACE_E2E_DAEMON_HOME ?? "ace-web-e2e-daemon");
 export const daemonTokenPath = join(daemonHome, "daemon-token");
 export const workspaceName = "e2e-project";
