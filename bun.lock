@@ -80,6 +80,7 @@
       "dependencies": {
         "@ace/client": "workspace:*",
         "@ace/client-react": "workspace:*",
+        "@ace/client-worker": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/ui-core": "workspace:*",
         "@base-ui/react": "^1.8.0",
@@ -255,6 +256,17 @@
       },
       "peerDependencies": {
         "react": "^19.2.0",
+      },
+    },
+    "packages/client-worker": {
+      "name": "@ace/client-worker",
+      "dependencies": {
+        "@ace/client": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/fake-daemon": "workspace:*",
       },
     },
     "packages/commands": {
@@ -617,6 +629,8 @@
     "@ace/client": ["@ace/client@workspace:packages/client"],
 
     "@ace/client-react": ["@ace/client-react@workspace:packages/client-react"],
+
+    "@ace/client-worker": ["@ace/client-worker@workspace:packages/client-worker"],
 
     "@ace/commands": ["@ace/commands@workspace:packages/commands"],
 

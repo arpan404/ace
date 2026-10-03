@@ -17,7 +17,7 @@
     "check": "bun run fmt:check && bun run docs:protocol --check && bun run lint && bun run check:size && bun run check:deps && bun run typecheck && bun run test",
     "record": "bun run --filter @ace/recorder record",
     "check:size": "node scripts/check-file-size.ts",
-    "check:deps": "depcruise apps/web/src packages/client/src packages/client-react/src packages/fake-daemon/src packages/ui-core/src --config .dependency-cruiser.cjs --output-type err",
+    "check:deps": "depcruise apps/web/src packages/client/src packages/client-worker/src packages/client-react/src packages/fake-daemon/src packages/ui-core/src --config .dependency-cruiser.cjs --output-type err",
     "web:dev": "bun run --filter @ace/web dev",
     "web:dev:fake": "bun run --filter @ace/web dev:fake",
     "web:build": "bun run --filter @ace/web build",

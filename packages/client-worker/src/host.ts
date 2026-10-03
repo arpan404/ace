@@ -1,0 +1,390 @@
+import {
+  ClientError,
+  type Client,
+  type Scheduler,
+  type SidebarExport,
+  type ThreadExport,
+} from "@ace/client";
+import type { Item } from "@ace/protocol";
+import { sidebarPatches, threadPatches, type Patch } from "./patches.ts";
+import { callArgs, iterateArgs } from "./calls.ts";
+import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire.ts";
+
+/*
+ * The worker side (ADR 0050). One `Client` per daemon target is shared by every tab attached
+ * to this worker: one socket, one decode, one projection and one intents outbox. Each tab holds
+ * leases on stores; the host forwards the keys those stores emit, coalesced per frame, and
+ * nothing at all to a hidden tab until it is visible again.
+ */
+
+export interface HostOptions {
+  /** Parse a tab's target and name the client for it; tabs naming the same key share it. */
+  target(config: unknown): { key: string; create(): Client };
+  scheduler: Scheduler;
+  now(): number;
+  /** Coalescing window for forwarded changes. One display frame by default. */
+  frameMs?: number;
+  /** How long a client outlives its last tab, so a reload reattaches to a warm connection. */
+  lingerMs?: number;
+  /** A tab silent this long is gone (it pings meanwhile); its leases are released. */
+  silenceMs?: number;
+}
+
+interface Entry {
+  key: string;
+  client: Client;
+  tabs: Set<Tab>;
+  started: Promise<void>;
+  unwatch: () => void;
+  linger: (() => void) | undefined;
+}
+interface Held {
+  scope: Scope;
+  release(): void;
+  unobserve(): void;
+  read(keys: Iterable<string>): Patch[];
+  copy(): ThreadExport | SidebarExport;
+  dirty: Set<string> | "all" | undefined;
+  sent: Map<string, Item>;
+}
+
+const errorShape = (error: unknown) =>
+  error instanceof ClientError
+    ? { code: error.code, message: error.message }
+    : { code: "protocol", message: error instanceof Error ? error.message : "Request failed" };
+
+export class ClientHost {
+  private options: HostOptions;
+  private entries = new Map<string, Entry>();
+  private tabs = new Set<Tab>();
+  private sweep: (() => void) | undefined;
+  constructor(options: HostOptions) {
+    this.options = options;
+  }
+  /** Serve one tab over its port until it says goodbye or falls silent. */
+  attach(port: PortLike): void {
+    const tab = new Tab(this, port, this.options);
+    this.tabs.add(tab);
+    this.scheduleSweep();
+  }
+  get clients(): number {
+    return this.entries.size;
+  }
+  /** @internal */
+  join(tab: Tab, config: unknown): Entry {
+    const target = this.options.target(config);
+    let entry = this.entries.get(target.key);
+    if (!entry) {
+      const client = target.create();
+      const created: Entry = {
+        key: target.key,
+        client,
+        tabs: new Set(),
+        started: client.start(),
+        unwatch: () => {},
+        linger: undefined,
+      };
+      const selection = client.connectionState();
+      created.unwatch = selection.subscribe(() => {
+        for (const member of created.tabs) member.connection();
+      });
+      this.entries.set(target.key, created);
+      entry = created;
+    }
+    entry.linger?.();
+    entry.linger = undefined;
+    entry.tabs.add(tab);
+    return entry;
+  }
+  /** @internal */
+  forget(tab: Tab): void {
+    this.tabs.delete(tab);
+  }
+  /** @internal */
+  part(tab: Tab, entry: Entry): void {
+    entry.tabs.delete(tab);
+    if (entry.tabs.size) return;
+    entry.linger = this.options.scheduler.set(this.options.lingerMs ?? 10_000, () => {
+      if (entry.tabs.size) return;
+      this.entries.delete(entry.key);
+      entry.unwatch();
+      void entry.client.close();
+    });
+  }
+  private scheduleSweep(): void {
+    if (this.sweep) return;
+    const silence = this.options.silenceMs ?? 30_000;
+    this.sweep = this.options.scheduler.set(silence / 2, () => {
+      this.sweep = undefined;
+      const cutoff = this.options.now() - silence;
+      // Deleting the current entry while iterating a Set is safe.
+      for (const tab of this.tabs) if (tab.lastSeen < cutoff) tab.drop();
+      if (this.tabs.size) this.scheduleSweep();
+    });
+  }
+}
+
+class Tab {
+  lastSeen: number;
+  private host: ClientHost;
+  private port: PortLike;
+  private options: HostOptions;
+  private entry: Entry | undefined;
+  private leases = new Map<number, Held>();
+  private calls = new Map<number, AbortController>();
+  private iterators = new Map<number, AsyncGenerator<unknown>>();
+  private intents = new Map<string, () => void>();
+  private visible = true;
+  private dropped = false;
+  private flushing: (() => void) | undefined;
+  private listener = (event: { data: unknown }) => this.receive(event.data);
+  constructor(host: ClientHost, port: PortLike, options: HostOptions) {
+    this.host = host;
+    this.port = port;
+    this.options = options;
+    this.lastSeen = options.now();
+    port.addEventListener("message", this.listener);
+    port.start?.();
+  }
+  private post(message: unknown): void {
+    if (this.dropped) return;
+    try {
+      // A MessagePort has no target origin: it reaches exactly the other end.
+      // oxlint-disable-next-line unicorn/require-post-message-target-origin
+      this.port.postMessage(message);
+    } catch {
+      this.drop();
+    }
+  }
+  connection(): void {
+    const client = this.entry?.client;
+    if (!client) return;
+    this.post({
+      t: "connection",
+      state: client.state,
+      ...(client.error ? { error: errorShape(client.error) } : {}),
+    });
+  }
+  private receive(data: unknown): void {
+    this.lastSeen = this.options.now();
+    const parsed = TabMessage.safeParse(data);
+    if (!parsed.success) return;
+    const message = parsed.data;
+    if (message.t === "connect") return this.connect(message.config);
+    if (message.t === "ping") return;
+    if (message.t === "bye") return this.drop();
+    if (message.t === "visible") {
+      this.visible = message.visible;
+      if (message.visible) this.schedule();
+      return;
+    }
+    const client = this.entry?.client;
+    if (!client) {
+      if (message.t === "call" || message.t === "iterate" || message.t === "next")
+        this.post({
+          t: "failed",
+          call: message.call,
+          error: errorShape(new ClientError("offline")),
+        });
+      return;
+    }
+    switch (message.t) {
+      case "lease":
+        return this.lease(client, message.lease, message.scope);
+      case "release":
+        return this.release(message.lease);
+      case "call":
+        return void this.call(client, message.call, message.method, message.args);
+      case "iterate":
+        return this.iterate(client, message.call, message.method, message.args);
+      case "next":
+        return void this.next(message.call);
+      case "return":
+        return void this.stop(message.call);
+      case "abort":
+        return this.calls.get(message.call)?.abort();
+      case "watchIntent":
+        return this.watch(client, message.id);
+      case "unwatchIntent":
+        this.intents.get(message.id)?.();
+        this.intents.delete(message.id);
+        return;
+    }
+  }
+  private connect(config: unknown): void {
+    let entry: Entry;
+    try {
+      entry = this.host.join(this, config);
+    } catch (error) {
+      this.post({ t: "attached", error: errorShape(error) });
+      return;
+    }
+    if (this.entry && this.entry !== entry) {
+      this.detach();
+      this.host.part(this, this.entry);
+    }
+    this.entry = entry;
+    entry.started.then(
+      () => this.post({ t: "attached" }),
+      (error: unknown) => this.post({ t: "attached", error: errorShape(error) }),
+    );
+    this.connection();
+  }
+  private lease(client: Client, lease: number, scope: Scope): void {
+    if (this.leases.has(lease)) return;
+    let held: Held;
+    try {
+      if (scope.kind === "thread") {
+        const subscription = client.thread(scope.threadId);
+        const store = subscription.store;
+        held = {
+          scope,
+          release: subscription.release,
+          unobserve: () => {},
+          read: (keys) => threadPatches(store, keys, held.sent),
+          copy: () => store.export(),
+          dirty: "all",
+          sent: new Map(),
+        };
+        held.unobserve = store.observe((keys) => this.dirty(held, keys));
+      } else {
+        const subscription = client.threads();
+        const store = subscription.store;
+        held = {
+          scope,
+          release: subscription.release,
+          unobserve: () => {},
+          read: (keys) => sidebarPatches(store, keys),
+          copy: () => store.export(),
+          dirty: "all",
+          sent: new Map(),
+        };
+        held.unobserve = store.observe((keys) => this.dirty(held, keys));
+      }
+    } catch (error) {
+      // A lease the client refuses (limits) shows as the store's error in the tab.
+      const copy = { error: errorShape(error), view: undefined, truncated: [], ids: [] };
+      this.post({ t: "changes", leases: [{ lease, reset: copy }] });
+      return;
+    }
+    this.leases.set(lease, held);
+    this.schedule();
+  }
+  private release(lease: number): void {
+    const held = this.leases.get(lease);
+    if (!held) return;
+    this.leases.delete(lease);
+    held.unobserve();
+    held.release();
+  }
+  private dirty(held: Held, keys: ReadonlySet<string> | "all"): void {
+    if (keys === "all" || held.dirty === "all") held.dirty = "all";
+    else if (held.dirty) for (const key of keys) held.dirty.add(key);
+    else held.dirty = new Set(keys);
+    this.schedule();
+  }
+  private schedule(): void {
+    if (this.flushing || !this.visible) return;
+    this.flushing = this.options.scheduler.set(this.options.frameMs ?? 16, () => {
+      this.flushing = undefined;
+      this.flush();
+    });
+  }
+  private flush(): void {
+    if (!this.visible) return;
+    const leases: LeaseChanges[] = [];
+    for (const [lease, held] of this.leases) {
+      const dirty = held.dirty;
+      if (!dirty) continue;
+      held.dirty = undefined;
+      if (dirty === "all") {
+        const copy = held.copy();
+        held.sent.clear();
+        if ("truncated" in copy)
+          for (const id of copy.view?.itemOrder ?? []) {
+            const item = copy.view?.items[id];
+            if (item) held.sent.set(id, item);
+          }
+        leases.push({ lease, reset: copy });
+      } else leases.push({ lease, patches: held.read(dirty) });
+    }
+    if (leases.length) this.post({ t: "changes", leases });
+  }
+  private watch(client: Client, id: string): void {
+    if (this.intents.has(id)) return;
+    const selection = client.intent(id);
+    const send = () => {
+      const intent = selection.getSnapshot();
+      this.post(intent ? { t: "intent", id, intent } : { t: "intent", id });
+    };
+    this.intents.set(id, selection.subscribe(send));
+    send();
+  }
+  private async call(client: Client, call: number, method: string, args: unknown[]) {
+    const controller = new AbortController();
+    this.calls.set(call, controller);
+    try {
+      const value = await callArgs(client, method, args, controller.signal);
+      this.post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
+    } catch (error) {
+      this.post({ t: "failed", call, error: errorShape(error) });
+    } finally {
+      this.calls.delete(call);
+    }
+  }
+  private iterate(client: Client, call: number, method: string, args: unknown[]): void {
+    const controller = new AbortController();
+    try {
+      this.iterators.set(call, iterateArgs(client, method, args, controller.signal));
+      this.calls.set(call, controller);
+      void this.next(call);
+    } catch (error) {
+      this.post({ t: "failed", call, error: errorShape(error) });
+    }
+  }
+  private async next(call: number): Promise<void> {
+    const iterator = this.iterators.get(call);
+    if (!iterator) return;
+    try {
+      const step = await iterator.next();
+      if (step.done) this.finish(call);
+      this.post(
+        step.done
+          ? { t: "yield", call, done: true }
+          : { t: "yield", call, done: false, value: step.value },
+      );
+    } catch (error) {
+      this.finish(call);
+      this.post({ t: "failed", call, error: errorShape(error) });
+    }
+  }
+  private async stop(call: number): Promise<void> {
+    const iterator = this.iterators.get(call);
+    this.calls.get(call)?.abort();
+    this.finish(call);
+    await iterator?.return(undefined).catch(() => {});
+  }
+  private finish(call: number): void {
+    this.iterators.delete(call);
+    this.calls.delete(call);
+  }
+  private detach(): void {
+    for (const lease of this.leases.keys()) this.release(lease);
+    for (const stop of this.intents.values()) stop();
+    this.intents.clear();
+    for (const controller of this.calls.values()) controller.abort();
+    for (const call of this.iterators.keys()) void this.stop(call);
+    this.flushing?.();
+    this.flushing = undefined;
+  }
+  drop(): void {
+    if (this.dropped) return;
+    this.dropped = true;
+    this.detach();
+    this.port.removeEventListener("message", this.listener);
+    this.port.close?.();
+    if (this.entry) this.host.part(this, this.entry);
+    this.host.forget(this);
+    this.entry = undefined;
+  }
+}
