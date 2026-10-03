@@ -85,7 +85,8 @@ export function AppHeader(
           {props.title}
         </h1>
         {props.subtitle && (
-          <span className="hidden shrink-0 truncate text-base font-normal text-muted-foreground md:inline">
+          // The title keeps the room: a long subtitle (a Deck lane's branch) truncates first.
+          <span className="hidden min-w-0 shrink-[3] truncate text-base font-normal text-muted-foreground md:inline">
             {props.subtitle}
           </span>
         )}

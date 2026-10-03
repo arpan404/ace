@@ -14,6 +14,8 @@ export * from "./deck.ts";
 export * from "./devices.ts";
 export * from "./deck-view.ts";
 export * from "./deck-gate.ts";
+export * from "./deck-agents.ts";
+export * from "./deck-start.ts";
 export * from "./diff.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";

@@ -115,6 +115,36 @@ export class Recovery {
     if (this.repo.requireState(id).queueSources.engine !== count)
       this.repo.apply(id, [{ type: "queue.changed", source: "engine", count }], this.clock.now());
   }
+  /** Permanent host subtree stop discards continuation and fences pending resumes.
+   * Ordinary interruption/pause retains these records. */
+  discard(id: ThreadId): void {
+    this.repo.store.atomic(() => {
+      const queue = this.repo.queue.get(id);
+      for (const intent of this.repo.pending.headers(id))
+        if (
+          ["thread.resume", "queue.resume", "thread.limit"].includes(intent.kind) &&
+          ["pending", "queued", "running"].includes(intent.status)
+        )
+          this.repo.mark(intent, "failed", "Cancelled before delivery");
+      this.repo.queue.set(
+        id,
+        {
+          continuation: null,
+          trigger: null,
+          paused: false,
+          reason: null,
+          limited: false,
+          resetAt: null,
+          resumeAt: null,
+          timerAction: null,
+          holdToken: queue.holdToken + 1,
+        },
+        this.clock.now(),
+      );
+      this.sync(id);
+    });
+    this.schedule();
+  }
   capture(id: ThreadId): void {
     const text = lostWork(
       this.repo.requireState(id),

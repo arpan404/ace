@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeckOwnership.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "deckId": {
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "laneId": {
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "role": {
+      "enum": [
+        "root",
+        "planner",
+        "worker",
+        "reviewer",
+        "integrator",
+        "delegate"
+      ],
+      "type": "string"
+    },
+    "runId": {
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "deckId",
+    "runId",
+    "workspaceId",
+    "role"
+  ],
+  "type": "object"
+}

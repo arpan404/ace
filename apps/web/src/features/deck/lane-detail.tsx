@@ -1,15 +1,18 @@
-import { useSidebarThread } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
+import { useSidebarThread } from "@ace/client-react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { StatusPill } from "@/components/status-pill.tsx";
+import { useNow } from "@/lib/time.ts";
 import {
   type Tone,
   cardStatus,
+  formatAgo,
   type CardTone,
   type DeckCard,
   type DeckRun,
   type LaneRole,
 } from "@ace/ui-core";
+import { AgentList } from "./agent-list.tsx";
 
 const pillTone: Record<CardTone, Tone> = {
   idle: "idle",
@@ -19,7 +22,10 @@ const pillTone: Record<CardTone, Tone> = {
   done: "done",
 };
 
-/** A card's lane: worker and adversarial reviewer, then its review rounds so far. */
+/**
+ * A card's lane: worker and adversarial reviewer, its review rounds so far, then every agent the
+ * deck delegated for it (sub-agents included), each with a way into its thread.
+ */
 export function LaneDetail(props: { card: DeckCard; run: DeckRun }) {
   const { card } = props;
   const status = cardStatus(card, props.run);
@@ -30,9 +36,12 @@ export function LaneDetail(props: { card: DeckCard; run: DeckRun }) {
       className="fx-rise-in mt-[26px] rounded-lg px-5 py-[18px] shadow-[inset_0_0_0_1px_var(--border)]"
     >
       <div className="flex items-center gap-2.5">
-        <h2 className="min-w-0 flex-1 text-md font-medium">{card.title}</h2>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-md font-medium">{card.title}</h2>
+          <CardTimes card={card} />
+        </div>
         <StatusPill tone={lane ? pillTone[status.tone] : "idle"} label={status.label} />
-        {lane && <OpenThread agentId={lane.agentId} />}
+        {lane?.threadId && <OpenThread threadId={lane.threadId} />}
       </div>
       {lane ? (
         <>
@@ -53,6 +62,14 @@ export function LaneDetail(props: { card: DeckCard; run: DeckRun }) {
               ))}
             </ol>
           )}
+          {card.agents.length > 0 && (
+            <div className="mt-2">
+              <h3 className="text-xs font-medium tracking-[0.01em] text-subtle-foreground">
+                Agents
+              </h3>
+              <AgentList label={`Agents on ${card.title}`} agents={card.agents} />
+            </div>
+          )}
         </>
       ) : (
         <p className="mt-2 text-ui text-muted-foreground">{card.note}</p>
@@ -61,14 +78,29 @@ export function LaneDetail(props: { card: DeckCard; run: DeckRun }) {
   );
 }
 
-/** A lane's agent runs as a delegated thread on this daemon when the daemon lists one. */
-function OpenThread(props: { agentId: string }) {
-  const thread = useSidebarThread(props.agentId);
+/** "Started 12m ago · updated 1m ago", from the card's agent threads. */
+function CardTimes(props: { card: DeckCard }) {
+  const now = useNow();
+  const { startedAt, updatedAt } = props.card;
+  if (startedAt === undefined) return null;
+  return (
+    <p className="mt-0.5 text-sm text-subtle-foreground tabular-nums">
+      Started {formatAgo(startedAt, now)}
+      {updatedAt !== undefined && updatedAt > startedAt && (
+        <> · updated {formatAgo(updatedAt, now)}</>
+      )}
+    </p>
+  );
+}
+
+/** The lane's current thread, once this client lists it. */
+function OpenThread(props: { threadId: string }) {
+  const thread = useSidebarThread(props.threadId);
   if (!thread) return null;
   return (
     <Link
       to="/t/$threadId"
-      params={{ threadId: props.agentId }}
+      params={{ threadId: props.threadId }}
       className={buttonVariants({ variant: "ghost", size: "sm" })}
     >
       Open thread

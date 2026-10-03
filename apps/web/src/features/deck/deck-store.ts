@@ -1,17 +1,16 @@
-import type { ClientApi } from "@ace/client";
+import { ConductorClient, type ClientApi, type ConductorWatch } from "@ace/client";
 import {
   ConductorCommandPayload,
   type ConductorRunView,
   type ConductorSummary,
-  type ServerMessage,
 } from "@ace/protocol";
-import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
+import { daemonErrorCode, describeDaemonError, refusalMessage } from "@/lib/daemon-command.ts";
 
 /*
- * The daemon's conductor runs for one client (ADR 0017, 0057): `conductor.request` lists them
- * and reads each run's view; runs that can still move are subscribed, so `conductor.changed`
- * keeps them live. Commands are durable `conductor.*` commands. A reconnect starts over, since
- * subscriptions belong to the socket.
+ * The daemon's conductor runs for one client (ADR 0060), through `ConductorClient`: the list
+ * once per connection, a push watch (`conductor.changed`) on every run that can still move, and
+ * one read of each finished run. Nothing polls: a watch reacquires its run after a reconnect,
+ * and the list is read again then. Commands are durable `conductor.*` commands.
  */
 
 /** A run as the daemon last reported it; `view` is missing until its first read lands. */
@@ -23,9 +22,7 @@ export interface DeckSnapshot {
   /** False until the first list arrives; screens show nothing rather than "no decks". */
   ready: boolean;
   entries: readonly DeckEntry[];
-  /** When this client first saw each open gate, by gate id: the view carries no timestamps. */
-  seen: ReadonlyMap<string, number>;
-  /** The list couldn't be read (an older daemon, or the conductor service is down). */
+  /** Why the list couldn't be read, as a sentence (`describeDaemonError`). */
   error: string | undefined;
 }
 
@@ -37,44 +34,43 @@ export class DeckCommandError extends Error {
   }
 }
 
+const commandErrors: Record<string, string> = {
+  stale_gate: "That decision is out of date. The deck has moved on.",
+  conductor_unavailable: "This daemon's Deck service isn't running.",
+  conductor_executor_unavailable: "This daemon can't run decks: its conductor has no executor.",
+  conductor_command_failed: "The daemon couldn't apply that to the deck.",
+  already_exists: "A deck with that id already exists.",
+  not_running: "The deck isn't running.",
+  not_paused: "The deck isn't paused.",
+  finished: "The deck has already finished.",
+  run_limit: "This daemon holds as many decks as it can. Remove an old one first.",
+};
+
 export function deckErrorMessage(code: string): string {
-  switch (code) {
-    case "stale_gate":
-      return "That decision is out of date. The deck has moved on.";
-    case "conductor_unavailable":
-      return "This daemon's conductor isn't running.";
-    case "conductor_executor_unavailable":
-      return "This daemon can't run decks yet: its conductor has no executor.";
-    case "forbidden":
-      return "This device isn't allowed to run decks.";
-    default:
-      return `The deck refused the command (${code}).`;
-  }
+  return commandErrors[code] ?? refusalMessage(code);
 }
 
-const noop = () => {};
 const listLimit = 32;
 /** The daemon allows 8 subscriptions per socket; leave room for other screens. */
-const subscriptionLimit = 6;
+const watchLimit = 6;
 const moving = new Set<ConductorSummary["phase"]>(["planning", "running", "paused", "cancelling"]);
 
 export interface DeckStoreDeps {
-  now(): number;
   id(): string;
 }
 
 export class DeckStore {
   private client: ClientApi;
-  private deps: DeckStoreDeps;
-  private state: DeckSnapshot = { ready: false, entries: [], seen: new Map(), error: undefined };
+  private conductor: ConductorClient;
+  private state: DeckSnapshot = { ready: false, entries: [], error: undefined };
   private listeners = new Set<() => void>();
-  /** Our subscription ids on the current socket, by run id. */
-  private subscriptions = new Map<string, string>();
+  /** Live watches by run id, with what unsubscribes from them. */
+  private watches = new Map<string, { watch: ConductorWatch; stop(): void }>();
   private epoch = 0;
-  private stop: (() => void) | undefined;
+  private started = false;
   constructor(client: ClientApi, deps: DeckStoreDeps) {
     this.client = client;
-    this.deps = deps;
+    this.conductor = new ConductorClient(client, () => `deck-${deps.id()}`);
   }
   snapshot = (): DeckSnapshot => this.state;
   subscribe = (listener: () => void): (() => void) => {
@@ -86,38 +82,30 @@ export class DeckStore {
   async send(payload: ConductorCommandPayload): Promise<void> {
     const result = await this.client.command(ConductorCommandPayload.parse(payload));
     if (!result.ok) throw new DeckCommandError(result.error ?? "refused");
-    // A subscribed run reports the change itself; anything else is read again.
-    if (!this.subscriptions.has(payload.runId)) await this.read(payload.runId, this.epoch);
+    // A watched run reports the change itself; a new deck is watched from its first view.
+    if (payload.type === "conductor.start") this.follow(payload.runId);
+    else if (!this.watches.has(payload.runId)) await this.read(payload.runId, this.epoch);
   }
   /** Read the list again after it failed (Try again). */
   retry(): void {
     if (this.client.connectionState().getSnapshot() === "ready") void this.load();
   }
-  /** Read a run the list didn't include (an old deck opened by its link). */
+  /** Follow a run the list didn't include (an old deck opened by its link). */
   ensure(runId: string): void {
     if (!this.state.ready || this.find(runId)) return;
     void this.read(runId, this.epoch);
   }
 
   private start(): void {
-    if (this.stop) return;
+    if (this.started) return;
+    this.started = true;
     const connection = this.client.connectionState();
     let previous = connection.getSnapshot();
-    const stopState = connection.subscribe(() => {
+    connection.subscribe(() => {
       const next = connection.getSnapshot();
       if (next === "ready" && previous !== "ready") void this.load();
       previous = next;
     });
-    let stopMessages = noop;
-    try {
-      stopMessages = this.client.onMessage((message) => this.receive(message));
-    } catch {
-      // A closed client has nothing to push.
-    }
-    this.stop = () => {
-      stopState();
-      stopMessages();
-    };
     if (previous === "ready") void this.load();
   }
   private emit(next: Partial<DeckSnapshot>): void {
@@ -127,78 +115,73 @@ export class DeckStore {
   private find(runId: string): DeckEntry | undefined {
     return this.state.entries.find((entry) => entry.summary.id === runId);
   }
-  private receive(message: ServerMessage): void {
-    if (message.type !== "conductor.changed") return;
-    const runId = [...this.subscriptions].find(([, id]) => id === message.subscriptionId)?.[0];
-    if (runId === message.run.id) this.put(message.run);
-  }
-  /** Store a run's view, and stamp gates this client hasn't seen before. */
+  /** Store a run's view. The daemon repeats unchanged views; those change nothing here. */
   private put(view: ConductorRunView): void {
-    const now = this.deps.now();
-    const seen = new Map(this.state.seen);
-    for (const gate of view.needsUser) if (!seen.has(gate.id)) seen.set(gate.id, now);
+    const current = this.find(view.id);
+    if (current?.view && JSON.stringify(current.view) === JSON.stringify(view)) return;
     const entry = { summary: view, view };
-    const entries = this.find(view.id)
-      ? this.state.entries.map((current) => (current.summary.id === view.id ? entry : current))
+    const entries = current
+      ? this.state.entries.map((known) => (known.summary.id === view.id ? entry : known))
       : [entry, ...this.state.entries];
-    this.emit({ entries, seen });
+    this.emit({ entries });
+    if (!moving.has(view.phase)) queueMicrotask(() => this.release(view.id));
   }
   private async load(): Promise<void> {
     const epoch = ++this.epoch;
-    this.subscriptions.clear();
     try {
-      const reply = await this.client.request({
-        type: "conductor.request",
-        operation: { op: "list", limit: listLimit },
-      });
+      const { runs } = await this.conductor.list({ limit: listLimit });
       if (epoch !== this.epoch) return;
-      if (!reply.ok) {
-        this.emit({ ready: true, error: deckErrorMessage(reply.error ?? "conductor_unavailable") });
-        return;
-      }
-      const summaries = reply.runs ?? [];
       const known = new Map(this.state.entries.map((entry) => [entry.summary.id, entry]));
       this.emit({
         ready: true,
         error: undefined,
-        entries: summaries.map((summary) => ({
-          summary,
-          view: known.get(summary.id)?.view,
-        })),
+        entries: runs.map((summary) => ({ summary, view: known.get(summary.id)?.view })),
       });
-      await Promise.all(summaries.map((summary) => this.read(summary.id, epoch, summary.phase)));
+      await Promise.all(
+        runs.map((summary) =>
+          moving.has(summary.phase) && this.follow(summary.id)
+            ? undefined
+            : this.read(summary.id, epoch),
+        ),
+      );
     } catch (error) {
       if (epoch === this.epoch)
-        this.emit({
-          ready: true,
-          error: describeDaemonError(daemonErrorCode(error)),
-        });
+        this.emit({ ready: true, error: describeDaemonError(daemonErrorCode(error)) });
     }
   }
-  /** Read one run: subscribe while it can still move and a subscription is free, else get. */
-  private async read(runId: string, epoch: number, phase?: ConductorSummary["phase"]) {
-    const live =
-      (phase === undefined || moving.has(phase)) &&
-      !this.subscriptions.has(runId) &&
-      this.subscriptions.size < subscriptionLimit;
-    const subscriptionId = live ? `deck-${this.deps.id()}` : undefined;
-    if (subscriptionId) this.subscriptions.set(runId, subscriptionId);
+  /** Watch a run that can still move; false when every watch is taken. */
+  private follow(runId: string): boolean {
+    if (this.watches.has(runId)) return true;
+    if (this.watches.size >= watchLimit) return false;
+    const watch = this.conductor.watch(runId);
+    const stop = watch.run.subscribe(() => {
+      const view = watch.run.getSnapshot();
+      if (view) this.put(view);
+    });
+    this.watches.set(runId, { watch, stop });
+    return true;
+  }
+  /** A run that finished needs no watch; the slot goes to a moving run that has none. */
+  private release(runId: string): void {
+    const held = this.watches.get(runId);
+    if (!held) return;
+    held.stop();
+    held.watch.close();
+    this.watches.delete(runId);
+    const waiting = this.state.entries.find(
+      (entry) =>
+        !this.watches.has(entry.summary.id) && moving.has((entry.view ?? entry.summary).phase),
+    );
+    if (waiting) this.follow(waiting.summary.id);
+  }
+  private async read(runId: string, epoch: number): Promise<void> {
     try {
-      const reply = await this.client.request({
-        type: "conductor.request",
-        operation: subscriptionId
-          ? { op: "subscribe", runId, subscriptionId }
-          : { op: "get", runId },
-      });
+      const view = await this.conductor.get(runId);
       if (epoch !== this.epoch) return;
-      if (!reply.ok || !reply.run) {
-        if (subscriptionId) this.subscriptions.delete(runId);
-        return;
-      }
-      this.put(reply.run);
+      this.put(view);
+      if (moving.has(view.phase)) this.follow(runId);
     } catch {
-      if (subscriptionId && this.subscriptions.get(runId) === subscriptionId)
-        this.subscriptions.delete(runId);
+      // A run that can't be read stays as the list described it.
     }
   }
 }

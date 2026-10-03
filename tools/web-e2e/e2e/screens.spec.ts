@@ -217,6 +217,47 @@ const screens: Record<string, Setup> = {
     await page.getByRole("button", { name: "Lanes" }).click();
   },
   "deck-new": visit("/deck/new", "New deck"),
+  "deck-escalation": visit("/deck/mobile-cold-start", "Mobile cold start under 1s"),
+  "deck-question": async (page) => {
+    await visit("/deck/mobile-cold-start", "Mobile cold start under 1s")(page);
+    await page
+      .getByRole("region", { name: "Escalated: Defer the first relay sync" })
+      .getByRole("button", { name: "Approve" })
+      .click();
+    await page
+      .getByRole("region", { name: "Precompile Hermes bytecode needs your answer" })
+      .getByRole("radio")
+      .first()
+      .waitFor();
+  },
+  "deck-running": async (page) => {
+    await screens["deck-question"]!(page);
+    const asking = page.getByRole("region", {
+      name: "Precompile Hermes bytecode needs your answer",
+    });
+    await asking.getByRole("radio", { name: "Ship it in the APK" }).click();
+    await asking.getByRole("button", { name: "Answer" }).click();
+    await asking.waitFor({ state: "detached" });
+    await page.getByRole("button", { name: /^Lazy-load fonts and icons/ }).click();
+  },
+  "deck-done": visit("/deck/codex-app-server-048", "Codex app-server 0.48"),
+  "deck-cancelled": async (page) => {
+    await visit("/deck/mobile-cold-start", "Mobile cold start under 1s")(page);
+    await page.getByRole("button", { name: "More actions" }).first().click();
+    await page.getByRole("menuitem", { name: "Cancel deck…" }).click();
+    await page
+      .getByRole("dialog", { name: "Cancel this deck?" })
+      .getByRole("button", { name: "Cancel deck" })
+      .click();
+    await page.getByText("This deck was cancelled.").waitFor();
+  },
+  "deck-stopped": staged(
+    'daemon.failDeck("mobile-cold-start", "deck_workspace_not_found");',
+    async (page) => {
+      await visit("/deck/mobile-cold-start", "Mobile cold start under 1s")(page);
+      await page.getByText("The deck stopped.").waitFor();
+    },
+  ),
   // Skills opens on the first catalog entry.
   skills: async (page) => {
     await page.goto("/skills");

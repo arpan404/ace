@@ -19,7 +19,7 @@ function card(
   title: string,
   dependencies: string[],
   state: FakeDeckCard["state"],
-  extra: Partial<Pick<FakeDeckCard, "round" | "lane" | "note">> = {},
+  extra: Partial<Pick<FakeDeckCard, "round" | "lane" | "note" | "question">> = {},
 ): FakeDeckCard {
   return {
     id,
@@ -30,6 +30,7 @@ function card(
     round: extra.round ?? 0,
     lane: extra.lane ?? null,
     note: extra.note ?? "",
+    ...(extra.question ? { question: extra.question } : {}),
   };
 }
 
@@ -295,6 +296,13 @@ function mobileColdStart(now: number): FakeDeckRun {
       card("hermes-bytecode", "Precompile Hermes bytecode", ["trace"], "working", {
         round: 1,
         lane: coldStartLane("codex-personal", "codex", "GPT-5.3 Codex, worktree lanes/hermes"),
+        question: {
+          text: "Ship the precompiled bytecode in the APK, or build it on the first launch?",
+          options: [
+            { id: "apk", label: "Ship it in the APK" },
+            { id: "first-launch", label: "Build it on first launch" },
+          ],
+        },
       }),
       card("defer-sync", "Defer the first relay sync", ["trace"], "escalated", {
         round: 2,

@@ -5,12 +5,18 @@ type Entry = {
   source: ProviderAdapter & { close?(): Promise<void> };
   adapter: ProviderAdapter & { close?(): Promise<void> };
   capabilities: Capabilities;
+  discovery: DiscoveryResult;
 };
 export class AdapterRegistry {
   private entries = new Map<ProviderKind, Entry>();
   private backends = new Map<string, Entry>();
   register(adapter: ProviderAdapter & { close?(): Promise<void> }, cli: DiscoveryResult): void {
-    const entry = { adapter, source: adapter, capabilities: adapter.capabilities(cli) };
+    const entry = {
+      adapter,
+      source: adapter,
+      capabilities: adapter.capabilities(cli),
+      discovery: { ...cli },
+    };
     this.entries.set(adapter.provider, entry);
     const backend = adapter.backend ?? (adapter.provider === "cursor" ? "acp" : undefined);
     if (backend) this.backends.set(`${adapter.provider}:${backend}`, entry);
@@ -21,7 +27,12 @@ export class AdapterRegistry {
     cli: DiscoveryResult,
     backend: ProviderBackend,
   ): void {
-    const entry = { adapter, source: adapter, capabilities: adapter.capabilities(cli) };
+    const entry = {
+      adapter,
+      source: adapter,
+      capabilities: adapter.capabilities(cli),
+      discovery: { ...cli },
+    };
     this.backends.set(`${adapter.provider}:${backend}`, entry);
     if (!this.entries.has(adapter.provider)) this.entries.set(adapter.provider, entry);
   }

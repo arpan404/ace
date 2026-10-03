@@ -1,19 +1,28 @@
-import type { ConductorRunView, ConductorSummary, ProviderKind } from "@ace/protocol";
-import type { CardState, DeckCard, DeckPhase, DeckRun, Lane, LaneRole, Round } from "./deck.ts";
-import { deckGate, deckTitle } from "./deck-gate.ts";
+import type { ConductorRunView, ConductorSummary } from "@ace/protocol";
+import type {
+  CardState,
+  DeckAgent,
+  DeckCard,
+  DeckPhase,
+  DeckRun,
+  Lane,
+  LaneRole,
+  Round,
+} from "./deck.ts";
+import {
+  agentTimes,
+  deckAgents,
+  laneRole,
+  type DeckAccounts,
+  type DeckThreads,
+} from "./deck-agents.ts";
+import { deckGates, deckTitle } from "./deck-gate.ts";
 
 /*
  * The Deck model from the daemon's conductor view (`conductor.result` / `conductor.changed`).
- * The view carries the plan's workstreams, their node state and fix rounds, the live lanes and
- * the open gates; everything here is read from those facts, nothing is invented.
+ * The view carries the plan's workstreams, their node state and fix rounds, the live lanes, the
+ * delegated threads and the open gates; everything here is read from those facts.
  */
-
-/** What the daemon's account list says about a lane's account. */
-export interface DeckAccount {
-  label: string;
-  provider: ProviderKind;
-}
-export type DeckAccounts = (id: string) => DeckAccount | undefined;
 
 type View = ConductorRunView;
 type ViewLane = View["lanes"][number];
@@ -31,6 +40,7 @@ function phaseOf(run: ConductorSummary, nodes: readonly Node[], error: string | 
     case "paused":
       return "paused";
     case "cancelling":
+      return "stopping";
     case "cancelled":
       return "cancelled";
     case "done":
@@ -62,17 +72,6 @@ function cardState(node: Node): CardState {
   }
 }
 
-function role(lane: ViewLane | undefined, accounts: DeckAccounts): LaneRole | null {
-  if (!lane) return null;
-  const account = accounts(lane.account);
-  // Never show a raw account id: the daemon no longer lists this account.
-  return {
-    account: account?.label ?? "Account removed",
-    provider: account?.provider,
-    detail: lane.model,
-  };
-}
-
 /** The newest generation of a role on a workstream: retired lanes stay off the card. */
 function latest(lanes: readonly ViewLane[], workstream: string, kind: ViewLane["role"]) {
   let found: ViewLane | undefined;
@@ -80,6 +79,17 @@ function latest(lanes: readonly ViewLane[], workstream: string, kind: ViewLane["
     if (lane.workstream === workstream && lane.role === kind)
       if (!found || lane.generation >= found.generation) found = lane;
   return found;
+}
+
+/** A role's live lane, else the agent that last held it (named by account, without a model). */
+function roleOf(
+  lane: ViewLane | undefined,
+  agent: DeckAgent | undefined,
+  accounts: DeckAccounts,
+): LaneRole | null {
+  if (lane) return laneRole(lane.account, lane.model, accounts);
+  if (!agent) return null;
+  return { account: agent.account, provider: agent.provider, detail: "Finished" };
 }
 
 /** Every fix round followed a review that asked for changes; the last round is the current one. */
@@ -110,21 +120,33 @@ function note(node: Node, state: CardState, nodes: readonly Node[], approved: bo
   return approved ? "Starts when a lane is free." : "Starts once the plan is approved.";
 }
 
-function cardOf(node: Node, view: View, accounts: DeckAccounts): DeckCard {
+function cardOf(
+  node: Node,
+  view: View,
+  agents: readonly DeckAgent[],
+  accounts: DeckAccounts,
+): DeckCard {
   const state = cardState(node);
   const fixRounds = node.fixRounds ?? 0;
-  const worker = latest(view.lanes, node.id, "worker");
-  const reviewer = latest(view.lanes, node.id, "reviewer");
-  const current = worker ?? reviewer;
-  const lane: Lane | null = current
-    ? {
-        worker: role(worker, accounts),
-        reviewer: role(reviewer, accounts),
-        agentId: current.agentId,
-        status: current.status,
-        rounds: rounds(fixRounds, state),
-      }
-    : null;
+  const lanes = {
+    worker: latest(view.lanes, node.id, "worker") ?? latest(view.lanes, node.id, "integrator"),
+    reviewer: latest(view.lanes, node.id, "reviewer"),
+  };
+  const held = (role: DeckAgent["role"]) => agents.find((agent) => agent.role === role);
+  const worker = roleOf(lanes.worker, held("worker") ?? held("integrator"), accounts);
+  const reviewer = roleOf(lanes.reviewer, held("reviewer"), accounts);
+  const live = lanes.worker ?? lanes.reviewer;
+  const current = agents.find((agent) => !agent.nested);
+  const lane: Lane | null =
+    live || current
+      ? {
+          worker,
+          reviewer,
+          threadId: current?.threadId ?? null,
+          status: live?.status ?? null,
+          rounds: rounds(fixRounds, state),
+        }
+      : null;
   return {
     id: node.id,
     title: node.title,
@@ -133,6 +155,8 @@ function cardOf(node: Node, view: View, accounts: DeckAccounts): DeckCard {
     round: state === "planned" ? 0 : fixRounds + 1,
     lane,
     note: note(node, state, view.dag, view.planApproved),
+    agents,
+    ...agentTimes(agents),
   };
 }
 
@@ -152,23 +176,40 @@ export function deckFromSummary(summary: ConductorSummary): DeckRun {
     phase: phaseOf(summary, [], undefined) satisfies DeckPhase,
     planApproved: false,
     gate: null,
-    gates: 0,
+    gates: [],
+    startedAt: 0,
+    updatedAt: 0,
     cards: [],
+    agents: [],
     error: undefined,
     partial: true,
     plan: null,
   };
 }
 
-/** A deck from the conductor's run view, with lane accounts named from the account list. */
-export function deckFromView(view: View, accounts: DeckAccounts): DeckRun {
+const noThreads: DeckThreads = () => undefined;
+
+/**
+ * A deck from the conductor's run view, with accounts named from the account list and agent
+ * times from the threads this client has (`threads`; without it, agents carry no times).
+ */
+export function deckFromView(
+  view: View,
+  accounts: DeckAccounts,
+  threads: DeckThreads = noThreads,
+): DeckRun {
+  const agents = deckAgents(view, accounts, threads);
+  const gates = deckGates(view);
   return {
     ...base(view),
     phase: phaseOf(view, view.dag, view.executionError),
     planApproved: view.planApproved,
-    gate: deckGate(view),
-    gates: view.needsUser.length,
-    cards: view.dag.map((node) => cardOf(node, view, accounts)),
+    gate: gates[0] ?? null,
+    gates,
+    startedAt: view.startedAt,
+    updatedAt: view.updatedAt,
+    cards: view.dag.map((node) => cardOf(node, view, agents.get(node.id) ?? [], accounts)),
+    agents: agents.get(null) ?? [],
     error: view.executionError,
     partial: false,
     plan: view.plan && {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ConductorPlan, ConductorSpec } from "./conductor.ts";
+const timestamp = z.number().int().nonnegative();
 const id = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/);
 export const ConductorSummary = z.object({
   id,
@@ -10,17 +11,47 @@ export const ConductorSummary = z.object({
   budget: z.number().finite().nonnegative(),
 });
 export const ConductorRunView = ConductorSummary.extend({
+  startedAt: timestamp.default(0),
+  updatedAt: timestamp.default(0),
+  delegations: z
+    .array(
+      z.object({
+        laneId: id,
+        workstream: id.nullable(),
+        threadId: z.string(),
+        agentId: z.string().nullable(),
+        parentThreadId: z.string(),
+        parentAgentId: z.string(),
+        provider: z.string().max(128),
+        account: z.string().max(128).nullable(),
+        generation: z.number().int().nonnegative(),
+        phase: z.enum(["created", "running", "cancelling", "settled"]),
+      }),
+    )
+    .max(256)
+    .default([]),
   plan: ConductorPlan.nullable(),
   planApproved: z.boolean(),
   needsUser: z
     .array(
       z.object({
         id,
-        kind: z.enum(["plan", "merge", "budget", "escalation", "deadline", "destructive"]),
+        kind: z.enum([
+          "plan",
+          "merge",
+          "budget",
+          "escalation",
+          "deadline",
+          "destructive",
+          "provider",
+        ]),
         workstream: id.nullable(),
         lane: id.nullable(),
         generation: z.number().int().nonnegative().nullable(),
         message: z.string().max(2048),
+        gatedAt: timestamp.default(0),
+        interactionId: z.string().optional(),
+        threadId: z.string().optional(),
       }),
     )
     .max(64),

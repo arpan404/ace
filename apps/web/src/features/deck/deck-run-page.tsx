@@ -1,7 +1,23 @@
-import { CardsIcon, PauseIcon, PlayIcon } from "@phosphor-icons/react";
+import {
+  CardsIcon,
+  PauseIcon,
+  PlayIcon,
+  ProhibitIcon,
+  WarningCircleIcon,
+} from "@phosphor-icons/react";
+import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { Spinner } from "@/components/ui/spinner.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
@@ -10,7 +26,17 @@ import { Screen } from "@/features/shell/index.ts";
 import type { ConductorCommandPayload } from "@ace/protocol";
 import { CardGraph } from "./card-graph.tsx";
 import { DeckGate } from "./deck-gate.tsx";
-import { deckBrief, deckStepper, defaultCard, type DeckRun } from "@ace/ui-core";
+import {
+  deckBrief,
+  deckErrorText,
+  deckStepper,
+  defaultCard,
+  formatAgo,
+  type DeckRun,
+} from "@ace/ui-core";
+import { cn } from "@/lib/cn.ts";
+import { useNow } from "@/lib/time.ts";
+import { AgentList } from "./agent-list.tsx";
 import { useDeckRun, useDeckSender } from "./deck-source.ts";
 import { DeckStepper } from "./deck-stepper.tsx";
 import { LanesTab } from "./deck-tabs.tsx";
@@ -62,6 +88,7 @@ function RunScreen(props: {
   const sender = useDeckSender();
   const toast = useToast();
   const projectName = useProjectName();
+  const [cancelling, setCancelling] = useState(false);
   const selected = run.cards.find((c) => c.id === props.card) ?? defaultCard(run);
   const send = (payload: ConductorCommandPayload, done: string) =>
     sender(payload).then(
@@ -71,23 +98,24 @@ function RunScreen(props: {
     );
   const brief = deckBrief(run.goal, run.title);
   const paused = run.phase === "paused";
-  const running = run.phase === "planning" || run.phase === "dealing" || run.phase === "merging";
+  const running =
+    run.phase === "planning" ||
+    run.phase === "dealing" ||
+    run.phase === "merging" ||
+    run.phase === "failed";
   return (
     <Screen
       title={run.title}
       subtitle={`${projectName(run.workspaceId)} · Deck`}
       menu={
         running || paused ? (
-          <MenuItem
-            danger
-            onClick={() => void send({ type: "conductor.cancel", runId: run.id }, "Deck cancelled")}
-          >
-            Cancel deck
+          <MenuItem danger onClick={() => setCancelling(true)}>
+            Cancel deck…
           </MenuItem>
         ) : undefined
       }
       actions={
-        paused ? (
+        paused || run.phase === "failed" ? (
           <Button
             variant="ghost"
             size="sm"
@@ -118,6 +146,7 @@ function RunScreen(props: {
                   {brief}
                 </p>
               )}
+              <RunTimes run={run} />
               <DeckStepper {...deckStepper(run)} />
             </div>
             <SegmentedControl
@@ -127,12 +156,7 @@ function RunScreen(props: {
               onValueChange={(tab) => props.onNavigate({ tab })}
             />
           </div>
-          {run.error && (
-            <p role="alert" className="mt-[22px] text-ui text-muted-foreground">
-              <span className="font-medium text-foreground">The deck stopped.</span> The daemon
-              couldn't run its next step ({run.error}); resume it to try again.
-            </p>
-          )}
+          <RunNotice run={run} />
           {run.gate && (
             <DeckGate
               run={run}
@@ -148,11 +172,15 @@ function RunScreen(props: {
                   select one to see its lane
                 </span>
               </h2>
-              <CardGraph
-                run={run}
-                selected={selected?.id}
-                onSelect={(card) => props.onNavigate({ tab: "plan", card })}
-              />
+              {run.cards.length ? (
+                <CardGraph
+                  run={run}
+                  selected={selected?.id}
+                  onSelect={(card) => props.onNavigate({ tab: "plan", card })}
+                />
+              ) : (
+                <PlanPending run={run} />
+              )}
               {selected && <LaneDetail card={selected} run={run} />}
             </section>
           )}
@@ -161,7 +189,107 @@ function RunScreen(props: {
           )}
         </div>
       </div>
+      <Dialog open={cancelling} onOpenChange={setCancelling}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel this deck?</DialogTitle>
+            <DialogDescription>
+              Every lane stops, its sub-agents included, and nothing else merges. Cards already
+              merged into the deck's branch stay there.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setCancelling(false)}>
+              Keep it running
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={() => {
+                setCancelling(false);
+                void send({ type: "conductor.cancel", runId: run.id }, "Stopping the deck");
+              }}
+            >
+              Cancel deck
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Screen>
+  );
+}
+
+/** "Started 2h ago · updated 3m ago", from the daemon's own times for the run. */
+function RunTimes(props: { run: DeckRun }) {
+  const now = useNow();
+  const { startedAt, updatedAt } = props.run;
+  if (!startedAt) return null;
+  return (
+    <p className="mt-2 text-sm text-subtle-foreground tabular-nums">
+      Started {formatAgo(startedAt, now)}
+      {updatedAt > startedAt && <> · updated {formatAgo(updatedAt, now)}</>}
+    </p>
+  );
+}
+
+/**
+ * Why a deck isn't moving when that isn't a decision: it is stopping, it was cancelled, or the
+ * daemon couldn't run its next step (which survives a restart until it resumes).
+ */
+function RunNotice(props: { run: DeckRun }) {
+  const { run } = props;
+  const notice =
+    run.phase === "failed"
+      ? {
+          title: "The deck stopped.",
+          body: deckErrorText(run.error ?? "conductor_execution_failed"),
+        }
+      : run.phase === "stopping"
+        ? {
+            title: "Stopping the deck.",
+            body: "Each lane is being interrupted; the deck reads Cancelled once every one of them has stopped.",
+          }
+        : run.phase === "cancelled"
+          ? {
+              title: "This deck was cancelled.",
+              body: "Its threads stay, so you can read what each lane did.",
+            }
+          : undefined;
+  if (!notice) return null;
+  return (
+    <p
+      role={run.phase === "failed" ? "alert" : "status"}
+      className="mt-[22px] flex items-start gap-2.5 rounded-lg px-4 py-3 text-ui text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)]"
+    >
+      {run.phase === "stopping" ? (
+        <Spinner className="mt-0.5" />
+      ) : (
+        <Icon
+          icon={run.phase === "failed" ? WarningCircleIcon : ProhibitIcon}
+          size={16}
+          className={cn("mt-0.5 shrink-0", run.phase === "failed" && "text-status-failed")}
+        />
+      )}
+      <span>
+        <span className="font-medium text-foreground">{notice.title}</span> {notice.body}
+      </span>
+    </p>
+  );
+}
+
+/** Before the plan exists: the planner at work, and its thread. */
+function PlanPending(props: { run: DeckRun }) {
+  const { run } = props;
+  return (
+    <div className="mt-3.5 rounded-lg px-5 py-[18px] shadow-[inset_0_0_0_1px_var(--border)]">
+      <p className="flex items-center gap-2 text-ui text-muted-foreground">
+        {run.phase === "planning" && <Spinner />}
+        {run.phase === "planning"
+          ? "The planner is splitting the goal into cards."
+          : "This deck has no cards."}
+      </p>
+      <AgentList label="Planner" agents={run.agents} />
+    </div>
   );
 }
 
