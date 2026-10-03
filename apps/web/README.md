@@ -59,6 +59,7 @@ Each slice owns `src/features/<slice>/` and the route files for its screens:
 | Deck (`@ace/conductor`)                                            | `features/deck`                                                              | `deck.tsx`, `deck.index.tsx`, `deck.new.tsx`, `deck.$runId.tsx` |
 | Automations                                                        | `features/automations`                                                       | `automations.tsx`, `automations.index.tsx`                      |
 | Skills                                                             | `features/skills`                                                            | `skills.tsx`, `skills.index.tsx`                                |
+| Model catalog (pickers)                                            | `features/models`                                                            | none; used by thread and Home                                   |
 | More: accounts, files, search                                      | `features/more` (+ `features/accounts`, `features/files`, `features/search`) | `more.*.tsx`                                                    |
 | Settings                                                           | `features/settings`                                                          | `settings.*.tsx`                                                |
 | Palette                                                            | `features/palette`                                                           | none; register commands in `commands.ts`                        |
@@ -73,19 +74,27 @@ Rules:
 - Colour only for diff +/− and the needs-you and failed dots. Use `text-muted-foreground` / `text-subtle-foreground` for hierarchy, and weights 400/500 (600 for titles only).
 - Keep files under ~400 lines (hard limit 1,500, `bun run check:size`).
 
-## Features whose protocol is not on `main` yet
+## Daemon services and protocol gaps
 
-Accounts (#25), file transfer (#44), search (#47), slash commands (#46) and screen/computer use (#29) are built against the fake daemon. Put the boundary in one file in your feature folder, for example `features/search/search-source.ts`:
+One-off daemon reads and writes go through `Client.request` (correlated, never queued while
+offline) with `useDaemonQuery` from `lib/daemon-query.ts`, which waits for a ready connection
+and reads again after a reconnect. Live state still comes only from `@ace/client-react`.
 
-```ts
-// TODO(train-2): wire to protocol when merged
-export interface SearchSource {
-  search(query: string, signal: AbortSignal): Promise<SearchHit[]>;
-}
-export function fakeSearchSource(): SearchSource { … }
-```
+Wired on the wire in every mode: accounts and usage (`accounts.list`, `usage.series`), search
+(`search.query`), models (`models.list`, `models.refresh`), settings (`settings.subscribe` /
+`settings.set`), slash commands (`commands.list`), mentions and uploads (`context.request`). In
+fake mode `@ace/fake-daemon` serves the same messages from its catalogs
+(`packages/fake-daemon/src/services/`), so a feature has one code path.
 
-Components depend on the interface only, so wiring the real protocol later changes that one file.
+What `main` cannot carry yet sits behind one adapter per feature marked
+`// TODO(client-gaps): feat/client-protocol-gaps`. In fake mode it serves the fake daemon's
+stand-in; against a real daemon it reports the feature empty or unavailable, never fixture data.
+Today: workspace and forge actions, scripts and editors, thread organization (rename, fork,
+settle, snooze, pin, delete, unqueue), card details, New thread's branches and pre-thread
+mentions, account details and the run-out policy, settings keys outside the protocol schema,
+machines, devices and pairing, ACP agents added by command, automations, the Activity feed,
+Deck runs, skills and plugins, changed files and transfers, and the terminal, browser and
+preview panels. When the backend lands, wiring a feature changes only its adapter.
 
 ## Fake-daemon scenarios
 
