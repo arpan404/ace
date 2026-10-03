@@ -13,7 +13,7 @@ import {
 import { createSession, type DeviceSession } from "./session.ts";
 import type { Actor } from "./lease.ts";
 import { performDeviceAction } from "./actions.ts";
-import { approveDevice } from "./approval.ts";
+import { approveDevice, disableDeviceSessions } from "./approval.ts";
 import { enqueueDeviceInput } from "./input-queue.ts";
 import type { spawnSupervised } from "@ace/provider-kit/process";
 import { mirrorDeviceController } from "./screen-controller.ts";
@@ -141,23 +141,7 @@ export class DevicesService {
       if (!this.enabled) {
         this.disabling = true;
         try {
-          const cleanup = await Promise.allSettled(
-            [...this.sessions.values()].map(async (session) => {
-              session.approvalEpoch++;
-              delete session.threadId;
-              const results = await Promise.allSettled([this.stop(session), session.logs.close()]);
-              delete session.completed;
-              delete session.recordingArtifact;
-              const errors = results.flatMap((result) =>
-                result.status === "rejected" ? [result.reason] : [],
-              );
-              if (errors.length) throw new AggregateError(errors, "Device disable cleanup failed");
-            }),
-          );
-          const errors = cleanup.flatMap((result) =>
-            result.status === "rejected" ? [result.reason] : [],
-          );
-          if (errors.length) throw new AggregateError(errors, "Devices disable cleanup failed");
+          await disableDeviceSessions(this.sessions.values(), this.lifecycleOwner());
           this.sessions.clear();
         } finally {
           this.disabling = false;

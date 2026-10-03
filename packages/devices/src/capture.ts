@@ -1,4 +1,4 @@
-import { framePacket, type Frame, type ScreenManager } from "@ace/screen";
+import { framePacket, type Frame, type ScreenManager, ScreenStopError } from "@ace/screen";
 import type { AppDevice as Device } from "@ace/protocol/devices";
 import type { RawSupervisedProcess } from "@ace/provider-kit/process";
 import { findExecutable as discoverExecutable } from "@ace/provider-kit/discovery";
@@ -69,19 +69,37 @@ export async function startCapture(options: {
       options.fps,
     );
     let stopped = false;
+    let terminated = false;
+    let stopping: Promise<void> | undefined;
     let unwatch: (() => void) | undefined;
     let unsubscribe: (() => void) | undefined;
-    const cleanup = async () => {
-      stopped = true;
-      try {
-        unsubscribe?.();
-      } finally {
-        try {
-          unwatch?.();
-        } finally {
-          await screen.stop(state.sessionId);
-        }
-      }
+    const cleanup = (): Promise<void> => {
+      if (terminated) return Promise.resolve();
+      stopping ??= Promise.resolve()
+        .then(async () => {
+          stopped = true;
+          const errors: unknown[] = [];
+          for (const release of [unsubscribe, unwatch]) {
+            try {
+              release?.();
+            } catch (error) {
+              errors.push(error);
+            }
+          }
+          try {
+            await screen.stop(state.sessionId);
+            terminated = true;
+          } catch (error) {
+            if (error instanceof ScreenStopError && error.captureTerminated) terminated = true;
+            errors.push(error);
+          }
+          if (errors.length === 1) throw errors[0];
+          if (errors.length) throw new AggregateError(errors, "Simulator capture cleanup failed");
+        })
+        .finally(() => {
+          stopping = undefined;
+        });
+      return stopping;
     };
     try {
       checkAbort();
@@ -101,6 +119,9 @@ export async function startCapture(options: {
         screenSessionId: state.sessionId,
         streamId: state.sessionId,
         stop: cleanup,
+        get terminated() {
+          return terminated;
+        },
       };
     } catch (error) {
       await cleanup();

@@ -49,3 +49,25 @@ export async function approveDevice(
     session.changingApproval = false;
   }
 }
+
+/** Disable revokes each grant before independently terminating its owned resources. */
+export async function disableDeviceSessions(
+  sessions: Iterable<DeviceSession>,
+  owner: LifecycleOwner,
+): Promise<void> {
+  const cleanup = await Promise.allSettled(
+    [...sessions].map(async (session) => {
+      session.approvalEpoch++;
+      delete session.threadId;
+      const results = await Promise.allSettled([stopDevice(session, owner), session.logs.close()]);
+      delete session.completed;
+      delete session.recordingArtifact;
+      const errors = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (errors.length) throw new AggregateError(errors, "Device disable cleanup failed");
+    }),
+  );
+  const errors = cleanup.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+  if (errors.length) throw new AggregateError(errors, "Devices disable cleanup failed");
+}

@@ -1,3 +1,4 @@
+import { ScreenStopError } from "./stop-error.ts";
 import { ScreenAgentScope } from "@ace/protocol";
 import { agentOwner } from "./agent-binding.ts";
 import {
@@ -581,10 +582,13 @@ export class ScreenManager {
     const errors: unknown[] = [];
     const releaseError = this.releaseBinding(session);
     if (releaseError) errors.push(releaseError);
+    let captureTerminated = false;
     try {
       if (session.state.error) await this.host.close();
       else await this.host.stopCapture(session.helper);
+      captureTerminated = true;
     } catch (error) {
+      captureTerminated = error instanceof ScreenStopError && error.captureTerminated;
       errors.push(error);
     }
     session.captureStopped.resolve();
@@ -598,13 +602,7 @@ export class ScreenManager {
     } finally {
       this.sessions.delete(session.state.sessionId);
     }
-    if (errors.length)
-      throw new AggregateError(
-        errors,
-        errors
-          .map((error) => (error instanceof Error ? error.message : "Screen stop failed"))
-          .join("; "),
-      );
+    if (errors.length) throw new ScreenStopError(errors, captureTerminated);
   }
   async close(): Promise<void> {
     await this.enable(false);

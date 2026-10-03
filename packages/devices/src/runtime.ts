@@ -5,4 +5,8 @@ export interface DeviceRuntime {
   after(ms: number, run: () => void): () => void;
   spawn: typeof spawnRawSupervised;
 }
-export type Capture = { stop(): Promise<void>; restart?(): Promise<void> };
+export type Capture = {
+  readonly terminated?: boolean;
+  stop(): Promise<void>;
+  restart?(): Promise<void>;
+};

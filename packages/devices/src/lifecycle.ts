@@ -190,7 +190,14 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
         }
       }
       if (owned) session.capture = owned;
-      await owned?.stop();
+      try {
+        await owned?.stop();
+      } finally {
+        if (owned?.terminated) {
+          if (session.capture === owned) delete session.capture;
+          if (session.startup === startup) delete session.startup;
+        }
+      }
       if (session.capture === owned) delete session.capture;
       if (session.startup === startup) delete session.startup;
     };
@@ -213,7 +220,10 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
     );
     delete session.streamId;
     if (errors.length) {
-      const failure = new AggregateError(errors, "Device resource cleanup failed");
+      const failure = new AggregateError(
+        errors,
+        `Device resource cleanup failed: ${errors.map((error) => (error instanceof Error ? error.message.slice(0, 512) : "Unknown cleanup error")).join("; ")}`,
+      );
       session.error = owner.failure(failure);
       session.lifecycle = "failed";
       delete session.stopping;

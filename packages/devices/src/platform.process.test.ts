@@ -255,6 +255,21 @@ it("reports missing idb for gestures and unsupported Simulator packages with fix
   });
 });
 
+for (const platform of ["linux", "darwin"])
+  it(`${platform} rejects unsupported locale before applying appearance or location`, async () => {
+    const f = await fixture(platform);
+    await f.manager.list();
+    const before = await f.commands();
+    await expect(
+      f.manager.configure(platform === "darwin" ? ios() : android(), {
+        locale: "fr-FR",
+        appearance: "dark",
+        location: { latitude: 41, longitude: -87 },
+      }),
+    ).rejects.toMatchObject({ code: "not_supported", hint: expect.stringContaining("Settings") });
+    expect(await f.commands()).toEqual(before);
+  });
+
 it("keeps previously identified emulators offline or unauthorized and refuses their input", async () => {
   const f = await fixture();
   await writeFile(f.state, "booted");
