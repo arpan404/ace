@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { createRedactor } from "@ace/redaction";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { access } from "node:fs/promises";
@@ -16,12 +17,18 @@ let runtime: HostRuntime | undefined;
 let sdk: typeof import("@cursor/sdk") | undefined;
 let ending = false;
 const lifetime = new AbortController();
+const graceMs = z.coerce
+  .number()
+  .int()
+  .min(0)
+  .max(30000)
+  .parse(process.argv[2] ?? 5000);
 const stop = () => {
   if (ending) return;
   ending = true;
   lifetime.abort();
   // EOF survives daemon SIGKILL. Kill this owned POSIX group even if SDK cleanup hangs.
-  const timer = setTimeout(() => process.kill(-process.pid, "SIGKILL"), 5000);
+  const timer = setTimeout(() => process.kill(-process.pid, "SIGKILL"), graceMs);
   void runtime
     ?.close()
     .catch(() => {})

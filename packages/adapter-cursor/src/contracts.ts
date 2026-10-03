@@ -29,6 +29,10 @@ export const Envelope = z
     runId: identity.optional(),
     kind: z.string().min(1).max(128),
     body: z.unknown(),
+    boundaryOffset: z.number().int().positive().max(10000000).optional(),
+    observeOffset: identity.optional(),
+    replayed: z.boolean().optional(),
+    recordedAt: z.number().finite().nonnegative().optional(),
   })
   .passthrough();
 export type CursorEnvelope = z.infer<typeof Envelope>;
@@ -38,6 +42,7 @@ export const Open = z.strictObject({
   generation: identity,
   model: identity.optional(),
   nativeSessionId: identity.optional(),
+  afterFrameOffset: z.number().int().nonnegative().max(10000000).default(0),
   policy: z.enum(["restricted", "full-access"]),
   limits: Limits,
   // Trusted composition must establish classifier availability before setting this.

@@ -221,3 +221,46 @@ it("keeps an unrecognized SDK result uncertain instead of claiming completion or
     ),
   ).toBe(true);
 });
+
+it("settles a late failed tool without splitting replacement text or ending the steered run", () => {
+  const r = replay();
+  r.frame("delta", {
+    type: "tool-call-started",
+    callId: "old-tool",
+    toolCall: { type: "mcp", args: { tool: "read" } },
+  });
+  r.frame("cancel", { replacement: true }, { dir: "send" });
+  r.frame("result", { status: "cancelled" });
+  r.frame("send", { input: [] }, { segment: 1 });
+  r.frame("delta", { type: "text-delta", text: "new " }, { segment: 1 });
+  r.frame("delta", {
+    type: "tool-call-completed",
+    callId: "old-tool",
+    toolCall: { type: "mcp", result: { status: "error", error: { message: "denied" } } },
+  });
+  r.frame("delta", { type: "text-delta", text: "text" }, { segment: 1 });
+  expect(texts(r.state)).toEqual(["new text"]);
+  expect(
+    Object.values(r.state.items)
+      .filter((item) => item.type === "tool_call")
+      .map((item) => item.call.status),
+  ).toEqual(["failed"]);
+  expect(Object.values(r.state.runs)).toHaveLength(1);
+  expect(Object.values(r.state.runs)[0]?.state).toBe("active");
+});
+
+it("fences the host when an old segment overflows its shared checkpoint or callback budget", () => {
+  for (const code of ["boundary_overflow", "checkpoint_budget"]) {
+    const r = replay();
+    r.frame("cancel", { replacement: true }, { dir: "send" });
+    r.frame("result", { status: "cancelled" });
+    r.frame("send", { input: [] }, { segment: 1 });
+    r.frame("error", { code, message: "checkpoint retained" });
+    expect(
+      Object.values(r.state.items).some(
+        (item) => item.type === "notice" && item.text === "checkpoint retained",
+      ),
+    ).toBe(true);
+    expect(deriveThreadStatus(r.state).state).not.toBe("done");
+  }
+});

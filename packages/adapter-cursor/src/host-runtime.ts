@@ -1,4 +1,4 @@
-import type { SDKAgent, Run } from "@cursor/sdk";
+import type { SDKAgent, Run, LocalAgentStore } from "@cursor/sdk";
 import { homedir } from "node:os";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { createRedactor } from "@ace/redaction";
@@ -11,6 +11,10 @@ import {
   type OpenOptions,
   type SendOptions,
 } from "./contracts.ts";
+import { openSdkCheckpointStore, checkpointRevision } from "./sdk-store.ts";
+import { boundedCheckpointStore } from "./checkpoint-store.ts";
+import { CursorJournal } from "./journal.ts";
+import { recoverCursorCheckpoint } from "./recovery.ts";
 import { localPolicy } from "./policy.ts";
 
 export type SdkModule = typeof import("@cursor/sdk");
@@ -19,13 +23,17 @@ export class HostRuntime {
   private run: Run | undefined;
   private completion: Promise<void> | undefined;
   private opening = false;
+  private closing: Promise<void> | undefined;
   private sending = false;
   private options: OpenOptions | undefined;
   private sendOptions: SendOptions | undefined;
   private callbacks = 0;
+  private transportFenced = false;
   private callbackBytes = 0;
   private root: string | undefined;
-  private store: InstanceType<SdkModule["JsonlLocalAgentStore"]> | undefined;
+  private journal: CursorJournal | undefined;
+  private store: LocalAgentStore | undefined;
+  private storeOwner: Awaited<ReturnType<typeof openSdkCheckpointStore>> | undefined;
   private scrub = createRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } }, ["text"]);
   private sdk: SdkModule;
   private emit: (frame: CursorEnvelope) => Promise<void>;
@@ -41,8 +49,10 @@ export class HostRuntime {
   ): Promise<void> {
     const options = this.options;
     if (!options) return;
+    if (this.transportFenced) throw new Error("SDK boundary transport is fenced");
     if (++this.callbacks > options.limits.maxCallbacks) {
       this.callbacks--;
+      await this.overflow(scope);
       throw new Error("SDK callback backlog exceeded budget");
     }
     let admittedBytes = 0;
@@ -54,7 +64,7 @@ export class HostRuntime {
       admittedBytes = encodedBytes;
       this.callbackBytes += admittedBytes;
       const safe: unknown = JSON.parse(this.scrub(encoded));
-      await this.emit({
+      const envelope: CursorEnvelope = {
         schemaVersion: 1,
         generation: options.generation,
         operationId: scope?.operationId ?? "open",
@@ -64,14 +74,36 @@ export class HostRuntime {
         ...(nativeRun ? { runId: nativeRun.id } : {}),
         kind,
         body: safe,
-      });
+      };
+      await this.emit(this.journal ? await this.journal.append(envelope) : envelope);
+    } catch (error) {
+      await this.overflow(scope);
+      throw error;
     } finally {
       this.callbacks--;
       this.callbackBytes -= admittedBytes;
     }
   }
+  private async overflow(scope: SendOptions | undefined): Promise<void> {
+    if (this.transportFenced || !this.options) return;
+    this.transportFenced = true;
+    // A failed journal/oversized callback cannot carry its own failure. This small
+    // emergency frame fences the parent, which owns cancellation and process exit.
+    await this.emit({
+      schemaVersion: 1,
+      generation: this.options.generation,
+      operationId: scope?.operationId ?? "open",
+      segment: scope?.segment ?? 0,
+      kind: "error",
+      body: {
+        code: "boundary_overflow",
+        message:
+          "SDK boundary or recovery budget failed. Execution is fenced; checkpoint retained. Inspect delivery before sending again or use bounded context handoff.",
+      },
+    });
+  }
   async open(value: unknown): Promise<{ agentId: string }> {
-    if (this.opening || this.agent) throw new Error("Host already open");
+    if (this.opening || this.agent || this.closing) throw new Error("Host already open or closing");
     this.opening = true;
     try {
       const options = Open.parse(value);
@@ -84,16 +116,66 @@ export class HostRuntime {
         );
       this.root = checkpointDirectory(homedir(), options.threadId);
       const checkpoint = await checkCheckpointBudget(this.root, options.limits.maxCheckpointBytes);
-      if (!options.nativeSessionId && checkpoint.files !== 0)
-        throw new Error(
-          "Unclaimed SDK checkpoint; recover its identity or use explicit context handoff",
-        );
-      this.store = new this.sdk.JsonlLocalAgentStore(this.root);
+      if (checkpoint.bytes > options.limits.maxCheckpointBytes)
+        throw new Error("SDK checkpoint exceeds budget");
+      this.storeOwner = await openSdkCheckpointStore(
+        this.sdk,
+        this.root,
+        options.cwd,
+        options.limits.maxCheckpointBytes,
+      );
+      this.store = boundedCheckpointStore(
+        this.storeOwner.store,
+        this.root,
+        options.limits.maxCheckpointBytes,
+        () =>
+          this.frame("error", {
+            code: "checkpoint_budget",
+            message:
+              "SDK checkpoint write failed or exceeded budget. Execution is fenced; preserve this thread and use explicit bounded context handoff.",
+          }),
+      );
+      const journal = new CursorJournal(
+        this.root,
+        options.limits.maxCheckpointBytes,
+        options.limits.maxFrameBytes,
+        {
+          maxIdentities: options.limits.maxIdentities,
+          maxPendingBytes: options.limits.maxPendingBytes,
+          maxCallbacks: options.limits.maxCallbacks,
+        },
+      );
+      await journal.recover(options.afterFrameOffset, (frame) => this.emit(frame));
+      this.journal = journal;
+      let recoveryBytes = 0;
       this.scrub = createRedactor(
         {
           env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY, ACE_MCP_BEARER: options.mcp?.bearer },
         },
         ["text"],
+      );
+      const recovered: { kind: string; body: unknown; runId?: string; observeOffset?: string }[] =
+        [];
+      const nativeId = await recoverCursorCheckpoint(
+        this.sdk,
+        this.store,
+        options,
+        async (kind, body, runId, observeOffset) => {
+          if (recovered.length >= options.limits.maxIdentities)
+            throw new Error("SDK recovery metadata exceeds budget");
+          const encoded = boundedJson(body, Math.min(262144, options.limits.maxFrameBytes - 2048));
+          recoveryBytes += Buffer.byteLength(encoded);
+          if (recoveryBytes > options.limits.maxPendingBytes)
+            throw new Error("SDK recovery metadata bytes exceed budget");
+          const safe: unknown = JSON.parse(this.scrub(encoded));
+          recovered.push({
+            kind,
+            body: safe,
+            ...(runId ? { runId } : {}),
+            ...(observeOffset ? { observeOffset } : {}),
+          });
+        },
+        (runId) => journal.afterObserve(runId),
       );
       const injection = options.mcp ? cursorSdkInjection(options.mcp) : undefined;
       const agentOptions = {
@@ -101,19 +183,34 @@ export class HostRuntime {
         model: { id: options.model ?? "composer-2.5" },
         ...(injection ? { mcpServers: injection.mcpServers } : {}),
       };
-      if (options.nativeSessionId?.startsWith("bc-"))
-        throw new Error("Cloud continuation is forbidden");
-      this.agent = options.nativeSessionId
-        ? await this.sdk.Agent.resume(options.nativeSessionId, agentOptions)
+      if (nativeId?.startsWith("bc-")) throw new Error("Cloud continuation is forbidden");
+      if (nativeId) await checkpointRevision(this.store, nativeId);
+      this.agent = nativeId
+        ? await this.sdk.Agent.resume(nativeId, agentOptions)
         : await this.sdk.Agent.create(agentOptions);
       await this.frame("open", {
         policy: options.policy,
         sdkVersion: "1.0.35",
-        resumed: !!options.nativeSessionId,
+        resumed: !!nativeId,
         cwd: options.cwd,
         model: options.model ?? "composer-2.5",
         deltaSource: true,
+        checkpointStore: this.storeOwner.kind,
       });
+      for (const recovery of recovered) {
+        const body = JSON.parse(this.scrub(boundedJson(recovery.body, 262144)));
+        await this.emit(
+          await journal.append({
+            schemaVersion: 1,
+            generation: options.generation,
+            operationId: "open",
+            segment: 0,
+            agentId: this.agent.agentId,
+            ...recovery,
+            body,
+          }),
+        );
+      }
       return { agentId: this.agent.agentId };
     } catch {
       await this.frame("error", {
@@ -127,7 +224,15 @@ export class HostRuntime {
     }
   }
   async send(value: unknown): Promise<{ runId: string }> {
-    if (!this.agent || !this.options || !this.root || this.sending || this.completion)
+    if (
+      !this.agent ||
+      !this.options ||
+      !this.root ||
+      this.sending ||
+      this.completion ||
+      this.closing ||
+      this.transportFenced
+    )
       throw new Error("Host not ready for send");
     const input = Send.parse(value);
     boundedJson(input, this.options.limits.maxInputBytes);
@@ -147,6 +252,7 @@ export class HostRuntime {
       segmentRun = await this.agent.send(
         { text: texts.join("\n"), ...(images.length ? { images } : {}) },
         {
+          idempotencyKey: `${input.commandId ?? input.operationId}:${input.segment}`,
           onDelta: async ({ update }) => {
             await this.frame("delta", update, input, segmentRun);
           },
@@ -214,10 +320,22 @@ export class HostRuntime {
     await this.completion;
     await this.frame("cancel", { settled: true });
   }
-  async close(): Promise<void> {
-    if (this.run) await this.cancel();
-    if (this.agent) await this.agent[Symbol.asyncDispose]();
-    await this.frame("close", { disposed: true });
-    this.agent = undefined;
+  close(): Promise<void> {
+    this.closing ??= this.dispose();
+    return this.closing;
+  }
+  private async dispose(): Promise<void> {
+    try {
+      try {
+        if (this.run) await this.cancel();
+      } finally {
+        if (this.agent) await this.agent[Symbol.asyncDispose]();
+      }
+      await this.frame("close", { disposed: true });
+    } finally {
+      await this.storeOwner?.close();
+      this.storeOwner = undefined;
+      this.agent = undefined;
+    }
   }
 }

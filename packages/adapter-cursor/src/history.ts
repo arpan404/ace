@@ -1,5 +1,3 @@
-import { lstat } from "node:fs/promises";
-import { join } from "node:path";
 import { homedir } from "node:os";
 import { z } from "zod";
 import { createRedactor } from "@ace/redaction";
@@ -7,12 +5,14 @@ import { boundedJson } from "@ace/provider-kit/ipc";
 import { checkpointDirectory, checkCheckpointBudget } from "./checkpoints.ts";
 import { Limits } from "./contracts.ts";
 import type { SdkModule } from "./host-runtime.ts";
+import { openSdkCheckpointStore, checkpointRevision } from "./sdk-store.ts";
 import { CursorHost, type HostOptions } from "./host.ts";
 
 export const SnapshotRequest = z.strictObject({
   threadId: z.string().min(1).max(512),
   agentId: z.string().min(1).max(512),
   offset: z.number().int().nonnegative().max(32768).default(0),
+  cwd: z.string().min(1).max(4096).optional(),
   limits: Limits,
 });
 const Revision = z.string().min(1).max(256);
@@ -34,11 +34,6 @@ const Snapshot = z.object({
     )
     .max(200),
 });
-async function revision(root: string): Promise<string> {
-  const stat = await lstat(join(root, "checkpoints.ndjson"));
-  if (!stat.isFile()) throw new Error("SDK checkpoint missing");
-  return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}`;
-}
 /** Executed in a short-lived memory-limited worker, before Agent.resume can load full history. */
 export type SnapshotSdkBoundary = {
   JsonlLocalAgentStore: SdkModule["JsonlLocalAgentStore"];
@@ -49,38 +44,48 @@ export async function snapshotInHost(sdk: SnapshotSdkBoundary, input: unknown, h
   if (request.agentId.startsWith("bc-")) throw new Error("Cloud snapshots are forbidden");
   const root = checkpointDirectory(home, request.threadId);
   await checkCheckpointBudget(root, request.limits.maxCheckpointBytes);
-  const before = await revision(root);
-  const store = new sdk.JsonlLocalAgentStore(root);
-  const items = await sdk.Agent.messages.list(request.agentId, {
-    runtime: "local",
-    store,
-    offset: request.offset,
-    limit: request.limits.historyPageSize,
-  });
-  if (before !== (await revision(root)))
-    throw new Error("Checkpoint changed during snapshot; reconcile before sending");
-  for (const [index, item] of items.entries()) {
-    if (
-      item.agent_id !== request.agentId ||
-      item.uuid !== `${request.agentId}:${request.offset + index}`
-    )
-      throw new Error("Snapshot position/agent identity mismatch");
-  }
-  const scrub = createRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } }, ["text"]);
-  const safeItems: unknown = JSON.parse(
-    scrub(boundedJson(items, Math.min(request.limits.maxFrameBytes - 4096, 262144))),
+  const owned = await openSdkCheckpointStore(
+    sdk,
+    root,
+    request.cwd ?? root,
+    request.limits.maxCheckpointBytes,
   );
-  return Snapshot.parse({
-    agentId: request.agentId,
-    revision: before,
-    offset: request.offset,
-    limit: request.limits.historyPageSize,
-    items: safeItems,
-  });
+  try {
+    const before = await checkpointRevision(owned.store, request.agentId);
+    const items = await sdk.Agent.messages.list(request.agentId, {
+      runtime: "local",
+      store: owned.store,
+      ...(request.cwd ? { cwd: request.cwd } : {}),
+      offset: request.offset,
+      limit: request.limits.historyPageSize,
+    });
+    if (before !== (await checkpointRevision(owned.store, request.agentId)))
+      throw new Error("Checkpoint changed during snapshot; reconcile before sending");
+    for (const [index, item] of items.entries()) {
+      if (
+        item.agent_id !== request.agentId ||
+        item.uuid !== `${request.agentId}:${request.offset + index}`
+      )
+        throw new Error("Snapshot position/agent identity mismatch");
+    }
+    const scrub = createRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } }, ["text"]);
+    const safeItems: unknown = JSON.parse(
+      scrub(boundedJson(items, Math.min(request.limits.maxFrameBytes - 4096, 262144))),
+    );
+    return Snapshot.parse({
+      agentId: request.agentId,
+      revision: before,
+      offset: request.offset,
+      limit: request.limits.historyPageSize,
+      items: safeItems,
+    });
+  } finally {
+    await owned.close();
+  }
 }
 export async function readCursorSnapshot(
   options: HostOptions,
-  input: { threadId: string; agentId: string; offset?: number },
+  input: { threadId: string; agentId: string; offset?: number; cwd?: string },
   signal: AbortSignal,
 ) {
   signal.throwIfAborted();

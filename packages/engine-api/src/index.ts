@@ -66,7 +66,12 @@ export interface SessionContext {
   /** Host-local selected account home, never a client-supplied credential selector. */
   instanceHomeDir?: string;
   runtimePolicy?: "restricted" | "full-access";
-  resume?: { nativeSessionId: string; backend?: ProviderBackend; instanceId?: string };
+  resume?: {
+    nativeSessionId: string;
+    backend?: ProviderBackend;
+    instanceId?: string;
+    afterFrameOffset?: number;
+  };
   /** Persist selection before host admission and native identity before publishing its open frame. */
   onSessionIdentity?(identity: {
     backend: ProviderBackend;

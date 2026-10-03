@@ -6,6 +6,13 @@ export const CursorInstance = z.strictObject({
   homeDir: z.string().min(1).max(4096).refine(isAbsolute),
 });
 export type CursorInstance = z.infer<typeof CursorInstance>;
+/** One identity/home owner for the SDK default, including pre-accounts checkpoints. */
+export function defaultCursorInstance(home: string): CursorInstance {
+  return CursorInstance.parse({
+    id: "cursor-sdk-default",
+    homeDir: join(home, ".ace", "instances", "cursor-sdk-default"),
+  });
+}
 /** The accounts owner calls this only for its selected cursor-sdk backend. */
 export function cursorSdkEnvironment(
   input: CursorInstance,

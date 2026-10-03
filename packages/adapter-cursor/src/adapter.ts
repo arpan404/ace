@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ProviderAdapter, SessionContext, ProviderSession } from "@ace/engine-api";
 import type { AceMcpConnection } from "@ace/mcp-server";
 import { cursorCapabilities } from "./policy.ts";
-import { cursorSdkEnvironment, CursorInstance } from "./instance.ts";
+import { cursorSdkEnvironment, CursorInstance, defaultCursorInstance } from "./instance.ts";
 import { openCursorSession } from "./session.ts";
 import { discoverCursorSdk, type HostOptions } from "./host.ts";
 import { CursorTranslator } from "./translator.ts";
@@ -26,12 +26,7 @@ export interface CursorAdapterOptions extends Omit<HostOptions, "env"> {
 export function createCursorAdapter(
   options: CursorAdapterOptions = {},
 ): ProviderAdapter & { close(): Promise<void>; stopInstance(id: string): Promise<void> } {
-  const selected = CursorInstance.parse(
-    options.instance ?? {
-      id: "cursor-sdk-default",
-      homeDir: join(homedir(), ".ace", "instances", "cursor-sdk-default"),
-    },
-  );
+  const selected = CursorInstance.parse(options.instance ?? defaultCursorInstance(homedir()));
   const sessions = new Map<ProviderSession, string>();
   const limits = Limits.parse(options.limits ?? {});
   const slots = options.slots ?? new CursorHostSlots(limits.maxWorkers);
@@ -86,7 +81,11 @@ export function createCursorAdapter(
           // without appending positional SDK messages as new live transcript entries.
           recoverySnapshot = await readCursorSnapshot(
             { ...hostOptions, slots, env, instanceId: selected.id },
-            { threadId: context.threadId, agentId: context.resume.nativeSessionId },
+            {
+              threadId: context.threadId,
+              agentId: context.resume.nativeSessionId,
+              cwd: context.cwd,
+            },
             context.signal,
           );
         }

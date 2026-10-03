@@ -55,6 +55,7 @@ export class CursorHost {
         args: [
           `--max-old-space-size=${this.limits.heapMb}`,
           options.entry ?? fileURLToPath(new URL("./host-entry.ts", import.meta.url)),
+          String(this.limits.graceMs),
         ],
         ...(options.cwd ? { cwd: options.cwd } : {}),
         env: { ...options.env, NODE_OPTIONS: undefined, NODE_PATH: undefined },
@@ -95,7 +96,8 @@ export class CursorHost {
       } else if (method === "frame") {
         const payload = new ProviderPayload(boundedJson(params, this.limits.maxFrameBytes));
         const frame = Envelope.parse(payload.data);
-        if (frame.generation !== this.generation) throw new Error("SDK generation mismatch");
+        if (frame.generation !== this.generation && !(frame.replayed && frame.boundaryOffset))
+          throw new Error("SDK generation mismatch");
         onFrame(frame, payload);
         if (frame.kind === "error") void this.stop();
       } else throw new Error("Unknown host notification");

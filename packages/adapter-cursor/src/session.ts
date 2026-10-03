@@ -59,6 +59,7 @@ export async function openCursorSession(
     });
   };
   const host = new CursorHost(options, (data, payload) => {
+    if (data.boundaryOffset) seq = data.boundaryOffset * 1024 - 1;
     if (data.kind === "open" && data.agentId)
       context.onSessionIdentity?.({
         backend: "cursor-sdk",
@@ -132,7 +133,12 @@ export async function openCursorSession(
         threadId: context.threadId,
         generation: host.generation,
         ...(context.model ? { model: context.model } : {}),
-        ...(context.resume ? { nativeSessionId: context.resume.nativeSessionId } : {}),
+        ...(context.resume
+          ? {
+              nativeSessionId: context.resume.nativeSessionId,
+              afterFrameOffset: context.resume.afterFrameOffset ?? 0,
+            }
+          : {}),
         policy: context.runtimePolicy ?? options.policy ?? "restricted",
         autoReviewAvailable: options.autoReviewAvailable ?? false,
         limits,

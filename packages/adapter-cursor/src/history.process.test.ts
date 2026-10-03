@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
@@ -7,7 +7,7 @@ import { expect, it } from "vitest";
 import { snapshotInHost, CursorLimitsSchema } from "./index.ts";
 
 it("refuses oversized checkpoints before the SDK can materialize the conversation", async () => {
-  const home = await mkdtemp(join(tmpdir(), "cursor-history-"));
+  const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-history-")));
   try {
     const threadId = "oversized-history";
     const root = join(
@@ -51,6 +51,47 @@ it("refuses oversized checkpoints before the SDK can materialize the conversatio
         home,
       ),
     ).rejects.toThrow("Cloud snapshots are forbidden");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+it("refuses native continuation with only agent metadata and no SDK conversation checkpoint", async () => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-missing-checkpoint-")));
+  try {
+    const threadId = "missing-state";
+    const root = join(
+      home,
+      ".cursor",
+      "sdk",
+      "ace",
+      createHash("sha256").update(threadId).digest("hex"),
+    );
+    const store = new JsonlLocalAgentStore(root);
+    await store.agents.create({
+      agent: { agentId: "native-agent", cwd: home, status: "idle", createdAt: 1, updatedAt: 1 },
+    });
+    await expect(
+      snapshotInHost(
+        {
+          JsonlLocalAgentStore,
+          Agent: {
+            messages: {
+              async list() {
+                return [];
+              },
+            },
+          },
+        },
+        {
+          threadId,
+          agentId: "native-agent",
+          cwd: home,
+          limits: CursorLimitsSchema.parse({}),
+        },
+        home,
+      ),
+    ).rejects.toThrow("native conversation checkpoint is missing");
   } finally {
     await rm(home, { recursive: true, force: true });
   }

@@ -76,7 +76,11 @@ export class CursorTranslator implements Translator {
       if (!parsed.success)
         return [this.notice("Malformed SDK boundary envelope", frame.data, "error")];
       const event = parsed.data;
-      if (this.generation && this.generation !== event.generation) return [];
+      if (this.generation && this.generation !== event.generation) {
+        if (event.kind !== "open") return [];
+        this.sequence = -1;
+        this.generation = event.generation;
+      }
       if (frame.seq <= this.sequence) return [];
       this.sequence = frame.seq;
       this.generation ??= event.generation;
@@ -142,6 +146,19 @@ export class CursorTranslator implements Translator {
         );
         return facts;
       }
+      if (event.kind === "observe")
+        return [
+          this.notice("SDK durable event retained; callback journal owns canonical content", event),
+        ];
+      if (event.kind === "recovery")
+        return [
+          ...this.children.preserve(),
+          this.notice(
+            string(body.text) ?? "SDK checkpoint recovery reconciled",
+            event,
+            body.interrupted ? "warning" : "info",
+          ),
+        ];
       if (event.kind === "snapshot")
         return [
           this.notice(
@@ -149,6 +166,21 @@ export class CursorTranslator implements Translator {
             event,
             "warning",
           ),
+        ];
+      // A shared host/store failure fences execution even when an old segment caused it.
+      if (
+        event.kind === "error" &&
+        ["boundary_overflow", "checkpoint_budget"].includes(string(body.code) ?? "")
+      )
+        return [
+          ...this.preserveTools(),
+          ...this.children.preserve(),
+          this.notice(
+            string(body.message) ?? "SDK host resource budget failed; checkpoint retained",
+            event,
+            "error",
+          ),
+          { type: "process.exited", deliberate: false, message: "SDK host resource budget failed" },
         ];
       const stale = event.operationId !== this.operation || event.segment !== this.segment;
       if (event.kind === "host-exit")
@@ -164,7 +196,7 @@ export class CursorTranslator implements Translator {
         // Surviving child facts belong to their original call namespace, never the replacement root.
         if (event.kind === "delta" && body.type === "tool-call-completed") {
           const call = `${namespace}:call:${nativeIdentity(body.callId) ?? ""}`;
-          if (this.children.calls.has(call)) {
+          if (this.tools.has(call) || this.children.calls.has(call)) {
             return this.delta(body, this.tools.get(call)?.agent ?? this.root, namespace, 0);
           }
         }
@@ -400,7 +432,9 @@ export class CursorTranslator implements Translator {
       tool.failed ||= status === "failed";
       if (tool.terminal && type !== "tool-call-completed") return [];
       tool.terminal ||= status !== "running";
-      const facts = this.transcript.boundary(agent);
+      const staleCompletion =
+        this.current?.operationId !== this.operation || this.current?.segment !== this.segment;
+      const facts = staleCompletion ? [] : this.transcript.boundary(agent);
       if (toolKind(name) === "agent.spawn") {
         facts.push(...this.children.ensure(call, agent, tool.args, this.cwd));
         if (tool.terminal)
