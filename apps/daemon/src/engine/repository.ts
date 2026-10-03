@@ -52,25 +52,26 @@ export class EngineRepository {
     this.store = store;
     store.atomic(migrateEngine);
     this.recovery = new ProviderRecovery(store);
-    this.capture = store.atomic((db) =>
-      db.prepare("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)"),
+    this.capture = store.atomic((_db) =>
+      this.store.statement("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)"),
     );
     this.queue = new QueueStore(store);
     this.pending = new IntentStore(store, this.queue);
     this.transitions = new TransitionState(store);
-    this.readiness = store.atomic((db) => new TransitionReadiness(db));
-    store.atomic((db) => db.exec("DELETE FROM engine_slots"));
-    this.admissionStatements = store.atomic((db) => ({
-      has: db.prepare(
+    this.readiness = store.atomic((_db) => new TransitionReadiness(_db));
+    store.atomic((_db) => _db.exec("DELETE FROM engine_slots"));
+    this.admissionStatements = store.atomic((_db) => ({
+      has: this.store.statement(
         "SELECT 1 FROM engine_state_records WHERE thread_id=? AND section='engineAdmission' AND key='root'",
       ),
-      mark: db.prepare(
+      mark: this.store.statement(
         "INSERT OR IGNORE INTO engine_state_records VALUES (?, 'engineAdmission', 'root', 'true')",
       ),
-      correlated: db.prepare(
+      correlated: this.store.statement(
         `UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND command_id=? AND awaiting=1 RETURNING id`,
       ),
-      ack: db.prepare(`UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND awaiting=1 AND ack_target=(
+      ack: this.store
+        .statement(`UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND awaiting=1 AND ack_target=(
         SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
       ) RETURNING id`),
     }));
@@ -82,9 +83,9 @@ export class EngineRepository {
     this.opening.add(id);
   }
   resetAdmission(id: ThreadId): void {
-    this.store.atomic((db) =>
-      db
-        .prepare(
+    this.store.atomic((_db) =>
+      this.store
+        .statement(
           "DELETE FROM engine_state_records WHERE thread_id=? AND section='engineAdmission' AND key='root'",
         )
         .run(id),
@@ -97,15 +98,20 @@ export class EngineRepository {
     return !this.opening.has(id) && this.pending.recoveryAcknowledgement(id);
   }
   state(id: ThreadId): ThreadState | undefined {
-    return this.store.atomic((db) => {
-      const row = db.prepare("SELECT state,seq FROM thread_state WHERE thread_id = ?").get(id);
+    return this.store.atomic((_db) => {
+      const row = this.store
+        .statement("SELECT state,seq FROM thread_state WHERE thread_id = ?")
+        .get(id);
       if (!row) {
         this.snapshots.delete(id);
         return undefined;
       }
       let snapshot = this.snapshots.get(id);
       if (!snapshot || this.snapshotSeq.get(snapshot) !== Number(row.seq)) {
-        snapshot = new Snapshot(db, decodeSnapshot(String(row.state)));
+        snapshot = new Snapshot(
+          { prepare: (sql) => this.store.statement(sql) },
+          decodeSnapshot(String(row.state)),
+        );
         this.snapshotSeq.set(snapshot, Number(row.seq));
       }
       this.snapshots.delete(id);
@@ -123,18 +129,19 @@ export class EngineRepository {
     return state;
   }
   *states(): Iterable<ThreadState> {
-    const ids = this.store.atomic((db) =>
-      db
-        .prepare("SELECT thread_id FROM thread_state")
+    const ids = this.store.atomic((_db) =>
+      this.store
+        .statement("SELECT thread_id FROM thread_state")
         .all()
         .map((row) => ThreadId.parse(row.thread_id)),
     );
     for (const id of ids) yield this.requireState(id);
   }
   save(state: ThreadState, payloads: EventPayload[], at: number): void {
-    this.store.atomic((db) => {
+    this.store.atomic((_db) => {
       let snapshot = this.snapshots.get(state.threadId);
-      if (!snapshot || snapshot.state !== state) snapshot = new Snapshot(db, state);
+      if (!snapshot || snapshot.state !== state)
+        snapshot = new Snapshot({ prepare: (sql) => this.store.statement(sql) }, state);
       if (
         payloads.some(
           (event) =>
@@ -154,12 +161,10 @@ export class EngineRepository {
       this.readiness.capture(state, payloads);
       snapshot.retainChanges(payloads);
       this.store.appendEvents(state.threadId, payloads, at);
-      db.prepare(`INSERT INTO thread_state VALUES (?, ?, ?)
-        ON CONFLICT(thread_id) DO UPDATE SET state=excluded.state, seq=excluded.seq`).run(
-        state.threadId,
-        snapshot.header(),
-        this.store.headSeq(),
-      );
+      this.store
+        .statement(`INSERT INTO thread_state VALUES (?, ?, ?)
+        ON CONFLICT(thread_id) DO UPDATE SET state=excluded.state, seq=excluded.seq`)
+        .run(state.threadId, snapshot.header(), this.store.headSeq());
       snapshot.flush();
       this.snapshotSeq.set(snapshot, this.store.headSeq());
       this.snapshots.set(state.threadId, snapshot);
@@ -288,7 +293,7 @@ export class EngineRepository {
   }
 
   cancelPending(id: ThreadId, now: number): ThreadId[] {
-    return this.store.atomic((db) => {
+    return this.store.atomic((_db) => {
       const released = new Set<ThreadId>();
       for (const intent of this.pending.headers(id)) {
         if (!["pending", "queued"].includes(intent.status)) continue;
@@ -321,9 +326,11 @@ export class EngineRepository {
         if (intent.kind !== "thread.fork" || intent.status === "running") continue;
         for (const thread of this.transitions.releaseGuards(intent.commandId)) released.add(thread);
       }
-      db.prepare(
-        "UPDATE intents SET status='failed', awaiting=0, error='Cancelled before delivery' WHERE thread_id=? AND kind IN ('thread.send','thread.create','thread.fork') AND (status IN ('pending','queued','running') OR awaiting=1)",
-      ).run(id);
+      this.store
+        .statement(
+          "UPDATE intents SET status='failed', awaiting=0, error='Cancelled before delivery' WHERE thread_id=? AND kind IN ('thread.send','thread.create','thread.fork') AND (status IN ('pending','queued','running') OR awaiting=1)",
+        )
+        .run(id);
       for (const intent of this.pending.headers(id))
         if (this.cancelled(intent.id)) this.queue.prune(intent.id);
       this.queue.set(id, {}, now);
@@ -332,9 +339,9 @@ export class EngineRepository {
   }
   cancelled(intentId: number): boolean {
     return this.store.atomic(
-      (db) =>
-        db
-          .prepare(
+      (_db) =>
+        this.store
+          .statement(
             "SELECT 1 FROM intents WHERE id=? AND status='failed' AND error='Cancelled before delivery'",
           )
           .get(intentId) !== undefined,
@@ -348,44 +355,51 @@ export class EngineRepository {
     this.pending.add(command, id, resolutionId);
   }
   reserve(id: ThreadId): boolean {
-    return this.store.atomic((db) => {
-      if (db.prepare("SELECT thread_id FROM engine_slots WHERE thread_id=?").get(id)) return true;
-      const count = Number(db.prepare("SELECT COUNT(*) AS count FROM engine_slots").get()?.count);
+    return this.store.atomic((_db) => {
+      if (this.store.statement("SELECT thread_id FROM engine_slots WHERE thread_id=?").get(id))
+        return true;
+      const count = Number(
+        this.store.statement("SELECT COUNT(*) AS count FROM engine_slots").get()?.count,
+      );
       if (count >= this.capacity) return false;
-      db.prepare("INSERT INTO engine_slots VALUES (?)").run(id);
+      this.store.statement("INSERT INTO engine_slots VALUES (?)").run(id);
       return true;
     });
   }
   release(id: ThreadId): void {
-    this.store.atomic((db) => db.prepare("DELETE FROM engine_slots WHERE thread_id=?").run(id));
+    this.store.atomic((_db) =>
+      this.store.statement("DELETE FROM engine_slots WHERE thread_id=?").run(id),
+    );
   }
   reservedSlot(id: ThreadId): boolean {
-    return this.store.atomic((db) =>
-      Boolean(db.prepare("SELECT thread_id FROM engine_slots WHERE thread_id=?").get(id)),
+    return this.store.atomic((_db) =>
+      Boolean(this.store.statement("SELECT thread_id FROM engine_slots WHERE thread_id=?").get(id)),
     );
   }
   readRawBlob(id: string): Uint8Array | undefined {
-    return this.store.atomic((db) => readRawBlob(db, id));
+    return this.store.atomic((_db) => readRawBlob(_db, id));
   }
   answer(id: string): Command | undefined {
-    return this.store.atomic((db) => {
-      const row = db.prepare("SELECT payload FROM intents WHERE resolution_id = ?").get(id);
+    return this.store.atomic((_db) => {
+      const row = this.store
+        .statement("SELECT payload FROM intents WHERE resolution_id = ?")
+        .get(id);
       return row ? Command.parse(JSON.parse(String(row.payload))) : undefined;
     });
   }
   reserved(id: string): boolean {
-    return this.store.atomic((db) =>
-      Boolean(db.prepare("SELECT id FROM intents WHERE resolution_id = ?").get(id)),
+    return this.store.atomic((_db) =>
+      Boolean(this.store.statement("SELECT id FROM intents WHERE resolution_id = ?").get(id)),
     );
   }
   sessionOpening(id: ThreadId): boolean {
     return this.opening.has(id);
   }
   queuedCount(id: ThreadId): number {
-    return this.store.atomic((db) =>
+    return this.store.atomic((_db) =>
       Number(
-        db
-          .prepare(
+        this.store
+          .statement(
             "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND (status IN ('pending','queued') OR uncertain=1) AND kind IN ('thread.send','thread.create','thread.fork','thread.switch','thread.merge')) + (SELECT COUNT(DISTINCT ack_target) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') + (SELECT COUNT(*) FROM engine_queue q WHERE q.thread_id=? AND q.continuation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM intents i WHERE i.thread_id=q.thread_id AND i.kind IN ('thread.resume','queue.resume','thread.limit') AND i.awaiting=1)) AS count",
           )
           .get(id, id, id)?.count,
@@ -395,9 +409,9 @@ export class EngineRepository {
   inputCapacity(id: ThreadId, limit: number): boolean {
     // Both branches use existing live-intent indexes, with output bounded by admission capacity.
     return this.store.atomic(
-      (db) =>
-        db
-          .prepare(`SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
+      (_db) =>
+        this.store
+          .statement(`SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
         AND status IN ('pending','queued','running')
         UNION ALL SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
         AND awaiting=1 AND status NOT IN ('pending','queued','running') LIMIT ?`)
@@ -414,8 +428,8 @@ export class EngineRepository {
     this.pending.mark(intent, status, error);
   }
   workspace(id: string): string | undefined {
-    return this.store.atomic((db) => {
-      const row = db.prepare("SELECT path FROM workspaces WHERE id = ?").get(id);
+    return this.store.atomic((_db) => {
+      const row = this.store.statement("SELECT path FROM workspaces WHERE id = ?").get(id);
       return row ? String(row.path) : undefined;
     });
   }
@@ -428,8 +442,8 @@ export class EngineRepository {
     workspaceReady: boolean;
     options?: ExecutionOptions;
   } {
-    return this.store.atomic((db) => {
-      const row = db.prepare("SELECT * FROM engine_sessions WHERE thread_id = ?").get(id);
+    return this.store.atomic((_db) => {
+      const row = this.store.statement("SELECT * FROM engine_sessions WHERE thread_id = ?").get(id);
       if (!row) throw new Error("Missing engine session metadata");
       return {
         cwd: String(row.cwd),
@@ -459,8 +473,10 @@ export class EngineRepository {
     options?: ExecutionOptions,
   ): void {
     this.createSession(id, cwd, model, backend, instanceId, options);
-    this.store.atomic((db) =>
-      db.prepare("UPDATE engine_sessions SET workspace_ready=0 WHERE thread_id=?").run(id),
+    this.store.atomic((_db) =>
+      this.store
+        .statement("UPDATE engine_sessions SET workspace_ready=0 WHERE thread_id=?")
+        .run(id),
     );
   }
   createSession(
@@ -471,9 +487,9 @@ export class EngineRepository {
     instanceId?: string,
     options?: ExecutionOptions,
   ): void {
-    this.store.atomic((db) =>
-      db
-        .prepare(
+    this.store.atomic((_db) =>
+      this.store
+        .statement(
           "INSERT INTO engine_sessions (thread_id,cwd,model,native_session_id,backend,instance_id,options) VALUES (?, ?, ?, NULL, ?, ?, ?)",
         )
         .run(
@@ -492,10 +508,12 @@ export class EngineRepository {
     backend?: ProviderBackend,
     instanceId?: string,
   ): void {
-    this.store.atomic((db) => {
-      db.prepare(
-        "UPDATE engine_sessions SET native_session_id = ?, backend = COALESCE(?,backend), instance_id = COALESCE(?,instance_id) WHERE thread_id = ?",
-      ).run(nativeId, backend ?? null, instanceId ?? null, id);
+    this.store.atomic((_db) => {
+      this.store
+        .statement(
+          "UPDATE engine_sessions SET native_session_id = ?, backend = COALESCE(?,backend), instance_id = COALESCE(?,instance_id) WHERE thread_id = ?",
+        )
+        .run(nativeId, backend ?? null, instanceId ?? null, id);
       const thread = this.store.getThread(id);
       if (thread && instanceId && thread.live?.account !== instanceId)
         this.store.appendEvents(id, [
@@ -514,7 +532,7 @@ export class EngineRepository {
       nativeSessionId?: string;
     },
   ): void {
-    this.store.atomic((db) => {
+    this.store.atomic((_db) => {
       const before = this.session(id);
       if (
         (before.backend && before.backend !== identity.backend) ||
@@ -524,20 +542,19 @@ export class EngineRepository {
           before.nativeSessionId !== identity.nativeSessionId)
       )
         throw new Error("Provider session identity conflicts with its durable binding");
-      db.prepare(`UPDATE engine_sessions SET backend=?, instance_id=?,
-        native_session_id=COALESCE(?,native_session_id) WHERE thread_id=?`).run(
-        identity.backend,
-        identity.instanceId,
-        identity.nativeSessionId ?? null,
-        id,
-      );
+      this.store
+        .statement(`UPDATE engine_sessions SET backend=?, instance_id=?,
+        native_session_id=COALESCE(?,native_session_id) WHERE thread_id=?`)
+        .run(identity.backend, identity.instanceId, identity.nativeSessionId ?? null, id);
     });
   }
   backend(id: ThreadId): ProviderBackend | undefined {
     // Recovery and teardown also read the binding of a tombstoned thread. They must
     // not resolve its execution workspace, which intentionally rejects deleted threads.
-    const backend = this.store.atomic((db) => {
-      const row = db.prepare("SELECT backend FROM engine_sessions WHERE thread_id=?").get(id);
+    const backend = this.store.atomic((_db) => {
+      const row = this.store
+        .statement("SELECT backend FROM engine_sessions WHERE thread_id=?")
+        .get(id);
       if (!row) throw new Error("Missing engine session metadata");
       return row.backend == null ? undefined : z.enum(["acp", "cursor-sdk"]).parse(row.backend);
     });

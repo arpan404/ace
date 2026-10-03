@@ -2,6 +2,7 @@ import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { systemDeliveryRuntime } from "./delivery-runtime.ts";
 import { WebSocket } from "ws";
 import type { DeliveryEvent, ServerMessage } from "@ace/protocol";
+import { WireEncoder } from "./wire-encoder.ts";
 
 export const RESYNC_CLOSE_CODE = 4009;
 export interface PressureOptions {
@@ -55,10 +56,17 @@ export class Outbox {
   private options: PressureOptions;
   private socket: WebSocket;
   private now: () => number;
-  constructor(socket: WebSocket, options: PressureOptions, now = systemDeliveryRuntime.now) {
+  private encoder: WireEncoder;
+  constructor(
+    socket: WebSocket,
+    options: PressureOptions,
+    now = systemDeliveryRuntime.now,
+    encoder = new WireEncoder(),
+  ) {
     this.now = now;
     this.socket = socket;
     this.options = options;
+    this.encoder = encoder;
   }
   send(message: ServerMessage | PluginServerMessage): void {
     if (this.socket.readyState !== WebSocket.OPEN) return;
@@ -74,7 +82,7 @@ export class Outbox {
           throughSeq: message.throughSeq,
           events: coalesceEvents(message.events),
         });
-      this.bytes += Buffer.byteLength(JSON.stringify(message));
+      this.bytes += Buffer.byteLength(this.encoder.encode(message));
       if (this.bytes > this.options.maxQueuedBytes) this.resync();
       this.tick();
       return;
@@ -82,7 +90,7 @@ export class Outbox {
     // Admit the whole snapshot before handing any of its bytes to the transport.
     // This caps transport bytes; bounding status allocation needs snapshot paging.
     if (message.type === "snapshot") {
-      const serialized = JSON.stringify(message);
+      const serialized = this.encoder.encode(message);
       if (
         this.bytes + this.socket.bufferedAmount + Buffer.byteLength(serialized) >
         this.options.maxQueuedBytes
@@ -102,7 +110,7 @@ export class Outbox {
   }
   private write(message: ServerMessage | PluginServerMessage): void {
     if (this.socket.readyState !== WebSocket.OPEN) return;
-    const encoded = JSON.stringify(message);
+    const encoded = this.encoder.encode(message);
     if (
       message.type.startsWith("settings.") &&
       this.socket.bufferedAmount + Buffer.byteLength(encoded) > this.options.hardLimit
@@ -113,6 +121,15 @@ export class Outbox {
     this.writeSerialized(encoded);
   }
   private writeSerialized(message: string): void {
+    // Reserve bytes before every frame, including control replies. A peer can stop reading
+    // while continuing to send requests; waiting for a timer otherwise grows the transport.
+    if (
+      this.bytes + this.socket.bufferedAmount + Buffer.byteLength(message) >
+      this.options.hardLimit
+    ) {
+      this.resync();
+      return;
+    }
     if (this.socket.readyState === WebSocket.OPEN)
       this.socket.send(message, (error) => {
         if (error) this.socket.terminate();

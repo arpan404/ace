@@ -22,6 +22,7 @@ import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
 import { subscribe } from "./subscription.ts";
+import { WireEncoder } from "./wire-encoder.ts";
 const bind = (listener: Server, host: string, port: number) =>
   new Promise<number>((resolve, reject) => {
     listener.once("error", reject);
@@ -165,6 +166,7 @@ export async function startServer(options: ServerOptions): Promise<{
   let disconnects = Promise.resolve();
   let disconnectError: Error | undefined;
   const receivers = new Map<DeviceId, Map<WebSocket, (message: ServerMessage) => void>>();
+  const encoder = new WireEncoder();
   const ticks = new Map<WebSocket, () => void>();
   wss.on("connection", (socket, isLocal: boolean) => {
     socket.on("error", (error) => {
@@ -181,7 +183,12 @@ export async function startServer(options: ServerOptions): Promise<{
     let cleaned = false;
     let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
-    const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure }, runtime.now);
+    const outbox = new Outbox(
+      socket,
+      { ...defaultPressure, ...options.pressure },
+      runtime.now,
+      encoder,
+    );
     const send = (message: ServerMessage | PluginServerMessage) => outbox.send(message);
     const fail = (
       code: string,
