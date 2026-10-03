@@ -7,6 +7,7 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import type {
+  BrowserDownload,
   BrowserView,
   ForwardedInput,
   PreviewServer,
@@ -16,6 +17,8 @@ import type {
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
 const retryMs = 5_000;
+/** The daemon gives up on a Chromium download after 10 minutes; wait a little longer. */
+const openTimeoutMs = 660_000;
 /** BrowserCommand `resize` bounds. */
 const clamp = (value: number) => Math.min(4096, Math.max(100, Math.round(value)));
 
@@ -73,6 +76,8 @@ export function daemonPreview(
   const held = new Set<string>();
   let version = 0;
   let requests = 0;
+  let download: BrowserDownload | undefined;
+  let gateway = true;
   const changed = () => {
     version++;
     for (const listener of listeners) listener();
@@ -86,16 +91,25 @@ export function daemonPreview(
     if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
     return reply.result;
   };
-  const readServers = async (threadId: string) => {
+  const previews = async (
+    threadId: string,
+    operation: { op: "list" } | { op: "forward" | "unforward"; port: number },
+  ) => {
     const reply = await client.request({
       type: "preview.request",
       threadId: ThreadId.parse(threadId),
-      operation: { op: "list" },
+      operation,
     });
-    if (!reply.ok) return;
+    const available = reply.ok || reply.error !== "preview_unavailable";
+    if (available !== gateway) {
+      gateway = available;
+      changed();
+    }
+    if (!reply.ok) throw new Error(reply.error ?? "preview_failed");
     servers.set(threadId, reply.previews ?? []);
     changed();
   };
+  const readServers = (threadId: string) => previews(threadId, { op: "list" });
   const poll = (threadId: string) => {
     const watch = watches.get(threadId);
     if (!watch || client.state !== "ready") return;
@@ -111,6 +125,17 @@ export function daemonPreview(
     watch.timer = timers.set(retryMs, () => poll(threadId));
   };
   const receive = (message: ServerMessage) => {
+    if (message.type === "browser.download.progress") {
+      download =
+        message.phase === "ready"
+          ? undefined
+          : {
+              phase: message.phase,
+              fraction: message.total ? Math.min(1, message.received / message.total) : undefined,
+            };
+      changed();
+      return;
+    }
     if (message.type === "browser.state") {
       const state = message.state;
       if (!watches.has(state.threadId)) return;
@@ -183,14 +208,27 @@ export function daemonPreview(
     view: (threadId) => views.get(threadId),
     frame: (threadId) => frames.get(threadId),
     servers: (threadId) => servers.get(threadId) ?? [],
+    download: () => download,
+    canForward: () => gateway,
+    forward: (threadId, port) => previews(threadId, { op: "forward", port }),
+    unforward: (threadId, port) => previews(threadId, { op: "unforward", port }),
     async open(threadId, workspaceId) {
-      const reply = await client.request({
-        type: "browser.open",
-        options: {
-          threadId: ThreadId.parse(threadId),
-          workspaceId: WorkspaceId.parse(workspaceId),
-        },
-      });
+      const reply = await client
+        .request(
+          {
+            type: "browser.open",
+            options: {
+              threadId: ThreadId.parse(threadId),
+              workspaceId: WorkspaceId.parse(workspaceId),
+            },
+          },
+          { timeoutMs: openTimeoutMs },
+        )
+        .finally(() => {
+          if (!download) return;
+          download = undefined;
+          changed();
+        });
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
       const watch = watches.get(threadId);
       if (watch) {

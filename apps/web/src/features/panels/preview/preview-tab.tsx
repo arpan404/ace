@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { Input } from "@/components/ui/input.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -22,7 +23,13 @@ import { usePanelServices } from "../services.ts";
 import { useVersion } from "../store.ts";
 import { useBrowserDriver } from "./use-browser-driver.ts";
 import { useViewportSync } from "./use-viewport-sync.ts";
-import type { BrowserView, PreviewServer, PreviewSource, ScreenFrame } from "../sources.ts";
+import type {
+  BrowserDownload,
+  BrowserView,
+  PreviewServer,
+  PreviewSource,
+  ScreenFrame,
+} from "../sources.ts";
 
 function usePreview(source: PreviewSource, threadId: string) {
   // The source's reads change whenever its version does; React Compiler would memoize them
@@ -35,6 +42,8 @@ function usePreview(source: PreviewSource, threadId: string) {
     view: source.view(threadId),
     frame: source.frame(threadId),
     servers: source.servers(threadId),
+    download: source.download(),
+    canForward: source.canForward(),
   };
 }
 
@@ -44,15 +53,42 @@ function usePreview(source: PreviewSource, threadId: string) {
  */
 export function PreviewTab(props: { threadId: string }) {
   const { preview } = usePanelServices();
-  const { view, frame, servers } = usePreview(preview, props.threadId);
+  const { view, frame, servers, download, canForward } = usePreview(preview, props.threadId);
   if (view && !view.closed && frame)
     return <LiveBrowser source={preview} threadId={props.threadId} view={view} frame={frame} />;
-  if (servers.length) return <DevServer servers={servers} />;
-  return <NoPreview source={preview} threadId={props.threadId} />;
+  if (servers.length)
+    return <DevServer source={preview} threadId={props.threadId} servers={servers} />;
+  return (
+    <NoPreview
+      source={preview}
+      threadId={props.threadId}
+      download={download}
+      canForward={canForward}
+    />
+  );
+}
+
+const downloadPhases: Record<BrowserDownload["phase"], string> = {
+  downloading: "Downloading the browser",
+  verifying: "Checking the download",
+  extracting: "Unpacking the browser",
+};
+
+/** "Downloading the browser · 40%": the daemon fetches Chromium before its first browser. */
+function downloadText(download: BrowserDownload): string {
+  const phase = downloadPhases[download.phase];
+  return download.phase === "downloading" && download.fraction !== undefined
+    ? `${phase} · ${Math.floor(download.fraction * 100)}%`
+    : `${phase}…`;
 }
 
 /** Nothing to show yet: say so, and offer to open a browser for the thread. */
-function NoPreview(props: { source: PreviewSource; threadId: string }) {
+function NoPreview(props: {
+  source: PreviewSource;
+  threadId: string;
+  download: BrowserDownload | undefined;
+  canForward: boolean;
+}) {
   const workspaceId = useThreadMeta(props.threadId)?.workspaceId;
   const [state, setState] = useState<"idle" | "opening" | "failed">("idle");
   const open = () => {
@@ -68,19 +104,76 @@ function NoPreview(props: { source: PreviewSource; threadId: string }) {
       icon={BrowserIcon}
       title="Nothing to preview"
       description={
-        state === "failed"
-          ? "The daemon couldn't open a browser for this thread."
-          : "When an agent opens a browser or starts a dev server, its page shows here."
+        state === "failed" ? (
+          "The daemon couldn't open a browser for this thread."
+        ) : state === "opening" && props.download ? (
+          <span role="status">
+            {downloadText(props.download)}. The first browser on this machine takes a few minutes.
+          </span>
+        ) : (
+          "When an agent opens a browser or starts a dev server, its page shows here."
+        )
       }
       action={
         workspaceId ? (
-          <Button size="sm" disabled={state === "opening"} onClick={open}>
-            {state === "opening" && <Spinner />}
-            Open a browser
-          </Button>
+          <div className="flex flex-col items-center gap-4">
+            <Button size="sm" disabled={state === "opening"} onClick={open}>
+              {state === "opening" && <Spinner />}
+              Open a browser
+            </Button>
+            {props.canForward && <PortForm source={props.source} threadId={props.threadId} />}
+          </div>
         ) : undefined
       }
     />
+  );
+}
+
+/** "Or preview port [3000]": a dev server already running in the checkout, through the gateway. */
+function PortForm(props: { source: PreviewSource; threadId: string }) {
+  const [port, setPort] = useState("");
+  const [error, setError] = useState<string>();
+  const [sending, setSending] = useState(false);
+  const parsed = Number(port);
+  const valid = Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535;
+  return (
+    <form
+      aria-label="Preview a dev server"
+      className="flex flex-col items-center gap-1.5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!valid || sending) return;
+        setSending(true);
+        setError(undefined);
+        props.source.forward(props.threadId, parsed).then(
+          () => setSending(false),
+          () => {
+            setSending(false);
+            setError(`The daemon couldn't preview port ${parsed}.`);
+          },
+        );
+      }}
+    >
+      <span className="flex items-center gap-2 text-sm text-muted-foreground">
+        or preview port
+        <Input
+          aria-label="Dev server port"
+          inputMode="numeric"
+          placeholder="3000"
+          value={port}
+          onChange={(event) => setPort(event.target.value.replace(/\D/g, "").slice(0, 5))}
+          className="h-7 w-[72px] text-center font-mono"
+        />
+        <Button type="submit" size="sm" variant="ghost" disabled={!valid || sending}>
+          Preview
+        </Button>
+      </span>
+      {error && (
+        <span role="alert" className="text-sm text-status-failed">
+          {error}
+        </span>
+      )}
+    </form>
   );
 }
 
@@ -304,7 +397,11 @@ function LiveFrame(props: {
 const label = (server: PreviewServer) =>
   server.name ? `${server.name} · :${server.port}` : `:${server.port}`;
 
-function DevServer(props: { servers: readonly PreviewServer[] }) {
+function DevServer(props: {
+  source: PreviewSource;
+  threadId: string;
+  servers: readonly PreviewServer[];
+}) {
   const [port, setPort] = useState(props.servers[0]?.port);
   const server = props.servers.find((candidate) => candidate.port === port) ?? props.servers[0];
   if (!server) return null;
@@ -326,6 +423,15 @@ function DevServer(props: { servers: readonly PreviewServer[] }) {
           </span>
         )}
         <span className="flex-1" />
+        {server.source === "listener" && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => void props.source.unforward(props.threadId, server.port).catch(() => {})}
+          >
+            Stop preview
+          </Button>
+        )}
         <Button size="sm" render={<a href={url} target="_blank" rel="noreferrer" />}>
           <ArrowSquareOutIcon aria-hidden size={14} />
           Open in browser

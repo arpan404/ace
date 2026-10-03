@@ -60,6 +60,13 @@ export type ForwardedInput =
   | { kind: "key"; event: "keyDown"; key: string; text?: string };
 
 /** The agent-driven browser (live view, take-over) and detected dev servers of a thread. */
+/** How far the daemon's Chromium download has got (`browser.download.progress`). */
+export interface BrowserDownload {
+  phase: "downloading" | "verifying" | "extracting";
+  /** 0–1, when the daemon knows the size. */
+  fraction: number | undefined;
+}
+
 export interface PreviewSource {
   readonly version: number;
   subscribe(listener: () => void): () => void;
@@ -72,8 +79,19 @@ export interface PreviewSource {
   view(threadId: string): BrowserView | undefined;
   frame(threadId: string): ScreenFrame | undefined;
   servers(threadId: string): readonly PreviewServer[];
-  /** Open a browser for the thread, for a person to drive or an agent to pick up. */
+  /**
+   * Open a browser for the thread, for a person to drive or an agent to pick up. The daemon's
+   * first browser downloads Chromium, which can take minutes; `download()` reports it meanwhile.
+   */
   open(threadId: string, workspaceId: string): Promise<void>;
+  /** The daemon's Chromium download while one is in progress. */
+  download(): BrowserDownload | undefined;
+  /** False once the daemon says it runs no preview gateway, so ports can't be previewed. */
+  canForward(): boolean;
+  /** Preview a dev server listening on `port` through the daemon's preview gateway. */
+  forward(threadId: string, port: number): Promise<void>;
+  /** Stop previewing it; the server itself keeps running. */
+  unforward(threadId: string, port: number): Promise<void>;
   takeover(threadId: string): Promise<void>;
   handback(threadId: string): Promise<void>;
   input(threadId: string, input: ForwardedInput): void;

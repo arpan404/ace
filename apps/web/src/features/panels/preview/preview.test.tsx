@@ -140,6 +140,33 @@ test("Open a browser starts one for the thread and shows its page live", async (
   expect(browser.view("thread-settings")?.closed).toBe(false);
 });
 
+test("the first browser shows the daemon's Chromium download until it is ready", async () => {
+  const { panel, browser } = await openPreview(failingSubagent(), "/t/thread-settings");
+  browser.requireDownload(150_000_000);
+  await userEvent.click(await within(panel).findByRole("button", { name: "Open a browser" }));
+
+  expect((await within(panel).findByRole("status")).textContent).toContain(
+    "Downloading the browser · 40%",
+  );
+  act(() => browser.finishDownload());
+  expect(await within(panel).findByRole("img", { name: "Live view of about:blank" })).toBeTruthy();
+  expect(within(panel).queryByText(/Downloading the browser/)).toBeNull();
+});
+
+test("a dev server already running is previewed by its port until Stop preview", async () => {
+  const { panel, browser } = await openPreview(failingSubagent(), "/t/thread-settings");
+  const port = await within(panel).findByRole("textbox", { name: "Dev server port" });
+  await userEvent.type(port, "4173");
+  await userEvent.click(within(panel).getByRole("button", { name: "Preview" }));
+
+  expect(await within(panel).findByTitle("Preview of http://127.0.0.1:4173")).toBeTruthy();
+  expect(browser.servers("thread-settings").map((server) => server.port)).toEqual([4173]);
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Stop preview" }));
+  expect(await within(panel).findByRole("heading", { name: "Nothing to preview" })).toBeTruthy();
+  expect(browser.servers("thread-settings")).toEqual([]);
+});
+
 test("leaving the preview while holding control hands the browser back to the agent", async () => {
   const { panel, browser } = await openPreview();
   await userEvent.click(await within(panel).findByRole("button", { name: /Take control/ }));
