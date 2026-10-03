@@ -97,8 +97,8 @@ try {
     const found = (pattern: RegExp) =>
       [...code.matchAll(pattern)].flatMap((match) => (match[1] ? [match[1]] : []));
     return {
-      eager: found(/(?:\bfrom|\bimport)\s*"\.\/([^"]+\.js)"/g),
-      lazy: found(/\bimport\(\s*"\.\/([^"]+\.js)"\s*\)/g),
+      eager: found(/(?:\bfrom|\bimport)\s*["'`]\.\/([^"'`]+\.js)["'`]/g),
+      lazy: found(/\bimport\(\s*["'`]\.\/([^"'`]+\.js)["'`]\s*\)/g),
     };
   };
   const workerClosure = (file: string, into = new Set<string>()) => {
