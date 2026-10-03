@@ -246,7 +246,14 @@ it("a verified location move changes routing and file admission while old-direct
       data: { sessionID: root, assistantMessageID: "foreign", ordinal: 0 },
     },
   ]);
+  await h.publish(
+    "permission.asked",
+    { id: "moved-ask", action: "edit", resources: ["x"] },
+    "/new",
+  );
+  await h.control("/test/events", [{ type: "location.shutdown", directory: "/one", data: {} }]);
   await h.publish("session.execution.started", {}, "/new");
+  expect(Object.values(h.projection.view.interactions)[0]?.state).toBe("pending");
   expect(
     Object.values(h.projection.view.items).some((item) => JSON.stringify(item).includes("foreign")),
   ).toBe(false);
@@ -261,6 +268,7 @@ it("concurrent steer and queue wait for HTTP admission without rejecting or dupl
     (f) => f.channel === "sse" && object(f.data).type === "session.inbox.enqueued",
     from,
   );
+  expect(h.projection.queueCount()).toBe(1);
   const second = h.session.send([{ type: "text", text: "second" }], "steer", "command-second");
   expect(
     array(await h.control("/test/requests"))
@@ -270,6 +278,7 @@ it("concurrent steer and queue wait for HTTP admission without rejecting or dupl
   ).toEqual(["first"]);
   await h.control("/test/release-prompt", {});
   await Promise.all([first, second]);
+  expect(h.projection.queueCount()).toBe(2);
   expect(
     array(await h.control("/test/requests"))
       .map(object)
@@ -280,8 +289,12 @@ it("concurrent steer and queue wait for HTTP admission without rejecting or dupl
     threadId: ThreadId.parse("thread_v2"),
     rootKey: "root",
   });
-  const admitted = h.frames
-    .flatMap((frame) => translator.translate(frame, frame.t))
-    .filter((fact) => fact.type === "input.admitted");
+  const facts = h.frames.flatMap((frame) => translator.translate(frame, frame.t));
+  const admitted = facts.filter((fact) => fact.type === "input.admitted");
+  const counts = facts.flatMap((fact) =>
+    fact.type === "queue.changed" && fact.source === "provider" ? [fact.count] : [],
+  );
+  expect(counts.at(-1)).toBe(2);
+  expect(Math.max(...counts)).toBe(2);
   expect(admitted.map((fact) => fact.commandId)).toEqual(["command-first", "command-second"]);
 });

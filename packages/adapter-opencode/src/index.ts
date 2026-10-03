@@ -3,7 +3,8 @@ import type { ThreadId } from "@ace/protocol";
 import type { SessionContext, ProviderAdapter } from "@ace/engine-api";
 import { capabilities } from "./capabilities.ts";
 export { capabilities } from "./capabilities.ts";
-import { OpenCodeServer, type ServerOptions } from "./server.ts";
+import { type ServerOptions } from "./server.ts";
+import { ServerPool } from "./server-pool.ts";
 import { OpenCodeSession } from "./session.ts";
 import { OpenCodeTranslator } from "./translator.ts";
 export { OpenCodeTranslator } from "./translator.ts";
@@ -13,29 +14,26 @@ export { OpenCodeServer } from "./server.ts";
 export function createOpenCodeAdapter(
   options: ServerOptions = {},
 ): ProviderAdapter & { close(): Promise<void> } {
-  const server = new OpenCodeServer(options);
-  const instances = new Set<OpenCodeServer>();
+  const pool = new ServerPool(options);
   return {
     provider: "opencode" as const,
     capabilities,
     createTranslator: (init: { threadId: ThreadId; rootKey: Key }) => new OpenCodeTranslator(init),
     async openSession(ctx: SessionContext) {
-      if (!ctx.env) return OpenCodeSession.open(ctx, server);
-      if (instances.size >= 128) throw new Error("OpenCode instance limit reached");
-      const isolated = new OpenCodeServer({
-        ...options,
-        discovery: { ...options.discovery, env: ctx.env },
-      });
-      const onAbort = () => {
-        instances.delete(isolated);
-        void isolated.close();
-      };
-      instances.add(isolated);
-      ctx.signal.addEventListener("abort", onAbort, { once: true });
+      const lease = await pool.acquire(ctx);
       try {
-        const session = await OpenCodeSession.open(ctx, isolated);
+        pool.assertOpen();
+        const session = await OpenCodeSession.open(
+          {
+            ...ctx,
+            onExit: (exit) => {
+              lease.release();
+              ctx.onExit(exit);
+            },
+          },
+          lease.server,
+        );
         return {
-          ...session,
           ...(ctx.instanceId === undefined ? {} : { instanceId: ctx.instanceId }),
           get nativeSessionId() {
             return session.nativeSessionId;
@@ -44,24 +42,15 @@ export function createOpenCodeAdapter(
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
           stopTask: (task) => session.stopTask(task),
-          async close(reason) {
-            await session.close(reason);
-            ctx.signal.removeEventListener("abort", onAbort);
-            instances.delete(isolated);
-            await isolated.close();
-          },
+          close: (reason) => session.close(reason),
         };
       } catch (error) {
-        ctx.signal.removeEventListener("abort", onAbort);
-        instances.delete(isolated);
-        await isolated.close();
+        lease.release();
+        await lease.server.release();
         throw error;
       }
     },
-    async close() {
-      await Promise.all([server.close(), ...[...instances].map((instance) => instance.close())]);
-      instances.clear();
-    },
+    close: () => pool.close(),
   };
 }
 export const opencodeAdapter = createOpenCodeAdapter();
