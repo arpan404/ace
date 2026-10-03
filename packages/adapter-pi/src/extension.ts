@@ -85,6 +85,7 @@ export default async function aceExtension(
       try {
         await ctx.waitForIdle();
         const result = await ctx.navigateTree(id, { summarize: false });
+        if (!result.cancelled) pi.appendEntry("ace-navigation", { targetId: id });
         ctx.ui.notify(
           JSON.stringify({ type: "ace_rollback", id: requestId, success: !result.cancelled }),
           "info",

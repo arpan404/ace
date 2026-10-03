@@ -1,5 +1,6 @@
 /** Structural subset of the version-pinned public Pi extension API. No provider internals. */
 export interface PiExtensionApi {
+  appendEntry(customType: string, data: unknown): void;
   registerCommand(
     name: string,
     command: {

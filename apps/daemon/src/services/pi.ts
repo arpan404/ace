@@ -1,4 +1,10 @@
-import { createPiAdapter, piProfile, type PiOptions, type PiSession } from "@ace/adapter-pi";
+import {
+  createPiAdapter,
+  piProfile,
+  piHistoryErrorMessage,
+  type PiOptions,
+  type PiSession,
+} from "@ace/adapter-pi";
 import { discoverPi, type DiscoveryResult } from "@ace/provider-kit/discovery";
 import { AgentId, PiControlRequest, type PiControlResult, type ThreadId } from "@ace/protocol";
 import type { AdapterRegistry } from "../engine/registry.ts";
@@ -108,10 +114,10 @@ export async function startPi(context: ServiceContext): Promise<void> {
           return result({ ok: true, ...(await session.fork(request.operation.entryId)) });
         await session.rollback(request.operation.entryId);
         return result({ ok: true });
-      } catch {
+      } catch (error) {
         return result({
           ok: false,
-          error: "Pi native history operation failed; inspect thread notices",
+          error: piHistoryErrorMessage(error),
         });
       }
     },

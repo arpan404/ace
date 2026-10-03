@@ -9,7 +9,7 @@ const text = (value: string) => [{ type: "text" as const, text: value }];
 test("explicit native resume reloads the saved session before any prompt", async () => {
   const h = await sessionHarness({}, true);
   try {
-    expect(h.session.nativeSessionId).toBe("/synthetic/resumed.jsonl");
+    expect(h.session.nativeSessionFile).toBe(h.resumedPath);
     expect(h.frames.filter((f) => f.dir === "send" && obj(f.data).type === "prompt")).toEqual([]);
   } finally {
     await h.dispose();
@@ -99,13 +99,13 @@ test("native fork creates a resumable reference and preserves the source session
   const h = await sessionHarness();
   try {
     const result = await h.session.fork();
-    expect(result.nativeSessionId).toBe("/synthetic/fork.jsonl");
-    expect(h.session.nativeSessionId).toBe("/synthetic/source.jsonl");
+    expect(result.nativeSessionId).not.toBe(h.session.nativeSessionId);
+    expect(h.session.nativeSessionFile).toBe(h.sourcePath);
     await h.session.send(text("proof"), "queue");
     const states = h.frames.filter(
       (f) => received("response")(f) && obj(f.data).command === "get_state",
     );
-    expect(obj(obj(states.at(-1)?.data).data).sessionFile).toBe("/synthetic/source.jsonl");
+    expect(obj(obj(states.at(-1)?.data).data).sessionFile).toBe(h.sourcePath);
   } finally {
     await h.dispose();
   }
@@ -120,11 +120,25 @@ test("cancelled native fork fails without submitting the selected prompt", async
   }
 });
 test("native rollback requires an extension acknowledgement and redacts its control secret", async () => {
-  const h = await sessionHarness();
+  const secret = "a".repeat(64);
+  let next = 0;
+  const h = await sessionHarness({
+    runtime: { secret: () => (next++ === 0 ? secret : "c".repeat(64)) },
+  });
   try {
     await h.session.rollback("entry");
-    expect(h.session.nativeSessionId).toBe("/synthetic/source.jsonl");
-    expect(JSON.stringify(h.frames)).not.toContain("a".repeat(64));
+    expect(h.session.nativeSessionFile).toBe(h.sourcePath);
+    await h.wait(
+      (frame) =>
+        frame.dir === "stderr" &&
+        typeof frame.data === "string" &&
+        frame.data.includes("<ACE_CONTROL>"),
+    );
+    for (const dir of ["send", "recv", "stderr"]) {
+      const encoded = JSON.stringify(h.frames.filter((frame) => frame.dir === dir));
+      expect(encoded).not.toContain(secret);
+      expect(encoded).toContain("<ACE_CONTROL>");
+    }
     expect(h.frames.some((f) => received("agent_start")(f))).toBe(false);
   } finally {
     await h.dispose();

@@ -36,3 +36,4 @@ export default adapter;
 
 export { default as registerAcePiExtension } from "./extension.ts";
 export type { PiExtensionApi } from "./extension-api.ts";
+export { piHistoryErrorMessage } from "./history-errors.ts";

@@ -1,11 +1,14 @@
 /** Synthetic documented RPC peer. This executable never imports or starts Pi. */
 import { createInterface } from "node:readline";
-import { copyFileSync, realpathSync } from "node:fs";
+import { realpathSync } from "node:fs";
+import { NativeHistory } from "./native-history.ts";
+import { registerAcePiExtension, type PiExtensionApi } from "../index.ts";
 import { join } from "node:path";
 import { z } from "zod";
 const Command = z.looseObject({ type: z.string(), id: z.string().optional() });
-let session = "/synthetic/source.jsonl",
-  queue = false,
+const history = new NativeHistory();
+if (process.env.FAKE_PI_HOME) history.load(join(process.env.FAKE_PI_HOME, "source.jsonl"));
+let queue = false,
   inputDelivered = false;
 const extension = process.argv[process.argv.indexOf("-e") + 1] ?? "";
 function emit(data: unknown) {
@@ -13,8 +16,25 @@ function emit(data: unknown) {
 }
 const reply = (c: z.infer<typeof Command>, data: unknown = {}) =>
   emit({ type: "response", id: c.id, command: c.type, success: true, data });
+const commands = new Map<string, Parameters<PiExtensionApi["registerCommand"]>[1]>();
+await registerAcePiExtension(
+  {
+    registerCommand(name, command) {
+      commands.set(name, command);
+    },
+    appendEntry(customType, data) {
+      emit({ type: "entry_appended", entry: history.append(customType, data) });
+    },
+    registerTool() {},
+    on() {},
+  },
+  { ACE_PI_CONTROL_SECRET: process.env.ACE_PI_CONTROL_SECRET },
+);
 const input = createInterface({ input: process.stdin });
 input.on("line", (line) => {
+  void handle(line);
+});
+async function handle(line: string) {
   const c = Command.parse(JSON.parse(line));
   switch (c.type) {
     case "get_commands":
@@ -26,8 +46,8 @@ input.on("line", (line) => {
       return;
     case "get_state":
       reply(c, {
-        sessionFile: session,
-        sessionId: "native",
+        sessionFile: history.path,
+        sessionId: process.env.FAKE_PI_WRONG_ID ? "wrong-native-id" : history.id,
         isStreaming: false,
         isCompacting: false,
         pendingMessageCount: queue ? 1 : 0,
@@ -38,7 +58,7 @@ input.on("line", (line) => {
         reply(c, { cancelled: true });
         return;
       }
-      session = typeof c.sessionPath === "string" ? c.sessionPath : session;
+      if (typeof c.sessionPath === "string") history.load(c.sessionPath);
       reply(c, { cancelled: false });
       return;
     case "clone":
@@ -60,11 +80,10 @@ input.on("line", (line) => {
         reply(c, { cancelled: true });
         return;
       }
-      if (process.env.FAKE_PI_COLD_CWD) {
-        const target = join(process.env.FAKE_PI_COLD_CWD, "fork.jsonl");
-        copyFileSync(session, target);
-        session = target;
-      } else session = "/synthetic/fork.jsonl";
+      history.clone(
+        join(process.env.FAKE_PI_HOME ?? process.env.FAKE_PI_COLD_CWD ?? history.cwd, "fork.jsonl"),
+        typeof c.entryId === "string" ? c.entryId : undefined,
+      );
       reply(c, { cancelled: false, text: "original prompt" });
       return;
     case "clear_queue":
@@ -96,18 +115,34 @@ input.on("line", (line) => {
       inputDelivered = true;
       const message = typeof c.message === "string" ? c.message : "";
       if (message.startsWith("/ace-rollback ")) {
-        const parts = message.split(" ");
-        if (!process.env.FAKE_PI_MISSING_ACK)
-          emit({
-            type: "extension_ui_request",
-            id: "rollback-result",
-            method: "notify",
-            message: JSON.stringify({
-              type: "ace_rollback",
-              id: parts[3],
-              success: !process.env.FAKE_PI_CANCEL_ROLLBACK,
-            }),
-          });
+        emit({
+          type: "extension_ui_request",
+          id: "control-echo",
+          method: "notify",
+          message: process.env.ACE_PI_CONTROL_SECRET,
+        });
+        process.stderr.write(`control=${process.env.ACE_PI_CONTROL_SECRET}\n`);
+        const command = commands.get("ace-rollback");
+        if (!command) throw new Error("Missing synthetic control command");
+        await command.handler(message.slice("/ace-rollback ".length), {
+          async waitForIdle() {},
+          async navigateTree(id) {
+            if (process.env.FAKE_PI_CANCEL_ROLLBACK) return { cancelled: true };
+            history.navigate(id);
+            return { cancelled: false };
+          },
+          ui: {
+            notify(notification) {
+              if (!process.env.FAKE_PI_MISSING_ACK)
+                emit({
+                  type: "extension_ui_request",
+                  id: "rollback-result",
+                  method: "notify",
+                  message: notification,
+                });
+            },
+          },
+        });
         reply(c);
         return;
       }
@@ -182,6 +217,7 @@ input.on("line", (line) => {
             content: [{ type: "text", text: responseText }],
             stopReason: "stop",
             usage: { input: 5, output: 3 },
+            contextProof: message === "context-proof" ? history.context() : undefined,
           },
         });
       }
@@ -200,4 +236,4 @@ input.on("line", (line) => {
         error: "Unknown synthetic command",
       });
   }
-});
+}

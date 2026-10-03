@@ -11,7 +11,14 @@ import { Dialog, State, Cancelled, obj, str, list, isBlockingDialogMethod } from
 import { piPermissionArgs, piProfile } from "./capabilities.ts";
 import { piInput } from "./input.ts";
 import { dialogResponse } from "./dialogs.ts";
+import {
+  checkedSessionReference,
+  encodeSessionReference,
+  type SessionReference,
+} from "./session-header.ts";
+import { PiHistoryError } from "./history-errors.ts";
 export interface PiSession extends ProviderSession {
+  readonly nativeSessionFile: string;
   fork(entryId?: string): Promise<{ nativeSessionId: string }>;
   rollback(entryId: string): Promise<void>;
 }
@@ -31,6 +38,7 @@ export async function openPiSession(
   options: PiOptions = {},
 ): Promise<PiSession> {
   ctx.signal.throwIfAborted();
+  const resume = ctx.resume ? await checkedSessionReference(ctx.resume.nativeSessionId) : undefined;
   const io = { ...runtime, ...options.runtime };
   const cli =
     options.cli ??
@@ -83,6 +91,7 @@ export async function openPiSession(
   const started = io.now();
   let seq = 0,
     nativeId = "",
+    nativeFile = "",
     closed = false,
     deliberate = false,
     control = false;
@@ -212,20 +221,27 @@ export async function openPiSession(
   const idle = async () => {
     const state = State.parse(await rpc.request("get_state"));
     if (state.isStreaming || state.isCompacting || state.pendingMessageCount || dialogs.size)
-      throw new Error("Pi history controls require an idle session");
+      throw new PiHistoryError("idle");
     return state;
   };
-  async function restore(path: string): Promise<void> {
-    const result = Cancelled.parse(await rpc.request("switch_session", { sessionPath: path }));
-    if (result.cancelled) throw new Error("Pi extension cancelled session switch");
+  async function restore(reference: SessionReference): Promise<void> {
+    await checkedSessionReference(encodeSessionReference(reference));
+    const result = Cancelled.parse(
+      await rpc.request("switch_session", { sessionPath: reference.path }),
+    );
+    if (result.cancelled) throw new PiHistoryError("cancelledSwitch");
     const state = State.parse(await rpc.request("get_state"));
-    if (state.sessionFile !== path) throw new Error("Pi restored a different session");
+    if (state.sessionFile !== reference.path || state.sessionId !== reference.id)
+      throw new PiHistoryError("identity");
+    await checkedSessionReference(encodeSessionReference(reference));
   }
   try {
     note({ type: "started", processId: io.processKey() });
     await verifyExtension();
-    if (ctx.resume) await restore(ctx.resume.nativeSessionId);
-    nativeId = State.parse(await rpc.request("get_state")).sessionFile;
+    if (resume) await restore(resume);
+    const state = State.parse(await rpc.request("get_state"));
+    nativeFile = state.sessionFile;
+    nativeId = encodeSessionReference({ path: state.sessionFile, id: state.sessionId });
     ctx.signal.throwIfAborted();
   } catch (error) {
     await close("shutdown", false);
@@ -235,6 +251,9 @@ export async function openPiSession(
     ...(ctx.instanceId ? { instanceId: ctx.instanceId } : {}),
     get nativeSessionId() {
       return nativeId;
+    },
+    get nativeSessionFile() {
+      return nativeFile;
     },
     async send(input: ContentPart[], delivery: "steer" | "queue") {
       check();
@@ -274,24 +293,28 @@ export async function openPiSession(
       control = true;
       try {
         const source = await idle();
+        const sourceRef = { path: source.sessionFile, id: source.sessionId };
+        await checkedSessionReference(encodeSessionReference(sourceRef));
         const result = Cancelled.parse(
           await rpc.request(entryId ? "fork" : "clone", entryId ? { entryId } : {}),
         );
-        if (result.cancelled) throw new Error("Pi extension cancelled fork");
+        if (result.cancelled) throw new PiHistoryError("cancelledFork");
         let fork: string;
         try {
-          fork = State.parse(await rpc.request("get_state")).sessionFile;
+          const state = State.parse(await rpc.request("get_state"));
+          fork = encodeSessionReference({ path: state.sessionFile, id: state.sessionId });
+          await checkedSessionReference(fork);
         } catch (error) {
           await close("shutdown", false);
           throw error;
         }
         try {
-          await restore(source.sessionFile);
+          await restore(sourceRef);
         } catch (error) {
           await close("shutdown", false);
           throw error;
         }
-        if (fork === source.sessionFile) throw new Error("Pi fork did not create a new session");
+        if (fork === encodeSessionReference(sourceRef)) throw new PiHistoryError("fork");
         return { nativeSessionId: fork };
       } finally {
         control = false;
@@ -299,19 +322,20 @@ export async function openPiSession(
     },
     async rollback(entryId) {
       check();
-      if (!/^[-a-zA-Z0-9_]{1,128}$/.test(entryId)) throw new Error("Invalid Pi entry id");
+      if (!/^[-a-zA-Z0-9_]{1,128}$/.test(entryId)) throw new PiHistoryError("entry");
       control = true;
       try {
         await idle();
+        await checkedSessionReference(nativeId);
         await verifyExtension();
         const id = io.secret();
         rollbackAck = { id, success: undefined };
         await rpc.request("prompt", { message: `/ace-rollback ${controlSecret} ${entryId} ${id}` });
-        if (rollbackAck.success !== true) throw new Error("Pi navigation was not acknowledged");
+        if (rollbackAck.success !== true) throw new PiHistoryError("acknowledgement");
         const state = State.parse(await rpc.request("get_state"));
-        if (state.sessionFile !== nativeId) {
+        if (encodeSessionReference({ path: state.sessionFile, id: state.sessionId }) !== nativeId) {
           await close("shutdown", false);
-          throw new Error("Pi navigation changed the session identity");
+          throw new PiHistoryError("identity");
         }
       } finally {
         rollbackAck = undefined;

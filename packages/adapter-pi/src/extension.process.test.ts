@@ -45,6 +45,7 @@ test("Pi extension forwards scoped tools, structured results and MCP errors acro
   const tools = new Map<string, Parameters<PiExtensionApi["registerTool"]>[0]>(),
     hooks = new Map<string, unknown>();
   const pi: PiExtensionApi = {
+    appendEntry() {},
     registerCommand() {},
     registerTool(tool) {
       tools.set(tool.name, tool);
