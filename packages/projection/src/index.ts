@@ -1,4 +1,12 @@
 import { usageSnapshotKey } from "./usage.ts";
+export {
+  emptyTurnDigest,
+  itemMessagePreview,
+  itemDigestContribution,
+  agentThreadStatus,
+  turnIsSettled,
+} from "./long-thread.ts";
+export type { DigestContribution } from "./long-thread.ts";
 export { usageSnapshotKey } from "./usage.ts";
 import { applyDelta } from "./delta.ts";
 export {
@@ -258,6 +266,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
         interaction.closedAt = p.closedAt;
         if (p.resolution !== undefined) interaction.resolution = structuredCopy(p.resolution);
         if (p.resolvedBy !== undefined) interaction.resolvedBy = p.resolvedBy;
+        if (p.autoReviewed !== undefined) interaction.autoReviewed = p.autoReviewed;
       }
       break;
     }
@@ -338,3 +347,4 @@ export {
 export type { SettlePolicy } from "./organization.ts";
 
 export { liveMetadata, boundedLiveModel } from "./live-metadata.ts";
+export { digestFromCounters, digestContributions, mergeTurnDigests } from "./long-thread-merge.ts";

@@ -1,3 +1,15 @@
+import {
+  TurnsPageRequest,
+  TurnsPageResponse,
+  ItemsWindowRequest,
+  ItemsWindowResponse,
+  ThreadSearchRequest,
+  ThreadSearchResponse,
+  ThreadCatchUpRequest,
+  ThreadCatchUpResponse,
+  ThreadReadStateRequest,
+  ThreadReadStateResponse,
+} from "./long-thread.ts";
 import { MachinesRequest, MachinesResult } from "./machines.ts";
 import { PreviewRequest, PreviewResult } from "./preview-client.ts";
 import { ConductorRequest, ConductorResult, ConductorChanged } from "./conductor-client.ts";
@@ -171,6 +183,11 @@ export const ItemsPage = z.object({
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  TurnsPageRequest,
+  ItemsWindowRequest,
+  ThreadSearchRequest,
+  ThreadCatchUpRequest,
+  ThreadReadStateRequest,
   MachinesRequest,
   PreviewRequest,
   ConductorRequest,
@@ -272,6 +289,11 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  TurnsPageResponse,
+  ItemsWindowResponse,
+  ThreadSearchResponse,
+  ThreadCatchUpResponse,
+  ThreadReadStateResponse,
   MachinesResult,
   PreviewResult,
   ConductorResult,

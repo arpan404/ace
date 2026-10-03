@@ -113,6 +113,8 @@ export const EventPayload = z.discriminatedUnion("type", [
     state: InteractionState.exclude(["pending"]),
     resolution: InteractionResolution.optional(),
     resolvedBy: DeviceId.optional(),
+    /** Explicit canonical automatic review fact; absence means unknown. */
+    autoReviewed: z.boolean().optional(),
     closedAt: Timestamp,
   }),
   z.object({ type: z.literal("background_task.started"), task: BackgroundTask }),

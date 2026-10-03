@@ -1,3 +1,4 @@
+import { ThreadMarkReadCommand } from "./long-thread.ts";
 import { WorkspaceCommands } from "./workspace-actions.ts";
 import { ForgeCommand } from "./forge.ts";
 import { ThreadOrganizationCommands, TurnOptions } from "./thread-client.ts";
@@ -36,6 +37,7 @@ export type ThreadCreateOptions = z.infer<typeof ThreadCreateOptions>;
 
 export const CommandPayload = z.discriminatedUnion("type", [
   ThreadPrepareCommand,
+  ThreadMarkReadCommand,
   ...QueueCommands,
   ...TransitionCommands,
   DiagnosticsHealthCommand,
