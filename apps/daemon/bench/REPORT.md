@@ -2,32 +2,32 @@
 
 Measured on this Mac, Darwin arm64, with real daemon services, real SQLite and WebSocket delivery. Providers are in-process scripts and receive no native CLI prompts. The empty home excludes real provider history and process RSS. These are individual observations on a shared machine, with observer overhead. They are not statistical latency guarantees.
 
-The matched comparison is source `origin/main` at `c270841c`, including #82 and #83, against the production bundle at `93823697`. Both use Node 26.8.1, 60 seconds idle, 16 active scripted sessions, 1,000 deltas and a three-minute soak with fresh thread identities. Raw data is in [deck-main-baseline.json.gz](deck-main-baseline.json.gz) and [watch-pool-after.json.gz](watch-pool-after.json.gz). Benchmark-only changes after that build improve collection, labels, deadlines and gate reporting.
+The matched comparison is source `origin/main` at `c270841c`, including #82 and #83, against the production bundle at `93823697`. Both use Node 26.8.1, 60 seconds idle, 16 active scripted sessions, 1,000 deltas and a three-minute soak with fresh thread identities. Raw data is in [deck-main-baseline.json.gz](deck-main-baseline.json.gz) and [watch-pool-after.json.gz](watch-pool-after.json.gz). Benchmark-only changes after that build improve collection, labels, deadlines and gate reporting. The third column repeats the same Node/runtime/workload after merging #86 and repairing the failures, using backend revision `cd263102`; its raw series is [merge-fixes-after.json.gz](merge-fixes-after.json.gz).
 
-| Metric                                    |                                   Main before | Compiled daemon after |
-| ----------------------------------------- | --------------------------------------------: | --------------------: |
-| Endpoint publication                      |                                    1146.83 ms |             927.83 ms |
-| Idle at 10 s RSS                          |                                    524.36 MiB |            218.64 MiB |
-| Idle at 10 s main heap                    |                                    108.71 MiB |             44.67 MiB |
-| Idle at 10 s main external                |                                     15.91 MiB |              7.57 MiB |
-| Idle at 10 s OS threads                   |                                         20.00 |                 14.00 |
-| Idle at 10 s recent worker telemetry      |                                          6.00 |                  1.00 |
-| Idle at 10 s worker heaps, MiB            | 14.50 / 22.43 / 32.46 / 24.26 / 23.09 / 23.42 |                  8.70 |
-| Idle at 60 s RSS                          |                                    526.31 MiB |            197.31 MiB |
-| Idle at 60 s main heap                    |                                    110.51 MiB |             46.10 MiB |
-| Idle at 60 s main external                |                                     15.91 MiB |              7.57 MiB |
-| Idle at 60 s OS threads                   |                                         20.00 |                 15.00 |
-| Idle at 60 s recent worker telemetry      |                                          6.00 |                  2.00 |
-| Idle at 60 s worker heaps, MiB            | 13.99 / 22.85 / 32.88 / 24.68 / 23.61 / 24.56 |           9.83 / 6.37 |
-| RSS with 16 active scripted sessions      |                                    542.45 MiB |            252.34 MiB |
-| Active OS threads                         |                                         21.00 |                 15.00 |
-| WebSocket ingest                          |                               932.76 events/s |      1019.20 events/s |
-| WebSocket p99                             |                                       3.47 ms |               2.61 ms |
-| Observed idle CPU                         |                             0.83% of one core |     0.43% of one core |
-| Shutdown                                  |                                     202.68 ms |             156.63 ms |
-| Three-minute retained main heap change    |                                     -1.29 MiB |             -1.57 MiB |
-| Three-minute retained RSS change, main GC |                                    181.73 MiB |             59.36 MiB |
-| Three-minute peak RSS                     |                                    804.50 MiB |            370.17 MiB |
+| Metric                                    |                                   Main before | Compiled daemon after | After #86 merge repairs |
+| ----------------------------------------- | --------------------------------------------: | --------------------: | ----------------------: |
+| Endpoint publication                      |                                    1146.83 ms |             927.83 ms |               848.29 ms |
+| Idle at 10 s RSS                          |                                    524.36 MiB |            218.64 MiB |              219.52 MiB |
+| Idle at 10 s main heap                    |                                    108.71 MiB |             44.67 MiB |               41.28 MiB |
+| Idle at 10 s main external                |                                     15.91 MiB |              7.57 MiB |                7.57 MiB |
+| Idle at 10 s OS threads                   |                                         20.00 |                 14.00 |                      14 |
+| Idle at 10 s recent worker telemetry      |                                          6.00 |                  1.00 |                       1 |
+| Idle at 10 s worker heaps, MiB            | 14.50 / 22.43 / 32.46 / 24.26 / 23.09 / 23.42 |                  8.70 |                    8.71 |
+| Idle at 60 s RSS                          |                                    526.31 MiB |            197.31 MiB |              219.92 MiB |
+| Idle at 60 s main heap                    |                                    110.51 MiB |             46.10 MiB |               42.66 MiB |
+| Idle at 60 s main external                |                                     15.91 MiB |              7.57 MiB |                7.57 MiB |
+| Idle at 60 s OS threads                   |                                         20.00 |                 15.00 |                      15 |
+| Idle at 60 s recent worker telemetry      |                                          6.00 |                  2.00 |                       2 |
+| Idle at 60 s worker heaps, MiB            | 13.99 / 22.85 / 32.88 / 24.68 / 23.61 / 24.56 |           9.83 / 6.37 |             9.85 / 6.38 |
+| RSS with 16 active scripted sessions      |                                    542.45 MiB |            252.34 MiB |              247.53 MiB |
+| Active OS threads                         |                                         21.00 |                 15.00 |                      15 |
+| WebSocket ingest                          |                               932.76 events/s |      1019.20 events/s |        1233.35 events/s |
+| WebSocket p99                             |                                       3.47 ms |               2.61 ms |                 2.63 ms |
+| Observed idle CPU                         |                             0.83% of one core |     0.43% of one core |       0.34% of one core |
+| Shutdown                                  |                                     202.68 ms |             156.63 ms |               139.32 ms |
+| Three-minute retained main heap change    |                                     -1.29 MiB |             -1.57 MiB |               -1.53 MiB |
+| Three-minute retained RSS change, main GC |                                    181.73 MiB |             59.36 MiB |               66.91 MiB |
+| Three-minute peak RSS                     |                                    804.50 MiB |            370.17 MiB |              372.45 MiB |
 
 Main GC collects only the main isolate in the matched comparison. Worker GC and allocator pages still affect RSS. A recent telemetry file can remain visible for 1.5 seconds after retirement, so the worker rows count recently observed isolates. OS thread counts are independent. Idle CPU includes the half-second telemetry writer.
 
@@ -36,6 +36,18 @@ The before soak closed 5,840 fresh sessions and the after soak closed 6,112. Mai
 The longer [long-after.json.gz](long-after.json.gz) run warms 1,024 fresh threads and then closes another 6,848 in five minutes. It collects every live isolate at both boundaries. Retained RSS changes from 246.23 to 238.84 MiB and main heap from 40.72 to 41.57 MiB. The mean RSS in the final quarter is 16.34 MiB below the preceding quarter. Worker heaps return to about 9 MiB each near the end. This supports bounded memory for this scripted workload, including fresh cache identities; it does not measure native provider processes.
 
 The pinned release runtime, Node 24.13.0, is measured separately in [release-node24.json.gz](release-node24.json.gz). It records startup 1,091.12 ms; idle 10/60 s RSS 224.56/196.63 MiB, main heap 53.50/55.30 MiB and external 3.76/3.76 MiB; OS threads 14/15; recent worker heaps 8.52 and 9.93/5.74 MiB; 16-session RSS 259.91 MiB; 442.10 events/s with p99 23.82 ms; idle CPU 0.62%; shutdown 213.07 ms. Its one-minute fresh-thread soak changes collected RSS by +24.39 MiB and main heap by -1.01 MiB. This run was slower under shared-host load. It provides the lower observed throughput used for the 300 events/s gate, rather than mixing runtime changes into the headline improvement.
+
+## Merge-time failure repairs and repeat
+
+The five authorized failing files now pass all 34 tests together. Typecheck, lint and scoped formatting pass. Socket output uses one `maxQueuedBytes` capacity across events, snapshots, settings and controls, including queued bytes still waiting to flush. `hardLimit` remains a sustained-pressure threshold. #86's single input admission owner, pause/resume behavior, pre-auth listener/address limits, hello deadline, Origin check and correlated command errors are preserved.
+
+OpenCode retains its process lease when idle close rejects unsettled work. History subscribers receive already pending invalidations; authoritative scans consume prior changes before scanning; overflow drops the unusable path batch and requires full verification. Watch/timer injection makes overflow and real worker retirement deterministic. Late progress callbacks stop sending after shutdown. The [merge verification record](../../../docs/testing/daemon-performance.md) distinguishes executed files from remaining tests and unexecuted mutations.
+
+The repeat closes 6,432 fresh sessions after 256 warm-up sessions. Its main-only GC boundaries change retained RSS by +66.91 MiB and main heap by -1.53 MiB, while peak RSS is 372.45 MiB. The final-quarter mean RSS is only 3.90 MiB above the preceding quarter, compared with 3.61 MiB in the original after run. Worker heaps and allocator warm-up still affect the main-only collected RSS. The seven-second fast gate collects all isolates; the historical five-minute all-isolate run above remains labelled as the pre-merge observation. Idle RSS varies from the original 197.31 to 219.92 MiB; both remain well below the 526.31 MiB baseline and above the unresolved 150 MiB aim.
+
+The [post-merge short gate](gate-merge-fixes.json) passes every budget: startup 2,063.94 ms, idle RSS 218.64 MiB, ingest 1,300.59 events/s, p99 2.03 ms, all-isolate retained RSS growth 9.84 MiB and main heap change -2.43 MiB.
+
+The native 5,000-file [history repeat](history-merge-fixes.json) records cold 813.70 ms, settled unchanged 0.39 ms/zero files, one append 5.48 ms/one file and restart 256.56 ms/5,000 metadata visits with no transcript reads. Query plans remain indexed. This confirms the live-scan complexity improvement after the repairs, while restart verification remains O(files).
 
 ## What changed
 
@@ -124,7 +136,7 @@ Restart cost remains O(files). Directory mtimes cannot prove that existing trans
 
 The 150 MiB idle aim remains unmet. The Node 26 gate passes with 994.25 events/s, p99 2.42 ms, startup 812.65 ms, idle RSS 218.72 MiB and retained RSS growth 4.19 MiB. Its observed throughput also exceeds the earlier stricter 500 events/s limit. The pinned Node 24 gate passes with 1,161.66 events/s, p99 2.33 ms, startup 805.79 ms, idle RSS 223.33 MiB and retained RSS change -5.91 MiB. Raw short-gate data is in [gate-node26.json](gate-node26.json) and [gate-node24.json](gate-node24.json). Gate headroom comes from the measured release and local runtimes, and needs CI calibration at merge. Startup/filesystem and throughput measurements depend on host load. The first short gate with 16 warm-up cycles hit its 35-second measurement timeout; the gate now uses eight cycles and reports phases. Signal cleanup also handles child termination without waiting for an already emitted exit.
 
-No tests, repository `check`, web benchmarks, Docker harnesses, mutation runs or provider prompts were executed. Behaviour tests are written and statically reviewed. [Merge verification and mutation cases](../../../docs/testing/daemon-performance.md) marks every test case as not executed, tests run at merge. Permitted static checks are recorded in the PR. Packaged helper execution, cross-platform watch overflow/error recovery and CI budget calibration need run at merge.
+The initial performance work ran no tests. After the merge-time failure, the owner authorized five named process-test files; all 34 tests in those files now pass. No other test files, repository `check`, web benchmarks, Docker harnesses, mutation runs or provider prompts were executed. Remaining behaviour tests are written and statically reviewed. [Merge verification and mutation cases](../../../docs/testing/daemon-performance.md) distinguishes the five executed files from remaining tests and unexecuted mutation cases. Permitted static checks are recorded in the PR. Packaged helper execution, cross-platform watch overflow/error recovery and CI budget calibration need run at merge.
 
 ## UI follow-up for the Claude web agent
 
