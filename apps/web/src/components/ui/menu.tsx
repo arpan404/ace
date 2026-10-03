@@ -1,6 +1,6 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import { CaretRightIcon, CheckIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
 import { formatKeys } from "@/lib/keymap.ts";
 import {

@@ -2,7 +2,7 @@ import type { ThreadKey, ThreadReader } from "@ace/client";
 import { useAgent, useItem, useTaskIds, useThread, useThreadMeta } from "@ace/client-react";
 import type { BackgroundTask } from "@ace/protocol";
 import { TerminalWindowIcon, XIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";

@@ -2,7 +2,7 @@ import type { ThreadReader } from "@ace/client";
 import { arrayEqual, useAgent, useThread } from "@ace/client-react";
 import type { Agent } from "@ace/protocol";
 import { CheckIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useCallback, type CSSProperties } from "react";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";

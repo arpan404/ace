@@ -1,5 +1,5 @@
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import type { ReactElement, ReactNode } from "react";
 import { keymap, type KeymapId } from "@/lib/keymap.ts";
 import { Kbd } from "./kbd.tsx";

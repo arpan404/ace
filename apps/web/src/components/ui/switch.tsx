@@ -1,5 +1,5 @@
 import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 
 /** 34×20 track, accent when on, white thumb on the spring curve. */
 function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {

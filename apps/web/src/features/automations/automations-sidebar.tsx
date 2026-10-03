@@ -10,7 +10,7 @@ import {
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
 import { Link, useParams } from "@tanstack/react-router";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";

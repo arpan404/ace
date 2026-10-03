@@ -1,6 +1,6 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { GearSixIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { Icon } from "@/components/icon.tsx";
 import { CountBadge } from "@/components/ui/dot.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";

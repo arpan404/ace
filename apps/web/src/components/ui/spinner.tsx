@@ -1,4 +1,4 @@
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 
 /** 11px ring, 1s linear. Grey by default; status colour only where status words are allowed. */
 function Spinner({ className, label }: { className?: string; label?: string }) {

@@ -1,6 +1,5 @@
 import type { Interaction, InteractionRequest } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
-import { inkLabel } from "@/components/ui/ink-label.ts";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { questionOptions } from "./approval.ts";
@@ -130,7 +129,7 @@ export function PlanBody(props: { interaction: Interaction; cardKey: string }) {
           Request changes
           <ButtonKey>D</ButtonKey>
         </Button>
-        <Button variant="primary" className={inkLabel} disabled={sending} onClick={approve}>
+        <Button variant="primary" disabled={sending} onClick={approve}>
           Approve plan
           <ButtonKey primary>A</ButtonKey>
         </Button>

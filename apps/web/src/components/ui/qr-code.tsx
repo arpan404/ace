@@ -1,5 +1,5 @@
 import createQr from "qrcode-generator";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useMemo } from "react";
 
 /**

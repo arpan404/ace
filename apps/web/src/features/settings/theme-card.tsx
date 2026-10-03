@@ -1,4 +1,4 @@
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import type { CSSProperties } from "react";
 import type { Theme } from "@/theme/presets.ts";
 

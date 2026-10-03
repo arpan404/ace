@@ -2,7 +2,7 @@ import * as React from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Dialog } from "@base-ui/react/dialog";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { Kbd } from "./kbd.tsx";
 import { menuLabel } from "./menu-styles.ts";
 

@@ -1,5 +1,5 @@
 import { CheckIcon, LockSimpleIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { ProviderMark } from "@/components/ui/provider-mark.tsx";

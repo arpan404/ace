@@ -14,7 +14,7 @@ import {
 } from "@ace/client-react";
 import type { Agent, BackgroundTask, ProviderKind } from "@ace/protocol";
 import { CheckIcon, ClockIcon, RobotIcon, TerminalIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";

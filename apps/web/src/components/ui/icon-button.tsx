@@ -1,5 +1,5 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import type { KeymapId } from "@/lib/keymap.ts";
 import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import { Tip } from "./tooltip.tsx";

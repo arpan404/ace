@@ -1,5 +1,5 @@
 import type { Icon as PhosphorIcon, IconWeight } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 
 export type IconGlyph = PhosphorIcon;
 

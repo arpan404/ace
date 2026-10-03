@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";

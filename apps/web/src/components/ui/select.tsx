@@ -1,6 +1,6 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { CaretUpDownIcon, CheckIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { menuItem, popupSurface } from "./menu-styles.ts";
 
 export interface SelectOption<T extends string> {

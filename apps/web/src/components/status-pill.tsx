@@ -1,5 +1,5 @@
 import { cva } from "class-variance-authority";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import type { Tone } from "@/lib/status.ts";
 
 /** Tinted chip for the thread status chip, agent tree and Activity only (DESIGN-fable.md). */

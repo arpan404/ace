@@ -1,6 +1,6 @@
 import { Checkbox as CheckboxPrimitive } from "@base-ui/react/checkbox";
 import { CheckIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 
 /**
  * 14px square check ("Always allow" on approval cards). A hairline box at rest, ink fill

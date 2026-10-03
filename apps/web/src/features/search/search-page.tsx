@@ -1,6 +1,6 @@
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useDeferredValue, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";

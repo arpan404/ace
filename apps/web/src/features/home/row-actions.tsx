@@ -1,6 +1,6 @@
 import { ArrowsClockwiseIcon, CheckIcon, MoonIcon } from "@phosphor-icons/react";
 import type { ThreadListEntry } from "@ace/protocol";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import type { ComponentProps, ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";

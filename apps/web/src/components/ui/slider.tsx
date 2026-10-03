@@ -1,5 +1,5 @@
 import { Slider as SliderPrimitive } from "@base-ui/react/slider";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 
 /** Single-value slider: 4px track, 18px white thumb. */
 function Slider({

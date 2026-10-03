@@ -1,6 +1,6 @@
 import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { CaretDownIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
 import { Menu, MenuContent, MenuTrigger } from "./menu.tsx";
 import { Tip } from "./tooltip.tsx";

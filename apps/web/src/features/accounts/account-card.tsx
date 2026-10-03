@@ -1,5 +1,5 @@
 import { ArrowRightIcon, PlayIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";

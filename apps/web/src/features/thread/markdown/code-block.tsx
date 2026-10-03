@@ -1,6 +1,6 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useMemo, useState } from "react";
 import { highlight, type TokenKind } from "./highlight.ts";
 

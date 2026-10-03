@@ -1,4 +1,4 @@
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useRef, useState } from "react";
 
 export function clampSize(value: number, min: number, max: number): number {

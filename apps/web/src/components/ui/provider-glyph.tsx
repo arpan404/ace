@@ -1,5 +1,5 @@
 import type { ProviderKind } from "@ace/protocol";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
 
 /** The provider's product name, as people know it. */

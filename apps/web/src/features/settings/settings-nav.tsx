@@ -1,5 +1,5 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { Icon } from "@/components/icon.tsx";
 import { settingsPages, type SettingsPath } from "./settings-pages.ts";
 

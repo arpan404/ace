@@ -1,5 +1,5 @@
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 
 const Tabs = TabsPrimitive.Root;
 

@@ -5,7 +5,7 @@ import {
   HandIcon,
   LockSimpleIcon,
 } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";

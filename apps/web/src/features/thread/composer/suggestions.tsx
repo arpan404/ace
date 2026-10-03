@@ -1,6 +1,6 @@
 import { FileIcon, CommandIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { matchCommands } from "../sources/command-source.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import type { Trigger } from "./draft.ts";

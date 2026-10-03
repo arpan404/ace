@@ -2,7 +2,6 @@ import { ProviderKind } from "@ace/protocol";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { inkLabel } from "@/components/ui/ink-label.ts";
 import { Input, Textarea } from "@/components/ui/input.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -233,7 +232,7 @@ export function AutomationEditor(props: {
         {props.cancel}
         <form.Subscribe selector={(state) => state.isSubmitting}>
           {(submitting) => (
-            <Button type="submit" variant="primary" className={inkLabel} disabled={submitting}>
+            <Button type="submit" variant="primary" disabled={submitting}>
               {props.submitLabel}
             </Button>
           )}

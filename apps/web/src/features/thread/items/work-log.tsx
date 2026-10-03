@@ -11,12 +11,11 @@ import {
   WrenchIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useId, useState } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { formatDuration, useTicker } from "../lib/clock.ts";
 import { describeStep, summarizeWork, workCounts, type StepIcon } from "../lib/describe-step.ts";
-import { shimmer } from "../lib/shimmer.ts";
 import { flatEqual, useItemsSelect } from "../lib/use-items.ts";
 import { StepDetail } from "./step-detail.tsx";
 
@@ -55,7 +54,7 @@ export function WorkLog(props: { threadId: string; itemIds: readonly string[] })
         onClick={() => setOpen(!open)}
         className="group -mx-1.5 inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-[7px] px-1.5 text-[13.5px] text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
       >
-        <span className="shrink-0" style={summary.running ? shimmer : undefined}>
+        <span className={summary.running ? "shrink-0 shimmer" : "shrink-0"}>
           {summary.running ? `Working for ${elapsed}` : `Worked for ${elapsed}`}
         </span>
         <CaretRightIcon

@@ -1,5 +1,5 @@
 import type { ProviderKind } from "@ace/protocol";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { Tip } from "./tooltip.tsx";
 
 const names: Record<ProviderKind, string> = {

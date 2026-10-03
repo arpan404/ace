@@ -1,6 +1,6 @@
 import { useClient } from "@ace/client-react";
 import type { FileChange, Item, OutputSummary } from "@ace/protocol";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";

@@ -6,7 +6,7 @@ import {
   SquareHalfBottomIcon,
   SquareSplitHorizontalIcon,
 } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";

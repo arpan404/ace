@@ -1,5 +1,5 @@
 import type { Question } from "@ace/protocol";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import type { Answer } from "./answer.ts";

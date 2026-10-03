@@ -1,7 +1,7 @@
 import { useHistoryPager, useItemOrder } from "@ace/client-react";
 import { ArrowDownIcon } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";

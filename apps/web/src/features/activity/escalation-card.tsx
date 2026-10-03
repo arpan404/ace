@@ -1,7 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
-import { inkLabel } from "@/components/ui/ink-label.ts";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { eventKey } from "./activity-state.tsx";
@@ -56,7 +55,7 @@ export function EscalationCard(props: { event: FeedEvent }) {
           <Button
             key={action.id}
             variant={action.primary ? "primary" : "secondary"}
-            className={action.primary ? inkLabel : undefined}
+
             disabled={sending}
             onClick={() => take(action.id, action.label)}
           >

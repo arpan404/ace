@@ -1,5 +1,5 @@
 import { ContextMenu as ContextMenuPrimitive } from "@base-ui/react/context-menu";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { popupSurface } from "./menu-styles.ts";
 
 /**

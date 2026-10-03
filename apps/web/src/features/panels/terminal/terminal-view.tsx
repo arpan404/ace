@@ -1,4 +1,4 @@
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useCallback, useEffect, useEffectEvent, useRef, useSyncExternalStore } from "react";
 import type { ClipboardEvent, KeyboardEvent } from "react";
 import type { Row, Style } from "./screen.ts";

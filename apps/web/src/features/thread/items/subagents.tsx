@@ -1,7 +1,7 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { arrayEqual, useThread } from "@ace/client-react";
 import { CaretRightIcon, TreeStructureIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useCallback, useId, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";

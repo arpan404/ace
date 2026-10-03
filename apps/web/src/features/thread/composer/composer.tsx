@@ -1,6 +1,6 @@
 import type { Mention } from "@ace/protocol";
 import { ArrowUpIcon, PlusIcon, StopIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import {
   useEffect,
   useId,

@@ -1,5 +1,5 @@
 import { Toast } from "@base-ui/react/toast";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
 import { buttonVariants } from "./button.tsx";
 

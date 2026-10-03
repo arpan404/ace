@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { buttonVariants } from "@/components/ui/button.tsx";

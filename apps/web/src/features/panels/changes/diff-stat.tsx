@@ -1,4 +1,4 @@
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useThreadDiffStat } from "./use-turns.ts";
 
 /** "+41 −9" in mono: the only diff colour outside the diff itself. */

@@ -1,7 +1,7 @@
 import { useConnectionState } from "@ace/client-react";
 import { ChartBarIcon, PlugsIcon, SignOutIcon, UserIcon } from "@phosphor-icons/react";
 import { useNavigate } from "@tanstack/react-router";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { Icon } from "@/components/icon.tsx";
 import {
   Menu,

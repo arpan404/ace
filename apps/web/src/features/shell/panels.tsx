@@ -1,5 +1,5 @@
 import { XIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";

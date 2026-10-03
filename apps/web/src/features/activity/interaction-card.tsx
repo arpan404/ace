@@ -2,7 +2,6 @@ import { useInteraction, useItem, useSidebarThread } from "@ace/client-react";
 import type { Interaction } from "@ace/protocol";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { inkLabel } from "@/components/ui/ink-label.ts";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
@@ -129,7 +128,7 @@ function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
           </Button>
         )}
         {approveOption && (
-          <Button variant="primary" className={inkLabel} disabled={sending} onClick={approve}>
+          <Button variant="primary" disabled={sending} onClick={approve}>
             Approve
             <ButtonKey primary>A</ButtonKey>
           </Button>

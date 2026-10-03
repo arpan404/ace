@@ -2,7 +2,7 @@ import { Menu as MenuPrimitive } from "@base-ui/react/menu";
 import type { ProviderKind } from "@ace/protocol";
 import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { Fragment } from "react";
 import { Menu, MenuContent, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { menuItem } from "@/components/ui/menu-styles.ts";

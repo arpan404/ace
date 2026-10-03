@@ -1,7 +1,7 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import { arrayEqual, useItemOrder, useThread } from "@ace/client-react";
 import { ScrollIcon } from "@phosphor-icons/react";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useMemo } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { usePanelServices } from "../services.ts";

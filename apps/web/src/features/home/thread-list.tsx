@@ -1,6 +1,6 @@
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useMemo, useRef } from "react";
 import type { Arrangement } from "./arrange.ts";
 import { AutoSettleNote } from "./auto-settle-note.tsx";

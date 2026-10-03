@@ -1,4 +1,4 @@
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 
 /**
  * The only colour a list row carries: a 6px dot when a thread needs you or failed, a hollow

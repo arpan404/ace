@@ -1,7 +1,7 @@
 import { useSidebarThread } from "@ace/client-react";
 import { FolderSimpleIcon, GitBranchIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { cn } from "cn";
+import { cn } from "@/lib/cn.ts";
 import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { formatAge, useNow } from "@/lib/time.ts";
