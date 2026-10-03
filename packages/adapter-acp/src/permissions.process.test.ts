@@ -7,9 +7,11 @@ import { openAcpSession, createAcpTranslator } from "./index.ts";
 import { genericQuirks } from "./quirks/generic.ts";
 import { object } from "./data.ts";
 
-test.each([false, true])(
-  "ACP auto-review launches with no full-access fallback, absent selectors: %s",
-  async (noSelectors) => {
+test.each(
+  [false, true].flatMap((noSelectors) => [false, true].map((resume) => ({ noSelectors, resume }))),
+)(
+  "ACP auto-review launches with no full-access fallback, absent selectors: $noSelectors, resumed: $resume",
+  async ({ noSelectors, resume }) => {
     const frames: Frame[] = [],
       threadId = ThreadId.parse("permission");
     const translator = createAcpTranslator({
@@ -24,6 +26,7 @@ test.each([false, true])(
         threadId,
         cwd: process.cwd(),
         permissionMode: "auto-review",
+        ...(resume ? { resume: { nativeSessionId: "native" } } : {}),
         signal: new AbortController().signal,
         onFrame(frame) {
           frames.push(frame);

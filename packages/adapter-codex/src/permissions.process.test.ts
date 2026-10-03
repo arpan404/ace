@@ -41,7 +41,12 @@ test.each(["auto-review", "ask", "read-only"] as const)(
         approvalPolicy: "on-request",
         approvalsReviewer: "user",
         sandbox: mode === "read-only" ? "read-only" : "workspace-write",
-        config: { "sandbox_workspace_write.network_access": false },
+        config: {
+          "sandbox_workspace_write.network_access": false,
+          "sandbox_workspace_write.writable_roots": [h.cwd],
+          "sandbox_workspace_write.exclude_tmpdir_env_var": true,
+          "sandbox_workspace_write.exclude_slash_tmp": true,
+        },
       });
       await h.session.send([{ type: "text", text: "approval" }], "queue");
       const request = await h.wait(
@@ -64,9 +69,58 @@ test.each(["auto-review", "ask", "read-only"] as const)(
       });
       if (mode !== "read-only")
         expect(obj(obj(obj(turn?.data).params).sandboxPolicy)).toMatchObject({
+          writableRoots: [h.cwd],
           excludeTmpdirEnvVar: true,
           excludeSlashTmp: true,
         });
+    } finally {
+      await h.dispose();
+    }
+  },
+);
+
+test.each(["resume", "fork"] as const)(
+  "Codex auto-review preserves exact workspace guards on %s and subsequent turns",
+  async (operation) => {
+    const h = await sessionHarness(
+      operation === "resume",
+      "",
+      operation === "fork"
+        ? { nativeSessionId: "source-native", point: { type: "turn", nativeId: "source-turn" } }
+        : undefined,
+      undefined,
+      undefined,
+      "auto-review",
+    );
+    try {
+      const open = h.frames.find(
+        (f) => f.dir === "send" && obj(f.data).method === `thread/${operation}`,
+      );
+      expect(obj(obj(open?.data).params)).toMatchObject({
+        cwd: h.cwd,
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
+        sandbox: "workspace-write",
+        config: {
+          "sandbox_workspace_write.writable_roots": [h.cwd],
+          "sandbox_workspace_write.network_access": false,
+          "sandbox_workspace_write.exclude_tmpdir_env_var": true,
+          "sandbox_workspace_write.exclude_slash_tmp": true,
+        },
+      });
+      await h.session.send([{ type: "text", text: "running" }], "queue");
+      const turn = h.frames.find((f) => f.dir === "send" && obj(f.data).method === "turn/start");
+      expect(obj(obj(turn?.data).params)).toMatchObject({
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
+        sandboxPolicy: {
+          type: "workspaceWrite",
+          writableRoots: [h.cwd],
+          networkAccess: false,
+          excludeTmpdirEnvVar: true,
+          excludeSlashTmp: true,
+        },
+      });
     } finally {
       await h.dispose();
     }

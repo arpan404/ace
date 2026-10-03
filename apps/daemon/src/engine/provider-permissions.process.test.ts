@@ -294,8 +294,9 @@ test("a Codex network escalation cannot earn approval from an otherwise low-risk
 test.each([
   { toolName: "Grep", input: { pattern: ".", path: ".", glob: "*", output_mode: "content" } },
   { toolName: "Read", input: { file_path: "." } },
+  { toolName: "Read", input: { file_path: "missing.txt" } },
 ])(
-  "Claude $toolName cannot auto-approve a directory that may contain secret files",
+  "Claude $toolName cannot auto-approve a broad or unverified file target",
   async ({ toolName, input }) => {
     const frames = scriptFrames();
     const adapter = createClaudeAdapter();

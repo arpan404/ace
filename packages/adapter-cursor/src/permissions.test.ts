@@ -12,7 +12,7 @@ import {
 } from "./index.ts";
 
 test.each(["restricted", "full-access"] as const)(
-  "Cursor %s launches with the native policy even when classifier availability is unknown",
+  "Cursor %s launches and resumes with native guards even when classifier availability is unknown",
   async (policy) => {
     const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-permission-")));
     const boundary: RuntimeSdkBoundary = {
@@ -33,6 +33,21 @@ test.each(["restricted", "full-access"] as const)(
           const unrestricted =
             options.local?.sandboxOptions?.enabled === false && options.local?.autoReview === false;
           if (!guarded && !unrestricted) throw new Error("Native policy was omitted");
+          const agentId = guarded ? "restricted-native-agent" : "full-native-agent";
+          const store = options.local?.store;
+          if (!store) throw new Error("Missing local checkpoint store");
+          const blobId = "ab".repeat(32);
+          await store.agents.create({
+            agent: {
+              agentId,
+              cwd: home,
+              status: "idle",
+              createdAt: 1,
+              updatedAt: 1,
+              latestCheckpoint: { schemaVersion: 1, rootBlobId: blobId },
+            },
+          });
+          await store.checkpoints.create({ agentId, blobId, data: new Uint8Array([1, 2, 3]) });
           return {
             agentId: guarded ? "restricted-native-agent" : "full-native-agent",
             async send() {
@@ -41,8 +56,21 @@ test.each(["restricted", "full-access"] as const)(
             async [Symbol.asyncDispose]() {},
           };
         },
-        async resume() {
-          throw new Error("Fresh session");
+        async resume(nativeId, options) {
+          const local = options?.local;
+          if (
+            local?.sandboxOptions?.enabled !== true ||
+            local.autoReview !== true ||
+            local.subagentInherit === undefined
+          )
+            throw new Error("Resumed native agent lost its restricted policy");
+          return {
+            agentId: nativeId,
+            async send() {
+              throw new Error("No provider prompts");
+            },
+            async [Symbol.asyncDispose]() {},
+          };
         },
         async cancelRun() {
           throw new Error("No live run");
@@ -67,6 +95,30 @@ test.each(["restricted", "full-access"] as const)(
       ).toEqual({
         agentId: policy === "restricted" ? "restricted-native-agent" : "full-native-agent",
       });
+      await host.close();
+      const resumed = new HostRuntime(
+        boundary,
+        async () => {},
+        () => home,
+      );
+      try {
+        expect(
+          await resumed.open({
+            threadId: "permission",
+            cwd: home,
+            generation: "resumed-host",
+            nativeSessionId:
+              policy === "restricted" ? "restricted-native-agent" : "full-native-agent",
+            policy: "restricted",
+            autoReviewAvailable: false,
+            limits: CursorLimitsSchema.parse({}),
+          }),
+        ).toEqual({
+          agentId: policy === "restricted" ? "restricted-native-agent" : "full-native-agent",
+        });
+      } finally {
+        await resumed.close();
+      }
     } finally {
       await host.close();
       await rm(home, { recursive: true, force: true });

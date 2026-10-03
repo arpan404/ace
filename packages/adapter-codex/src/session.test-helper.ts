@@ -68,6 +68,7 @@ export async function sessionHarness(
     },
   });
   return {
+    cwd: directory,
     session,
     frames,
     replay,

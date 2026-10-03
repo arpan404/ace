@@ -72,6 +72,15 @@ test.each([1, 3])(
             .map((block) => str(obj(block).text))
             .join(""),
         ).toBe("first question|first answer|second question|abandoned answer");
+        await reopened.send([{ type: "text", text: "write-proof" }], "queue");
+        const toolProof = frames.findLast(
+          (frame) => frame.dir === "recv" && obj(frame.data).type === "message_end",
+        );
+        expect(
+          list(obj(obj(toolProof?.data).message).content)
+            .map((block) => str(obj(block).text))
+            .join(""),
+        ).toBe("write unavailable");
       } finally {
         await reopened.close("idle");
       }
