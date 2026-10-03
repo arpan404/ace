@@ -10,6 +10,26 @@ export class PluginService {
   async handle(input: unknown): Promise<PluginResponse> {
     const request = PluginRequest.parse(input);
     switch (request.type) {
+      case "plugins.availability":
+        return PluginResponse.parse({
+          type: "plugins.availability",
+          availability: this.manager.configure(request),
+        });
+      case "plugins.catalog":
+        return PluginResponse.parse({
+          type: "plugins.catalog",
+          ...(await this.manager.catalog(request.offset, request.limit)),
+        });
+      case "plugins.source":
+        return PluginResponse.parse({
+          type: "plugins.source",
+          ...(await this.manager.source(request.name, request.path, request.offset, request.limit)),
+        });
+      case "plugins.edit":
+        return PluginResponse.parse({
+          type: "plugins.review",
+          review: await this.manager.edit(request),
+        });
       case "plugins.prepare":
         return PluginResponse.parse({
           type: "plugins.review",
@@ -38,6 +58,13 @@ export class PluginService {
           type: "plugins.list",
           installs: this.manager.list(),
           reviews: this.manager.pendingSummaries(),
+          ...(this.manager.list().length
+            ? {
+                availability: this.manager
+                  .list()
+                  .map((entry) => this.manager.availability(entry.name)),
+              }
+            : {}),
         });
     }
   }

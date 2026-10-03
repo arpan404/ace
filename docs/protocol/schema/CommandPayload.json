@@ -327,6 +327,428 @@
     },
     {
       "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "title": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Must contain a non-whitespace title. The daemon trims surrounding whitespace."
+        },
+        "type": {
+          "const": "thread.rename",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "title"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.unarchive",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.delete",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "pinned": {
+          "type": "boolean"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.pin",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "pinned"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.read",
+          "type": "string"
+        },
+        "unread": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "unread"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.settle",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.unsettle",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.snooze",
+          "type": "string"
+        },
+        "until": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "until"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "scriptId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "workspace.script.run",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "scriptId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "editorId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "workspace.editor.open",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "editorId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expectedHead": {
+          "anyOf": [
+            {
+              "pattern": "^[a-f0-9]{40,64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Must contain a non-whitespace commit message."
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "git.commit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "message",
+        "expectedHead"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "remote": {
+          "default": "origin",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "git.push",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "type": {
+          "const": "forge.pr.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "input": {
+          "$ref": "https://ace.local/protocol/v1/ForgeCreatePrInput.json"
+        },
+        "repository": {
+          "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "type": {
+          "const": "forge.pr.create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "repository",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "type": {
+          "const": "forge.pr.link",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "body": {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        "commentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "type": {
+          "const": "forge.comment.reply",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link",
+        "commentId",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "reviewers": {
+          "items": {
+            "pattern": "^[\\w-]+$",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "type": {
+          "const": "forge.review.request",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link",
+        "reviewers"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "headSha": {
+          "type": "string"
+        },
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "method": {
+          "enum": [
+            "merge",
+            "squash",
+            "rebase"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "forge.pr.merge",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link",
+        "headSha",
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "headSha": {
+          "type": "string"
+        },
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "method": {
+          "enum": [
+            "merge",
+            "squash",
+            "rebase"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "forge.pr.auto-merge",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link",
+        "headSha",
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "runId": {
           "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
           "type": "string"
@@ -700,6 +1122,11 @@
     },
     {
       "properties": {
+        "account": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "accountId": {
           "maxLength": 128,
           "minLength": 1,
@@ -707,6 +1134,11 @@
         },
         "acpAgentId": {
           "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "baseBranch": {
+          "maxLength": 1024,
           "minLength": 1,
           "type": "string"
         },
@@ -730,11 +1162,20 @@
           "minLength": 1,
           "type": "string"
         },
+        "mode": {
+          "enum": [
+            "local",
+            "worktree"
+          ],
+          "type": "string"
+        },
         "model": {
+          "maxLength": 256,
+          "minLength": 1,
           "type": "string"
         },
         "options": {
-          "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
+          "$ref": "https://ace.local/protocol/v1/ThreadCreateOptions.json"
         },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
@@ -778,6 +1219,14 @@
           },
           "minItems": 1,
           "type": "array"
+        },
+        "model": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "options": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionOptions.json"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"

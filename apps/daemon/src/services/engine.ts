@@ -63,6 +63,19 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     ...acp,
     ...engineOptions,
     registry,
+    ...(services.workspaceActions
+      ? {
+          prepareWorkspace: (id) =>
+            services.workspaceActions?.prepare(id) ??
+            Promise.reject(new Error("Workspace unavailable")),
+          machine: services.workspaceActions.machine,
+          beforeSend: async (threadId, commandId) => {
+            await engineOptions.beforeSend?.(threadId, commandId);
+            if (!services.workspaceActions) throw new Error("Workspace unavailable");
+            await services.workspaceActions.checkpoints.beforeSend(threadId, commandId);
+          },
+        }
+      : {}),
     mcp:
       engineOptions.mcp ??
       ((threadId, agentId, lifetime) => {
@@ -108,7 +121,6 @@ export function createEngineSession(context: SocketContext): SocketService {
         "thread.prepare",
         "thread.send",
         "thread.interrupt",
-        "thread.archive",
         "thread.model.set",
         "thread.mode.set",
         "interaction.resolve",

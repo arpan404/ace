@@ -28,6 +28,7 @@ import {
 } from "@ace/protocol";
 import type { ClientApi, RegistryQuery } from "./api.ts";
 import { Connection } from "./connection.ts";
+import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
 import { Notifications, type Selection } from "./observable.ts";
 import { Requests } from "./requests.ts";
@@ -206,6 +207,15 @@ export class Client implements ClientApi {
     options: RequestOptions = {},
     id = this.options.id(),
   ): Promise<CommandResult> {
+    if (payload.type === "diagnostics.health")
+      return this.request({ type: "diagnostics.health" }, options).then(({ ok, health, error }) =>
+        CommandResult.parse({
+          commandId: id,
+          ok,
+          ...(health ? { health } : {}),
+          ...(error ? { error } : {}),
+        }),
+      );
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
     return this.requests.wait(id, CommandResult.parse, options, () => {
       void this.enqueue(payload, id).catch((error: unknown) =>
@@ -243,6 +253,14 @@ export class Client implements ClientApi {
     return () => {
       this.serviceListeners.delete(listener);
     };
+  }
+  /** One-way service controls, such as browser frame ACKs or terminal credits. */
+  send(message: OneWayMessage): void {
+    const parsed = ClientMessage.safeParse(message);
+    if (!parsed.success || !isOneWayMessage(parsed.data))
+      throw new ClientError("protocol", "Invalid one-way message");
+    if (this.state !== "ready" || this.closed || !this.connection.send(parsed.data))
+      throw new ClientError("offline");
   }
   registry(input: RegistryQuery, options: RequestOptions = {}): Promise<RegistryResult> {
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));

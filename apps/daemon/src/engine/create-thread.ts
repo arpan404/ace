@@ -19,11 +19,28 @@ export function createEngineThread(
     at: number;
     silenceMs: number;
     lineage?: ThreadLineage;
+    client?: import("@ace/protocol").ThreadClientFields;
     acpIdentity?: AcpIdentity;
   },
 ): void {
   const { id, workspaceId, selection, cwd, at, lineage } = input;
+  const project = repo.store.getWorkspace(workspaceId);
+  const parentDetails = lineage ? repo.store.getThread(lineage.parentThreadId)?.details : undefined;
+  const mode = input.client?.details?.mode ?? parentDetails?.mode;
+  const unprepared = input.client?.details?.mode === "worktree";
   const thread = Thread.parse({
+    ...input.client,
+    details: {
+      ...parentDetails,
+      ...input.client?.details,
+      workspace: {
+        id: workspaceId,
+        name: project?.name ?? workspaceId,
+        path: project?.path ?? cwd,
+      },
+      mode,
+      ...(unprepared ? { worktree: undefined } : { worktree: cwd }),
+    },
     id,
     workspaceId,
     title: input.title,
@@ -48,7 +65,9 @@ export function createEngineThread(
     },
   });
   repo.save(state, [{ type: "thread.created", thread }], at);
-  repo.createSession(id, cwd, selection.model, selection.instanceId, selection.options);
+  if (unprepared)
+    repo.createUnpreparedSession(id, cwd, selection.model, selection.instanceId, selection.options);
+  else repo.createSession(id, cwd, selection.model, selection.instanceId, selection.options);
   repo.queue.ensure(id);
   repo.transitions.set(id, { selection, context: [] });
   repo.transitions.remember(id, selection);

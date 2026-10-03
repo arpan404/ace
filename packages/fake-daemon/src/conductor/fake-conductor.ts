@@ -23,11 +23,13 @@ export class FakeConductor {
     return this.list;
   }
   subscribe(listener: () => void): () => void {
+    if (this.listeners.size >= 64) throw new Error("subscription_limit");
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
   command(payload: ConductorCommandPayload): FakeConductorResult {
     if (payload.type === "conductor.start") {
+      if (this.list.length >= 64) return { ok: false, error: "run_limit" };
       if (this.find(payload.runId)) return { ok: false, error: "already_exists" };
       this.list = [draft(payload.runId, payload.spec, this.clock()), ...this.list];
       this.emit();
@@ -85,7 +87,7 @@ function active(run: FakeDeckRun): boolean {
 }
 
 function logged(run: FakeDeckRun, at: number, text: string): FakeDeckRun {
-  return { ...run, updatedAt: at, log: [...run.log, { at, text }] };
+  return { ...run, updatedAt: at, log: [...run.log.slice(-255), { at, text }] };
 }
 
 /** Cards with every dependency merged start working. */

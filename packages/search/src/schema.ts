@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 
 export function migrateSearch(db: DatabaseSync, trigrams: boolean): void {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS search_tombstones(thread TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS search_meta (
       id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL,
       seq INTEGER NOT NULL, generation INTEGER NOT NULL, writes INTEGER NOT NULL, trigrams INTEGER NOT NULL,

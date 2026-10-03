@@ -1,3 +1,4 @@
+import { clientView, clientSummary } from "./client-view.ts";
 import { DatabaseSync } from "node:sqlite";
 import { retainReceipt } from "./receipt-policy.ts";
 import { Effect, Fact, Key, State, type Environment, type Transition } from "./schema.ts";
@@ -24,6 +25,7 @@ export class ConductorStore {
       CREATE TABLE IF NOT EXISTS conductor_inputs (run TEXT NOT NULL REFERENCES conductor_runs(id) ON DELETE CASCADE, id TEXT NOT NULL, PRIMARY KEY(run,id));
       CREATE TABLE IF NOT EXISTS conductor_outbox (ordinal INTEGER PRIMARY KEY, run TEXT NOT NULL REFERENCES conductor_runs(id) ON DELETE CASCADE, id TEXT UNIQUE NOT NULL, payload TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS conductor_outbox_run ON conductor_outbox(run,ordinal);
+      CREATE INDEX IF NOT EXISTS conductor_pending_runs ON conductor_runs(id) WHERE pending>0;
       CREATE TRIGGER IF NOT EXISTS conductor_inputs_count AFTER INSERT ON conductor_inputs BEGIN UPDATE conductor_runs SET inputs=inputs+1 WHERE id=NEW.run; END;
       CREATE TRIGGER IF NOT EXISTS conductor_pending_add AFTER INSERT ON conductor_outbox BEGIN UPDATE conductor_runs SET pending=pending+1 WHERE id=NEW.run; END;
       CREATE TRIGGER IF NOT EXISTS conductor_pending_remove AFTER DELETE ON conductor_outbox BEGIN UPDATE conductor_runs SET pending=pending-1 WHERE id=OLD.run; END;`);
@@ -58,6 +60,57 @@ export class ConductorStore {
       );
     }
     return this.admit(state);
+  }
+  /** Paged persisted run ids, without admitting actors or decoding their plans. */
+  list(after = "", limit = 16): { ids: string[]; next?: string } {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 32)
+      throw new Error("invalid_page_limit");
+    const rows = this.db
+      .prepare("SELECT id FROM conductor_runs WHERE id>? ORDER BY id LIMIT ?")
+      .all(after, limit + 1);
+    const ids = rows.slice(0, limit).map((row) => Key.parse(row.id));
+    const last = ids.at(-1);
+    return { ids, ...(rows.length > limit && last ? { next: last } : {}) };
+  }
+  /** Restart admission visits indexed pending runs only. */
+  resumable(): string[] {
+    return this.db
+      .prepare("SELECT id FROM conductor_runs WHERE pending>0 ORDER BY id LIMIT 8")
+      .all()
+      .map((row) => Key.parse(row.id));
+  }
+  /** Reads do not occupy one of the eight execution slots. */
+  read(id: string): State | null {
+    Key.parse(id);
+    const admitted = this.actors.get(id);
+    if (admitted) return admitted;
+    const row = this.sql.load.get(id);
+    if (!row) return null;
+    const input: unknown = JSON.parse(Payload.parse(row).payload);
+    const root = StoredRoot.safeParse(input);
+    return root.success ? this.persistence.restore(root.data) : State.parse(input);
+  }
+  summary(id: string) {
+    Key.parse(id);
+    const row = this.sql.load.get(id);
+    if (!row) return null;
+    const input: unknown = JSON.parse(Payload.parse(row).payload);
+    const root = StoredRoot.safeParse(input);
+    return root.success ? this.persistence.summary(root.data) : clientSummary(State.parse(input));
+  }
+  view(id: string) {
+    Key.parse(id);
+    const row = this.sql.load.get(id);
+    if (!row) return null;
+    const input: unknown = JSON.parse(Payload.parse(row).payload);
+    const root = StoredRoot.safeParse(input);
+    if (root.success) return this.persistence.view(root.data);
+    const state = State.parse(input);
+    return clientView(
+      state,
+      Object.values(state.lanes).filter((lane) => lane.live),
+      Object.values(state.nodes),
+    );
   }
   pending(id: string): Effect[] {
     Key.parse(id);

@@ -29,6 +29,10 @@ import type { CommandHandler } from "./commands.ts";
 import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
+  previewClient?: import("./preview-client.ts").PreviewClient;
+  conductor?: import("./conductor-runtime.ts").ConductorRuntime;
+  automations?: Pick<import("@ace/automations").AutomationService, "handle">;
+  workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;
   engine?: import("./engine/index.ts").Engine;
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
   pi?: import("./services/pi.ts").PiService;

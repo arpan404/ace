@@ -10,6 +10,7 @@ import type {
   ThreadView,
 } from "@ace/protocol";
 import type { Intent } from "./intents.ts";
+import type { OneWayMessage } from "./one-way.ts";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import type { ChangeTap, Selection } from "./observable.ts";
 import type { SidebarKey, SidebarReader, ThreadKey, ThreadReader } from "./readers.ts";
@@ -67,6 +68,11 @@ export interface ClientApi {
   ): Promise<ServiceResponse<Q>>;
   /** Uncorrelated service messages (such as `settings.changed`); call the result to stop. */
   onMessage(listener: (message: ServerMessage) => void): () => void;
+  /**
+   * One-way service controls (a browser frame ACK, a terminal credit). Never queued or replayed:
+   * throws `offline` unless connected and `protocol` for a message that isn't one-way.
+   */
+  send(message: OneWayMessage): void;
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },
     options?: RequestOptions,

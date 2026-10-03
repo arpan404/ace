@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/InstalledEditor.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "command": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "command"
+  ],
+  "type": "object"
+}

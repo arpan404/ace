@@ -102,6 +102,12 @@ export interface ProviderSession {
   configure?(selection: ExecutionSelection): Promise<void>;
   readonly effectiveCapabilities?: Capabilities | undefined;
   readonly acpSupport?: AcpSessionSupport | undefined;
+  configure?(selection: {
+    provider: ProviderKind;
+    model?: string;
+    instanceId?: string;
+    options: import("@ace/protocol").TurnOptions;
+  }): Promise<void>;
   setModel?(model: string): Promise<void>;
   setMode?(mode: string): Promise<void>;
   /** Optional engine command correlation for providers with durable admission. */

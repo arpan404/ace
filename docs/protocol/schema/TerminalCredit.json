@@ -1,0 +1,20 @@
+{
+  "$id": "https://ace.local/protocol/v1/TerminalCredit.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "subscriptionId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "terminal.credit",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "subscriptionId"
+  ],
+  "type": "object"
+}

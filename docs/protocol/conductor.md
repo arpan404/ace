@@ -22,30 +22,8 @@ Example:
 
 ```json
 {
-  "budget": 3,
   "decision": "reject",
-  "gateId": "wCj",
-  "plan": {
-    "summary": "Example plan",
-    "workstreams": [
-      {
-        "brief": {
-          "acceptance": [
-            "Example acceptance"
-          ],
-          "files": [],
-          "instructions": "Example instructions",
-          "objective": "Example objective",
-          "packages": [],
-          "risks": []
-        },
-        "dependencies": [],
-        "id": "lane",
-        "priority": 0,
-        "title": "Example workstream"
-      }
-    ]
-  }
+  "gateId": "eIouLYTgeqcP80"
 }
 ```
 
@@ -77,6 +55,60 @@ Example:
 }
 ```
 
+## ConductorChanged
+
+[JSON Schema](schema/ConductorChanged.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"conductor.changed"` |  |
+| subscriptionId | yes | string | {"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"} |
+| run | yes | [ConductorRunView.json](schema/ConductorRunView.json) |  |
+
+Example:
+
+```json
+{
+  "run": {
+    "budget": 9,
+    "dag": [],
+    "executionError": "example",
+    "goal": "example",
+    "id": "Rm6CfCgUSAHao.LWBA18tZpeBrenxdB0DixZb7C75F.zT7trHg.sM6SZoEisCDvMB2iOpdNtvTfgLLGvfgGd8I1qNmuNVY4pxKB5k2oO2fFn9U_w6rdKWAtS-p57IX",
+    "lanes": [],
+    "needsUser": [],
+    "phase": "planning",
+    "plan": {
+      "summary": "Example plan",
+      "workstreams": [
+        {
+          "brief": {
+            "acceptance": [
+              "Example acceptance"
+            ],
+            "files": [],
+            "instructions": "Example instructions",
+            "objective": "Example objective",
+            "packages": [],
+            "risks": []
+          },
+          "dependencies": [],
+          "id": "lane",
+          "priority": 0,
+          "title": "Example workstream"
+        }
+      ]
+    },
+    "planApproved": false,
+    "spent": 9,
+    "truncated": false,
+    "workspaceId": "example"
+  },
+  "subscriptionId": "5DsFlYWdVLB1TGJ8WBw3r6ngEiZy15CHMDOQ6Q-wNum2V8hCBwD7REfqh",
+  "type": "conductor.changed"
+}
+```
+
 ## ConductorCommandPayload
 
 [JSON Schema](schema/ConductorCommandPayload.json), input validation.
@@ -93,7 +125,7 @@ Example:
 
 ```json
 {
-  "runId": "qF7uehe5rgLlxR4RRfz5",
+  "runId": "B7XOJ3IQW_fLz4",
   "spec": {
     "constraints": {
       "accounts": [
@@ -175,31 +207,10 @@ Example:
 ```json
 {
   "approval": {
-    "decision": "approve",
-    "gateId": "TkBqJzXLHkQKiEHqoUJUprN20Hs2RR_Hlf_IuX2WTfsbwyeVWCdNXxqsEtipXWk-F4rXtO7FV72fX7QJw",
-    "plan": {
-      "summary": "Example plan",
-      "workstreams": [
-        {
-          "brief": {
-            "acceptance": [
-              "Example acceptance"
-            ],
-            "files": [],
-            "instructions": "Example instructions",
-            "objective": "Example objective",
-            "packages": [],
-            "risks": []
-          },
-          "dependencies": [],
-          "id": "lane",
-          "priority": 0,
-          "title": "Example workstream"
-        }
-      ]
-    }
+    "decision": "reject",
+    "gateId": "9ZCzF4n2LiKPDDj06pRff58RKzEbKpnegQrTcIZIjY_oT5C2wb7ceWpfMqv.Nc8nI2b"
   },
-  "runId": "xm1gEZmIYPRisQL6HZd79PHEWJwxt0anC9Ni4vL3n34oMdbY0k1OB2H_sLYdNq8dc6_R-bPnP9pc27zEEbV86nY4o6xwW0",
+  "runId": "tBL.RjGs69CjVfYdIZ_XVuJDbKQABOcSgZsJgZHMuGuTJnyxnzobhtWCOaXkWYPXjNOwmSSyD2U.nsGt7u.x2UDUe90YYIhGue-_V8ucKBi4..Nv.7",
   "type": "conductor.approve"
 }
 ```
@@ -215,7 +226,7 @@ Example:
 
 ```json
 {
-  "runId": "UK9H_K0NuYmaWPFdtJx8JV8o_XI.ug0gh1_hYukFB4Fiel1TTju2I4PQ-uqV3kLUg.orRII4Te5TnIcSuH7EGfZS51jiV67xOYN-a_",
+  "runId": "o3zZ-Ft2BjRPPAAX0PPMUpHIdKy39Qc5V10kDNWXaA6XHmVYA344RphsW",
   "type": "conductor.pause"
 }
 ```
@@ -231,7 +242,7 @@ Example:
 
 ```json
 {
-  "runId": "gilo7ziGq3QDwpHJ.0MPn3xCpT_s0HUIYsIagViJceNDS3LIbuE4h.wR5yAPdna75u.GXjCCb2zQs090tO0SjUzh",
+  "runId": "U5qpXiNA",
   "type": "conductor.resume"
 }
 ```
@@ -247,7 +258,7 @@ Example:
 
 ```json
 {
-  "runId": "r0qMDB0N86NGzYzPfg-P3M6eFGNWD3oYoc5_71oDDl_ecNOR1XH1gV1Lo75FE1Ch56IAPsM2Wl_zHiptiGQO-1_5Z-DhZiezopyQ8k3d",
+  "runId": "SekJS5",
   "type": "conductor.cancel"
 }
 ```
@@ -268,11 +279,11 @@ Example:
 
 ```json
 {
-  "cost": 1,
-  "model": "0GbyvglA5BnOs_Qe.EwCEkQ9ZnFhyqgMULPe8cnM.o6kdZ7k0K2h5vU4yksa9J0xQ9qVeEKm3VESgboT.I3v",
-  "provider": "opencode",
-  "quota": 1,
-  "tier": "normal"
+  "cost": 2,
+  "model": "GFCQX5HaU47L5IlRSo98l_McbmIi1NLy2CF6egGD7rSB4is1uGzK9kNkM2QQJK-tDwTvQn6fjzF88hy",
+  "provider": "cursor",
+  "quota": 9,
+  "tier": "fast"
 }
 ```
 
@@ -347,6 +358,54 @@ Example:
       "title": "Example workstream"
     }
   ]
+}
+```
+
+## ConductorRequest
+
+[JSON Schema](schema/ConductorRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"conductor.request"` |  |
+| requestId | yes | string | {"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"} |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"op":{"type":"string","const":"list"},"after":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"limit":{"default":16,"type":"integer","minimum":1,"maximum":32}},"required":["op"]},{"type":"object","properties":{"op":{"type":"string","const":"get"},"runId":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"required":["op","runId"]},{"type":"object","properties":{"op":{"type":"string","const":"subscribe"},"runId":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"subscriptionId":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"required":["op","runId","subscriptionId"]},{"type":"object","properties":{"op":{"type":"string","const":"unsubscribe"},"subscriptionId":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"required":["op","subscriptionId"]}]} |
+
+Example:
+
+```json
+{
+  "operation": {
+    "op": "get",
+    "runId": "zD2x-iPyftBM0cSA2kl-i_1wCZErqGbxes0-M2rFAGsIqVUA_"
+  },
+  "requestId": "7.9hL-.waEc5nEchTjm_yWb43C1vg.AzDFS4KzO5-Xv7kkvSA5K76CzQNsO1jATdVjgaIB48wr1WymSqGbCrqb",
+  "type": "conductor.request"
+}
+```
+
+## ConductorResult
+
+[JSON Schema](schema/ConductorResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"conductor.result"` |  |
+| requestId | yes | string | {"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"} |
+| ok | yes | boolean |  |
+| error | no | string | {"maxLength":128} |
+| runs | no | array | {"maxItems":32,"items":{"$ref":"https://ace.local/protocol/v1/ConductorSummary.json"}} |
+| run | no | [ConductorRunView.json](schema/ConductorRunView.json) |  |
+| next | no | string | {"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"} |
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "zIZaNhcNZfxyh7y33dnp3f7M1SxHvglUR0WSmxCo_ULShL2aoD_b2LkSKXk8O3MM2LIG2KfOhgE9na0xiwq959bkIxsbvkqq5-T7gX0cPbnnrcEuXuwV45UPm",
+  "runs": [],
+  "type": "conductor.result"
 }
 ```
 
@@ -476,6 +535,46 @@ Example:
 }
 ```
 
+## ConductorRunView
+
+[JSON Schema](schema/ConductorRunView.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"} |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| goal | yes | string | {"maxLength":16384} |
+| phase | yes | ["planning","running","paused","cancelling","cancelled","done"] |  |
+| spent | yes | number | {"minimum":0} |
+| budget | yes | number | {"minimum":0} |
+| plan | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/ConductorPlan.json"},{"type":"null"}]} |
+| planApproved | yes | boolean |  |
+| needsUser | yes | array | {"maxItems":64,"items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"kind":{"type":"string","enum":["plan","merge","budget","escalation","deadline","destructive"]},"workstream":{"anyOf":[{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},{"type":"null"}]},"lane":{"anyOf":[{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},{"type":"null"}]},"generation":{"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]},"message":{"type":"string","maxLength":2048}},"required":["id","kind","workstream","lane","generation","message"]}} |
+| lanes | yes | array | {"maxItems":64,"items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"agentId":{"type":"string"},"role":{"type":"string","enum":["planner","worker","reviewer","integrator"]},"workstream":{"anyOf":[{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},{"type":"null"}]},"account":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"model":{"type":"string","maxLength":256},"generation":{"type":"integer","minimum":0,"maximum":9007199254740991},"status":{"type":"string","enum":["starting","working","waiting","done","failed","unresponsive","limited","migrating"]}},"required":["id","agentId","role","workstream","account","model","generation","status"]}} |
+| dag | yes | array | {"maxItems":256,"items":{"type":"object","properties":{"id":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"},"title":{"type":"string","maxLength":256},"dependencies":{"maxItems":256,"type":"array","items":{"type":"string","pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"}},"state":{"type":"string","maxLength":64},"fixRounds":{"type":"integer","minimum":0,"maximum":9007199254740991},"revision":{"type":["string","null"]}},"required":["id","title","dependencies"]}} |
+| truncated | yes | boolean |  |
+| executionError | no | string | {"maxLength":128} |
+
+Example:
+
+```json
+{
+  "budget": 0,
+  "dag": [],
+  "executionError": "example",
+  "goal": "example",
+  "id": "TG7EQTTaHlJd3O3_nyVj2QXbEd4",
+  "lanes": [],
+  "needsUser": [],
+  "phase": "done",
+  "plan": null,
+  "planApproved": false,
+  "spent": 6,
+  "truncated": true,
+  "workspaceId": "example"
+}
+```
+
 ## ConductorSpec
 
 [JSON Schema](schema/ConductorSpec.json), input validation.
@@ -560,6 +659,32 @@ Example:
 }
 ```
 
+## ConductorSummary
+
+[JSON Schema](schema/ConductorSummary.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| id | yes | string | {"pattern":"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"} |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| goal | yes | string | {"maxLength":16384} |
+| phase | yes | ["planning","running","paused","cancelling","cancelled","done"] |  |
+| spent | yes | number | {"minimum":0} |
+| budget | yes | number | {"minimum":0} |
+
+Example:
+
+```json
+{
+  "budget": 0,
+  "goal": "example",
+  "id": "OXoujlYJq1ZvK47-endFW1FDxtAdajKbL7kaxF2uD4-a2KI.chWD1ES.ME",
+  "phase": "done",
+  "spent": 7,
+  "workspaceId": "example"
+}
+```
+
 ## ConductorWorkstream
 
 [JSON Schema](schema/ConductorWorkstream.json), input validation.
@@ -587,7 +712,7 @@ Example:
     "risks": []
   },
   "dependencies": [],
-  "id": "b3NONdNSQjOyRpPWRx0PrRX_PCt_C5pK2erwBJo-Nn4sXTGkDwEEhAY0qkragddwe7jaTiEyXl4iSTBaNBOmUs7nG2Z8uBxtjajPRULI9.qfmGjO",
+  "id": "rgz3NAEDkDjk3DbOq.ANzP_e_hSUi.CPrEA2_gpy1NUl15cM11eI0a_JHbMzlLyRyUvZf74yD7qM_sXAguhznYa",
   "priority": 7,
   "title": "example"
 }

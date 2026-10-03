@@ -430,3 +430,22 @@ test("a continuously dirty stream cannot starve an older waiting document", () =
   log.index.flush(1);
   expect(log.query("secondstream").hits[0]?.itemId).toBe(second.id);
 });
+
+test("deleted threads cannot reappear through older history replay or an index rebuild", async () => {
+  const item = message("deletedneedle");
+  log.append([{ type: "item.created", item }]);
+  expect(log.query("deletedneedle").hits).toHaveLength(1);
+  log.index.deleteThread(thread.id);
+  log.index.observeThread(thread, log.headSeq() + 1);
+  log.history([
+    {
+      type: "item.updated",
+      item: Item.parse({ ...item, parts: [{ type: "text", text: "deletedneedle again" }] }),
+    },
+  ]);
+  await log.index.backfill(log, { signal: new AbortController().signal });
+  expect(log.query("deletedneedle").hits).toEqual([]);
+  await log.index.rebuild(log, { signal: new AbortController().signal });
+  expect(log.query("deletedneedle").hits).toEqual([]);
+  expect(log.query("Compiler", { scope: "threads" }).hits).toEqual([]);
+});

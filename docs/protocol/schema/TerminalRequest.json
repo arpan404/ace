@@ -1,0 +1,210 @@
+{
+  "$id": "https://ace.local/protocol/v1/TerminalRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operation": {
+      "oneOf": [
+        {
+          "properties": {
+            "op": {
+              "const": "list",
+              "type": "string"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "cols": {
+              "default": 80,
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "name": {
+              "default": "Terminal",
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "op": {
+              "const": "open",
+              "type": "string"
+            },
+            "rows": {
+              "default": 24,
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fromOffset": {
+              "default": 0,
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "op": {
+              "const": "subscribe",
+              "type": "string"
+            },
+            "subscriptionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "terminalId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId",
+            "terminalId",
+            "subscriptionId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "unsubscribe",
+              "type": "string"
+            },
+            "subscriptionId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "subscriptionId"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "maxLength": 8192,
+              "type": "string"
+            },
+            "op": {
+              "const": "write",
+              "type": "string"
+            },
+            "terminalId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId",
+            "terminalId",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "cols": {
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "op": {
+              "const": "resize",
+              "type": "string"
+            },
+            "rows": {
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "terminalId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId",
+            "terminalId",
+            "cols",
+            "rows"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "close",
+              "type": "string"
+            },
+            "terminalId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "threadId": {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            }
+          },
+          "required": [
+            "op",
+            "threadId",
+            "terminalId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "terminal.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "operation"
+  ],
+  "type": "object"
+}

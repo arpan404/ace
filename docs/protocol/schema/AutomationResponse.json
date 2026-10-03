@@ -27,6 +27,36 @@
     "run": {
       "$ref": "https://ace.local/protocol/v1/AutomationRun.json"
     },
+    "schedules": {
+      "items": {
+        "properties": {
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "nextRunAt": {
+            "anyOf": [
+              {
+                "maximum": 8640000000000000,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "nextRunAt"
+        ],
+        "type": "object"
+      },
+      "maxItems": 1000,
+      "type": "array"
+    },
     "type": {
       "const": "automation.result",
       "type": "string"

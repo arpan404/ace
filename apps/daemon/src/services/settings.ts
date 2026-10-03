@@ -28,17 +28,18 @@ export function createSettingsSession(context: SocketContext): SocketService {
     },
     async handle(message) {
       switch (message.type) {
+        case "settings.unsubscribe":
         case "settings.get":
         case "settings.subscribe":
           if (!authorize("read")) {
-            fail("forbidden", "Read scope required");
+            fail("forbidden", "Read scope required", false, { requestId: message.requestId });
             return true;
           }
           settings.accept(message);
           return true;
         case "settings.set":
           if (!authorize("operate")) {
-            fail("forbidden", "Operate scope required");
+            fail("forbidden", "Operate scope required", false, { requestId: message.requestId });
             return true;
           }
           settings.accept(message);

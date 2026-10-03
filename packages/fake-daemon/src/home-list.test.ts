@@ -88,5 +88,5 @@ test("thread.archive marks the thread archived and rejects unknown threads", () 
   const missing = daemon.command(
     command("a2", { type: "thread.archive", threadId: ThreadId.parse("nope") }),
   );
-  expect(missing).toMatchObject({ ok: false, error: "not_found" });
+  expect(missing).toMatchObject({ ok: false, error: "thread_not_found" });
 });

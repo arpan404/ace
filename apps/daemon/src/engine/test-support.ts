@@ -76,6 +76,7 @@ export async function harness(
     recovery?: EngineOptions["recovery"];
     preferences?: EngineOptions["preferences"];
     prepareInput?: EngineOptions["prepareInput"];
+    beforeSend?: EngineOptions["beforeSend"];
     steer?: boolean;
     idleMs?: number;
     tick?: (now: number) => Fact[];
@@ -136,6 +137,7 @@ export async function harness(
     ...(options.recovery ? { recovery: options.recovery } : {}),
     ...(options.preferences ? { preferences: options.preferences } : {}),
     ...(options.prepareInput ? { prepareInput: options.prepareInput } : {}),
+    ...(options.beforeSend ? { beforeSend: options.beforeSend } : {}),
     ...(options.limits === undefined ? {} : { limits: options.limits }),
     clock,
     idleMs: options.idleMs ?? 30_000,

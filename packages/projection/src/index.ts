@@ -48,7 +48,11 @@ export function createThreadListView(threads: Thread[] = [], seq = 0): ThreadLis
   return {
     kind: "threads",
     seq,
-    threads: Object.fromEntries(threads.map((thread) => [thread.id, sidebarEntry(thread)])),
+    threads: Object.fromEntries(
+      threads
+        .filter((thread) => thread.deletedAt === undefined)
+        .map((thread) => [thread.id, sidebarEntry(thread)]),
+    ),
   };
 }
 function sidebarEntry(thread: Thread): ThreadListEntry {
@@ -112,6 +116,18 @@ function advance(view: { seq: number }, event: DeliveryEvent): ApplyResult {
 }
 export function updateThread(thread: Thread, event: Event): void {
   const payload = event.payload;
+  if (payload.type === "thread.client.updated") {
+    for (const [key, value] of Object.entries(payload.changes)) {
+      if (value === null) Reflect.deleteProperty(thread, key);
+      else
+        Object.defineProperty(thread, key, {
+          value,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+    }
+  }
   if (payload.type === "thread.updated") {
     if (payload.provider !== undefined) thread.provider = payload.provider;
     if (payload.lineage !== undefined) thread.lineage = structuredCopy(payload.lineage);
@@ -130,7 +146,11 @@ export function updateThread(thread: Thread, event: Event): void {
   if (isSidebarEvent(event)) thread.updatedAt = event.at;
 }
 export function isSidebarEvent(event: Event): boolean {
-  return event.payload.type === "thread.created" || event.payload.type === "thread.updated";
+  return (
+    event.payload.type === "thread.created" ||
+    event.payload.type === "thread.updated" ||
+    event.payload.type === "thread.client.updated"
+  );
 }
 export function applyThreadListEvent(view: ThreadListView, event: DeliveryEvent): ApplyResult {
   const result = advance(view, event);
@@ -143,6 +163,7 @@ function foldThreadList(view: ThreadListView, event: DeliveryEvent): void {
     put(view.threads, event.threadId, sidebarEntry(event.payload.thread));
   const thread = get(view.threads, event.threadId);
   if (thread && isSidebarEvent(event)) updateThread(thread, event);
+  if (thread?.deletedAt !== undefined) delete view.threads[event.threadId];
 }
 
 export function applyEvent(view: ThreadView, event: DeliveryEvent): ApplyResult {
@@ -163,6 +184,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       view.thread.updatedAt = event.at;
       break;
     case "thread.updated":
+    case "thread.client.updated":
     case "workspace.files_changed":
       break;
     case "agent.created": {
@@ -183,6 +205,11 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
         if (p.parentId !== undefined) reparentAgent(view, p.agentId, agent.parentId, p.parentId);
         Object.assign(agent, structuredCopy(changes));
       }
+      break;
+    }
+    case "run.client.updated": {
+      const run = get(view.runs, p.runId);
+      if (run) run.checkpoints = structuredCopy(p.checkpoints);
       break;
     }
     case "run.started":
@@ -298,3 +325,13 @@ export function applyDelivery(
   view.seq = message.throughSeq;
   return { kind: "applied" };
 }
+
+export {
+  organizationCommands,
+  organizationDecision,
+  settleDecision,
+  settlePolicy,
+} from "./organization.ts";
+export type { SettlePolicy } from "./organization.ts";
+
+export { liveMetadata, boundedLiveModel } from "./live-metadata.ts";

@@ -56,6 +56,7 @@ export class SearchWriter {
     this.sql = new Statements(db);
   }
   stage(event: Event): void {
+    if (this.sql.get("SELECT 1 FROM search_tombstones WHERE thread=?").get(event.threadId)) return;
     const p = event.payload;
     if (p.type === "thread.created") {
       const t = p.thread;
@@ -130,6 +131,7 @@ export class SearchWriter {
     } else if (p.type === "item.deleted") this.deleteItem(event.threadId, p.itemId);
   }
   observeThread(thread: Thread, seq: number): void {
+    if (this.sql.get("SELECT 1 FROM search_tombstones WHERE thread=?").get(thread.id)) return;
     const changes = this.sql
       .get(
         "INSERT INTO search_threads VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET workspace=excluded.workspace,provider=excluded.provider,status=excluded.status,title=excluded.title,seq=excluded.seq WHERE search_threads.seq<excluded.seq",

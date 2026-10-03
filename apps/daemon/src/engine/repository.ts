@@ -402,6 +402,7 @@ export class EngineRepository {
     model?: string;
     nativeSessionId?: string;
     instanceId?: string;
+    workspaceReady: boolean;
     options?: ExecutionOptions;
   } {
     return this.store.atomic((db) => {
@@ -409,6 +410,7 @@ export class EngineRepository {
       if (!row) throw new Error("Missing engine session metadata");
       return {
         cwd: String(row.cwd),
+        workspaceReady: this.store.executionWorkspace(id).ready,
         ...(row.options == null
           ? {}
           : { options: ExecutionOptions.parse(JSON.parse(String(row.options))) }),
@@ -419,6 +421,18 @@ export class EngineRepository {
           : { nativeSessionId: String(row.native_session_id) }),
       };
     });
+  }
+  createUnpreparedSession(
+    id: ThreadId,
+    cwd: string,
+    model?: string,
+    instanceId?: string,
+    options?: ExecutionOptions,
+  ): void {
+    this.createSession(id, cwd, model, instanceId, options);
+    this.store.atomic((db) =>
+      db.prepare("UPDATE engine_sessions SET workspace_ready=0 WHERE thread_id=?").run(id),
+    );
   }
   createSession(
     id: ThreadId,
@@ -436,12 +450,18 @@ export class EngineRepository {
     );
   }
   nativeSession(id: ThreadId, nativeId: string, instanceId?: string): void {
-    this.store.atomic((db) =>
-      db
-        .prepare(
-          "UPDATE engine_sessions SET native_session_id = ?, instance_id = COALESCE(?, instance_id) WHERE thread_id = ?",
-        )
-        .run(nativeId, instanceId ?? null, id),
-    );
+    this.store.atomic((db) => {
+      db.prepare(
+        "UPDATE engine_sessions SET native_session_id = ?, instance_id = COALESCE(?, instance_id) WHERE thread_id = ?",
+      ).run(nativeId, instanceId ?? null, id);
+      const thread = this.store.getThread(id);
+      if (thread && instanceId && thread.live?.account !== instanceId)
+        this.store.appendEvents(id, [
+          {
+            type: "thread.client.updated",
+            changes: { live: { ...thread.live, account: instanceId } },
+          },
+        ]);
+    });
   }
 }

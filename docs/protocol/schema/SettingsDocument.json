@@ -10,6 +10,9 @@
         "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema5"
       },
       "properties": {
+        "app.openAtLogin": {
+          "type": "boolean"
+        },
         "approvals.policy": {
           "enum": [
             "ask",
@@ -72,6 +75,14 @@
           ],
           "type": "string"
         },
+        "logs.retention": {
+          "enum": [
+            "7d",
+            "30d",
+            "forever"
+          ],
+          "type": "string"
+        },
         "notifications.enabled": {
           "type": "boolean"
         },
@@ -80,6 +91,36 @@
         },
         "notifications.onCompletion": {
           "type": "boolean"
+        },
+        "notifications.onFailure": {
+          "type": "boolean"
+        },
+        "notifications.onMention": {
+          "type": "boolean"
+        },
+        "notifications.quietHours": {
+          "anyOf": [
+            {
+              "properties": {
+                "end": {
+                  "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+                  "type": "string"
+                },
+                "start": {
+                  "pattern": "^(?:[01]\\d|2[0-3]):[0-5]\\d$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "notifications.sound": {
           "type": "boolean"
@@ -214,6 +255,15 @@
           ],
           "type": "string"
         },
+        "threads.autoSettleAfter": {
+          "enum": [
+            "1d",
+            "2d",
+            "1w",
+            "never"
+          ],
+          "type": "string"
+        },
         "threads.continueAfterRestart": {
           "type": "boolean"
         },
@@ -232,6 +282,23 @@
             "migrate_now"
           ],
           "type": "string"
+        },
+        "threads.settleOnClose": {
+          "type": "boolean"
+        },
+        "threads.settleOnMerge": {
+          "type": "boolean"
+        },
+        "threads.unresponsiveAfter": {
+          "enum": [
+            "2m",
+            "5m",
+            "15m"
+          ],
+          "type": "string"
+        },
+        "threads.useWorktree": {
+          "type": "boolean"
         }
       },
       "type": "object"

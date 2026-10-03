@@ -5,6 +5,127 @@
     {
       "additionalProperties": false,
       "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/PluginName.json"
+        },
+        "providers": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+          },
+          "maxItems": 7,
+          "type": "array"
+        },
+        "type": {
+          "const": "plugins.availability",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "enabled",
+        "providers"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 50,
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "maximum": 262144,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "plugins.catalog",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 65536,
+          "maximum": 65536,
+          "minimum": 4,
+          "type": "integer"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/PluginName.json"
+        },
+        "offset": {
+          "default": 0,
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "plugins.source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "expectedHash": {
+          "$ref": "https://ace.local/protocol/v1/PluginHash.json"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/PluginName.json"
+        },
+        "path": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 262144,
+          "type": "string"
+        },
+        "type": {
+          "const": "plugins.edit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "path",
+        "expectedHash",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
         "name": {
           "$ref": "https://ace.local/protocol/v1/PluginName.json"
         },

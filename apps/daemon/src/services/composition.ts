@@ -1,3 +1,8 @@
+import { startPreviewClient } from "./preview-client.ts";
+import { startConductor } from "./conductor.ts";
+import { startAutomations } from "./automations.ts";
+import { startWorkspaceActions } from "./workspace-actions.ts";
+import { startThreadOrganization } from "./thread-organization.ts";
 import { startDevices } from "./devices.ts";
 import { startThreadTransitions } from "./thread-transitions.ts";
 import { startAgentRegistry } from "./agent-registry.ts";
@@ -32,6 +37,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "plugins", phase: "core", requires: [], after: [], start: startPlugins },
   { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
   { name: "browser", phase: "core", requires: [], after: ["settings"], start: startBrowser },
+  {
+    name: "workspaceActions",
+    phase: "core",
+    requires: [],
+    after: ["files"],
+    start: startWorkspaceActions,
+  },
   { name: "models", phase: "core", requires: [], after: [], start: startModels },
   {
     name: "mcp",
@@ -62,6 +74,7 @@ export const serviceFactories: readonly ServiceDefinition[] = [
       "pi",
       "agentRegistry",
       "transitions",
+      "workspaceActions",
     ],
     start: startEngine,
   },
@@ -76,6 +89,28 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: ["engine"],
     after: ["accounts", "context", "notifications"],
     start: startAgentControl,
+  },
+  { name: "previewClient", phase: "listener", requires: [], after: [], start: startPreviewClient },
+  {
+    name: "threadOrganization",
+    phase: "listener",
+    requires: [],
+    after: ["engine", "settings", "workspaceActions"],
+    start: startThreadOrganization,
+  },
+  {
+    name: "automations",
+    phase: "listener",
+    requires: ["engine", "settings"],
+    after: ["context", "agentControl", "workspaceActions"],
+    start: startAutomations,
+  },
+  {
+    name: "conductor",
+    phase: "listener",
+    requires: [],
+    after: ["engine", "accounts"],
+    start: startConductor,
   },
 ];
 /** Public daemon access fails explicitly when a feature could not be initialized. */

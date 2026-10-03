@@ -245,6 +245,37 @@ export class ThreadTransitions {
     const metadata = this.repo.transitions.get(id);
     return [...(metadata.handoff ? [renderHandoff(metadata.handoff)] : []), ...metadata.context];
   }
+  /** Composer selections use the same rollback and history rules as explicit switches. */
+  async selectNext(
+    actor: ThreadActor,
+    intent: Intent,
+    model?: string,
+    options?: import("@ace/protocol").ExecutionOptions,
+  ): Promise<void> {
+    if (model === undefined && options === undefined) return;
+    const metadata = this.repo.session(actor.id);
+    const current = this.repo.transitions.get(actor.id).selection ?? {
+      provider: this.repo.requireState(actor.id).config.provider,
+      options: {},
+      ...metadata,
+    };
+    await this.execute(actor, {
+      ...intent,
+      command: {
+        ...intent.command,
+        payload: {
+          type: "thread.switch",
+          threadId: actor.id,
+          selection: {
+            provider: current.provider,
+            ...(current.instanceId ? { instanceId: current.instanceId } : {}),
+            ...(model === undefined ? (current.model ? { model: current.model } : {}) : { model }),
+            ...(options === undefined ? {} : { options }),
+          },
+        },
+      },
+    });
+  }
   async freezeForkSource(source: ThreadId, fork: ThreadId): Promise<void> {
     const metadata = this.repo.transitions.get(fork);
     if (metadata.fork?.point.type !== "end") return;

@@ -1,3 +1,4 @@
+import type { BrowserInput } from "@ace/protocol";
 import { pairPhoneFrame } from "./preview-page.ts";
 
 /**
@@ -53,10 +54,12 @@ export class FakeBrowser {
   readonly available = true;
   /** Input forwarded while a person had control: what the daemon received. */
   readonly inputs: { threadId: string; input: ForwardedInput }[] = [];
+  readonly wireInputs: { threadId: string; input: BrowserInput }[] = [];
   get version(): number {
     return this.revision;
   }
   subscribe(listener: () => void): () => void {
+    if (this.watchers.size >= 64) throw new Error("subscription_limit");
     this.watchers.add(listener);
     return () => this.watchers.delete(listener);
   }
@@ -77,7 +80,25 @@ export class FakeBrowser {
   }
   input(threadId: string, input: ForwardedInput): void {
     if (this.view(threadId)?.controller !== "human") return;
+    if (this.inputs.length >= 256) this.inputs.shift();
     this.inputs.push({ threadId, input });
+  }
+  wireInput(threadId: string, input: BrowserInput): void {
+    if (this.view(threadId)?.controller !== "human") return;
+    if (this.wireInputs.length >= 256) this.wireInputs.shift();
+    this.wireInputs.push({ threadId, input });
+    if (
+      input.kind === "mouse" &&
+      (input.event === "mousePressed" || input.event === "mouseReleased")
+    )
+      this.input(threadId, { kind: "mouse", event: input.event, x: input.x, y: input.y });
+    if (input.kind === "key" && input.event === "keyDown")
+      this.input(threadId, {
+        kind: "key",
+        event: input.event,
+        key: input.key,
+        ...(input.text ? { text: input.text } : {}),
+      });
   }
   /**
    * Size the page's viewport (BrowserCommand `resize`); the next frame is painted at that size,
@@ -106,7 +127,19 @@ export class FakeBrowser {
   /** Scripting: the preview gateway detected a dev server for this thread. */
   serve(threadId: string, server: PreviewServer): void {
     const entry = this.entry(threadId);
+    if (entry.servers.length >= 64 && !entry.servers.some((s) => s.port === server.port))
+      throw new Error("preview_limit");
     entry.servers = [...entry.servers.filter((s) => s.port !== server.port), server];
+    this.changed();
+  }
+  close(threadId: string): void {
+    const entry = this.entries.get(threadId);
+    if (entry?.view) entry.view = { ...entry.view, closed: true, controller: "none" };
+    this.changed();
+  }
+  unforward(threadId: string, port: number): void {
+    const entry = this.entries.get(threadId);
+    if (entry) entry.servers = entry.servers.filter((server) => server.port !== port);
     this.changed();
   }
   private control(threadId: string, controller: "agent" | "human"): void {
@@ -129,6 +162,7 @@ export class FakeBrowser {
   private entry(threadId: string): Entry {
     let entry = this.entries.get(threadId);
     if (!entry) {
+      if (this.entries.size >= 64) throw new Error("browser_limit");
       entry = { servers: [], typed: "", viewport: { width: 760, height: 900 } };
       this.entries.set(threadId, entry);
     }

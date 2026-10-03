@@ -20,6 +20,9 @@ import {
 } from "./projection.ts";
 
 export interface ContextServiceOptions extends UploadOptions {
+  /** Logical project root used to authorize draft adoption into isolated worktrees. */
+  threadWorkspaceRoot?(id: string): string | undefined | Promise<string | undefined>;
+  workspaceRoot?(id: string): string | undefined | Promise<string | undefined>;
   threadReference?(
     device: string,
     owner: string,
@@ -36,7 +39,14 @@ export class ContextService {
     this.uploads = uploads;
   }
   static async open(options: ContextServiceOptions): Promise<ContextService> {
-    return new ContextService(options, await UploadStore.open(options));
+    return new ContextService(
+      options,
+      await UploadStore.open({
+        ...options,
+        ...(options.workspaceRoot ? { workspace: options.workspaceRoot } : {}),
+        threadWorkspace: options.threadWorkspaceRoot ?? options.workspace,
+      }),
+    );
   }
   private async workspace(device: string, thread: string) {
     requireContext(
@@ -58,7 +68,14 @@ export class ContextService {
       requireContext(access(), "forbidden", "Device access revoked");
       const op = request.operation;
       let result: ContextResult["result"];
-      if (op.op === "mention.resolve")
+      if (op.op === "draft.mention.complete")
+        result = {
+          kind: "completion",
+          paths: (
+            await this.workspaces.get(await this.uploads.draftWorkspace(device, op.draftId))
+          ).index.complete(op.query, op.limit),
+        };
+      else if (op.op === "mention.resolve")
         result = {
           kind: "mentions",
           ...(await resolveMentions(await this.workspace(device, op.threadId), op.mentions)),
@@ -134,6 +151,7 @@ export class ContextService {
       "forbidden",
       "Thread access denied",
     );
+    if (context.draftId) await this.uploads.adopt(device, context.draftId, thread);
     const lease = await this.uploads.acquire(
       device,
       thread,

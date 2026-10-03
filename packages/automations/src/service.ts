@@ -364,7 +364,13 @@ export class AutomationService {
             }),
           };
         case "automation.list":
-          return { ...base, automations: this.list() };
+          return {
+            ...base,
+            automations: this.list(),
+            schedules: this.store
+              .list()
+              .map((job) => ({ id: job.automation.id, nextRunAt: this.live ? job.due : null })),
+          };
         case "automation.inbox":
           return { ...base, inbox: this.inbox(request.limit, request.before) };
       }

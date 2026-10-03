@@ -29,13 +29,14 @@ Example:
 
 ```json
 {
-  "concurrency": 10,
-  "enabled": true,
+  "concurrency": 4,
+  "enabled": false,
   "id": "example",
-  "jitterMs": 8,
-  "missedRun": "skip",
+  "jitterMs": 2,
+  "missedRun": "run_once",
+  "model": "example",
   "prompt": "example",
-  "provider": "acp",
+  "provider": "codex",
   "title": "example",
   "trigger": {
     "kind": "manual"
@@ -76,7 +77,7 @@ Example:
 
 ```json
 {
-  "before": null,
+  "before": 10,
   "runs": []
 }
 ```
@@ -98,20 +99,22 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 1,
+    "concurrency": 7,
     "enabled": false,
     "id": "example",
-    "jitterMs": 5,
-    "missedRun": "skip",
+    "jitterMs": 1,
+    "missedRun": "run_once",
     "prompt": "example",
-    "provider": "acp",
+    "provider": "codex",
     "title": "example",
     "trigger": {
-      "event": "ci_failed",
-      "kind": "github",
-      "label": "example",
-      "pollIntervalMs": 60002,
-      "repository": "iRAVVMrMoG/m"
+      "kind": "schedule",
+      "schedule": {
+        "expression": "example",
+        "kind": "cron",
+        "startAt": 0,
+        "timezone": "example"
+      }
     },
     "workspace": "example",
     "worktree": true
@@ -188,7 +191,7 @@ Example:
 
 ```json
 {
-  "limit": 3,
+  "limit": 5,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -205,6 +208,7 @@ Example:
 | ok | yes | boolean |  |
 | error | no | string | {"maxLength":8192} |
 | automations | no | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/Automation.json"}} |
+| schedules | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]}},"required":["id","nextRunAt"]}} |
 | inbox | no | [AutomationInbox.json](schema/AutomationInbox.json) |  |
 | run | no | [AutomationRun.json](schema/AutomationRun.json) |  |
 
@@ -212,7 +216,7 @@ Example:
 
 ```json
 {
-  "ok": false,
+  "ok": true,
   "requestId": "example",
   "type": "automation.result"
 }
@@ -243,8 +247,9 @@ Example:
   "eventKey": "example",
   "id": "example",
   "result": "example",
-  "startedAt": 2,
+  "startedAt": 8,
   "status": "running",
+  "threadId": "example",
   "title": "example",
   "trigger": "github"
 }
@@ -328,8 +333,9 @@ Example:
 {
   "event": "ci_failed",
   "kind": "github",
-  "pollIntervalMs": 60003,
-  "repository": "Vas8/eq"
+  "label": "example",
+  "pollIntervalMs": 60004,
+  "repository": ".O060bX0g-/NoVf"
 }
 ```
 

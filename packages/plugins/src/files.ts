@@ -72,9 +72,12 @@ export async function hashFile(
 ): Promise<{ hash: string; bytes: number }> {
   const hash = createHash("sha256");
   let bytes = 0;
-  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-  const stream = handle.createReadStream({ highWaterMark: 64 * 1024, autoClose: false });
+  const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
+    const info = await handle.stat();
+    if (!info.isFile()) throw new Error("Special file forbidden");
+    if (info.size > maximum) throw new Error("File exceeds byte limit");
+    const stream = handle.createReadStream({ highWaterMark: 64 * 1024, autoClose: false });
     for await (const chunk of stream) {
       bytes += chunk.length;
       if (bytes > maximum) {
@@ -131,8 +134,14 @@ export async function readPackageText(
   const text: Record<string, string> = Object.create(null);
   for (const file of files)
     if (/\.(json|md|mdc|markdown|txt)$/.test(file.path)) {
-      const handle = await open(join(root, file.path), constants.O_RDONLY | constants.O_NOFOLLOW);
+      const handle = await open(
+        join(root, file.path),
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
       try {
+        const info = await handle.stat();
+        if (!info.isFile()) throw new Error("Special file forbidden");
+        if (info.size !== file.bytes) throw new Error("Integrity mismatch");
         const hash = createHash("sha256");
         const chunks: Buffer[] = [];
         let bytes = 0;

@@ -3,6 +3,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "$ref": "https://ace.local/protocol/v1/ThreadClientUpdated.json"
+    },
+    {
       "properties": {
         "thread": {
           "$ref": "https://ace.local/protocol/v1/Thread.json"
@@ -168,6 +171,9 @@
         "agentId"
       ],
       "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/RunClientUpdated.json"
     },
     {
       "properties": {

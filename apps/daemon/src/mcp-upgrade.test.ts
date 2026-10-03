@@ -45,12 +45,20 @@ it("accepts repeated agent creation and publishes the replacement with later sta
     ],
     2,
   );
-  expect(store.headSeq()).toBe(before + 2);
   expect(store.getMcpAgent(thread.id, agent.id)).toMatchObject({
     cwd: "/replacement",
     status: { state: "working", activity: "tool" },
   });
-  expect(store.readEvents({ threadId: thread.id, afterSeq: before, limit: 10 })).toHaveLength(2);
+  const events = store.readEvents({ threadId: thread.id, afterSeq: before, limit: 10 });
+  expect(
+    events.filter((event) => event.payload.type.startsWith("agent.")).map((event) => event.payload),
+  ).toEqual([
+    { type: "agent.created", agent: replacement },
+    { type: "agent.status", agentId: agent.id, status: { state: "working", activity: "tool" } },
+  ]);
+  expect(events.map((event) => event.seq)).toEqual(
+    Array.from({ length: store.headSeq() - before }, (_, i) => before + i + 1),
+  );
 });
 
 it("upgrades a pre-MCP database containing repeated creation and retains the latest agent", () => {

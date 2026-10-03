@@ -60,6 +60,22 @@ export function settingsSession(options: {
   return {
     accept(request: SettingsRequest): void {
       if (closed) return;
+      if (request.type === "settings.unsubscribe") {
+        if (options.authorize && !options.authorize(request)) {
+          error(request, new SettingsError("validation", "Device authority changed"));
+          return;
+        }
+        options.subscriptions.get(request.subscriptionId)?.();
+        options.subscriptions.delete(request.subscriptionId);
+        options.send({
+          type: "settings.result",
+          requestId: request.requestId,
+          ok: true,
+          entries: [],
+          diagnostics: [],
+        });
+        return;
+      }
       if (pending >= 64) {
         error(request, new SettingsError("limit", "Settings request queue is full"));
         return;

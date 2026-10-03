@@ -19,3 +19,15 @@ export const DiagnosticsHealth = z.object({
   logs: z.object({ dropped: count, failed: count, queued: count }),
 });
 export type DiagnosticsHealth = z.infer<typeof DiagnosticsHealth>;
+
+export const DiagnosticsHealthRequest = z.object({
+  type: z.literal("diagnostics.health"),
+  requestId: z.string().min(1).max(128),
+});
+export const DiagnosticsHealthResult = z.object({
+  type: z.literal("diagnostics.health.result"),
+  requestId: z.string().min(1).max(128),
+  ok: z.boolean(),
+  health: DiagnosticsHealth.optional(),
+  error: z.string().max(256).optional(),
+});

@@ -16,7 +16,14 @@ export class ThreadHost {
   /** Item id to creation sequence; the cursor that history pages are keyed by. */
   readonly creation = new Map<string, number>();
   /** Messages sent with `delivery: "queue"` while the root agent was busy, oldest first. */
-  readonly queued: { key: string; text: string }[] = [];
+  readonly queued: {
+    key: string;
+    text: string;
+    model?: string;
+    options?: import("@ace/protocol").TurnOptions;
+  }[] = [];
+  nextSelection: { model?: string; options?: import("@ace/protocol").TurnOptions } | undefined;
+  runOrdinal = 0;
   private counter = 0;
   constructor(thread: Thread) {
     this.state = createThreadState({

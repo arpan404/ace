@@ -1,4 +1,4 @@
-import type { Fact, Key } from "@ace/core";
+import { deriveThreadStatus, type Fact } from "@ace/core";
 import type { ContentPart, MessageContext } from "@ace/protocol";
 import type { ThreadHost } from "./thread-host.ts";
 
@@ -21,8 +21,10 @@ function inputText(input: readonly ContentPart[], context: MessageContext | unde
     : text;
 }
 
-function busy(host: ThreadHost, key: Key): boolean {
-  return host.state.agents[key]?.activeRun !== undefined;
+function busy(host: ThreadHost): boolean {
+  return !["new", "done", "failed"].includes(
+    deriveThreadStatus({ ...host.state, queueCount: host.state.queueSources.provider }).state,
+  );
 }
 
 /** A user message that starts a fresh root turn. */
@@ -44,6 +46,8 @@ export function sendFacts(
   host: ThreadHost,
   commandId: string,
   payload: {
+    model?: string | undefined;
+    options?: import("@ace/protocol").TurnOptions | undefined;
     input: readonly ContentPart[];
     context?: MessageContext | undefined;
     delivery: "steer" | "queue";
@@ -52,8 +56,14 @@ export function sendFacts(
   const root = host.state.rootKey;
   if (root === undefined) return { ok: false, error: "no_agent" };
   const text = inputText(payload.input, payload.context);
-  if (!busy(host, root)) return { ok: true, facts: startTurn(host, commandId, text) };
-  if (payload.delivery === "steer")
+  if (!busy(host)) {
+    host.nextSelection = {
+      ...(payload.model ? { model: payload.model } : {}),
+      ...(payload.options ? { options: payload.options } : {}),
+    };
+    return { ok: true, facts: startTurn(host, commandId, text) };
+  }
+  if (payload.delivery === "steer" && payload.model === undefined && payload.options === undefined)
     return {
       ok: true,
       facts: [
@@ -70,16 +80,26 @@ export function sendFacts(
         },
       ],
     };
-  host.queued.push({ key: commandId, text });
+  if (host.queued.length >= 256) return { ok: false, error: "queue_limit" };
+  host.queued.push({
+    key: commandId,
+    text,
+    ...(payload.model ? { model: payload.model } : {}),
+    ...(payload.options ? { options: payload.options } : {}),
+  });
   return { ok: true, facts: [{ type: "queue.changed", count: host.queued.length }] };
 }
 
 /** Once the root agent is free, the oldest queued message starts the next turn. */
 export function drainQueue(host: ThreadHost): Fact[] {
   const root = host.state.rootKey;
-  if (root === undefined || busy(host, root)) return [];
+  if (root === undefined || busy(host)) return [];
   const next = host.queued.shift();
   if (!next) return [];
+  host.nextSelection = {
+    ...(next.model ? { model: next.model } : {}),
+    ...(next.options ? { options: next.options } : {}),
+  };
   return [
     { type: "queue.changed", count: host.queued.length },
     ...startTurn(host, next.key, next.text),

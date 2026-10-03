@@ -1,3 +1,12 @@
+import { migrateRunClient, prepareRunClient } from "./run-client-storage.ts";
+import { executionWorkspace } from "./workspace-root.ts";
+import {
+  migrateThreadClient,
+  seedThreadClient,
+  encodeThreadClient,
+  liveMetadataChange,
+} from "./thread-client-storage.ts";
+import { ThreadClientFields } from "@ace/protocol";
 import { ThreadTransitionView } from "@ace/protocol";
 import { ThreadProviderMetadata } from "@ace/protocol";
 import { HistoryIndex } from "./history-index.ts";
@@ -12,7 +21,7 @@ import {
   CommandResult,
   Event,
   Thread,
-  type DeviceId,
+  DeviceId,
   type CommandId,
   type EventPayload,
   type RawPayload,
@@ -58,6 +67,7 @@ export class Store {
   private readonly nextId: () => string;
   private readonly now: () => number;
   private readonly mcp: McpData;
+  private engineSessionsKnown = false;
   private statements = new Map<string, StatementSync>();
   private transactionEvents: Event[] | undefined;
   private depth = 0;
@@ -83,6 +93,7 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
+      this.atomic(migrateThreadClient);
       this.usageReplay = new UsageReplay(this.db);
       this.db.exec(
         `CREATE INDEX IF NOT EXISTS threads_update_blockers ON threads(id) WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')`,
@@ -100,6 +111,8 @@ export class Store {
       );
       this.history.initialize();
       this.status.initialize((id) => this.getThread(id));
+      this.atomic(migrateRunClient);
+      this.atomic((db) => seedThreadClient(db, (id) => this.getThread(id)));
       this.devices = new Devices(this.db, {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
@@ -308,9 +321,35 @@ export class Store {
       await setImmediate();
     }
   }
-  getWorkspace(id: WorkspaceId): { path: string } | undefined {
-    const row = this.statement("SELECT path FROM workspaces WHERE id=?").get(id);
-    return row ? { path: String(row.path) } : undefined;
+  getWorkspace(id: WorkspaceId): { path: string; name: string } | undefined {
+    const row = this.statement("SELECT path,name FROM workspaces WHERE id=?").get(id);
+    return row ? { path: String(row.path), name: String(row.name) } : undefined;
+  }
+  executionWorkspace(id: ThreadId) {
+    const thread = this.getThread(id);
+    if (!thread) throw new Error("thread_not_found");
+    if (!this.engineSessionsKnown)
+      this.engineSessionsKnown = Boolean(
+        this.statement(
+          "SELECT 1 FROM sqlite_master WHERE type='table' AND name='engine_sessions'",
+        ).get(),
+      );
+    const session = this.engineSessionsKnown
+      ? this.statement("SELECT * FROM engine_sessions WHERE thread_id=?").get(id)
+      : undefined;
+    return executionWorkspace(
+      thread,
+      session,
+      session === undefined ? this.getWorkspacePath(thread.workspaceId) : undefined,
+    );
+  }
+  completeWorkspacePreparation(id: ThreadId, expectedPath: string, path: string): boolean {
+    const thread = this.getThread(id);
+    if (!thread || thread.deletedAt !== undefined) return false;
+    const result = this.statement(
+      "UPDATE engine_sessions SET cwd=?,workspace_ready=1 WHERE thread_id=? AND cwd=? AND workspace_ready=0",
+    ).run(path, id, expectedPath);
+    return result.changes === 1;
   }
   importedSource(sourceId: string): Thread | undefined {
     const row = this.statement(
@@ -336,7 +375,7 @@ export class Store {
     let after = "";
     for (;;) {
       const rows = this.statement(
-        "SELECT id FROM threads WHERE workspace_id=? AND archived_at IS NULL AND id>? ORDER BY id LIMIT 64",
+        "SELECT id FROM threads WHERE workspace_id=? AND archived_at IS NULL AND json_extract(client,'$.deletedAt') IS NULL AND id>? ORDER BY id LIMIT 64",
       ).all(workspaceId, after);
       if (!rows.length) return;
       this.transaction(() => {
@@ -355,6 +394,7 @@ export class Store {
   }
   private decodeThread(row: Record<string, SQLOutputValue>): Thread {
     return Thread.parse({
+      ...(row.client == null ? {} : ThreadClientFields.parse(JSON.parse(String(row.client)))),
       ...(row.transitions == null
         ? {}
         : ThreadTransitionView.parse(JSON.parse(String(row.transitions)))),
@@ -387,8 +427,21 @@ export class Store {
     return this.transaction(() => {
       let seq = this.headSeq();
       const events: Event[] = [];
-      for (const payload of payloads) {
-        const event = Event.parse({ seq: ++seq, id: this.nextId(), threadId, at, payload });
+      let followup: EventPayload | undefined;
+      let inputIndex = 0;
+      while (followup || inputIndex < payloads.length) {
+        const payload = followup ?? payloads[inputIndex++];
+        followup = undefined;
+        if (!payload) break;
+        const previous = this.getThread(threadId);
+        const prepared = previous ? prepareRunClient(this.db, previous, payload) : payload;
+        const event = Event.parse({
+          seq: ++seq,
+          id: this.nextId(),
+          threadId,
+          at,
+          payload: prepared,
+        });
         if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
         let thread: Thread;
         if (event.payload.type === "thread.created") {
@@ -412,7 +465,17 @@ export class Store {
           if (!existing) throw new Error("Unknown thread");
           thread = existing;
         }
+        const liveChange = liveMetadataChange(this.db, thread, event.payload);
+        if (liveChange) followup = liveChange;
         updateThread(thread, event);
+        if (
+          event.payload.type === "thread.created" ||
+          event.payload.type === "thread.client.updated"
+        )
+          this.statement("UPDATE threads SET client=? WHERE id=?").run(
+            encodeThreadClient(thread),
+            thread.id,
+          );
         this.statement(
           "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ?, provider = ?, transitions = ? WHERE id = ?",
         ).run(
@@ -459,11 +522,14 @@ export class Store {
       if (
         events.some(
           (event) =>
-            event.payload.type === "thread.created" || event.payload.type === "thread.updated",
+            event.payload.type === "thread.created" ||
+            event.payload.type === "thread.updated" ||
+            event.payload.type === "thread.client.updated",
         )
       ) {
         const current = this.getThread(threadId);
-        if (current) this.search.observeThread(current, seq);
+        if (current?.deletedAt !== undefined) this.search.deleteThread(threadId);
+        else if (current) this.search.observeThread(current, seq);
       }
       this.search.append(events);
       this.transactionEvents?.push(...events);
@@ -518,9 +584,13 @@ export class Store {
   recordCommand(commandId: CommandId, deviceId: DeviceId, run: () => CommandResult): CommandResult {
     return this.transaction(() => {
       const receipt = this.statement(
-        "SELECT result FROM command_receipts WHERE command_id = ?",
+        "SELECT result,device_id FROM command_receipts WHERE command_id = ?",
       ).get(commandId);
-      if (receipt) return CommandResult.parse(JSON.parse(String(receipt.result)));
+      if (receipt) {
+        if (DeviceId.parse(receipt.device_id) !== deviceId)
+          return { commandId, ok: false, error: "forbidden" };
+        return CommandResult.parse(JSON.parse(String(receipt.result)));
+      }
       const result = CommandResult.parse(run());
       if (result.commandId !== commandId) throw new Error("Command result id mismatch");
       this.statement("INSERT INTO command_receipts VALUES (?, ?, ?, ?)").run(
@@ -530,6 +600,24 @@ export class Store {
         JSON.stringify(result),
       );
       return result;
+    });
+  }
+  commandReceipt(commandId: CommandId, deviceId: DeviceId): CommandResult | undefined {
+    const row = this.statement(
+      "SELECT result FROM command_receipts WHERE command_id=? AND device_id=?",
+    ).get(commandId, deviceId);
+    return row ? CommandResult.parse(JSON.parse(String(row.result))) : undefined;
+  }
+  completeAsyncCommand(id: CommandId, input: CommandResult): CommandResult {
+    const result = CommandResult.parse(input);
+    if (result.commandId !== id) throw new Error("Command result id mismatch");
+    return this.atomic((db) => {
+      db.prepare(
+        "UPDATE command_receipts SET result=? WHERE command_id=? AND json_extract(result,'$.error')='client_action_pending'",
+      ).run(JSON.stringify(result), id);
+      const row = db.prepare("SELECT result FROM command_receipts WHERE command_id=?").get(id);
+      if (!row) throw new Error("Missing command reservation");
+      return CommandResult.parse(JSON.parse(String(row.result)));
     });
   }
   releaseReviewCommand(commandId: CommandId, deviceId: DeviceId): void {

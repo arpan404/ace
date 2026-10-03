@@ -34,15 +34,21 @@ test("a message sent to a settled thread lands in the transcript and the agent s
   expect(await screen.findByRole("button", { name: "Stop the agent" })).toBeTruthy();
 });
 
-test("while the agent works, Enter queues the message until the agent is free", async () => {
-  const { feed, message } = await open("busy");
+test("while the thread works, Enter queues the message until nothing is running", async () => {
+  const { app, feed, message } = await open("busy");
   await userEvent.type(message, "Also check the iOS cold-start path{Enter}");
   const queue = await screen.findByRole("list", { name: "Queued messages" });
   expect(within(queue).getByText("Also check the iOS cold-start path")).toBeTruthy();
   expect(within(feed).queryByText("Also check the iOS cold-start path")).toBeNull();
 
-  // Stopping frees the agent; the daemon then delivers the queued message.
+  // Stopping the agents leaves the background relay running, so the daemon keeps the message
+  // queued; once the relay ends the thread is idle and the queued message is delivered.
   await userEvent.click(screen.getByRole("button", { name: "Stop the agent" }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Stop the agent" })).toBeNull());
+  expect(within(feed).queryByText("Also check the iOS cold-start path")).toBeNull();
+  app.daemon.apply("thread-replay-cursor", [
+    { type: "background.ended", task: "relay", status: "stopped" },
+  ]);
   expect(await within(feed).findByText("Also check the iOS cold-start path")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
 });

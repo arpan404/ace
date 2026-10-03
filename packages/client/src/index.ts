@@ -35,6 +35,10 @@ export { ticketCredential } from "./credentials.ts";
 export type { Credential } from "./credentials.ts";
 export { retryDelay } from "./lifecycle.ts";
 export type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
+export { isOneWayMessage } from "./one-way.ts";
+export type { OneWayMessage } from "./one-way.ts";
+export { AccessClient } from "./access.ts";
+export type { AccessOptions } from "./access.ts";
 export { oppositeFollowUpBehavior } from "./follow-up.ts";
 
 export { DeviceClient, DeviceClientError } from "@ace/devices/client";
