@@ -1,3 +1,4 @@
+import { BrowserSubscriptions } from "./browser-subscriptions.ts";
 import { z } from "zod";
 import {
   ClientError,
@@ -38,6 +39,7 @@ export interface HostOptions {
 
 interface Entry {
   key: string;
+  generation: number;
   client: Client;
   tabs: Set<Tab>;
   started: Promise<void>;
@@ -105,6 +107,7 @@ export class ClientHost {
       const client = target.create();
       const created: Entry = {
         key: target.key,
+        generation: 0,
         client,
         tabs: new Set(),
         started: client.start(),
@@ -113,6 +116,7 @@ export class ClientHost {
       };
       const selection = client.connectionState();
       created.unwatch = selection.subscribe(() => {
+        if (client.state !== "ready") created.generation++;
         for (const member of created.tabs) member.connection();
       });
       this.entries.set(target.key, created);
@@ -155,7 +159,7 @@ class Tab {
   lastSeen: number;
   private host: ClientHost;
   private subscriber: string;
-  private browsers = new Set<string>();
+  private browsers = new BrowserSubscriptions();
   private fileChannels = new Map<number, string | undefined>();
   private port: PortLike;
   private options: HostOptions;
@@ -192,6 +196,11 @@ class Tab {
   connection(): void {
     const client = this.entry?.client;
     if (!client) return;
+    if (client.state !== "ready") {
+      this.fileChannels.clear();
+      this.browsers.close(() => {});
+      this.browsers = new BrowserSubscriptions();
+    }
     this.post({
       t: "connection",
       state: client.state,
@@ -248,8 +257,25 @@ class Tab {
         return this.calls.get(message.call)?.abort();
       case "send": {
         const control = ClientMessage.safeParse(message.message);
-        if (control.success && control.data.type === "files.cancel")
+        if (
+          control.success &&
+          ["files.request", "files.abort", "browser.subscribe", "browser.unsubscribe"].includes(
+            control.data.type,
+          )
+        )
+          return;
+        if (
+          control.success &&
+          (control.data.type === "files.pull" ||
+            control.data.type === "files.chunk" ||
+            control.data.type === "files.credit") &&
+          !this.fileChannels.has(control.data.channel)
+        )
+          return;
+        if (control.success && control.data.type === "files.cancel") {
+          if (!this.fileChannels.has(control.data.channel)) return;
           this.fileChannels.delete(control.data.channel);
+        }
         return sendArgs(client, message.message);
       }
       case "watchIntent":
@@ -386,7 +412,29 @@ class Tab {
     this.calls.set(call, controller);
     try {
       let forwarded = args;
-      let unsubscribed: string | undefined;
+      const entry = this.entry;
+      const generation = entry?.generation;
+      let browser:
+        | Extract<
+            import("@ace/protocol").ClientMessage,
+            { type: "browser.subscribe" | "browser.unsubscribe" }
+          >
+        | undefined;
+      const assertGeneration = () => {
+        if (!entry || entry.generation !== generation || client.state !== "ready")
+          throw new ClientError("offline");
+        controller.signal.throwIfAborted();
+      };
+      const cleanupBrowser = (thread: string) => {
+        if (entry?.generation === generation && client.state === "ready")
+          void client
+            .request({
+              type: "browser.unsubscribe",
+              threadId: importThreadIdSchema.parse(thread),
+              subscriberId: this.subscriber,
+            })
+            .catch(() => {});
+      };
       if (method === "request") {
         const parsed = ClientMessage.safeParse({ ...objectInput(args[0]), requestId: "worker" });
         if (
@@ -394,16 +442,35 @@ class Tab {
           (parsed.data.type === "browser.subscribe" || parsed.data.type === "browser.unsubscribe")
         ) {
           const input = parsed.data;
-          if (input.type === "browser.subscribe") {
-            if (this.browsers.size >= 8 && !this.browsers.has(input.threadId))
-              throw new ClientError("limit");
-            this.browsers.add(input.threadId);
-          } else unsubscribed = input.threadId;
+          browser = input;
           forwarded = [{ ...input, subscriberId: this.subscriber }, ...args.slice(1)];
         }
+        if (
+          parsed.success &&
+          (parsed.data.type === "files.pull" || parsed.data.type === "files.chunk")
+        ) {
+          assertGeneration();
+          if (!this.fileChannels.has(parsed.data.channel))
+            throw new ClientError("offline", "File channel lifetime ended");
+        }
       }
-      const value = await callArgs(client, method, forwarded, controller.signal);
+      const run = () => {
+        assertGeneration();
+        return callArgs(client, method, forwarded, controller.signal);
+      };
+      const value = browser
+        ? await this.browsers.run(browser.threadId, browser.type, run, () => {
+            if (browser) cleanupBrowser(browser.threadId);
+          })
+        : await callArgs(client, method, forwarded, controller.signal);
       if (method === "request") {
+        const input = ClientMessage.safeParse({ ...objectInput(args[0]), requestId: "worker" });
+        if (
+          input.success &&
+          input.data.type.startsWith("files.") &&
+          (entry?.generation !== generation || client.state !== "ready")
+        )
+          throw new ClientError("offline");
         const response = z
           .object({
             type: z.string(),
@@ -418,7 +485,8 @@ class Tab {
           response.success &&
           (response.data.type === "files.ready" || response.data.type === "files.upload")
         ) {
-          if (!this.calls.has(call))
+          if (entry?.generation !== generation) throw new ClientError("offline");
+          if (!this.calls.has(call) || controller.signal.aborted)
             client.send({ type: "files.cancel", channel: response.data.channel });
           else this.fileChannels.set(response.data.channel, response.data.uploadId);
         }
@@ -440,8 +508,6 @@ class Tab {
           for (const [channel, uploadId] of this.fileChannels)
             if (uploadId === completed.data.operation.uploadId) this.fileChannels.delete(channel);
       }
-      if (unsubscribed && z.object({ ok: z.literal(true) }).safeParse(value).success)
-        this.browsers.delete(unsubscribed);
       this.post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
     } catch (error) {
       this.post({ t: "failed", call, error: errorShape(error) });
@@ -487,8 +553,8 @@ class Tab {
   }
   private detach(): void {
     const client = this.entry?.client;
-    if (client?.state === "ready")
-      for (const threadId of this.browsers)
+    this.browsers.close((threadId) => {
+      if (client?.state === "ready")
         void client
           .request({
             type: "browser.unsubscribe",
@@ -496,7 +562,8 @@ class Tab {
             subscriberId: this.subscriber,
           })
           .catch(() => {});
-    this.browsers.clear();
+    });
+    this.browsers = new BrowserSubscriptions();
     for (const channel of this.fileChannels.keys()) {
       try {
         client?.send({ type: "files.cancel", channel });
