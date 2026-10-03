@@ -31,7 +31,7 @@ export function checkout(options: {
     mode: options.mode ?? "worktree",
     worktree: options.path,
     branch: options.branch,
-    head: options.head.repeat(40 / options.head.length).slice(0, 40),
+    head: options.head.repeat(Math.ceil(40 / options.head.length)).slice(0, 40),
     ahead: options.ahead ?? 0,
     behind: 0,
     baseBranch: "main",
