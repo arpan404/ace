@@ -2,6 +2,14 @@
 
 Researched 2026-10-01/02 for the ace rewrite. This file compares the five priority providers and draws conclusions for the canonical protocol. The per-provider files hold the detail and the citations:
 
+| Provider    | File                             | Version inspected                                                                            |
+| ----------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
+| Claude Code | [claude-code.md](claude-code.md) | `@anthropic-ai/claude-agent-sdk` 0.3.287 (CLI 2.1.287), local CLI 2.1.286                    |
+| Codex       | [codex.md](codex.md)             | `openai/codex` @ `7135b303`, local `codex-cli` 0.159.1                                       |
+| OpenCode    | [opencode.md](opencode.md)       | `anomalyco/opencode` v1.18.33 (`51ef4be1`), v1 baseline; [v2.0.22 follow-up](opencode-v2.md) |
+| Cursor      | [cursor.md](cursor.md)           | `cursor-agent` 2026.09.26-dd393fe; ACP schema v1.24.1                                        |
+| Antigravity | [antigravity.md](antigravity.md) | `agy_acp_server` 1.2.1 (ACP registry); not installed locally                                 |
+
 The follow-up [local SDK audit](sdk-audit.md) compares current Claude and Codex
 SDK implementations with `integration/train-1` and also covers Gemini CLI and
 Qwen Code. Its recommendations supersede the SDK-specific conclusions here.
@@ -30,6 +38,14 @@ No live agent sessions were run. Several key behaviours are marked **[unverified
 
 ## Recommended surface per provider
 
+|                 | Primary (live)                                                                                                        | Secondary (history/import)                                                        | Avoid                                                                                              |
+| --------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| **Claude**      | Agent SDK `query()` in streaming-input mode. One long-lived `Query` per thread                                        | SDK session helpers (`listSessions`, `getSessionMessages`, `getSubagentMessages`) | Raw stream-json (re-implements the control protocol), user hooks, OTel                             |
+| **Codex**       | `codex app-server` JSON-RPC v2 over stdio with `experimentalApi`. One multiplexed process per daemon                  | app-server `thread/list` / `thread/read` / `thread/turns/list`                    | `codex exec --json` and the TS SDK (no approvals, drop subagents), rollout files (unstable format) |
+| **OpenCode**    | CLI v2: ace-owned `opencode serve --stdio` + `/api/event`, via `@opencode/client`; see [v2 migration](opencode-v2.md) | HTTP list/read routes                                                             | Legacy SDK/API for CLI v2, embedded `@opencode/sdk`, direct DB reads                               |
+| **Cursor**      | `agent acp` (hidden subcommand), one process per thread, with `clientCapabilities._meta.subagents`                    | `~/.cursor/projects/*/agent-transcripts/*.jsonl`                                  | Headless stream-json except for unattended runs (no human-in-the-loop)                             |
+| **Antigravity** | Google's `agy_acp_server` from the ACP registry, API-key auth by default                                              | `session/load` replay into a scratch connection                                   | On-disk `.db` files (unpublished protobuf). Gemini CLI is a different agent                        |
+
 |                 | Primary (live)                                                                                                                                          | Secondary (history/import)                                                        | Avoid                                                                                              |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | **Claude**      | Agent SDK `query()` in streaming-input mode. One long-lived `Query` per thread                                                                          | SDK session helpers (`listSessions`, `getSessionMessages`, `getSubagentMessages`) | Raw stream-json (re-implements the control protocol), user hooks, OTel                             |
@@ -41,6 +57,10 @@ No live agent sessions were run. Several key behaviours are marked **[unverified
 Four native adapters cover Claude SDK, Codex app-server, OpenCode HTTP+SSE and Cursor SDK. The generic ACP adapter covers registry agents, Antigravity, existing Cursor ACP threads and Cursor fallback when the SDK is absent. The matrix below retains the original **Cursor ACP** findings; see the [SDK comparison](cursor-sdk.md#comparison-with-the-findings-in-cursormd) for the accepted backend.
 
 ## Capability matrix
+
+The OpenCode column below is the historical 1.18.33 baseline. For v2 status,
+forms, native background shells, fork lineage and SSE recovery, use the
+[v2 findings and comparison](opencode-v2.md#what-survives-from-aces-findings).
 
 |                                    | Claude                                                                            | Codex                                                                                                                          | OpenCode                                                                                | Cursor (ACP)                                                                                        | Antigravity (ACP)                                                           |
 | ---------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -85,7 +105,7 @@ Four native adapters cover Claude SDK, Codex app-server, OpenCode HTTP+SSE and C
 
 11. **Process supervision differs per provider, so it belongs in the daemon core.** One multiplexed process (Codex, OpenCode), one per thread (Claude, Cursor), one heavy process per instance (Antigravity). The supervisor needs spawn, readiness, idle reaping with resume, crash restart, and a per-provider memory budget.
 
-12. **Version churn is high everywhere,** with releases weekly or faster, and docs lag the code in every case. Per provider: generate types from the installed binary where possible (Codex `generate-ts`, OpenCode `/doc`, Claude `sdk.d.ts`, ACP JSON schema), decode leniently, gate features on capability probes rather than versions, and pin behaviour with recorded fixtures in CI.
+12. **Version churn is high everywhere,** with releases weekly or faster, and docs lag the code in every case. Per provider: generate types from the installed binary where possible (Codex `generate-ts`, OpenCode `/openapi.json` in v2 or `/doc` in v1, Claude `sdk.d.ts`, ACP JSON schema), decode leniently, gate features on capability probes rather than versions, and pin behaviour with recorded fixtures in CI.
 
 ## Auth and terms of service
 
@@ -114,7 +134,7 @@ The open questions that most affect the protocol, in priority order:
 
 1. Claude: is `session_state_changed` emitted by default, and in what order relative to `result` and `task_notification`? Is `task_id` the same as `agentId`?
 2. Codex: what a client sees when a background terminal exits after `turn/completed`; how often child attachment fails under parallel spawns.
-3. OpenCode: child-session events interleaved on `/global/event` during a real `task` run; background-subagent re-wake sequence.
+3. OpenCode v2: native child-session events on `/api/event` during a `subagent` run, background-child and native-shell completion wakes, and interrupt settlement. The [v2 fixture approval list](opencode-v2.md#migration-scope-and-fixture-approval-list) replaces the v1 recording plan.
 4. Cursor: which session id subagent approvals arrive on; whether background shell completions surface over ACP at all.
 5. Antigravity: what `start_subagent` returns; how `/plan` approval reaches an ACP client; whether anything is pushed between prompts.
 
