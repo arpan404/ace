@@ -127,3 +127,23 @@ The #83 merge preserves Deck ownership/handoff fields together with engine spawn
 | Drop Deck ownership or permission parent while combining delegation creation | permission-ownership.process.test.ts public prepared root and delegate retain ownership and ask ceiling                | not executed (tests run at merge) |
 
 Only the permitted static checks run locally. Dependency links were refreshed with bun install --ignore-scripts --frozen-lockfile after merging main; no lifecycle scripts ran. Tests, bun run check, CI, probes, benchmarks, provider prompts and recorder sessions remain unexecuted.
+
+## Merge-time failure repair (2026-10-03)
+
+Pulled the orchestrator's main merge at f32b0a34 before editing. The owner's narrow exception authorizes only the eleven reported failing files. Their first combined run reproduced all 29 reported failures. Previous sections describe earlier static-only rounds; this round has executed evidence.
+
+First admission now resolves scoped settings even though a prepared root is already starting. Existing active turns keep their pinned policy. Turn completion retains only resolution intents already running in the engine until the native answer returns. Success records the one-shot answer and device; failure releases the held request; interruption and process exit still cancel or expire requests. No terminal interaction is revived. The pure core receives an injected set of canonical interaction IDs; the I/O shell reads only this thread's running intents through its existing partial index.
+
+Three new public-engine cases use explicit provider-entry, turn-ended and callback-release barriers. They assert needs_you while an answer is in flight, exactly one durable reason, successful resolution after ACK, cancellation after a failed ACK, and no revival after process exit. No wall-clock timing or setImmediate synchronization is used.
+
+Fixtures now preserve native session methods instead of spreading class instances. Scoped preparation supplies its reserved thread ID; forbidden native permission options are exercised through a valid thread.create command. Cursor admission uses ace's permissionMode rather than a forbidden native sandbox option. Pi MCP cases explicitly opt into full-access. OpenCode resume keeps the memory-only server alive and handles its SDK's PATCH contract with HTTP 204, checking the persisted ask rule. Backend-owned manual approval/reconnect scenarios declare ask or the explicit full-access grant demonstration. No UI files were edited.
+
+Final authorized run: **11 files, 85 tests passed**. The files are needs-you.test.tsx, reconnect.test.tsx, provider-permissions.process.test.ts, permissions.process.test.ts, permission-audit-recovery.process.test.ts, cursor-admission.process.test.ts, provider-mcp.process.test.ts, permission-ancestry.process.test.ts, pi-mcp.process.test.ts, acp-permission-selectors.process.test.ts and adapter-opencode's permissions.process.test.ts. No other tests or full suite ran.
+
+All six static checks passed: typecheck, lint, scoped fmt, check:size, check:deps and docs:protocol --check. The previously disclosed dependency-cruiser TypeScript 7 warning remains; the check exits successfully with no violations. CI remains disabled. Broader runtime coverage needs run at merge.
+
+| Mutation                                                 | Guarding behavior                                                                       | Result                            |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------- | --------------------------------- |
+| Cancel an engine-owned answer when its turn completes    | Gated native answer stays needs_you until ACK, then records its one-shot resolution     | not executed (tests run at merge) |
+| Preserve a failed or dead native answer as resolved      | Failed ACK cancels; process exit expires; neither records a grant                       | not executed (tests run at merge) |
+| Treat a prepared starting root as an already-pinned turn | Scoped settings and cold ancestor admission use the effective ceiling at first delivery | not executed (tests run at merge) |

@@ -133,13 +133,13 @@ export async function harness(
       async openSession(ctx) {
         contexts.push(ctx);
         const session = await (options.nativeAdapter ?? adapter).openSession(ctx);
-        return {
-          ...session,
-          async resolve(interaction, resolution) {
-            await options.resolveGate;
-            return session.resolve(interaction, resolution);
-          },
+        if (!options.resolveGate) return session;
+        const resolve = session.resolve.bind(session);
+        session.resolve = async (interaction, resolution) => {
+          await options.resolveGate;
+          return resolve(interaction, resolution);
         };
+        return session;
       },
     },
     { installed: true, auth: "logged_in", loginHint: "unused" },

@@ -21,16 +21,21 @@ test.each([
 
 test("OpenCode auto-review reapplies the native ask rule when resuming an unrestricted session", async () => {
   const h = await setup();
-  const source = await h.open("/two", undefined, "full-access");
+  // The scripted server is memory-only; h.session keeps this workspace's server alive.
+  const source = await h.open("/one", undefined, "full-access");
   const native = source.nativeSessionId;
   await source.close("idle");
-  const resumed = await h.open("/two", native, "auto-review");
+  const resumed = await h.open("/one", native, "auto-review");
   try {
     const requests = array(await h.control("/test/requests")).map(object);
     const update = requests.find(
       (r) => r.path === `/api/session/${native}` && object(r.body).permissions !== undefined,
     );
     expect(object(update?.body).permissions).toEqual([
+      { action: "*", resource: "*", effect: "ask" },
+    ]);
+    const restored = object(await h.control(`/api/session/${native}`));
+    expect(object(restored.data).permissions).toEqual([
       { action: "*", resource: "*", effect: "ask" },
     ]);
   } finally {

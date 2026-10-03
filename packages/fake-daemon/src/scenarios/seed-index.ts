@@ -14,6 +14,8 @@ export function seedIndex(): Scenario {
       workspaceId: "docs-site",
       title: "Seed the docs search index",
       provider: "claude",
+      // This scenario explicitly demonstrates a permanent native grant.
+      permissionMode: "full-access",
     },
     steps: [
       {

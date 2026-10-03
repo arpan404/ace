@@ -93,12 +93,14 @@ it("pins SDK account and backend before worktree preparation and checkpoints bef
   const checkpointed = Promise.withResolvers<void>();
   const registry = new AdapterRegistry();
   let hostCwd: string | undefined;
+  let permissionMode: import("@ace/engine-api").SessionContext["permissionMode"];
   registry.register(
     {
       ...adapter,
       backend: "cursor-sdk",
       async openSession(context) {
         hostCwd = context.cwd;
+        permissionMode = context.permissionMode;
         return adapter.openSession(context);
       },
     },
@@ -131,7 +133,7 @@ it("pins SDK account and backend before worktree preparation and checkpoints bef
             provider: "cursor",
             mode: "worktree",
             model: "composer-2.5",
-            options: { sandbox: "restricted" },
+            permissionMode: "auto-review",
             input: [{ type: "text", text: "offline" }],
           },
         }),
@@ -144,12 +146,12 @@ it("pins SDK account and backend before worktree preparation and checkpoints bef
       backend: "cursor-sdk",
       instanceId: "pinned-sdk-account",
       workspaceReady: false,
-      options: { sandbox: "restricted" },
     });
     const pendingAccount = store.getThread(threadId)?.live?.account;
     prepared.resolve(preparedPath);
     await checkpointing.promise;
     expect(hostCwd).toBe(preparedPath);
+    expect(permissionMode).toBe("auto-review");
     expect(adapter.commands).toEqual([]);
     checkpointed.resolve();
     await engine.flush();
