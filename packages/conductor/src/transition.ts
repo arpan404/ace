@@ -27,6 +27,7 @@ export function gate(
   const item: Gate = {
     id: ctx.env.id(),
     kind,
+    gatedAt: ctx.env.now(),
     message: message.slice(0, 16_384),
     workstream: node?.id ?? null,
     lane: lane?.id ?? null,
@@ -145,9 +146,12 @@ export function emptyState(
   id: string,
   spec: ConductorSpec,
   ownershipCase: State["ownershipCase"],
+  at = 0,
 ): State {
   return {
     version: 1,
+    startedAt: at,
+    updatedAt: at,
     id,
     spec,
     phase: "planning",

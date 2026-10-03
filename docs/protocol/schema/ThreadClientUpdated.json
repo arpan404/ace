@@ -17,6 +17,9 @@
             }
           ]
         },
+        "deck": {
+          "$ref": "https://ace.local/protocol/v1/DeckOwnership.json"
+        },
         "deletedAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },

@@ -5,7 +5,13 @@ import {
   type CommandRunner,
   type Forge,
 } from "@ace/forge";
-import { ForgeCommand, type ForgePrStatus, type CommandResult, ThreadId } from "@ace/protocol";
+import {
+  ForgeCommand,
+  type ForgePrStatus,
+  type CommandResult,
+  ThreadId,
+  ForgeCreatePrInput,
+} from "@ace/protocol";
 import type { GitService } from "@ace/git";
 import type { Store } from "./store.ts";
 
@@ -73,6 +79,30 @@ export class WorkspaceForge {
       throw new Error("repository_mismatch");
     const status = await backend.status(link.pr.number, this.lifetime.signal);
     this.publish(ThreadId.parse(id), status);
+    return status;
+  }
+  /** Host-owned unique branches make remote lookup a durable create receipt. */
+  async ensurePr(
+    id: ThreadId,
+    cwd: string,
+    input: ForgeCreatePrInput,
+    allowed: () => boolean,
+  ): Promise<ForgePrStatus> {
+    const value = ForgeCreatePrInput.parse(input);
+    const backend = await this.backend(cwd);
+    if (!allowed()) throw new Error("forbidden");
+    const linked = this.links.getLink(id);
+    if (linked && JSON.stringify(linked.pr.repository) !== JSON.stringify(backend.repository))
+      throw new Error("repository_mismatch");
+    if (!backend.findPr) throw new Error("forge_recovery_unavailable");
+    const found = await backend.findPr(value.branch, value.base, this.lifetime.signal);
+    if (linked && linked.pr.number !== found?.number) throw new Error("pr_link_changed");
+    if (!allowed()) throw new Error("forbidden");
+    const pr = found ?? (await backend.createPr(id, value, this.lifetime.signal));
+    if (!allowed()) throw new Error("forbidden");
+    this.links.link({ threadId: id, pr });
+    const status = await backend.status(pr.number, this.lifetime.signal);
+    this.publish(id, status);
     return status;
   }
   async execute(

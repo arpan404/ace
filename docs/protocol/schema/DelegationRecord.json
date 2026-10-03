@@ -46,6 +46,13 @@
       "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
+    "resultDelivery": {
+      "enum": [
+        "parent",
+        "owner"
+      ],
+      "type": "string"
+    },
     "rootId": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     }

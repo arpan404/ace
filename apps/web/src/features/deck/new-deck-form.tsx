@@ -1,5 +1,7 @@
 import { useForm } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
+import { ProviderKind } from "@ace/protocol";
+import { deckProviderChoices, type DeckProviderChoice } from "@ace/ui-core";
 import { useId, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { z } from "zod";
@@ -10,21 +12,13 @@ import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { Textarea } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { useNewThreadOptions } from "@/features/models/index.ts";
+import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useDeckRuns, useDeckSender } from "./deck-source.ts";
-import {
-  NewDeckInput,
-  deckId,
-  deckSpec,
-  type DeckProvider,
-  type MergePolicy,
-} from "./deck-spec.ts";
+import { DeckCommandError } from "./deck-store.ts";
+import { NewDeckInput, deckId, deckSpec, type MergePolicy } from "./deck-spec.ts";
 import { useProjectChoices } from "@/lib/projects.ts";
 
-const providers: readonly { value: DeckProvider; label: string }[] = [
-  { value: "claude", label: "Claude Code" },
-  { value: "codex", label: "Codex" },
-  { value: "opencode", label: "OpenCode" },
-];
 const merges: readonly { value: MergePolicy; title: string; description: string }[] = [
   {
     value: "ask",
@@ -59,9 +53,32 @@ function message(errors: readonly unknown[]): string | undefined {
   return undefined;
 }
 
+/** The providers this daemon can run a deck on; undefined until both catalogs have arrived. */
+function useDeckProviders(): readonly DeckProviderChoice[] | undefined {
+  const options = useNewThreadOptions();
+  return useMemo(() => options && deckProviderChoices(options.models, options.accounts), [options]);
+}
+
+/** Claude Code works and a second provider reviews, when the daemon has both. */
+function defaults(choices: readonly DeckProviderChoice[]) {
+  const worker = (choices.find((c) => c.provider === "claude") ?? choices[0])?.provider;
+  const reviewer = (choices.find((c) => c.provider !== worker) ?? choices[0])?.provider;
+  return { worker, reviewer };
+}
+
+/** Why the deck didn't start, as a sentence: the daemon's refusal or why it couldn't be asked. */
+function startFailure(failure: unknown): string {
+  if (failure instanceof DeckCommandError) return failure.message;
+  if (failure instanceof Error && failure.message === "provider_unavailable")
+    return "That provider isn't available on this daemon any more. Pick another.";
+  return describeDaemonError(daemonErrorCode(failure));
+}
+
 /** ⌘⇧N: describe the goal, choose who works and who reviews, and how the deck may merge. */
 export function NewDeckForm() {
   const { ids: projects, name: projectName } = useProjects();
+  const choices = useDeckProviders();
+  const fallback = defaults(choices ?? []);
   const send = useDeckSender();
   const navigate = useNavigate();
   const toast = useToast();
@@ -70,20 +87,32 @@ export function NewDeckForm() {
     defaultValues: {
       goal: "",
       workspaceId: "",
-      worker: "claude" as DeckProvider,
-      reviewer: "codex" as DeckProvider,
+      worker: "" as ProviderKind | "",
+      reviewer: "" as ProviderKind | "",
       planApproval: true,
       merge: "ask" as MergePolicy,
       maxParallel: 3,
       fixRounds: 2,
     },
-    // The project falls back to the first one listed, so only the rest is validated here.
-    validators: { onSubmit: NewDeckInput.extend({ workspaceId: z.string() }) },
+    // Project and providers fall back to the first offered, so only the rest is validated here.
+    validators: {
+      onSubmit: NewDeckInput.extend({
+        workspaceId: z.string(),
+        worker: ProviderKind.or(z.literal("")),
+        reviewer: ProviderKind.or(z.literal("")),
+      }),
+    },
     onSubmit: async ({ value }) => {
       setError(undefined);
+      if (!choices?.length) {
+        setError(noProviders);
+        return;
+      }
       const parsed = NewDeckInput.safeParse({
         ...value,
         workspaceId: value.workspaceId || projects[0] || "",
+        worker: value.worker || fallback.worker,
+        reviewer: value.reviewer || fallback.reviewer,
       });
       if (!parsed.success) {
         setError("Pick a project. Decks run in a project you already have threads in.");
@@ -95,14 +124,14 @@ export function NewDeckForm() {
         await send({
           type: "conductor.start",
           runId,
-          spec: deckSpec(input, `deck-${runId}`),
+          spec: deckSpec(input, choices, crypto.randomUUID()),
         });
         toast.add({
           title: input.planApproval ? "Deck started · review the plan" : "Deck started",
         });
         await navigate({ to: "/deck/$runId", params: { runId } });
       } catch (failure) {
-        setError(failure instanceof Error ? failure.message : "The deck didn't start.");
+        setError(startFailure(failure));
       }
     },
   });
@@ -162,9 +191,9 @@ export function NewDeckForm() {
               {() => (
                 <Select
                   label="Workers"
-                  value={field.state.value}
-                  options={providers}
-                  onValueChange={(value) => field.handleChange(value)}
+                  value={field.state.value || fallback.worker || ""}
+                  options={providerOptions(choices)}
+                  onValueChange={(value) => field.handleChange(value as ProviderKind)}
                   className="w-full"
                 />
               )}
@@ -177,9 +206,9 @@ export function NewDeckForm() {
               {() => (
                 <Select
                   label="Reviewers"
-                  value={field.state.value}
-                  options={providers}
-                  onValueChange={(value) => field.handleChange(value)}
+                  value={field.state.value || fallback.reviewer || ""}
+                  options={providerOptions(choices)}
+                  onValueChange={(value) => field.handleChange(value as ProviderKind)}
                   className="w-full"
                 />
               )}
@@ -187,6 +216,15 @@ export function NewDeckForm() {
           )}
         </form.Field>
       </div>
+      <form.Subscribe selector={(state) => [state.values.worker, state.values.reviewer] as const}>
+        {([worker, reviewer]) => (
+          <Lineup
+            choices={choices}
+            worker={worker || fallback.worker}
+            reviewer={reviewer || fallback.reviewer}
+          />
+        )}
+      </form.Subscribe>
       <form.Field name="planApproval">
         {(field) => (
           <label className="flex items-center gap-4 border-t pt-4">
@@ -273,14 +311,48 @@ export function NewDeckForm() {
         </span>
         <form.Subscribe selector={(state) => state.isSubmitting}>
           {(submitting) => (
-            <Button type="submit" variant="primary" disabled={submitting}>
-              Start deck
+            <Button type="submit" variant="primary" disabled={submitting || !choices?.length}>
+              {submitting ? "Starting…" : "Start deck"}
               <Kbd keys="mod+enter" variant="bare" className="text-primary-foreground/60" />
             </Button>
           )}
         </form.Subscribe>
       </div>
     </form>
+  );
+}
+
+const noProviders =
+  "No provider on this daemon can run a deck. Sign in to Claude Code, Codex or OpenCode on that machine.";
+
+function providerOptions(choices: readonly DeckProviderChoice[] | undefined) {
+  return (choices ?? []).map((choice) => ({ value: choice.provider, label: choice.label }));
+}
+
+/** Who will do the work, in words: each role's model and the accounts it may use. */
+function Lineup(props: {
+  choices: readonly DeckProviderChoice[] | undefined;
+  worker: ProviderKind | undefined;
+  reviewer: ProviderKind | undefined;
+}) {
+  if (!props.choices)
+    return <p className="-mt-3 text-sm text-subtle-foreground">Reading this daemon's models…</p>;
+  if (!props.choices.length)
+    return (
+      <p role="alert" className="-mt-3 text-sm text-status-failed">
+        {noProviders}
+      </p>
+    );
+  const line = (role: string, provider: ProviderKind | undefined) => {
+    const choice = props.choices?.find((entry) => entry.provider === provider);
+    return choice
+      ? `${role} run ${choice.modelLabel} on ${choice.label} · ${choice.accountLabel}.`
+      : "";
+  };
+  return (
+    <p className="-mt-3 text-sm text-muted-foreground">
+      {line("Workers", props.worker)} {line("Reviewers", props.reviewer)}
+    </p>
   );
 }
 

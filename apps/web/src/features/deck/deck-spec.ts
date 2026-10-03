@@ -1,8 +1,7 @@
-import { ConductorSpec, type ProviderKind } from "@ace/protocol";
+import { ConductorSpec, ProviderKind } from "@ace/protocol";
+import type { DeckProviderChoice } from "@ace/ui-core";
 import { z } from "zod";
 
-export const DeckProvider = z.enum(["claude", "codex", "opencode"]);
-export type DeckProvider = z.infer<typeof DeckProvider>;
 export const MergePolicy = z.enum(["ask", "auto-after-verification", "PR-only"]);
 export type MergePolicy = z.infer<typeof MergePolicy>;
 
@@ -14,8 +13,8 @@ export const NewDeckInput = z.object({
     .min(12, "Describe the goal in a sentence or two.")
     .max(16_384, "Keep the goal under 16,000 characters."),
   workspaceId: z.string().min(1, "Pick a project."),
-  worker: DeckProvider,
-  reviewer: DeckProvider,
+  worker: ProviderKind,
+  reviewer: ProviderKind,
   planApproval: z.boolean(),
   merge: MergePolicy,
   maxParallel: z.number().int().min(1).max(8),
@@ -23,37 +22,42 @@ export const NewDeckInput = z.object({
 });
 export type NewDeckInput = z.infer<typeof NewDeckInput>;
 
-/** The model each provider's lanes use unless the plan says otherwise. */
-const defaultModel: Record<DeckProvider, string> = {
-  claude: "claude-sonnet-4-6",
-  codex: "gpt-5.3-codex",
-  opencode: "kimi-k2",
-};
-
-const model = (provider: ProviderKind & DeckProvider) => ({
-  provider,
-  model: defaultModel[provider],
+const role = (choice: DeckProviderChoice) => ({
+  provider: choice.provider,
+  model: choice.model,
   tier: "normal" as const,
   cost: 1,
   quota: 1,
 });
 
 /**
- * A `conductor.start` spec from the form: the worker's provider plans, builds and
- * integrates; the reviewer's provider reviews adversarially. Parsed with the protocol schema,
- * so a spec the daemon would refuse never leaves the form.
+ * A `conductor.start` spec from the form: the worker's provider plans, builds and fixes; the
+ * reviewer's provider reviews adversarially. Models and accounts are the daemon's own
+ * (`deckProviderChoices`), and `rootAgentId` is the deck's own agent, a UUID. Parsed with the
+ * protocol schema, so a spec the daemon would refuse never leaves the form.
  */
-export function deckSpec(input: NewDeckInput, rootAgentId: string): ConductorSpec {
-  const providers = [...new Set([input.worker, input.reviewer])];
+export function deckSpec(
+  input: NewDeckInput,
+  choices: readonly DeckProviderChoice[],
+  rootAgentId: string,
+): ConductorSpec {
+  const pick = (provider: ProviderKind) => {
+    const choice = choices.find((entry) => entry.provider === provider);
+    if (!choice) throw new Error("provider_unavailable");
+    return choice;
+  };
+  const worker = pick(input.worker);
+  const reviewer = pick(input.reviewer);
+  const used = worker === reviewer ? [worker] : [worker, reviewer];
   return ConductorSpec.parse({
     rootAgentId,
     workspaceId: input.workspaceId,
     goal: input.goal.trim(),
     repositoryRules: "",
     constraints: {
-      providers,
-      models: providers.map((provider) => defaultModel[provider]),
-      accounts: ["default"],
+      providers: used.map((choice) => choice.provider),
+      models: [...new Set(used.map((choice) => choice.model))],
+      accounts: [...new Set(used.flatMap((choice) => choice.accounts))],
       budget: 50,
       maxParallel: input.maxParallel,
       deadline: null,
@@ -64,10 +68,10 @@ export function deckSpec(input: NewDeckInput, rootAgentId: string): ConductorSpe
       merge: input.merge,
       maxFixRounds: input.fixRounds,
       roles: {
-        planner: [model(input.worker)],
-        worker: [model(input.worker)],
-        reviewer: [model(input.reviewer)],
-        integrator: [model(input.worker)],
+        planner: [role(worker)],
+        worker: [role(worker)],
+        reviewer: [role(reviewer)],
+        integrator: [role(worker)],
       },
     },
   });

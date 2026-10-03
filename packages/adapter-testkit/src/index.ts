@@ -13,3 +13,4 @@ export type {
 } from "./scripted.ts";
 
 export { createTurnProvider, ScriptedTurnConfig } from "./turn-provider.ts";
+export type { ScriptedTurnResponse } from "./turn-provider.ts";

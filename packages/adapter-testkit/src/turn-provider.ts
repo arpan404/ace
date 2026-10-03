@@ -1,6 +1,6 @@
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { z } from "zod";
-import { Capabilities, type ProviderKind } from "@ace/protocol";
+import { Capabilities, InteractionRequest, type ProviderKind } from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import type { Frame, ProviderAdapter } from "@ace/engine-api";
 
@@ -10,11 +10,15 @@ export const ScriptedTurnConfig = z.object({
   resetMs: z.number().int().min(1).max(60000).default(1000),
 });
 export type ScriptedTurnConfig = z.infer<typeof ScriptedTurnConfig>;
+export type ScriptedTurnResponse =
+  | { kind: "reply"; text: string; delayMs: number }
+  | { kind: "question"; request: InteractionRequest; answer(): string; delayMs: number };
 /** Local deterministic turns, with injected time and quota recovery. Never starts a CLI. */
 export function createTurnProvider(options: {
   provider: ProviderKind;
   reply: string;
   config: ScriptedTurnConfig;
+  respond?(text: string, cwd: string): ScriptedTurnResponse | undefined;
   markers?: { hold: string; limit: string; notice: string };
   now(): number;
   schedule(delayMs: number, callback: () => void | Promise<void>): () => void;
@@ -56,6 +60,7 @@ export function createTurnProvider(options: {
       let closed = false;
       let turns = 0;
       let active: string | undefined;
+      let question: { key: string; turn: string; answer(): string } | undefined;
       let cancel: (() => void) | undefined;
       let cancelledLimit: (() => void) | undefined;
       let emission = Promise.resolve();
@@ -65,6 +70,22 @@ export function createTurnProvider(options: {
         });
         return emission;
       };
+      const complete = (turn: string, text: string) =>
+        emit([
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: `reply-${turn}`,
+            draft: {
+              type: "message",
+              role: "assistant",
+              complete: true,
+              parts: [{ type: "text", text }],
+            },
+          },
+          { type: "usage", agent: "root", inputTokens: 10, outputTokens: 5 },
+          { type: "turn.ended", agent: "root", nativeTurnId: turn, outcome: "completed" },
+        ]);
       const fail = () => {
         if (!closed) {
           closed = true;
@@ -90,7 +111,7 @@ export function createTurnProvider(options: {
         async send(input, delivery) {
           if (closed) throw new Error("Scripted session unavailable");
           if (active) {
-            if (!options.markers || delivery !== "steer")
+            if (question || !options.markers || delivery !== "steer")
               throw new Error("Scripted session unavailable");
             const turn = active;
             active = undefined;
@@ -137,13 +158,17 @@ export function createTurnProvider(options: {
             },
           ]);
           if (closed || active !== turn) return;
-          if (options.markers && text.includes(options.markers.hold)) return;
-          if (options.markers && text.includes(options.markers.limit)) {
+          const response = options.respond?.(text, ctx.cwd);
+          if (!response && options.markers && text.includes(options.markers.hold)) return;
+          if (!response && options.markers && text.includes(options.markers.limit)) {
             await emit([
               { type: "retry", agent: "root", on: "rate_limit", message: options.markers.notice },
             ]);
             return;
           }
+          const delayMs = response
+            ? ScriptedTurnConfig.shape.delayMs.parse(response.delayMs)
+            : config.delayMs;
           const finish = async () => {
             if (closed || active !== turn) return;
             active = undefined;
@@ -173,31 +198,31 @@ export function createTurnProvider(options: {
               });
             } else {
               turns++;
-              await emit([
-                {
-                  type: "item.upsert",
-                  agent: "root",
-                  item: `reply-${turn}`,
-                  draft: {
-                    type: "message",
-                    role: "assistant",
-                    complete: true,
-                    parts: [{ type: "text", text: options.reply }],
+              if (response?.kind === "question") {
+                active = turn;
+                const key = `question-${turn}`;
+                question = { key, turn, answer: response.answer };
+                await emit([
+                  {
+                    type: "interaction.opened",
+                    agent: "root",
+                    interaction: key,
+                    blocking: true,
+                    request: InteractionRequest.parse(response.request),
                   },
-                },
-                { type: "usage", agent: "root", inputTokens: 10, outputTokens: 5 },
-                { type: "turn.ended", agent: "root", nativeTurnId: turn, outcome: "completed" },
-              ]);
+                ]);
+              } else await complete(turn, response?.text ?? options.reply);
             }
           };
-          if (config.delayMs)
-            cancel = options.schedule(config.delayMs, () => {
+          if (delayMs)
+            cancel = options.schedule(delayMs, () => {
               return finish().catch(fail);
             });
           else await finish();
         },
         async interrupt() {
           cancel?.();
+          question = undefined;
           const turn = active;
           active = undefined;
           if (turn)
@@ -205,7 +230,13 @@ export function createTurnProvider(options: {
               { type: "turn.ended", agent: "root", nativeTurnId: turn, outcome: "interrupted" },
             ]);
         },
-        async resolve() {},
+        async resolve(key) {
+          const open = question;
+          if (closed || !open || open.key !== key || active !== open.turn) return;
+          question = undefined;
+          active = undefined;
+          await complete(open.turn, open.answer());
+        },
         async stopTask() {},
         async close() {
           shutdown();

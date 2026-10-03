@@ -72,7 +72,15 @@ function lanes(run: FakeDeckRun, cards: readonly FakeDeckCard[]) {
 }
 
 /** One fake run as `conductor.result` and `conductor.changed` carry it. */
-export function runView(run: FakeDeckRun): ConductorRunView {
+export function runView(
+  run: FakeDeckRun,
+  execution: {
+    delegations?: ConductorRunView["delegations"];
+    gatedAt?: number;
+    /** Workers' open questions (`fakeProviderGates`). */
+    providerGates?: ConductorRunView["needsUser"];
+  } = {},
+): ConductorRunView {
   const work = run.cards.filter((card) => card.kind === "work");
   const ids = new Set(work.map((card) => card.id));
   const escalated = work.find((card) => card.state === "escalated");
@@ -80,6 +88,9 @@ export function runView(run: FakeDeckRun): ConductorRunView {
   const goal = run.goal.startsWith(run.title) ? run.goal : `${run.title}. ${run.goal}`;
   return ConductorRunView.parse({
     id: run.id,
+    startedAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    delegations: execution.delegations ?? [],
     workspaceId: run.workspaceId,
     goal,
     phase: phase(run),
@@ -105,19 +116,35 @@ export function runView(run: FakeDeckRun): ConductorRunView {
         }
       : null,
     planApproved: run.planApproved,
-    needsUser: run.gate
-      ? [
-          {
-            id: run.gate.id,
-            kind: run.gate.kind,
-            workstream: run.gate.kind === "escalation" ? (escalated?.id ?? null) : null,
-            lane: null,
-            generation: run.gate.revision,
-            message: run.gate.body.slice(0, 2048),
-          },
-        ]
-      : [],
-    lanes: lanes(run, work),
+    needsUser: [
+      ...(run.gate
+        ? [
+            {
+              id: run.gate.id,
+              kind: run.gate.kind,
+              workstream: run.gate.kind === "escalation" ? (escalated?.id ?? null) : null,
+              lane: null,
+              generation: run.gate.revision,
+              message: run.gate.body.slice(0, 2048),
+              gatedAt: execution.gatedAt ?? run.updatedAt,
+            },
+          ]
+        : []),
+      ...(["cancelled", "merged"].includes(run.phase) ? [] : (execution.providerGates ?? [])),
+    ],
+    lanes: ["cancelled", "merged"].includes(run.phase)
+      ? []
+      : lanes(
+          run,
+          work.filter((card) => card.state !== "merged"),
+        ).map((lane) =>
+          Object.assign({}, lane, {
+            agentId:
+              execution.delegations?.find((entry) => entry.laneId === lane.id)?.agentId ??
+              lane.agentId,
+            status: run.phase === "paused" ? "waiting" : lane.status,
+          }),
+        ),
     dag: work.map((card) => ({
       id: card.id,
       title: card.title,
@@ -127,5 +154,6 @@ export function runView(run: FakeDeckRun): ConductorRunView {
       revision: card.state === "merged" ? "5d1f0c2a9b7e4d3c8a6f0e1b2c3d4e5f6a7b8c9d" : null,
     })),
     truncated: false,
+    ...(run.executionError ? { executionError: run.executionError } : {}),
   });
 }

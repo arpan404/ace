@@ -127,6 +127,7 @@ export class Faults {
 export async function setup(
   handler?: CommandHandler,
   history?: import("@ace/daemon").DaemonOptions["history"],
+  engine?: import("@ace/daemon").DaemonOptions["engine"],
 ) {
   const directory = await mkdtemp(join(tmpdir(), "ace-client-"));
   const daemon = await startDaemon({
@@ -139,6 +140,7 @@ export async function setup(
       logLevel: "silent",
     },
     handler: handler,
+    ...(engine ? { engine } : {}),
     ...(history ? { history } : {}),
   });
   const token = (await readFile(daemon.tokenPath, "utf8")).trim();

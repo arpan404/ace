@@ -2,7 +2,7 @@ import type { ForgePrStatus, ThreadListEntry } from "@ace/protocol";
 
 /*
  * Feed events from daemon facts: a thread's linked pull request (`details.linkedPr`, its
- * settlement, and the forge's `pr.status`: checks and comments) and a deck's escalated gate.
+ * settlement, and the forge's `pr.status`: checks and comments) and a deck's open decisions.
  * Pure, so each rule is tested on its own.
  */
 
@@ -30,6 +30,8 @@ export interface FeedEvent {
   actions?: readonly FeedAction[];
   runId?: string;
   gateId?: string;
+  /** A deck agent's own question or approval: answered in its thread, not by the deck. */
+  interaction?: { threadId: string; interactionId: string };
 }
 
 /** The thread fields the feed reads: its linked PR and when the PR settled it. */

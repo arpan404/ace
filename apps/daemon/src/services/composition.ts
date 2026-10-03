@@ -116,8 +116,10 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   {
     name: "conductor",
     phase: "listener",
-    requires: [],
-    after: ["engine", "accounts"],
+    // agentControl is a listener-phase service that is still "starting" until the listener
+    // opens, so it can't be a hard dependency here; startConductor fails without it instead.
+    requires: ["engine"],
+    after: ["accounts", "notifications", "workspaceActions", "agentControl"],
     start: startConductor,
   },
 ];
