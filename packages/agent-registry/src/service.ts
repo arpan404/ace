@@ -80,7 +80,7 @@ export class AgentRegistry {
     if (!command) throw new Error("Approved login CLI unavailable");
     return { command, args: [...login.args], env: { ...plan.env } };
   }
-  /** Local configuration API only. Never exposed as remote executable/argv input. */
+  /** Owner-approved installed command binding. Resolves and hashes without executing it. */
   async bind(input: LocalBinding): Promise<void> {
     if (this.#closed || this.#binding || this.#active) throw new Error("Registry busy");
     this.#binding = true;
@@ -105,6 +105,24 @@ export class AgentRegistry {
     if (this.#closed) return reply({ ok: false, reason: "Registry closed" });
     try {
       switch (request.type) {
+        case "registry.bind": {
+          if (!request.acpAgentId.startsWith("local:"))
+            return reply({ ok: false, reason: "Local commands require a local: agent identity" });
+          await this.bind({
+            acpAgentId: request.acpAgentId,
+            installationId: request.installationId,
+            instanceId: request.instanceId,
+            version: request.version,
+            command: request.command,
+            args: request.args,
+            ...(request.underlyingCommand ? { underlyingCommand: request.underlyingCommand } : {}),
+          });
+          const installation = this.inventory
+            .list()
+            .find((entry) => entry.installationId === request.installationId);
+          if (!installation) throw new Error("Binding not persisted");
+          return reply({ ok: true, installation });
+        }
         case "registry.list":
           return reply({
             ...this.catalog.list(request.offset, request.limit),

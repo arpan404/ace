@@ -25,7 +25,7 @@ export function connectBrowser(
     send: (message: BrowserServerMessage, serialized?: string) => boolean;
   },
 ): { handle(raw: unknown): Promise<void>; close(): void } {
-  const subscriptions = new Map<string, () => void>();
+  const subscriptions = new Map<string, { stop(): void; subscribers: Set<string> }>();
   let pending = 0;
   let closed = false;
   return {
@@ -86,12 +86,19 @@ export function connectBrowser(
             respond(service.handback(threadId, options.connectionId));
             break;
           case "browser.subscribe": {
-            subscriptions.get(threadId)?.();
-            subscriptions.delete(threadId);
+            const subscriber = message.subscriberId ?? "legacy";
+            const existing = subscriptions.get(threadId);
+            if (existing) {
+              if (existing.subscribers.size >= 64 && !existing.subscribers.has(subscriber))
+                throw new Error("Browser subscriber limit");
+              existing.subscribers.add(subscriber);
+              respond(null);
+              break;
+            }
             if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
-            subscriptions.set(
-              threadId,
-              service.subscribe(
+            subscriptions.set(threadId, {
+              subscribers: new Set([subscriber]),
+              stop: service.subscribe(
                 threadId,
                 options.connectionId,
                 {
@@ -104,15 +111,20 @@ export function connectBrowser(
                 (state) => options.send({ type: "browser.state", state }),
                 (event) => options.send(event),
               ),
-            );
+            });
             respond(null);
             break;
           }
-          case "browser.unsubscribe":
-            subscriptions.get(threadId)?.();
-            subscriptions.delete(threadId);
+          case "browser.unsubscribe": {
+            const entry = subscriptions.get(threadId);
+            entry?.subscribers.delete(message.subscriberId ?? "legacy");
+            if (entry && !entry.subscribers.size) {
+              entry.stop();
+              subscriptions.delete(threadId);
+            }
             respond(null);
             break;
+          }
           case "browser.ack":
             service.acknowledge(threadId, options.connectionId, message.sequence);
             break;
@@ -141,7 +153,7 @@ export function connectBrowser(
     },
     close() {
       closed = true;
-      for (const stop of subscriptions.values()) stop();
+      for (const entry of subscriptions.values()) entry.stop();
       subscriptions.clear();
       service.disconnect(options.connectionId);
     },
