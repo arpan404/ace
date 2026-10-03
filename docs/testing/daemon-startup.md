@@ -91,7 +91,7 @@ come from static review and **need run at merge**.
 | Same: persisted list during second start; stats show only two changed/new reads                                               | Lose file stamps across restart; reread unchanged content; lose cached visibility; misreport content reads              |
 | Same: RSS at explicit boundaries/progress, growth under 160 MiB; each large sample capped at 128 KiB                          | Read full files; unbounded concurrent samples; retain decoded history; exceed bounded sample windows                    |
 | Same: shutdown during indexing exits within 2 s and reopens its home                                                          | Ignore cancellation; leave progress waiters blocked; wait for complete scan on shutdown; leak worker/lock               |
-| `scanning-reads.process.test.ts`: read saved sessions at a held worker progress boundary                                      | Reject reads during scan; read uncommitted writer rows; queue reads behind scanner                                      |
+| `scanning-reads.process.test.ts`: read saved sessions at a held worker progress boundary                                      | Reject reads during scan; queue reads behind scanner                                                                    |
 | Same: closing releases a paused scan and retains saved index                                                                  | Leave progress acknowledgement awaited; lose committed rows on cancellation                                             |
 | `scanning-pagination.process.test.ts`: held aggregation, pagination, abort and persisted reads                                | Split recency/summary updates; derive cursors from stale JSON; drop middle sessions; corrupt committed recency on abort |
 | `files-startup.process.test.ts`: held relocated-upload cleanup, real ignored inventory and admission recovery                 | Await sweep before binding; discard abort; refund unremoved debt; drop later cleanup                                    |
@@ -110,8 +110,8 @@ come from static review and **need run at merge**.
 The large-history daemon tests assert scan status and persisted visibility while
 scanning, so early endpoint publication alone cannot satisfy them. Existing socket
 history tests await indexing explicitly before importing their fixtures. Healthy
-startup uses a status observer to await warmup but still requires notifications to reach ready. Existing
-warm-scan read tracing independently observes content I/O in addition to scan stats.
+startup uses a status observer to await warmup and requires notifications to reach
+ready. Existing warm-scan read tracing independently observes content I/O in addition to scan stats.
 The unrelated-version case provides additional coverage; main already rejects that
 output by source inspection. New indexing/readiness regressions still need run at merge.
 
