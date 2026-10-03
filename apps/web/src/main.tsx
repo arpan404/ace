@@ -1,4 +1,5 @@
 import type { ClientApi } from "@ace/client";
+import { frameBatch } from "@ace/client-react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, AppFrame } from "./app.tsx";
@@ -12,7 +13,9 @@ const environment = {
   matchMedia: (query: string) => matchMedia(query),
   root: document.documentElement,
 };
-const app = (client: ClientApi) => <App client={client} storage={localStorage} />;
+// Store changes reach React once per animation frame (none while the tab is hidden).
+const batch = frameBatch((flush) => requestAnimationFrame(flush));
+const app = (client: ClientApi) => <App client={client} storage={localStorage} batch={batch} />;
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 async function content() {
