@@ -274,7 +274,8 @@ const screens: Record<string, Setup> = {
   },
   "state-run-no-scripts": staged('daemon.setScripts("relay", []);', async (page) => {
     await openThread("/t/thread-replay-cursor")(page);
-    await page.getByRole("button", { name: "No scripts in this project" }).waitFor();
+    await page.getByRole("button", { name: "Choose a script" }).click();
+    await page.getByRole("menuitem", { name: /No scripts in this project/ }).waitFor();
   }),
   "state-accounts-loading": staged('daemon.holdRequests("accounts.list");', async (page) => {
     await visit("/more", "Usage & accounts")(page);
@@ -290,10 +291,7 @@ const screens: Record<string, Setup> = {
   }),
   "state-automations-error": staged('daemon.failRequests("automation.list");', async (page) => {
     await page.goto("/automations");
-    await page
-      .getByRole("complementary", { name: "Automations" })
-      .getByText("Automations unavailable")
-      .waitFor();
+    await page.getByRole("main").getByText("Automations unavailable").waitFor();
   }),
   "state-deck-loading": staged('daemon.holdRequests("conductor.request");', async (page) => {
     await page.goto("/deck");
@@ -310,7 +308,7 @@ const screens: Record<string, Setup> = {
     await rightTab("/t/thread-install-page", "Preview")(page);
     const panel = page.getByRole("region", { name: "Thread panel" });
     await panel.getByRole("button", { name: "Open a browser" }).click();
-    await panel.getByText(/Downloading the browser/).waitFor();
+    await panel.getByRole("heading", { name: "Getting the browser ready" }).waitFor();
   }),
 };
 
