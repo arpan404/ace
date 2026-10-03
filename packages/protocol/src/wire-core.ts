@@ -210,6 +210,9 @@ export const CoreServerMessage = z.discriminatedUnion("type", [
     message: z.string(),
     requestId: z.string().optional(),
     subscriptionId: z.string().optional(),
+    /** A refused command. The intent stays pending when `retryable`, and fails otherwise. */
+    commandId: CommandId.optional(),
+    retryable: z.boolean().optional(),
   }),
   z.object({
     type: z.literal("output.data"),

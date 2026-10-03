@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { settingKeys, type LogRetention, type UnresponsiveAfter } from "./data/setting-keys.ts";
+import { settingKeys, type UnresponsiveAfter } from "./data/setting-keys.ts";
 import { useSetting, useSettingsBackend } from "./data/use-settings.ts";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { DaemonHealth } from "./daemon-health.tsx";
@@ -24,16 +24,10 @@ const unresponsiveOptions: { value: UnresponsiveAfter; label: string }[] = [
   { value: "5m", label: "5 minutes" },
   { value: "15m", label: "15 minutes" },
 ];
-const retentionOptions: { value: LogRetention; label: string }[] = [
-  { value: "7d", label: "7 days" },
-  { value: "30d", label: "30 days" },
-  { value: "forever", label: "Forever" },
-];
 
-/** Theme editor entry, health thresholds, log retention, daemon diagnostics and a full reset. */
+/** Theme editor entry, health thresholds, daemon diagnostics and a full reset. */
 export function AdvancedSettings() {
   const [unresponsive, setUnresponsive] = useSetting(settingKeys.unresponsiveAfter);
-  const [retention, setRetention] = useSetting(settingKeys.logRetention);
   const fake = useDaemonConnection().mode === "fake";
   return (
     <>
@@ -59,14 +53,6 @@ export function AdvancedSettings() {
           />
         </SettingRow>
         <DaemonDiagnostics />
-        <SettingRow title="Keep event logs">
-          <Select
-            label="Keep event logs"
-            value={retention}
-            options={retentionOptions}
-            onValueChange={(value) => void setRetention(value)}
-          />
-        </SettingRow>
         <SettingRow
           title="Reset all settings"
           description="Daemon settings go back to their defaults. Themes and appearance on this device stay."

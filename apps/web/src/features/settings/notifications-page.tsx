@@ -1,62 +1,91 @@
 import { useId } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { QuietHours, settingKeys } from "./data/setting-keys.ts";
-import { useSetting } from "./data/use-settings.ts";
-import { SettingSwitch } from "./setting-switch.tsx";
+import type { DesktopCategory, DesktopQuietHours } from "@/boot/desktop-settings.ts";
+import { useDesktopPreferences } from "./data/desktop-preferences.ts";
 
-const defaultQuietHours: QuietHours = { start: "22:00", end: "08:00" };
-const soundOptions = [
-  { value: "subtle", label: "Subtle" },
-  { value: "none", label: "None" },
-] as const;
+const defaultQuietHours: DesktopQuietHours = { start: 22 * 60, end: 8 * 60 };
 
-/** What reaches this machine and paired phones. Stored in the daemon, so every client agrees. */
+const clock = (minutes: number) =>
+  `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+function minutesOf(value: string): number | undefined {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : undefined;
+}
+
+/**
+ * Which notifications this computer shows, and when. The desktop app owns and applies these;
+ * a phone keeps its own. In a browser there is nothing here to configure.
+ */
 export function NotificationSettings() {
-  const [sound, setSound] = useSetting(settingKeys.sound);
+  const desktop = useDesktopPreferences();
+  if (!desktop.available)
+    return (
+      <section className="mt-7" aria-label="Notifications">
+        <p className="max-w-[60ch] text-ui leading-normal text-muted-foreground">
+          Notifications on a computer are set in the ace desktop app, and a phone keeps its own. In
+          this browser, choose which changes show a toast from Activity.
+        </p>
+      </section>
+    );
+  if (!desktop.value) return null;
   return (
     <section className="mt-7" aria-label="Notifications">
-      <SettingSwitch
-        setting={settingKeys.notifyNeedsYou}
+      <CategorySwitch
+        category="needsYou"
         title="Needs you"
-        description="Approvals, questions and escalations. Always delivered to this machine and paired phones."
+        description="Approvals, questions and escalations."
       />
-      <SettingSwitch
-        setting={settingKeys.notifyDone}
+      <CategorySwitch
+        category="finished"
         title="Thread done"
         description="When a thread settles with no open items."
       />
-      <SettingSwitch
-        setting={settingKeys.notifyFailures}
-        title="Failures and unresponsive agents"
-      />
-      <SettingSwitch
-        setting={settingKeys.notifyMentions}
-        title="Mentions"
-        description="When an agent or teammate @mentions you."
-      />
+      <CategorySwitch category="failed" title="Failures and unresponsive agents" />
       <QuietHoursRow />
-      <SettingRow title="Sound">
-        <Select
-          label="Sound"
-          value={sound ? "subtle" : "none"}
-          options={soundOptions}
-          onValueChange={(value) => void setSound(value === "subtle")}
-        />
-      </SettingRow>
     </section>
+  );
+}
+
+function CategorySwitch(props: { category: DesktopCategory; title: string; description?: string }) {
+  const id = useId();
+  const { value, update } = useDesktopPreferences();
+  if (!value) return null;
+  const notifications = value.notifications;
+  return (
+    <SettingRow title={props.title} description={props.description} htmlFor={id}>
+      <Switch
+        id={id}
+        // The desktop shows a category unless it is switched off.
+        checked={notifications.categories[props.category] !== false}
+        onCheckedChange={(on) =>
+          void update({
+            notifications: {
+              ...notifications,
+              categories: { ...notifications.categories, [props.category]: on },
+            },
+          })
+        }
+      />
+    </SettingRow>
   );
 }
 
 function QuietHoursRow() {
   const id = useId();
-  const [quiet, setQuiet] = useSetting(settingKeys.quietHours);
-  const change = (edge: "start" | "end", value: string) => {
-    if (!quiet) return;
-    const next = QuietHours.safeParse({ ...quiet, [edge]: value });
-    if (next.success) void setQuiet(next.data);
+  const { value, update } = useDesktopPreferences();
+  if (!value) return null;
+  const notifications = value.notifications;
+  const quiet = notifications.quietHours;
+  const save = (quietHours: DesktopQuietHours | null) =>
+    void update({ notifications: { ...notifications, quietHours } });
+  const change = (edge: "start" | "end", text: string) => {
+    const minutes = minutesOf(text);
+    if (!quiet || minutes === undefined) return;
+    const next = { ...quiet, [edge]: minutes };
+    // An empty window means nothing; the stored one stays.
+    if (next.start !== next.end) save(next);
   };
   return (
     <SettingRow
@@ -64,8 +93,8 @@ function QuietHoursRow() {
       htmlFor={id}
       description={
         quiet
-          ? `${quiet.start} to ${quiet.end}. Needs-you items still reach your phone.`
-          : "Hold everything except needs-you items overnight."
+          ? `${clock(quiet.start)} to ${clock(quiet.end)}. This computer stays silent; a phone keeps its own quiet hours.`
+          : "Silence notifications on this computer overnight."
       }
     >
       {quiet && (
@@ -73,7 +102,7 @@ function QuietHoursRow() {
           <Input
             type="time"
             aria-label="Quiet hours start"
-            value={quiet.start}
+            value={clock(quiet.start)}
             onChange={(event) => change("start", event.target.value)}
             className="h-7 w-[92px] font-mono text-[12px]"
           />
@@ -81,7 +110,7 @@ function QuietHoursRow() {
           <Input
             type="time"
             aria-label="Quiet hours end"
-            value={quiet.end}
+            value={clock(quiet.end)}
             onChange={(event) => change("end", event.target.value)}
             className="h-7 w-[92px] font-mono text-[12px]"
           />
@@ -90,7 +119,7 @@ function QuietHoursRow() {
       <Switch
         id={id}
         checked={quiet !== null}
-        onCheckedChange={(on) => void setQuiet(on ? defaultQuietHours : null)}
+        onCheckedChange={(on) => save(on ? defaultQuietHours : null)}
       />
     </SettingRow>
   );

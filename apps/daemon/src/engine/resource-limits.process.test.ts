@@ -48,6 +48,27 @@ test("a full mailbox drains accepted frames before reporting overload and closin
   expect(ctx.signal.aborted).toBe(true);
 });
 
+test("one stdout read worth of streamed deltas is folded without failing the thread", async () => {
+  const frames = scriptFrames();
+  const h = track(await harness([{ on: "send", frames: [frames.frame(start)] }], frames));
+  const id = await h.create();
+  const ctx = h.contexts[0];
+  if (!ctx) throw new Error("Missing provider");
+  // A 64 KiB pipe read of ~200-byte delta lines reaches the adapter as one synchronous burst.
+  const burst = Array.from({ length: 330 }, (_, index) => `${index},`);
+  for (const append of burst)
+    ctx.onFrame(
+      frames.frame({ type: "item.delta", agent: "root", item: "answer", field: "text", append }),
+    );
+  await h.engine.flush();
+  expect(h.errors).toEqual([]);
+  expect(ctx.signal.aborted).toBe(false);
+  expect(h.store.getThread(id)?.status.state).not.toBe("failed");
+  expect(
+    Object.values(view(h.store, id).items).find((item) => item.type === "message"),
+  ).toMatchObject({ parts: [{ type: "text", text: burst.join("") }] });
+});
+
 test("actor capacity is receipt-bound and idle retirement frees a slot for another thread", async () => {
   const frames = scriptFrames();
   const h = track(
