@@ -81,7 +81,16 @@ interface Ghost<T> {
   key: string;
   index: number;
   item: T;
+  /** The change (`movedAt`) it left in. */
+  wave: number;
 }
+/**
+ * Rows that left more than this many changes ago have finished fading (changes reach React at
+ * most once a frame; the exit takes 140 ms). A list that never settles, like a transcript
+ * streaming for hours, would otherwise keep every row that ever scrolled off as a ghost: the
+ * timer below only clears them once the list is quiet.
+ */
+const ghostWaves = 12;
 interface ListState<T> {
   items: readonly T[];
   keys: readonly string[];
@@ -114,9 +123,10 @@ export function useListMotion<T>(items: readonly T[], keyOf: (item: T) => string
       const change = diffList(state.keys, keys);
       const animate = !reduced && !change.bulk;
       const present = new Set(keys);
+      const wave = state.movedAt + 1;
       const left = change.left.flatMap(({ key, index }) => {
         const item = state.items[index];
-        return item === undefined ? [] : [{ key, index, item }];
+        return item === undefined ? [] : [{ key, index, item, wave }];
       });
       const moved = change.reordered || change.entered.length > 0 || left.length > 0;
       setState({
@@ -124,7 +134,12 @@ export function useListMotion<T>(items: readonly T[], keyOf: (item: T) => string
         keys,
         entering: animate && change.entered.length ? new Set(change.entered) : noKeys,
         rising: animate && change.reordered ? risingKeys(state.keys, keys) : noKeys,
-        ghosts: animate ? [...state.ghosts.filter((g) => !present.has(g.key)), ...left] : [],
+        ghosts: animate
+          ? [
+              ...state.ghosts.filter((g) => !present.has(g.key) && g.wave > wave - ghostWaves),
+              ...left,
+            ]
+          : [],
         movedAt: animate && moved ? state.movedAt + 1 : state.movedAt,
       });
     }
