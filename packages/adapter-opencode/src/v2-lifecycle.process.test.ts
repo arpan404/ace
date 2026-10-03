@@ -4,6 +4,7 @@ import { spawnSupervised } from "@ace/provider-kit/process";
 import { ThreadId } from "@ace/protocol";
 import { setup, deferred } from "./testing/v2-session.ts";
 import { array, object } from "./data.ts";
+import type { Frame } from "@ace/engine-api";
 
 it("metadata discovery retains variants and limits while excluding secrets and closing its own server", async () => {
   const h = await setup();
@@ -31,6 +32,38 @@ it("metadata discovery retains variants and limits while excluding secrets and c
   expect(JSON.stringify(metadata)).not.toContain("secret");
   expect(JSON.stringify(metadata)).not.toContain("authorization");
   await exited.promise;
+});
+
+it("an account environment preserves admission correlation and refused idle closure leaves its process alive", async () => {
+  const h = await setup();
+  const frames: Frame[] = [];
+  const session = await h.adapter.openSession({
+    cwd: "/account",
+    threadId: ThreadId.parse("thread_account"),
+    env: { ACE_TEST_INSTANCE: "selected-account" },
+    instanceId: "selected-account",
+    signal: new AbortController().signal,
+    onFrame: (frame) => frames.push(frame),
+    onExit: () => {},
+  });
+  expect(session.instanceId).toBe("selected-account");
+  expect(await h.control("/test/instance")).toEqual({ instance: "selected-account" });
+  await session.send([{ type: "text", text: "account input" }], "queue", "account-command");
+  await expect(session.close("idle")).rejects.toThrow("unsettled");
+  expect(await h.control("/test/instance")).toEqual({ instance: "selected-account" });
+  const translator = h.adapter.createTranslator({
+    threadId: ThreadId.parse("thread_account"),
+    rootKey: "root",
+  });
+  expect(
+    frames
+      .flatMap((frame) => translator.translate(frame, frame.t))
+      .filter((fact) => fact.type === "input.admitted")
+      .map((fact) => fact.commandId),
+  ).toEqual(["account-command"]);
+  await session.close("user");
+  await h.session.send([{ type: "text", text: "default instance survives" }], "queue");
+  expect(await h.control("/test/instance")).toEqual({ instance: "default" });
 });
 
 it("cancelling startup closes the stdin lease and stops only the owned process", async () => {
@@ -70,6 +103,38 @@ it("cancelling startup closes the stdin lease and stops only the owned process",
     controller.abort();
     await rejected;
     await exited.promise;
+  } finally {
+    await adapter.close();
+  }
+});
+
+it("closing an adapter stops its isolated account process without stopping another adapter", async () => {
+  const h = await setup();
+  const exited = deferred<void>();
+  const adapter = createOpenCodeAdapter({
+    ...h.options,
+    runtime: {
+      ...h.options.runtime,
+      spawn: (options) => {
+        const proc = spawnSupervised(options);
+        void proc.exited.then(() => exited.resolve());
+        return proc;
+      },
+    },
+  });
+  try {
+    await adapter.openSession({
+      cwd: "/account",
+      threadId: ThreadId.parse("thread_account_close"),
+      env: { ACE_TEST_INSTANCE: "owned-account" },
+      signal: new AbortController().signal,
+      onFrame: () => {},
+      onExit: () => {},
+    });
+    await adapter.close();
+    await exited.promise;
+    await h.session.send([{ type: "text", text: "other adapter survives" }], "queue");
+    expect(await h.control("/test/instance")).toEqual({ instance: "default" });
   } finally {
     await adapter.close();
   }

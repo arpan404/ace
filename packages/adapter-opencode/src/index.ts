@@ -14,47 +14,54 @@ export function createOpenCodeAdapter(
   options: ServerOptions = {},
 ): ProviderAdapter & { close(): Promise<void> } {
   const server = new OpenCodeServer(options);
+  const instances = new Set<OpenCodeServer>();
   return {
     provider: "opencode" as const,
     capabilities,
     createTranslator: (init: { threadId: ThreadId; rootKey: Key }) => new OpenCodeTranslator(init),
     async openSession(ctx: SessionContext) {
       if (!ctx.env) return OpenCodeSession.open(ctx, server);
+      if (instances.size >= 128) throw new Error("OpenCode instance limit reached");
       const isolated = new OpenCodeServer({
         ...options,
         discovery: { ...options.discovery, env: ctx.env },
       });
       const onAbort = () => {
+        instances.delete(isolated);
         void isolated.close();
       };
+      instances.add(isolated);
       ctx.signal.addEventListener("abort", onAbort, { once: true });
       try {
         const session = await OpenCodeSession.open(ctx, isolated);
         return {
           ...session,
+          ...(ctx.instanceId === undefined ? {} : { instanceId: ctx.instanceId }),
           get nativeSessionId() {
             return session.nativeSessionId;
           },
-          send: (input, delivery) => session.send(input, delivery),
+          send: (input, delivery, commandId) => session.send(input, delivery, commandId),
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
           stopTask: (task) => session.stopTask(task),
           async close(reason) {
-            try {
-              await session.close(reason);
-            } finally {
-              ctx.signal.removeEventListener("abort", onAbort);
-              await isolated.close();
-            }
+            await session.close(reason);
+            ctx.signal.removeEventListener("abort", onAbort);
+            instances.delete(isolated);
+            await isolated.close();
           },
         };
       } catch (error) {
         ctx.signal.removeEventListener("abort", onAbort);
+        instances.delete(isolated);
         await isolated.close();
         throw error;
       }
     },
-    close: () => server.close(),
+    async close() {
+      await Promise.all([server.close(), ...[...instances].map((instance) => instance.close())]);
+      instances.clear();
+    },
   };
 }
 export const opencodeAdapter = createOpenCodeAdapter();

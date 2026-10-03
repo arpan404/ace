@@ -25,6 +25,8 @@ Static verification: formatting, lint, TypeScript and source size checks are the
 - A late recovered admission for a failed send cannot acknowledge a newer steering input; stale idle outcomes cannot finish an execution started before disconnect.
 - Empty inbox snapshots retain uncertain admission until delivery, history, cancellation or definite rejection proves what happened.
 - Cancelling startup closes its lease; an external attachment survives adapter closure and transport recovery.
+- Account environments reach the owned executable, preserve input correlation, and retain their process after refused idle closure; standalone discovery probes honor cancellation.
+- Adapter shutdown stops every isolated account process without stopping an unrelated adapter.
 - Newer buffered work, inbox entries and forms defeat stale recovery idle/absence; foreign events cannot delay the send barrier.
 
 `v2.test.ts` checks public translation through core/projection. `v2-session.process.test.ts` uses an actual local HTTP/SSE server behind a fake executable. Provider spawning tests use the `.process.test.ts` convention. Historical v1 assertions use the archived implementation explicitly.
@@ -52,6 +54,9 @@ Each case is **not executed (tests run at merge)**:
 17. Settle a newer execution from an old idle outcome: stale idle recovery test must fail.
 18. Acknowledge the oldest intent instead of its correlated command: late recovered admission regression must fail.
 19. Drop uncertain input solely because it is absent from inbox snapshots: uncertain empty-inbox test must fail.
+20. Discard correlation in the account session wrapper, or stop it after refusing idle closure: account lifecycle test must fail.
+21. Ignore injected discovery probes or their abort signals: standalone cancellation test must fail.
+22. Omit isolated account processes from adapter shutdown: account shutdown test must fail.
 
 ## Performance artifacts
 

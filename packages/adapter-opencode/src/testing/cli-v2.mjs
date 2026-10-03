@@ -129,6 +129,10 @@ const server = createServer(async (req, res) => {
     json(true);
     return;
   }
+  if (path === "/test/instance") {
+    json({ instance: process.env.ACE_TEST_INSTANCE ?? "default" });
+    return;
+  }
   if (path === "/test/requests") {
     json(requests);
     return;
