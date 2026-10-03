@@ -168,3 +168,19 @@ test("a line comment stays on its line when the diff switches between Unified an
   await userEvent.click(within(panel).getByRole("button", { name: "Unified" }));
   expect(within(panel).getByText("Carry coldStartWindow too?")).toBeTruthy();
 });
+
+test("Changes says what is uncommitted in the checkout, and follows a commit", async () => {
+  const { panel } = await openChanges();
+  const tree = await within(panel).findByRole("status", { name: "Working tree" });
+  expect(tree.textContent).toContain("2 files uncommitted on fix/cold-start-cap");
+  expect(tree.textContent).toContain("38 added, 6 removed");
+
+  await userEvent.click(screen.getByRole("button", { name: "Commit" }));
+  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Commit" }));
+  await waitFor(() =>
+    expect(within(panel).getByRole("status", { name: "Working tree" }).textContent).toContain(
+      "Everything is committed on fix/cold-start-cap · 1 to push",
+    ),
+  );
+});
