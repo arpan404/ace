@@ -6,6 +6,7 @@ export interface HandoffSource {
   totalItems: number;
   /** Bounded previews in chronological order, supplied by the storage owner. */
   items: readonly Item[];
+  origin?: PortableHandoff["origin"];
 }
 const encoder = new TextEncoder();
 export function handoffBytes(value: PortableHandoff): number {
@@ -13,29 +14,46 @@ export function handoffBytes(value: PortableHandoff): number {
 }
 function excerpt(item: Item): string {
   switch (item.type) {
-    case "message":
-      return `${item.role}: ${item.parts.map((part) => (part.type === "text" ? part.text : part.type === "file" ? `[file: ${part.path}]` : `[image: ${part.url}]`)).join("\n")}`;
+    case "message": {
+      let text = `${item.role}: `;
+      let first = true;
+      for (const part of item.parts) {
+        if (!first && text.length < 8192) text += "\n";
+        first = false;
+        const available = 8192 - text.length;
+        if (available <= 0) break;
+        const value =
+          part.type === "text"
+            ? part.text
+            : part.type === "file"
+              ? `[file: ${part.path.slice(0, available)}]`
+              : `[image: ${part.url.slice(0, available)}]`;
+        text += value.slice(0, available);
+      }
+      return text;
+    }
     case "reasoning":
-      return `Reasoning excerpt: ${item.text}`;
+      return `Reasoning excerpt: ${item.text.slice(0, 8192)}`;
     case "notice":
-      return `Notice: ${item.text}`;
+      return `Notice: ${item.text.slice(0, 8192)}`;
     case "tool_call":
-      return `Tool ${item.call.title}: ${item.call.status}. Full input/result available through history.`;
+      return `Tool ${item.call.title.slice(0, 8000)}: ${item.call.status}. Full input/result available through history.`;
     case "artifact":
-      return `Artifact: ${item.path} (${item.mimeType})`;
+      return `Artifact: ${item.path.slice(0, 8000)} (${item.mimeType.slice(0, 128)})`;
     case "compaction":
       return "Provider compacted history at this item.";
   }
 }
 /** Cold, bounded selection. No I/O, clock, tokenizer assumptions or provider checks. */
 export function selectHandoff(source: HandoffSource, budgetBytes: number): PortableHandoff {
-  if (!Number.isSafeInteger(budgetBytes) || budgetBytes < 2048 || budgetBytes > 65536)
-    throw new Error("Handoff budget must be 2048..65536 bytes");
+  if (!Number.isSafeInteger(budgetBytes) || budgetBytes < 1024 || budgetBytes > 262144)
+    throw new Error("Handoff budget must be 1024..262144 bytes");
   if (source.items.length > 200 || source.totalItems < source.items.length)
     throw new Error("Invalid bounded handoff inventory");
   const result = PortableHandoff.parse({
     version: 1,
     sourceThreadId: source.threadId,
+    ...(source.origin ? { origin: source.origin } : {}),
     throughSeq: source.throughSeq,
     lossy: true,
     policy: "recent-complete-items",
