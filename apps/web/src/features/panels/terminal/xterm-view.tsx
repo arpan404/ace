@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { tokenColor } from "@/lib/css-color.ts";
 import type { TerminalSessions } from "./sessions.ts";
 
 /*
@@ -7,8 +8,22 @@ import type { TerminalSessions } from "./sessions.ts";
  * terminal is shown. If the WebGL context is lost, xterm keeps drawing with its DOM renderer.
  */
 
-const css = (style: CSSStyleDeclaration, name: string, fallback: string) =>
-  style.getPropertyValue(name).trim() || fallback;
+/** The terminal palette from the theme tokens; status colours stand in for ANSI hues. */
+function theme(element: Element) {
+  return {
+    // The WebGL renderer paints its own background; match the panel's.
+    background: tokenColor(element, "--panel", "#161616"),
+    foreground: tokenColor(element, "--muted-foreground", "#bbb"),
+    cursor: tokenColor(element, "--foreground", "#eee"),
+    selectionBackground: tokenColor(element, "--accent", "#444"),
+    red: tokenColor(element, "--status-failed", "#e06c75"),
+    green: tokenColor(element, "--status-done", "#98c379"),
+    yellow: tokenColor(element, "--status-needs-you", "#e5c07b"),
+    blue: tokenColor(element, "--status-working", "#61afef"),
+    magenta: tokenColor(element, "--status-waiting", "#c678dd"),
+    cyan: tokenColor(element, "--status-unresponsive", "#56b6c2"),
+  };
+}
 
 /** Whether this browser can run the WebGL terminal; otherwise the DOM screen is used. */
 export function canUseXterm(): boolean {
@@ -45,19 +60,7 @@ export function XtermView(props: { sessions: TerminalSessions; id: string; name:
         scrollback: 5_000,
         cursorBlink: false,
         allowProposedApi: false,
-        theme: {
-          background: "rgba(0,0,0,0)",
-          foreground: css(style, "--muted-foreground", "#bbb"),
-          cursor: css(style, "--foreground", "#eee"),
-          selectionBackground: css(style, "--accent", "#444"),
-          red: css(style, "--status-failed", "#e06c75"),
-          green: css(style, "--status-done", "#98c379"),
-          yellow: css(style, "--status-needs-you", "#e5c07b"),
-          blue: css(style, "--status-working", "#61afef"),
-          magenta: css(style, "--status-waiting", "#c678dd"),
-          cyan: css(style, "--status-unresponsive", "#56b6c2"),
-        },
-        allowTransparency: true,
+        theme: theme(element),
       });
       term.open(element);
       try {
@@ -68,6 +71,14 @@ export function XtermView(props: { sessions: TerminalSessions; id: string; name:
       } catch {
         /* xterm's DOM renderer stays in use. */
       }
+      // Follow theme changes (presets, light and dark) on the document root.
+      const retheme = new MutationObserver(() => {
+        term.options.theme = theme(element);
+      });
+      retheme.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-theme", "class", "style"],
+      });
       const stopOutput = sessions.output(id, (output) => {
         if (output.kind === "reset") term.reset();
         else term.write(output.data);
@@ -86,6 +97,7 @@ export function XtermView(props: { sessions: TerminalSessions; id: string; name:
       });
       fit.observe(element);
       cleanup = () => {
+        retheme.disconnect();
         fit.disconnect();
         input.dispose();
         stopOutput();
@@ -103,7 +115,7 @@ export function XtermView(props: { sessions: TerminalSessions; id: string; name:
         ref={box}
         role="group"
         aria-label={`${name} terminal`}
-        className="min-h-0 flex-1 px-2 pt-2 font-mono text-[12px]"
+        className="min-h-0 flex-1 px-2 pt-2 font-mono text-[12px] [&_.xterm-viewport]:!bg-transparent"
       />
       {exitCode !== null && (
         <p className="px-4 pb-3 font-sans text-xs text-subtle-foreground">

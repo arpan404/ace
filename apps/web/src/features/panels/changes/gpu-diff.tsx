@@ -1,5 +1,5 @@
 import type { DiffRow } from "@ace/ui-core";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   GpuTextView,
   pickRenderer,
@@ -60,11 +60,19 @@ export function GpuDiff(props: {
   onShowText(): void;
 }) {
   const lines = useMemo(() => diffLines(props.rows), [props.rows]);
+  // WebGPU that cannot present falls back to WebGL2, and WebGL2 to the DOM view.
+  const [downgraded, setDowngraded] = useState(false);
+  const renderer = downgraded ? "webgl2" : props.renderer;
+  const { onShowText } = props;
+  const fail = useCallback(() => {
+    if (renderer === "webgpu") setDowngraded(true);
+    else onShowText();
+  }, [renderer, onShowText]);
   return (
     <div>
       <p className="flex h-8 items-center gap-2 px-3.5 font-sans text-xs text-subtle-foreground">
         {lines.length.toLocaleString()} lines, drawn with{" "}
-        {props.renderer === "webgpu" ? "WebGPU" : "WebGL"}.
+        {renderer === "webgpu" ? "WebGPU" : "WebGL"}.
         <button
           type="button"
           onClick={props.onShowText}
@@ -75,10 +83,11 @@ export function GpuDiff(props: {
       </p>
       <GpuTextView
         lines={lines}
-        renderer={props.renderer}
+        key={renderer}
+        renderer={renderer}
         gutterCells={gutter * 2 + 1}
         label={`Diff of ${props.path}, ${lines.length} lines. Use Show as text to read it.`}
-        onFail={props.onShowText}
+        onFail={fail}
       />
     </div>
   );

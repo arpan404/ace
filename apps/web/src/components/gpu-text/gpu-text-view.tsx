@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { GlyphAtlas } from "./atlas.ts";
 import { themeColors, type TextBackend } from "./backend.ts";
 import { layoutFrame, totalHeight, type Metrics, type TextLine } from "./layout.ts";
@@ -7,6 +7,24 @@ import { webgpuBackend } from "./webgpu.ts";
 
 const fontPx = 12;
 const lineHeight = 20;
+
+interface Cell {
+  family: string;
+  /** CSS px, snapped so a cell is a whole number of device pixels (crisp nearest sampling). */
+  width: number;
+  scale: number;
+}
+/** The monospace cell of the theme's mono font at this device's pixel ratio. */
+function measureCell(): Cell {
+  const family =
+    getComputedStyle(document.documentElement).getPropertyValue("--font-mono").trim() ||
+    "monospace";
+  const scale = globalThis.devicePixelRatio || 1;
+  const context = document.createElement("canvas").getContext("2d");
+  if (context) context.font = `${fontPx}px ${family}`;
+  const advance = context?.measureText("M").width || 7.2;
+  return { family, width: Math.ceil(advance * scale) / scale, scale };
+}
 
 /**
  * Very large monospace text drawn by the GPU (ADR 0050): the canvas covers the visible box and
@@ -23,6 +41,7 @@ export function GpuTextView(props: {
   const { lines, renderer, gutterCells, onFail } = props;
   const scroller = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const [cell] = useState(measureCell);
   const columns = useMemo(
     () => lines.reduce((max, line) => Math.max(max, line.text.length), 0) + gutterCells + 2,
     [lines, gutterCells],
@@ -36,17 +55,13 @@ export function GpuTextView(props: {
     let stopped = false;
     let visible = true;
     let buffer: Float32Array | undefined;
-    const family = getComputedStyle(box).fontFamily || "monospace";
-    const measure = document.createElement("canvas").getContext("2d");
-    if (measure) measure.font = `${fontPx}px ${family}`;
-    const cellWidth = measure?.measureText("M").width || 7.2;
-    const metrics: Metrics = { lineHeight, cellWidth, gutterCells };
+    const metrics: Metrics = { lineHeight, cellWidth: cell.width, gutterCells };
     const atlas = new GlyphAtlas({
       fontPx,
-      family,
-      cellWidth,
+      family: cell.family,
+      cellWidth: cell.width,
       lineHeight,
-      scale: devicePixelRatio || 1,
+      scale: cell.scale,
     });
     const draw = () => {
       frame = 0;
@@ -81,7 +96,9 @@ export function GpuTextView(props: {
       try {
         const started =
           renderer === "webgpu"
-            ? await webgpuBackend(surface, atlas)
+            ? await webgpuBackend(surface, atlas, () => {
+                if (!stopped) onFail();
+              })
             : webglBackend(surface, atlas);
         if (stopped) return started.dispose();
         backend = started;
@@ -113,7 +130,7 @@ export function GpuTextView(props: {
       theme.disconnect();
       backend?.dispose();
     };
-  }, [lines, renderer, gutterCells, onFail]);
+  }, [lines, renderer, gutterCells, onFail, cell]);
   return (
     <div
       ref={scroller}
@@ -124,10 +141,9 @@ export function GpuTextView(props: {
       <canvas ref={canvas} aria-hidden className="pointer-events-none sticky top-0 left-0 block" />
       <div
         aria-hidden
-        // `ch` is one monospace cell, so the spacer is as wide as the longest line.
         style={{
-          height: totalHeight(lines.length, { lineHeight, cellWidth: 0, gutterCells }),
-          width: `${columns}ch`,
+          height: totalHeight(lines.length, { lineHeight, cellWidth: cell.width, gutterCells }),
+          width: columns * cell.width,
         }}
       />
     </div>

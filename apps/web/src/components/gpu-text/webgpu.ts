@@ -52,10 +52,19 @@ const isGpuContext = (context: unknown): context is CanvasGpu =>
 export async function webgpuBackend(
   canvas: HTMLCanvasElement,
   atlas: GlyphAtlas,
+  onError: () => void,
 ): Promise<TextBackend> {
   const adapter = await navigator.gpu?.requestAdapter();
   if (!adapter) throw new Error("No WebGPU adapter");
   const device = await adapter.requestDevice();
+  // Some platforms hand out an adapter but cannot present to a canvas (headless shells, broken
+  // drivers): the first validation error hands the view back to the next renderer.
+  let failed = false;
+  device.addEventListener("uncapturederror", () => {
+    if (failed) return;
+    failed = true;
+    onError();
+  });
   const context: unknown = canvas.getContext("webgpu");
   if (!isGpuContext(context)) throw new Error("No WebGPU canvas");
   const format = navigator.gpu.getPreferredCanvasFormat();
@@ -143,6 +152,7 @@ export async function webgpuBackend(
       }
       if (frame.count)
         device.queue.writeBuffer(instances, 0, frame.quads, 0, frame.count * quadFloats);
+      if (failed) return;
       const encoder = device.createCommandEncoder();
       const pass = encoder.beginRenderPass({
         colorAttachments: [
