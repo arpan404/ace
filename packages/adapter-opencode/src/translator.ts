@@ -51,10 +51,15 @@ export class OpenCodeTranslator implements Translator {
       }
       if (data.type === "disconnected" || data.type === "resynced") {
         state.disconnected = data.type === "disconnected";
-        return [...state.agents.keys()].map((id) => ({
-          type: state.disconnected ? "agent.disconnected" : "agent.reconnected",
-          agent: state.key(id),
-        }));
+        return [...state.agents.keys()]
+          .filter(
+            (id) =>
+              state.disconnected || !state.lostLocations.has(state.agents.get(id)?.directory ?? ""),
+          )
+          .map((id) => ({
+            type: state.disconnected ? "agent.disconnected" : "agent.reconnected",
+            agent: state.key(id),
+          }));
       }
       return [];
     }
@@ -66,11 +71,21 @@ export class OpenCodeTranslator implements Translator {
       if (command) state.commands.set(id, command);
       return [];
     }
+    if (frame.channel === "input.uncertain") {
+      const id = string(data.id),
+        session = state.inputs.get(id);
+      return session && !state.admitted.has(id)
+        ? state.background(`admission:${id}`, session, "other")
+        : [];
+    }
     if (frame.channel === "input.rejected") {
       state.inputs.delete(string(data.id));
       state.commands.delete(string(data.id));
       state.admissionPending.delete(string(data.id));
-      return state.queue();
+      return [
+        ...state.finishBackground(`admission:${string(data.id)}`, "stopped"),
+        ...state.queue(),
+      ];
     }
     if (frame.channel === "http") {
       const path = string(data.path).split("?")[0] ?? "",
@@ -117,12 +132,17 @@ export class OpenCodeTranslator implements Translator {
       return [
         ...admitted,
         ...projected(state, string(data.sessionID), data.message),
-        ...(delivered ? state.queue() : []),
+        ...(delivered
+          ? [...state.finishBackground(`admission:${id}`, "completed"), ...state.queue()]
+          : []),
       ];
     }
     if (frame.channel === "snapshot.info") {
       if (data.root === true && !state.rootNative) state.rootNative = string(object(data.info).id);
-      return [...state.seen(object(data.info)), ...state.reconcileOutcome(object(data.info))];
+      return [
+        ...state.seen(object(data.info)),
+        ...(data.recovering === true ? [] : state.reconcileOutcome(object(data.info))),
+      ];
     }
     if (frame.channel === "snapshot.active") {
       const id = string(data.sessionID);
@@ -180,6 +200,20 @@ export class OpenCodeTranslator implements Translator {
     }
     if (state.events.has(e.id)) return [];
     state.events.add(e.id);
+    if (type === "location.shutdown" && e.location) {
+      const directory = e.location.directory;
+      state.lostLocations.add(directory);
+      const facts: Fact[] = [];
+      for (const [key, pending] of state.pending)
+        if (state.agents.get(pending.session)?.directory === directory) {
+          state.pending.delete(key);
+          facts.push({ type: "interaction.closed", interaction: key, state: "expired" });
+        }
+      for (const [id, owner] of state.agents)
+        if (owner.directory === directory)
+          facts.push({ type: "agent.disconnected", agent: state.key(id) });
+      return facts;
+    }
     if (type === "session.created") return state.seen(p);
     if (type === "shell.created") {
       const info = object(p.info),
@@ -268,6 +302,7 @@ export class OpenCodeTranslator implements Translator {
       state.admissionPending.delete(string(p.inboxID));
       return [
         ...admitted,
+        ...state.finishBackground(`admission:${string(p.inboxID)}`, "completed"),
         ...state.queue(),
         ...(type.endsWith("delivered") && !state.active.has(id) ? state.wake(id) : []),
       ];
@@ -279,7 +314,7 @@ export class OpenCodeTranslator implements Translator {
         meta.source === "subagent" ? "subagent_result" : "background_completion",
       );
       return [
-        ...state.completion(meta),
+        ...state.completion(meta, number(e.created, -1)),
         ...state.wake(id, number(e.created, Number.MAX_SAFE_INTEGER)),
       ];
     }

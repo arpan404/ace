@@ -12,6 +12,7 @@ function setup() {
   ) =>
     frame("sse", {
       id: `e${seq}`,
+      created: seq,
       type,
       data: { sessionID: "s-root", ...data },
       location: { directory: "/one" },
@@ -50,6 +51,8 @@ it("step completion and HTTP admission leave work unsettled until execution term
 });
 it("empty inbox snapshots cannot settle an input with an uncertain admission receipt", () => {
   const h = setup();
+  h.event("session.execution.started");
+  h.event("session.execution.succeeded");
   h.frame(
     "http",
     {
@@ -59,12 +62,14 @@ it("empty inbox snapshots cannot settle an input with an uncertain admission rec
     },
     "send",
   );
+  h.frame("input.uncertain", { id: "uncertain" }, "note");
   h.frame("lifecycle", { type: "disconnected" }, "note");
   h.frame("snapshot.inbox", { sessionID: "s-root", items: [] });
   h.frame("snapshot.inbox", { sessionID: "s-root", items: [] });
   h.frame("snapshot.active", { sessionID: "s-root", running: false, idleAt: 100 });
   h.frame("lifecycle", { type: "resynced" }, "note");
-  expect(h.view.thread.status).toEqual({ state: "waiting", on: "queue" });
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
+  expect(h.queueCount()).toBe(0);
   h.event("session.inbox.delivered", { inboxID: "uncertain" });
   h.event("session.execution.started");
   h.event("session.execution.succeeded");
@@ -92,12 +97,17 @@ it("a root waits for a background child, its human answer and synthetic completi
     projectID: "p",
     location: { directory: "/one" },
   });
-  h.event("session.tool.input.started", { assistantMessageID: "a", id: "t", name: "subagent" });
+  h.event("session.tool.called", {
+    assistantMessageID: "a",
+    id: "t",
+    name: "subagent",
+    input: { background: true },
+  });
   h.event("session.tool.success", {
     assistantMessageID: "a",
     id: "t",
     content: [{ type: "text", text: "Started" }],
-    metadata: { sessionID: "child", background: true },
+    metadata: { sessionID: "child", status: "running" },
   });
   h.event("session.execution.started", { sessionID: "child" });
   h.event("session.execution.succeeded");
@@ -302,7 +312,7 @@ it("comment-only transport activity keeps liveness without creating a model turn
   const h = setup();
   h.frame("transport.activity", {}, "note");
   expect(Object.values(h.view.runs)).toHaveLength(0);
-  expect(h.view.thread.status.state).toBe("done");
+  expect(h.view.thread.status.state).toBe("new");
 });
 
 it("recovered synthetic completion cannot resurrect a historical background child", () => {
@@ -317,6 +327,7 @@ it("recovered synthetic completion cannot resurrect a historical background chil
     sessionID: "s-root",
     message: {
       id: "wake",
+      time: { created: 10 },
       type: "synthetic",
       text: "finished",
       metadata: { source: "subagent", childID: "child", state: "completed" },
@@ -333,18 +344,19 @@ it("recovered synthetic completion cannot resurrect a historical background chil
           type: "tool",
           id: "t",
           name: "subagent",
+          time: { created: 1 },
           state: {
             status: "completed",
-            input: {},
+            input: { background: true },
             content: [{ type: "text", text: "started" }],
-            metadata: { sessionID: "child", background: true },
+            metadata: { sessionID: "child", status: "running" },
           },
         },
       ],
     },
   });
   expect(Object.values(h.view.backgroundTasks).filter((t) => t.status === "running")).toEqual([]);
-  expect(h.view.thread.status.state).toBe("done");
+  expect(h.view.thread.status.state).toBe("new");
 });
 
 it("an old idle outcome cannot finish a newer execution observed before disconnect", () => {
@@ -388,4 +400,54 @@ it("an old idle outcome cannot finish a newer execution observed before disconne
   });
   expect(h.view.thread.status.state).toBe("done");
   expect(Object.values(h.view.runs)).toHaveLength(1);
+});
+
+it("a later background dispatch to the same child waits for its own completion", () => {
+  const h = setup();
+  h.event("session.created", {
+    sessionID: "child",
+    parentID: "s-root",
+    projectID: "p",
+    location: { directory: "/one" },
+  });
+  const dispatch = (id: string) => {
+    h.event("session.execution.started");
+    h.event("session.tool.called", {
+      assistantMessageID: "a",
+      id,
+      name: "subagent",
+      input: { background: true },
+    });
+    h.event("session.tool.success", {
+      assistantMessageID: "a",
+      id,
+      metadata: { sessionID: "child", status: "running" },
+    });
+    h.event("session.execution.succeeded");
+  };
+  dispatch("first");
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
+  h.event("session.synthetic", {
+    metadata: { source: "subagent", childID: "child", state: "completed" },
+  });
+  h.event("session.execution.started");
+  h.event("session.execution.succeeded");
+  dispatch("continuation");
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
+  h.frame("snapshot.message", {
+    sessionID: "s-root",
+    message: {
+      id: "old-wake",
+      type: "synthetic",
+      time: { created: 6 },
+      metadata: { source: "subagent", childID: "child", state: "completed" },
+    },
+  });
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
+  h.event("session.synthetic", {
+    metadata: { source: "subagent", childID: "child", state: "completed" },
+  });
+  h.event("session.execution.started");
+  h.event("session.execution.succeeded");
+  expect(h.view.thread.status.state).toBe("done");
 });

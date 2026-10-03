@@ -40,7 +40,10 @@ export function tool(state: NativeState, p: Data, type: string, evidence: unknow
   const failed = type === "session.tool.failed" || native.status === "error";
   const complete = failed || type === "session.tool.success" || native.status === "completed";
   if (previous && !previous.live && !complete) return [];
-  const current: Tool = { session: id, message, name, input, live: !complete };
+  const created =
+    previous?.created ??
+    number(object(p.time).created, number(object(evidence).created, Number.MAX_SAFE_INTEGER));
+  const current: Tool = { session: id, message, name, input, live: !complete, created };
   state.trackTool(item, current);
   const d = detail(name, input),
     blocks = array(p.content ?? native.content);
@@ -79,7 +82,12 @@ export function tool(state: NativeState, p: Data, type: string, evidence: unknow
   if (name === "subagent" && child && !state.agents.has(child)) {
     if (state.childClaims.size >= 1024 && !state.childClaims.has(child))
       throw new Error("OpenCode child evidence limit");
-    state.childClaims.set(child, { session: id, item, background: meta.background === true });
+    state.childClaims.set(child, {
+      session: id,
+      item,
+      background: input.background === true,
+      created,
+    });
     facts.push(...state.background(`proof:${child}`, id, "other", item));
   }
   if (name === "subagent" && child && state.agents.get(child)?.parent === id) {
@@ -88,10 +96,9 @@ export function tool(state: NativeState, p: Data, type: string, evidence: unknow
       agent: state.key(child),
       parent: state.key(id),
       spawnedBy: item,
-      background: meta.background === true,
+      background: input.background === true,
     });
-    if (meta.background === true)
-      facts.push(...state.background(`child:${child}`, id, "subagent", item));
+    if (input.background === true) facts.push(...state.childDispatch(child, id, item, created));
   }
   const shell = string(meta.shellID);
   if (
@@ -166,7 +173,9 @@ export function projected(state: NativeState, session: string, value: unknown): 
     });
   if (p.type === "user" || p.type === "synthetic" || p.type === "system")
     return [
-      ...(p.type === "synthetic" ? state.completion(object(p.metadata)) : []),
+      ...(p.type === "synthetic"
+        ? state.completion(object(p.metadata), number(object(p.time).created, -1))
+        : []),
       {
         type: "item.reconciled",
         agent,

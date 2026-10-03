@@ -32,7 +32,7 @@ it.each(["data: {bad json}\n\n", `data: ${"x".repeat(1024 * 1024 + 1)}\n\n`])(
       recovery = h.recovered();
     await h.control("/test/events", [{ raw }]);
     await recovery;
-    expect(h.projection.view.thread.status.state).toBe("done");
+    expect(h.projection.view.thread.status.state).toBe("new");
     expect(
       array(await h.control("/test/requests"))
         .map(object)

@@ -3,7 +3,14 @@ import type { Fact, Key } from "@ace/core";
 import type { Data } from "./data.ts";
 import { object, raw, string, number } from "./data.ts";
 import { RecentMap, RecentSet } from "./cache.ts";
-export type Tool = { session: string; message: string; name: string; input: Data; live: boolean };
+export type Tool = {
+  session: string;
+  message: string;
+  name: string;
+  input: Data;
+  live: boolean;
+  created: number;
+};
 export class NativeState {
   readonly rootKey: Key;
   rootNative = "";
@@ -17,7 +24,10 @@ export class NativeState {
   ended = new RecentSet();
   events = new RecentSet();
   durable = new RecentMap<number>(1024);
-  childClaims = new Map<string, { session: string; item: string; background: boolean }>();
+  childClaims = new Map<
+    string,
+    { session: string; item: string; background: boolean; created: number }
+  >();
   tools = new Map<string, Tool>();
   liveMessages = new Map<string, Map<string, number>>();
   recentTools = new RecentMap<Tool>(1024);
@@ -34,7 +44,11 @@ export class NativeState {
   wakes = new Map<string, number>();
   backgrounds = new Map<string, string>();
   completedBackgrounds = new RecentSet();
-  completedChildren = new Set<string>();
+  childDispatches = new Map<string, Map<string, number>>();
+  childCompletedAt = new RecentMap<number>(1024);
+  lostLocations = new Set<string>();
+  private locations = new Map<string, number>();
+  private childDispatchCount = 0;
   unknown = 0;
   constructor(rootKey: Key) {
     this.rootKey = rootKey;
@@ -84,7 +98,19 @@ export class NativeState {
     const directory = string(object(p.location).directory);
     const claim = this.childClaims.get(id);
     this.childClaims.delete(id);
+    const previousDirectory = this.agents.get(id)?.directory;
     this.agents.set(id, { parent, directory });
+    if (previousDirectory !== directory) {
+      if (previousDirectory !== undefined) {
+        const count = (this.locations.get(previousDirectory) ?? 1) - 1;
+        if (count) this.locations.set(previousDirectory, count);
+        else {
+          this.locations.delete(previousDirectory);
+          this.lostLocations.delete(previousDirectory);
+        }
+      }
+      this.locations.set(directory, (this.locations.get(directory) ?? 0) + 1);
+    }
     this.idle.set(id, number(object(p.time).idle, -1));
     return [
       {
@@ -109,9 +135,7 @@ export class NativeState {
               spawnedBy: claim.item,
               background: claim.background,
             },
-            ...(claim.background
-              ? this.background(`child:${id}`, parent, "subagent", claim.item)
-              : []),
+            ...(claim.background ? this.childDispatch(id, parent, claim.item, claim.created) : []),
           ]
         : []),
     ];
@@ -181,11 +205,13 @@ export class NativeState {
     ];
   }
   admit(id: string, session: string): Fact[] {
-    if (this.admitted.has(id)) return [];
+    const settled = this.finishBackground(`admission:${id}`, "completed");
+    if (this.admitted.has(id)) return settled;
     this.admitted.add(id);
     this.admissionPending.delete(id);
     const commandId = this.commands.get(id);
     return [
+      ...settled,
       {
         type: "input.admitted",
         agent: this.key(session),
@@ -214,12 +240,7 @@ export class NativeState {
     kind: "shell" | "subagent" | "other",
     item?: string,
   ): Fact[] {
-    if (
-      this.backgrounds.has(task) ||
-      this.completedBackgrounds.has(task) ||
-      this.completedChildren.has(task)
-    )
-      return [];
+    if (this.backgrounds.has(task) || this.completedBackgrounds.has(task)) return [];
     if (this.backgrounds.size >= 2048) throw new Error("OpenCode work limit");
     this.backgrounds.set(task, session);
     return [
@@ -228,8 +249,12 @@ export class NativeState {
         agent: this.key(session),
         task,
         kind,
-        title: kind === "shell" ? "OpenCode shell" : "OpenCode background work",
-        stoppable: true,
+        title: task.startsWith("admission:")
+          ? "OpenCode input acknowledgement uncertain"
+          : kind === "shell"
+            ? "OpenCode shell"
+            : "OpenCode background work",
+        stoppable: !task.startsWith("admission:"),
         ...(item ? { item } : {}),
         ...(kind === "subagent" ? { childAgent: this.key(task.slice(6)) } : {}),
       },
@@ -238,11 +263,8 @@ export class NativeState {
   finishBackground(task: string, status: "completed" | "failed" | "stopped"): Fact[] {
     const exists = this.backgrounds.has(task);
     this.backgrounds.delete(task);
-    if (task.startsWith("child:")) {
-      if (this.completedChildren.size >= 1024 && !this.completedChildren.has(task))
-        throw new Error("OpenCode child completion limit");
-      this.completedChildren.add(task);
-    } else if (exists || task.startsWith("shell:")) this.completedBackgrounds.add(task);
+    if (!task.startsWith("child:") && (exists || task.startsWith("shell:")))
+      this.completedBackgrounds.add(task);
     if (!exists) return [];
     return [{ type: "background.ended", task, status }];
   }
@@ -256,7 +278,38 @@ export class NativeState {
     this.wakes.delete(id);
     return [{ type: "wake.expected", agent: this.key(id), until: 0 }];
   }
-  completion(metadata: Data): Fact[] {
+  childDispatch(child: string, session: string, item: string, created: number): Fact[] {
+    if (created <= (this.childCompletedAt.get(child) ?? -1)) return [];
+    const dispatches = this.childDispatches.get(child) ?? new Map<string, number>();
+    if (dispatches.size >= 128 && !dispatches.has(item))
+      throw new Error("OpenCode child dispatch limit");
+    if (this.childDispatches.size >= 1024 && !this.childDispatches.has(child))
+      throw new Error("OpenCode child limit");
+    if (!dispatches.has(item)) {
+      if (this.childDispatchCount >= 2048) throw new Error("OpenCode dispatch budget");
+      this.childDispatchCount++;
+    }
+    dispatches.set(item, created);
+    this.childDispatches.set(child, dispatches);
+    return this.background(`child:${child}`, session, "subagent", item);
+  }
+  completion(metadata: Data, created: number): Fact[] {
+    if (metadata.source === "subagent") {
+      const child = string(metadata.childID);
+      const previous = this.childCompletedAt.get(child) ?? -1;
+      if (created <= previous) return [];
+      this.childCompletedAt.set(child, created);
+      const dispatches = this.childDispatches.get(child);
+      // One synthetic result acknowledges one dispatch, including repeated child reuse.
+      for (const [item, started] of dispatches ?? [])
+        if (started <= created) {
+          dispatches?.delete(item);
+          this.childDispatchCount--;
+          break;
+        }
+      if (dispatches?.size) return [];
+      this.childDispatches.delete(child);
+    }
     const task =
       metadata.source === "subagent"
         ? `child:${string(metadata.childID)}`
@@ -276,6 +329,7 @@ export class NativeState {
   settled(): boolean {
     return (
       !this.disconnected &&
+      !this.lostLocations.size &&
       !this.active.size &&
       !this.inputs.size &&
       !this.pending.size &&
