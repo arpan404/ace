@@ -27,6 +27,8 @@ const setAutomations = (app: ReturnType<typeof harness>, value: boolean) =>
     layer: { kind: "global" },
   });
 
+/** The detail page's Next run line. */
+const next = () => screen.getByText("Next run").parentElement?.textContent ?? "";
 const heading = (name: string | RegExp) => screen.findByRole("heading", { level: 2, name });
 const field = (name: string) => screen.getByRole("textbox", { name });
 const main = () => within(screen.getByRole("main"));
@@ -68,7 +70,6 @@ test("an automation shows its prompt, where it runs and its recent runs with out
 test("the next run is the daemon's schedule, or says automations are off on this machine", async () => {
   const { app } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
-  const next = () => screen.getByText("Next run").parentElement?.textContent ?? "";
   await waitFor(() => expect(next()).toMatch(/Tonight|Today|Tomorrow|In \d+[mh]|Any moment/));
 
   await setAutomations(app, false);
