@@ -13,6 +13,7 @@ export type ProcessExit = {
   reason: "exit" | "signal" | "stopped" | "spawn-error" | "output-limit";
 };
 export type RawSupervisedProcess = {
+  readonly pid?: number;
   stdin: Writable;
   stdout: Readable;
   stderr: Readable;
@@ -21,6 +22,7 @@ export type RawSupervisedProcess = {
   stop(options?: { graceMs?: number }): Promise<ProcessExit>;
 };
 export type SupervisedProcess = {
+  readonly pid?: number;
   stdin: Writable;
   /** Hot line streams: attach listeners immediately. Pipes drain without listeners. */
   stdout: Interface;
@@ -134,6 +136,7 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     });
   });
   const handle: RawSupervisedProcess = {
+    ...(pid === undefined ? {} : { pid }),
     stdin: child.stdin,
     stdout,
     stderr,

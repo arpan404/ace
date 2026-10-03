@@ -17,6 +17,7 @@ export type DaemonOptions = {
   /** Startup deadlines and scheduler are injected at the timer boundary. */
   startup?: Partial<import("./startup.ts").StartupRuntime>;
   claude?: DaemonClaudeOptions;
+  pi?: import("./pi.ts").PiDaemonOptions;
   screen?: ScreenManager;
   commands?: DaemonCommandIntegration;
   config?: Config;

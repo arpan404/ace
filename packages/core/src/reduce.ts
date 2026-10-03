@@ -79,6 +79,14 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
     case "turn.ended":
       endTurn(state, fact, ctx, events);
       break;
+    case "input.admitted":
+      emit(events, {
+        type: "input.admitted",
+        agentId: ensureAgent(state, fact.agent, ctx, events).agent.id,
+        nativeInputId: fact.nativeInputId,
+        ...(fact.commandId === undefined ? {} : { commandId: fact.commandId }),
+      });
+      break;
     case "activity": {
       const record = ensureAgent(state, fact.agent, ctx, events);
       record.activity = fact.activity;

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { messageId, promptBody } from "./input.ts";
+import { messageId, promptBody } from "./testing/v1/input.ts";
 it("keeps sent message IDs in native timestamp order with injected time and entropy", () => {
   expect(messageId(0, 1, "aaaaaaaaaaaaaa")).toBe("msg_000000000001aaaaaaaaaaaaaa");
   expect(messageId(1, 1, "00000000000000") > messageId(0, 2, "ffffffffffffff")).toBe(true);

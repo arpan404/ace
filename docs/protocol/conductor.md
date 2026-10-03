@@ -22,10 +22,8 @@ Example:
 
 ```json
 {
-  "budget": 2,
-  "deadline": 7,
-  "decision": "reject",
-  "gateId": "vaRRJQ8r_UPB5hjA4hZWRgAKtoxd9dsHAJnfGm3yU8hT1rjuLSUlzxs81MBjpRBl0.a_9FT3Ucj60hSSn8LEB893uotYEFnq0nAk.NDlPu1CTUZP-T2",
+  "decision": "approve",
+  "gateId": "x-yibcH835U-yJIyE14DDzg5xgSWRF-SPIeurIrXiNabNZKJWw_dfxbVSRTcchkfEr.gAlQAOfq",
   "plan": {
     "summary": "Example plan",
     "workstreams": [
@@ -94,7 +92,7 @@ Example:
 
 ```json
 {
-  "runId": "A67OKOLALFyflngAwSA_mRxOrpMHy.MCpjUm0j.ZrpzFgnTztqYpqS1ZBaxW-qEk6g31LX2.G0bJLIEEOqT9M_H5Yd2AdT9P2dL6xFciOLycOhYGr4t.5ivja",
+  "runId": "Ad9Ftd5tPbUkP8P_.lqiPf0USDDz_4-.kO5Fm1BtXEo148SOvs_3V6RUhUnc",
   "spec": {
     "constraints": {
       "accounts": [
@@ -176,10 +174,11 @@ Example:
 ```json
 {
   "approval": {
+    "budget": 6,
     "decision": "reject",
-    "gateId": "ItJ6dfiYwYQbaL2M.PVmWI8dSjchm.rIdszj1ARDNCEvHaMqz"
+    "gateId": "0gqT4FY6DMtmZhtx8ZamcNUrN810md4T7aPkeVe1M4E.f3vE3fXC2gn1WLozN7mOClw6aRRJQ8r_UPB5hjA4hZWRgAKtoxd9dsHAJnfGm3y"
   },
-  "runId": "qidPgK",
+  "runId": "5qu7gKmZnVp8_asjZo9HhTAmF8FnL72ThNTQz-Kp0ONxF9c",
   "type": "conductor.approve"
 }
 ```
@@ -195,7 +194,7 @@ Example:
 
 ```json
 {
-  "runId": "RO3jb1q8WpQNc9ZwbHKVrqWsz.DCYFRa2TwDWiFZDnEEKQ.5iRAqOdhhXryEK2PHm",
+  "runId": "quLSUlzxs81MBjpRBl0.",
   "type": "conductor.pause"
 }
 ```
@@ -211,7 +210,7 @@ Example:
 
 ```json
 {
-  "runId": "iCnhKPGxeJ5h3QcBfNHfdy48N9gyi_8Rxz25mTM7u720Cc-mvttXblHh4Dygk6M0",
+  "runId": "a9FT3Ucj60hSSn8LEB893uotYEFnq0nAk.NDlPu1CTUZP-T2WabipmTB967OKOLALFyflngAwSA_mRxOrpMHy.MCpjUm0j.ZrpzFgnTztqYpqS1ZBaxW-qEk6g31LX2",
   "type": "conductor.resume"
 }
 ```
@@ -227,7 +226,7 @@ Example:
 
 ```json
 {
-  "runId": "YCRgCiBtjjZrhpiN3WMG3kqjbuMrB26ElpY.GhXArASyPysmR_j-54lTjWbGBFkTAZJNYmiq",
+  "runId": "80bJLIEEOqT9M_H5Yd2AdT9P2dL6xFciOLycOhYGr4t.5ivja8rcidPgKKytJ6dfi",
   "type": "conductor.cancel"
 }
 ```
@@ -248,11 +247,11 @@ Example:
 
 ```json
 {
-  "cost": 5,
-  "model": "ivg.GflLf6ax.cXwiBFENRxgCUuRfXDULnR2DeSBk3ibi-rTpi45drgI_gzGEf0CUNp3RSH3lwy4zHItpnM-nnR3",
-  "provider": "antigravity",
-  "quota": 5,
-  "tier": "normal"
+  "cost": 1,
+  "model": "vQbaL2M.PVmWI8dSjchm.rIdszj1ARDNCEvHaMqzVL5TTGO3jb1q8WpQNc9ZwbHKVrqWsz.DCYFRa2TwDWiFZDnEEKQ.5iRAqOd",
+  "provider": "acp",
+  "quota": 8,
+  "tier": "fast"
 }
 ```
 
@@ -567,8 +566,8 @@ Example:
     "risks": []
   },
   "dependencies": [],
-  "id": "COye",
-  "priority": 4,
+  "id": "0HmjGCnhKPGxeJ5h3QcBfNHfdy48N9gyi_8Rxz25mTM7u720Cc-mvttXblHh4Dygk6M01KCRgCiBtjjZrhp",
+  "priority": 1,
   "title": "example"
 }
 ```

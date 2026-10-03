@@ -14,6 +14,7 @@ import { startUsage } from "./usage.ts";
 import { startModels } from "./models.ts";
 import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
+import { startPi } from "./pi.ts";
 import { startEngine } from "./engine.ts";
 import type { ServiceContext } from "./types.ts";
 import type { ServiceDefinition } from "./startup.ts";
@@ -29,12 +30,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
   { name: "models", phase: "core", requires: [], after: [], start: startModels },
   { name: "mcp", phase: "core", requires: [], after: ["screen"], start: startMcp },
+  { name: "pi", phase: "core", requires: [], after: ["mcp"], start: startPi },
   { name: "agentRegistry", phase: "core", requires: [], after: [], start: startAgentRegistry },
   {
     name: "engine",
     phase: "core",
     requires: [],
-    after: ["accounts", "plugins", "models", "mcp", "agentRegistry"],
+    after: ["accounts", "plugins", "models", "mcp", "pi", "agentRegistry"],
     start: startEngine,
   },
   { name: "context", phase: "listener", requires: [], after: [], start: startContext },

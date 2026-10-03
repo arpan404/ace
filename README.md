@@ -1,6 +1,6 @@
 # ace
 
-A multi-agent coding environment. ace drives the coding-agent CLIs you already have installed (Claude Code, Codex, OpenCode, Cursor, Antigravity) and gives them one interface on desktop, in the browser and on your phone.
+A multi-agent coding environment. ace drives the coding-agent CLIs you already have installed (Claude Code, Codex, OpenCode, Cursor, Antigravity, Pi) and gives them one interface on desktop, in the browser and on your phone.
 
 Status: early development. The local daemon can store events and serve snapshots and replay over WebSocket. Provider execution and clients are still to come.
 
