@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 const catalog = () => screen.getByRole("navigation", { name: "Skills catalog" });
@@ -77,4 +77,16 @@ test("installing a plugin adds it to Plugins and opens it", async () => {
   expect(await screen.findByRole("heading", { level: 1, name: "linear-mcp" })).toBeTruthy();
   const plugins = within(catalog()).getByRole("region", { name: "Plugins" });
   expect(within(plugins).getByText("linear-mcp")).toBeTruthy();
+});
+
+test("Edit source opens the skill's file in the default editor", async () => {
+  const launched = vi.spyOn(window, "open").mockImplementation(() => null);
+  await harness().open("/skills/code-review");
+  await userEvent.click(await screen.findByRole("button", { name: "Edit source" }));
+  expect(await screen.findByText("Opened code-review in Visual Studio Code")).toBeTruthy();
+  expect(launched).toHaveBeenCalledWith(
+    "vscode://file/Users/dev/ace/.claude/skills/code-review/SKILL.md",
+    "_self",
+  );
+  launched.mockRestore();
 });

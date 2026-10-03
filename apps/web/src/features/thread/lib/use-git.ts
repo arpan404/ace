@@ -17,6 +17,7 @@ export function useCheckout(thread: ThreadRef): Checkout | undefined {
   const live = useThreadMeta(thread.id)?.details;
   const read = useDaemonQuery({
     queryKey: detailsKey(thread.id),
+    enabled: !thread.draft,
     staleTime: 30_000,
     retry: false,
     read: (_client, signal) => sources.workspace.details(thread, signal),
@@ -25,7 +26,7 @@ export function useCheckout(thread: ThreadRef): Checkout | undefined {
   const linked = details?.linkedPr;
   const pr = useDaemonQuery({
     queryKey: [...prKey(thread.id), linked?.number],
-    enabled: linked !== undefined && linked !== null,
+    enabled: !thread.draft && linked !== undefined && linked !== null,
     staleTime: 60_000,
     retry: false,
     read: (_client, signal) => sources.workspace.prStatus(thread, signal),

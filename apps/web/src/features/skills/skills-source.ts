@@ -19,6 +19,8 @@ export interface Skill {
   description: string;
   source: SkillSource;
   location: string;
+  /** The file that defines it, on the daemon's machine, when it has one. */
+  sourcePath?: string | undefined;
   usage: string;
   availability: string;
   enabled: boolean;

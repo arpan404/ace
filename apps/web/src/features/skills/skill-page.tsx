@@ -13,6 +13,8 @@ import {
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { Screen } from "@/features/shell/index.ts";
+import { launchEditor } from "@/boot/editor-launch.ts";
+import { useEditors } from "@/lib/editors.ts";
 import { kinds } from "./skills-sidebar.tsx";
 import {
   availabilities,
@@ -52,8 +54,27 @@ function SkillDetail(props: { skill: Skill }) {
   const setEnabled = useSetSkillEnabled();
   const setAvailability = useSetAvailability();
   const group = kinds.find((entry) => entry.kind === skill.kind)?.label ?? "Skills";
-  // TODO(client-gaps): open in the user's editor through workspace.request's editor launch.
-  const openSource = () => toast.add({ title: `Opening ${skill.location}` });
+  const editors = useEditors();
+  const openSource = () => {
+    const editor = editors.current;
+    if (!skill.sourcePath || !editor) {
+      toast.add({
+        title: "Couldn't open the source",
+        description: skill.sourcePath
+          ? "No editor was found on the daemon's machine."
+          : "This one has no file of its own.",
+      });
+      return;
+    }
+    launchEditor({ editorId: editor.id, editorName: editor.name, path: skill.sourcePath }).then(
+      () => toast.add({ title: `Opened ${skill.name} in ${editor.name}` }),
+      (error: unknown) =>
+        toast.add({
+          title: "Couldn't open the source",
+          description: error instanceof Error ? error.message : undefined,
+        }),
+    );
+  };
   return (
     <Screen
       title={<span className="font-mono text-[13.5px]">{skill.name}</span>}
