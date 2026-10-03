@@ -1,5 +1,6 @@
 import { build, type PluginBuild } from "esbuild";
 import { runtimePackages, stageRuntimePackages } from "./runtime-assets.ts";
+import { stagePtyRuntime } from "./pty-assets.ts";
 import { readFile, cp } from "node:fs/promises";
 import { join } from "node:path";
 export { stageNativeFiles } from "./native-assets.ts";
@@ -106,6 +107,7 @@ export async function bundleDaemon(
   const inputs = new Set(Object.keys(daemon.metafile.inputs));
   const runtimeManifests = await stageRuntimePackages(repo, root, target);
   for (const manifest of runtimeManifests) inputs.add(manifest);
+  inputs.add(await stagePtyRuntime(repo, root, target));
   const workspaceIncluded = [...inputs].some((input) =>
     input.endsWith("packages/workspace/src/descriptor.ts"),
   );

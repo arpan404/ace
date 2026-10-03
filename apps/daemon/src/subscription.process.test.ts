@@ -205,7 +205,7 @@ describe("subscription bootstrap", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0]).toMatchObject({
       type: "snapshot",
-      seq: 4,
+      seq: f.store.headSeq(),
       view: { agents: { [agent.id]: agent }, thread: { status: { state: "working", agents: 1 } } },
     });
   });

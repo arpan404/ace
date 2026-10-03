@@ -191,7 +191,14 @@ test("an oversized daemon rejection cannot grow the persisted outbox beyond its 
   const storage = memoryStorage();
   const { client } = h.make({ storage, limits: { outboxBytes: 512 } });
   await ready(client);
-  const id = await client.enqueue({ type: "thread.archive", threadId: h.thread.id });
+  // Engine-owned sends reach the injected handler; archive is routed by the
+  // organization service and would succeed instead of exercising this rejection.
+  const id = await client.enqueue({
+    type: "thread.send",
+    threadId: h.thread.id,
+    input: [{ type: "text", text: "Synthetic receipt test" }],
+    delivery: "queue",
+  });
   await when(client.connectionState(), (state) => state === "fatal");
   expect(client.intent(id).getSnapshot()?.state).toBe("pending");
   expect((await storage.load())?.length).toBeLessThanOrEqual(512);

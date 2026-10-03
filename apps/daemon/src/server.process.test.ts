@@ -128,7 +128,12 @@ describe("WebSocket API", () => {
     const first = await client.next();
     client.send({ type: "command", command });
     expect(await client.next()).toEqual(first);
-    expect(first).toEqual({ type: "commandResult", commandId: "archive", ok: true });
+    expect(first).toEqual({
+      type: "commandResult",
+      commandId: "archive",
+      ok: true,
+      threadId: f.thread.id,
+    });
     expect(f.store.readEvents({ afterSeq: 1, limit: 10 })).toHaveLength(1);
     expect(f.store.getThread(f.thread.id)?.archivedAt).toBeTypeOf("number");
   });

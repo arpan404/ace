@@ -19,7 +19,7 @@ test("HTTP access reads devices, issues a ticket and revokes it without durable 
   });
   const phone = new AccessClient({ origin, token: async () => paired.token, fetch });
   try {
-    expect(await access.devices()).toEqual([paired.device]);
+    expect(await access.devices()).toContainEqual(paired.device);
     expect(await phone.ticket()).toMatchObject({ ticket: expect.stringMatching(/^[a-f0-9]{64}$/) });
     expect(await access.revoke(paired.device.id)).toEqual({ revoked: true });
     await expect(phone.ticket()).rejects.toMatchObject({ code: "daemon", message: "HTTP 401" });

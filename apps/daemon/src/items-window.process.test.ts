@@ -83,7 +83,7 @@ it("snapshots only the last 200 items, keeps all work entities and pages older h
     { type: "interaction.opened", interaction },
     { type: "background_task.started", task },
   ]);
-  f.store.appendEvents(
+  const created = f.store.appendEvents(
     f.thread.id,
     Array.from({ length: 250 }, (_, i) => ({
       type: "item.created" as const,
@@ -105,7 +105,7 @@ it("snapshots only the last 200 items, keeps all work entities and pages older h
     throw new Error("Expected thread snapshot");
   const view = snapshot.view;
   expect(view.itemOrder).toEqual(Array.from({ length: 200 }, (_, i) => `item-${i + 50}`));
-  expect(view.itemsBefore).toBe(56);
+  expect(view.itemsBefore).toBe(created[50]?.seq);
   expect(view.agents.root).toEqual(agent);
   expect(view.runs.run).toEqual(run);
   expect(view.interactions.question).toEqual(interaction);
@@ -122,7 +122,7 @@ it("snapshots only the last 200 items, keeps all work entities and pages older h
   expect(page.items.map((item) => item.id)).toEqual(
     Array.from({ length: 30 }, (_, i) => `item-${i + 20}`),
   );
-  expect(page.itemsBefore).toBe(26);
+  expect(page.itemsBefore).toBe(created[20]?.seq);
   applyItemsPage(view, page);
   const last = f.store.readItems(f.thread.id, page.itemsBefore!, 200);
   expect(last.items.map((item) => item.id)).toEqual(

@@ -1,7 +1,7 @@
 import { readSourcePage, sourcePage } from "./source-page.ts";
 import { inlineSource } from "./inline-source.ts";
 import { cp, open, writeFile, mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { PluginAvailability, PluginName, PluginReview } from "@ace/protocol/plugins";
 import { limits, normalizePath } from "./manifest.ts";
 import { assertNoSymlinks, inspectPackage, readPackageText } from "./files.ts";
@@ -199,7 +199,13 @@ export class PluginClientOperations {
     await assertNoSymlinks(stage);
     await mkdir(stage, { mode: 0o700 });
     try {
-      await cp(root, stage, { recursive: true, force: false, errorOnExist: true });
+      // Reserve the review directory exclusively, then copy only inspected files.
+      // cp with errorOnExist also rejects an already-reserved directory on newer Node.
+      for (const file of digest.files) {
+        const destination = join(stage, file.path);
+        await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
+        await cp(join(root, file.path), destination, { force: false, errorOnExist: true });
+      }
       const editPath = virtual?.path ?? path;
       const replacement = virtual ? virtual.replace(request.text) : request.text;
       await writeFile(join(stage, editPath), replacement, { flag: "r+" });
