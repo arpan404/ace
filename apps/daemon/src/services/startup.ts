@@ -10,7 +10,7 @@ export interface ServiceDefinition {
   requires: readonly string[];
   /** Optional dependencies must be attempted first, but may be degraded. */
   after: readonly string[];
-  start(context: ServiceContext): Promise<void>;
+  start(context: ServiceContext): void | Promise<void>;
 }
 export interface ServiceStatus {
   name: string;
@@ -33,7 +33,7 @@ export const systemStartup: StartupRuntime = {
 /** A deadline is a backstop; services start finite initialization, never their lifetime loop. */
 async function bounded<T>(
   name: string,
-  run: () => Promise<T>,
+  run: () => T | Promise<T>,
   runtime: StartupRuntime,
   signal?: AbortSignal,
 ): Promise<T> {

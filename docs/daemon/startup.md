@@ -11,6 +11,12 @@ dependency to be degraded. Core services precede listener services. Missing,
 forward and duplicate dependency declarations are rejected before any start.
 Dependencies that need warmed data explicitly await its readiness in their own
 background initialization: commands wait for account-home validation.
+Settings open before browser backend setup; browser and screen setup precede MCP
+so their toolkits are registered. Thread transitions start after the account-service
+attempt and before the engine; git patch application and account migration remain
+available through the same command port. Browser acquisition is lazy on first use.
+The composition readiness assertion requires the command port, not every optional
+feature. Store, authentication and listener initialization remain mandatory.
 
 The CLI installs SIGINT/SIGTERM handling before initialization begins. Host callers
 can pass `DaemonOptions.signal`; abort interrupts bounded initialization, stops

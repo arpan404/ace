@@ -1,3 +1,4 @@
+import { openCodeInjection } from "@ace/mcp-server";
 import type { Key } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
 import type { SessionContext, ProviderAdapter } from "@ace/engine-api";
@@ -20,6 +21,11 @@ export function createOpenCodeAdapter(
     capabilities,
     createTranslator: (init: { threadId: ThreadId; rootKey: Key }) => new OpenCodeTranslator(init),
     async openSession(ctx: SessionContext) {
+      if (ctx.aceMcp) {
+        const env = { ...options.discovery?.env, ...ctx.env };
+        const ace = openCodeInjection(ctx.aceMcp, env.OPENCODE_CONFIG_CONTENT);
+        ctx = { ...ctx, env: { ...env, ...ace.env } };
+      }
       const lease = await pool.acquire(ctx);
       try {
         pool.assertOpen();

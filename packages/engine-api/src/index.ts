@@ -3,6 +3,8 @@ import type { Fact, Key } from "@ace/core";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { ProviderPayload } from "@ace/provider-kit/payload";
 import type {
+  ExecutionOptions,
+  ExecutionSelection,
   Capabilities,
   AcpIdentity,
   AcpSessionSupport,
@@ -58,6 +60,8 @@ export interface SessionContext {
   cwd: string;
   /** Instance-specific environment; adapters must pass it to every owned provider process. */
   env?: NodeJS.ProcessEnv;
+  /** Daemon-issued loopback MCP connection, valid only for this session lifetime. */
+  aceMcp?: { url: string; bearer: string };
   /** Persist this assignment with the native session ID; resume must reuse the same instance. */
   instanceId?: string;
   model?: string;
@@ -74,6 +78,9 @@ export interface SessionContext {
   onCapabilities?(capabilities: Capabilities, support?: AcpSessionSupport): void;
   onSessionMetadata?(metadata: unknown): void;
   resume?: { nativeSessionId: string };
+  /** Exclusive with resume. Inclusive provider-native boundary; never a guessed canonical ID. */
+  fork?: { nativeSessionId: string; point: { type: "turn" | "item" | "end"; nativeId: string } };
+  options?: ExecutionOptions;
   /** Every sent and received frame goes to the engine for translation and persistence. */
   onFrame(frame: Frame): void;
   onExit(exit: { deliberate: boolean; message?: string }): void;
@@ -92,6 +99,7 @@ export interface ProviderSession {
   readonly mcp?: ProviderMcpControl;
   readonly instanceId?: string;
   readonly nativeSessionId: string;
+  configure?(selection: ExecutionSelection): Promise<void>;
   readonly effectiveCapabilities?: Capabilities | undefined;
   readonly acpSupport?: AcpSessionSupport | undefined;
   setModel?(model: string): Promise<void>;

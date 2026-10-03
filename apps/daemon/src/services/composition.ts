@@ -1,3 +1,4 @@
+import { startThreadTransitions } from "./thread-transitions.ts";
 import { startAgentRegistry } from "./agent-registry.ts";
 import { startScreen } from "./screen.ts";
 import { startAccounts } from "./accounts.ts";
@@ -16,7 +17,7 @@ import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
 import { startPi } from "./pi.ts";
 import { startEngine } from "./engine.ts";
-import type { ServiceContext } from "./types.ts";
+import type { ServiceContext, Services } from "./types.ts";
 import type { ServiceDefinition } from "./startup.ts";
 /** Dependencies are explicit; optional integration failures do not disable the engine. */
 export const serviceFactories: readonly ServiceDefinition[] = [
@@ -26,17 +27,24 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "files", phase: "core", requires: [], after: [], start: startFiles },
   { name: "relay", phase: "core", requires: ["files"], after: [], start: startRelayKeys },
   { name: "plugins", phase: "core", requires: [], after: [], start: startPlugins },
-  { name: "browser", phase: "core", requires: [], after: [], start: startBrowser },
   { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
+  { name: "browser", phase: "core", requires: [], after: ["settings"], start: startBrowser },
   { name: "models", phase: "core", requires: [], after: [], start: startModels },
-  { name: "mcp", phase: "core", requires: [], after: ["screen"], start: startMcp },
+  { name: "mcp", phase: "core", requires: [], after: ["screen", "browser"], start: startMcp },
+  {
+    name: "transitions",
+    phase: "core",
+    requires: [],
+    after: ["accounts"],
+    start: startThreadTransitions,
+  },
   { name: "pi", phase: "core", requires: [], after: ["mcp"], start: startPi },
   { name: "agentRegistry", phase: "core", requires: [], after: [], start: startAgentRegistry },
   {
     name: "engine",
     phase: "core",
     requires: [],
-    after: ["accounts", "plugins", "models", "mcp", "pi", "agentRegistry"],
+    after: ["accounts", "plugins", "models", "mcp", "pi", "agentRegistry", "transitions"],
     start: startEngine,
   },
   { name: "context", phase: "listener", requires: [], after: [], start: startContext },
@@ -49,5 +57,11 @@ export const serviceFactories: readonly ServiceDefinition[] = [
 export function requireService<T>(service: T | undefined, name: string): T {
   if (service === undefined) throw new Error(`Service ${name} is degraded`);
   return service;
+}
+/** Keep the command port required while optional features publish into the live registry. */
+export function readyServices(
+  services: Partial<Services>,
+): asserts services is Partial<Services> & Pick<Services, "handler"> {
+  requireService(services.handler, "engine");
 }
 export type { ServiceContext };

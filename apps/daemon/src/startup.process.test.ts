@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -25,12 +25,14 @@ const Status = z.object({
   ),
 });
 async function launch(
-  args: string[],
+  source: string,
   observeStartup?: (origin: string, token: string) => Promise<void>,
 ) {
   const home = await mkdtemp(join(tmpdir(), "ace-startup-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));
-  const child = spawn(process.execPath, args, {
+  const entry = join(home, "daemon-entry.mjs");
+  await writeFile(entry, source);
+  const child = spawn(process.execPath, [entry], {
     env: {
       ...process.env,
       ACE_HOME: home,
@@ -134,7 +136,7 @@ it("a source daemon with a fresh empty home reaches ready, publishes its endpoin
       process.stdout.write("ace daemon: " + daemon.url + "\\n");
     }
   `;
-  const daemon = await launch(["--input-type=module", "-e", source]);
+  const daemon = await launch(source);
   const status = daemon.status;
   expect(status.services.find((service) => service.name === "notifications")).toEqual({
     name: "notifications",
@@ -172,7 +174,7 @@ it("a notification worker that never replies is named as degraded while the daem
     process.stdout.write("ace daemon: " + daemon.url + "\\n");
     process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
   `;
-  const daemon = await launch(["--input-type=module", "-e", source], async (origin, token) => {
+  const daemon = await launch(source, async (origin, token) => {
     // Endpoint publication and core HTTP readiness precede the optional service's deadline.
     const status = Status.parse(await accessRequest(origin, "/v1/status", { token }));
     expect(status.services.find((service) => service.name === "notifications")?.state).toBe(
@@ -218,7 +220,7 @@ it("a stalled engine start leaves the daemon readable and rejects commands witho
     process.stdout.write("ace daemon: " + daemon.url + "\\n");
     process.once("SIGTERM", () => { void daemon.close().catch(() => { process.exitCode = 1; }); });
   `;
-  const daemon = await launch(["--input-type=module", "-e", source]);
+  const daemon = await launch(source);
   expect(daemon.status.services.find((service) => service.name === "engine")).toMatchObject({
     state: "degraded",
     error: expect.stringContaining("engine startup exceeded"),

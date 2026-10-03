@@ -22,8 +22,9 @@ Example:
 
 ```json
 {
-  "decision": "approve",
-  "gateId": "x-yibcH835U-yJIyE14DDzg5xgSWRF-SPIeurIrXiNabNZKJWw_dfxbVSRTcchkfEr.gAlQAOfq",
+  "deadline": 6,
+  "decision": "reject",
+  "gateId": "yz.OoZWa4YXdpV8.YR7PzzYRAyPkVXx_A",
   "plan": {
     "summary": "Example plan",
     "workstreams": [
@@ -92,7 +93,7 @@ Example:
 
 ```json
 {
-  "runId": "Ad9Ftd5tPbUkP8P_.lqiPf0USDDz_4-.kO5Fm1BtXEo148SOvs_3V6RUhUnc",
+  "runId": "W9FHGelIrBBHcyL-yibcH835U-yJIyE14DDzg5xgSWRF-SPIeurIrXiNabNZKJWw_dfxbVSRTcchkfEr.g",
   "spec": {
     "constraints": {
       "accounts": [
@@ -174,11 +175,11 @@ Example:
 ```json
 {
   "approval": {
-    "budget": 6,
-    "decision": "reject",
-    "gateId": "0gqT4FY6DMtmZhtx8ZamcNUrN810md4T7aPkeVe1M4E.f3vE3fXC2gn1WLozN7mOClw6aRRJQ8r_UPB5hjA4hZWRgAKtoxd9dsHAJnfGm3y"
+    "budget": 7,
+    "decision": "approve",
+    "gateId": "o_asjZo9HhTAmF8FnL72ThNTQz-Kp0ONxF9c32gqT4FY6DMtmZhtx8ZamcNUrN810md4T7aPkeVe1M4E.f3vE3fXC2gn1WLozN7mOClw6aRRJQ8r_UPB5hj"
   },
-  "runId": "5qu7gKmZnVp8_asjZo9HhTAmF8FnL72ThNTQz-Kp0ONxF9c",
+  "runId": "kAOfqii3MBCEd9Ftd5tPbUkP8P_.lqiPf0USDDz_4-.kO5Fm1BtXEo148SOvs_3V6RUhUncj8xqu7gKmZnV",
   "type": "conductor.approve"
 }
 ```
@@ -194,7 +195,7 @@ Example:
 
 ```json
 {
-  "runId": "quLSUlzxs81MBjpRBl0.",
+  "runId": "PAKtoxd9dsHAJn",
   "type": "conductor.pause"
 }
 ```
@@ -210,7 +211,7 @@ Example:
 
 ```json
 {
-  "runId": "a9FT3Ucj60hSSn8LEB893uotYEFnq0nAk.NDlPu1CTUZP-T2WabipmTB967OKOLALFyflngAwSA_mRxOrpMHy.MCpjUm0j.ZrpzFgnTztqYpqS1ZBaxW-qEk6g31LX2",
+  "runId": "fm3yU8hT1rjuLSUlzxs81MBjpRBl0.a_9FT3Ucj60hSSn8LEB893uotYEFnq0nAk.",
   "type": "conductor.resume"
 }
 ```
@@ -226,7 +227,7 @@ Example:
 
 ```json
 {
-  "runId": "80bJLIEEOqT9M_H5Yd2AdT9P2dL6xFciOLycOhYGr4t.5ivja8rcidPgKKytJ6dfi",
+  "runId": "LlPu1CTUZP-T2WabipmTB967OKOLALFyflngAwSA_mRxOrpMHy.MCpjUm0j",
   "type": "conductor.cancel"
 }
 ```
@@ -247,11 +248,11 @@ Example:
 
 ```json
 {
-  "cost": 1,
-  "model": "vQbaL2M.PVmWI8dSjchm.rIdszj1ARDNCEvHaMqzVL5TTGO3jb1q8WpQNc9ZwbHKVrqWsz.DCYFRa2TwDWiFZDnEEKQ.5iRAqOd",
-  "provider": "acp",
-  "quota": 8,
-  "tier": "fast"
+  "cost": 5,
+  "model": "WpzFgnTztqYpqS1ZBaxW-qEk6g31LX2.G0bJ",
+  "provider": "pi",
+  "quota": 5,
+  "tier": "normal"
 }
 ```
 
@@ -566,8 +567,8 @@ Example:
     "risks": []
   },
   "dependencies": [],
-  "id": "0HmjGCnhKPGxeJ5h3QcBfNHfdy48N9gyi_8Rxz25mTM7u720Cc-mvttXblHh4Dygk6M01KCRgCiBtjjZrhp",
-  "priority": 1,
+  "id": "6_H5Yd2AdT9P2dL6xFciOLycOhYGr4t.5ivja8rcidPgKKytJ6dfiYwYQbaL2M.PVmWI8dSjchm.",
+  "priority": 2,
   "title": "example"
 }
 ```

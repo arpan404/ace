@@ -25,20 +25,19 @@ Example:
 
 ```json
 {
-  "at": 2,
+  "at": 9,
   "id": "example",
   "payload": {
     "change": {
       "id": "example",
       "op": "example",
       "path": "example",
-      "trashId": "example",
       "version": "example"
     },
     "type": "workspace.files_changed",
     "workspaceId": "example"
   },
-  "seq": 7,
+  "seq": 0,
   "threadId": "example"
 }
 ```
@@ -61,8 +60,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "error": "example",
-    "ok": false
+    "nativeSessionId": "example",
+    "ok": true
   },
   "type": "pi.result"
 }
@@ -82,13 +81,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "agents": [],
-    "installations": [],
-    "nextOffset": 2,
-    "ok": true,
-    "refreshing": true,
-    "source": "example",
-    "stale": true
+    "ok": false,
+    "reason": "example"
   },
   "type": "registry.result"
 }
@@ -106,11 +100,10 @@ Example:
 
 ```json
 {
-  "requestId": "gPiFL",
+  "requestId": "iFLQtKiK",
   "result": {
-    "diagnostics": [],
-    "entries": [],
-    "kind": "mentions"
+    "kind": "completion",
+    "paths": []
   },
   "type": "context.result"
 }
@@ -132,7 +125,7 @@ Example:
 {
   "diagnostics": [],
   "entries": [],
-  "ok": true,
+  "ok": false,
   "requestId": "example",
   "type": "settings.result"
 }
@@ -169,9 +162,10 @@ Example:
 ```json
 {
   "diagnostic": {
-    "code": "parse",
-    "layer": "workspace",
-    "message": "example"
+    "code": "io",
+    "layer": "defaults",
+    "message": "example",
+    "offset": 7
   },
   "subscriptionId": "example",
   "type": "settings.diagnostic"
@@ -194,8 +188,9 @@ Example:
 {
   "next": {
     "id": "example",
-    "lastActivity": 8
+    "lastActivity": 1
   },
+  "requestId": "example",
   "sessions": [],
   "type": "history.list"
 }
@@ -209,8 +204,8 @@ Example:
 
 ```json
 {
-  "status": "imported",
-  "threadId": "example",
+  "reason": "example",
+  "status": "unsupported",
   "type": "history.import"
 }
 ```
@@ -230,16 +225,7 @@ Example:
 ```json
 {
   "files": 1,
-  "scan": {
-    "state": "failed",
-    "stats": {
-      "bytes": 9,
-      "files": 2,
-      "reads": 1,
-      "skipped": 2
-    },
-    "unsupported": []
-  },
+  "requestId": "example",
   "type": "history.scan",
   "unsupported": []
 }
@@ -860,6 +846,7 @@ Example:
 | --- | --- | --- | --- |
 | commandId | yes | [CommandId.json](schema/CommandId.json) |  |
 | ok | yes | boolean |  |
+| forkThreadId | no | [ThreadId.json](schema/ThreadId.json) |  |
 | health | no | [DiagnosticsHealth.json](schema/DiagnosticsHealth.json) |  |
 | error | no | string |  |
 | review | no | [ReviewData.json](schema/ReviewData.json) |  |
@@ -870,61 +857,8 @@ Example:
 ```json
 {
   "commandId": "example",
+  "error": "example",
   "ok": false,
-  "review": {
-    "comment": {
-      "anchor": {
-        "fingerprint": {
-          "after": [],
-          "before": [],
-          "lines": [
-            "example"
-          ]
-        },
-        "position": {
-          "end": 1,
-          "file": "example.ts",
-          "side": "new",
-          "start": 1
-        },
-        "revision": {
-          "kind": "working-tree"
-        },
-        "state": "active"
-      },
-      "id": "example",
-      "originalAnchor": {
-        "fingerprint": {
-          "after": [],
-          "before": [],
-          "lines": [
-            "example"
-          ]
-        },
-        "position": {
-          "end": 1,
-          "file": "example.ts",
-          "side": "new",
-          "start": 1
-        },
-        "revision": {
-          "kind": "working-tree"
-        },
-        "state": "active"
-      },
-      "resolved": true,
-      "sessionId": "example",
-      "text": "example"
-    },
-    "comments": [],
-    "nextCursor": "example",
-    "reply": {
-      "commentId": "example",
-      "id": "example",
-      "text": "example"
-    },
-    "sessions": []
-  },
   "type": "commandResult"
 }
 ```
@@ -945,6 +879,7 @@ Example:
 {
   "code": "example",
   "message": "example",
+  "requestId": "example",
   "type": "error"
 }
 ```
@@ -966,9 +901,9 @@ Example:
 ```json
 {
   "bytes": "example",
-  "eof": false,
-  "nextOffset": 9,
-  "offset": 6,
+  "eof": true,
+  "nextOffset": 4,
+  "offset": 9,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -991,10 +926,11 @@ Example:
 
 ```json
 {
+  "itemSeqs": {},
   "items": [],
-  "itemsBefore": null,
+  "itemsBefore": 6,
   "requestId": "example",
-  "seq": 3,
+  "seq": 1,
   "threadId": "example",
   "type": "items.page"
 }

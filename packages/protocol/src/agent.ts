@@ -1,3 +1,4 @@
+import { ThreadLineage } from "./thread-transitions.ts";
 import { z } from "zod";
 import { AgentId, ItemId, ThreadId, Timestamp } from "./ids.ts";
 import { NativeRef } from "./provider.ts";
@@ -92,6 +93,7 @@ export const Agent = z.object({
   threadId: ThreadId,
   parentId: AgentId.nullable(),
   origin: AgentOrigin,
+  lineage: ThreadLineage.optional(),
   native: NativeRef,
   fidelity: AgentFidelity,
   /** Tool call in the parent's transcript that spawned this agent. */

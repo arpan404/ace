@@ -50,6 +50,8 @@ export class RemoteAuth {
     return this.devices.authenticate(token, this.now());
   }
   pairing(granted: Scope[]): { code: string; expiresAt: number } {
+    if (granted.includes("desktop"))
+      throw new AccessError(403, "Desktop credentials are local only");
     this.prune(this.codes);
     if (this.codes.size >= 100) throw new AccessError(429, "Too many pending pairings");
     const code = this.secret();
@@ -70,6 +72,8 @@ export class RemoteAuth {
     return this.devices.create(name, pairing.scopes, this.now());
   }
   ticket(device: Device): { ticket: string; expiresAt: number } {
+    if (device.scopes.includes("desktop"))
+      throw new AccessError(403, "Desktop credentials are local only");
     const ticket = this.secret();
     const allocation = this.tickets.issue(hash(ticket), device.id, this.now());
     if ("error" in allocation) throw new AccessError(429, allocation.error);
@@ -80,7 +84,7 @@ export class RemoteAuth {
     const deviceId = this.tickets.consume(hash(ticket), this.now());
     if (!deviceId) return undefined;
     const device = this.devices.get(deviceId);
-    if (!device || device.revokedAt !== null) return undefined;
+    if (!device || device.revokedAt !== null || device.scopes.includes("desktop")) return undefined;
     this.devices.touch(device.id, this.now());
     return device;
   }

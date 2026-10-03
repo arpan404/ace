@@ -29,22 +29,23 @@ Example:
 
 ```json
 {
-  "concurrency": 1,
+  "concurrency": 2,
   "enabled": true,
   "id": "example",
-  "jitterMs": 8,
+  "jitterMs": 6,
   "missedRun": "run_once",
+  "model": "example",
   "prompt": "example",
   "provider": "pi",
   "title": "example",
   "trigger": {
-    "kind": "file",
-    "paths": [
-      "example"
-    ]
+    "event": "pr_changed",
+    "kind": "github",
+    "pollIntervalMs": 60003,
+    "repository": "UVbtZb840/-JCJ"
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -79,7 +80,7 @@ Example:
 
 ```json
 {
-  "before": null,
+  "before": 3,
   "runs": []
 }
 ```
@@ -101,14 +102,13 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 8,
+    "concurrency": 6,
     "enabled": false,
     "id": "example",
-    "jitterMs": 6,
+    "jitterMs": 8,
     "missedRun": "run_once",
-    "model": "example",
     "prompt": "example",
-    "provider": "claude",
+    "provider": "antigravity",
     "title": "example",
     "trigger": {
       "kind": "file",
@@ -191,7 +191,7 @@ Example:
 
 ```json
 {
-  "limit": 7,
+  "limit": 5,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -215,7 +215,11 @@ Example:
 
 ```json
 {
-  "ok": true,
+  "inbox": {
+    "before": null,
+    "runs": []
+  },
+  "ok": false,
   "requestId": "example",
   "type": "automation.result"
 }
@@ -245,10 +249,11 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "startedAt": 1,
+  "result": "example",
+  "startedAt": 7,
   "status": "failed",
   "title": "example",
-  "trigger": "github"
+  "trigger": "schedule"
 }
 ```
 
@@ -268,7 +273,7 @@ Example:
 ```json
 {
   "expression": "example",
-  "kind": "cron",
+  "kind": "rrule",
   "startAt": 0,
   "timezone": "example"
 }
@@ -328,10 +333,11 @@ Example:
 
 ```json
 {
-  "event": "ci_failed",
+  "event": "issue_labelled",
   "kind": "github",
-  "pollIntervalMs": 60000,
-  "repository": "oRpyp9/hgELiR"
+  "pollIntervalMs": 60001,
+  "pullRequest": 9,
+  "repository": "-_/LLnRT"
 }
 ```
 

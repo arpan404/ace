@@ -26,6 +26,12 @@ const terminals = new Map<string, { itemId: string; processId: string }[]>();
 let pendingKind = "";
 let queued = 0;
 let discoveryFailed = false;
+const sourceHistory = [
+  { id: "prior-turn", text: "private native earlier context" },
+  { id: "source-turn", text: "private native selected context" },
+  { id: "later-turn", text: "private native future secret" },
+];
+let forkHistory: typeof sourceHistory = [];
 function end(threadId = "native", status = "completed"): void {
   const id = active.get(threadId) ?? "turn";
   active.delete(threadId);
@@ -53,6 +59,32 @@ for await (const line of createInterface({ input: process.stdin })) {
         platformFamily: "unix",
         platformOs: "macos",
       });
+  } else if (method === "thread/fork") {
+    if (p["threadId"] !== "source-native" || p["lastTurnId"] !== "source-turn") {
+      write({ id, error: { message: "Incorrect fork source or boundary" } });
+      continue;
+    }
+    const boundary = sourceHistory.findIndex((turn) => turn.id === p["lastTurnId"]);
+    forkHistory = sourceHistory.slice(0, boundary + 1);
+    respond({
+      thread: { id: "fork-native", cwd: process.cwd(), status: { type: "idle" }, turns: [] },
+      model: "fake-model",
+    });
+  } else if (method === "thread/settings/update") {
+    respond({});
+    notify("item/completed", {
+      threadId: p["threadId"],
+      turnId: "configured",
+      item: {
+        id: "configuration-proof",
+        type: "agentMessage",
+        text: JSON.stringify({
+          model: p["model"],
+          effort: p["effort"],
+          serviceTier: p["serviceTier"],
+        }),
+      },
+    });
   } else if (method === "thread/start" || method === "thread/resume") {
     if (process.env["ACE_FAKE_RESUME"] === "resume-completed") {
       process.stdout.write(
@@ -94,6 +126,20 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (p["threadId"] === "fork-native") {
+      respond({ turn: { id: "fork-continuation" } });
+      notify("turn/started", { threadId: "fork-native", turn: { id: "fork-continuation" } });
+      item("fork-native", "fork-continuation", {
+        id: "fork-history-proof",
+        type: "agentMessage",
+        text: `${forkHistory.map((turn) => turn.text).join("|")}; answer: ${text}`,
+      });
+      notify("turn/completed", {
+        threadId: "fork-native",
+        turn: { id: "fork-continuation", status: "completed" },
+      });
+      continue;
+    }
     if (process.env["ACE_FAKE_RESUME"] === "reply-before-start" && active.has("native")) {
       write({ id, error: { message: "active turn must be steered" } });
       continue;

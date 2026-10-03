@@ -4,7 +4,8 @@
   "enum": [
     "read",
     "operate",
-    "admin"
+    "admin",
+    "desktop"
   ],
   "type": "string"
 }

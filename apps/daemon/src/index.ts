@@ -15,7 +15,12 @@ import { remoteListener } from "./network.ts";
 import { startServer, type ServerOptions } from "./server.ts";
 import { Store } from "./store.ts";
 import { Resources } from "./services/resources.ts";
-import { serviceFactories, requireService, type ServiceContext } from "./services/composition.ts";
+import {
+  serviceFactories,
+  requireService,
+  readyServices,
+  type ServiceContext,
+} from "./services/composition.ts";
 import { ServiceStartup, systemStartup } from "./services/startup.ts";
 import type { DaemonOptions } from "./services/options.ts";
 export type { DaemonOptions } from "./services/options.ts";
@@ -134,7 +139,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const startup = new ServiceStartup(serviceContext, { ...systemStartup, ...options.startup });
     await startup.start(serviceFactories);
     const services = serviceContext.services;
-    const handler = requireService(services.handler, "engine");
+    readyServices(services);
+    const handler = services.handler;
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
     const remote = await remoteListener(config);

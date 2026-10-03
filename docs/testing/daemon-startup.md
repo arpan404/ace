@@ -1,8 +1,19 @@
 # Daemon startup regression review
 
-Validation is static only under the owner's merge-only execution rule. No tests,
-benchmarks, mutation runs, daemon reproductions or doctor probes were executed
-by this agent. Runtime outcomes and baseline failure claims need run at merge.
+The owner's merge-only execution rule permits targeted tests for merge conflicts.
+After merging origin/main 41df1b1d, 20 tests passed across these five files:
+`composition.process.test.ts`, `startup.process.test.ts`,
+`browser-pi-mcp.process.test.ts`, `browser-backend.server.process.test.ts`, and
+`browser-provider-mcp.process.test.ts`. The new composition regression uses the
+public daemon/socket API, applies a real git patch from a finished fork and invokes
+the composed browser MCP toolkit. It guards missing or late transitions setup and
+missing browser-toolkit registration. The Pi fixture now carries the service abort
+signal; startup fixtures launch temporary modules so Node workers do not inherit
+an eval-only `--input-type` flag.
+
+All other tests, baseline failure checks and mutations are **not executed (tests
+run at merge)**. No full suite, benchmark, standalone daemon timing or doctor probe
+was executed. Current-head latency and RSS still **need run at merge**.
 
 The source entry point is `node apps/daemon/src/cli.ts start`, also exposed through
 `bun run --filter @ace/daemon dev`. The root package has no `daemon` script.
@@ -82,11 +93,14 @@ version whose installed content must remain usable after garbage collection.
 
 ## Behaviour tests and mutation cases
 
-All cases below are **not executed (tests run at merge)**. Main failure predictions
-come from static review and **need run at merge**.
+Mutation cases below are **not executed (tests run at merge)**. Test execution is
+limited to the five conflict-related files listed above; all other tests remain
+**not executed (tests run at merge)**. Main failure predictions come from static
+review and **need run at merge**.
 
 | Test                                                                                                                          | Mutation cases it is designed to kill                                                                                   |
 | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `composition.process.test.ts`: real socket fork/patch merge and browser MCP call                                              | Omit transitions setup; initialize transitions after engine; omit browser before MCP; drop toolkit registration         |
 | `history-startup.process.test.ts`: 6,000 files, eight sparse 64 MiB sessions; endpoint and requests within 8 s while indexing | Await scan during opening; withhold later services; block list/status behind scan; report false ready                   |
 | Same: persisted list during second start; stats show only two changed/new reads                                               | Lose file stamps across restart; reread unchanged content; lose cached visibility; misreport content reads              |
 | Same: RSS at explicit boundaries/progress, growth under 160 MiB; each large sample capped at 128 KiB                          | Read full files; unbounded concurrent samples; retain decoded history; exceed bounded sample windows                    |
@@ -116,6 +130,6 @@ The unrelated-version case provides additional coverage; main already rejects th
 output by source inspection. New indexing/readiness regressions still need run at merge.
 
 Required static checks: `bun run typecheck`, `bun run lint`, `bun run fmt`,
-`bun run check:size`, plus regenerated protocol documentation. No test suite, CI watch or
-`bun run check` is included. Current-head timing, source CLI reproduction and RSS
+`bun run check:size`, plus regenerated protocol documentation. Only the five named test files ran under the merge-conflict exception; no full
+suite, CI watch or `bun run check` is included. Current-head timing, source CLI reproduction and RSS
 confirmation remain merge-time work under the final owner rule.

@@ -33,7 +33,7 @@ export function daemonClaudeAdapter(
           sessionId: context.id(),
           threadId: ctx.threadId,
           agentId,
-          capabilities: ["agents", "notify"],
+          capabilities: ["agents", "notify", "browser"],
         },
         ctx.signal,
       );
