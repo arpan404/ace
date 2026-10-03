@@ -21,11 +21,16 @@ export class FakeWorkspaceWire {
     { id: "zed", name: "Zed", command: "zed" },
   ];
   /** The project's scripts as the daemon lists them from package.json, by workspace. */
+  private scriptOverrides = new Map<string, readonly string[]>();
+  setScripts(workspaceId: string, names: readonly string[]): void {
+    this.scriptOverrides.set(workspaceId, names);
+  }
   scripts(workspaceId: string | undefined) {
     const names =
-      workspaceId === "relay"
+      (workspaceId === undefined ? undefined : this.scriptOverrides.get(workspaceId)) ??
+      (workspaceId === "relay"
         ? ["dev:relay", "test", "soak", "typecheck"]
-        : ["dev", "test", "build", "typecheck"];
+        : ["dev", "test", "build", "typecheck"]);
     return names.map((name) => ({
       id: `package.json:${name}`,
       name,

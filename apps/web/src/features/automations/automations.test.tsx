@@ -271,3 +271,16 @@ test("Automations opens on the first automation rather than an empty pane", asyn
   expect(await heading("Nightly dependency audit")).toBeTruthy();
   expect(screen.queryByText("No automation selected")).toBeNull();
 });
+
+test("when the daemon can't list automations, the view says so instead of loading forever", async () => {
+  const app = harness();
+  app.daemon.failRequests("automation.list");
+  await app.open("/automations");
+  const aside = await screen.findByRole("complementary", { name: "Automations" });
+  expect(
+    await within(aside).findByText("Automations unavailable", {}, { timeout: 4000 }),
+  ).toBeTruthy();
+  app.daemon.restoreRequests();
+  await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
+  expect(await within(aside).findByText("No automations")).toBeTruthy();
+});

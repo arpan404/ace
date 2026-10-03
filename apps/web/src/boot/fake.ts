@@ -47,6 +47,9 @@ export function bootFake(): {
   daemon.seedServices(
     workbenchServices(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
   );
+  // Playwright's screens stage failures and empty states before the app's first request.
+  const setup = (globalThis as { aceFakeSetup?: (daemon: FakeDaemon) => void }).aceFakeSetup;
+  setup?.(daemon);
   const client = createBrowserClient({
     deviceId: "web-fake-device",
     transport: () => fakeTransport(daemon),

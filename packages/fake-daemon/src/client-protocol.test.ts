@@ -538,3 +538,37 @@ test("paired device fixtures stay valid near epoch zero and preserve ages with a
     lastSeenAt: now - 6 * 86400000,
   });
 });
+
+test("a failing service answers with the daemon's error until it is restored", async () => {
+  const f = await fixture();
+  try {
+    f.daemon.failRequests("accounts.list");
+    await expect(f.client.request({ type: "accounts.list" })).rejects.toThrow();
+    // Other requests are served as usual.
+    expect((await f.client.request({ type: "models.list" })).type).toBe("models.result");
+    f.daemon.restoreRequests();
+    expect((await f.client.request({ type: "accounts.list" })).accounts.length).toBeGreaterThan(0);
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("a workspace's scripts can be replaced, down to none", async () => {
+  const f = await fixture();
+  try {
+    f.daemon.createThread({
+      id: "t-scripts",
+      workspaceId: "notes",
+      title: "Notes",
+      provider: "claude",
+    });
+    f.daemon.setScripts("notes", []);
+    const reply = await f.client.request({
+      type: "workspace.request",
+      operation: { op: "scripts.list", threadId: ThreadId.parse("t-scripts") },
+    });
+    expect(reply.result).toEqual({ kind: "scripts", scripts: [] });
+  } finally {
+    await f.client.close();
+  }
+});

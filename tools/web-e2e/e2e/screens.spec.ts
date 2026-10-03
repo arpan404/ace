@@ -51,6 +51,19 @@ const visit =
     await heading(page, title);
   };
 
+/**
+ * Stage the fake daemon before the app's first request: `aceFakeSetup` runs in the fake boot
+ * with the daemon (failing or holding requests, emptying scripts, requiring a download).
+ */
+const staged =
+  (stage: string, then: Setup): Setup =>
+  async (page) => {
+    await page.addInitScript((body) => {
+      Object.assign(globalThis, { aceFakeSetup: new Function("daemon", body) });
+    }, stage);
+    await then(page);
+  };
+
 /** The design's hero thread with a message queued behind the busy agent. */
 async function heroWithQueue(page: Page) {
   await openThread("/t/thread-dedupe")(page);
@@ -226,6 +239,70 @@ const screens: Record<string, Setup> = {
   "settings-keyboard": visit("/settings/keyboard", "Settings"),
   "settings-advanced": visit("/settings/advanced", "Settings"),
   "settings-theme-editor": visit("/settings/theme-editor", "Settings"),
+
+  // Offline, disconnected, loading and failure states, so they can be checked for intent.
+  "state-offline": async (page) => {
+    await openThread("/t/thread-dedupe")(page);
+    await page.context().setOffline(true);
+    await page.getByText(/^Offline\./).waitFor();
+  },
+  "state-reconnecting": async (page) => {
+    await openThread("/t/thread-dedupe")(page);
+    await page.evaluate(() =>
+      (
+        globalThis as unknown as { ace: { daemon: { refuseConnections(on: boolean): void } } }
+      ).ace.daemon.refuseConnections(true),
+    );
+    await page.getByText("Reconnecting to the daemon…").waitFor();
+  },
+  "state-devices-disconnected": async (page) => {
+    await rightTab("/t/thread-install-page", "Devices")(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("button", { name: "Enable devices" }).waitFor();
+    await page.evaluate(() =>
+      (
+        globalThis as unknown as { ace: { daemon: { appDevices: { dropAll(): void } } } }
+      ).ace.daemon.appDevices.dropAll(),
+    );
+    await panel.getByRole("button", { name: "Reconnect" }).waitFor();
+  },
+  "state-run-no-scripts": staged('daemon.setScripts("relay", []);', async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("button", { name: "No scripts in this project" }).waitFor();
+  }),
+  "state-accounts-loading": staged('daemon.holdRequests("accounts.list");', async (page) => {
+    await visit("/more", "Usage & accounts")(page);
+    await page.getByRole("status", { name: /Loading accounts/ }).waitFor();
+  }),
+  "state-accounts-error": staged('daemon.failRequests("accounts.list");', async (page) => {
+    await visit("/more", "Usage & accounts")(page);
+    await page.getByText("Accounts unavailable").waitFor();
+  }),
+  "state-automations-loading": staged('daemon.holdRequests("automation.list");', async (page) => {
+    await page.goto("/automations");
+    await page.getByRole("status", { name: "Loading automations" }).waitFor();
+  }),
+  "state-automations-error": staged('daemon.failRequests("automation.list");', async (page) => {
+    await page.goto("/automations");
+    await page
+      .getByRole("complementary", { name: "Automations" })
+      .getByText("Automations unavailable")
+      .waitFor();
+  }),
+  "state-deck-loading": staged('daemon.holdRequests("conductor.request");', async (page) => {
+    await page.goto("/deck");
+    await page.getByRole("status", { name: /^Loading/ }).first().waitFor();
+  }),
+  "state-deck-error": staged('daemon.failRequests("conductor.request");', async (page) => {
+    await page.goto("/deck");
+    await page.getByText("Decks unavailable").waitFor();
+  }),
+  "state-preview-download": staged("daemon.browser.requireDownload(180_000_000);", async (page) => {
+    await rightTab("/t/thread-install-page", "Preview")(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("button", { name: "Open a browser" }).click();
+    await panel.getByText(/Downloading the browser/).waitFor();
+  }),
 };
 
 for (const theme of ["dark", "light"] as const)

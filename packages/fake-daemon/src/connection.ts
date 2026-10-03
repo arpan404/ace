@@ -29,6 +29,11 @@ export interface Host {
     limit: number,
   ): { bytes: Uint8Array; nextOffset: number; eof: boolean } | undefined;
   command(command: Command): CommandResult;
+  /**
+   * Fault injection: "fail" answers a correlated request with the daemon's `unavailable` error,
+   * "hold" never answers it (a read that hangs), undefined serves it normally.
+   */
+  fault?(type: ClientMessage["type"]): "fail" | "hold" | undefined;
   /** Catalog request/response services; false when the message isn't one of them. */
   service(message: ClientMessage, connection: Connection): boolean;
   /** This socket's stateful services (context, terminals, browser, plugins, planning). */
@@ -98,6 +103,18 @@ export class Connection {
     }
     if (!this.ready) {
       this.close(4001);
+      return;
+    }
+    const fault =
+      "requestId" in message && message.requestId ? this.host.fault?.(message.type) : undefined;
+    if (fault === "hold") return;
+    if (fault === "fail" && "requestId" in message && message.requestId) {
+      this.send({
+        type: "error",
+        requestId: message.requestId,
+        code: "unavailable",
+        message: "The daemon couldn't answer that right now.",
+      });
       return;
     }
     this.handle(message);

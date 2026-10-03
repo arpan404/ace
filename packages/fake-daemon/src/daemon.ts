@@ -88,6 +88,8 @@ export class FakeDaemon implements Host {
   private receipts = new Map<string, { deviceId: Command["deviceId"]; result: CommandResult }>();
   private resolvedListeners = new Set<ResolvedListener>();
   private outputs = new FakeOutputStore();
+  private faults = new Map<string, "fail" | "hold">();
+  private refusing = false;
   /** Review mode sessions and comments; sent comments arrive in the thread as a user message. */
   readonly review: FakeReviewDesk;
   /** Accounts, usage, models, settings, search and slash commands, over the wire. */
@@ -320,7 +322,33 @@ export class FakeDaemon implements Host {
   connect(wire: Wire): Connection {
     const connection = new Connection(this, wire);
     this.connections.add(connection);
+    // A daemon that is down: the socket opens and drops at once, so clients keep retrying.
+    if (this.refusing) queueMicrotask(() => connection.close(1006));
     return connection;
+  }
+  /** Answer these requests with the daemon's `unavailable` error, as a failing service would. */
+  failRequests(...types: ClientMessage["type"][]): void {
+    for (const type of types) this.faults.set(type, "fail");
+  }
+  /** Never answer these requests, so the page stays on its loading state. */
+  holdRequests(...types: ClientMessage["type"][]): void {
+    for (const type of types) this.faults.set(type, "hold");
+  }
+  /** Serve every request again. */
+  restoreRequests(): void {
+    this.faults.clear();
+  }
+  fault(type: ClientMessage["type"]): "fail" | "hold" | undefined {
+    return this.faults.get(type);
+  }
+  /** While on, every connection is dropped as it opens, as a stopped daemon would. */
+  refuseConnections(refuse: boolean): void {
+    this.refusing = refuse;
+    if (refuse) this.disconnectAll();
+  }
+  /** The scripts a workspace's package.json declares, replacing the catalog's. */
+  setScripts(workspaceId: string, names: readonly string[]): void {
+    this.servicesWire.workspace.setScripts(workspaceId, names);
   }
   service(message: ClientMessage, connection: Connection): boolean {
     if (message.type === "queue.get") {

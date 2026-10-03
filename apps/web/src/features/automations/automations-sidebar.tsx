@@ -48,7 +48,8 @@ function triggerIcon(trigger: Automation["trigger"]): PhosphorIcon {
 
 /** Automations' second sidebar: every schedule and trigger, then the latest runs. */
 export function AutomationsSidebar() {
-  const automations = useAutomations().data;
+  const list = useAutomations();
+  const automations = list.data;
   const runs = useAutomationRuns().data;
   const selected = useParams({ strict: false }).automationId;
   const now = useNow();
@@ -68,7 +69,14 @@ export function AutomationsSidebar() {
         </Tip>
       }
     >
-      {!automations ? (
+      {!automations && list.isError ? (
+        <EmptyState
+          icon={ClockIcon}
+          title="Automations unavailable"
+          description="The daemon didn't answer. The list loads again once it does."
+          className="h-auto pt-16"
+        />
+      ) : !automations ? (
         <ListSkeleton label="automations" shape="card" rows={4} />
       ) : !automations.length ? (
         <EmptyState
