@@ -11,6 +11,7 @@
     "bench": "node bench/catalog.ts"
   },
   "dependencies": {
+    "@ace/agent-registry": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "zod": "^4.6.5"

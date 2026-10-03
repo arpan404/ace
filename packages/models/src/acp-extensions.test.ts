@@ -230,9 +230,9 @@ test.each([
     deadline: clock.deadline,
   });
   try {
-    await catalog.refresh();
+    await catalog.updateFromSession(instance("acp"), payload);
     payload = { configOptions: [model, invalid] };
-    expect(await catalog.refresh()).toMatchObject([{ error: "discovery_failed" }]);
+    await expect(catalog.updateFromSession(instance("acp"), payload)).rejects.toThrow();
     expect(catalog.list().models.map((row) => row.id)).toEqual(["a", "b"]);
   } finally {
     await catalog.close();

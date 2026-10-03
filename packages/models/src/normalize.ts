@@ -1,3 +1,4 @@
+import { sessionSelectors, matchProfile } from "@ace/agent-registry";
 import { CatalogModel } from "@ace/protocol";
 import {
   AcpSession,
@@ -95,6 +96,12 @@ function applyConfig(model: CatalogModel, configs: z.infer<typeof ConfigOption>[
   return CatalogModel.parse(model);
 }
 export function normalizeAcp(payload: unknown, instance: ModelInstance): CatalogModel[] {
+  const profile = instance.acpAgentId?.startsWith("official:")
+    ? matchProfile(instance.acpAgentId.slice(9), instance.installationVersion ?? "")
+    : undefined;
+  const generic = instance.provider === "acp" && instance.acpAgentId !== undefined;
+  const selectors = generic ? sessionSelectors(payload, profile) : undefined;
+  if (generic && !selectors?.model) return [];
   const session = AcpSession.parse(payload);
   const modelConfig = session.configOptions?.find(isModelConfig);
   const current = modelConfig?.currentValue ?? session.models?.currentModelId;
@@ -118,6 +125,11 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
   );
   return rows.map((row, index) => {
     const model = base(instance, row.modelId, row.name, row.native);
+    if (modelConfig) {
+      model.modelConfigId = modelConfig.id;
+      model.selectorMethod = "session/set_config_option";
+    }
+    if (!modelConfig && selectors?.model) model.selectorMethod = selectors.model.method;
     model.isDefault = row.modelId === current;
     const perModel = z
       .object({ configOptions: z.array(ConfigOption).max(64).optional() })
@@ -132,7 +144,7 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
         ? { sessionConfigOptions: sessionExtensions }
         : {}),
     });
-    return applyConfig(model, configs);
+    return generic ? CatalogModel.parse(model) : applyConfig(model, configs);
   });
 }
 /** Convenience for callers that already hold a bounded CLI transcript. */

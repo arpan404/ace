@@ -64,7 +64,9 @@ export const SelectConfigOption = z
       .array(
         z.union([
           SelectOption,
-          z.object({ group: id, name: id, options: z.array(SelectOption).max(512) }).passthrough(),
+          z
+            .object({ group: id, name: id.optional(), options: z.array(SelectOption).max(512) })
+            .passthrough(),
         ]),
       )
       .max(512)
