@@ -55,7 +55,7 @@ ACP cache generations include the source-qualified agent, immutable installation
 account instance, profile revision and login revision. Config selections retain
 the actual config-option ID and native value; legacy selectors require profile
 support. Session-derived replacements serialize per instance and wait for
-pending login deletions. Shutdown waits for admitted persistence work. This
+pending login deletions. Shutdown stops new admission, drains already queued persistence work and reports failures. Model normalization uses the shared ACP selector decision, so a mode option named model cannot replace the declared model selector. Confirmed selection updates both canonical root model events and resume metadata. This
 amendment remains proposed with ADR 0044 pending owner architecture review.
 
 `--help` was checked for installed Codex, Claude, OpenCode and Cursor. No ACP

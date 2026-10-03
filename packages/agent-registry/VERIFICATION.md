@@ -16,12 +16,12 @@ Status: static review only. All tests, benchmarks and mutation cases below are *
 - `archive.process.test.ts`: regular gzip tar entries install; absolute/traversal paths and symlinks cannot publish or escape the private root.
 - `adapter-acp/negotiation.process.test.ts`: resume follows initialize; actual config IDs and dependent replacement choices govern selectors; Gemini uses the supported legacy dialect.
 - `adapter-acp/negotiation.process.test.ts`: old Qwen restrictions override even optimistic live claims.
-- `adapter-acp/negotiation.process.test.ts`: MCP follows HTTP advertisement, preserves configured servers, rejects name collisions and revokes leases after startup failure.
-- `adapter-acp/negotiation.process.test.ts`: lease echoes are absent from raw frames and session metadata; unknown updates/vendor requests survive; final shutdown facts drain after normal and fault shutdown.
+- `adapter-acp/negotiation.process.test.ts`: MCP follows HTTP advertisement, preserves configured servers, rejects name collisions and revokes leases after collisions, synchronous spawn failure, initialize failure and session-setup failure.
+- `adapter-acp/negotiation.process.test.ts`: lease echoes in values and colliding property names are absent from frames, certified payloads and session metadata; unknown updates/vendor requests survive; final shutdown facts drain after normal and fault shutdown.
 - `adapter-acp/negotiation.process.test.ts`: an incoming permission flood stops the owned process instead of growing the wait set.
 - Existing ACP process/replay and core lifecycle suites retain their child/approval/shell settlement assertions. Existing provider-kit process suites retain multibyte framing, stalled writes, pending/ID bounds and replacement isolation coverage.
 - `models/registry.test.ts`: generic listing/refresh never spawns; two agents/homes preserve native model IDs and separate login/installation generations.
-- `models/registry.test.ts`: session writes serialize dependent replacements, and shutdown waits for active persistence. Pending login-deletion ordering also needs execution and targeted review at merge.
+- `models/registry.test.ts`: session writes serialize dependent replacements, and shutdown drains an accepted queued second replacement and reports failed persistence. Pending login-deletion ordering also needs execution and targeted review at merge.
 - `mcp-server/stdio-bridge.process.test.ts`: real stdio/loopback MCP calls retain caller scope; revoked leases deny old bridge calls; bearer material is absent from argv.
 - `daemon/acp-identity.process.test.ts`: two thread identities and effective support survive ordinary events and SQLite restart.
 - `daemon/agent-registry.server.process.test.ts`: read scope lists metadata; unauthorized refresh and installation controls fail before mutation.
@@ -62,3 +62,23 @@ ZIP extraction, real npm/uv package behavior, Windows launch, actual provider ac
 ## Static development evidence
 
 `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed on this candidate. The size check included the new files: 1,345 tracked source paths, all below 1,500 lines. `git diff --check` passed. No test, benchmark, mutation, probe or recorder command was executed; `bun run check` is deferred because it includes tests.
+
+## PR #64 review regressions — not executed (tests run at merge)
+
+- `persistence.process.test.ts`: cancel after commit admission returns false; the admitted installation still publishes.
+- `persistence.process.test.ts`: real rename followed by an injected directory-sync failure preserves the artifact and registration across restart, with uncertain durability disclosed.
+- `models/registry.test.ts`: a queued second metadata write completes during shutdown; a storage failure rejects shutdown.
+- `models/registry.test.ts`: successful discovery would return visible sentinel models, proving generic refresh does not start discovery even when deadlines permit it.
+- `models/registry.test.ts`: explicit model category wins over an option named model that belongs to the mode category.
+- `daemon/engine/model-selection.process.test.ts`: confirmed selection changes snapshots and cold recovery; resume uses the same model; rejected selection preserves it.
+- `daemon/agent-registry.server.process.test.ts`: admin without operate and operate without admin deny both a valid install plan and a valid install intent before execution.
+- `archive.process.test.ts`: traversal targets the actual surviving external location; absolute paths target a temporary external path; a link followed by a file cannot write through the link.
+- `adapter-acp/negotiation.process.test.ts`: source bridge profiles offer canonical and metadata child-session signals and require matching agent advertisement; generic agents retain limited support.
+- `accounts/acp.process.test.ts`: default-home sharing does not collapse identity or login generations; unverified home selectors and migration are unsupported; local synthetic login leaves auth unknown and credentials CLI-owned.
+- `accounts/acp-launch.process.test.ts`: a real synthetic ACP process uses the approved artifact/argv/environment after account lifetime replacement and retains live model selection.
+
+Additional intended mutations: acknowledge cancel during commit; delete an artifact after committed persistence failure; reject queued writes on close; swallow shutdown persistence errors; prefer mode values because their ID is model; omit canonical model publication; redact values but retain keys; overwrite colliding redacted keys; build certified payloads before redaction; remove bilateral profile gating; discard selectors/capabilities or the launch plan in account wrappers; collide login revisions between agents; accept unverified account home selectors; infer login from ACP auth metadata; route bridge login through bundled executables. Each is **not executed (tests run at merge)**; the corresponding public behavior above is its intended killer.
+
+Performance numbers remain **not measured**. The redaction workload now includes property-name collisions, and `accounts/bench/acp.ts` measures indexed account environment resolution. These scripts report ops/s, microseconds/op and peak RSS when authorized; no benchmark was executed. Existing stream, catalog and MCP workloads remain deferred.
+
+Main was merged without rebase, including integration train 2. The schema-driven protocol reference was regenerated as an artifact update. No integration-rehearsal comment was present when the review was reread. Architecture acceptance remains an owner decision in ADR 0044, as expressly required by the brief; this candidate does not mark it accepted on the owner's behalf.

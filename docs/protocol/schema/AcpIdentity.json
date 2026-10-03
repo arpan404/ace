@@ -1,17 +1,11 @@
 {
-  "$id": "https://ace.local/protocol/v1/NativeRef.json",
+  "$id": "https://ace.local/protocol/v1/AcpIdentity.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "acpAgentId": {
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
-    },
-    "aliases": {
-      "items": {
-        "type": "string"
-      },
-      "type": "array"
     },
     "installationId": {
       "maxLength": 256,
@@ -22,19 +16,12 @@
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
-    },
-    "nativeId": {
-      "type": "string"
-    },
-    "path": {
-      "type": "string"
-    },
-    "provider": {
-      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     }
   },
   "required": [
-    "provider"
+    "acpAgentId",
+    "installationId",
+    "instanceId"
   ],
   "type": "object"
 }

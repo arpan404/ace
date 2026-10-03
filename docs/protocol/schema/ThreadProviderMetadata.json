@@ -1,5 +1,5 @@
 {
-  "$id": "https://ace.local/protocol/v1/NativeRef.json",
+  "$id": "https://ace.local/protocol/v1/ThreadProviderMetadata.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "acpAgentId": {
@@ -7,11 +7,11 @@
       "minLength": 1,
       "type": "string"
     },
-    "aliases": {
-      "items": {
-        "type": "string"
-      },
-      "type": "array"
+    "acpSupport": {
+      "$ref": "https://ace.local/protocol/v1/AcpSessionSupport.json"
+    },
+    "effectiveCapabilities": {
+      "$ref": "https://ace.local/protocol/v1/Capabilities.json"
     },
     "installationId": {
       "maxLength": 256,
@@ -22,19 +22,7 @@
       "maxLength": 256,
       "minLength": 1,
       "type": "string"
-    },
-    "nativeId": {
-      "type": "string"
-    },
-    "path": {
-      "type": "string"
-    },
-    "provider": {
-      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     }
   },
-  "required": [
-    "provider"
-  ],
   "type": "object"
 }

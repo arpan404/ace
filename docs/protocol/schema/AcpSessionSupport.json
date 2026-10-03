@@ -1,0 +1,81 @@
+{
+  "$id": "https://ace.local/protocol/v1/AcpSessionSupport.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "capabilities": {
+      "properties": {
+        "imageInput": {
+          "type": "boolean"
+        },
+        "planMode": {
+          "type": "boolean"
+        },
+        "resume": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "resume",
+        "imageInput",
+        "planMode"
+      ],
+      "type": "object"
+    },
+    "coverage": {
+      "enum": [
+        "source_profile",
+        "generic",
+        "legacy"
+      ],
+      "type": "string"
+    },
+    "mcp": {
+      "enum": [
+        "http",
+        "stdio",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "modeSelection": {
+      "type": "boolean"
+    },
+    "modelSelection": {
+      "type": "boolean"
+    },
+    "raw": {
+      "properties": {
+        "json": {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "json",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "subagentSessions": {
+      "default": false,
+      "type": "boolean"
+    },
+    "visibility": {
+      "const": "limited",
+      "type": "string"
+    }
+  },
+  "required": [
+    "capabilities",
+    "mcp",
+    "modelSelection",
+    "modeSelection",
+    "coverage",
+    "visibility",
+    "raw"
+  ],
+  "type": "object"
+}
