@@ -16,6 +16,10 @@ packages/terminal/native/group-keeper
 tools/release/dist/
 tools/release/verification/*.log
 tools/release/.scratch/
+
+# Playwright output (tools/web-e2e)
+test-results/
+playwright-report/
 native/screen-helper/build/
 /native/screen-helper/.build/
 

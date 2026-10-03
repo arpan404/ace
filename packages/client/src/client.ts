@@ -2,6 +2,8 @@ import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
   TextSource,
+  RegistryRequest,
+  RegistryResult,
   CommandResult,
   ClientMessage,
   ServerMessage,
@@ -21,6 +23,9 @@ import {
   type RequestOptions,
   type ConnectionState,
 } from "./types.ts";
+
+type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
+export type RegistryQuery = WithoutRequestId<RegistryRequest>;
 
 export class Client {
   private options: ClientOptions;
@@ -60,6 +65,7 @@ export class Client {
               .acknowledge(message)
               .catch(() => this.connection.fail(new ClientError("storage")));
             break;
+          case "registry.result":
           case "items.page":
           case "output.data":
             this.requests.resolve(message.requestId, message);
@@ -165,6 +171,22 @@ export class Client {
         ),
       );
     });
+  }
+  registry(input: RegistryQuery, options: RequestOptions = {}): Promise<RegistryResult> {
+    if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
+    const request = RegistryRequest.parse({ ...input, requestId: this.options.id() });
+    return this.requests.wait(
+      request.requestId,
+      (value) => {
+        const response = RegistryResult.parse(value);
+        if (response.requestId !== request.requestId) throw new ClientError("protocol");
+        return response;
+      },
+      options,
+      () => {
+        if (!this.connection.send(request)) throw new ClientError("offline");
+      },
+    );
   }
   private async read<T>(
     payload:

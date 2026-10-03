@@ -1,9 +1,12 @@
 import { z } from "zod";
+import { AcpIdentity } from "./agent-registry.ts";
 
-export const AccountProvider = z.enum(["codex", "claude", "opencode", "cursor"]);
+export const NativeAccountProvider = z.enum(["codex", "claude", "opencode", "cursor"]);
+export const AccountProvider = z.enum([...NativeAccountProvider.options, "acp"]);
+export const AccountInstanceId = z.string().min(1).max(256);
 export const AccountId = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/);
 export const AccountAssignment = z.object({
-  instanceId: AccountId.optional(),
+  instanceId: AccountInstanceId.optional(),
   role: z.string().min(1).max(64),
   estimatedLoad: z.number().finite().min(0).max(100),
 });
@@ -25,13 +28,64 @@ export const AccountEnvKey = z.enum([
   "XDG_CACHE_HOME",
   "CURSOR_DATA_DIR",
 ]);
-export const ProviderInstance = z.object({
-  id: AccountId,
-  provider: AccountProvider,
-  label: z.string().min(1).max(128),
-  homeDir: AccountDirectory,
-  env: z.partialRecord(AccountEnvKey, AccountDirectory),
-});
+export const ProviderInstance = z
+  .object({
+    id: AccountInstanceId,
+    ...AcpIdentity.partial().shape,
+    homeStrategy: z.literal("default_cli").optional(),
+    loginRevision: z.string().max(128).optional(),
+    profileRevision: z.string().max(256).optional(),
+    installationVersion: z.string().max(256).optional(),
+    provider: AccountProvider,
+    label: z.string().min(1).max(128),
+    homeDir: AccountDirectory,
+    env: z.partialRecord(AccountEnvKey, AccountDirectory),
+  })
+  .superRefine((instance, ctx) => {
+    if (instance.provider === "acp") {
+      if (
+        !AcpIdentity.safeParse(instance).success ||
+        instance.instanceId !== instance.id ||
+        instance.homeStrategy !== "default_cli" ||
+        Object.keys(instance.env).length
+      )
+        ctx.addIssue({
+          code: "custom",
+          message: "ACP identity requires a CLI-owned default home and no unverified selectors",
+        });
+    } else if (
+      !AccountId.safeParse(instance.id).success ||
+      instance.acpAgentId ||
+      instance.installationId ||
+      instance.instanceId ||
+      instance.homeStrategy
+    )
+      ctx.addIssue({ code: "custom", message: "Invalid native account identity" });
+  })
+  .meta({
+    "x-ace-constraint":
+      "Native instances use native account IDs. ACP instances require matching agent, installation and instance references, id equal to instanceId, default_cli home strategy and an empty selector environment.",
+    examples: [
+      {
+        id: "codex-default",
+        provider: "codex",
+        label: "Codex",
+        homeDir: "/example/codex",
+        env: { CODEX_HOME: "/example/codex" },
+      },
+      {
+        id: "installed:default",
+        instanceId: "installed:default",
+        provider: "acp",
+        acpAgentId: "local:agent",
+        installationId: "installed",
+        label: "Local agent",
+        homeDir: "/example/home",
+        homeStrategy: "default_cli",
+        env: {},
+      },
+    ],
+  });
 export type ProviderInstance = z.infer<typeof ProviderInstance>;
 export const QuotaWindow = z.object({
   usedPercent: z.number().min(0).max(100),
@@ -65,7 +119,13 @@ export const AccountAvailability = z.enum([
   "unknown",
 ]);
 export const AccountSummary = z.object({
-  id: AccountId,
+  id: AccountInstanceId,
+  ...AcpIdentity.partial().shape,
+  homeStrategy: z.literal("default_cli").optional(),
+  isolation: z.literal("unsupported").optional(),
+  loginRevision: z.string().max(128).optional(),
+  profileRevision: z.string().max(256).optional(),
+  installationVersion: z.string().max(256).optional(),
   provider: AccountProvider,
   label: z.string().max(128),
   quota: AccountQuota,
@@ -92,15 +152,15 @@ export const AccountsRequest = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("accounts.status"),
     requestId: z.string().max(128),
-    instanceId: AccountId,
+    instanceId: AccountInstanceId,
   }),
   z.object({
     type: z.literal("accounts.migrate"),
     requestId: z.string().max(128),
     provider: AccountProvider,
     nativeSessionId: z.string().max(128),
-    from: AccountId,
-    to: AccountId,
+    from: AccountInstanceId,
+    to: AccountInstanceId,
   }),
 ]);
 export const AccountsResponse = z.discriminatedUnion("type", [

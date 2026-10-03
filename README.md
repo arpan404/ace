@@ -26,6 +26,7 @@ ace never asks for or stores your provider credentials. Each agent CLI uses the 
 | `packages/orchestrator`   | Multi-provider fan-out, races, pipelines and coordinator lanes          |
 | `packages/review`         | Local diff comments, persistent anchors and structured agent fixes      |
 | `packages/protocol`       | Canonical protocol: Zod schemas and types, no runtime logic             |
+| `packages/agent-registry` | Official ACP catalog, approved local installations and source profiles  |
 | `packages/provider-kit`   | Supervised provider processes, JSON-RPC, SSE and local CLI discovery    |
 | `packages/workspace`      | Workspace file listing, reads, search and change subscriptions          |
 | `packages/files`          | Streamed transfers, atomic workspace mutations, trash and artifacts     |
@@ -110,6 +111,8 @@ inventory, shared fixtures and validation record. The owner requires tests to
 run only at merge; development verification uses the permitted static checks.
 
 The daemon prints its URL and token-file path. Remote access is off by default. See [remote access](docs/daemon/remote-access.md) for LAN/Tailscale pairing, device scopes and the `ace` CLI. See [store and sync](docs/daemon/store-and-sync.md) for configuration, the development creator, the command port, and replay behavior.
+
+Local generic ACP launch and registry wire APIs are described in [agent registry](packages/agent-registry/README.md). Arbitrary agents retain unknown authentication and limited visibility; compatibility profiles are source-based until separately approved recordings establish behavior.
 
 Remote access relay setup and APIs are described in [encrypted relay](docs/relay/README.md).
 

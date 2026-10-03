@@ -1,3 +1,4 @@
+import { startAgentRegistry } from "./agent-registry.ts";
 import { startScreen } from "./screen.ts";
 import { startAccounts } from "./accounts.ts";
 import { startCommands } from "./commands.ts";
@@ -32,6 +33,7 @@ export const serviceFactories = [
   startModels,
   startMcp,
   startNotifications,
+  startAgentRegistry,
   startEngine,
 ];
 export function readyServices(services: Partial<Services>): Services {
@@ -77,6 +79,7 @@ export function readyServices(services: Partial<Services>): Services {
     notifications,
     review,
     usage,
+    ...(services.agentRegistry ? { agentRegistry: services.agentRegistry } : {}),
     ...(services.screen ? { screen: services.screen } : {}),
     ...(services.accounts ? { accounts: services.accounts } : {}),
     ...(services.commands ? { commands: services.commands } : {}),

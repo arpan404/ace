@@ -6,7 +6,12 @@ The ace client: React 19, Vite, TanStack Router (file routes), shadcn/ui on Base
 bun run web:dev:fake   # whole app against the in-page fake daemon
 bun run web:dev        # against a real daemon (`ace start`); the app asks for the token
 bunx vitest run apps/web/src/features/<slice>   # your tests only
+bun run web:e2e        # Playwright journeys: fake daemon + a real daemon with scripted providers
+bun run web:screens    # every screen in Dark and Light to /tmp/aceshots-web
 ```
+
+Import `cn` from `@/lib/cn.ts`, never from `cn` directly: the local one knows the type scale
+(`text-ui`, `text-md`, ...), so a font size never knocks out a text colour.
 
 ## Layout of `src/`
 

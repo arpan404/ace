@@ -1,3 +1,4 @@
+import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 import { DiagnosticsHealthCommand } from "./diagnostics.ts";
 import { MessageContext } from "./context.ts";
@@ -33,6 +34,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
     type: z.literal("thread.create"),
     workspaceId: WorkspaceId,
     provider: ProviderKind,
+    ...AcpIdentity.partial().shape,
     model: z.string().optional(),
     title: z.string().optional(),
     input: z.array(ContentPart).min(1),
@@ -58,6 +60,16 @@ export const CommandPayload = z.discriminatedUnion("type", [
     cascade: z.boolean().default(true),
   }),
   z.object({ type: z.literal("thread.archive"), threadId: ThreadId }),
+  z.object({
+    type: z.literal("thread.model.set"),
+    threadId: ThreadId,
+    model: z.string().min(1).max(256),
+  }),
+  z.object({
+    type: z.literal("thread.mode.set"),
+    threadId: ThreadId,
+    mode: z.string().min(1).max(256),
+  }),
   z.object({
     type: z.literal("interaction.resolve"),
     interactionId: InteractionId,
