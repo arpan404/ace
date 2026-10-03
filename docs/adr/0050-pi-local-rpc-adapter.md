@@ -12,7 +12,9 @@ The competitor release was read only as a feature inventory, never as implementa
 
 Gate support to the inspected 0.85.1 release. Unknown versions fail before opening
 a session rather than assuming that newer documentation describes an older binary.
-Discovery runs `--version` only and leaves authentication unknown. Login remains
+Automatic discovery runs `--version` only and leaves authentication unknown.
+Pi also has a provider-specific `auth check --json --no-refresh`; ace does not
+select an arbitrary LLM provider or inspect credentials during discovery. Login remains
 Pi's interactive `/login` on the local machine. Never read auth files.
 
 ## State and native history
@@ -48,7 +50,7 @@ and loads only the ace control extension; it supplies read/search built-ins and
 no MCP tools. This is a provider tool restriction, not an OS filesystem sandbox.
 Default operation keeps Pi's normal skills, prompt templates and extensions.
 
-Map select/input/editor extension dialogs to questions and confirm to approval.
+Map select/input/editor extension dialogs to questions and confirm to yes/no questions.
 Only these four methods block. Reply by native id, validate offered values, and
 expire timed dialogs with an injected scheduler. Fire-and-forget UI updates become
 notices. Timed or answered requests cannot be answered again.
