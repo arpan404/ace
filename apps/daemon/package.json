@@ -34,6 +34,8 @@
     "@ace/diagnostics": "workspace:*",
     "@ace/engine-api": "workspace:*",
     "@ace/files": "workspace:*",
+    "@ace/git": "workspace:*",
+    "@ace/handoff": "workspace:*",
     "@ace/history-import": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/models": "workspace:*",

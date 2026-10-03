@@ -1,3 +1,4 @@
+import { createThreadTransitionsSession } from "./thread-transitions.ts";
 import { createScreenSession } from "./screen.ts";
 import { Simulators } from "@ace/screen";
 import { createSearchSession } from "./search.ts";
@@ -34,6 +35,7 @@ export const socketServiceFactories = [
   createMcpSession,
   createModelsSession,
   createReviewSession,
+  createThreadTransitionsSession,
   createEngineSession,
   createDiagnosticsSession,
 ];

@@ -1,3 +1,4 @@
+import { ThreadTransitionView } from "@ace/protocol";
 import { setImmediate } from "node:timers/promises";
 import type { ArchiveReader } from "@ace/history-import";
 import { installArchive, readHistoryBlob } from "./history-storage.ts";
@@ -342,6 +343,9 @@ export class Store {
   }
   private decodeThread(row: Record<string, SQLOutputValue>): Thread {
     return Thread.parse({
+      ...(row.transitions == null
+        ? {}
+        : ThreadTransitionView.parse(JSON.parse(String(row.transitions)))),
       id: row.id,
       workspaceId: row.workspace_id,
       title: row.title,
@@ -397,13 +401,19 @@ export class Store {
         }
         updateThread(thread, event);
         this.statement(
-          "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ? WHERE id = ?",
+          "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ?, provider = ?, transitions = ? WHERE id = ?",
         ).run(
           thread.title,
           JSON.stringify(thread.status),
           thread.updatedAt,
           thread.archivedAt ?? null,
           thread.rootAgentId ?? null,
+          thread.provider,
+          JSON.stringify({
+            lineage: thread.lineage,
+            execution: thread.execution,
+            switch: thread.switch,
+          }),
           thread.id,
         );
         event.payload = this.payloads.cap(event.payload, threadId);

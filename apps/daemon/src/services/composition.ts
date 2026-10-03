@@ -1,3 +1,4 @@
+import { startThreadTransitions } from "./thread-transitions.ts";
 import { startScreen } from "./screen.ts";
 import { startAccounts } from "./accounts.ts";
 import { startCommands } from "./commands.ts";
@@ -32,6 +33,7 @@ export const serviceFactories = [
   startModels,
   startMcp,
   startNotifications,
+  startThreadTransitions,
   startEngine,
 ];
 export function readyServices(services: Partial<Services>): Services {
@@ -82,6 +84,7 @@ export function readyServices(services: Partial<Services>): Services {
     ...(services.commands ? { commands: services.commands } : {}),
     ...(services.files ? { files: services.files } : {}),
     ...(services.relay ? { relay: services.relay } : {}),
+    ...(services.transitions ? { transitions: services.transitions } : {}),
     ...(services.engine ? { engine: services.engine } : {}),
     ...(services.history ? { history: services.history } : {}),
   };

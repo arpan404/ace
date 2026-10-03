@@ -24,6 +24,7 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  transitions?: import("../engine/transitions.ts").TransitionIO;
   screen?: ScreenManager;
   accounts?: AccountService;
   accountRegistry?: AccountRegistry;

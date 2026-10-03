@@ -1,3 +1,6 @@
+import { TransitionReadiness } from "./transition-readiness.ts";
+import { quiescent } from "./transition-history.ts";
+import { TransitionState } from "./transition-state.ts";
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import { randomUUID } from "node:crypto";
 import { Command, ThreadId, type EventPayload } from "@ace/protocol";
@@ -18,14 +21,18 @@ export interface Intent {
 }
 export class EngineRepository {
   readonly store: Store;
+  readonly transitions: TransitionState;
   private ids: IdSource;
   private capacity: number;
+  private readiness: TransitionReadiness;
   private snapshots = new Map<ThreadId, Snapshot>();
   constructor(store: Store, ids: IdSource = { next: () => randomUUID() }, capacity = 64) {
     this.capacity = capacity;
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    this.transitions = new TransitionState(store);
+    this.readiness = store.atomic((db) => new TransitionReadiness(db));
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
   }
   state(id: ThreadId): ThreadState | undefined {
@@ -64,6 +71,7 @@ export class EngineRepository {
     this.store.atomic((db) => {
       let snapshot = this.snapshots.get(state.threadId);
       if (!snapshot || snapshot.state !== state) snapshot = new Snapshot(db, state);
+      this.readiness.capture(state, payloads);
       snapshot.retainChanges(payloads);
       this.store.appendEvents(state.threadId, payloads, at);
       db.prepare(`INSERT INTO thread_state VALUES (?, ?, ?)
@@ -110,6 +118,7 @@ export class EngineRepository {
             if (fact.type === "item.delta" && emitted.some((event) => event.type === "item.delta"))
               snapshot?.delta(fact);
             snapshot?.remember(fact, emitted);
+            if (fact.type === "tick") this.readiness.refreshBlocked(state);
             return emitted;
           } finally {
             finish();
@@ -135,6 +144,10 @@ export class EngineRepository {
       this.evict(id);
       throw error;
     }
+  }
+
+  quiescent(state: ThreadState): boolean {
+    return quiescent(state, this.readiness.agentsReady(state));
   }
 
   add(command: Command, id: ThreadId, resolutionId?: string): void {

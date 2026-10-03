@@ -22,10 +22,14 @@ retain lineage and switch fidelity for clients.
 
 The engine owns durable transition intents. A fork opens a new native session
 with a source native ID and exact supported boundary. Capability flags decide
-whether that boundary supports native forking. Unsupported points use portable
-handoff; a native operation failing is reported, never silently downgraded.
-Finished runs of every outcome are eligible. Live descendants, interactions,
-tools, tasks, provider queues and unacknowledged sends prevent transitions.
+whether that boundary supports native forking. An adapter may declare a full-session end boundary for the latest finished run.
+Unsupported older points use portable handoff; a native operation failing is reported, never silently downgraded.
+Finished runs of every outcome are eligible, even when the source has later live
+work. Full-session end forks require quiescence; explicit finished boundaries do
+not stop the source. Subagent points use their native session only when the
+adapter declares that contract, otherwise portable handoff. Live descendants,
+interactions, tools, tasks, provider queues and unacknowledged sends prevent
+switches and patch merges.
 
 `@ace/handoff` owns the pure budget and selection policy. Selection prioritizes
 recent complete items, keeps chronology, tags every excerpt with source IDs,
@@ -58,7 +62,7 @@ making source status depend on an independent fork. Queued switches survive a
 restart; uncertain native fork delivery is not replayed automatically.
 
 Transition metadata and prepared lookups are bounded or durable in SQLite.
-Delta handling performs no transcript scan. Handoff construction is a cold
+A transactionally maintained blocker index checks readiness without loading historical agents. Delta handling performs no transcript scan. Handoff construction is a cold
 operation over at most 200 items and 1 MiB of excerpts. One transition runs per
 thread, with the engine's existing capacity and serialized intent worker.
 
