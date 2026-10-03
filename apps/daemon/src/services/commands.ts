@@ -1,6 +1,7 @@
 import { createDaemonCommandLibrary } from "../command-library.ts";
 import { connectDaemonCommandEvents, type CommandEventSource } from "../command-events.ts";
 import type { ProviderInstance } from "@ace/commands";
+import { join } from "node:path";
 import type { Thread } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -17,12 +18,29 @@ export async function startCommands({
   services,
 }: ServiceContext) {
   const integration = options.commands ?? {};
+  const registered = services.accountRegistry?.list() ?? [];
   const library = createDaemonCommandLibrary(
     store,
     config.dataDir,
-    integration.instances,
+    integration.instances ??
+      (registered.length
+        ? registered.map(({ instance }) => ({
+            id: instance.id,
+            provider: instance.provider,
+            home:
+              instance.provider === "opencode"
+                ? join(instance.env.XDG_CONFIG_HOME ?? instance.homeDir, "opencode")
+                : instance.homeDir,
+          }))
+        : undefined),
     process.env,
-    integration.instanceForThread,
+    integration.instanceForThread ??
+      ((thread) => {
+        const row = store.atomic((db) =>
+          db.prepare("SELECT instance_id FROM engine_sessions WHERE thread_id=?").get(thread.id),
+        );
+        return typeof row?.instance_id === "string" ? row.instance_id : thread.provider;
+      }),
   );
   resources.own(() => library.close());
   if (integration.events) {

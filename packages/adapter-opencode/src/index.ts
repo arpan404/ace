@@ -18,7 +18,42 @@ export function createOpenCodeAdapter(
     provider: "opencode" as const,
     capabilities,
     createTranslator: (init: { threadId: ThreadId; rootKey: Key }) => new OpenCodeTranslator(init),
-    openSession: (ctx: SessionContext) => OpenCodeSession.open(ctx, server),
+    async openSession(ctx: SessionContext) {
+      if (!ctx.env) return OpenCodeSession.open(ctx, server);
+      const isolated = new OpenCodeServer({
+        ...options,
+        discovery: { ...options.discovery, env: ctx.env },
+      });
+      const onAbort = () => {
+        void isolated.close();
+      };
+      ctx.signal.addEventListener("abort", onAbort, { once: true });
+      try {
+        const session = await OpenCodeSession.open(ctx, isolated);
+        return {
+          ...session,
+          get nativeSessionId() {
+            return session.nativeSessionId;
+          },
+          send: (input, delivery) => session.send(input, delivery),
+          interrupt: (target) => session.interrupt(target),
+          resolve: (interaction, resolution) => session.resolve(interaction, resolution),
+          stopTask: (task) => session.stopTask(task),
+          async close(reason) {
+            try {
+              await session.close(reason);
+            } finally {
+              ctx.signal.removeEventListener("abort", onAbort);
+              await isolated.close();
+            }
+          },
+        };
+      } catch (error) {
+        ctx.signal.removeEventListener("abort", onAbort);
+        await isolated.close();
+        throw error;
+      }
+    },
     close: () => server.close(),
   };
 }

@@ -12,3 +12,11 @@ Each feature merge is typechecked before its commit. Full runtime validation fol
 
 - #46: move catalog startup and socket requests to service factories. Keep trusted runtime/execution event subscriptions and shutdown cancellation. Retain the stronger typed workspace lookup instead of coercing database values to strings. Migrate command I/O suites by filename.
 - #25: register the account registry and bounded authenticated account requests as services. Preserve CLI argument normalization and account subcommands. Single-provider discovery now owns the shared probe logic, with train 1's Antigravity read-only probe retained. Keep filename-based test projects and classify account I/O tests.
+
+## I7 provider session composition
+
+Account-aware daemon adapters now bind the selected environment before native discovery/spawning. Claude, Codex and ACP session shells honor `SessionContext.env`; OpenCode gives each assigned session an owned isolated server so accounts cannot share a provider process. Adapters admit immutable bounded frame payloads before account forwarding. Engine metadata stores instance identity atomically with the native session ID and supplies it on resume. Existing train-1 databases gain the instance column without discarding snapshots. Unassigned legacy resumes fail closed when account binding is enabled, since their originating home cannot be inferred safely.
+
+A daemon restart regression uses a real Node child at the provider boundary to observe the selected home and masked synthetic ambient API key. It checks successful turns before and after restart and pinned native/instance resume identity. No installed provider is prompted.
+
+I7 remains open for model-role resolution, MCP leases, plugin launch projection, native message-context projection, native slash execution/action dispatch and automatic adapter catalog event feeds. Their standalone request services remain available; this train does not claim those execution paths are composed.

@@ -15,6 +15,16 @@ export class AdapterRegistry {
     if (!entry) throw new Error(`No adapter registered for ${provider}`);
     return entry;
   }
+  bindSessions(bind: (adapter: ProviderAdapter) => ProviderAdapter): void {
+    for (const entry of this.entries.values()) {
+      const original = entry.adapter;
+      const bound = bind(original);
+      entry.adapter = {
+        ...bound,
+        ...(original.close ? { close: () => original.close?.() ?? Promise.resolve() } : {}),
+      };
+    }
+  }
   async close(): Promise<void> {
     const results = await Promise.allSettled(
       [...this.entries.values()].map(({ adapter }) => adapter.close?.()),

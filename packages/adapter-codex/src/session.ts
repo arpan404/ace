@@ -1,3 +1,4 @@
+import { ProviderPayload } from "@ace/provider-kit/payload";
 import { isInteractiveRequest } from "./interactions.ts";
 import { runtime, type CodexRuntime } from "./runtime.ts";
 import { hydrateControls, parentOf } from "./session-state.ts";
@@ -22,7 +23,9 @@ export async function openCodexSession(
 ): Promise<ProviderSession> {
   if (ctx.signal.aborted) throw ctx.signal.reason;
   const io = { ...runtime, ...options.runtime };
-  const cli = options.cli ?? (await io.discover(options.discovery)).codex;
+  const cli =
+    options.cli ??
+    (await io.discover({ ...options.discovery, ...(ctx.env ? { env: ctx.env } : {}) })).codex;
   if (!cli.installed || !cli.path)
     throw new Error("Codex is not installed. Install it or configure its path.");
   if (!codexCapabilities(cli).steer)
@@ -33,7 +36,7 @@ export async function openCodexSession(
     command: cli.path,
     args: ["app-server"],
     cwd: ctx.cwd,
-    env: options.discovery?.env ?? {},
+    env: ctx.env ?? options.discovery?.env ?? {},
     name: "ace-codex",
   });
   const started = io.now();
@@ -61,14 +64,17 @@ export async function openCodexSession(
   const timers = new Map<string, () => void>();
   const recovering = new Set<string>();
   let unknownRecoveries = 0;
-  const emit = (dir: "send" | "recv" | "stderr" | "note", data: unknown, channel = "stdio") =>
+  const emit = (dir: "send" | "recv" | "stderr" | "note", data: unknown, channel = "stdio") => {
+    const payload = new ProviderPayload(JSON.stringify(data));
     ctx.onFrame({
       seq: sequence++,
       t: Math.round(io.now() - started),
       dir,
       channel,
-      data,
+      data: payload.data,
+      payload,
     });
+  };
   const diagnostic = (error: unknown) =>
     emit("stderr", error instanceof Error ? error.message : String(error));
   const rpc = new JsonRpcPeer(proc, {

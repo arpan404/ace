@@ -233,12 +233,18 @@ export class EngineRepository {
       return row ? String(row.path) : undefined;
     });
   }
-  session(id: ThreadId): { cwd: string; model?: string; nativeSessionId?: string } {
+  session(id: ThreadId): {
+    cwd: string;
+    model?: string;
+    nativeSessionId?: string;
+    instanceId?: string;
+  } {
     return this.store.atomic((db) => {
       const row = db.prepare("SELECT * FROM engine_sessions WHERE thread_id = ?").get(id);
       if (!row) throw new Error("Missing engine session metadata");
       return {
         cwd: String(row.cwd),
+        ...(typeof row.instance_id === "string" ? { instanceId: row.instance_id } : {}),
         ...(row.model === null ? {} : { model: String(row.model) }),
         ...(row.native_session_id === null
           ? {}
@@ -248,14 +254,20 @@ export class EngineRepository {
   }
   createSession(id: ThreadId, cwd: string, model?: string): void {
     this.store.atomic((db) =>
-      db.prepare("INSERT INTO engine_sessions VALUES (?, ?, ?, NULL)").run(id, cwd, model ?? null),
+      db
+        .prepare(
+          "INSERT INTO engine_sessions (thread_id, cwd, model, native_session_id) VALUES (?, ?, ?, NULL)",
+        )
+        .run(id, cwd, model ?? null),
     );
   }
-  nativeSession(id: ThreadId, nativeId: string): void {
+  nativeSession(id: ThreadId, nativeId: string, instanceId?: string): void {
     this.store.atomic((db) =>
       db
-        .prepare("UPDATE engine_sessions SET native_session_id = ? WHERE thread_id = ?")
-        .run(nativeId, id),
+        .prepare(
+          "UPDATE engine_sessions SET native_session_id = ?, instance_id = COALESCE(?, instance_id) WHERE thread_id = ?",
+        )
+        .run(nativeId, instanceId ?? null, id),
     );
   }
 }
