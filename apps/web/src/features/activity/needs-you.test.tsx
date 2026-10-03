@@ -120,6 +120,7 @@ test("a number key picks that option of the focused question", async () => {
   await app.open("/activity");
   const question = await card("How should the sheet recover after rotate?");
   expect(within(question).getByText("Persist the draft in the view model")).toBeTruthy();
+  expect(within(question).getByText("recommended")).toBeTruthy();
 
   await userEvent.click(within(question).getByText("How should the sheet recover after rotate?"));
   await waitFor(() => expect(question.getAttribute("aria-current")).toBe("true"));

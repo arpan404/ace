@@ -1,6 +1,7 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
 import type { MarkedToken, Token } from "marked";
 import { memo, type ReactNode } from "react";
+import { codeSpanClass } from "@/components/inline-markdown.tsx";
 import type { MarkdownBlock } from "./blocks.ts";
 import { CodeBlock } from "./code-block.tsx";
 import { useMarkdown } from "./use-markdown.ts";
@@ -61,11 +62,7 @@ function Inline(props: { token: Token }): ReactNode {
     case "del":
       return <del className="text-muted-foreground">{inline(token.tokens)}</del>;
     case "codespan":
-      return (
-        <code className="rounded-[5px] bg-secondary px-[5px] py-px font-mono text-[0.87em]">
-          {token.text}
-        </code>
-      );
+      return <code className={codeSpanClass}>{token.text}</code>;
     case "br":
       return <br />;
     case "link": {

@@ -58,7 +58,7 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await line.getByRole("button", { name: /^Comment on line \d+$/ }).click();
   await file
     .getByRole("textbox", { name: /Comment on line/ })
-    .pressSequentially("Should the ack also carry coldStartWindow?", { delay: 20 });
+    .pressSequentially("Should the ack also carry `coldStartWindow`?", { delay: 20 });
   await file.getByRole("button", { name: "Comment", exact: true }).click();
   await beat();
 

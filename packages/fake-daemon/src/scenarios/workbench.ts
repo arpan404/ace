@@ -137,7 +137,7 @@ function sheetRotate(): Scenario {
                   options: [
                     {
                       id: "persist",
-                      label: "Persist the draft in the view model",
+                      label: "Persist the draft in the view model (Recommended)",
                       description: "keeps text and the toggle",
                     },
                     {

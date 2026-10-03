@@ -94,7 +94,7 @@ const screens: Record<string, Setup> = {
     await line.getByRole("button", { name: /^Comment on line \d+$/ }).click();
     await file
       .getByRole("textbox", { name: /Comment on line/ })
-      .fill("Should the ack also carry coldStartWindow?");
+      .fill("Should the ack also carry `coldStartWindow`?");
     await file.getByRole("button", { name: "Comment", exact: true }).click();
   },
   "thread-changes-split": async (page) => {

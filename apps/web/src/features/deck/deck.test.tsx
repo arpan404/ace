@@ -77,12 +77,15 @@ test("pausing a deck stops it until it is resumed", async () => {
   expect(screen.getByRole("button", { name: "Pause deck" })).toBeTruthy();
 });
 
-test("Lanes lists every lane and opening one shows it on the plan", async () => {
+test("Lanes lists every lane, merged ones included, and opening one shows it on the plan", async () => {
   await harness().open("/deck/relay-streams");
   await userEvent.click(await screen.findByRole("button", { name: "Lanes" }));
 
   const lanes = screen.getByRole("list", { name: "Lanes" });
-  expect(within(lanes).getAllByRole("button")).toHaveLength(4);
+  expect(within(lanes).getAllByRole("button")).toHaveLength(5);
+  expect(
+    within(lanes).getByRole("button", { name: /Sequence numbers on every event/ }).textContent,
+  ).toContain("Approved · merged as #211");
   await userEvent.click(within(lanes).getByRole("button", { name: /Reconnect soak test/ }));
 
   const lane = await screen.findByRole("region", { name: "Lane: Reconnect soak test" });

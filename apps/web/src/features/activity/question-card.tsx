@@ -1,8 +1,8 @@
 import type { Interaction, InteractionRequest } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
+import { questionOptions } from "@ace/ui-core";
 import { useHotkey } from "@/lib/hotkeys.ts";
-import { questionOptions } from "./approval.ts";
 import {
   ButtonKey,
   CardActions,

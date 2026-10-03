@@ -1,4 +1,5 @@
 import type { Question } from "@ace/protocol";
+import { questionOptions } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -85,9 +86,9 @@ function QuestionField(props: {
   const legend = useId();
   const type = question.multiSelect ? "checkbox" : "radio";
   const options = [
-    ...question.options,
+    ...questionOptions(question),
     ...(question.allowOther
-      ? [{ id: other, label: "Something else", description: undefined }]
+      ? [{ id: other, label: "Something else", description: undefined, recommended: false }]
       : []),
   ];
   return (
@@ -121,6 +122,11 @@ function QuestionField(props: {
             <span>{option.label}</span>
             {option.description && (
               <span className="text-subtle-foreground">· {option.description}</span>
+            )}
+            {option.recommended && (
+              <small className="ml-auto shrink-0 text-[12px] text-subtle-foreground">
+                recommended
+              </small>
             )}
           </label>
         );

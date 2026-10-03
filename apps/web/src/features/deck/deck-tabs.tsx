@@ -35,14 +35,22 @@ export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) 
                   {status.label}
                 </span>
               </span>
-              {/* Who works and who reviews, always in full; the round summary gives way. */}
+              {/* Who works and who reviews, always in full; the round summary wraps instead. */}
               <span className="flex items-center gap-1.5 text-sm whitespace-nowrap text-muted-foreground">
                 {lane && <ProviderMark provider={lane.worker.provider} />}
                 <span>{lane?.worker.account}</span>
                 <Icon icon={ArrowRightIcon} size={12} className="text-subtle-foreground" />
                 <span>{lane?.reviewer.account}</span>
               </span>
-              <span className="truncate text-sm text-muted-foreground">
+              {/* The summary wraps to two lines; the full text is in the tooltip and the lane. */}
+              <span
+                title={
+                  latest
+                    ? [latest.label, latest.verdict, latest.detail].filter(Boolean).join(" · ")
+                    : undefined
+                }
+                className="line-clamp-2 text-sm leading-[1.4] text-muted-foreground"
+              >
                 {latest && (
                   <>
                     <span className="text-foreground">{latest.label}</span> · {latest.verdict}
