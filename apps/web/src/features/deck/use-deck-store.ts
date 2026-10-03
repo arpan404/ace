@@ -42,6 +42,9 @@ export class LazyDeckStore {
   async send(payload: ConductorCommandPayload): Promise<void> {
     await (await this.load()).send(payload);
   }
+  retry(): void {
+    void this.load().then((store) => store.retry());
+  }
   ensure(runId: string): void {
     void this.load().then((store) => store.ensure(runId));
   }
@@ -63,6 +66,12 @@ export function useDeckStore(): LazyDeckStore {
 export function useDeckSnapshot(): DeckSnapshot {
   const store = useDeckStore();
   return useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot);
+}
+
+/** Read the deck list again after it failed. */
+export function useDeckRetry(): () => void {
+  const store = useDeckStore();
+  return () => store.retry();
 }
 
 /** Send a `conductor.*` command; rejects with a readable reason when the daemon refuses. */

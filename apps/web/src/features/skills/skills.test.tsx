@@ -122,3 +122,30 @@ test("a daemon without plugins says how to add skills", async () => {
 
   expect(await screen.findByRole("heading", { name: "No skills yet" })).toBeTruthy();
 });
+
+test("when the daemon can't list plugins, Skills says so once and reads them again on Try again", async () => {
+  const app = harness();
+  app.daemon.seedServices(workbenchServices(Date.now()));
+  app.daemon.failRequests("pluginRequest");
+  await app.open("/skills");
+
+  expect(
+    await screen.findByText(
+      "The daemon didn't answer. This loads again once it does.",
+      {},
+      { timeout: 4000 },
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByText("unavailable")).toBeNull();
+  const aside = within(screen.getByRole("complementary", { name: "Skills" }));
+  expect(aside.getByText("Couldn't load the list.")).toBeTruthy();
+  app.daemon.restoreRequests();
+  await userEvent.click(
+    within(screen.getByRole("main")).getByRole("button", { name: "Try again" }),
+  );
+  expect(
+    await within(await screen.findByRole("navigation", { name: "Skills catalog" })).findByText(
+      "code-review",
+    ),
+  ).toBeTruthy();
+});

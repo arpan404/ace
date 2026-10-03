@@ -20,7 +20,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { ViewSidebar } from "@/features/shell/index.ts";
+import { ViewSidebar, ViewSidebarError } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
 import { runNeedsAttention, runSummary } from "./labels.ts";
@@ -70,14 +70,9 @@ export function AutomationsSidebar() {
       }
     >
       {!automations && list.isError ? (
-        <EmptyState
-          icon={ClockIcon}
-          title="Automations unavailable"
-          description="The daemon didn't answer. The list loads again once it does."
-          className="h-auto pt-16"
-        />
+        <ViewSidebarError onRetry={() => void list.refetch()} />
       ) : !automations ? (
-        <ListSkeleton label="automations" shape="card" rows={4} />
+        <ListSkeleton label="automations" shape="tile" rows={4} />
       ) : !automations.length ? (
         <EmptyState
           icon={ClockIcon}

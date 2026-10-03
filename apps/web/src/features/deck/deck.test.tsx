@@ -155,6 +155,24 @@ test("a daemon without decks invites the first one", async () => {
   expect(screen.getByText("No decks yet")).toBeTruthy();
 });
 
+test("when the daemon can't list decks, Deck says so instead of inviting a first deck", async () => {
+  const app = harness();
+  app.daemon.seedServices(workbenchServices(Date.now()));
+  app.daemon.failRequests("conductor.request");
+  await app.open("/deck");
+
+  const main = within(await screen.findByRole("main"));
+  expect(
+    await main.findByText("The daemon didn't answer. This loads again once it does."),
+  ).toBeTruthy();
+  expect(screen.queryByRole("heading", { name: "Deal a goal to a team of agents" })).toBeNull();
+  expect(screen.getByText("Couldn't load the list.")).toBeTruthy();
+
+  app.daemon.restoreRequests();
+  await userEvent.click(main.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByRole("navigation", { name: "Decks" })).toBeTruthy();
+});
+
 test("after the daemon connection drops, a deck follows the conductor again", async () => {
   const app = await open("/deck/mobile-cold-start");
   await screen.findByRole("region", { name: "Escalated: Defer the first relay sync" });

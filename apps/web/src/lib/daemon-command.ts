@@ -56,3 +56,28 @@ export function failureMessage(error: unknown): string {
     return "Couldn't reach the daemon. Check the connection and try again.";
   return "Something went wrong. Try again.";
 }
+
+const loadFailures: Record<string, string> = {
+  unavailable: "The daemon didn't answer. This loads again once it does.",
+  timeout: "The daemon took too long to answer. Try again in a moment.",
+  offline: "This device lost the connection to the daemon. This loads again once it's back.",
+  forbidden: "This device isn't allowed to read this.",
+  not_implemented: "This daemon can't show this yet. Update ace on that machine.",
+};
+
+/**
+ * The daemon error code behind a failed read: the code the daemon sent (`ClientError` "daemon"
+ * carries it as its message), else the client's own code (timeout, offline...).
+ */
+export function daemonErrorCode(error: unknown): string {
+  if (error instanceof Error && error.name === "ClientError" && "code" in error) {
+    const code = String(error.code);
+    return code === "daemon" ? error.message : code;
+  }
+  return "unknown";
+}
+
+/** Why a read failed, as a sentence for an error state: never the raw code. */
+export function describeDaemonError(code: string): string {
+  return loadFailures[code] ?? "Something went wrong reading this from the daemon. Try again.";
+}

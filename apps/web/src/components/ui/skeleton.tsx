@@ -52,8 +52,11 @@ function LoadingRegion(props: { label: string; className?: string; children: Rea
 /** Placeholder rows for a list that is loading, shaped like the rows that will replace them. */
 function ListSkeleton(props: {
   label: string;
-  /** `card`: a Home or Activity card; `row`: a one-line list or settings row. */
-  shape: "card" | "row";
+  /**
+   * `card`: a Home or Activity card; `row`: a one-line list or settings row; `tile`: a
+   * second-sidebar row (`ViewRowBody`) with its icon tile, title and description.
+   */
+  shape: "card" | "row" | "tile";
   rows?: number;
   className?: string;
 }) {
@@ -64,6 +67,19 @@ function ListSkeleton(props: {
         const style = { animationDelay: `${index * 70}ms` };
         // Vary the widths a little so the placeholder reads as content, not a grid.
         const width = `${62 + ((index * 23) % 30)}%`;
+        if (props.shape === "tile")
+          return (
+            <span
+              key={index}
+              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 px-[11px] py-[9px]"
+            >
+              <Skeleton className="mt-px size-[26px] rounded-[7px]" style={style} />
+              <span className="flex flex-col gap-1.5 pt-0.5">
+                <Skeleton className="h-3" style={{ ...style, width }} />
+                <Skeleton className="h-2.5 w-4/5" style={style} />
+              </span>
+            </span>
+          );
         return props.shape === "card" ? (
           <span key={index} className="flex flex-col gap-[7px] px-[11px] pt-[11px] pb-3">
             <span className="flex justify-between">

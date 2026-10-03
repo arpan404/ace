@@ -5,6 +5,7 @@ import {
   type ConductorSummary,
   type ServerMessage,
 } from "@ace/protocol";
+import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 
 /*
  * The daemon's conductor runs for one client (ADR 0017, 0057): `conductor.request` lists them
@@ -88,6 +89,10 @@ export class DeckStore {
     // A subscribed run reports the change itself; anything else is read again.
     if (!this.subscriptions.has(payload.runId)) await this.read(payload.runId, this.epoch);
   }
+  /** Read the list again after it failed (Try again). */
+  retry(): void {
+    if (this.client.connectionState().getSnapshot() === "ready") void this.load();
+  }
   /** Read a run the list didn't include (an old deck opened by its link). */
   ensure(runId: string): void {
     if (!this.state.ready || this.find(runId)) return;
@@ -166,7 +171,7 @@ export class DeckStore {
       if (epoch === this.epoch)
         this.emit({
           ready: true,
-          error: error instanceof Error ? error.message : "The deck list didn't load.",
+          error: describeDaemonError(daemonErrorCode(error)),
         });
     }
   }

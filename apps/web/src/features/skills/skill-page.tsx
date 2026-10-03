@@ -6,6 +6,7 @@ import { Icon } from "@/components/icon.tsx";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import {
   Menu,
   MenuCheckboxItem,
@@ -35,8 +36,15 @@ export function SkillPage(props: { skillId: string }) {
             title={skills.isError ? "Skills unavailable" : "This isn't installed"}
             description={
               skills.isError
-                ? skills.error.message
+                ? describeDaemonError(daemonErrorCode(skills.error))
                 : "Its plugin may have been removed or updated without it."
+            }
+            action={
+              skills.isError ? (
+                <Button size="sm" onClick={() => void skills.refetch()}>
+                  Try again
+                </Button>
+              ) : undefined
             }
           />
         )}

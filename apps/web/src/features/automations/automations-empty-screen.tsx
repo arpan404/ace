@@ -3,6 +3,7 @@ import { Link, Navigate } from "@tanstack/react-router";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Screen } from "@/features/shell/index.ts";
+import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { useAutomations } from "./use-automations.ts";
 
 /** Automations opens on the first one in the list; with none yet, says how to make one. */
@@ -23,7 +24,7 @@ export function AutomationsEmptyScreen() {
         <EmptyState
           icon={ClockIcon}
           title="Automations unavailable"
-          description="The daemon didn't answer. They load again once the connection is back."
+          description={describeDaemonError(daemonErrorCode(list.error))}
           action={
             <Button size="sm" onClick={() => void list.refetch()}>
               Try again
@@ -32,6 +33,8 @@ export function AutomationsEmptyScreen() {
         />
       </Screen>
     );
+  // Until the list arrives there's nothing to say: the sidebar shows its skeleton.
+  if (!list.data) return <Screen title="Automations">{null}</Screen>;
   return (
     <Screen title="Automations">
       <EmptyState

@@ -7,7 +7,7 @@ import { useEffect } from "react";
 import { useAccountViews } from "@/features/accounts/index.ts";
 import { useDeckSnapshot, useDeckStore } from "./use-deck-store.ts";
 
-export { useDeckSender } from "./use-deck-store.ts";
+export { useDeckRetry, useDeckSender } from "./use-deck-store.ts";
 
 /** Lane accounts named from `accounts.list`; not settled until that read lands or fails. */
 function useAccountNames(): { settled: boolean; accounts: DeckAccounts } {

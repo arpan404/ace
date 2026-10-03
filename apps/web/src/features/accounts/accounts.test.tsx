@@ -141,3 +141,21 @@ test("Add account explains how to sign in a second account without giving ace cr
     "CODEX_HOME=~/.codex-team codex login",
   );
 });
+
+test("when the daemon can't list accounts, the page says so in words and reads them again on Try again", async () => {
+  const app = harness();
+  app.daemon.failRequests("accounts.list");
+  await app.open("/more/accounts");
+
+  expect(
+    await screen.findByText(
+      "The daemon didn't answer. This loads again once it does.",
+      {},
+      { timeout: 4000 },
+    ),
+  ).toBeTruthy();
+  expect(screen.queryByText("unavailable")).toBeNull();
+  app.daemon.restoreRequests();
+  await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await card("Claude Code Personal")).toBeTruthy();
+});

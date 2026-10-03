@@ -7,9 +7,9 @@ import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-row.tsx";
-import { ViewSidebar } from "@/features/shell/index.ts";
+import { ViewSidebar, ViewSidebarError } from "@/features/shell/index.ts";
 import { deckGroup, deckRunSummary, type DeckRun, type DeckGroup } from "@ace/ui-core";
-import { useDeckRuns } from "./deck-source.ts";
+import { useDeckRetry, useDeckRuns } from "./deck-source.ts";
 import { useProjectName } from "@/lib/projects.ts";
 
 const groups: readonly { id: DeckGroup; label: string }[] = [
@@ -21,6 +21,7 @@ const groups: readonly { id: DeckGroup; label: string }[] = [
 /** Deck's second sidebar: New deck, then every deck grouped by what it needs. */
 export function DeckSidebar() {
   const { ready, error, runs } = useDeckRuns();
+  const retry = useDeckRetry();
   const [project, setProject] = useState("all");
   const projectName = useProjectName();
   const projects = [...new Set(runs.map((run) => run.workspaceId))].toSorted();
@@ -49,9 +50,9 @@ export function DeckSidebar() {
         <Kbd keys="shift+mod+n" variant="bare" className="ml-auto" />
       </Link>
       {!ready ? (
-        <ListSkeleton label="decks" shape="card" rows={4} />
+        <ListSkeleton label="decks" shape="tile" rows={4} />
       ) : error && !runs.length ? (
-        <EmptyState icon={CardsIcon} title="Decks unavailable" description={error} />
+        <ViewSidebarError onRetry={retry} />
       ) : !shown.length ? (
         <EmptyState
           icon={CardsIcon}

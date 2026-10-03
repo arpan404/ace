@@ -272,15 +272,26 @@ test("Automations opens on the first automation rather than an empty pane", asyn
   expect(screen.queryByText("No automation selected")).toBeNull();
 });
 
-test("when the daemon can't list automations, the view says so instead of loading forever", async () => {
+test("when the daemon can't list automations, the view says so once, in words, with a retry", async () => {
   const app = harness();
   app.daemon.failRequests("automation.list");
   await app.open("/automations");
-  const aside = await screen.findByRole("complementary", { name: "Automations" });
-  expect(
-    await within(aside).findByText("Automations unavailable", {}, { timeout: 4000 }),
-  ).toBeTruthy();
+  const aside = within(await screen.findByRole("complementary", { name: "Automations" }));
+  expect(await main().findByText("Automations unavailable", {}, { timeout: 4000 })).toBeTruthy();
+  expect(main().getByText("The daemon didn't answer. This loads again once it does.")).toBeTruthy();
+  // The sidebar doesn't tell the same failure again in other words.
+  expect(aside.getByText("Couldn't load the list.")).toBeTruthy();
+  expect(aside.queryByText("Automations unavailable")).toBeNull();
   app.daemon.restoreRequests();
-  await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
-  expect(await within(aside).findByText("No automations")).toBeTruthy();
+  await userEvent.click(main().getByRole("button", { name: "Try again" }));
+  expect(await aside.findByText("No automations")).toBeTruthy();
+});
+
+test("while the list loads, the main pane doesn't claim nothing is selected", async () => {
+  const app = harness();
+  app.daemon.holdRequests("automation.list");
+  await app.open("/automations");
+  const aside = await screen.findByRole("complementary", { name: "Automations" });
+  expect(await within(aside).findByRole("status", { name: "Loading automations" })).toBeTruthy();
+  expect(screen.queryByText("No automation selected")).toBeNull();
 });

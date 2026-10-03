@@ -15,7 +15,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-row.tsx";
-import { ViewSidebar } from "@/features/shell/index.ts";
+import { ViewSidebar, ViewSidebarError } from "@/features/shell/index.ts";
 import { InstallPlugin } from "./install-plugin.tsx";
 import type { Skill, SkillKind } from "./skills-model.ts";
 import { useSkills } from "./skills-source.ts";
@@ -80,9 +80,9 @@ export function SkillsSidebar() {
       }
     >
       {skills.isError ? (
-        <EmptyState icon={CubeIcon} title="Skills unavailable" description={skills.error.message} />
+        <ViewSidebarError onRetry={() => void skills.refetch()} />
       ) : !skills.data ? (
-        <ListSkeleton label="skills" shape="card" rows={5} />
+        <ListSkeleton label="skills" shape="tile" rows={5} />
       ) : !shown.length ? (
         <EmptyState
           icon={CubeIcon}
