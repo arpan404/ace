@@ -1,0 +1,80 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryInstallPlan.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "argv": {
+      "items": {
+        "maxLength": 4096,
+        "type": "string"
+      },
+      "maxItems": 128,
+      "type": "array"
+    },
+    "destination": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "digest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "publisher": {
+      "items": {
+        "maxLength": 256,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "runtime": {
+      "enum": [
+        "binary",
+        "npm",
+        "uv"
+      ],
+      "type": "string"
+    },
+    "source": {
+      "format": "ace-whatwg-url",
+      "type": "string",
+      "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.",
+      "x-ace-url-maxLength": 4096
+    },
+    "target": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "verification": {
+      "enum": [
+        "sha256",
+        "unsigned_https",
+        "package_manager"
+      ],
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "digest",
+    "acpAgentId",
+    "version",
+    "source",
+    "publisher",
+    "runtime",
+    "target",
+    "destination",
+    "argv",
+    "verification"
+  ],
+  "type": "object"
+}

@@ -30,7 +30,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| thread | yes | object | {"properties":{"id":{"type":"string","minLength":1},"workspaceId":{"type":"string","minLength":1},"title":{"type":"string"},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp"]},"rootAgentId":{"type":"string","minLength":1},"status":{"oneOf":[{"type":"object","properties":{"state":{"type":"string","const":"needs_you"},"interactions":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","interactions"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"working"},"agents":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","agents"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"waiting"},"on":{"type":"string","enum":["background_task","rate_limit","network","upstream","queue"]}},"required":["state","on"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"failed"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"unresponsive"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"done"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"new"}},"required":["state"],"additionalProperties":false}]},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"archivedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"imported":{"type":"object","properties":{"sourceId":{"type":"string","minLength":1},"instanceId":{"type":"string","minLength":1},"native":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp"]},"nativeId":{"type":"string"},"path":{"type":"string"},"aliases":{"type":"array","items":{"type":"string"}}},"required":["provider"],"additionalProperties":false},"importedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["sourceId","instanceId","native","importedAt"],"additionalProperties":false}},"required":["id","workspaceId","title","provider","status","createdAt","updatedAt"],"additionalProperties":false} |
+| thread | yes | object | {"properties":{"id":{"type":"string","minLength":1},"workspaceId":{"type":"string","minLength":1},"title":{"type":"string"},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp"]},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"effectiveCapabilities":{"type":"object","properties":{"steer":{"type":"boolean"},"launchOptions":{"maxItems":2,"type":"array","items":{"type":"string","enum":["effort","serviceTier"]}},"interruptCascades":{"type":"boolean"},"resume":{"type":"boolean"},"fork":{"type":"boolean"},"subagentTranscripts":{"type":"boolean"},"backgroundTaskControl":{"type":"boolean"},"backgroundVisibility":{"type":"string","enum":["full","partial","none"]},"planMode":{"type":"boolean"},"tokenUsage":{"type":"boolean"},"imageInput":{"type":"boolean"},"rewindFiles":{"type":"boolean"}},"required":["steer","interruptCascades","resume","fork","subagentTranscripts","backgroundTaskControl","backgroundVisibility","planMode","tokenUsage","imageInput","rewindFiles"],"additionalProperties":false},"acpSupport":{"type":"object","properties":{"capabilities":{"type":"object","properties":{"resume":{"type":"boolean"},"imageInput":{"type":"boolean"},"planMode":{"type":"boolean"}},"required":["resume","imageInput","planMode"],"additionalProperties":false},"mcp":{"type":"string","enum":["http","stdio","unavailable"]},"modelSelection":{"type":"boolean"},"modeSelection":{"type":"boolean"},"subagentSessions":{"default":false,"type":"boolean"},"coverage":{"type":"string","enum":["source_profile","generic","legacy"]},"visibility":{"type":"string","const":"limited"},"raw":{"type":"object","properties":{"json":{"type":"string","maxLength":2048},"truncated":{"type":"boolean"}},"required":["json","truncated"],"additionalProperties":false}},"required":["capabilities","mcp","modelSelection","modeSelection","subagentSessions","coverage","visibility","raw"],"additionalProperties":false},"rootAgentId":{"type":"string","minLength":1},"status":{"oneOf":[{"type":"object","properties":{"state":{"type":"string","const":"needs_you"},"interactions":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","interactions"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"working"},"agents":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","agents"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"waiting"},"on":{"type":"string","enum":["background_task","rate_limit","network","upstream","queue"]}},"required":["state","on"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"failed"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"unresponsive"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"done"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"new"}},"required":["state"],"additionalProperties":false}]},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"archivedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"imported":{"type":"object","properties":{"sourceId":{"type":"string","minLength":1},"instanceId":{"type":"string","minLength":1},"native":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp"]},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"nativeId":{"type":"string"},"path":{"type":"string"},"forkedFromNativeId":{"type":"string","minLength":1,"maxLength":1024},"aliases":{"type":"array","items":{"type":"string"}}},"required":["provider"],"additionalProperties":false},"importedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["sourceId","instanceId","native","importedAt"],"additionalProperties":false}},"required":["id","workspaceId","title","provider","status","createdAt","updatedAt"],"additionalProperties":false} |
 
 Example:
 
@@ -38,14 +38,16 @@ Example:
 {
   "thread": {
     "archivedAt": 2,
-    "createdAt": 0,
+    "createdAt": 4,
     "id": "example",
-    "provider": "claude",
+    "installationId": "example",
+    "provider": "antigravity",
     "status": {
-      "state": "failed"
+      "on": "queue",
+      "state": "waiting"
     },
     "title": "example",
-    "updatedAt": 4,
+    "updatedAt": 9,
     "workspaceId": "example"
   }
 }
@@ -70,7 +72,7 @@ Example:
 
 ```json
 {
-  "limit": 10
+  "cursor": "example"
 }
 ```
 
@@ -80,7 +82,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| agents | yes | array | {"maxItems":100,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"threadId":{"type":"string","minLength":1},"childThreadId":{"type":"string","minLength":1},"parentId":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"origin":{"type":"string","enum":["root","provider_subagent","ace"]},"native":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp"]},"nativeId":{"type":"string"},"path":{"type":"string"},"aliases":{"type":"array","items":{"type":"string"}}},"required":["provider"],"additionalProperties":false},"fidelity":{"type":"string","enum":["full","summary","placeholder"]},"spawnedBy":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"name":{"type":"string"},"role":{"type":"string"},"model":{"type":"string"},"cwd":{"type":"string"},"status":{"oneOf":[{"type":"object","properties":{"state":{"type":"string","const":"starting"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"working"},"activity":{"type":"string","enum":["thinking","responding","tool","compacting","retrying","starting_turn"]},"itemId":{"type":"string","minLength":1},"detail":{"type":"string"}},"required":["state","activity"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"blocked"},"on":{"type":"string","enum":["human","subagents","background_task","rate_limit","network","upstream"]},"refs":{"default":[],"type":"array","items":{"type":"string"}},"until":{"type":"integer","minimum":0,"maximum":9007199254740991},"attempt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"message":{"type":"string"}},"required":["state","on","refs"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"idle"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"interrupted"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"failed"},"error":{"type":"object","properties":{"kind":{"type":"string","enum":["provider","auth","quota","network","process_exit","unknown"]},"message":{"type":"string"}},"required":["kind","message"],"additionalProperties":false}},"required":["state","error"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"unresponsive"},"lastSignalAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["state","lastSignalAt"],"additionalProperties":false}]},"background":{"default":false,"type":"boolean"},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"endedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threadId","parentId","origin","native","fidelity","cwd","status","background","createdAt"],"additionalProperties":false}} |
+| agents | yes | array | {"maxItems":100,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"threadId":{"type":"string","minLength":1},"childThreadId":{"type":"string","minLength":1},"parentId":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"origin":{"type":"string","enum":["root","provider_subagent","ace"]},"native":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp"]},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"nativeId":{"type":"string"},"path":{"type":"string"},"forkedFromNativeId":{"type":"string","minLength":1,"maxLength":1024},"aliases":{"type":"array","items":{"type":"string"}}},"required":["provider"],"additionalProperties":false},"fidelity":{"type":"string","enum":["full","summary","placeholder"]},"spawnedBy":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"name":{"type":"string"},"role":{"type":"string"},"model":{"type":"string"},"cwd":{"type":"string"},"status":{"oneOf":[{"type":"object","properties":{"state":{"type":"string","const":"starting"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"working"},"activity":{"type":"string","enum":["thinking","responding","tool","compacting","retrying","starting_turn"]},"itemId":{"type":"string","minLength":1},"detail":{"type":"string"}},"required":["state","activity"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"blocked"},"on":{"type":"string","enum":["human","subagents","background_task","rate_limit","network","upstream"]},"refs":{"default":[],"type":"array","items":{"type":"string"}},"until":{"type":"integer","minimum":0,"maximum":9007199254740991},"attempt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"message":{"type":"string"}},"required":["state","on","refs"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"idle"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"interrupted"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"failed"},"error":{"type":"object","properties":{"kind":{"type":"string","enum":["provider","auth","quota","network","process_exit","unknown"]},"message":{"type":"string"}},"required":["kind","message"],"additionalProperties":false}},"required":["state","error"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"unresponsive"},"lastSignalAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["state","lastSignalAt"],"additionalProperties":false}]},"background":{"default":false,"type":"boolean"},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"endedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threadId","parentId","origin","native","fidelity","cwd","status","background","createdAt"],"additionalProperties":false}} |
 | nextCursor | yes | union | {"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]} |
 
 Example:
@@ -154,6 +156,7 @@ Example:
 
 ```json
 {
+  "name": "example",
   "task": "example"
 }
 ```
@@ -202,11 +205,12 @@ Example:
 
 ```json
 {
-  "accountId": "kdCry_",
-  "provider": "acp",
-  "requestId": "m",
+  "estimatedLoad": 0,
+  "provider": "codex",
+  "requestId": "Io",
   "role": "example",
-  "task": "example"
+  "task": "example",
+  "wait": true
 }
 ```
 
@@ -251,11 +255,9 @@ Example:
 
 ```json
 {
-  "options": {
-    "effort": "medium"
-  },
-  "provider": "antigravity",
-  "requestId": "fw98XYwXk",
+  "options": {},
+  "provider": "codex",
+  "requestId": "LVL8CDsF",
   "title": "example"
 }
 ```
@@ -274,9 +276,7 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
-  "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -300,7 +300,7 @@ Example:
 
 ```json
 {
-  "requestId": "16m",
+  "requestId": "J8WBw3",
   "text": "example",
   "threadId": "example"
 }
@@ -320,7 +320,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "data": null,
+  "ok": true
 }
 ```
 
@@ -345,7 +346,7 @@ Example:
 
 ```json
 {
-  "requestId": "E4l8Ep",
+  "requestId": "Ei",
   "text": "example",
   "threadId": "example"
 }
@@ -365,7 +366,6 @@ Example:
 
 ```json
 {
-  "data": null,
   "ok": true
 }
 ```
@@ -406,7 +406,6 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
   "ok": true
 }
 ```
@@ -431,7 +430,6 @@ Example:
 
 ```json
 {
-  "before": 4,
   "threadId": "example"
 }
 ```
@@ -450,8 +448,7 @@ Example:
 
 ```json
 {
-  "code": "unsupported",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -476,7 +473,7 @@ Example:
 
 ```json
 {
-  "offset": 2,
+  "offset": 9,
   "streamId": "example",
   "threadId": "example"
 }
@@ -496,7 +493,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "forbidden",
+  "ok": false
 }
 ```
 
@@ -521,8 +519,6 @@ Example:
 
 ```json
 {
-  "cursor": "example",
-  "limit": 9,
   "query": "example",
   "threadId": "example"
 }
@@ -542,7 +538,6 @@ Example:
 
 ```json
 {
-  "data": null,
   "ok": true
 }
 ```
@@ -566,7 +561,7 @@ Example:
 
 ```json
 {
-  "requestId": "z.5",
+  "requestId": "D7RE",
   "threadId": "example"
 }
 ```
@@ -585,6 +580,7 @@ Example:
 
 ```json
 {
+  "code": "unsupported",
   "ok": true
 }
 ```
@@ -609,7 +605,8 @@ Example:
 
 ```json
 {
-  "requestId": "7UWRk",
+  "requestId": "m6CfCgUSAHa",
+  "runId": "LWBA18tZpeB",
   "threadId": "example"
 }
 ```
@@ -628,7 +625,7 @@ Example:
 
 ```json
 {
-  "code": "invalid",
+  "code": "forbidden",
   "ok": true
 }
 ```
@@ -652,7 +649,7 @@ Example:
 
 ```json
 {
-  "requestId": "IFFo0",
+  "requestId": "B",
   "threadId": "example"
 }
 ```
@@ -671,7 +668,6 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
   "data": null,
   "ok": false
 }
@@ -698,8 +694,8 @@ Example:
 
 ```json
 {
-  "entryId": "060",
-  "requestId": "U71.",
+  "entryId": "5F-zT7trHg-",
+  "requestId": "Zb7C",
   "text": "example",
   "threadId": "example"
 }
@@ -744,9 +740,9 @@ Example:
 ```json
 {
   "entryIds": [
-    "l8Bfh"
+    "B2iOpdN"
   ],
-  "requestId": "-vnOvF",
+  "requestId": "ZoEisCDv",
   "threadId": "example"
 }
 ```
@@ -765,8 +761,9 @@ Example:
 
 ```json
 {
-  "code": "not_found",
-  "ok": false
+  "code": "not_ready",
+  "data": null,
+  "ok": true
 }
 ```
 
@@ -796,7 +793,7 @@ Example:
     "kind": "question"
   },
   "interactionId": "example",
-  "requestId": "TgeqcP80T",
+  "requestId": "LL",
   "threadId": "example"
 }
 ```
@@ -815,7 +812,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "unsupported",
+  "ok": true
 }
 ```
 
@@ -857,7 +855,6 @@ Example:
 
 ```json
 {
-  "data": null,
   "ok": true
 }
 ```
@@ -898,8 +895,9 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "ok": true
+  "code": "not_ready",
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -981,7 +979,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -1005,7 +1004,7 @@ Example:
 ```json
 {
   "threadId": "example",
-  "until": null
+  "until": 5
 }
 ```
 
@@ -1023,7 +1022,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "data": null,
+  "ok": true
 }
 ```
 
@@ -1046,10 +1046,10 @@ Example:
 ```json
 {
   "request": {
-    "id": "example",
+    "before": 7,
+    "limit": 9,
     "requestId": "example",
-    "type": "automation.run",
-    "variables": {}
+    "type": "automation.inbox"
   }
 }
 ```
@@ -1109,7 +1109,6 @@ Example:
 
 ```json
 {
-  "code": "unsupported",
   "ok": false
 }
 ```
@@ -1152,6 +1151,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": true
 }
 ```
@@ -1177,7 +1177,7 @@ Example:
 ```json
 {
   "branch": "example",
-  "requestId": "5CHMDOQ6Q_",
+  "requestId": "K",
   "threadId": "example"
 }
 ```
@@ -1197,7 +1197,7 @@ Example:
 ```json
 {
   "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1237,7 +1237,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -1260,7 +1261,7 @@ Example:
 
 ```json
 {
-  "previewId": "hCBwD7REfqh",
+  "previewId": "7IXi97qZXR",
   "threadId": "example"
 }
 ```
@@ -1280,6 +1281,6 @@ Example:
 ```json
 {
   "data": null,
-  "ok": false
+  "ok": true
 }
 ```

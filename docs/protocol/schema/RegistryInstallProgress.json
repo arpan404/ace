@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryInstallProgress.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "digest": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "intentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "phase": {
+      "enum": [
+        "preparing",
+        "download",
+        "extract",
+        "package_manager",
+        "persist"
+      ],
+      "type": "string"
+    },
+    "receivedBytes": {
+      "maximum": 134217728,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "intentId",
+    "digest",
+    "phase",
+    "receivedBytes"
+  ],
+  "type": "object"
+}

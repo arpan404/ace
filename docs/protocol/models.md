@@ -17,10 +17,15 @@ Semantic rule: The parsed model with defaults filled and unknown fields stripped
 | id | yes | string | {"minLength":1,"maxLength":256} |
 | displayName | yes | string | {"minLength":1,"maxLength":256} |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | instance | yes | string | {"minLength":1,"maxLength":256} |
 | nativeProviderId | no | string | {"minLength":1,"maxLength":256} |
 | nativeModelId | yes | string | {"minLength":1,"maxLength":256} |
 | resolvedModelId | no | string | {"minLength":1,"maxLength":256} |
+| modelConfigId | no | string | {"minLength":1,"maxLength":256} |
+| selectorMethod | no | ["session/set_config_option","session/set_model"] |  |
 | contextWindow | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | reasoningEfforts | yes | array | {"maxItems":32,"items":{"type":"string","minLength":1,"maxLength":256}} |
 | defaultEffort | no | string | {"minLength":1,"maxLength":256} |
@@ -36,16 +41,17 @@ Example:
 
 ```json
 {
-  "contextWindow": 7,
-  "deprecated": true,
+  "acpAgentId": "example",
+  "defaultTier": "example",
+  "deprecated": false,
   "displayName": "example",
-  "hidden": false,
+  "hidden": true,
   "id": "example",
   "inputModalities": [],
   "instance": "example",
-  "isDefault": false,
+  "isDefault": true,
   "nativeModelId": "example",
-  "provider": "claude",
+  "provider": "cursor",
   "raw": {
     "json": "example",
     "truncated": false
@@ -62,15 +68,16 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | instance | no | string | {"minLength":1,"maxLength":256} |
 
 Example:
 
 ```json
-{
-  "provider": "claude"
-}
+{}
 ```
 
 ## ModelInstanceStatus
@@ -79,6 +86,9 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | instance | yes | string | {"minLength":1,"maxLength":256} |
 | refreshedAt | no | number | {"minimum":0} |
@@ -91,8 +101,8 @@ Example:
 ```json
 {
   "instance": "example",
-  "provider": "claude",
-  "refreshing": false,
+  "provider": "opencode",
+  "refreshing": true,
   "stale": false
 }
 ```
@@ -103,6 +113,9 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | instance | no | string | {"minLength":1,"maxLength":256} |
 | offset | no | integer | {"default":0,"minimum":0,"maximum":32768} |
@@ -112,9 +125,8 @@ Example:
 
 ```json
 {
-  "instance": "example",
-  "offset": 0,
-  "provider": "claude"
+  "installationId": "example",
+  "instance": "example"
 }
 ```
 
@@ -133,8 +145,7 @@ Example:
 ```json
 {
   "instances": [],
-  "models": [],
-  "nextOffset": 9
+  "models": []
 }
 ```
 
@@ -158,26 +169,30 @@ Example:
 ```json
 {
   "model": {
-    "deprecated": true,
+    "contextWindow": 8,
+    "defaultEffort": "example",
+    "deprecated": false,
     "displayName": "example",
     "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
     "isDefault": true,
+    "modelConfigId": "example",
     "nativeModelId": "example",
-    "provider": "claude",
+    "provider": "opencode",
     "raw": {
       "json": "example",
-      "truncated": true
+      "truncated": false
     },
     "reasoningEfforts": [],
     "resolvedModelId": "example",
+    "selectorMethod": "session/set_model",
     "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": true
+  "stale": false
 }
 ```
 
@@ -203,6 +218,9 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | instance | no | string | {"minLength":1,"maxLength":256} |
 | role | yes | string | {"minLength":1,"maxLength":256} |
@@ -218,9 +236,11 @@ Example:
 ```json
 {
   "effort": "example",
-  "model": "example",
-  "role": "example",
-  "tier": "example"
+  "imageInput": true,
+  "instance": "example",
+  "instanceId": "example",
+  "provider": "opencode",
+  "role": "example"
 }
 ```
 
@@ -239,7 +259,9 @@ Example:
 ```json
 {
   "options": {
+    "acpAgentId": "example",
     "instance": "example",
+    "instanceId": "example",
     "limit": 7
   },
   "requestId": "example",
@@ -283,9 +305,10 @@ Example:
   "requestId": "example",
   "roleSpec": {
     "effort": "example",
-    "preferenceOrder": [],
-    "role": "example",
-    "selection": "default"
+    "installationId": "example",
+    "instanceId": "example",
+    "provider": "claude",
+    "role": "example"
   },
   "type": "models.resolve"
 }
@@ -307,8 +330,9 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": false,
-    "reason": "example"
+    "instances": [],
+    "models": [],
+    "nextOffset": 0
   },
   "type": "models.result"
 }
@@ -330,6 +354,7 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example"
+  "name": "example",
+  "parameters": {}
 }
 ```

@@ -20,7 +20,9 @@ export async function executeIntent(
   if (p.type === "thread.create" || p.type === "thread.send") {
     await sessions.open(actor);
     if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
-    const capabilities = registry.get(repo.requireState(actor.id).config.provider).capabilities;
+    const capabilities =
+      actor.effectiveCapabilities ??
+      registry.get(repo.requireState(actor.id).config.provider).capabilities;
     const session = actor.session;
     if (!session) throw new Error("Provider session exited before send");
     if ((p.context?.items?.length ?? 0) > 0 && !prepareInput)
@@ -45,9 +47,29 @@ export async function executeIntent(
     throw new Error("Provider session is not live");
   }
   const state = repo.requireState(actor.id);
-  if (p.type === "thread.interrupt") {
+  if (p.type === "thread.model.set") {
+    if (!actor.session.setModel) throw new Error("Provider model selection unavailable");
+    await actor.session.setModel(p.model);
+    await actor.flush();
+    const confirmed = repo.requireState(actor.id);
+    try {
+      repo.store.atomic((db) => {
+        if (confirmed.rootKey)
+          actor.apply([{ type: "agent.linked", agent: confirmed.rootKey, model: p.model }]);
+        db.prepare("UPDATE engine_sessions SET model=? WHERE thread_id=?").run(p.model, actor.id);
+      });
+    } catch (error) {
+      // The outer transaction can fail after fact folding mutated the hot state.
+      repo.evict(actor.id);
+      throw error;
+    }
+  } else if (p.type === "thread.mode.set") {
+    if (!actor.session.setMode) throw new Error("Provider mode selection unavailable");
+    await actor.session.setMode(p.mode);
+  } else if (p.type === "thread.interrupt") {
     const agent = p.agentId === undefined ? undefined : state.indexes.agentKeysById[p.agentId];
-    const { capabilities } = registry.get(state.config.provider);
+    const capabilities =
+      actor.effectiveCapabilities ?? registry.get(state.config.provider).capabilities;
     if (p.cascade && !capabilities.interruptCascades) {
       const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
       const descendants = (id: string): string[] =>

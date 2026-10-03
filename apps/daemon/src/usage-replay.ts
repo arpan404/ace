@@ -29,6 +29,7 @@ const agentUpdate = optional(
   "native.provider",
 );
 const usageFields = [
+  "usageScope",
   "cachedInputTokens",
   "reasoningTokens",
   "cacheWriteTokens",

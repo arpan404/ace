@@ -21,6 +21,24 @@ export function createUsageSession(context: SocketContext): SocketService {
   return {
     async handle(message) {
       switch (message.type) {
+        case "usage.session_totals": {
+          if (!authorize("read") || !context.canReadThread(message.query.thread)) {
+            fail("forbidden", "Thread read scope required");
+            return true;
+          }
+          if (!options.usage?.sessionTotals) {
+            fail("usage_unavailable", "Inclusive usage estimates unavailable");
+            return true;
+          }
+          try {
+            const totals = await options.usage.sessionTotals(message.query);
+            if (connected())
+              send({ type: "usage.session_totals.result", requestId: message.requestId, totals });
+          } catch {
+            fail("usage_failed", "Usage snapshot query rejected");
+          }
+          return true;
+        }
         case "usage.summary":
         case "usage.series": {
           if (!authorize("read")) {

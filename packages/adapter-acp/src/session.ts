@@ -1,4 +1,9 @@
-import { acpInjection } from "@ace/mcp-server";
+import { appendAcpMcp } from "@ace/mcp-server";
+import { AGENT_METHODS, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
+import { AcpConfiguration } from "./configuration.ts";
+import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
+import { clientMeta } from "./bridge-negotiation.ts";
+import { redactLease } from "./frame-redaction.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { ShellSettlement } from "./shell-settlement.ts";
 import { cancellationGraceMs, promptStop } from "./settlement.ts";
@@ -24,44 +29,64 @@ interface PendingInteraction {
 }
 interface Queued {
   input: ContentPart[];
+  bytes: number;
   resolve(): void;
   reject(error: unknown): void;
 }
-export interface LaunchOptions {
-  command: string;
-  args: string[];
-  env?: NodeJS.ProcessEnv;
-}
-export interface SessionRuntime {
-  spawn: typeof spawnSupervised;
-  now(): number;
-  schedule?(delay: number, run: () => void): () => void;
-}
+export type { LaunchOptions, SessionRuntime } from "./runtime.ts";
 export async function openAcpSession(
   ctx: SessionContext,
   quirks: AcpQuirks,
   launch: LaunchOptions,
   runtime: SessionRuntime = { spawn: spawnSupervised, now: () => performance.now() },
 ): Promise<ProviderSession> {
-  if (ctx.signal.aborted) throw new Error("ACP session lifetime already ended");
-  const proc = runtime.spawn({
-    command: launch.command,
-    args: launch.args,
-    cwd: ctx.cwd,
-    env: launch.env ?? {},
-    name: quirks.provider,
-  });
-  const session = new AcpSession(ctx, quirks, proc, runtime);
+  if (ctx.signal.aborted) {
+    ctx.mcp?.end();
+    throw new Error("ACP session lifetime already ended");
+  }
+  let proc: SupervisedProcess;
+  try {
+    proc = runtime.spawn({
+      command: launch.command,
+      args: launch.args,
+      cwd: ctx.cwd,
+      env: launch.env ?? {},
+      name: quirks.provider,
+    });
+  } catch (error) {
+    ctx.mcp?.end();
+    throw sanitizedError(error, ctx);
+  }
+  const session = new AcpSession(ctx, quirks, proc, runtime, launch);
   try {
     await session.initialize();
     return session;
   } catch (error) {
     await session.close("shutdown");
-    throw error;
+    throw sanitizedError(error, ctx);
   }
+}
+function sanitizedError(error: unknown, ctx: SessionContext): Error {
+  return new Error(
+    String(
+      redactLease(
+        error instanceof Error ? error.message : "ACP operation failed",
+        ctx.mcp?.secrets ?? [],
+      ),
+    ),
+  );
 }
 class AcpSession implements ProviderSession {
   nativeSessionId = "";
+  readonly configuration: AcpConfiguration;
+  get effectiveCapabilities() {
+    return this.configuration.capabilities;
+  }
+  get acpSupport() {
+    return this.configuration.support;
+  }
+  readonly launch: LaunchOptions;
+  queuedBytes = 0;
   readonly ctx: SessionContext;
   readonly quirks: AcpQuirks;
   readonly proc: SupervisedProcess;
@@ -74,6 +99,7 @@ class AcpSession implements ProviderSession {
   fault?: Error;
   readonly queue: Queued[] = [];
   active = false;
+  selecting = false;
   closed = false;
   deliberate = false;
   sequence = 0;
@@ -84,7 +110,9 @@ class AcpSession implements ProviderSession {
     quirks: AcpQuirks,
     proc: SupervisedProcess,
     runtime: SessionRuntime,
+    launch: LaunchOptions,
   ) {
+    this.launch = launch;
     this.now = runtime.now;
     this.started = runtime.now();
     this.shells = new ShellSettlement(quirks);
@@ -101,12 +129,21 @@ class AcpSession implements ProviderSession {
     this.rpc = new JsonRpcPeer(proc, {
       onFrame: (dir, data) => this.frame(dir, "stdio", data),
       onMalformed: (line) => this.frame("recv", "stdio-text", line),
-      onError: (error) =>
-        this.frame("note", "transport", { event: "transport-error", message: error.message }),
+      onError: (error) => this.fail(error),
     });
+    this.configuration = new AcpConfiguration(ctx, quirks, launch, this.rpc);
     this.rpc.onRequest = (request) => this.handleRequest(request);
     this.rpc.onNotification = (notification) => {
       if (notification.method !== "session/update") return;
+      const params = object(notification.params);
+      const update = object(params["update"]);
+      if (
+        params["sessionId"] === this.nativeSessionId &&
+        update["sessionUpdate"] === "config_option_update" &&
+        Array.isArray(update["configOptions"])
+      ) {
+        this.configuration.update({ configOptions: update["configOptions"] });
+      }
       this.routing.receive(object(notification.params));
       this.shells.receive(object(notification.params));
       if (!this.routing.hasLiveChildren) this.clearGrace();
@@ -117,6 +154,7 @@ class AcpSession implements ProviderSession {
     ctx.signal.addEventListener("abort", this.abort, { once: true });
     void proc.exited.then((exit) => {
       this.closed = true;
+      ctx.mcp?.end();
       this.clearGrace();
       ctx.signal.removeEventListener("abort", this.abort);
       this.cancelQuestions();
@@ -143,13 +181,14 @@ class AcpSession implements ProviderSession {
   };
   fail(error: Error): void {
     if (this.closed) return;
+    this.ctx.mcp?.end();
     this.fault = error;
     this.closed = true;
     this.clearGrace();
     this.frame("note", "transport", { event: "transport-error", message: error.message });
     this.cancelQuestions();
     this.rejectQueue(error);
-    this.rpc.close(error);
+    this.rpc.stopRequests(error);
     void this.proc.stop();
   }
   abort = (): void => {
@@ -157,9 +196,7 @@ class AcpSession implements ProviderSession {
   };
   frame(dir: "send" | "recv" | "stderr" | "note", channel: string, data: unknown): void {
     const payload = new ProviderPayload(
-      this.ctx.aceMcp
-        ? JSON.stringify(data).replaceAll(this.ctx.aceMcp.bearer, "[ace credential redacted]")
-        : JSON.stringify(data),
+      JSON.stringify(redactLease(data, this.ctx.mcp?.secrets ?? [])),
     );
     this.ctx.onFrame({
       seq: this.sequence++,
@@ -173,42 +210,41 @@ class AcpSession implements ProviderSession {
   async initialize(): Promise<void> {
     const result = object(
       await this.rpc.request(
-        "initialize",
+        AGENT_METHODS.initialize,
         {
-          protocolVersion: 1,
+          protocolVersion: PROTOCOL_VERSION,
           clientInfo: { name: "ace", version: "0.0.0" },
           clientCapabilities: {
             fs: { readTextFile: false, writeTextFile: false },
             terminal: false,
-            _meta: this.quirks.clientMeta,
+            _meta: clientMeta(this.quirks.clientMeta, this.launch.profile),
+            ...(this.launch.profile?.subagentSessions ? { subagents: {} } : {}),
           },
         },
         { signal: this.ctx.signal },
       ),
     );
-    if (result["protocolVersion"] !== 1) throw new Error("ACP protocol version 1 is required");
-    if (
-      this.quirks.provider === "antigravity" &&
-      object(result["agentInfo"])["name"] !== "antigravity-acp"
-    )
-      throw new Error("Unexpected Antigravity ACP server identity");
-    this.rpc.notify("initialized");
+    const negotiated = this.configuration.initialize(result);
+    const injected = this.ctx.mcp
+      ? negotiated.httpMcp
+        ? [...this.ctx.mcp.httpServers]
+        : [...(this.ctx.mcp.stdioServers ?? [])]
+      : [];
+    const mcpServers = appendAcpMcp(this.ctx.mcp?.configuredServers ?? [], injected);
+    if (!negotiated.httpMcp && mcpServers.some((server) => object(server)["type"] === "http"))
+      throw new Error("ACP agent does not advertise HTTP MCP");
+    if (!negotiated.sseMcp && mcpServers.some((server) => object(server)["type"] === "sse"))
+      throw new Error("ACP agent does not advertise SSE MCP");
+    const mcpTransport = injected.length ? (negotiated.httpMcp ? "http" : "stdio") : "unavailable";
     const resume = this.ctx.resume;
+    if (resume && !negotiated.capabilities.resume)
+      throw new Error("ACP agent does not advertise safe session loading");
     const session = object(
       await this.rpc.request(
-        resume ? "session/load" : "session/new",
+        resume ? AGENT_METHODS.session_load : AGENT_METHODS.session_new,
         {
           cwd: this.ctx.cwd,
-          mcpServers:
-            this.ctx.aceMcp &&
-            object(object(result["agentCapabilities"])["mcpCapabilities"])["http"] === true
-              ? acpInjection(
-                  this.ctx.aceMcp,
-                  this.quirks.provider === "cursor" || this.quirks.provider === "antigravity"
-                    ? this.quirks.provider
-                    : "acp",
-                ).mcpServers
-              : [],
+          mcpServers,
           ...(resume ? { sessionId: resume.nativeSessionId } : {}),
         },
         { signal: this.ctx.signal },
@@ -217,18 +253,46 @@ class AcpSession implements ProviderSession {
     this.nativeSessionId = string(session["sessionId"]) || resume?.nativeSessionId || "";
     this.routing.bindRoot(this.nativeSessionId);
     if (!this.nativeSessionId) throw new Error("ACP server did not return a session id");
-    if (this.ctx.model)
-      await this.rpc.request(
-        "session/set_config_option",
-        { sessionId: this.nativeSessionId, configId: "model", value: this.ctx.model },
-        { signal: this.ctx.signal },
-      );
+    this.configuration.setup(session, mcpTransport);
+    if (this.ctx.model) await this.setModel(this.ctx.model);
+  }
+  async select(kind: "model" | "mode", value: string): Promise<void> {
+    if (
+      this.closed ||
+      this.active ||
+      this.selecting ||
+      this.routing.hasLiveChildren ||
+      this.pending.size ||
+      this.shells.blocked
+    )
+      throw new Error("ACP selectors require a settled session");
+    this.selecting = true;
+    try {
+      await this.configuration.select(kind, value, this.nativeSessionId);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("request timed out")) this.fail(error);
+      throw sanitizedError(error, this.ctx);
+    } finally {
+      this.selecting = false;
+      void this.drain();
+    }
+  }
+
+  setModel(model: string): Promise<void> {
+    return this.select("model", model);
+  }
+  setMode(mode: string): Promise<void> {
+    return this.select("mode", mode);
   }
   async send(input: ContentPart[], _delivery: "steer" | "queue"): Promise<void> {
     if (this.closed) throw new Error("ACP session closed");
     if (this.shells.blocked) throw new Error("ACP shell execution completion is unconfirmed");
+    const bytes = Buffer.byteLength(JSON.stringify(input));
+    if (this.queue.length >= 64 || this.queuedBytes + bytes > 4 * 1024 * 1024)
+      throw new Error("ACP input queue capacity reached");
     await new Promise<void>((resolve, reject) => {
-      this.queue.push({ input: structuredClone(input), resolve, reject });
+      this.queuedBytes += bytes;
+      this.queue.push({ input: structuredClone(input), bytes, resolve, reject });
       this.queueChanged();
       void this.drain();
     });
@@ -237,9 +301,18 @@ class AcpSession implements ProviderSession {
     this.frame("note", "recorder", { event: "queue-changed", count: this.queue.length });
   }
   async drain(): Promise<void> {
-    if (this.active || this.closed || this.routing.hasLiveChildren) return;
+    if (
+      this.active ||
+      this.selecting ||
+      this.closed ||
+      this.routing.hasLiveChildren ||
+      this.pending.size ||
+      this.shells.blocked
+    )
+      return;
     const next = this.queue.shift();
     if (!next) return;
+    this.queuedBytes -= next.bytes;
     this.active = true;
     this.queueChanged();
     try {
@@ -266,7 +339,7 @@ class AcpSession implements ProviderSession {
       }
       next.resolve();
     } catch (error) {
-      next.reject(error);
+      next.reject(sanitizedError(error, this.ctx));
     } finally {
       this.active = false;
       void this.drain();
@@ -284,6 +357,10 @@ class AcpSession implements ProviderSession {
     if (this.closed) return { outcome: { outcome: "cancelled" } };
     if (this.pending.has(interactionKey(request.id)))
       throw new Error("Duplicate pending ACP request");
+    if (this.pending.size >= 128) {
+      this.fail(new Error("ACP incoming interaction capacity reached"));
+      throw new Error("ACP interaction capacity reached");
+    }
     return new Promise((resolve) =>
       this.pending.set(interactionKey(request.id), {
         request,
@@ -305,6 +382,7 @@ class AcpSession implements ProviderSession {
     const answer = encodeResolution(pending.request.method, validated, request);
     this.pending.delete(key);
     pending.answer(answer);
+    void this.drain();
   }
   cancelQuestions(owners?: Set<string>): void {
     for (const [key, pending] of this.pending)
@@ -344,13 +422,15 @@ class AcpSession implements ProviderSession {
       this.frame("note", "recorder", { event: "stop" });
       this.cancelQuestions();
       this.rejectQueue(new Error("ACP session closed"));
-      this.rpc.close();
       this.ctx.signal.removeEventListener("abort", this.abort);
     }
+    this.ctx.mcp?.end();
     await this.proc.stop();
+    this.rpc.close();
   }
   rejectQueue(error: Error): void {
     for (const job of this.queue.splice(0)) job.reject(error);
+    this.queuedBytes = 0;
     this.queueChanged();
   }
 }

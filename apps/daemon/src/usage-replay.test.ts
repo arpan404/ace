@@ -238,3 +238,112 @@ it("analytics subscription admission stays bounded and capacity returns after un
     f.close();
   }
 });
+
+it("canonical replay separates root and child activity from every inclusive snapshot across restart", async () => {
+  const f = fixture();
+  try {
+    const id = f.add("scoped");
+    const root = f.history.snapshotThread(id).agents["scoped-agent"];
+    if (!root) throw new Error("Missing root");
+    f.history.appendEvents(
+      id,
+      [
+        EventPayload.parse({
+          type: "agent.created",
+          agent: { ...root, id: "child", parentId: root.id, origin: "provider_subagent" },
+        }),
+        EventPayload.parse({
+          type: "usage.updated",
+          agentId: "child",
+          inputTokens: 4,
+          outputTokens: 0,
+        }),
+        ...["sonnet", "opus"].map((model) =>
+          EventPayload.parse({
+            type: "usage.updated",
+            agentId: root.id,
+            inputTokens: 110,
+            outputTokens: 20,
+            usageScope: "model_session",
+            counterKey: "native:initial",
+            model,
+            costUsd: 3.1,
+          }),
+        ),
+        EventPayload.parse({
+          type: "usage.updated",
+          agentId: root.id,
+          inputTokens: 220,
+          outputTokens: 40,
+          usageScope: "provider_session",
+          counterKey: "native:initial",
+          costUsd: 6.2,
+        }),
+      ],
+      at,
+    );
+    await f.replay();
+    expect(f.usage.summary(query).rows[0]?.totals).toMatchObject({
+      inputTokens: 14,
+      outputTokens: 2,
+      providerReportedUsd: 0,
+    });
+    expect(f.usage.sessionTotalsFor({ thread: id })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: "provider_session", inputTokens: 220, costUsd: 6.2 }),
+        expect.objectContaining({ scope: "model_session", model: "sonnet", inputTokens: 110 }),
+        expect.objectContaining({ scope: "model_session", model: "opus", inputTokens: 110 }),
+      ]),
+    );
+    f.history.atomic((db) => {
+      // Old clients materialized the final inclusive event over root activity.
+      db.exec(
+        "DELETE FROM status_migration WHERE id=2; DELETE FROM view_entities WHERE collection='usageSnapshots'",
+      );
+      db.prepare(
+        "UPDATE view_entities SET value=(SELECT payload FROM events WHERE thread_id=? AND type='usage.updated' ORDER BY seq DESC LIMIT 1) WHERE collection='usage' AND thread_id=? AND id=?",
+      ).run(id, id, root.id);
+    });
+    f.reopen();
+    await f.replay();
+    const restored = f.history.snapshotThread(id);
+    expect(restored.usage[root.id]?.inputTokens).toBe(10);
+    expect(Object.values(restored.usageSnapshots)).toHaveLength(3);
+    expect(f.usage.sessionTotalsFor({ thread: id })).toHaveLength(3);
+    expect(f.usage.summary(query).rows[0]?.totals.inputTokens).toBe(14);
+  } finally {
+    f.close();
+  }
+});
+
+it("retained inclusive usage without a counter key is visibly omitted without blocking healthy replay", async () => {
+  const f = fixture();
+  try {
+    const id = f.add("legacy");
+    // Simulate a persisted record from the previous permissive schema, at the SQLite boundary.
+    f.history.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE events SET payload=json_set(payload, '$.usageScope', 'provider_session') WHERE seq=?",
+        )
+        .run(f.history.headSeq()),
+    );
+    f.add("healthy");
+    await f.replay();
+    expect(f.usage.cursor()).toBe(f.history.headSeq());
+    expect(f.usage.summary(query).omittedEvents).toBe(1);
+    expect(f.usage.summary(query).rows[0]?.totals.inputTokens).toBe(10);
+    expect(f.usage.sessionTotalsFor({ thread: id })).toEqual([]);
+    expect(() =>
+      EventPayload.parse({
+        type: "usage.updated",
+        agentId: "root",
+        inputTokens: 1,
+        outputTokens: 0,
+        usageScope: "model_session",
+      }),
+    ).toThrow();
+  } finally {
+    f.close();
+  }
+});

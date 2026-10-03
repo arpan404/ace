@@ -3,6 +3,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "$ref": "https://ace.local/protocol/v1/RegistryRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ContextRequest.json"
     },
     {
@@ -27,10 +30,16 @@
       "$ref": "https://ace.local/protocol/v1/HistoryContinueRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/McpProviderRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/UsageSummary.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/UsageSeries.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UsageSessionTotals.json"
     },
     {
       "properties": {
@@ -122,7 +131,7 @@
     {
       "properties": {
         "instanceId": {
-          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
         "requestId": {
           "maxLength": 128,
@@ -143,7 +152,7 @@
     {
       "properties": {
         "from": {
-          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
         "nativeSessionId": {
           "maxLength": 128,
@@ -157,7 +166,7 @@
           "type": "string"
         },
         "to": {
-          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
         "type": {
           "const": "accounts.migrate",

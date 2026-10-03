@@ -1,3 +1,5 @@
+import { AcpIdentity } from "@ace/protocol";
+import type { SessionContext } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
@@ -12,6 +14,10 @@ interface SessionDependencies {
   expireDelivery(actor: ThreadActor): void;
   released(id: ThreadId): void;
   mcp?(threadId: ThreadId, agentId: string, lifetime: AbortSignal): { url: string; bearer: string };
+  context?(
+    threadId: ThreadId,
+    signal: AbortSignal,
+  ): Promise<Partial<Pick<SessionContext, "env" | "mcp" | "onSessionMetadata" | "acpLaunch">>>;
 }
 export class Sessions {
   private dependencies: SessionDependencies;
@@ -27,18 +33,45 @@ export class Sessions {
       const state = this.dependencies.repo.requireState(actor.id);
       const { adapter, capabilities } = this.dependencies.registry.get(state.config.provider);
       const metadata = this.dependencies.repo.session(actor.id);
-      if (metadata.nativeSessionId && !capabilities.resume)
+      if (state.config.provider !== "acp" && metadata.nativeSessionId && !capabilities.resume)
         throw new Error("Provider cannot resume this thread");
       const rootKey = state.rootKey ?? "root";
-      actor.translator = adapter.createTranslator({ threadId: actor.id, rootKey });
+      const thread = this.dependencies.repo.store.getThread(actor.id);
+      const identity = thread?.provider === "acp" ? AcpIdentity.parse(thread) : undefined;
+      actor.translator = adapter.createTranslator({
+        threadId: actor.id,
+        rootKey,
+        ...(identity ? { acpIdentity: identity } : {}),
+      });
       actor.apply([{ type: "process.started" }]);
       const rootAgent = state.agents[rootKey]?.agent;
-      const aceMcp = rootAgent
-        ? this.dependencies.mcp?.(actor.id, rootAgent.id, lifetime.signal)
-        : undefined;
+      const aceMcp =
+        rootAgent && state.config.provider !== "acp"
+          ? this.dependencies.mcp?.(actor.id, rootAgent.id, lifetime.signal)
+          : undefined;
+      const context = await this.dependencies.context?.(actor.id, lifetime.signal);
       const session = await adapter.openSession({
+        ...context,
         ...(aceMcp ? { aceMcp } : {}),
         ...(metadata.options ? { options: metadata.options } : {}),
+        ...(identity ? { acpIdentity: identity } : {}),
+        onCapabilities: (effectiveCapabilities, acpSupport) => {
+          if (generation !== actor.generation) return;
+          actor.effectiveCapabilities = effectiveCapabilities;
+          actor.enqueue(() =>
+            this.dependencies.repo.store.appendEvents(
+              actor.id,
+              [
+                {
+                  type: "thread.updated",
+                  effectiveCapabilities,
+                  ...(acpSupport ? { acpSupport } : {}),
+                },
+              ],
+              this.dependencies.clock.now(),
+            ),
+          );
+        },
         threadId: actor.id,
         rootKey,
         cwd: metadata.cwd,
@@ -75,6 +108,7 @@ export class Sessions {
         throw new Error("Provider session closed while opening");
       }
       actor.session = session;
+      actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
       this.dependencies.repo.nativeSession(actor.id, session.nativeSessionId, session.instanceId);
       this.dependencies.wake(actor.id);
     } catch (error) {

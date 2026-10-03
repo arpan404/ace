@@ -12,14 +12,24 @@ import type { BrowserServiceOptions } from "@ace/browser";
 import type { DaemonPreviewOptions } from "../preview.ts";
 import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
+import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
   agentControl?: {
     policy?: Partial<import("@ace/protocol").DelegationPolicy>;
     extensions?: import("../agent-control/tools.ts").AgentControlExtensions;
   };
+  claude?: DaemonClaudeOptions;
   screen?: ScreenManager;
   commands?: DaemonCommandIntegration;
   config?: Config;
+  /** Explicit owner-approved local bindings. Remote clients cannot send paths/argv. */
+  acpBindings?: readonly import("@ace/agent-registry").LocalBinding[];
+  acpManagers?: Partial<Record<"npm" | "uv", string>>;
+  acpMcpServers?: readonly unknown[];
+  acpEnvironment?(identity: import("@ace/protocol").AcpIdentity): {
+    env: NodeJS.ProcessEnv;
+    loginRevision: string;
+  };
   handler?: CommandHandler | undefined;
   engine?: EngineOptions & { adapterDiscovery?: typeof discoverProviders };
   toolkits?: readonly Toolkit[];

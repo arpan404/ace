@@ -1,3 +1,4 @@
+import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 import { AgentLaunchOptions, ThreadPrepareCommand } from "./agent-control.ts";
 import { RunTrigger } from "./thread.ts";
@@ -40,6 +41,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
     accountId: z.string().min(1).max(128).optional(),
     options: AgentLaunchOptions.optional(),
     trigger: RunTrigger.optional(),
+    ...AcpIdentity.partial().shape,
     model: z.string().optional(),
     title: z.string().optional(),
     input: z.array(ContentPart).min(1),
@@ -66,6 +68,16 @@ export const CommandPayload = z.discriminatedUnion("type", [
     cascade: z.boolean().default(true),
   }),
   z.object({ type: z.literal("thread.archive"), threadId: ThreadId }),
+  z.object({
+    type: z.literal("thread.model.set"),
+    threadId: ThreadId,
+    model: z.string().min(1).max(256),
+  }),
+  z.object({
+    type: z.literal("thread.mode.set"),
+    threadId: ThreadId,
+    mode: z.string().min(1).max(256),
+  }),
   z.object({
     type: z.literal("interaction.resolve"),
     interactionId: InteractionId,

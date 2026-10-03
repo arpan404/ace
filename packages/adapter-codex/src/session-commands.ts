@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ProviderSession } from "@ace/engine-api";
 import type { ContentPart, AgentLaunchOptions } from "@ace/protocol";
 import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
@@ -7,9 +8,21 @@ import type { ThreadQueueAddParams } from "./generated/v2/ThreadQueueAddParams.t
 import type { TurnInterruptParams } from "./generated/v2/TurnInterruptParams.ts";
 import type { ThreadBackgroundTerminalsListParams } from "./generated/v2/ThreadBackgroundTerminalsListParams.ts";
 import type { ThreadBackgroundTerminalsTerminateParams } from "./generated/v2/ThreadBackgroundTerminalsTerminateParams.ts";
-import { childKey, list, obj, shellKey, str } from "./native.ts";
+import { childKey, shellKey, str } from "./native.ts";
 import { approvalResult } from "./resolution.ts";
 import { nativeInput as input } from "./native-input.ts";
+const TerminalPage = z
+  .object({
+    data: z
+      .array(
+        z
+          .object({ processId: z.string().min(1).max(1024), itemId: z.string().optional() })
+          .passthrough(),
+      )
+      .max(256),
+    nextCursor: z.string().min(1).max(4096).nullish(),
+  })
+  .passthrough();
 export type Pending = {
   request: ServerRequest;
   answer(value: unknown): void;
@@ -82,22 +95,27 @@ export function createSessionCommands(
     }
   }
   async function stopShells(threadId: string, itemId?: string): Promise<void> {
-    let cursor: unknown = undefined;
-    const processIds: string[] = [];
-    do {
-      const result = obj(
+    let cursor: string | undefined;
+    const cursors = new Set<string>();
+    const processIds = new Set<string>();
+    for (let page = 0; ; page++) {
+      if (page >= 64) throw new Error("Codex terminal pagination capacity reached");
+      const result = TerminalPage.parse(
         await request("thread/backgroundTerminals/list", {
           threadId,
           ...(cursor ? { cursor: str(cursor) } : {}),
         } satisfies ThreadBackgroundTerminalsListParams),
       );
-      for (const terminal of list(result["data"])) {
-        const t = obj(terminal);
-        if (!itemId || t["itemId"] === itemId) processIds.push(str(t["processId"]));
+      for (const terminal of result.data) {
+        if (!itemId || terminal.itemId === itemId) processIds.add(terminal.processId);
+        if (processIds.size > 4096) throw new Error("Codex terminal capacity reached");
       }
-      cursor = result["nextCursor"];
-    } while (cursor);
-    if (itemId && !processIds.length) throw new Error("Background terminal is no longer listed");
+      if (!result.nextCursor) break;
+      if (cursors.has(result.nextCursor)) throw new Error("Repeated Codex terminal cursor");
+      cursor = result.nextCursor;
+      cursors.add(cursor);
+    }
+    if (itemId && !processIds.size) throw new Error("Background terminal is no longer listed");
     for (const processId of processIds)
       await request(
         "thread/backgroundTerminals/terminate",

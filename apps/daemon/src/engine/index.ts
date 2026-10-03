@@ -16,6 +16,7 @@ export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
   limits?: Partial<EngineLimits>;
+  sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
   ids?: IdSource;
   threadId?: () => string;
   registry?: AdapterRegistry;
@@ -66,6 +67,7 @@ export class Engine {
     this.controls = new IntentWorkers((id) => this.control(this.actor(id)), this.report);
     this.sessions = new Sessions({
       ...(options.mcp ? { mcp: options.mcp } : {}),
+      ...(options.sessionContext ? { context: options.sessionContext } : {}),
       repo: this.repo,
       registry: this.registry,
       clock: this.clock,
@@ -354,7 +356,10 @@ export class Engine {
     const state = this.repo.requireState(intent.threadId);
     return (
       this.registry.has(state.config.provider) &&
-      this.registry.get(state.config.provider).capabilities.steer
+      (
+        this.actors.get(intent.threadId)?.effectiveCapabilities ??
+        this.registry.get(state.config.provider).capabilities
+      ).steer
     );
   }
   private async steer(actor: ThreadActor): Promise<void> {

@@ -1,3 +1,4 @@
+import { McpProviderSessions } from "./mcp-provider-sessions.ts";
 import { randomUUID } from "node:crypto";
 import { ItemId, type McpScope } from "@ace/protocol";
 import {
@@ -73,6 +74,7 @@ export async function startDaemonMcp(
   const server = await startMcpServer({ registry });
   return {
     url: server.url,
+    providers: new McpProviderSessions(),
     /** Provider adapters own this lease, and end it or abort lifetime on every exit path. */
     openSession(scope: McpScope, lifetime: AbortSignal) {
       if (!store.getMcpAgent(scope.threadId, scope.agentId)) throw new Error("Unknown MCP caller");

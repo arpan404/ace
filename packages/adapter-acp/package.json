@@ -10,11 +10,13 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@ace/agent-registry": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/engine-api": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "@agentclientprotocol/sdk": "1.7.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

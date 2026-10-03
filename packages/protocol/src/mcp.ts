@@ -47,3 +47,23 @@ export const McpIntent = z.discriminatedUnion("type", [McpNotificationIntent, Mc
 export type McpIntent = z.infer<typeof McpIntent>;
 export const PendingMcpIntent = z.object({ id: z.string().min(1).max(256), intent: McpIntent });
 export type PendingMcpIntent = z.infer<typeof PendingMcpIntent>;
+
+const providerRequest = z.object({ requestId: z.string().min(1).max(512), threadId: ThreadId });
+const serverName = z.string().min(1).max(256);
+export const McpProviderRequest = z.discriminatedUnion("type", [
+  providerRequest.extend({ type: z.literal("mcp.status") }),
+  providerRequest.extend({
+    type: z.literal("mcp.replace"),
+    servers: z
+      .record(serverName, z.unknown())
+      .refine((servers) => Object.keys(servers).length <= 256)
+      .meta({ maxProperties: 256, "x-ace-constraint": "At most 256 dynamic MCP servers." }),
+  }),
+  providerRequest.extend({ type: z.literal("mcp.reconnect"), name: serverName }),
+  providerRequest.extend({ type: z.literal("mcp.enable"), name: serverName }),
+  providerRequest.extend({ type: z.literal("mcp.disable"), name: serverName }),
+]);
+export const McpProviderResult = providerRequest.extend({
+  type: z.literal("mcp.result"),
+  result: z.unknown(),
+});

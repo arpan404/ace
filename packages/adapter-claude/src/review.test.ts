@@ -119,16 +119,15 @@ test("root usage preserves provider input, output and cache counts", () => {
     usage: { input_tokens: 31, output_tokens: 17, cache_read_input_tokens: 9 },
     total_cost_usd: 0.04,
   });
-  expect(h.events.filter((e) => e.type === "usage.updated")).toEqual([
-    {
-      type: "usage.updated",
-      agentId: h.state.agents["root"]?.agent.id,
-      inputTokens: 31,
-      outputTokens: 17,
-      cachedInputTokens: 9,
-      costUsd: 0.04,
-    },
-  ]);
+  const updates = h.events.filter((e) => e.type === "usage.updated");
+  expect(updates.find((e) => e.usageScope === "agent")).toMatchObject({
+    inputTokens: 40,
+    outputTokens: 17,
+    cachedInputTokens: 9,
+    counterMode: "incremental",
+  });
+  expect(updates.find((e) => e.usageScope === "agent")).not.toHaveProperty("costUsd");
+  expect(updates.find((e) => e.usageScope === "provider_session")).toMatchObject({ costUsd: 0.04 });
 });
 test("child assistant usage refines a message without counting retransmissions twice", () => {
   const h = harness();
@@ -148,7 +147,7 @@ test("child assistant usage refines a message without counting retransmissions t
   usage(7);
   usage(7);
   const updates = h.events.filter((e) => e.type === "usage.updated");
-  expect(updates.at(-1)).toMatchObject({ inputTokens: 11, outputTokens: 7, cachedInputTokens: 3 });
+  expect(updates.at(-1)).toMatchObject({ inputTokens: 14, outputTokens: 7, cachedInputTokens: 3 });
   expect(updates.every((e) => e.agentId !== h.state.agents["root"]?.agent.id)).toBe(true);
 });
 test("an interrupted plan permission records cancellation", () => {
