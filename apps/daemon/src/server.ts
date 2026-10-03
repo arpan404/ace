@@ -144,7 +144,7 @@ export async function startServer(options: ServerOptions): Promise<{
         refuseUpgrade(socket, "403 Forbidden");
         return;
       }
-      const kind = isLocal ? "local" : "remote";
+      const kind: "local" | "remote" = isLocal ? "local" : "remote";
       const address = request.socket.remoteAddress ?? "unknown";
       if (cleanups.size >= 256 || !preAuth.admits(kind, address)) {
         refuseUpgrade(socket, "503 Service Unavailable");

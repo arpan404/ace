@@ -2,6 +2,7 @@ import { once } from "node:events";
 import { afterEach, expect, test } from "vitest";
 import { DeviceId } from "@ace/protocol";
 import { Client, fixture, token } from "./socket-test-support.ts";
+import { setup } from "./remote-test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -53,8 +54,8 @@ test("a socket that never says hello is terminated at the hello deadline", async
   expect(await authenticated.next()).toEqual({ type: "pong" });
 });
 
-test("anonymous sockets are capped per address without counting authenticated ones", async () => {
-  const f = await fixture({ preAuth: { perAddress: 4, perListener: 8, helloMs: 300 } });
+test("anonymous loopback sockets are capped without counting authenticated ones", async () => {
+  const f = await fixture({ preAuth: { local: 4, helloMs: 300 } });
   cleanups.push(() => f.close());
   // More authenticated clients than the anonymous budget: none of them hold a pre-auth slot.
   for (let i = 0; i < 6; i++) await hello(await f.open());
@@ -62,5 +63,22 @@ test("anonymous sockets are capped per address without counting authenticated on
   expect(await upgrade(f.server.url)).toBe(503);
   // Once the silent peers miss their deadline, a real client is admitted again.
   await Promise.all(silent.map((client) => once(client.socket, "close")));
+  await hello(await f.open());
+});
+
+test("one remote address cannot take the remote budget or the loopback desktop's", async () => {
+  const f = await setup({ preAuth: { perAddress: 2, helloMs: 60_000 } });
+  const remote = f.server.remoteUrl;
+  const tls = { rejectUnauthorized: false };
+  for (let i = 0; i < 2; i++) {
+    const silent = new Client(remote, tls);
+    cleanups.push(() => silent.close());
+    await once(silent.socket, "open");
+  }
+  const refused = new Client(remote, tls);
+  refused.socket.on("error", () => {});
+  const [, response] = await once(refused.socket, "unexpected-response");
+  expect(response.statusCode).toBe(503);
+  refused.socket.terminate();
   await hello(await f.open());
 });
