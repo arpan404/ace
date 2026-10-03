@@ -6,6 +6,7 @@
 export * from "./accounts.ts";
 export * from "./agents.ts";
 export * from "./arrange.ts";
+export * from "./changed-files.ts";
 export * from "./checkout.ts";
 export * from "./content-hash.ts";
 export * from "./deck.ts";
