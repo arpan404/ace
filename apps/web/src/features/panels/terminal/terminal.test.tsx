@@ -126,3 +126,25 @@ test("a long background shell shows its latest output, and the whole of it on re
   );
   expect(output(panel, "relay:soak output").textContent).toContain("client ios-119 connected");
 });
+
+test("a terminal that fell further behind than the daemon keeps starts again from what it holds", async () => {
+  const { app, panel, terminals } = await openTerminal();
+  await userEvent.click(await within(panel).findByRole("tab", { name: "tests" }));
+  await waitFor(() => expect(output(panel, "tests output").textContent).toContain("3 pass"));
+  const tests = terminals.list("thread-cold-start").find((info) => info.name === "tests");
+  if (!tests) throw new Error("expected the tests terminal");
+
+  // While the socket is down, the build prints more than the daemon's scrollback ring holds.
+  const block = (n: number) => `${`chunk ${n} `.padEnd(20_000, ".")}\r\n`;
+  act(() => {
+    app.daemon.disconnectAll();
+    for (let n = 1; n <= 5; n++) terminals.output(tests.id, block(n));
+    terminals.output(tests.id, "build finished\r\n");
+  });
+
+  await waitFor(() =>
+    expect(output(panel, "tests output").textContent).toContain("build finished"),
+  );
+  // What the ring dropped is gone from the screen too, rather than spliced in out of order.
+  expect(output(panel, "tests output").textContent).not.toContain("3 pass");
+});
