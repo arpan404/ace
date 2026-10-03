@@ -403,6 +403,17 @@ test("a workspace draft lists slash commands without creating a thread and refus
       provider: "codex" as const,
     },
   };
+  const library = f.daemon.commands;
+  if (!library) throw new Error("Command library unavailable");
+  expect(
+    await library.updateRuntime(f.thread.id, {
+      sessionUpdate: "available_commands_update",
+      availableCommands: [{ name: "session-only", description: "Runtime fixture" }],
+    }),
+  ).toBe(true);
+  expect(
+    (await client.request({ type: "commands.list", threadId: f.thread.id })).commands,
+  ).toContainEqual(expect.objectContaining({ name: "session-only", scope: "runtime" }));
   const listed = await client.request(input);
   expect(listed.commands.length).toBeGreaterThan(0);
   const generic = await client.request({

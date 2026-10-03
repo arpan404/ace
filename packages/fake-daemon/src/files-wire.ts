@@ -141,7 +141,11 @@ export class FakeFilesWire {
               });
               return;
             }
-            if ((op.validator && op.validator !== file.version) || op.offset > file.bytes.length)
+            if (
+              (op.offset > 0 && !op.validator) ||
+              (op.validator && op.validator !== file.version) ||
+              op.offset > file.bytes.length
+            )
               throw new Error("CONFLICT");
             const channel = allocate();
             channels.set(channel, {

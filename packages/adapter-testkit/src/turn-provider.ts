@@ -17,7 +17,7 @@ export function createTurnProvider(options: {
   config: ScriptedTurnConfig;
   markers?: { hold: string; limit: string; notice: string };
   now(): number;
-  schedule(delayMs: number, callback: () => void): () => void;
+  schedule(delayMs: number, callback: () => void | Promise<void>): () => void;
 }): ProviderAdapter {
   const config = ScriptedTurnConfig.parse(options.config);
   const pending = new Map<string, Fact[]>();
@@ -87,19 +87,32 @@ export function createTurnProvider(options: {
       return {
         nativeSessionId:
           ctx.resume?.nativeSessionId ?? `scripted-${options.provider}-${ctx.threadId}`,
-        async send(input) {
+        async send(input, delivery) {
           if (closed) throw new Error("Scripted session unavailable");
           if (active) {
-            if (!options.markers) throw new Error("Scripted session unavailable");
+            if (!options.markers || delivery !== "steer")
+              throw new Error("Scripted session unavailable");
             const turn = active;
             active = undefined;
             cancel?.();
             await emit([
-              { type: "item.upsert", agent: "root", item: `steer-${++sequence}`,
-                draft: { type: "message", role: "user", complete: true, parts: input } },
-              { type: "item.upsert", agent: "root", item: `reply-${turn}`,
-                draft: { type: "message", role: "assistant", complete: true,
-                  parts: [{ type: "text", text: options.reply }] } },
+              {
+                type: "item.upsert",
+                agent: "root",
+                item: `steer-${++sequence}`,
+                draft: { type: "message", role: "user", complete: true, parts: input },
+              },
+              {
+                type: "item.upsert",
+                agent: "root",
+                item: `reply-${turn}`,
+                draft: {
+                  type: "message",
+                  role: "assistant",
+                  complete: true,
+                  parts: [{ type: "text", text: options.reply }],
+                },
+              },
               { type: "turn.ended", agent: "root", nativeTurnId: turn, outcome: "completed" },
             ]);
             return;
@@ -126,7 +139,9 @@ export function createTurnProvider(options: {
           if (closed || active !== turn) return;
           if (options.markers && text.includes(options.markers.hold)) return;
           if (options.markers && text.includes(options.markers.limit)) {
-            await emit([{ type: "retry", agent: "root", on: "rate_limit", message: options.markers.notice }]);
+            await emit([
+              { type: "retry", agent: "root", on: "rate_limit", message: options.markers.notice },
+            ]);
             return;
           }
           const finish = async () => {
@@ -154,7 +169,7 @@ export function createTurnProvider(options: {
               cancelledLimit?.();
               cancelledLimit = options.schedule(config.resetMs, () => {
                 turns = 0;
-                void emit([{ type: "limit.cleared", agent: "root" }]).catch(fail);
+                return emit([{ type: "limit.cleared", agent: "root" }]).catch(fail);
               });
             } else {
               turns++;
@@ -177,7 +192,7 @@ export function createTurnProvider(options: {
           };
           if (config.delayMs)
             cancel = options.schedule(config.delayMs, () => {
-              void finish().catch(fail);
+              return finish().catch(fail);
             });
           else await finish();
         },

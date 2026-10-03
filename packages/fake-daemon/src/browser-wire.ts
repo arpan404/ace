@@ -10,7 +10,14 @@ export function fakeBrowserSession(
 ) {
   const subscriptions = new Map<
     string,
-    { stop(): void; pump(): void; subscribers: Set<string>; sent?: number; ack?: number }
+    {
+      stop(): void;
+      pump(): void;
+      subscribers: Set<string>;
+      generation: number;
+      sent?: number;
+      ack?: number;
+    }
   >();
   return {
     close() {
@@ -79,12 +86,16 @@ export function fakeBrowserSession(
           break;
         }
         case "browser.subscribe": {
+          if (!browser.view(id) || browser.view(id)?.closed) throw new Error("browser_not_open");
           const subscriber = message.subscriberId ?? "legacy";
           const existing = subscriptions.get(id);
           if (existing) {
             if (existing.subscribers.size >= 64 && !existing.subscribers.has(subscriber))
               throw new Error("subscription_limit");
             existing.subscribers.add(subscriber);
+            delete existing.sent;
+            delete existing.ack;
+            existing.pump();
             break;
           }
           if (subscriptions.size >= 8) throw new Error("subscription_limit");
@@ -92,16 +103,23 @@ export function fakeBrowserSession(
             stop(): void;
             pump(): void;
             subscribers: Set<string>;
+            generation: number;
             sent?: number;
             ack?: number;
           } = {
             subscribers: new Set([subscriber]),
+            generation: browser.generation(id),
             stop: noop,
             pump() {
               if (!host.thread(id)) {
                 entry.stop();
                 subscriptions.delete(id);
                 return;
+              }
+              if (entry.generation !== browser.generation(id)) {
+                entry.generation = browser.generation(id);
+                delete entry.sent;
+                delete entry.ack;
               }
               const view = browser.view(id);
               if (view) send({ type: "browser.state", state: BrowserState.parse(view) });

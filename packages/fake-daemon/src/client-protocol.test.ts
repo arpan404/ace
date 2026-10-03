@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { z } from "zod";
 import { expect, test } from "vitest";
 import { Client } from "@ace/client";
 import {
@@ -605,7 +607,9 @@ test("fake workspace changes preserve preparation selection and reject dirty cha
       }),
     ).toMatchObject({ ok: true });
     lease.release();
-  } finally { await f.client.close(); }
+  } finally {
+    await f.client.close();
+  }
 });
 test("a failing service answers with the daemon's error until it is restored", async () => {
   const f = await fixture();
@@ -636,6 +640,96 @@ test("a workspace's scripts can be replaced, down to none", async () => {
       operation: { op: "scripts.list", threadId: ThreadId.parse("t-scripts") },
     });
     expect(reply.result).toEqual({ kind: "scripts", scripts: [] });
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("fake file resumption requires the current validator for nonzero offsets", async () => {
+  const f = await fixture();
+  f.daemon.createThread({
+    id: "resume",
+    workspaceId: "workspace",
+    title: "Resume",
+    provider: "codex",
+  });
+  const threadId = ThreadId.parse("resume");
+  try {
+    const bytes = new Uint8Array([1, 2, 3]);
+    await f.client.uploadFile(
+      {
+        threadId,
+        path: "resume.dat",
+        expected: null,
+        size: bytes.length,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+      },
+      (async function* () {
+        yield bytes;
+      })(),
+    );
+    const stat = await f.client.request({
+      type: "files.request",
+      threadId,
+      operation: { op: "stat", path: "resume.dat" },
+    });
+    if (stat.type !== "files.result") throw new Error("stat failed");
+    const { version } = z.object({ version: z.string() }).parse(stat.value);
+    expect(
+      await f.client.request({
+        type: "files.request",
+        threadId,
+        operation: { op: "download", path: "resume.dat", offset: 1 },
+      }),
+    ).toMatchObject({ type: "files.error", code: "CONFLICT" });
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of f.client.downloadFile({
+      threadId,
+      op: "download",
+      path: "resume.dat",
+      offset: 1,
+      validator: version,
+    }))
+      chunks.push(chunk);
+    expect(Buffer.concat(chunks)).toEqual(Buffer.from([2, 3]));
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("fake Preview subscribers join with current pixels and survive reopening without an old frame ACK", async () => {
+  const f = await fixture();
+  f.daemon.createThread({
+    id: "preview-generation",
+    workspaceId: "workspace",
+    title: "Preview",
+    provider: "codex",
+  });
+  const threadId = ThreadId.parse("preview-generation"),
+    workspaceId = WorkspaceId.parse("workspace");
+  const seen: Message[] = [];
+  f.client.onMessage((message) => {
+    if (message.type === "browser.frame" || message.type === "browser.state") seen.push(message);
+  });
+  try {
+    await f.client.request({ type: "browser.open", options: { threadId, workspaceId } });
+    await f.client.request({ type: "browser.subscribe", threadId, subscriberId: "one" });
+    await f.client.request({ type: "diagnostics.health" });
+    let before = seen.length;
+    await f.client.request({ type: "browser.subscribe", threadId, subscriberId: "two" });
+    await f.client.request({ type: "diagnostics.health" });
+    expect(seen.slice(before)).toContainEqual(expect.objectContaining({ type: "browser.frame" }));
+    await f.client.request({ type: "browser.close", threadId });
+    before = seen.length;
+    await f.client.request({ type: "browser.open", options: { threadId, workspaceId } });
+    await f.client.request({ type: "diagnostics.health" });
+    expect(seen.slice(before)).toContainEqual(expect.objectContaining({ type: "browser.frame" }));
+    expect(seen.slice(before)).toContainEqual(
+      expect.objectContaining({
+        type: "browser.state",
+        state: expect.objectContaining({ closed: false }),
+      }),
+    );
   } finally {
     await f.client.close();
   }
