@@ -1,0 +1,100 @@
+import { nativeTheme, type BrowserWindow } from "electron";
+import { shell } from "electron";
+import type { AppInfo, DaemonConnection, NativeAppearance } from "../shared/contract.ts";
+import type { Background } from "./background.ts";
+import type { DaemonRuntime } from "./daemon/runtime.ts";
+import type { Handlers } from "./ipc.ts";
+import { openInEditor, reveal } from "./os/editor.ts";
+import { openPermissionPane, permissions } from "./os/permissions.ts";
+import { checkForUpdate } from "./os/updates.ts";
+import type { SettingsStore } from "./settings-store.ts";
+import { detectToolchains } from "./system/toolchains.ts";
+import { reducedTransparency, windowState } from "./window/main-window.ts";
+
+export function appearance(): NativeAppearance {
+  return {
+    dark: nativeTheme.shouldUseDarkColors,
+    highContrast: nativeTheme.shouldUseHighContrastColors,
+    reducedTransparency: reducedTransparency(),
+    source: nativeTheme.themeSource,
+  };
+}
+
+/** Every `window.ace` request, already parsed by `registerHandlers`. */
+export function createHandlers(options: {
+  info: AppInfo;
+  runtime: DaemonRuntime;
+  settings: SettingsStore;
+  background: Background;
+  window(): BrowserWindow | undefined;
+  env: NodeJS.ProcessEnv;
+  /** The renderer's daemon hand-off; may reject while the daemon is still starting. */
+  connection(): Promise<DaemonConnection>;
+}): Handlers {
+  const { runtime, settings, background } = options;
+  const requireWindow = () => {
+    const window = options.window();
+    if (!window) throw new Error("No window");
+    return window;
+  };
+  return {
+    "app.info": () => options.info,
+    "daemon.connection": () => options.connection(),
+    "daemon.status": () => runtime.current(),
+    "daemon.restart": () => runtime.restart(),
+    "daemon.diagnose": () => runtime.diagnose(),
+    "daemon.pause": (paused) => runtime.pause(paused),
+    "onboarding.providers": () => runtime.providers(),
+    "system.toolchains": () => detectToolchains(options.env),
+    "shell.openInEditor": (request) => openInEditor(request),
+    "shell.reveal": (request) => reveal(request.path),
+    "shell.openExternal": async (url) => {
+      await shell.openExternal(url);
+      return true;
+    },
+    "notify.show": (request) =>
+      background.alert({
+        category: "needsYou",
+        id: `renderer-${Date.now()}-${request.title}`,
+        threadId: request.threadId,
+        title: request.title,
+        body: request.body,
+        link: request.threadId
+          ? { kind: "thread", threadId: request.threadId }
+          : { kind: "new-thread" },
+      }),
+    "badge.set": (count) => {
+      background.attention.update({ ...background.attention.current(), needsYou: count });
+      return undefined;
+    },
+    "window.action": (action) => {
+      const window = requireWindow();
+      if (action === "minimize") window.minimize();
+      else if (action === "maximize") {
+        if (window.isMaximized()) window.unmaximize();
+        else window.maximize();
+      } else if (action === "fullscreen") window.setFullScreen(!window.isFullScreen());
+      else window.close();
+      return windowState(window);
+    },
+    "window.state": () => windowState(requireWindow()),
+    "theme.appearance": () => appearance(),
+    "theme.setSource": (source) => {
+      nativeTheme.themeSource = source;
+      return appearance();
+    },
+    "settings.get": () => settings.get(),
+    "settings.update": (patch) => settings.update(patch),
+    "permissions.status": () => permissions(),
+    "permissions.open": (pane) => openPermissionPane(pane),
+    "browser.place": (placement) => {
+      background.views.place(placement);
+      return undefined;
+    },
+    "browser.control": (request) => {
+      background.browserControl(request.threadId, request.controller);
+      return undefined;
+    },
+    "updates.check": () => checkForUpdate(options.info.version),
+  };
+}

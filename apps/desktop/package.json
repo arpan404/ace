@@ -1,0 +1,36 @@
+{
+  "name": "@ace/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ace desktop shell",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "dev": "node scripts/dev.ts",
+    "build": "node scripts/build.ts",
+    "package": "node scripts/package.ts",
+    "rebuild-native": "node scripts/rebuild-native.ts",
+    "e2e": "vitest run --config vitest.e2e.config.ts"
+  },
+  "dependencies": {
+    "@ace/client": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "@ace/service": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@ace/browser": "workspace:*",
+    "@ace/daemon": "workspace:*",
+    "@ace/release": "workspace:*",
+    "@electron/rebuild": "4.2.0",
+    "@types/ws": "^8.18.1",
+    "@vscode/ripgrep": "1.18.0",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.25.12",
+    "playwright-core": "1.63.0",
+    "ws": "^8.18.3"
+  },
+  "productName": "ace"
+}

@@ -3,6 +3,17 @@ set -eu
 if [ "$(uname -s)" != Darwin ]; then echo 'screen-helper: skipped (requires macOS)'; exit 0; fi
 cd "$(dirname "$0")"
 mkdir -p build
+# Release builds (ACE_SCREEN_SIGN_RELEASE=1, set by `desktop:package --full`) must be
+# notarizable: a Developer ID Application identity and a secure timestamp. Local builds keep
+# the cached identity and skip the timestamp server.
+release=${ACE_SCREEN_SIGN_RELEASE:-0}
+if [ "$release" = 1 ]; then
+  release_identity=${ACE_SCREEN_SIGN_IDENTITY:-${CSC_NAME:-}}
+  if [ -z "$release_identity" ] || ! security find-identity -v -p codesigning 2>/dev/null | grep -F -- "$release_identity" | grep -q 'Developer ID Application'; then
+    echo 'screen-helper: release signing needs a "Developer ID Application" identity in the keychain, named by ACE_SCREEN_SIGN_IDENTITY or CSC_NAME' >&2
+    exit 1
+  fi
+fi
 sources='Protocol.swift FrameChanges.swift Metrics.swift AXAttributes.swift Accessibility.swift JPEGEncoder.swift FrameWriter.swift Capture.swift WindowFocus.swift Input.swift InputV2.swift Main.swift'
 # Cache before compiler, keychain or signing work. Builds are explicit, never a daemon action.
 source_hash=$(cat $sources Info.plist build.sh | shasum -a 256 | cut -d ' ' -f 1)
@@ -11,7 +22,7 @@ binary="$app/Contents/MacOS/ace-screen-helper"
 unchanged=false
 if [ -f build/source.hash ] && [ "$(cat build/source.hash)" = "$source_hash" ] && [ -x "$binary" ]; then
   unchanged=true
-  if [ -f build/manifest.json ] && [ -L build/ace-screen-helper ]; then
+  if [ "$release" != 1 ] && [ -f build/manifest.json ] && [ -L build/ace-screen-helper ]; then
     echo 'screen-helper: unchanged; build and signature retained'; exit 0
   fi
 fi
@@ -42,6 +53,9 @@ else
 fi
 printf '%s\n' "$source_hash" > build/source.hash
 printf '%s\n' "$unsigned_sha" > build/unsigned.hash
+fi
+if [ "$release" = 1 ]; then
+  codesign --force --sign "$release_identity" --options runtime --timestamp "$app"
 fi
 sha=$(shasum -a 256 "$binary" | cut -d ' ' -f 1)
 plist_sha=$(shasum -a 256 "$app/Contents/Info.plist" | cut -d ' ' -f 1)
