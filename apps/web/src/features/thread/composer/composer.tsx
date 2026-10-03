@@ -46,6 +46,7 @@ export function Composer(props: {
   const [highlight, setActive] = useState({ key: "", index: 0 });
   const [stacked, setStacked] = useState(false);
   const [narrow, setNarrow] = useState(false);
+  const [terse, setTerse] = useState(false);
   const picked = useRef(new Set<string>());
   // Where to put the caret once an accepted suggestion has rendered.
   const placeCaret = useRef<number | undefined>(undefined);
@@ -63,22 +64,45 @@ export function Composer(props: {
   const empty = !text.trim() && !attachments.items.length;
   const canSend = !empty && !attachments.uploading;
 
+  // Fit the input to its text and decide whether the text has outgrown one line, on every
+  // edit and again when the layout changes the input's width. An empty composer is always one
+  // line; once stacked it stays so until the text is shorter than when it wrapped, so the
+  // layout never flips back and forth while typing at the edge.
+  const stackedAt = useRef(0);
   useLayoutEffect(() => {
     const el = input.current;
     if (!el) return;
-    el.style.height = "auto";
-    const lineHeight = 14.5 * 1.4;
-    el.style.height = `${Math.min(el.scrollHeight, innerHeight * 0.4)}px`;
-    setStacked(text.includes("\n") || el.scrollHeight > lineHeight + 16 + 4);
     if (placeCaret.current !== undefined) {
       el.setSelectionRange(placeCaret.current, placeCaret.current);
       placeCaret.current = undefined;
     }
-  }, [text]);
+    if (!text) {
+      // One line from the stylesheet; a wrapped placeholder must not size it.
+      el.style.height = "";
+      stackedAt.current = 0;
+      return;
+    }
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, innerHeight * 0.4)}px`;
+    const lineHeight = 14.5 * 1.4;
+    // The narrow layout's one-line input has 8px of vertical padding, the pill 16px.
+    const padding = narrow ? 8 : 16;
+    const wraps = text.includes("\n") || el.scrollHeight > lineHeight + padding + 4;
+    if (wraps && !stackedAt.current) stackedAt.current = text.length;
+    else if (!wraps && stackedAt.current && text.length < stackedAt.current) stackedAt.current = 0;
+    setStacked(stackedAt.current > 0);
+  }, [text, narrow]);
+  // The composer's own width (not the input's, which changes with the layout) picks the
+  // narrow layout: the input on its own line, the controls tucked under it.
+  const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const el = input.current;
+    const el = box.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => setNarrow(el.clientWidth < 400));
+    const observer = new ResizeObserver(() => {
+      setNarrow(el.clientWidth < 440);
+      // Beside the model picker the full hint would wrap; keep it to one line.
+      setTerse(el.clientWidth < 640);
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
@@ -134,12 +158,14 @@ export function Composer(props: {
     }
   };
   const stopping = props.busy && empty && !!props.onStop;
-  const layout = stacked || attachments.items.length > 0;
+  // An empty composer is one line at rest, whatever it held before.
+  const wrapped = stacked && text !== "";
+  const layout = narrow || wrapped || attachments.items.length > 0;
   const placeholder =
-    props.placeholder ?? (narrow ? "Ask anything" : "Ask anything, @ to mention, / for commands");
+    props.placeholder ?? (terse ? "Ask anything" : "Ask anything, @ to mention, / for commands");
 
   return (
-    <div className="relative">
+    <div ref={box} className="relative">
       <SuggestionList id={listId} items={suggestions} active={active} onPick={pick} />
       <div
         style={{
@@ -210,7 +236,7 @@ export function Composer(props: {
           }}
           className={cn(
             "max-h-[40vh] min-h-9 w-full resize-none self-center overflow-y-auto bg-transparent text-[14.5px] leading-[1.4] text-foreground outline-none [grid-area:input] placeholder:text-subtle-foreground",
-            layout ? "px-2.5 pt-2.5 pb-1.5" : "py-2 pr-1.5 pl-2",
+            layout ? (wrapped ? "px-2.5 pt-2.5 pb-1.5" : "px-2.5 pt-2 pb-0") : "py-2 pr-1.5 pl-2",
           )}
         />
         <div className={cn("flex items-center gap-1 [grid-area:ctrls]", layout && "pt-0.5")}>

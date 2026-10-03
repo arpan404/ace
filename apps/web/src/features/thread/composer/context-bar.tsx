@@ -28,7 +28,8 @@ export function ContextBar(props: { thread: ThreadRef }) {
   const { git, change } = useGit(props.thread);
   if (!git) return <div className="h-8" />;
   return (
-    <div className="flex h-8 items-center gap-0.5 px-2.5 pt-2 text-[12px] text-subtle-foreground">
+    // Narrow, the bar scrolls sideways instead of running off the edge.
+    <div className="flex h-8 items-center gap-0.5 overflow-x-auto px-2.5 pt-2 text-[12px] whitespace-nowrap text-subtle-foreground [scrollbar-width:none] *:shrink-0 max-sm:[mask-image:linear-gradient(to_right,black_calc(100%-20px),transparent)]">
       <Menu>
         <MenuTrigger
           aria-label={`Checkout: ${git.mode === "worktree" ? "Worktree" : "Local"}`}

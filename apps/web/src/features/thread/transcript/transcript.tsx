@@ -3,6 +3,7 @@ import { ArrowDownIcon } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { RefObject } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -70,6 +71,7 @@ export function Transcript(props: { threadId: string }) {
     if (el) el.scrollTop = el.scrollHeight;
   };
   useKeepPlace(blocks, virtualizer.scrollToIndex);
+  useStayPinned(viewport, pinnedRef, glidingUntil);
   // Follow streaming output and new blocks while the reader is at the bottom.
   useLayoutEffect(() => {
     if (pinnedRef.current) scrollToEnd();
@@ -97,7 +99,7 @@ export function Transcript(props: { threadId: string }) {
           setPinned(atEnd);
         }}
       >
-        <div className="mx-auto w-full max-w-(--column) px-8 pt-6 pb-16">
+        <div className="mx-auto w-full max-w-(--column) px-5 pt-6 pb-16 sm:px-8">
           <div className="flex justify-center pb-4">
             {hasOlder ? (
               <Button variant="ghost" size="sm" disabled={loading} onClick={() => void loadOlder()}>
@@ -183,6 +185,34 @@ function NewActivity() {
       New activity
     </div>
   );
+}
+
+/**
+ * The reading column changes height when a panel opens, the composer grows or the window
+ * resizes. A reader at the latest stays there: the end glides back into view (instantly under
+ * reduced motion) instead of the newest lines ending up under the composer or the terminal.
+ */
+function useStayPinned(
+  viewport: RefObject<HTMLDivElement | null>,
+  pinned: RefObject<boolean>,
+  glidingUntil: RefObject<number>,
+) {
+  useEffect(() => {
+    const el = viewport.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let height = el.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const next = el.clientHeight;
+      if (next === height) return;
+      height = next;
+      if (!pinned.current) return;
+      // The glide's own scroll events must not read as the reader scrolling away.
+      glidingUntil.current = performance.now() + 800;
+      glideToEnd(el, true);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [viewport, pinned, glidingUntil]);
 }
 
 /** After older history is prepended, keep the block the reader was looking at in place. */

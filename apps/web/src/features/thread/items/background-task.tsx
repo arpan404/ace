@@ -36,14 +36,21 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
     <div
       role="group"
       aria-label={`Background task ${command}`}
-      className="-mx-1.5 flex min-h-7 items-center gap-2 rounded-[7px] px-1.5 text-[13.5px] text-muted-foreground"
+      className="-mx-1.5 flex min-h-7 flex-wrap items-center gap-x-2 gap-y-0.5 rounded-[7px] px-1.5 text-[13.5px] text-muted-foreground"
     >
-      <TerminalIcon aria-hidden size={16} className="shrink-0 text-subtle-foreground" />
-      <span className="shrink-0">{ended[task.status]}</span>
-      <code className="min-w-0 truncate rounded-[5px] bg-secondary px-1.5 py-px font-mono text-[12.5px] text-foreground">
-        {command}
-      </code>
-      {age && <span className="shrink-0 text-subtle-foreground">{age.replace(/ \d+s$/, "")}</span>}
+      {/* Narrow, the command and the Stop wrap under the label rather than shrink to a letter. */}
+      <span className="flex shrink-0 items-center gap-2">
+        <TerminalIcon aria-hidden size={16} className="shrink-0 text-subtle-foreground" />
+        {ended[task.status]}
+      </span>
+      <span className="flex max-w-full min-w-0 items-center gap-2">
+        <code className="min-w-0 truncate rounded-[5px] bg-secondary px-1.5 py-px font-mono text-[12.5px] text-foreground">
+          {command}
+        </code>
+        {age && (
+          <span className="shrink-0 text-subtle-foreground">{age.replace(/ \d+s$/, "")}</span>
+        )}
+      </span>
       {intent?.state === "failed" || error ? (
         <span role="alert" className="ml-auto text-xs text-status-failed">
           Couldn't stop it

@@ -47,29 +47,33 @@ export function ChangedFiles(props: { threadId: string; itemIds: readonly string
   const label = `${files.length} changed ${files.length === 1 ? "file" : "files"}`;
   return (
     <section aria-label={label}>
-      <div className="flex h-[42px] items-center gap-2.5 rounded-card pr-2 pl-3.5 shadow-[inset_0_0_0_1px_var(--border)]">
-        <span className="text-[13.5px] font-medium">{label}</span>
-        <Stat added={added} removed={removed} />
-        <span className="flex-1" />
-        <Button
-          variant="ghost"
-          size="sm"
-          aria-expanded={open}
-          aria-controls={list}
-          onClick={() => setOpen(!open)}
-        >
-          {open ? "Hide files" : "Show files"}
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            setTab("right", "changes");
-            setPanelOpen("right", true);
-          }}
-        >
-          Open diff
-        </Button>
+      {/* On a narrow column the actions wrap under the label instead of squeezing it. */}
+      <div className="flex min-h-[42px] flex-wrap items-center gap-x-2.5 gap-y-0.5 rounded-card py-1 pr-2 pl-3.5 shadow-[inset_0_0_0_1px_var(--border)]">
+        <span className="flex items-center gap-2.5 whitespace-nowrap">
+          <span className="text-[13.5px] font-medium">{label}</span>
+          <Stat added={added} removed={removed} />
+        </span>
+        <span className="flex flex-1 justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-expanded={open}
+            aria-controls={list}
+            onClick={() => setOpen(!open)}
+          >
+            {open ? "Hide files" : "Show files"}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setTab("right", "changes");
+              setPanelOpen("right", true);
+            }}
+          >
+            Open diff
+          </Button>
+        </span>
       </div>
       {open && (
         <ul id={list} className="mt-2 flex flex-col border-l-2 py-1 pl-2.5">

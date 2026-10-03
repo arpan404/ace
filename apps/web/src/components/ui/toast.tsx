@@ -5,14 +5,15 @@ import { buttonVariants } from "./button.tsx";
 
 /**
  * Toasts: glass pills at the bottom centre with an optional action (Undo). Queue them from
- * anywhere under <ToastProvider> with `useToast().add({ title, actionProps })`.
+ * anywhere under <ToastProvider> with `useToast().add({ title, actionProps })`. They stand
+ * clear of the composer (`useToastClearance`) and of the phone's tab bar, never over an input.
  */
 function ToastProvider(props: { children: ReactNode }) {
   return (
     <Toast.Provider limit={3} timeout={5000}>
       {props.children}
       <Toast.Portal>
-        <Toast.Viewport className="fixed bottom-[22px] left-1/2 z-[115] flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col items-center gap-2 outline-none">
+        <Toast.Viewport className="fixed bottom-[var(--toast-bottom,22px)] left-1/2 max-sm:bottom-[var(--toast-bottom,78px)] z-[115] flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col items-center gap-2 outline-none">
           <ToastList />
         </Toast.Viewport>
       </Toast.Portal>
