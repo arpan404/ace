@@ -13,8 +13,15 @@ export const budgets = {
     routeKb: 140,
     /** CSS, gzip. */
     cssKb: 22,
+    /**
+     * Shell plus the heaviest route: what a first screen actually loads. ADR 0045's 200 KB
+     * target is for this number.
+     */
+    firstScreenKb: 999,
     /** A worker (client, markdown, diff) loads off the critical path but is still capped. */
     workerKb: 70,
+    /** A worker with the chunks it loads later, so splitting a worker never hides bytes. */
+    workerTotalKb: 999,
   },
   soak: {
     /** Events in the accelerated month-long run: 30 days at one event every 0.86 s. */

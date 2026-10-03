@@ -4,6 +4,7 @@ import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
 import { phosphorWeights } from "./icon-weights.ts";
 import { reactPlugins } from "./react-plugins.ts";
+import { zodWithoutJsonSchema } from "./zod-json-schema.ts";
 
 // The router plugin must precede the React plugin so route files are generated and split first.
 export default defineConfig({
@@ -12,9 +13,10 @@ export default defineConfig({
     ...reactPlugins(),
     tailwindcss(),
     phosphorWeights(),
+    zodWithoutJsonSchema(),
   ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   build: { target: "es2023", sourcemap: true },
   // Workers (the client worker, markdown, diffs) are ES modules so they can share chunks.
-  worker: { format: "es" },
+  worker: { format: "es", plugins: () => [zodWithoutJsonSchema()] },
 });
