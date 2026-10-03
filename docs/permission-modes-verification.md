@@ -63,4 +63,34 @@ The Claude web agent owns all UI changes. Use PermissionClient.getCapabilities(p
 
 Static verification: typecheck, lint, formatting of changed backend/docs files, check:size, check:deps and docs:protocol --check. All tests and provider runtime validation remain **needs run at merge**. No probes or tests are executed locally.
 
-check:deps exits successfully but dependency-cruiser warns that its TypeScript compiler integration does not yet support TypeScript 7; dependency scan coverage has that tooling limitation.
+check:deps exits successfully with no violations. Dependency-cruiser 18.5.0 emits its missing-typescript-transpiler warning for TypeScript 7. The existing repository configuration uses the supported SWC parser, including type-only imports; it does not depend on the missing TypeScript JS compiler API. Upstream's current release is already installed, so there is no supported upgrade that supplies that API. See [the upstream parser documentation](https://github.com/sverweij/dependency-cruiser/blob/main/doc/options-reference.md#parser).
+
+## Verifier fix round (2026-10-03)
+
+Merged origin/main at a6230291 (#82) before these fixes. No integration-rehearsal finding was present in PR #84 issue comments, reviews or inline comments. The original review file mentioned by the verifier remains unavailable; the current verifier's B1–B3 and follow-ups were reviewed directly.
+
+- B1: the public engine mode command reaches a scripted ACP process. Restricted modes reject bypassPermissions before native I/O; explicit full-access still permits the advertised selector. Selector availability errors retain their existing behavior. No selector-less launch refusal was added.
+- B2: native Claude Grep and Read directory requests reach the engine with a real temporary secrets.json fixture. Both remain needs_you; a regular ordinary file is still approved once with its reason. Unknown/broad tools cannot obtain approval just by supplying a contained file path. The fake broad-read path escalates.
+- B3: a three-level full-access tree tightens its ancestor at the next boundary while the intermediate stays idle. Descendant setters/spawns reject widening; subsequent descendant turns, inherited threads and portable forks receive read-only. The engine and fake use the same bounded pure ancestry walk; historical turns and transcripts are not scanned.
+- Added exact Codex roots and network/tmp/reviewer assertions on open, resume, fork and turns. Added Claude resume/fork, OpenCode resume, Pi resume/cold-fork and ACP load-session restrictions. Cursor scripted SDK recovery resumes both previously restricted and previously full-access checkpoints with sandbox plus autoReview. Providers without native fork support use the portable engine path.
+- Added cold SQLite close/reopen assertions for approval/escalation events, notices, reasons and resolutions; duplicate pending approval replay; and a human answer racing the reviewer's reserved resolution. Expired native requests after shutdown remain expired; restoring audit data does not resubmit them.
+- Renamed the provider metadata/engine test to state its scripted boundary. Actual native policy coverage remains in the separate adapter process/SDK tests.
+
+All behavior assertions below **need run at merge**. Reproductions were written before the corresponding blocker logic changes and assessed statically; no failing or passing test execution is claimed.
+
+| Mutation                                                                               | Guarding behavior                                                                                                | Result                            |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| Allow ACP bypassPermissions via thread.mode.set under auto-review/ask                  | acp-permission-selectors.process.test.ts: public mode changes keep ACP's permission contract                     | not executed (tests run at merge) |
+| Reject advertised native selectors even after explicit full-access                     | Same public-command full-access case                                                                             | not executed (tests run at merge) |
+| Approve broad Grep/Glob from contained paths                                           | provider-permissions.process.test.ts: Claude directory searches; core unknown/broad-tool cases; fake broad reads | not executed (tests run at merge) |
+| Treat directories/missing files as verified regular files                              | Claude Read directory regression and exact ordinary regular-file engine approval                                 | not executed (tests run at merge) |
+| Remove exact-read allowlist or escalate all file reads                                 | Exact ordinary regular-file approval and one-shot reason                                                         | not executed (tests run at merge) |
+| Resolve ceilings only from the immediate parent's cached mode                          | permission-ancestry.process.test.ts: three-level turns, setters, spawns and forks; fake ancestry case            | not executed (tests run at merge) |
+| Apply a pending ancestor override before its turn boundary                             | Existing active-turn boundary test                                                                               | not executed (tests run at merge) |
+| Widen Codex writable roots or lose resume/fork/turn guards                             | adapter-codex permissions.process.test.ts exact roots and network/tmp/reviewer policy                            | not executed (tests run at merge) |
+| Drop restricted native policy on resume/fork                                           | Claude, OpenCode, Pi, ACP and Cursor scripted recovery assertions                                                | not executed (tests run at merge) |
+| Lose permission review events, reasons, notices or resolutions after reopening storage | permission-audit-recovery.process.test.ts cold Store/Engine reopen                                               | not executed (tests run at merge) |
+| Produce multiple decisions on duplicate pending approvals                              | Same file, duplicate pending provider approvals case                                                             | not executed (tests run at merge) |
+| Permit a human answer to replace a reserved automatic resolution                       | Same file, human answer racing automatic decision case                                                           | not executed (tests run at merge) |
+
+Fast static checks only: typecheck, lint, formatting of edited backend/tests/docs files, check:size, check:deps and docs:protocol --check. CI remains disabled and was not run or watched. No UI files were edited.
