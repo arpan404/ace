@@ -6,6 +6,8 @@ export function nativeInput(parts: ContentPart[]): TurnStartParams["input"] {
       ? { type: "text", text: part.text, text_elements: [] }
       : part.type === "image"
         ? { type: "image", url: part.url }
-        : { type: "mention", name: part.path.split("/").at(-1) ?? part.path, path: part.path },
+        : part.mimeType?.startsWith("image/")
+          ? { type: "localImage", path: part.path }
+          : { type: "mention", name: part.path.split("/").at(-1) ?? part.path, path: part.path },
   );
 }

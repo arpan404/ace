@@ -21,3 +21,4 @@ export type { Sidebar, SidebarReader } from "./sidebar.ts";
 export { ticketCredential } from "./credentials.ts";
 export type { Credential } from "./credentials.ts";
 export { retryDelay } from "./lifecycle.ts";
+export { oppositeFollowUpBehavior } from "./follow-up.ts";

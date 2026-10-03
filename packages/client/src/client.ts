@@ -1,6 +1,7 @@
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
+  QueueResult,
   TextSource,
   CommandResult,
   ClientMessage,
@@ -60,6 +61,7 @@ export class Client {
               .acknowledge(message)
               .catch(() => this.connection.fail(new ClientError("storage")));
             break;
+          case "queue.result":
           case "items.page":
           case "output.data":
             this.requests.resolve(message.requestId, message);
@@ -168,6 +170,13 @@ export class Client {
   }
   private async read<T>(
     payload:
+      | {
+          type: "queue.get";
+          threadId: string;
+          after?: string;
+          expectedRevision?: number;
+          limit?: number;
+        }
       | { type: "items.page"; threadId: string; before: number; limit: number }
       | { type: "output.read"; streamId: string; offset: number; limit: number },
     decode: (value: unknown) => T,
@@ -180,6 +189,19 @@ export class Client {
     return this.requests.wait(id, decode, options, () => {
       if (!this.connection.send(parsed.data)) throw new ClientError("offline");
     });
+  }
+  queue(threadId: string, options: RequestOptions = {}) {
+    return this.queuePage({ threadId }, options);
+  }
+  queuePage(
+    payload: { threadId: string; after?: string; expectedRevision?: number; limit?: number },
+    options: RequestOptions = {},
+  ) {
+    return this.read(
+      { type: "queue.get", ...payload },
+      (value) => QueueResult.parse(value).queue,
+      options,
+    );
   }
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },

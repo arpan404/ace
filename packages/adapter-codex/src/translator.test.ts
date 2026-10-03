@@ -262,7 +262,7 @@ test("retry blocks until provider activity resumes", () => {
     willRetry: true,
     error: { codexErrorInfo: "rateLimitExceeded", message: "busy" },
   });
-  expect(h.state.status).toEqual({ state: "waiting", on: "rate_limit" });
+  expect(h.state.status).toEqual({ state: "limited" });
   h.item({ type: "agentMessage", id: "message", text: "retry worked" }, true);
   expect(h.state.status.state).toBe("working");
 });
