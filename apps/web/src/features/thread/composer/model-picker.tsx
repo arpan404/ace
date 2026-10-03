@@ -43,7 +43,7 @@ export function ModelPicker(props: {
         aria-label={
           props.value ? `Model: ${props.value.model}, ${props.value.account}` : "Choose a model"
         }
-        className="inline-flex h-[30px] items-center gap-[5px] rounded-[9px] px-[9px] text-sm font-medium text-muted-foreground transition-colors duration-150 outline-none hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
+        className="inline-flex h-[30px] items-center gap-[5px] rounded-[9px] px-[9px] text-sm font-medium text-muted-foreground transition-colors duration-(--dur-1) outline-none hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
       >
         {props.value ? (
           <>

@@ -7,6 +7,7 @@ export * from "./agents.ts";
 export * from "./arrange.ts";
 export * from "./deck.ts";
 export * from "./diff.ts";
+export * from "./motion.ts";
 export * from "./file-changes.ts";
 export * from "./organizer.ts";
 export * from "./providers.ts";

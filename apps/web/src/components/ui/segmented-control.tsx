@@ -30,7 +30,7 @@ function SegmentedControl<T extends string>(props: {
           key={option.value}
           value={option.value}
           className={cn(
-            "rounded-[7px] px-[11px] font-medium whitespace-nowrap text-muted-foreground outline-none transition-[background-color,color] duration-150 hover:text-foreground",
+            "rounded-[7px] px-[11px] font-medium whitespace-nowrap text-muted-foreground outline-none transition-[background-color,color] duration-(--dur-1) hover:text-foreground",
             "data-pressed:bg-popover data-pressed:text-foreground data-pressed:shadow-raised",
             props.size === "sm" ? "h-[22px] text-[12px]" : "h-[26px] text-sm",
           )}

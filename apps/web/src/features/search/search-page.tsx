@@ -155,7 +155,7 @@ export function SearchPage(props: {
                   role="option"
                   aria-selected={index === active}
                   className={cn(
-                    "rounded-md transition-colors duration-150",
+                    "rounded-md transition-colors duration-(--dur-1)",
                     index === active && "bg-[color-mix(in_oklab,var(--foreground)_6%,transparent)]",
                   )}
                 >

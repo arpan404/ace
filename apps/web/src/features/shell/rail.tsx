@@ -36,7 +36,7 @@ export function Rail() {
             to="/settings"
             aria-label="Settings"
             className={cn(
-              "grid size-[34px] place-items-center rounded-card text-muted-foreground transition-colors duration-150 hover:bg-sidebar-accent hover:text-foreground",
+              "grid size-[34px] place-items-center rounded-card text-muted-foreground transition-colors duration-(--dur-1) hover:bg-sidebar-accent hover:text-foreground",
               current === "settings" && "text-foreground",
             )}
           >
@@ -62,7 +62,7 @@ function RailItem(props: { view: RailView; active: boolean; badge: number }) {
     >
       <span
         className={cn(
-          "grid h-[26px] w-9 place-items-center rounded-[7px] transition-[background-color] duration-150 group-hover:bg-sidebar-accent",
+          "grid h-[26px] w-9 place-items-center rounded-[7px] transition-[background-color] duration-(--dur-1) group-hover:bg-sidebar-accent",
           active && "bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)]",
         )}
       >

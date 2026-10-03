@@ -39,7 +39,7 @@ export function MoreSidebar() {
           <li key={page.to}>
             <Link
               to={page.to}
-              className="group grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 rounded-card px-[11px] py-[9px] transition-colors duration-150 hover:bg-sidebar-accent data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]"
+              className="group grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 rounded-card px-[11px] py-[9px] transition-colors duration-(--dur-1) hover:bg-sidebar-accent data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]"
             >
               <span className="mt-px grid size-[26px] place-items-center rounded-[7px] bg-secondary text-muted-foreground group-data-[status=active]:text-foreground">
                 <Icon icon={page.icon} />

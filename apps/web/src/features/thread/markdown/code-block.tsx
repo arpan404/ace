@@ -42,7 +42,7 @@ export function CodeBlock(props: { code: string; lang?: string | undefined }) {
           type="button"
           onClick={() => copy(props.code)}
           aria-label={copied ? "Copied" : "Copy code"}
-          className="ml-auto inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+          className="ml-auto inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-xs text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
         >
           {copied ? <CheckIcon aria-hidden size={13} /> : <CopyIcon aria-hidden size={13} />}
           {copied ? "Copied" : "Copy"}

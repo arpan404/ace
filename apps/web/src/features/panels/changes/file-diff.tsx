@@ -58,7 +58,7 @@ export function FileDiffBlock(props: {
           aria-hidden
           size={14}
           className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-200 ease-spring",
+            "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
             !open && "-rotate-90",
           )}
         />
@@ -228,7 +228,7 @@ function Code(props: {
           type="button"
           aria-label={`Comment on ${target.side === "old" ? "old " : ""}line ${target.line}`}
           onClick={() => props.onComment(target)}
-          className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-[4px] bg-ring text-white opacity-0 transition-opacity duration-150 group-hover/line:opacity-100 focus-visible:opacity-100"
+          className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-[4px] bg-ring text-white opacity-0 transition-opacity duration-(--dur-1) group-hover/line:opacity-100 focus-visible:opacity-100"
         >
           <PlusIcon aria-hidden size={10} weight="bold" />
         </button>

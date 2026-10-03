@@ -106,7 +106,7 @@ function QuestionField(props: {
           <label
             key={option.id}
             className={cn(
-              "flex cursor-pointer items-center gap-2.5 rounded-[10px] bg-muted px-3 py-[9px] text-ui transition-colors duration-150 hover:bg-accent",
+              "flex cursor-pointer items-center gap-2.5 rounded-[10px] bg-muted px-3 py-[9px] text-ui transition-colors duration-(--dur-1) hover:bg-accent",
               checked && "shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ring)_55%,transparent)]",
             )}
           >

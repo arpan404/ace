@@ -74,7 +74,7 @@ function HoverButton({
     <button
       type="button"
       className={cn(
-        "inline-flex h-[22px] items-center gap-1 rounded-sm px-[7px] text-xs font-medium text-muted-foreground outline-none transition-colors duration-150 hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground",
+        "inline-flex h-[22px] items-center gap-1 rounded-sm px-[7px] text-xs font-medium text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground",
         className,
       )}
       {...props}

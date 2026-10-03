@@ -25,7 +25,7 @@ export function WorkLog(props: { threadId: string; itemIds: readonly string[] })
         <ul
           id={panel}
           aria-label="Steps"
-          className="mt-0.5 mb-2 flex animate-in flex-col border-l-2 py-1 pl-2.5 duration-200 fade-in slide-in-from-top-1"
+          className="mt-0.5 mb-2 flex animate-in flex-col border-l-2 py-1 pl-2.5 duration-(--dur-2) fade-in slide-in-from-top-1"
         >
           {props.itemIds.map((id) => (
             <ToolStep key={id} threadId={props.threadId} itemId={id} />

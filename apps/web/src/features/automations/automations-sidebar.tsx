@@ -126,7 +126,7 @@ function Row(props: {
         params={{ automationId: props.to }}
         aria-current={props.selected ? "page" : undefined}
         className={cn(
-          "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 rounded-[10px] px-[11px] py-[9px] outline-none transition-colors duration-150 hover:bg-sidebar-accent",
+          "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 rounded-[10px] px-[11px] py-[9px] outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent",
           props.selected && "bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
         )}
       >

@@ -43,7 +43,7 @@ export function AppHeader(
   return (
     <header
       className={cn(
-        "relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 border-b border-transparent pr-2.5 pl-3 transition-[border-color] duration-200 [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
+        "relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 border-b border-transparent pr-2.5 pl-3 transition-[border-color] duration-(--dur-2) [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
         props.scrolled && "border-border",
       )}
     >

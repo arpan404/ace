@@ -42,14 +42,14 @@ export function WorkLogHeader(props: {
         aria-expanded={open}
         aria-controls={props.panel}
         onClick={props.onToggle}
-        className="group -mx-1.5 inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-[7px] px-1.5 text-[13.5px] text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+        className="group -mx-1.5 inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-[7px] px-1.5 text-[13.5px] text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
       >
         <span className={headline.running ? "shrink-0 shimmer" : "shrink-0"}>{headline.label}</span>
         <CaretRightIcon
           aria-hidden
           size={14}
           className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-200 ease-spring",
+            "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
             open && "rotate-90",
           )}
         />
@@ -78,7 +78,7 @@ export function StepRow(props: { step: StepText; open: boolean; panel: string; o
       aria-controls={props.panel}
       aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
       onClick={props.onToggle}
-      className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-150 hover:bg-accent"
+      className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent"
     >
       {step.settled ? (
         <Glyph aria-hidden size={14} className="shrink-0 text-subtle-foreground" />

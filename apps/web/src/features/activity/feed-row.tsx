@@ -21,7 +21,7 @@ export function FeedRow(props: {
   return (
     <li
       className={cn(
-        "relative rounded-[10px] transition-colors duration-150 hover:bg-sidebar-accent",
+        "relative rounded-[10px] transition-colors duration-(--dur-1) hover:bg-sidebar-accent",
         props.selected &&
           "bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] hover:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
       )}

@@ -138,7 +138,7 @@ export function Transcript(props: { threadId: string }) {
             virtualizer.scrollToIndex(blocks.length - 1, { align: "end" });
             scrollToEnd();
           }}
-          className="glass absolute bottom-3 left-1/2 inline-flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground"
+          className="glass absolute bottom-3 left-1/2 inline-flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground"
         >
           <ArrowDownIcon aria-hidden size={14} />
           Scroll to latest

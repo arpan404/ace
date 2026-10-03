@@ -29,7 +29,7 @@ export function HomeSidebar() {
       <Link
         to="/new"
         search={project ? { project } : {}}
-        className="mx-2 mb-1.5 flex h-8 shrink-0 items-center gap-[9px] rounded-md px-2.5 text-ui font-medium text-sidebar-foreground outline-none transition-colors duration-150 hover:bg-sidebar-accent focus-visible:bg-sidebar-accent [&_svg]:text-muted-foreground"
+        className="mx-2 mb-1.5 flex h-8 shrink-0 items-center gap-[9px] rounded-md px-2.5 text-ui font-medium text-sidebar-foreground outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent focus-visible:bg-sidebar-accent [&_svg]:text-muted-foreground"
       >
         <Icon icon={NotePencilIcon} />
         New thread
@@ -39,7 +39,7 @@ export function HomeSidebar() {
         <button
           type="button"
           onClick={() => setPaletteOpen(true)}
-          className="flex h-8 w-full items-center gap-2 rounded-[9px] bg-sidebar-accent pr-2 pl-2.5 text-ui text-subtle-foreground outline-none transition-[background-color,box-shadow] duration-150 hover:bg-[color-mix(in_oklab,var(--sidebar-accent),var(--foreground)_4%)] hover:shadow-[var(--glass-highlight)]"
+          className="flex h-8 w-full items-center gap-2 rounded-[9px] bg-sidebar-accent pr-2 pl-2.5 text-ui text-subtle-foreground outline-none transition-[background-color,box-shadow] duration-(--dur-1) hover:bg-[color-mix(in_oklab,var(--sidebar-accent),var(--foreground)_4%)] hover:shadow-[var(--glass-highlight)]"
         >
           <Icon icon={MagnifyingGlassIcon} />
           Search

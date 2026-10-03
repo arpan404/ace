@@ -79,14 +79,14 @@ export function ThreadList(props: { arrangement: Arrangement }) {
                   type="button"
                   aria-expanded={settledOpen}
                   onClick={() => organizer.setSettledOpen(!settledOpen)}
-                  className="mt-3 mb-0.5 flex w-full items-center gap-2 rounded-[7px] px-2.5 py-[5px] text-xs font-medium text-subtle-foreground outline-none transition-colors duration-150 after:h-px after:flex-1 after:bg-sidebar-border hover:text-muted-foreground"
+                  className="mt-3 mb-0.5 flex w-full items-center gap-2 rounded-[7px] px-2.5 py-[5px] text-xs font-medium text-subtle-foreground outline-none transition-colors duration-(--dur-1) after:h-px after:flex-1 after:bg-sidebar-border hover:text-muted-foreground"
                 >
                   Settled ({row.count})
                   <CaretDownIcon
                     aria-hidden
                     size={14}
                     className={cn(
-                      "transition-transform duration-200 ease-spring",
+                      "transition-transform duration-(--dur-2) ease-spring",
                       !settledOpen && "-rotate-90",
                     )}
                   />

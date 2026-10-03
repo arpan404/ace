@@ -40,7 +40,7 @@ export function DeckSidebar() {
     >
       <Link
         to="/deck/new"
-        className="mb-1.5 flex h-8 items-center gap-[9px] rounded-md px-2.5 text-ui font-medium text-sidebar-foreground transition-colors duration-150 hover:bg-sidebar-accent data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] [&_svg]:text-muted-foreground"
+        className="mb-1.5 flex h-8 items-center gap-[9px] rounded-md px-2.5 text-ui font-medium text-sidebar-foreground transition-colors duration-(--dur-1) hover:bg-sidebar-accent data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] [&_svg]:text-muted-foreground"
       >
         <Icon icon={CardsIcon} />
         New deck

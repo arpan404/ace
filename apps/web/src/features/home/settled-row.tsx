@@ -7,7 +7,7 @@ import { ThreadMenu } from "./thread-menu.tsx";
 import { useThreadCard } from "./use-thread-card.ts";
 
 const row =
-  "flex h-[30px] w-full items-center gap-2 rounded-md px-[11px] text-sm text-subtle-foreground outline-none transition-colors duration-150";
+  "flex h-[30px] w-full items-center gap-2 rounded-md px-[11px] text-sm text-subtle-foreground outline-none transition-colors duration-(--dur-1)";
 
 /** A compact settled row: title and age, Unsettle on hover. Opening it keeps it settled. */
 export function SettledRow(props: { threadId: string }) {

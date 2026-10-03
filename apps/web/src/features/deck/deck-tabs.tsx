@@ -26,7 +26,7 @@ export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) 
             <button
               type="button"
               onClick={() => props.onOpen(card.id)}
-              className="grid w-full grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.4fr)] items-center gap-4 rounded-md px-2 py-3 text-left transition-colors duration-150 hover:bg-accent"
+              className="grid w-full grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.4fr)] items-center gap-4 rounded-md px-2 py-3 text-left transition-colors duration-(--dur-1) hover:bg-accent"
             >
               <span className="min-w-0">
                 <span className="block truncate text-[13.5px] font-medium">{card.title}</span>

@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "./shadcn.css";
 @import "./tokens.css";
+@import "./motion.css";
 
 @custom-variant dark (&:where([data-scheme="dark"], [data-scheme="dark"] *));
 @custom-variant compact (&:where([data-density="compact"], [data-density="compact"] *));
@@ -66,6 +67,8 @@
 
   --ease-smooth: var(--ease);
   --ease-spring: var(--spring);
+  --ease-sheet: var(--sheet);
+  --ease-exit: var(--leave);
 
   --text-prose: var(--transcript-size);
   --text-prose--line-height: 1.6;

@@ -41,7 +41,7 @@ function ResizeHandle(props: {
       aria-valuemax={props.max}
       data-dragging={dragging ? "" : undefined}
       className={cn(
-        "absolute z-[3] outline-none transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--ring)_45%,transparent)] focus-visible:bg-[color-mix(in_oklab,var(--ring)_45%,transparent)] data-dragging:bg-[color-mix(in_oklab,var(--ring)_45%,transparent)]",
+        "absolute z-[3] outline-none transition-colors duration-(--dur-1) hover:bg-[color-mix(in_oklab,var(--ring)_45%,transparent)] focus-visible:bg-[color-mix(in_oklab,var(--ring)_45%,transparent)] data-dragging:bg-[color-mix(in_oklab,var(--ring)_45%,transparent)]",
         vertical
           ? "inset-y-0 -left-[3px] w-1.5 cursor-col-resize"
           : "inset-x-0 -top-[3px] h-1.5 cursor-row-resize",
