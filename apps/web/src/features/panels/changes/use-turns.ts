@@ -2,7 +2,7 @@ import type { ThreadKey } from "@ace/client";
 import { useItemOrder, useThread } from "@ace/client-react";
 import { useMemo } from "react";
 import { collectTurns, turnsEqual, type Turn } from "@ace/ui-core";
-import { useDiffStat } from "./use-file-diffs.ts";
+import { useDiffStat } from "@/lib/diffs/use-file-diffs.ts";
 
 const noTurns: readonly Turn[] = [];
 

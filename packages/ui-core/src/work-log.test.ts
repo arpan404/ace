@@ -70,12 +70,12 @@ test("a step waiting for approval opens the log and failures are counted", () =>
   expect(workCounts(summary)).toBe("Ran 2 commands · 1 failed");
 });
 
-test("an edit step reads with its target and the lines it added and removed", () => {
+test("an edit step reads with its target and the lines its patch added and removed", () => {
   const step = describeStep(
     call(
       {
         kind: "file.edit",
-        changes: [{ path: "src/a.ts", kind: "update", oldText: "a\nb\n", newText: "a\nc\nd\n" }],
+        changes: [{ path: "src/a.ts", kind: "update", diff: "@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n" }],
       },
       "succeeded",
       0,
@@ -84,6 +84,18 @@ test("an edit step reads with its target and the lines it added and removed", ()
   );
   expect(step).toMatchObject({ verb: "Edited", target: "src/a.ts", added: 2, removed: 1 });
   expect(step.settled).toBe(true);
+});
+
+test("a full-text edit leaves its stat to a text diff instead of counting on the spot", () => {
+  const change = {
+    path: "src/a.ts",
+    kind: "update" as const,
+    oldText: "a\nb\n",
+    newText: "a\nc\nd\n",
+  };
+  const step = describeStep(call({ kind: "file.edit", changes: [change] }, "succeeded", 0, 1));
+  expect(step).toMatchObject({ verb: "Edited", target: "src/a.ts", diffFor: [change] });
+  expect(step.added).toBeUndefined();
 });
 
 test("a shell step notes its exit code, and a declined one says so instead", () => {

@@ -7,6 +7,7 @@ import {
   type WorkLogHeadline,
 } from "@ace/ui-core";
 import type { Item } from "@ace/protocol";
+import { useChangesStat } from "@/lib/diffs/use-file-diffs.ts";
 import { useTicker } from "../lib/clock.ts";
 import { flatEqual, useItemsSelect } from "../lib/use-items.ts";
 
@@ -32,7 +33,11 @@ export function useToolStep(
   itemId: string,
 ): { item: Item; step: StepText; awaiting: boolean } | undefined {
   const item = useItem(threadId, itemId);
-  if (!item) return undefined;
+  const described = item && describeStep(item);
+  // A full-text edit's stat is a text diff, counted in the diff worker rather than here.
+  const counted = useChangesStat(described?.diffFor);
+  if (!item || !described) return undefined;
   const awaiting = item.type === "tool_call" && item.call.status === "awaiting_approval";
-  return { item, step: describeStep(item), awaiting };
+  const step = counted ? { ...described, ...counted } : described;
+  return { item, step, awaiting };
 }

@@ -2,23 +2,27 @@ import { FileCodeIcon } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { useLayout } from "@/lib/layout.tsx";
-import { summarizeChanges } from "@ace/ui-core";
+import { fileChanges, type Turn } from "@ace/ui-core";
+import type { Item } from "@ace/protocol";
+import { useFileStats } from "@/lib/diffs/use-file-diffs.ts";
 import { useItemsSelect } from "../lib/use-items.ts";
 
-type Files = ReturnType<typeof summarizeChanges>;
-const filesEqual = (a: Files, b: Files) =>
-  a.length === b.length &&
-  a.every((file, index) => {
-    const other = b[index];
-    return (
-      !!other &&
-      other.path === file.path &&
-      other.stat.added === file.stat.added &&
-      other.stat.removed === file.stat.removed
-    );
-  });
+type Edits = Turn["edits"];
+const none: Edits = [];
+/** The edit tool calls among a turn's items. Store items are immutable, so identity compares. */
+const selectEdits = (items: readonly (Item | undefined)[]): Edits => {
+  const edits = items.filter(
+    (item): item is Edits[number] => item?.type === "tool_call" && fileChanges(item).length > 0,
+  );
+  return edits.length ? edits : none;
+};
+const sameEdits = (a: Edits, b: Edits) =>
+  a.length === b.length && a.every((item, index) => item === b[index]);
 
-function Stat(props: { added: number; removed: number }) {
+function Stat(props: { added: number | undefined; removed: number | undefined }) {
+  // Until the diff worker has counted a full-text edit, the stat keeps its place quietly.
+  if (props.added === undefined || props.removed === undefined)
+    return <span className="font-mono text-[12px] text-subtle-foreground">±…</span>;
   return (
     <span className="font-mono text-[12px]">
       <span className="text-status-done">+{props.added}</span>{" "}
@@ -29,13 +33,17 @@ function Stat(props: { added: number; removed: number }) {
 
 /** The files a turn changed, with the diff stat. "Open diff" shows the Changes tab. */
 export function ChangedFiles(props: { threadId: string; itemIds: readonly string[] }) {
-  const files = useItemsSelect(props.threadId, props.itemIds, summarizeChanges, filesEqual);
+  const edits = useItemsSelect(props.threadId, props.itemIds, selectEdits, sameEdits) ?? none;
+  const files = useFileStats(edits);
   const [open, setOpen] = useState(false);
   const { setPanelOpen, setTab } = useLayout();
   const list = useId();
-  if (!files?.length) return null;
-  const added = files.reduce((sum, file) => sum + file.stat.added, 0);
-  const removed = files.reduce((sum, file) => sum + file.stat.removed, 0);
+  if (!files.length) return null;
+  const counted = files.every((file) => file.stat);
+  const added = counted ? files.reduce((sum, file) => sum + (file.stat?.added ?? 0), 0) : undefined;
+  const removed = counted
+    ? files.reduce((sum, file) => sum + (file.stat?.removed ?? 0), 0)
+    : undefined;
   const label = `${files.length} changed ${files.length === 1 ? "file" : "files"}`;
   return (
     <section aria-label={label}>
@@ -75,7 +83,7 @@ export function ChangedFiles(props: { threadId: string; itemIds: readonly string
                 {file.path}
               </code>
               <span className="ml-auto">
-                <Stat added={file.stat.added} removed={file.stat.removed} />
+                <Stat added={file.stat?.added} removed={file.stat?.removed} />
               </span>
             </li>
           ))}

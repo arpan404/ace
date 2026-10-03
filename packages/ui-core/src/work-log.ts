@@ -1,5 +1,5 @@
-import type { Item, ToolCall } from "@ace/protocol";
-import { changeStat } from "./file-changes.ts";
+import type { FileChange, Item, ToolCall } from "@ace/protocol";
+import { quickStat } from "./file-changes.ts";
 import { formatElapsed } from "./time.ts";
 
 export type StepIcon = "read" | "search" | "shell" | "edit" | "web" | "tool" | "think" | "note";
@@ -13,6 +13,11 @@ export interface StepText {
   note?: string | undefined;
   added?: number | undefined;
   removed?: number | undefined;
+  /**
+   * An edit whose stat needs a text diff (full before and after text): `added` and `removed`
+   * stay unset and these changes are what to diff, off the main thread.
+   */
+  diffFor?: readonly FileChange[] | undefined;
   /** False while the step is still in flight. */
   settled: boolean;
   failed: boolean;
@@ -81,7 +86,8 @@ function callText(call: ToolCall): Omit<StepText, "settled" | "failed"> {
       let added = 0;
       let removed = 0;
       for (const change of detail.changes) {
-        const stat = changeStat(change);
+        const stat = quickStat(change);
+        if (!stat) return { icon: "edit", verb, target, diffFor: detail.changes };
         added += stat.added;
         removed += stat.removed;
       }

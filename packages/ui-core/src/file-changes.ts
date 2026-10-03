@@ -27,8 +27,12 @@ export interface DiffStat {
   removed: number;
 }
 
-/** Lines added and removed by one change, from its diff or else by diffing its before and after text. */
-export function changeStat(change: FileChange): DiffStat {
+/**
+ * Lines added and removed by one change when that needs no text diff: from its unified diff, a
+ * delete, or a write with nothing before it. Undefined when only diffing the before and after
+ * text can tell, which a UI does off its main thread.
+ */
+export function quickStat(change: FileChange): DiffStat | undefined {
   if (change.diff) {
     let added = 0;
     let removed = 0;
@@ -39,18 +43,23 @@ export function changeStat(change: FileChange): DiffStat {
     return { added, removed };
   }
   if (change.kind === "delete") return { added: 0, removed: lineCount(change.oldText) };
+  if (change.oldText && change.newText) return undefined;
+  return { added: lineCount(change.newText), removed: lineCount(change.oldText) };
+}
+
+/** Lines added and removed by one change, from its diff or else by diffing its before and after text. */
+export function changeStat(change: FileChange): DiffStat {
+  const quick = quickStat(change);
+  if (quick) return quick;
   // Full before and after text: count the lines that differ, exactly as the diff view shows
   // them, not the size of the whole file.
-  if (change.oldText && change.newText) {
-    let added = 0;
-    let removed = 0;
-    for (const line of diffTexts(change.oldText, change.newText)) {
-      if (line.kind === "add") added++;
-      else if (line.kind === "del") removed++;
-    }
-    return { added, removed };
+  let added = 0;
+  let removed = 0;
+  for (const line of diffTexts(change.oldText ?? "", change.newText ?? "")) {
+    if (line.kind === "add") added++;
+    else if (line.kind === "del") removed++;
   }
-  return { added: lineCount(change.newText), removed: lineCount(change.oldText) };
+  return { added, removed };
 }
 
 /** File changes made by an edit-like tool call, or none. */

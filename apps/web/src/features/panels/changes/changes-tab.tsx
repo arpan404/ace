@@ -13,7 +13,7 @@ import { DiffStat } from "./diff-stat.tsx";
 import { discardDraft, draftKey, saveDraft, sendDrafts, type ReviewDraft } from "./drafts.ts";
 import { FileDiffBlock, type LineTarget } from "./file-diff.tsx";
 import { CommentComposer, DraftCard } from "./line-comment.tsx";
-import { useFileDiffs } from "./use-file-diffs.ts";
+import { useFileDiffs } from "@/lib/diffs/use-file-diffs.ts";
 import { useTurns } from "./use-turns.ts";
 
 const all = "all";
