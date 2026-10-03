@@ -52,7 +52,7 @@ const specs = {
   },
   opencode: {
     command: "opencode",
-    authArgs: ["auth", "list"],
+    authArgs: ["auth", "list", "--standalone", "--format", "json"],
     parse: parseOpenCodeAuth,
     loginHint: "opencode auth login",
   },
