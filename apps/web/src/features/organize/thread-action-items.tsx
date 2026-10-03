@@ -27,17 +27,6 @@ import {
 import { SnoozeItems } from "./snooze-items.tsx";
 import { useThreadActions } from "./use-thread-actions.ts";
 
-/** A disabled item's reason, on a muted second line under its label. */
-function WithReason(props: { label: string; reason: string | undefined }) {
-  if (!props.reason) return props.label;
-  return (
-    <span className="flex flex-col py-0.5">
-      <span>{props.label}</span>
-      <span className="text-xs text-subtle-foreground">{props.reason}</span>
-    </span>
-  );
-}
-
 /**
  * Everything a person can do to one thread, in one order, for the Home row's context menu and
  * the thread's ⋯ menu alike: start another, rename, fork, link; read and pin; snooze and
@@ -75,12 +64,10 @@ export function ThreadActionItems(props: {
       <MenuItem
         icon={<Icon icon={GitForkIcon} />}
         disabled={!fork.point}
+        reason={fork.point ? undefined : "Available after the first turn finishes"}
         onClick={() => fork.point && fork.onFork(fork.point)}
       >
-        <WithReason
-          label="Fork from the last turn…"
-          reason={fork.point ? undefined : "Available after the first turn finishes"}
-        />
+        Fork from the last turn…
       </MenuItem>
       <MenuItem icon={<Icon icon={LinkIcon} />} onClick={() => actions.copyLink(entry)}>
         Copy link

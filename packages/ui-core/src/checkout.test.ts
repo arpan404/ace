@@ -83,3 +83,14 @@ test("a PR can't be opened from the base branch or without a forge remote", () =
   });
   expect(step({ branch: null })).toMatchObject({ kind: "create-pr", blocked: /detached/ });
 });
+
+test("a linked PR without an address opens on its repository's forge", () => {
+  expect(step({ linkedPr: { number: 188, state: "open" } })).toEqual({
+    kind: "pr",
+    pr: { number: 188, state: "open", url: "https://github.com/acme/relay/pull/188" },
+  });
+  const gitlab = { ...repository, forge: "gitlab", host: "gitlab.com" } as const;
+  expect(
+    checkoutOf(details({ repository: gitlab, linkedPr: { number: 4, state: "open" } }))?.pr?.url,
+  ).toBe("https://gitlab.com/acme/relay/-/merge_requests/4");
+});

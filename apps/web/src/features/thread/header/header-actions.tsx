@@ -226,6 +226,11 @@ export function GitButton(props: { thread: ThreadRef }) {
       toast.add({ title: "Couldn't push", description: failure(error) }),
     );
   const pr = checkout.pr;
+  const draftBlocked =
+    blocked ??
+    (pr?.state === "open" || pr?.state === "draft"
+      ? `PR #${pr.number} is already open`
+      : undefined);
   const actionLabel =
     step.kind === "pr"
       ? `Open PR #${step.pr.number}${step.pr.ci && ci[step.pr.ci] ? ` · ${ci[step.pr.ci]}` : ""}`
@@ -273,14 +278,17 @@ export function GitButton(props: { thread: ThreadRef }) {
             </MenuItem>
             <MenuItem
               icon={<GitPullRequestIcon aria-hidden size={16} />}
-              disabled={!!blocked || pr?.state === "open" || pr?.state === "draft"}
+              disabled={!!draftBlocked}
+              reason={draftBlocked}
               onClick={() => setDialog("draft-pr")}
             >
               Create draft PR…
             </MenuItem>
-            {pr?.url && (
+            {pr && (
               <MenuItem
                 icon={<ArrowSquareOutIcon aria-hidden size={16} />}
+                disabled={!pr.url}
+                reason={pr.url ? undefined : "The forge gave no address for it"}
                 onClick={() => pr.url && openUrl(pr.url)}
               >
                 Open PR #{pr.number}

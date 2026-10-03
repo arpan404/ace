@@ -61,6 +61,7 @@ function details(seed: Seed, workspaceId: string): NonNullable<Thread["details"]
           linkedPr: {
             number: seed.pr,
             state: seed.merged ? ("merged" as const) : ("open" as const),
+            url: `https://github.com/acme/${workspaceId}/pull/${seed.pr}`,
           },
         }
       : {}),

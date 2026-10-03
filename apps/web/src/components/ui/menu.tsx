@@ -44,19 +44,35 @@ function MenuContent({
   );
 }
 
-/** One action. `icon` and `keys` render the leading glyph and trailing shortcut. */
+/**
+ * One action. `icon` and `keys` render the leading glyph and trailing shortcut. `reason` is a
+ * muted second line, for saying why a disabled item can't be chosen yet.
+ */
 function MenuItem({
   className,
   icon,
   keys,
   danger,
+  reason,
   children,
   ...props
-}: MenuPrimitive.Item.Props & { icon?: ReactNode; keys?: string; danger?: boolean }) {
+}: MenuPrimitive.Item.Props & {
+  icon?: ReactNode;
+  keys?: string;
+  danger?: boolean;
+  reason?: string | undefined;
+}) {
   return (
     <MenuPrimitive.Item className={cn(menuItem, danger && menuDanger, className)} {...props}>
       {icon}
-      <span className="min-w-0 flex-1 truncate">{children}</span>
+      {reason ? (
+        <span className="flex min-w-0 flex-1 flex-col py-0.5">
+          <span className="truncate">{children}</span>
+          <span className="text-xs whitespace-normal text-subtle-foreground">{reason}</span>
+        </span>
+      ) : (
+        <span className="min-w-0 flex-1 truncate">{children}</span>
+      )}
       {keys && <span className={menuShortcut}>{formatKeys(keys)}</span>}
     </MenuPrimitive.Item>
   );

@@ -152,6 +152,49 @@ test("Commit stays in the header, disabled, when the thread's directory isn't a 
   expect(screen.getByRole("button", { name: "Git actions" })).toHaveProperty("disabled", true);
 });
 
+test("with a linked PR, the git menu opens it and says why a draft PR can't be created", async () => {
+  const linked: Scenario = {
+    thread: {
+      id: "thread-linked-pr",
+      workspaceId: "api",
+      title: "Cap restart retries",
+      provider: "claude",
+      details: {
+        workspace: { id: "api", name: "api", path: "/Users/dev/api" },
+        mode: "local",
+        worktree: "/Users/dev/api",
+        branch: "fix/restart-retry",
+        head: "b".repeat(40),
+        ahead: 0,
+        behind: 0,
+        baseBranch: "main",
+        diff: { files: 3, additions: 64, deletions: 12 },
+        linkedPr: { number: 188, state: "open" },
+        repository: { forge: "github", host: "github.com", owner: "acme", name: "api" },
+      },
+    },
+    steps: [{ kind: "facts", facts: [facts.rootAgent("claude")] }],
+  };
+  const app = harness();
+  app.play(linked).runUntilBlocked();
+  await app.open("/t/thread-linked-pr");
+  const opened = vi.spyOn(window, "open").mockImplementation(() => null);
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Git actions" })).toHaveProperty("disabled", false),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Git actions" }));
+  const draft = await screen.findByRole("menuitem", { name: /Create draft PR/ });
+  expect(draft.getAttribute("aria-disabled")).toBe("true");
+  expect(draft.textContent).toContain("PR #188 is already open");
+  await userEvent.click(screen.getByRole("menuitem", { name: "Open PR #188" }));
+  expect(opened).toHaveBeenCalledWith(
+    "https://github.com/acme/api/pull/188",
+    "_blank",
+    "noopener,noreferrer",
+  );
+  opened.mockRestore();
+});
+
 test("View diff in the git menu shows the Changes tab", async () => {
   await openThread();
   await userEvent.click(await screen.findByRole("button", { name: "Git actions" }));

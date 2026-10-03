@@ -49,13 +49,22 @@ export function checkoutOf(
     ahead: details.ahead ?? 0,
     behind: details.behind ?? 0,
     repository: details.repository,
-    pr: pullRequest(details.linkedPr, status),
+    pr: pullRequest(details.linkedPr, status, details.repository),
   };
+}
+
+/** Where a PR lives on its forge, for a linked PR the daemon gave no address for. */
+export function pullRequestUrl(repository: ForgeRepository, number: number): string {
+  const base = `https://${repository.host}/${repository.owner}/${repository.name}`;
+  return repository.forge === "gitlab"
+    ? `${base}/-/merge_requests/${number}`
+    : `${base}/pull/${number}`;
 }
 
 function pullRequest(
   linked: ThreadDetails["linkedPr"],
   status: ForgePrStatus | null | undefined,
+  repository: ForgeRepository | undefined,
 ): CheckoutPr | undefined {
   if (status && status.state !== "unknown")
     return {
@@ -66,7 +75,8 @@ function pullRequest(
       ci: status.ci,
     };
   if (!linked) return undefined;
-  return { number: linked.number, state: linked.state, url: linked.url };
+  const url = linked.url ?? (repository && pullRequestUrl(repository, linked.number));
+  return { number: linked.number, state: linked.state, url };
 }
 
 /** Why a checkout can't open a pull request, or undefined when it can. */
