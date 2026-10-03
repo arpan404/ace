@@ -15,17 +15,36 @@ Import `cn` from `@/lib/cn.ts`, never from `cn` directly: the local one knows th
 
 ## Layout of `src/`
 
-| Path                | Owner      | What lives there                                                                                                                       |
-| ------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `theme/`            | foundation | Theme engine: presets from seeds, token list, CSS generation, contrast checks, custom theme files, `ThemeProvider` / `useTheme()`      |
-| `styles/`           | foundation | Static tokens (`tokens.css`), Tailwind mapping and base styles (`index.css`), vendored shadcn variants                                 |
-| `components/ui/`    | foundation | Owned primitives restyled to the design. Slices use them, never fork them                                                              |
-| `components/`       | foundation | `Icon`, `SettingRow` / `SettingSection`, `StatusPill`, `DataTable`                                                                     |
-| `lib/`              | foundation | `keymap.ts` (every shortcut), `hotkeys.ts` (`useHotkey`), `layout.tsx` (sidebar and panels), `history-nav.ts`, `storage.ts`, `time.ts` |
-| `boot/`             | foundation | Client construction, the connection gate, daemon URL and token handling, fake boot                                                     |
-| `features/shell/`   | foundation | Rail, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice                                                     |
-| `features/<slice>/` | the slice  | Everything for one slice: components, hooks, adapters, tests                                                                           |
-| `routes/`           | per route  | TanStack file routes. Each slice owns the route files of its screens                                                                   |
+| Path                | Owner      | What lives there                                                                                                                    |
+| ------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `theme/`            | foundation | Theme engine: presets from seeds, token list, CSS generation, contrast checks, custom theme files, `ThemeProvider` / `useTheme()`   |
+| `styles/`           | foundation | Static tokens (`tokens.css`), Tailwind mapping and base styles (`index.css`), vendored shadcn variants                              |
+| `components/ui/`    | foundation | Owned primitives restyled to the design. Slices use them, never fork them                                                           |
+| `components/`       | foundation | `Icon`, `SettingRow` / `SettingSection`, `StatusPill`, `DataTable`                                                                  |
+| `lib/`              | foundation | `keymap.ts` (every shortcut), `hotkeys.ts` (`useHotkey`), `layout.tsx` (sidebar and panels), `history-nav.ts`, `time.ts` (`useNow`) |
+| `boot/`             | foundation | Client construction, daemon URL and token handling, fake boot, the fake backend for features without protocol (`fake-backend.ts`)   |
+| `features/shell/`   | foundation | Rail, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice, `useWorkspaces`                                 |
+| `features/<slice>/` | the slice  | Everything for one slice: components, hooks, adapters, tests. Its `index.ts` is the only door in                                    |
+| `app/`              | app        | Composition of several slices: `AppShell` (rail, palette, notifier), `ConnectionGate`                                               |
+| `routes/`           | per route  | TanStack file routes: route definition, search schema and params only. Screens live in the slice                                    |
+
+Headless view logic (status wording, Home ordering and settling, thread cards, work-log and diff
+summaries, relative time, the Deck model) lives in `packages/ui-core` (`@ace/ui-core`) so the Expo
+app shares it. Put a pure rule there, with its tests, rather than in a slice.
+
+## Module boundaries
+
+`bun run check:deps` (dependency-cruiser, config in `.dependency-cruiser.cjs`, part of `bun run check`) enforces:
+
+- A slice is imported only through `features/<x>/index.ts`; inside a slice, import files directly, never its own index.
+- `components/`, `lib/`, `theme/`, `styles/` and `boot/` never import `features/`, `app/` or `routes/`.
+- Slices never import `app/` or `routes/` (tests may mount the whole app).
+- No circular imports, type-only ones included, in `apps/web` and the client packages.
+- `@ace/ui-core` imports no React, DOM libraries, Node built-ins or app code.
+
+Inside a slice, keep the split: pure view-model mappers (in `@ace/ui-core` when the logic is
+platform-free), a data hook that reads `@ace/client-react` and returns the view model, and pure
+presentational components that render it (see `home/use-thread-card.ts` and `home/row-parts.tsx`).
 
 ## Feature-folder convention
 
