@@ -59,6 +59,10 @@ binds each Claude Query to the existing MCP service's scoped ace lease. The
 service keeps that lease in SDK replacements and exposes authorized
 `mcp.status`, `mcp.replace`, `mcp.reconnect`, `mcp.enable` and `mcp.disable`
 requests through its own socket registration. Controls expire with the process.
+The existing redaction owner scrubs lease credentials from stored wire controls,
+returned status/configuration and control errors; the native transport retains
+the original credential. Streaming deltas do not pass through this control-only
+serialization path.
 Daemon hosts pass their account observer as `DaemonOptions.claude.onRateLimit`;
 it receives the thread identity and native observation. No accounts package is
 introduced here.

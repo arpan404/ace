@@ -21,6 +21,17 @@ for await (const line of createInterface({ input: process.stdin })) {
   const data = frame.parse(JSON.parse(line));
   if (data.type === "control_request") {
     const request = data.request ?? {};
+    if (request["subtype"] === "mcp_reconnect" && request["serverName"] === "reject-lease") {
+      write({
+        type: "control_response",
+        response: {
+          subtype: "error",
+          request_id: data.request_id,
+          error: `reconnect failed: ${JSON.stringify(servers["ace"])}`,
+        },
+      });
+      continue;
+    }
     if (request["subtype"] === "mcp_set_servers") servers = object.parse(request["servers"]);
     write({
       type: "control_response",
@@ -32,10 +43,18 @@ for await (const line of createInterface({ input: process.stdin })) {
             ? { commands: [], agents: [], models: [] }
             : request["subtype"] === "mcp_status"
               ? {
-                  mcpServers: Object.keys(servers).map((name) => ({
+                  mcpServers: Object.entries(servers).map(([name, config]) => ({
                     name,
+                    config,
                     status: "connected",
                     source: "dynamic",
+                    validAceConnection:
+                      name === "ace" &&
+                      /^Bearer [a-f0-9]{64}$/.test(
+                        String(
+                          object.parse(object.parse(config)["headers"] ?? {})["Authorization"],
+                        ),
+                      ),
                   })),
                 }
               : request["subtype"] === "mcp_set_servers"

@@ -3,10 +3,11 @@ import {
   type ClaudeOptions,
   type ClaudeRateLimitObservation,
 } from "@ace/adapter-claude";
+import { createRedactor } from "@ace/redaction";
 import { claudeInjection } from "@ace/mcp-server";
 import type { ThreadId } from "@ace/protocol";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
-import type { ProviderAdapter, ProviderSession } from "@ace/engine-api";
+import type { ProviderAdapter, ProviderSession, ProviderMcpControl } from "@ace/engine-api";
 import type { ServiceContext } from "./types.ts";
 
 export interface DaemonClaudeOptions extends Omit<ClaudeOptions, "executable" | "onRateLimit"> {
@@ -36,6 +37,21 @@ export function daemonClaudeAdapter(
         ctx.signal,
       );
       const ace = claudeInjection({ url: mcp.url, bearer: lease.bearer }).mcpServers;
+      const redact = createRedactor({ env: { ACE_MCP_BEARER_TOKEN: lease.bearer } });
+      // Control traffic is cold; redact its credentials without copying stream deltas.
+      const stored = (value: unknown): unknown =>
+        JSON.parse(redact(JSON.stringify(value) ?? "null"));
+      const safe = async <T>(perform: () => Promise<T>): Promise<T> => {
+        try {
+          return await perform();
+        } catch (error) {
+          const message = stored(
+            error instanceof Error ? error.message : "Claude MCP control failed",
+          );
+          // oxlint-disable-next-line eslint/preserve-caught-error -- Native causes can contain lease credentials.
+          throw new Error(typeof message === "string" ? message : "Claude MCP control failed");
+        }
+      };
       let session: ProviderSession | undefined;
       let unbind: (() => void) | undefined;
       const end = () => {
@@ -50,6 +66,9 @@ export function daemonClaudeAdapter(
         });
         const opened = await adapter.openSession({
           ...ctx,
+          onFrame(frame) {
+            ctx.onFrame(frame.channel === "wire" ? { ...frame, data: stored(frame.data) } : frame);
+          },
           onExit(exit) {
             end();
             ctx.onExit(exit);
@@ -58,17 +77,19 @@ export function daemonClaudeAdapter(
         session = opened;
         const controls = opened.mcp;
         if (!controls) throw new Error("Claude MCP controls unavailable");
-        unbind = mcp.providers.bind(
-          ctx.threadId,
-          {
-            ...controls,
-            // SDK replacements preserve the service-owned ace lease as well as CLI settings/plugins.
-            replace: (servers) => controls.replace({ ...servers, ...ace }),
-          },
-          lease.principal.signal,
-        );
+        const boundControls: ProviderMcpControl = {
+          status: () => safe(async () => stored(await controls.status())),
+          // SDK replacements preserve the service-owned ace lease as well as CLI settings/plugins.
+          replace: (servers) =>
+            safe(async () => stored(await controls.replace({ ...servers, ...ace }))),
+          reconnect: (name) => safe(() => controls.reconnect(name)),
+          enable: (name) => safe(() => controls.enable(name)),
+          disable: (name) => safe(() => controls.disable(name)),
+        };
+        unbind = mcp.providers.bind(ctx.threadId, boundControls, lease.principal.signal);
         return {
           ...opened,
+          mcp: boundControls,
           async close(reason) {
             try {
               await opened.close(reason);

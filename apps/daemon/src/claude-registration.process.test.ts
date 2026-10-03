@@ -83,8 +83,20 @@ test("discovered Claude sessions connect service MCP leases and forward rate met
       },
     });
     const controls = mcp.providers.require(thread.id);
-    expect(await controls.status()).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: "ace" })]),
+    const status = await controls.status();
+    expect(status).toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: "ace", validAceConnection: true })]),
+    );
+    expect(JSON.stringify(status)).not.toMatch(/Bearer [a-f0-9]{64}/);
+    await controls.reconnect("reject-lease").then(
+      () => {
+        throw new Error("Expected native reconnect failure");
+      },
+      (error: unknown) => {
+        expect(error).toBeInstanceOf(Error);
+        expect(String(error)).toContain("reconnect failed");
+        expect(String(error)).not.toMatch(/Bearer [a-f0-9]{64}/);
+      },
     );
     await controls.replace({ tools: { type: "http", url: "http://127.0.0.1:12345/mcp" } });
     expect(await controls.status()).toEqual(
@@ -94,6 +106,10 @@ test("discovered Claude sessions connect service MCP leases and forward rate met
       ]),
     );
     await controls.replace({});
+    await engine.flush();
+    expect(JSON.stringify(store.readEvents({ afterSeq: 0, limit: 256 }))).not.toMatch(
+      /Bearer [a-f0-9]{64}/,
+    );
     expect(await controls.status()).toEqual([expect.objectContaining({ name: "ace" })]);
     await engine.close();
     expect(() => mcp.providers.require(thread.id)).toThrow("not live");
