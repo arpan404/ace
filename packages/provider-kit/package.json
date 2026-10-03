@@ -11,6 +11,7 @@
     "./discovery": "./src/discovery/index.ts",
     "./process-bytes": "./src/process-bytes.ts",
     "./testing": "./src/testing/cli.ts",
+    "./jsonl": "./src/jsonl.ts",
     "./streams": "./src/streams.ts"
   },
   "scripts": {

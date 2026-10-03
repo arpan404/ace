@@ -26,6 +26,7 @@ export {
   openCodeInjection,
   acpInjection,
   developerInstructions,
+  AceMcpConnectionSchema,
   type AceMcpConnection,
 } from "./injection.ts";
 export {

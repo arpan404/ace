@@ -29,6 +29,7 @@ export interface Services {
     delegations: import("../agent-control/delegations.ts").DelegationService;
     port: import("@ace/mcp-server").AgentControlPort;
   };
+  pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
   accounts?: AccountService;
   accountRegistry?: AccountRegistry;

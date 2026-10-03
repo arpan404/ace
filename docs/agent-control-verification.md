@@ -34,6 +34,9 @@ Only static verification is permitted in this run. All behaviour tests, mutation
 - Authorized daemon thread-reference delivery obeys byte budgets/pointers; a foreign workspace cannot reach provider input.
 - Registered canonical thread owners handle metadata after agent authorization; child-to-ancestor writes remain denied.
 - Approved ACP identity reaches the independent native thread. Claude synthetic CLI controls retain agent-control tools across MCP replacement.
+- OpenCode v2 synthetic native processes preserve user MCP definitions and isolate thread authority in one account; revoking one lease leaves the peer usable.
+- Pi daemon registration retains the engine's scoped agent-control lease, exposes the authorized tools and revokes access on shutdown through a synthetic RPC peer.
+- Autonomous spawn/parent/result/schedule runs release queue ownership so the next message reaches the provider and produces an observable assistant result.
 - Real Git worktree handoff starts a linked native session in the worktree and reuses child receipts on retry and rejects conflicting concurrent handoff identities.
 - Native loopback MCP leases delegate across providers and reject child-to-parent interruption.
 - Thread references retain paging pointers, explicit truncation, untrusted-data labels and a UTF-8 byte budget.
@@ -90,6 +93,10 @@ Additional review regression mutations are all **not executed (tests run at merg
 | Ignore account selection/quota rejection                           | Explicit account/quota test                             |
 | Deliver a foreign thread reference                                 | Daemon context delivery                                 |
 | Drop ACP identity or replace Claude's scoped lease                 | ACP identity and Claude replacement integration         |
+| Share an OpenCode process between scoped thread leases             | OpenCode native MCP authority isolation/revocation      |
+| Drop user MCP definitions during OpenCode injection                | OpenCode native MCP configuration preservation          |
+| Replace Pi's engine lease with a narrower registration lease       | Pi daemon MCP tools and shutdown revocation             |
+| Exclude autonomous run triggers from input acknowledgement         | Agent-trigger admission and next-message delivery       |
 
 ## Performance
 

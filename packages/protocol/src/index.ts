@@ -50,3 +50,4 @@ export * from "./screen-v2.ts";
 export { ScreenAgentScope, ScreenUITree, ScreenUIBounds } from "./screen-ui.ts";
 
 export * from "./agent-control.ts";
+export * from "./pi.ts";

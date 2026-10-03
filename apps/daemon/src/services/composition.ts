@@ -15,6 +15,7 @@ import { startModels } from "./models.ts";
 import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
 import { startAgentControl } from "./agent-control.ts";
+import { startPi } from "./pi.ts";
 import { startEngine } from "./engine.ts";
 import type { ServiceContext, Services } from "./types.ts";
 /** Ordered composition: provider sessions are admitted only after their services open. */
@@ -34,6 +35,7 @@ export const serviceFactories = [
   startModels,
   startMcp,
   startNotifications,
+  startPi,
   startAgentRegistry,
   startEngine,
   startAgentControl,
@@ -88,6 +90,7 @@ export function readyServices(services: Partial<Services>): Services {
     ...(services.commands ? { commands: services.commands } : {}),
     ...(services.files ? { files: services.files } : {}),
     ...(services.relay ? { relay: services.relay } : {}),
+    ...(services.pi ? { pi: services.pi } : {}),
     ...(services.engine ? { engine: services.engine } : {}),
     ...(services.history ? { history: services.history } : {}),
   };

@@ -7,7 +7,7 @@ import {
   replayFixture,
   assertExpectations,
 } from "@ace/adapter-testkit";
-import { createOpenCodeAdapter } from "./index.ts";
+import { createOpenCodeAdapter } from "./testing/v1/index.ts";
 const directory = fileURLToPath(new URL("../../../fixtures/opencode/1.18.33/", import.meta.url));
 const adapter = createOpenCodeAdapter();
 describe("recorded OpenCode sessions", () => {

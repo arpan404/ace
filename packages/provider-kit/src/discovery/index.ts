@@ -46,7 +46,7 @@ const specs = {
   },
   opencode: {
     command: "opencode",
-    authArgs: ["auth", "list"],
+    authArgs: ["auth", "list", "--standalone", "--format", "json"],
     parse: parseOpenCodeAuth,
     loginHint: "opencode auth login",
   },
@@ -73,6 +73,7 @@ export async function discoverProvider(
   input: Provider,
   options: DiscoveryOptions = {},
 ): Promise<DiscoveryResult> {
+  options.signal?.throwIfAborted();
   const provider = ProviderSchema.parse(input);
   const env = { ...process.env, ...options.env };
   const spec = specs[provider];
@@ -82,14 +83,20 @@ export async function discoverProvider(
     loginHint: spec.loginHint,
   };
   const path = await findExecutable(options.overrides?.[provider] ?? spec.command, env);
+  options.signal?.throwIfAborted();
   if (!path) return result;
   result.installed = true;
   result.path = path;
-  const probeOptions = { env, timeoutMs: options.timeoutMs ?? 10_000 };
+  const probeOptions = {
+    env,
+    timeoutMs: options.timeoutMs ?? 10_000,
+    ...(options.signal ? { signal: options.signal } : {}),
+  };
   const [version, auth] = await Promise.allSettled([
-    probeOutput(path, ["--version"], probeOptions),
-    probeOutput(path, spec.authArgs, probeOptions),
+    (options.probe ?? probeOutput)(path, ["--version"], probeOptions),
+    (options.probe ?? probeOutput)(path, spec.authArgs, probeOptions),
   ]);
+  options.signal?.throwIfAborted();
   const errors: string[] = [];
   if (version.status === "fulfilled" && version.value.code === 0) {
     const parsed = parseVersion(provider, version.value.stdout);
@@ -154,6 +161,34 @@ export async function discoverAntigravity(
   }
   result.error =
     "Login status requires interactive verification; no safe status command is documented";
+  return result;
+}
+
+/** Pi auth checks need an LLM provider. Generic discovery never selects one or starts a session. */
+export async function discoverPi(
+  options: Omit<DiscoveryOptions, "overrides"> & { executable?: string } = {},
+): Promise<DiscoveryResult> {
+  const env = { ...process.env, ...options.env };
+  const path = await findExecutable(options.executable ?? "pi", env);
+  const result: DiscoveryResult = {
+    installed: !!path,
+    auth: "unknown",
+    loginHint: "pi, then /login on the local machine",
+  };
+  if (!path) return result;
+  result.path = path;
+  try {
+    const output = await (options.probe ?? probeOutput)(path, ["--version"], {
+      env,
+      timeoutMs: options.timeoutMs ?? 4000,
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
+    const match = /^(\d+\.\d+\.\d+)\s*$/.exec(output.stdout);
+    if (output.code === 0 && match?.[1]) result.version = match[1];
+    else result.error = "Unrecognized Pi version";
+  } catch {
+    result.error = "Pi version probe failed";
+  }
   return result;
 }
 export {

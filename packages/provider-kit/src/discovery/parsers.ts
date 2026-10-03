@@ -59,6 +59,34 @@ export function parseCursorAuth(text: string): AuthStatus {
 
 export function parseOpenCodeAuth(text: string): AuthStatus {
   const clean = stripVTControlCharacters(text);
+  if (clean.startsWith("[")) {
+    try {
+      const rows = z
+        .array(
+          z
+            .object({
+              id: z.string(),
+              connections: z
+                .array(z.object({ type: z.enum(["credential", "env"]) }).passthrough())
+                .max(128),
+            })
+            .passthrough(),
+        )
+        .max(512)
+        .parse(JSON.parse(clean));
+      const count = rows.reduce((total, row) => total + row.connections.length, 0);
+      return count === 0
+        ? { auth: "logged_out" }
+        : {
+            auth: "unknown",
+            authEvidence: "credentials_configured",
+            authDetail: `${count} configured connections; entitlement unverified`,
+          };
+    } catch {
+      return unknown;
+    }
+  }
+  if (clean === "No authenticated integrations") return { auth: "logged_out" };
   const count = /\b(\d+) credentials?\b/i.exec(clean)?.[1];
   if (count === undefined) return unknown;
   if (Number(count) === 0) return { auth: "logged_out" };
@@ -91,7 +119,8 @@ export function parseVersion(
 ): string | undefined {
   const clean = stripVTControlCharacters(text)
     .trim()
-    .replace(/^(?:codex-cli|agy|antigravity(?: CLI)?)\s+/i, "");
+    .replace(/^(?:codex-cli|agy|antigravity(?: CLI)?)\s+/i, "")
+    .replace(/^opencode\s+v?/i, "");
   return provider === "cursor"
     ? /^(\d{4}\.\d{2}\.\d{2}-[a-f\d]+)/i.exec(clean)?.[1]
     : /^(\d+\.\d+\.\d+(?:-[\w.-]+)?)/.exec(clean)?.[1];

@@ -560,7 +560,7 @@ Example:
       "type": "file"
     }
   ],
-  "provider": "antigravity",
+  "provider": "acp",
   "threadId": "example",
   "title": "example",
   "type": "thread.create",

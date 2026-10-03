@@ -21,6 +21,7 @@ export type DaemonOptions = {
     extensions?: import("../agent-control/tools.ts").AgentControlExtensions;
   };
   claude?: DaemonClaudeOptions;
+  pi?: import("./pi.ts").PiDaemonOptions;
   screen?: ScreenManager;
   commands?: DaemonCommandIntegration;
   config?: Config;

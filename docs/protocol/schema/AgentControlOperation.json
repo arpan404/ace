@@ -482,6 +482,10 @@
             "dismissed": {
               "type": "boolean"
             },
+            "feedback": {
+              "maxLength": 8192,
+              "type": "string"
+            },
             "kind": {
               "const": "question",
               "type": "string"
