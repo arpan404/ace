@@ -53,6 +53,30 @@ for await (const line of createInterface({ input: process.stdin })) {
         platformFamily: "unix",
         platformOs: "macos",
       });
+  } else if (method === "thread/fork") {
+    if (p["threadId"] !== "source-native" || p["lastTurnId"] !== "source-turn") {
+      write({ id, error: { message: "Incorrect fork source or boundary" } });
+      continue;
+    }
+    respond({
+      thread: { id: "fork-native", cwd: process.cwd(), status: { type: "idle" }, turns: [] },
+      model: "fake-model",
+    });
+  } else if (method === "thread/settings/update") {
+    respond({});
+    notify("item/completed", {
+      threadId: p["threadId"],
+      turnId: "configured",
+      item: {
+        id: "configuration-proof",
+        type: "agentMessage",
+        text: JSON.stringify({
+          model: p["model"],
+          effort: p["effort"],
+          serviceTier: p["serviceTier"],
+        }),
+      },
+    });
   } else if (method === "thread/start" || method === "thread/resume") {
     if (process.env["ACE_FAKE_RESUME"] === "resume-completed") {
       process.stdout.write(

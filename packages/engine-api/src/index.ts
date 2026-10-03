@@ -2,6 +2,8 @@ import type { Fact, Key } from "@ace/core";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { ProviderPayload } from "@ace/provider-kit/payload";
 import type {
+  ExecutionOptions,
+  ExecutionSelection,
   Capabilities,
   ContentPart,
   InteractionResolution,
@@ -54,6 +56,9 @@ export interface SessionContext {
   instanceId?: string;
   model?: string;
   resume?: { nativeSessionId: string };
+  /** Exclusive with resume. Inclusive provider-native boundary; never a guessed canonical ID. */
+  fork?: { nativeSessionId: string; point: { type: "turn" | "item" | "end"; nativeId: string } };
+  options?: ExecutionOptions;
   /** Every sent and received frame goes to the engine for translation and persistence. */
   onFrame(frame: Frame): void;
   onExit(exit: { deliberate: boolean; message?: string }): void;
@@ -72,6 +77,7 @@ export interface ProviderSession {
   readonly mcp?: ProviderMcpControl;
   readonly instanceId?: string;
   readonly nativeSessionId: string;
+  configure?(selection: ExecutionSelection): Promise<void>;
   send(input: ContentPart[], delivery: "steer" | "queue"): Promise<void>;
   interrupt(target: { agent?: Key; cascade: boolean }): Promise<void>;
   resolve(interaction: Key, resolution: InteractionResolution): Promise<void>;

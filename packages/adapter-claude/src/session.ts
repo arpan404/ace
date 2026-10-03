@@ -1,3 +1,4 @@
+import { ClaudeSelectionOptions } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { randomUUID } from "node:crypto";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
@@ -35,6 +36,10 @@ export async function openSession(
   ctx: SessionContext,
   options: ClaudeOptions = {},
 ): Promise<ProviderSession> {
+  const selectedOptions = ClaudeSelectionOptions.parse(ctx.options ?? {});
+  const configuration = configurationOptions(options.configuration ?? codingConfiguration);
+  if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
+  if (ctx.fork?.point.type === "turn") throw new Error("Claude requires a native message boundary");
   ctx.signal.throwIfAborted();
   const env = { ...process.env, ...options.env, ...ctx.env };
   const executable = await findExecutable(options.executable ?? "claude", env);
@@ -113,9 +118,20 @@ export async function openSession(
     options: {
       cwd: ctx.cwd,
       ...(ctx.model ? { model: ctx.model } : {}),
-      ...(ctx.resume ? { resume: sessionId } : { sessionId }),
+      ...(ctx.fork
+        ? {
+            resume: ctx.fork.nativeSessionId,
+            forkSession: true,
+            ...(ctx.fork.point.type === "item" ? { resumeSessionAt: ctx.fork.point.nativeId } : {}),
+            sessionId,
+          }
+        : ctx.resume
+          ? { resume: sessionId }
+          : { sessionId }),
+      ...(selectedOptions.effort ? { effort: selectedOptions.effort } : {}),
       pathToClaudeCodeExecutable: executable,
-      ...configurationOptions(options.configuration ?? codingConfiguration),
+      ...configuration,
+      ...(selectedOptions.permissionMode ? { permissionMode: selectedOptions.permissionMode } : {}),
       mcpServers: nativeMcpServers(options.mcpServers ?? {}),
       includePartialMessages: true,
       forwardSubagentText: true,
@@ -212,6 +228,8 @@ export async function openSession(
   ctx.signal.addEventListener("abort", abort, { once: true });
   try {
     await q.supportedCommands();
+    if (ctx.options !== undefined)
+      await q.applyFlagSettings({ effortLevel: selectedOptions.effort ?? null });
     ctx.signal.throwIfAborted();
   } catch (error) {
     await close();
@@ -223,6 +241,13 @@ export async function openSession(
   return {
     nativeSessionId: sessionId,
     mcp: mcpControls(q, ensureOpen),
+    async configure(selection) {
+      const executionOptions = ClaudeSelectionOptions.parse(selection.options);
+      ensureOpen();
+      await q.setModel(selection.model);
+      await q.setPermissionMode(executionOptions.permissionMode ?? configuration.permissionMode ?? "default");
+      await q.applyFlagSettings({ effortLevel: executionOptions.effort ?? null });
+    },
     async send(parts, delivery) {
       ensureOpen();
       if (delivery === "steer")
