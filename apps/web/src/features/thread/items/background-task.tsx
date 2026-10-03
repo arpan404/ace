@@ -33,43 +33,41 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
   const age = elapsed >= 0 && elapsed < 7 * 24 * 3_600_000 ? formatElapsed(elapsed) : undefined;
   const stopping = intent?.state === "pending" || (intent?.state === "acked" && running);
   return (
-    <div
-      role="group"
-      aria-label={`Background task ${command}`}
-      className="-mx-1.5 flex min-h-7 flex-wrap items-center gap-x-2 gap-y-0.5 rounded-[7px] px-1.5 text-[13.5px] text-muted-foreground"
-    >
-      {/* Narrow, the command and the Stop wrap under the label rather than shrink to a letter. */}
-      <span className="flex shrink-0 items-center gap-2">
-        <TerminalIcon aria-hidden size={16} className="shrink-0 text-subtle-foreground" />
-        {ended[task.status]}
-      </span>
-      <span className="flex max-w-full min-w-0 items-center gap-2">
-        <code className="min-w-0 truncate rounded-[5px] bg-secondary px-1.5 py-px font-mono text-[12.5px] text-foreground">
-          {command}
-        </code>
-        {age && (
-          <span className="shrink-0 text-subtle-foreground">{age.replace(/ \d+s$/, "")}</span>
-        )}
-      </span>
-      {intent?.state === "failed" || error ? (
-        <span role="alert" className="ml-auto text-xs text-status-failed">
-          Couldn't stop it
+    <div role="group" aria-label={`Background task ${command}`} className="@container">
+      {/* One line: the command gives way with an ellipsis; only a phone-narrow column wraps. */}
+      <div className="-mx-1.5 flex min-h-7 items-center gap-x-2 gap-y-0.5 rounded-[7px] px-1.5 text-[13.5px] text-muted-foreground @max-[360px]:flex-wrap">
+        <span className="flex shrink-0 items-center gap-2">
+          <TerminalIcon aria-hidden size={16} className="shrink-0 text-subtle-foreground" />
+          {ended[task.status]}
         </span>
-      ) : null}
-      {running && task.stoppable && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className={intent?.state === "failed" || error ? "" : "ml-auto"}
-          disabled={stopping}
-          onClick={() =>
-            void send({ type: "background_task.stop", taskId: task.id }).catch(() => {})
-          }
-        >
-          {stopping ? <Spinner /> : <StopIcon aria-hidden size={14} />}
-          {stopping ? "Stopping" : "Stop"}
-        </Button>
-      )}
+        <span className="flex min-w-0 flex-1 items-center gap-2 @max-[360px]:basis-full">
+          <code className="min-w-0 truncate rounded-[5px] bg-secondary px-1.5 py-px font-mono text-[12.5px] text-foreground">
+            {command}
+          </code>
+          {age && (
+            <span className="shrink-0 text-subtle-foreground">{age.replace(/ \d+s$/, "")}</span>
+          )}
+        </span>
+        {intent?.state === "failed" || error ? (
+          <span role="alert" className="ml-auto shrink-0 text-xs text-status-failed">
+            Couldn't stop it
+          </span>
+        ) : null}
+        {running && task.stoppable && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto shrink-0"
+            disabled={stopping}
+            onClick={() =>
+              void send({ type: "background_task.stop", taskId: task.id }).catch(() => {})
+            }
+          >
+            {stopping ? <Spinner /> : <StopIcon aria-hidden size={14} />}
+            {stopping ? "Stopping" : "Stop"}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
