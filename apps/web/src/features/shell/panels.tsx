@@ -1,6 +1,6 @@
 import { XIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { useSyncExternalStore } from "react";
+import { Activity, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle, clampSize } from "@/components/ui/resize-handle.tsx";
@@ -112,8 +112,10 @@ export function ShellPanel(props: { side: PanelSide; panel: PanelDefinition }) {
             />
           </div>
           {props.panel.tabs.map((tab) => (
-            <TabsPanel key={tab.id} value={tab.id} className="overflow-auto">
-              {tab.content}
+            // Tabs not showing keep their state but pause: effects (subscriptions, terminals,
+            // GPU views) stop and updates render at idle priority until the tab is shown.
+            <TabsPanel key={tab.id} value={tab.id} keepMounted className="overflow-auto">
+              <Activity mode={tab.id === active ? "visible" : "hidden"}>{tab.content}</Activity>
             </TabsPanel>
           ))}
         </Tabs>
