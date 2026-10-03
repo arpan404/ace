@@ -2,6 +2,8 @@
 
 Base: `4c2d6fb10115d2bb16dfa6191f812de6f79860de` (`origin/main`). Branch: `integration/train-1`.
 
+Four documentation-only main commits through `b69a26f` were merged after feature integration; no runtime source changed in that synchronization. Their provider SDK decisions and migration proposals remain separate implementation work.
+
 All 18 requested heads were fetched and merged in the requested order. None was already included in the base. Every final merge commit passes typecheck. No provider prompts or fixture recording were used.
 
 ## Included changes and conflict decisions
