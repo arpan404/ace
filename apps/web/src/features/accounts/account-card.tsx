@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
 import { blockingReset } from "@ace/ui-core";
-import { useMoveThreads } from "./account-details-source.ts";
+import { useMoveThreads } from "./account-threads-source.ts";
 import type { Account, QuotaWindow } from "./accounts-source.ts";
 import { formatClock, formatResets } from "./format.ts";
 
@@ -71,15 +71,19 @@ export function UsageRing(props: { window: QuotaWindow; now: number }) {
 
 const threads = (n: number) => `${n} running ${n === 1 ? "thread" : "threads"}`;
 
-/** An account: its quota rings, running threads, and for an exhausted one, the way out. */
-export function AccountCard(props: { account: Account }) {
+/**
+ * An account: its quota rings, running threads, and for one with threads stopped at its limit,
+ * the way out. `accounts` are its siblings, to pick where the threads go.
+ */
+export function AccountCard(props: { account: Account; accounts: readonly Account[] }) {
   const { account } = props;
   const now = useNow();
   const move = useMoveThreads();
   const toast = useToast();
   const exhausted = account.availability === "exhausted";
   const resetsAt = blockingReset(account);
-  const waiting = (account.pausedThreads ?? 0) + (account.runningThreads ?? 0);
+  const limited = account.threads?.limitedIds ?? [];
+  const waiting = limited.length;
   return (
     <article
       aria-label={`${account.providerLabel} ${account.label}`}
@@ -91,16 +95,8 @@ export function AccountCard(props: { account: Account }) {
     >
       <div className="flex items-center gap-2 text-base font-medium">
         {account.label}
-        {account.plan && (
-          <span className="text-sm font-normal text-subtle-foreground">{account.plan}</span>
-        )}
         {!account.signedIn && (
           <span className="text-sm font-normal text-subtle-foreground">Signed out</span>
-        )}
-        {account.isDefault && (
-          <span className="ml-auto rounded-sm bg-secondary px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-            Default
-          </span>
         )}
         {exhausted && (
           <span className="ml-auto rounded-sm bg-secondary px-1.5 py-0.5 text-xs font-medium text-status-failed">
@@ -113,34 +109,38 @@ export function AccountCard(props: { account: Account }) {
           <UsageRing key={window.id} window={window} now={now} />
         ))}
       </div>
-      {exhausted && waiting > 0 ? (
+      {waiting > 0 ? (
         <div className="mt-3.5 flex items-center gap-2.5 rounded-card bg-[color-mix(in_oklab,var(--status-failed)_9%,transparent)] px-3 py-2.5 text-sm leading-[1.45] text-muted-foreground">
           <span className="min-w-0 flex-1">
-            {waiting} {waiting === 1 ? "thread is" : "threads are"} paused until the window resets
-            {resetsAt === undefined ? "" : ` at ${formatClock(resetsAt)}`}.
+            {waiting} {waiting === 1 ? "thread is" : "threads are"} stopped at the limit until the
+            window resets{resetsAt === undefined ? "" : ` at ${formatClock(resetsAt)}`}.
           </span>
           <Button
             size="sm"
             disabled={move.isPending}
             onClick={() =>
-              move.mutate(account.id, {
-                onSuccess: (result) =>
-                  toast.add({
-                    title: `Moved ${result.moved} ${result.moved === 1 ? "thread" : "threads"} to ${account.providerLabel} · ${result.to}`,
-                  }),
-                onError: (error) => toast.add({ title: error.message }),
-              })
+              move.mutate(
+                { accounts: props.accounts, from: account.id, threadIds: limited },
+                {
+                  onSuccess: (result) =>
+                    toast.add({
+                      title: `Moved ${result.moved} ${result.moved === 1 ? "thread" : "threads"} to ${result.to.providerLabel} · ${result.to.label}${result.failed ? `; ${result.failed} couldn't move` : ""}`,
+                    }),
+                  onError: (error) => toast.add({ title: error.message }),
+                },
+              )
             }
           >
             <Icon icon={ArrowRightIcon} size={14} />
-            Move running threads
+            Move threads
           </Button>
         </div>
       ) : (
-        account.runningThreads !== undefined && (
+        account.threads !== undefined &&
+        account.threads.running > 0 && (
           <div className="mt-3.5 flex items-center gap-2 text-sm text-muted-foreground">
             <Icon icon={PlayIcon} size={14} />
-            {threads(account.runningThreads)}
+            {threads(account.threads.running)}
           </div>
         )
       )}

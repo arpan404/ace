@@ -4,6 +4,7 @@
  * TypeScript over @ace/protocol and @ace/client types; no React, DOM or platform APIs.
  */
 export * from "./accounts.ts";
+export * from "./account-threads.ts";
 export * from "./agents.ts";
 export * from "./arrange.ts";
 export * from "./content-hash.ts";

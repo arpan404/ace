@@ -29,6 +29,7 @@ import {
 } from "@ace/protocol";
 import { Connection, matches, type Host, type Wire } from "./connection.ts";
 import { fakeHealth } from "./health.ts";
+import { FakeLimitRecovery } from "./limit-recovery.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
@@ -78,6 +79,7 @@ export class FakeDaemon implements Host {
   private connections = new Set<Connection>();
   private receipts = new Map<string, { deviceId: Command["deviceId"]; result: CommandResult }>();
   private resolvedListeners = new Set<ResolvedListener>();
+  private limits = new FakeLimitRecovery();
   /** Review mode sessions and comments; sent comments arrive in the thread as a user message. */
   readonly review: FakeReviewDesk;
   /** Accounts, usage, models, settings, search and slash commands, over the wire. */
@@ -257,6 +259,19 @@ export class FakeDaemon implements Host {
     return connection;
   }
   service(message: ClientMessage, connection: Connection): boolean {
+    if (message.type === "queue.get") {
+      const host = this.threads.get(message.threadId);
+      if (host && host.view.thread.deletedAt === undefined)
+        connection.push(this.limits.queue(host, message));
+      else
+        connection.push({
+          type: "error",
+          requestId: message.requestId,
+          code: "not_found",
+          message: "Unknown thread",
+        });
+      return true;
+    }
     return this.services.handle(message, connection.push);
   }
   release(connection: Connection): void {
@@ -430,6 +445,16 @@ export class FakeDaemon implements Host {
           if (outcome) return this.run(commandId, host.id, () => outcome);
         }
         return { commandId, ok: false, error: "task_not_found" };
+      }
+      case "thread.limit": {
+        const host = this.threads.get(payload.threadId);
+        if (!host || host.view.thread.deletedAt !== undefined)
+          return { commandId, ok: false, error: "thread_not_found" };
+        const decision = this.limits.limit(host, payload);
+        if ("error" in decision) return { commandId, ok: false, error: decision.error };
+        this.append(host, decision.events, this.options.clock());
+        this.apply(host.id, decision.facts);
+        return { commandId, ok: true };
       }
       case "thread.archive": {
         const host = this.threads.get(payload.threadId);

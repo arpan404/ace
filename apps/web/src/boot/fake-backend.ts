@@ -1,7 +1,7 @@
 // TODO(client-gaps): feat/client-protocol-gaps
 /*
  * What main's protocol can't carry to a web client yet: decks (conductor run view), skills and
- * plugins, changed files and transfers (binary file channels), and account details. Each such
+ * plugins, changed files and transfers (binary file channels). Each such
  * feature's single `*-source.ts` reads this fake backend in fake mode (dev:fake and tests) and
  * reports "unavailable" against a real daemon. Everything the protocol does carry goes through
  * `Client.request` in both modes, served in fake mode by @ace/fake-daemon's wire services.
@@ -9,13 +9,7 @@
  * The fake daemon is loaded lazily so a production bundle never fetches it.
  */
 import type { ClientApi } from "@ace/client";
-import type {
-  FakeAccount,
-  FakeChangedFile,
-  FakeConductor,
-  FakeSchedulingPolicy,
-  FakeSkill,
-} from "@ace/fake-daemon";
+import type { FakeChangedFile, FakeConductor, FakeSkill } from "@ace/fake-daemon";
 import { useClient } from "@ace/client-react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 
@@ -27,8 +21,6 @@ export interface FakeBackend {
   readonly conductor: FakeConductor;
   now(): number;
   skills: FakeSkill[];
-  accounts: FakeAccount[];
-  policy: FakeSchedulingPolicy;
   files: FakeChangedFile[];
 }
 
@@ -44,8 +36,6 @@ function load(): Promise<FakeBackend> {
       conductor: new fake.FakeConductor({ clock: now }),
       now,
       skills: fake.skillCatalog(),
-      accounts: fake.accountList(now()),
-      policy: fake.defaultSchedulingPolicy(),
       files: fake.changedFiles(now()),
     };
   });

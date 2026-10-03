@@ -73,7 +73,11 @@ export function AccountsPage() {
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-3.5 md:grid-cols-2">
                     {group.map((account) => (
-                      <AccountCard key={account.id} account={account} />
+                      <AccountCard
+                        key={account.id}
+                        account={account}
+                        accounts={accounts.data ?? []}
+                      />
                     ))}
                   </div>
                 </section>
