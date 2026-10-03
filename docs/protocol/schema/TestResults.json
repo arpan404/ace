@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/TestResults.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "failed": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "outputRef": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "passed": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "passed",
+    "failed"
+  ],
+  "type": "object"
+}

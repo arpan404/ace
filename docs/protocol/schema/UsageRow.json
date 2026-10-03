@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/UsageRow.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "dimensions": {
+      "additionalProperties": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/UsageDimension.json"
+      },
+      "type": "object"
+    },
+    "totals": {
+      "$ref": "https://ace.local/protocol/v1/UsageTotals.json"
+    }
+  },
+  "required": [
+    "dimensions",
+    "totals"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,61 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenLegacyFrameHeader.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bytes": {
+      "exclusiveMinimum": 0,
+      "maximum": 8388608,
+      "type": "integer"
+    },
+    "captureGeneration": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "codec": {
+      "const": "jpeg",
+      "type": "string"
+    },
+    "height": {
+      "exclusiveMinimum": 0,
+      "maximum": 2160,
+      "type": "integer"
+    },
+    "scale": {
+      "exclusiveMinimum": 0,
+      "type": "number"
+    },
+    "sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sessionId": {
+      "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+    },
+    "timestamp": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "version": {
+      "const": 1,
+      "type": "number"
+    },
+    "width": {
+      "exclusiveMinimum": 0,
+      "maximum": 3840,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "sessionId",
+    "sequence",
+    "timestamp",
+    "width",
+    "height",
+    "codec",
+    "bytes"
+  ],
+  "type": "object"
+}

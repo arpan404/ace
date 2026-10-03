@@ -1,0 +1,56 @@
+{
+  "$id": "https://ace.local/protocol/v1/Interaction.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "blocking": {
+      "type": "boolean"
+    },
+    "closedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "createdAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+    },
+    "raw": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+      },
+      "type": "array"
+    },
+    "request": {
+      "$ref": "https://ace.local/protocol/v1/InteractionRequest.json"
+    },
+    "resolution": {
+      "$ref": "https://ace.local/protocol/v1/InteractionResolution.json"
+    },
+    "resolvedBy": {
+      "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+    },
+    "state": {
+      "$ref": "https://ace.local/protocol/v1/InteractionState.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "toolCallId": {
+      "$ref": "https://ace.local/protocol/v1/ItemId.json"
+    }
+  },
+  "required": [
+    "id",
+    "threadId",
+    "agentId",
+    "blocking",
+    "request",
+    "state",
+    "createdAt"
+  ],
+  "type": "object"
+}

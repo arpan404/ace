@@ -1,0 +1,6 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginCommit.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "pattern": "^[a-f0-9]{40}$",
+  "type": "string"
+}

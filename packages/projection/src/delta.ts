@@ -88,11 +88,23 @@ function appendText(
 /** Text and reasoning both append to reasoning/notice; messages accept only text.
  * Shell output retains a byte count and the last 4 KiB, never the full stream.
  * Returns false for a field that does not belong to the item, without mutation. */
+export function acceptsDelta(
+  type: Item["type"],
+  field: "text" | "reasoning" | "output",
+  toolKind?: string,
+): boolean {
+  if (field === "output") return type === "tool_call" && toolKind === "shell";
+  return type === "reasoning" || type === "notice" || (type === "message" && field === "text");
+}
 export function applyDelta(
   item: Item,
   field: "text" | "reasoning" | "output",
   append: string,
 ): boolean {
+  if (
+    !acceptsDelta(item.type, field, item.type === "tool_call" ? item.call.detail.kind : undefined)
+  )
+    return false;
   if (field === "output" && item.type === "tool_call" && item.call.detail.kind === "shell") {
     item.call.detail.output = summarizeOutput(item.id, append, item.call.detail.output);
   } else if (field !== "output" && (item.type === "reasoning" || item.type === "notice")) {

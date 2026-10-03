@@ -14,14 +14,17 @@
     "lint": "oxlint --deny-warnings",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "vitest run",
-    "check": "bun run fmt:check && bun run lint && bun run check:size && bun run typecheck && bun run test",
+    "check": "bun run fmt:check && bun run docs:protocol --check && bun run lint && bun run check:size && bun run typecheck && bun run test",
     "record": "bun run --filter @ace/recorder record",
     "check:size": "node scripts/check-file-size.ts",
     "web:dev": "bun run --filter @ace/web dev",
     "web:dev:fake": "bun run --filter @ace/web dev:fake",
     "web:build": "bun run --filter @ace/web build",
     "ace": "node apps/daemon/src/cli.ts",
-    "postinstall": "bun run --filter @ace/workspace build:native && bun run --filter @ace/terminal prepare-native"
+    "postinstall": "bun run --filter @ace/workspace build:native && bun run --filter @ace/terminal prepare-native",
+    "docs:protocol": "bun tools/protocol-docs/src/cli.ts",
+    "docs:protocol:compat": "bun tools/protocol-docs/src/cli.ts --compat",
+    "docs:protocol:snapshot": "bun tools/protocol-docs/src/cli.ts --snapshot"
   },
   "devDependencies": {
     "@ace/provider-kit": "workspace:*",

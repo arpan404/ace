@@ -1,0 +1,6 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenUIRef.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+  "type": "string"
+}

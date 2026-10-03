@@ -1,0 +1,101 @@
+{
+  "$id": "https://ace.local/protocol/v1/AutomationTrigger.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "manual",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "schedule",
+          "type": "string"
+        },
+        "schedule": {
+          "$ref": "https://ace.local/protocol/v1/AutomationSchedule.json"
+        }
+      },
+      "required": [
+        "kind",
+        "schedule"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "event": {
+          "enum": [
+            "pr_changed",
+            "ci_failed",
+            "review_comment",
+            "issue_labelled"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "const": "github",
+          "type": "string"
+        },
+        "label": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "pollIntervalMs": {
+          "maximum": 86400000,
+          "minimum": 60000,
+          "type": "integer"
+        },
+        "pullRequest": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "repository": {
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "repository",
+        "event",
+        "pollIntervalMs"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "file",
+          "type": "string"
+        },
+        "paths": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "paths"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationBudget.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cost": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "number"
+    },
+    "durationMs": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "maxAttempts": {
+      "maximum": 10,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "maxDepth": {
+      "maximum": 8,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "maxLanes": {
+      "maximum": 64,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "tokens": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "maxLanes",
+    "maxDepth",
+    "maxAttempts",
+    "durationMs",
+    "tokens",
+    "cost"
+  ],
+  "type": "object"
+}

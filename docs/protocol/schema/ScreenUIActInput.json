@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenUIActInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "action": {
+      "$ref": "https://ace.local/protocol/v1/ScreenUIAction.json"
+    },
+    "ref": {
+      "$ref": "https://ace.local/protocol/v1/ScreenUIRef.json"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "properties": {
+            "dx": {
+              "default": 0,
+              "maximum": 1000,
+              "minimum": -1000,
+              "type": "integer"
+            },
+            "dy": {
+              "default": 0,
+              "maximum": 1000,
+              "minimum": -1000,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "required": [
+    "ref",
+    "action"
+  ],
+  "type": "object"
+}

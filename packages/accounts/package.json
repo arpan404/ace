@@ -1,0 +1,23 @@
+{
+  "name": "@ace/accounts",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "accounts": "node src/cli.ts",
+    "bench": "node bench/quota.ts"
+  },
+  "dependencies": {
+    "@ace/engine-api": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

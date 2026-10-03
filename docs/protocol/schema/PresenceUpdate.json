@@ -1,0 +1,40 @@
+{
+  "$id": "https://ace.local/protocol/v1/PresenceUpdate.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "inputAgeMs": {
+      "maximum": 86400000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "threadId": {
+      "anyOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+            },
+            {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          ]
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "type": {
+      "const": "presence.update",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "threadId",
+    "inputAgeMs"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/SearchSnippet.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "highlights": {
+      "items": {
+        "properties": {
+          "end": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "start": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "type": "object"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "text": {
+      "maxLength": 4096,
+      "type": "string"
+    }
+  },
+  "required": [
+    "text",
+    "highlights"
+  ],
+  "type": "object"
+}

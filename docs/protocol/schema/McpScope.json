@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/McpScope.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "capabilities": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/McpCapability.json"
+      },
+      "maxItems": 7,
+      "type": "array"
+    },
+    "sessionId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "sessionId",
+    "threadId",
+    "agentId",
+    "capabilities"
+  ],
+  "type": "object"
+}

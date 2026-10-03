@@ -1,0 +1,9 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginName.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maxLength": 64,
+  "minLength": 1,
+  "pattern": "^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$",
+  "type": "string",
+  "x-ace-constraint": "Plugin names cannot contain consecutive dots or hyphens."
+}

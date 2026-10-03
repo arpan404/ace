@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReleaseTarget.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "darwin-arm64",
+    "darwin-x64",
+    "linux-arm64",
+    "linux-x64"
+  ],
+  "type": "string"
+}

@@ -17,6 +17,8 @@ that signal before effects and pass it through all I/O. Failures return fixed
 messages. Large data should live in owned artifact/output storage, with a
 reference returned from the tool.
 
+`ToolRegistry.registerContent` accepts a Zod input schema and validates MCP content results at the boundary, including JPEG images. Rich results cap at 12 MiB, including base64 and JSON overhead. Structured registrations keep their 256 KiB result cap. Names normally use `ace_*`; exact `screen_*` names require the `screen` capability. The daemon attaches the screen toolkit when a screen manager is configured. Its handlers bind trusted thread/agent credential IDs to a human-delegated session, with no session selection in tool arguments.
+
 Annotate mirrored input parameters with Zod metadata such as
 `z.string().meta({ "x-mcp-header": "Scope" })`. The current HTTP transport
 validates `Mcp-Param-Scope` against the argument before execution and supports

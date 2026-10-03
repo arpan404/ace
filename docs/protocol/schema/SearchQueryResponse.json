@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/SearchQueryResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "generation": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "hits": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SearchHit.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "search.results",
+      "type": "string"
+    }
+  },
+  "required": [
+    "hits",
+    "cursor",
+    "generation",
+    "type",
+    "requestId"
+  ],
+  "type": "object"
+}

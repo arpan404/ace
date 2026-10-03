@@ -77,3 +77,8 @@ export type Workspace = Awaited<ReturnType<typeof createWorkspace>>;
 
 export { filesystem, workspaceRuntime } from "./runtime.ts";
 export type { WorkspaceFileSystem, WorkspaceRuntime, WorkspaceClock } from "./runtime.ts";
+
+// Shared root-bound filesystem owner for transfer and mutation services.
+export { SafeRoot, transferTemporary as isWorkspaceTransferTemporary } from "./safety.ts";
+export { GitIgnore } from "./ignore.ts";
+export { tree as walkWorkspace } from "./tree.ts";

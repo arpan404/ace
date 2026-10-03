@@ -1,0 +1,52 @@
+{
+  "$id": "https://ace.local/protocol/v1/ItemsPage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "itemSeqs": {
+      "additionalProperties": {
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991,
+        "type": "integer"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+    },
+    "items": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/Item.json"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "itemsBefore": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "seq",
+    "threadId",
+    "items",
+    "itemsBefore"
+  ],
+  "type": "object"
+}

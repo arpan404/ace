@@ -1,0 +1,85 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenUINode.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    {
+      "actions": [
+        "press"
+      ],
+      "bounds": {
+        "h": 10,
+        "w": 10,
+        "x": 0,
+        "y": 0
+      },
+      "children": [],
+      "name": "Example",
+      "ref": "example",
+      "role": "button",
+      "states": []
+    }
+  ],
+  "properties": {
+    "actions": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ScreenUIAction.json"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
+    "bounds": {
+      "$ref": "https://ace.local/protocol/v1/ScreenRect.json"
+    },
+    "children": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ScreenUINode.json"
+      },
+      "maxItems": 512,
+      "type": "array"
+    },
+    "description": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "ref": {
+      "$ref": "https://ace.local/protocol/v1/ScreenUIRef.json"
+    },
+    "role": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "states": {
+      "items": {
+        "enum": [
+          "focused",
+          "selected",
+          "checked",
+          "disabled",
+          "expanded",
+          "offscreen"
+        ],
+        "type": "string"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
+    "value": {
+      "maxLength": 512,
+      "type": "string"
+    }
+  },
+  "required": [
+    "ref",
+    "role",
+    "name",
+    "bounds",
+    "states",
+    "actions",
+    "children"
+  ],
+  "type": "object"
+}

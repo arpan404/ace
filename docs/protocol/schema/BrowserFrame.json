@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserFrame.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "data": {
+      "maxLength": 4194304,
+      "type": "string"
+    },
+    "height": {
+      "maximum": 4096,
+      "minimum": 100,
+      "type": "integer"
+    },
+    "sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "timestamp": {
+      "type": "number"
+    },
+    "width": {
+      "maximum": 4096,
+      "minimum": 100,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "sequence",
+    "timestamp",
+    "data",
+    "width",
+    "height"
+  ],
+  "type": "object"
+}

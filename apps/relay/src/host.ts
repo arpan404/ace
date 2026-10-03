@@ -84,7 +84,8 @@ export async function connectHostToRelay(options: {
         transport,
         (message) => {
           if (!seenHello) {
-            if (message.type !== "hello") throw new Error("First message must be hello");
+            if (message instanceof Uint8Array || message.type !== "hello")
+              throw new Error("First message must be hello");
             seenHello = true;
           }
         },

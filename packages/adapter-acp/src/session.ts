@@ -1,3 +1,4 @@
+import { ProviderPayload } from "@ace/provider-kit/payload";
 import { ShellSettlement } from "./shell-settlement.ts";
 import { cancellationGraceMs, promptStop } from "./settlement.ts";
 import type { ProviderSession, SessionContext } from "@ace/engine-api";
@@ -154,12 +155,14 @@ class AcpSession implements ProviderSession {
     void this.close("shutdown");
   };
   frame(dir: "send" | "recv" | "stderr" | "note", channel: string, data: unknown): void {
+    const payload = new ProviderPayload(JSON.stringify(data));
     this.ctx.onFrame({
       seq: this.sequence++,
       t: Math.round(this.now() - this.started),
       dir,
       channel,
-      data,
+      data: payload.data,
+      payload,
     });
   }
   async initialize(): Promise<void> {

@@ -1,0 +1,150 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "state": {
+          "const": "starting",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "activity": {
+          "$ref": "https://ace.local/protocol/v1/AgentActivity.json"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "itemId": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "state": {
+          "const": "working",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "activity"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "attempt": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "message": {
+          "type": "string"
+        },
+        "on": {
+          "$ref": "https://ace.local/protocol/v1/BlockedReason.json"
+        },
+        "refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "state": {
+          "const": "blocked",
+          "type": "string"
+        },
+        "until": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        }
+      },
+      "required": [
+        "state",
+        "on"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "const": "idle",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "const": "interrupted",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "error": {
+          "properties": {
+            "kind": {
+              "enum": [
+                "provider",
+                "auth",
+                "quota",
+                "network",
+                "process_exit",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "type": "object"
+        },
+        "state": {
+          "const": "failed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "error"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "lastSignalAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "state": {
+          "const": "unresponsive",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "lastSignalAt"
+      ],
+      "type": "object"
+    }
+  ]
+}

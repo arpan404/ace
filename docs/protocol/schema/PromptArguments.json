@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/PromptArguments.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {
+    "$ref": "https://ace.local/protocol/v1/PromptValue.json"
+  },
+  "maxProperties": 64,
+  "propertyNames": {
+    "$ref": "https://ace.local/protocol/v1/PaletteName.json"
+  },
+  "type": "object",
+  "x-ace-constraint": "At most 64 arguments."
+}

@@ -55,6 +55,11 @@ function terminalQr(value: string): string {
 }
 async function main(args: string[]): Promise<void> {
   if (args[0] === "--") args = args.slice(1);
+  if (args[0] === "accounts") {
+    const { runAccountsCommand } = await import("@ace/accounts");
+    await runAccountsCommand(args);
+    return;
+  }
   const config = readConfig();
   if (args[0] === "doctor" || args[0] === "support-bundle") {
     const { diagnosticsCli } = await import("./diagnostics-cli.ts");

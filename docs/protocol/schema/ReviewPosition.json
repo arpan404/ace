@@ -1,0 +1,42 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewPosition.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    {
+      "end": 1,
+      "file": "example.ts",
+      "side": "new",
+      "start": 1
+    }
+  ],
+  "properties": {
+    "end": {
+      "exclusiveMinimum": 0,
+      "maximum": 10000000,
+      "type": "integer"
+    },
+    "file": {
+      "$ref": "https://ace.local/protocol/v1/ReviewPath.json"
+    },
+    "side": {
+      "enum": [
+        "old",
+        "new"
+      ],
+      "type": "string"
+    },
+    "start": {
+      "exclusiveMinimum": 0,
+      "maximum": 10000000,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "file",
+    "side",
+    "start",
+    "end"
+  ],
+  "type": "object",
+  "x-ace-constraint": "end >= start and end - start < 100."
+}

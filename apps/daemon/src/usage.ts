@@ -2,7 +2,12 @@ import { open } from "node:fs/promises";
 import { z } from "zod";
 import { constants } from "node:fs";
 import { join } from "node:path";
-import { UsageQuery, UsageResult } from "@ace/protocol";
+import {
+  UsageQuery,
+  UsageResult,
+  UsageSessionTotalsQuery,
+  UsageSessionTotalPage,
+} from "@ace/protocol";
 import {
   UsageWorker,
   UsageSettings,
@@ -15,6 +20,9 @@ import type { Store } from "./store.ts";
 export interface UsageCommands {
   summary(query: UsageQuery): Promise<UsageResult>;
   series(query: UsageQuery): Promise<UsageResult>;
+  sessionTotals?(
+    query: UsageSessionTotalsQuery,
+  ): Promise<import("zod").infer<typeof UsageSessionTotalPage>>;
 }
 export async function loadUsageSettings(dataDir: string): Promise<UsageSettings> {
   let file;
@@ -99,6 +107,11 @@ export function createDaemonUsage(
   return {
     summary: (input: UsageQuery) => query("summary", input),
     series: (input: UsageQuery) => query("series", input),
+    async sessionTotals(input: UsageSessionTotalsQuery) {
+      const request = UsageSessionTotalsQuery.parse(input);
+      await catchUp();
+      return UsageSessionTotalPage.parse(await worker.sessionTotalsFor(request));
+    },
     catchUp,
     async start() {
       await worker.cursor();

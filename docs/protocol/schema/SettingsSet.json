@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/SettingsSet.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "key": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "layer": {
+      "$ref": "https://ace.local/protocol/v1/SettingsLayer.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "settings.set",
+      "type": "string"
+    },
+    "value": {
+      "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema0"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "key",
+    "value",
+    "layer"
+  ],
+  "type": "object"
+}

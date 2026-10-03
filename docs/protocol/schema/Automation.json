@@ -1,0 +1,74 @@
+{
+  "$id": "https://ace.local/protocol/v1/Automation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "concurrency": {
+      "maximum": 32,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "enabled": {
+      "type": "boolean"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "jitterMs": {
+      "maximum": 3600000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "missedRun": {
+      "enum": [
+        "skip",
+        "run_once"
+      ],
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "prompt": {
+      "maxLength": 32768,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "title": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "trigger": {
+      "$ref": "https://ace.local/protocol/v1/AutomationTrigger.json"
+    },
+    "workspace": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "worktree": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "enabled",
+    "workspace",
+    "provider",
+    "prompt",
+    "worktree",
+    "trigger",
+    "missedRun",
+    "concurrency",
+    "jitterMs"
+  ],
+  "type": "object"
+}

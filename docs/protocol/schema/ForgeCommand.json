@@ -1,0 +1,173 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "type": {
+          "const": "forge.pr.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "input": {
+          "$ref": "https://ace.local/protocol/v1/ForgeCreatePrInput.json"
+        },
+        "repository": {
+          "$ref": "https://ace.local/protocol/v1/ForgeRepository.json"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "type": {
+          "const": "forge.pr.create",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "repository",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "type": {
+          "const": "forge.pr.link",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "body": {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        "commentId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "type": {
+          "const": "forge.comment.reply",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link",
+        "commentId",
+        "body"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "reviewers": {
+          "items": {
+            "pattern": "^[\\w-]+$",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "type": {
+          "const": "forge.review.request",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link",
+        "reviewers"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "headSha": {
+          "type": "string"
+        },
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "method": {
+          "enum": [
+            "merge",
+            "squash",
+            "rebase"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "forge.pr.merge",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link",
+        "headSha",
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "headSha": {
+          "type": "string"
+        },
+        "link": {
+          "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+        },
+        "method": {
+          "enum": [
+            "merge",
+            "squash",
+            "rebase"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "forge.pr.auto-merge",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "link",
+        "headSha",
+        "method"
+      ],
+      "type": "object"
+    }
+  ]
+}

@@ -1,0 +1,381 @@
+{
+  "$id": "https://ace.local/protocol/v1/EventPayload.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "thread": {
+          "$ref": "https://ace.local/protocol/v1/Thread.json"
+        },
+        "type": {
+          "const": "thread.created",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "thread"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "archivedAt": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+        },
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "const": "thread.updated",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agent": {
+          "$ref": "https://ace.local/protocol/v1/Agent.json"
+        },
+        "type": {
+          "const": "agent.created",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "agent"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "status": {
+          "$ref": "https://ace.local/protocol/v1/AgentStatus.json"
+        },
+        "type": {
+          "const": "agent.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "agentId",
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "background": {
+          "type": "boolean"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "endedAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "fidelity": {
+          "$ref": "https://ace.local/protocol/v1/AgentFidelity.json"
+        },
+        "model": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "native": {
+          "$ref": "https://ace.local/protocol/v1/NativeRef.json"
+        },
+        "origin": {
+          "$ref": "https://ace.local/protocol/v1/AgentOrigin.json"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AgentId.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "role": {
+          "type": "string"
+        },
+        "spawnedBy": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/ItemId.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": {
+          "const": "agent.updated",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "agentId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "run": {
+          "$ref": "https://ace.local/protocol/v1/Run.json"
+        },
+        "type": {
+          "const": "run.started",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "run"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "endedAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "state": {
+          "enum": [
+            "completed",
+            "interrupted",
+            "failed"
+          ],
+          "type": "string"
+        },
+        "trigger": {
+          "$ref": "https://ace.local/protocol/v1/RunTrigger.json"
+        },
+        "type": {
+          "const": "run.ended",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "runId",
+        "state",
+        "endedAt"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "item": {
+          "$ref": "https://ace.local/protocol/v1/Item.json"
+        },
+        "type": {
+          "const": "item.created",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "item"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "append": {
+          "type": "string"
+        },
+        "field": {
+          "enum": [
+            "text",
+            "reasoning",
+            "output"
+          ],
+          "type": "string"
+        },
+        "itemId": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "type": {
+          "const": "item.delta",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "itemId",
+        "agentId",
+        "field",
+        "append"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "item": {
+          "$ref": "https://ace.local/protocol/v1/Item.json"
+        },
+        "type": {
+          "const": "item.updated",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "item"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "itemId": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "type": {
+          "const": "item.deleted",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "itemId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "interaction": {
+          "$ref": "https://ace.local/protocol/v1/Interaction.json"
+        },
+        "type": {
+          "const": "interaction.opened",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "interaction"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "closedAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "interactionId": {
+          "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+        },
+        "resolution": {
+          "$ref": "https://ace.local/protocol/v1/InteractionResolution.json"
+        },
+        "resolvedBy": {
+          "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+        },
+        "state": {
+          "enum": [
+            "resolved",
+            "cancelled",
+            "expired"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "interaction.closed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "interactionId",
+        "state",
+        "closedAt"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "task": {
+          "$ref": "https://ace.local/protocol/v1/BackgroundTask.json"
+        },
+        "type": {
+          "const": "background_task.started",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "task"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "endedAt": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "status": {
+          "enum": [
+            "running",
+            "completed",
+            "failed",
+            "stopped",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "taskId": {
+          "$ref": "https://ace.local/protocol/v1/BackgroundTaskId.json"
+        },
+        "type": {
+          "const": "background_task.updated",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "taskId",
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UsageUpdated.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceFilesChanged.json"
+    }
+  ]
+}

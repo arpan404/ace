@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/TextSource.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "encoding": {
+      "const": "utf-16le",
+      "type": "string"
+    },
+    "streamId": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "streamId",
+    "bytes",
+    "encoding"
+  ],
+  "type": "object"
+}

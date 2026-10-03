@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeliveryEvent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "at": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "firstSeq": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/EventId.json"
+    },
+    "payload": {
+      "$ref": "https://ace.local/protocol/v1/EventPayload.json"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "seq",
+    "id",
+    "at",
+    "threadId",
+    "payload"
+  ],
+  "type": "object",
+  "x-ace-constraint": "firstSeq is allowed only on item.delta and must be <= seq."
+}

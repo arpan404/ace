@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/SearchFilters.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "after": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "before": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "kind": {
+      "$ref": "https://ace.local/protocol/v1/SearchKind.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/SearchState.json"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "type": "object",
+  "x-ace-constraint": "after must be <= before when both timestamps are present."
+}

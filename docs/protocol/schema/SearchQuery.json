@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/SearchQuery.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cursor": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    },
+    "filters": {
+      "$ref": "https://ace.local/protocol/v1/SearchFilters.json",
+      "default": {}
+    },
+    "limit": {
+      "default": 30,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "mode": {
+      "default": "tokens",
+      "enum": [
+        "tokens",
+        "substring"
+      ],
+      "type": "string"
+    },
+    "scope": {
+      "default": "items",
+      "enum": [
+        "items",
+        "threads"
+      ],
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 512,
+      "type": "string"
+    }
+  },
+  "required": [
+    "text"
+  ],
+  "type": "object"
+}

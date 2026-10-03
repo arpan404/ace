@@ -1,5 +1,14 @@
+import { usageSnapshotKey } from "./usage.ts";
+export { usageSnapshotKey } from "./usage.ts";
 import { applyDelta } from "./delta.ts";
-export { applyDelta, outputDeltas, outputStreamId, summarizeOutput, utf8Slice } from "./delta.ts";
+export {
+  acceptsDelta,
+  applyDelta,
+  outputDeltas,
+  outputStreamId,
+  summarizeOutput,
+  utf8Slice,
+} from "./delta.ts";
 export { applyItemsPage, trackItem } from "./window.ts";
 import type {
   DeliveryEvent,
@@ -30,6 +39,7 @@ export function createThreadView(thread: Thread, seq = 0): ThreadView {
     interactions: {},
     backgroundTasks: {},
     usage: {},
+    usageSnapshots: {},
   };
 }
 export function createThreadListView(threads: Thread[] = [], seq = 0): ThreadListView {
@@ -144,6 +154,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       view.thread.updatedAt = event.at;
       break;
     case "thread.updated":
+    case "workspace.files_changed":
       break;
     case "agent.created": {
       const previous = get(view.agents, p.agent.id);
@@ -189,6 +200,10 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       put(view.items, p.item.id, structuredCopy(p.item));
       break;
     }
+    case "item.deleted":
+      delete view.items[p.itemId];
+      view.itemOrder = view.itemOrder.filter((id) => id !== p.itemId);
+      break;
     case "item.delta": {
       const item = get(view.items, p.itemId);
       if (item) applyDelta(item, p.field, p.append);
@@ -219,7 +234,9 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       break;
     }
     case "usage.updated":
-      put(view.usage, p.agentId, structuredCopy(p));
+      if (p.usageScope === "provider_session" || p.usageScope === "model_session")
+        put(view.usageSnapshots, usageSnapshotKey(p), structuredCopy(p));
+      else put(view.usage, p.agentId, structuredCopy(p));
       break;
     default: {
       const exhaustive: never = p;
