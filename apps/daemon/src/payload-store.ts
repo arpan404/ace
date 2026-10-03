@@ -285,9 +285,29 @@ export class PayloadStore {
       .parse(row);
   }
   readOutput(streamId: string, offset: number, limit: number) {
-    const result = this.readOutputBytes(streamId, offset, limit);
+    const result = this.readLiveOutputBytes(streamId, offset, limit);
     return { ...result, bytes: result.bytes.toString("base64") };
   }
+  /** Retired bytes are readable only through a cutoff-authorized historical read. */
+  readLiveOutputBytes(streamId: string, offset: number, limit: number) {
+    if (!this.liveStreamThread(streamId)) throw new Error("Unknown output stream");
+    return this.readOutputBytes(streamId, offset, limit);
+  }
+  liveStreamThread(streamId: string): ThreadId | undefined {
+    const current = this.readStatement(`
+      SELECT s.thread_id FROM output_streams s JOIN item_previews p ON p.id=s.item_id
+      WHERE s.id=? AND json_extract(p.item,'$.type')='tool_call'
+        AND json_extract(p.item,'$.call.detail.kind')='shell'
+      UNION ALL
+      SELECT s.thread_id FROM item_text_streams s JOIN item_previews p ON p.id=s.item_id
+      WHERE s.id=? AND (
+        json_extract(p.item,'$.source.streamId')=s.id OR
+        json_extract(p.item,'$.parts[' || s.part || '].source.streamId')=s.id
+      ) LIMIT 1
+    `).get(streamId, streamId);
+    return current ? ThreadId.parse(current.thread_id) : undefined;
+  }
+  /** Internal archive read; historical callers check ownership and frozen length first. */
   readOutputBytes(streamId: string, offset: number, limit: number) {
     if (
       !Number.isSafeInteger(offset) ||

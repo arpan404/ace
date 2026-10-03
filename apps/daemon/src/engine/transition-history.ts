@@ -6,7 +6,9 @@ import type { ThreadState } from "@ace/core";
 
 /** A quota-limited terminal run can branch, but live trees cannot be switched away. */
 export function quiescent(state: ThreadState, agentsReady: boolean): boolean {
-  if (state.queueSources.provider || state.processExit?.unsettled?.length) return false;
+  // Exit.unsettled records agents that were live before exit, not work still running.
+  // Current agent readiness and live-work indexes remain authoritative after restart.
+  if (state.queueSources.provider) return false;
   if (
     Object.keys(state.indexes.liveTools).length ||
     Object.keys(state.indexes.pendingInteractions).length ||

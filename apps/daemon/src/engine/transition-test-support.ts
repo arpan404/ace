@@ -237,9 +237,22 @@ export function transitionHarness(
     return result.forkThreadId;
   }
   function finishedRun(id: ThreadId) {
-    const run = Object.values(store.snapshotThread(id).runs).at(-1);
-    if (!run) throw new Error("No source run");
-    return run;
+    // Snapshot dictionaries have no chronological ordering. Read the durable boundaries.
+    let afterSeq = 0;
+    let runId: string | undefined;
+    for (let page = 0; page < 100; page++) {
+      const events = store.readEvents({ afterSeq, threadId: id, limit: 100 });
+      for (const event of events)
+        if (event.payload.type === "run.ended") runId = event.payload.runId;
+      const last = events.at(-1);
+      if (!last) {
+        const run = runId ? store.snapshotThread(id).runs[runId] : undefined;
+        if (!run) throw new Error("No finished source run");
+        return run;
+      }
+      afterSeq = last.seq;
+    }
+    throw new Error("Transition fixture history exceeds its bound");
   }
   return {
     home,

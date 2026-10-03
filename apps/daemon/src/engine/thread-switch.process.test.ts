@@ -209,10 +209,12 @@ test("the latest queued switch wins and survives a daemon restart", async () => 
     state: "applied",
     selection: { provider: "cursor", model: "newest" },
   });
+  expect(h.finishedRun(id).state).toBe("interrupted");
   h.held.delete(id);
   follow(h, id);
   await h.engine.flush();
   expect(h.inputs.at(-1)?.provider).toBe("cursor");
+  expect(h.inputs.at(-1)?.model).toBe("newest");
   expect(h.inputs.at(-1)?.text).toContain("source history");
 });
 test("account migration refusal preserves the original account and native session", async () => {

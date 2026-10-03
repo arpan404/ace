@@ -598,7 +598,7 @@ export class Store {
     return { ...this.payloads.page(threadId, before, limit), seq: this.headSeq() };
   }
   outputThread(streamId: string) {
-    return this.payloads.streamThread(streamId);
+    return this.payloads.liveStreamThread(streamId);
   }
   readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
@@ -636,7 +636,7 @@ export class Store {
     return this.payloads.outputInfo(streamId);
   }
   readOutputBytes(streamId: string, offset: number, limit: number) {
-    return this.payloads.readOutputBytes(streamId, offset, limit);
+    return this.payloads.readLiveOutputBytes(streamId, offset, limit);
   }
   readOutput(streamId: string, offset: number, limit: number) {
     return this.payloads.readOutput(streamId, offset, limit);

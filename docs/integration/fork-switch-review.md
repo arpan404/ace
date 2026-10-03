@@ -62,3 +62,12 @@ forks therefore continue through the capability-gated portable path. Bridging
 native point selection and opening lifetimes is a separate adapter change; this
 conflict resolution does not invent that contract. The transition socket service
 already uses the shared remote-access `DeviceScope` authorization API.
+
+After merge-time failures, ordinary output ownership and detail reads now check
+that text sources still belong to the current preview. Retired revisions remain
+available through frozen historical grants; a stale live handle receives the
+existing request-scoped denial without disconnecting the client. Switch readiness
+uses current blockers rather than the process-exit's historical unsettled list.
+The test harness selects finished boundaries by event sequence, never dictionary
+order. Under the task-specific exception, the four reported test files passed,
+21 tests total. Other feature tests and benchmarks still need run at merge.
