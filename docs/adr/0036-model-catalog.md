@@ -35,12 +35,28 @@ Discovery uses metadata only:
 - OpenCode: `models --verbose` exposes provider/model headings followed by JSON
   metadata. Preserve providerID/modelID, limits, capabilities and variants. No
   direct provider HTTP request or credential handling is needed.
-- Cursor and generic ACP, including Antigravity: initialize, then create an
+- Cursor and the existing Antigravity profile: initialize, then create an
   empty session with no MCP servers, read model config options or legacy models,
   and stop the process. Cursor parameterized picker metadata is requested,
   with per-model options from `cursor/list_available_models` when supported. Only
   per-model options are attached to a model; current-session parameter options
   must not be generalized to every model.
+
+### Proposed ACP registry amendment
+
+The candidate implementation accompanying [ADR 0044](0044-acp-agent-registry.md)
+defers model discovery for `provider: "acp"` until an already user-authorized real
+session exposes selectors. Listing, stale reads and explicit model refresh do
+not create an empty generic session or launch a process. No registry profile in
+this change authorizes empty-session discovery. Native providers and the
+existing Cursor/Antigravity metadata paths retain their behavior.
+
+ACP cache generations include the source-qualified agent, immutable installation,
+account instance, profile revision and login revision. Config selections retain
+the actual config-option ID and native value; legacy selectors require profile
+support. Session-derived replacements serialize per instance and wait for
+pending login deletions. Shutdown waits for admitted persistence work. This
+amendment remains proposed with ADR 0044 pending owner architecture review.
 
 `--help` was checked for installed Codex, Claude, OpenCode and Cursor. No ACP
 binary for Antigravity is installed here, so its behavior is grounded in
@@ -129,5 +145,6 @@ deadlines to test TTL, immediate stale reads, retry cooldown, single flight,
 provider timeout isolation, login changes during refresh and shutdown. Test
 normalization, pagination, raw redaction/capping, malformed boundaries, model
 policy choices and the authenticated daemon wire API. Apply at least eight
-production mutations and confirm each causes a behavioral test failure before
-reverting. Local `bun run check` is the delivery gate.
+production mutation cases for the merge gate. The owner's latest policy defers
+tests, mutation runs, benchmarks and `bun run check` until merge. Development
+verification uses fmt, lint, typecheck and check:size only.
