@@ -43,3 +43,21 @@ test("scrollback is bounded", () => {
   screen.write("1\r\n2\r\n3\r\n4\r\n5");
   expect(screen.text()).toBe("3\n4\n5");
 });
+
+const rowText = (screen: TerminalScreen) =>
+  screen.rows().map((row) => row.segments.map((segment) => segment.text).join(""));
+
+test("a row redrawn after it was shown shows its new text, and the rows above keep theirs", () => {
+  const screen = screenOf("$ bun run build\r\n", "building 10%");
+  const [command, progress] = screen.rows();
+  expect(rowText(screen)).toEqual(["$ bun run build", "building 10%"]);
+
+  screen.write("\rbuilding 55%\x1b[K");
+  expect(rowText(screen)).toEqual(["$ bun run build", "building 55%"]);
+  // Output only touched the progress line; the command line is the row already drawn.
+  expect(screen.rows()[0]).toBe(command);
+  expect(screen.rows()[1]).not.toBe(progress);
+
+  screen.write("\x1b[1A\r$ bun run test\x1b[K");
+  expect(rowText(screen)).toEqual(["$ bun run test", "building 55%"]);
+});

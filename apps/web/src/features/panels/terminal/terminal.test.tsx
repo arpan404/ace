@@ -46,7 +46,10 @@ test("the agent's background dev server streams into its own tab", async () => {
 test("typing into a terminal runs the command in the thread's worktree", async () => {
   const { panel, terminals } = await openTerminal();
   await userEvent.click(await within(panel).findByRole("tab", { name: "zsh, running" }));
-  expect(output(panel, "zsh output").textContent).toContain("M apps/server/src/replay.ts");
+  // Output reaches the screen on the next animation frame.
+  await waitFor(() =>
+    expect(output(panel, "zsh output").textContent).toContain("M apps/server/src/replay.ts"),
+  );
 
   await userEvent.type(
     within(panel).getByRole("textbox", { name: "zsh input" }),
@@ -111,7 +114,7 @@ test("after a dropped connection the terminal replays only the output it missed"
 test("Clear empties the terminal that is showing", async () => {
   const { panel } = await openTerminal();
   await userEvent.click(await within(panel).findByRole("tab", { name: "tests, running" }));
-  expect(output(panel, "tests output").textContent).toContain("3 pass");
+  await waitFor(() => expect(output(panel, "tests output").textContent).toContain("3 pass"));
   await userEvent.click(within(panel).getByRole("button", { name: "Clear terminal" }));
   await waitFor(() => expect(output(panel, "tests output").textContent).toBe(""));
   expect(tab(panel, "tests, running").getAttribute("aria-selected")).toBe("true");
@@ -157,4 +160,33 @@ test("a terminal that fell further behind than the daemon keeps starts again fro
   );
   // What the ring dropped is gone from the screen too, rather than spliced in out of order.
   expect(output(panel, "tests output").textContent).not.toContain("3 pass");
+});
+
+test("terminals you stopped looking at give their streams back, so the next one still shows output", async () => {
+  const { panel } = await openTerminal();
+  // The daemon streams at most eight terminals to a connection.
+  for (let n = 1; n <= 9; n++) {
+    const name = n === 1 ? "Terminal" : `Terminal ${n}`;
+    await userEvent.click(within(panel).getByRole("button", { name: "New terminal" }));
+    await waitFor(() =>
+      expect(tab(panel, `${name}, running`).getAttribute("aria-selected")).toBe("true"),
+    );
+  }
+  await userEvent.type(
+    await within(panel).findByRole("textbox", { name: "Terminal 9 input" }),
+    "pwd{Enter}",
+  );
+  await waitFor(() =>
+    expect(output(panel, "Terminal 9 output").textContent).toContain("/Users/dev/ace"),
+  );
+
+  // Going back to the first replays what it printed.
+  await userEvent.click(tab(panel, "Terminal, running"));
+  await userEvent.type(
+    await within(panel).findByRole("textbox", { name: "Terminal input" }),
+    "pwd{Enter}",
+  );
+  await waitFor(() =>
+    expect(output(panel, "Terminal output").textContent).toContain("/Users/dev/ace"),
+  );
 });

@@ -1,8 +1,11 @@
+import type { DeviceClient } from "@ace/client/devices";
 import type { DeviceInput } from "@ace/protocol";
 import { deviceGesture, devicePoint, type FrameSize } from "@ace/ui-core";
 import { useEffect, useRef, type PointerEvent } from "react";
 import { cn } from "@/lib/cn.ts";
 import type { DeviceSession } from "./device-session.ts";
+
+type Frame = Parameters<Parameters<DeviceClient["watchFrames"]>[1]>[0];
 
 /** Decoded before the next frame is taken, so a slow page drops frames instead of queueing. */
 async function shown(image: HTMLImageElement): Promise<void> {
@@ -30,7 +33,11 @@ export function DeviceScreen(props: {
 
   useEffect(() => {
     let url: string | undefined;
-    const release = session.client.watchFrames(deviceId, async (next) => {
+    /** The newest frame that arrived while the page was hidden, drawn once it is shown. */
+    let held: Frame | undefined;
+    let drawing: Promise<void> = Promise.resolve();
+    const hidden = () => document.visibilityState === "hidden";
+    const draw = async (next: Frame) => {
       const element = image.current;
       if (!element) return;
       const previous = url;
@@ -42,9 +49,28 @@ export function DeviceScreen(props: {
       );
       await shown(element);
       if (previous) URL.revokeObjectURL(previous);
+    };
+    const release = session.client.watchFrames(deviceId, async (next) => {
+      // A hidden page decodes nothing; it keeps only the newest frame for when it is shown.
+      if (hidden()) {
+        held = next;
+        return;
+      }
+      held = undefined;
+      drawing = draw(next);
+      await drawing;
     });
+    const onVisibility = () => {
+      const next = held;
+      if (hidden() || !next) return;
+      held = undefined;
+      drawing = drawing.then(() => draw(next));
+    };
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
       release();
+      held = undefined;
       if (url) URL.revokeObjectURL(url);
       frame.current = undefined;
     };

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { webgl2Available } from "@/components/gpu-text/support.ts";
 import { tokenColor } from "@/lib/css-color.ts";
 import type { TerminalSessions } from "./sessions.ts";
 
@@ -27,12 +28,8 @@ function theme(element: Element) {
 
 /** Whether this browser can run the WebGL terminal; otherwise the DOM screen is used. */
 export function canUseXterm(): boolean {
-  if (typeof document === "undefined" || typeof ResizeObserver === "undefined") return false;
-  try {
-    return !!document.createElement("canvas").getContext?.("webgl2");
-  } catch {
-    return false;
-  }
+  // Probed once per page, not per terminal mount.
+  return typeof ResizeObserver !== "undefined" && webgl2Available();
 }
 
 export function XtermView(props: { sessions: TerminalSessions; id: string; name: string }) {

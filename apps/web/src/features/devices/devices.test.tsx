@@ -183,3 +183,35 @@ test("a dropped devices channel says so, and Reconnect opens a fresh one", async
   await userEvent.click(within(panel).getByRole("button", { name: "Reconnect" }));
   expect(await within(panel).findByRole("button", { name: "Enable devices" })).toBeTruthy();
 });
+
+/** Hide or show the page, as switching tabs or minimising the window does. */
+function visibility(state: DocumentVisibilityState) {
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: state });
+  document.dispatchEvent(new Event("visibilitychange"));
+}
+
+test("while the window is hidden the device screen decodes nothing, and shows the newest frame once shown", async () => {
+  const { panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await userEvent.click(await within(panel).findByRole("button", { name: /Pixel 9/ }));
+  const pixel = await within(panel).findByRole("region", { name: "Pixel 9" });
+  await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
+  await userEvent.click(await within(pixel).findByRole("button", { name: "Start live view" }));
+  const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
+  await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
+
+  try {
+    visibility("hidden");
+    const before = screenImage.getAttribute("src");
+    // Each key press repaints the device's screen.
+    await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
+    await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screenImage.getAttribute("src")).toBe(before);
+
+    act(() => visibility("visible"));
+    await waitFor(() => expect(screenImage.getAttribute("src")).not.toBe(before));
+  } finally {
+    visibility("visible");
+  }
+});
