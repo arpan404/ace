@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { object } from "./data.ts";
+import { object } from "./testing/v1/data.ts";
 import { recoveryBarrier } from "./testing/recovery-barriers.ts";
 
 const payload = (data: unknown) => object(object(data).payload);

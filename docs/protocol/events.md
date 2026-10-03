@@ -211,6 +211,25 @@ Example:
 }
 ```
 
+### input.admitted
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"input.admitted"` |  |
+| agentId | yes | [AgentId.json](schema/AgentId.json) |  |
+| nativeInputId | yes | string | {"minLength":1,"maxLength":512} |
+| commandId | no | string | {"minLength":1,"maxLength":512} |
+
+Example:
+
+```json
+{
+  "agentId": "example",
+  "nativeInputId": "example",
+  "type": "input.admitted"
+}
+```
+
 ### run.started
 
 | Field | Required | Type | Constraints |
@@ -225,11 +244,10 @@ Example:
   "run": {
     "agentId": "example",
     "id": "example",
-    "nativeId": "example",
-    "startedAt": 5,
+    "startedAt": 9,
     "state": "interrupted",
     "threadId": "example",
-    "trigger": "queue"
+    "trigger": "user"
   },
   "type": "run.started"
 }
@@ -249,9 +267,10 @@ Example:
 
 ```json
 {
-  "endedAt": 2,
+  "endedAt": 4,
   "runId": "example",
-  "state": "failed",
+  "state": "interrupted",
+  "trigger": "background_completion",
   "type": "run.ended"
 }
 ```
@@ -269,25 +288,14 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "call": {
-      "agentId": "example",
-      "detail": {
-        "kind": "agent.message",
-        "message": "example",
-        "targetAgentId": "example"
-      },
-      "error": "example",
-      "id": "example",
-      "kind": "web.search",
-      "raw": [],
-      "startedAt": 6,
-      "status": "pending",
-      "title": "example"
-    },
     "complete": true,
-    "createdAt": 0,
+    "createdAt": 3,
     "id": "example",
-    "type": "tool_call"
+    "parts": [],
+    "role": "assistant",
+    "runId": "example",
+    "synthetic": true,
+    "type": "message"
   },
   "type": "item.created"
 }
@@ -309,7 +317,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "reasoning",
+  "field": "text",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -328,14 +336,17 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "bytes": 7,
-    "complete": true,
-    "createdAt": 1,
+    "complete": false,
+    "createdAt": 3,
     "id": "example",
-    "mimeType": "example",
-    "path": "example",
-    "source": "browser",
-    "type": "artifact"
+    "level": "warning",
+    "source": {
+      "bytes": 1,
+      "encoding": "utf-16le",
+      "streamId": "example"
+    },
+    "text": "example",
+    "type": "notice"
   },
   "type": "item.updated"
 }

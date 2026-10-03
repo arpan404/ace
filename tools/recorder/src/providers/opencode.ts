@@ -1,203 +1,211 @@
 import { randomBytes } from "node:crypto";
-import type { Interface } from "node:readline";
-import { probe, spawnSupervised } from "@ace/provider-kit/process";
-import { readSse } from "@ace/provider-kit/sse";
+import { z } from "zod";
+import { parseVersion } from "@ace/provider-kit/discovery";
+import { probe } from "@ace/provider-kit/process";
+import { OpenCodeServer, OpenCodeTranslator, SessionOwnership } from "@ace/adapter-opencode";
+import { ThreadId } from "@ace/protocol";
+import { openCodeScenario } from "./opencode-v2-scenarios.ts";
 import { interruptOnce } from "../interrupt.ts";
-import type { Recording } from "../recording.ts";
 import type { Driver, RunContext } from "./types.ts";
-
-type Params = Record<string, unknown>;
-
-function splitModel(model: string): { providerID: string; modelID: string } {
-  const slash = model.indexOf("/");
-  if (slash <= 0) throw new Error(`OpenCode model must be provider/model, got ${model}`);
-  return { providerID: model.slice(0, slash), modelID: model.slice(slash + 1) };
+const Record = z.record(z.string(), z.unknown());
+function object(value: unknown): Record<string, unknown> {
+  const p = Record.safeParse(value);
+  return p.success ? p.data : {};
 }
-
-/** Minimal HTTP client that records every request and response. */
-function createClient(base: string, auth: string, directory: string, rec: Recording) {
-  return async (method: string, path: string, body?: unknown): Promise<unknown> => {
-    const url = new URL(path, base);
-    url.searchParams.set("directory", directory);
-    rec.frame("send", "http", { method, path, body });
-    const res = await fetch(url, {
-      method,
-      headers: { authorization: auth, "content-type": "application/json" },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    const text = await res.text();
-    let parsed: unknown = text;
-    try {
-      parsed = text ? JSON.parse(text) : null;
-    } catch {
-      // keep raw text
-    }
-    rec.frame("recv", "http", { method, path, status: res.status, body: parsed });
-    if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`);
-    return parsed;
-  };
+function text(value: unknown): string {
+  return typeof value === "string" ? value : "";
 }
-
-/** Keep draining stdout (so the server never blocks) and resolve with its listen URL. */
-function waitForListenUrl(stdout: Interface, rec: Recording, timeoutMs: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("opencode serve did not listen")), timeoutMs);
-    const lines = stdout;
-    lines.on("line", (line) => {
-      rec.frame("recv", "stdout", line, false);
-      const match = /listening on (http:\/\/\S+)/.exec(line);
-      if (match?.[1]) {
-        clearTimeout(timeout);
-        resolve(match[1]);
-      }
-    });
-    lines.on("close", () => {
-      clearTimeout(timeout);
-      reject(new Error("opencode serve exited before listening"));
-    });
-  });
-}
-
+/** Authoring this driver does not authorize running it. Every recording needs owner approval. */
 export const opencode: Driver = {
   id: "opencode",
-  version: () => probe("opencode", ["--version"]),
+  unsupported: ["plan-review"],
+  version: async () => {
+    const version = parseVersion("opencode", await probe("opencode", ["--version"]));
+    if (version !== "2.0.22") throw new Error("Recording requires inspected OpenCode 2.0.22");
+    return version;
+  },
   async run(ctx: RunContext) {
-    const { rec, scenario, workspace } = ctx;
-    const password = randomBytes(18).toString("base64url");
-    const auth = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
-    const proc = spawnSupervised({
-      command: "opencode",
-      args: ["serve", "--hostname", "127.0.0.1", "--port", "0"],
-      name: "recorder-opencode",
-      cwd: workspace,
-      env: {
-        ...process.env,
-        OPENCODE_SERVER_PASSWORD: password,
-        OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { edit: "ask", bash: "ask" } }),
-        ...(scenario.id === "subagent-background"
-          ? { OPENCODE_EXPERIMENTAL_BACKGROUND_SUBAGENTS: "1" }
-          : {}),
-        ...(scenario.planMode ? { OPENCODE_EXPERIMENTAL_PLAN_MODE: "1" } : {}),
-      },
+    if (ctx.scenario.planMode)
+      throw new Error(
+        "OpenCode v2 plan flow is unverified; record only after a configured flow is approved",
+      );
+    const { rec, workspace } = ctx;
+    const scenario = openCodeScenario(ctx.scenario);
+    const controller = new AbortController();
+    const server = new OpenCodeServer();
+    const ownership = new SessionOwnership(workspace, "");
+    const translator = new OpenCodeTranslator({
+      threadId: ThreadId.parse("thread_recorder"),
+      rootKey: "root",
     });
-    proc.stderr.on("line", (line) => rec.frame("stderr", "stdio", line, false));
-    const sse = new AbortController();
-    const sessions: string[] = [];
-
+    let sequence = 0;
+    const aborted = () => controller.abort();
+    ctx.signal.addEventListener("abort", aborted, { once: true });
+    ctx.signal.throwIfAborted();
+    let root = "";
+    const sessions = new Set<string>();
+    let rootEnded = false;
+    const commands = new Set<Promise<void>>();
+    const record = (dir: "send" | "recv" | "stderr" | "note", channel: string, data: unknown) => {
+      const now = rec.elapsedMs();
+      translator.translate({ seq: sequence++, t: now, dir, channel, data }, now);
+      rec.frame(dir, channel, data);
+    };
     try {
-      const base = await waitForListenUrl(proc.stdout, rec, 30_000);
-      const http = createClient(base, auth, workspace, rec);
-
-      let rootId = "";
-      let rootBusy = false;
-      /** Tool name per call id, so questions can be traced to the tool that asked. */
-      const toolByCall = new Map<string, string>();
-      const triggerInterrupt = interruptOnce(scenario.interruptAfterToolStartMs, () => {
+      await server.ready(controller.signal);
+      const client = server.scoped(workspace, record, controller.signal);
+      const interrupt = interruptOnce(scenario.interruptAfterToolStartMs, () => {
         rec.note("interrupt-sent");
-        void http("POST", `/session/${rootId}/abort`);
+        void client.session
+          .interrupt({ sessionID: root })
+          .catch(() => rec.note("interrupt-failed"));
       });
-
-      const handle = async (event: Params): Promise<void> => {
-        const payload = (event["payload"] ?? {}) as Params;
-        const type = payload["type"];
-        const props = (payload["properties"] ?? {}) as Params;
-        if (type === "session.status") {
-          const status = props["status"] as Params | string | undefined;
-          const kind = typeof status === "string" ? status : status?.["type"];
-          if (props["sessionID"] === rootId) {
-            if (kind === "busy") rootBusy = true;
-            if (kind === "idle" && rootBusy) {
-              rootBusy = false;
-              rec.mark("turn-end");
-            }
-          } else if (kind === "idle") {
-            rec.mark("child-turn-end", { sessionID: props["sessionID"] });
-          }
-        }
+      const settle = () => {
+        if (rootEnded && translator.isSettled()) rec.mark("turn-end");
+      };
+      const handle = async (native: unknown): Promise<void> => {
+        const event = object(native),
+          p = object(event.data),
+          type = text(event.type);
         if (type === "session.created") {
-          const info = (props["info"] ?? {}) as Params;
-          if (typeof info["id"] === "string") sessions.push(info["id"]);
+          const created = text(p.sessionID),
+            parent = text(p.parentID);
+          if (created === root || sessions.has(parent)) sessions.add(created);
         }
-        if (type === "message.part.updated") {
-          const part = (props["part"] ?? {}) as Params;
-          const state = (part["state"] ?? {}) as Params;
-          if (part["type"] === "tool" && typeof part["callID"] === "string") {
-            toolByCall.set(part["callID"], String(part["tool"]));
-          }
-          if (
-            part["sessionID"] === rootId &&
-            part["type"] === "tool" &&
-            part["tool"] === "bash" &&
-            state["status"] === "running"
-          ) {
-            triggerInterrupt();
-          }
+        const session = text(p.sessionID);
+        if (!sessions.has(session) && type !== "form.created") return;
+        if (type === "session.execution.started" && session === root) rootEnded = false;
+        if (
+          [
+            "session.execution.succeeded",
+            "session.execution.failed",
+            "session.execution.interrupted",
+          ].includes(type)
+        ) {
+          if (session === root) {
+            rootEnded = true;
+            settle();
+          } else rec.mark("child-turn-end", { sessionID: session });
         }
+        settle();
+        if (type === "session.tool.input.started" && session === root && p.name === "shell")
+          interrupt();
         if (type === "permission.asked") {
           ctx.interactions.open();
           try {
-            await http("POST", `/permission/${String(props["id"])}/reply`, { reply: "once" });
+            await client.permission.reply({
+              sessionID: session,
+              requestID: text(p.id),
+              decision: "once",
+            });
           } finally {
             ctx.interactions.close();
           }
         }
-        if (type === "question.asked") {
+        if (type === "form.created") {
+          const form = object(p.form),
+            owner = text(form.sessionID);
+          if (!sessions.has(owner)) return;
+          if (object(form.metadata).kind !== "question") {
+            rec.note("unsupported-form", { id: form.id });
+            return;
+          }
+          const fields = z.array(Record).parse(form.fields),
+            answer: Record<string, string | string[]> = {};
+          for (const field of fields) {
+            const options = z.array(Record).parse(field.options ?? []),
+              value = text(options[0]?.value) || "Tabs";
+            answer[text(field.key)] = field.type === "multiselect" ? [value] : value;
+          }
           ctx.interactions.open();
           try {
-            const id = String(props["id"]);
-            const callID = ((props["tool"] ?? {}) as Params)["callID"];
-            const askedBy = typeof callID === "string" ? toolByCall.get(callID) : undefined;
-            if (askedBy === "plan_exit" && scenario.planDecision === "reject") {
-              await http("POST", `/question/${id}/reject`);
-            } else {
-              const questions = (props["questions"] ?? []) as Array<{
-                options?: Array<{ label: string }>;
-              }>;
-              await http("POST", `/question/${id}/reply`, {
-                answers: questions.map((q) => [q.options?.[0]?.label ?? "Tabs"]),
-              });
-            }
+            await client.session.form.reply({ sessionID: owner, formID: text(form.id), answer });
           } finally {
             ctx.interactions.close();
           }
         }
       };
-
-      void readSse(new URL("/global/event", base), {
-        signal: sse.signal,
-        headers: { authorization: auth },
-        reconnect: false,
-        onEvent: ({ data: text }) => {
-          const data: unknown = JSON.parse(text);
-          const event = (data ?? {}) as Params;
-          const type = ((event["payload"] ?? {}) as Params)["type"];
-          rec.frame(
-            "recv",
-            "sse",
-            data,
-            type !== "server.heartbeat" && type !== "server.connected",
-          );
-          handle(event).catch((error: unknown) => rec.note("handler-error", String(error)));
+      const unsubscribe = server.subscribe({
+        accepts: (event) => ownership.accept(event),
+        receive: (event) => {
+          record("recv", "sse", event);
+          if (commands.size >= 128) throw new Error("Recorder interaction limit exceeded");
+          const task = handle(event).catch(() => rec.note("handler-error"));
+          commands.add(task);
+          void task.finally(() => commands.delete(task));
         },
-      }).catch((error: unknown) => rec.note("sse-error", String(error)));
-
-      const session = (await http("POST", "/session", { title: "ace-recorder" })) as { id: string };
-      rootId = session.id;
-      sessions.push(rootId);
-      await http("POST", `/session/${rootId}/prompt_async`, {
-        parts: [{ type: "text", text: scenario.prompt }],
-        ...(ctx.model ? { model: splitModel(ctx.model) } : {}),
-        ...(scenario.planMode ? { agent: "plan" } : {}),
+        frame: () => {},
+        disconnected: () => rec.note("disconnected"),
+        reconcile: () => {},
+        buffered: () => {},
+        prepareReplay: () => {},
+        close: async () => {
+          controller.abort();
+        },
+        resync: async () => {
+          throw new Error(
+            "A disconnected recording is incomplete; approve a new attempt separately",
+          );
+        },
+        finalizeSnapshots: () => {},
+        recovered: () => rec.note("recovered"),
+        exited: () => controller.abort(),
       });
-      await Promise.race([ctx.settled(), proc.exited]);
-
-      // Keep the user's OpenCode history clean: delete what we created.
-      for (const id of new Set(sessions)) {
-        await http("DELETE", `/session/${id}`).catch(() => {});
+      try {
+        const model = ctx.model ?? "opencode-go/muse-spark-1.3-contributor",
+          slash = model.indexOf("/");
+        if (slash < 1) throw new Error("OpenCode model must be provider/model");
+        const info = z
+          .object({ id: z.string() })
+          .passthrough()
+          .parse(
+            await client.session.create({
+              title: "ace-recorder",
+              location: { directory: workspace },
+              model: { providerID: model.slice(0, slash), id: model.slice(slash + 1) },
+              permissions: [
+                { action: "edit", resource: "*", effect: "ask" },
+                { action: "shell", resource: "*", effect: "ask" },
+              ],
+            }),
+          );
+        ownership.establish(info);
+        root = info.id;
+        sessions.add(root);
+        await client.session.prompt({
+          sessionID: root,
+          id: `msg_recorder_${randomBytes(16).toString("hex")}`,
+          text: scenario.prompt,
+          delivery: "queue",
+        });
+        await ctx.settled();
+        if (!translator.isSettled()) rec.note("incomplete-at-time-cap");
+        // Capture projected history alongside the native lifecycle, with opaque cursors.
+        for (const sessionID of sessions) {
+          let cursor: string | undefined;
+          for (let n = 0; n < 512; n++) {
+            const page = await client.message.list({
+              sessionID,
+              order: "asc",
+              limit: 128,
+              ...(cursor ? { cursor } : {}),
+            });
+            if (!page.cursor.next) break;
+            if (page.cursor.next === cursor || n === 511)
+              throw new Error("Recorder history pagination incomplete");
+            cursor = page.cursor.next;
+          }
+        }
+        await Promise.all(commands);
+        for (const sessionID of [...sessions].toReversed())
+          await client.session.remove({ sessionID }).catch(() => {});
+      } finally {
+        unsubscribe();
       }
     } finally {
-      sse.abort();
-      await proc.stop();
+      ctx.signal.removeEventListener("abort", aborted);
+      controller.abort();
+      await server.close();
     }
   },
 };

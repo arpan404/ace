@@ -1,374 +1,368 @@
 import type { Fact, Key } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
+import { InteractionResolution } from "@ace/protocol";
 import type { Frame, Translator } from "@ace/engine-api";
-import { number, object, string, retryReason, type Data } from "./data.ts";
-import { translateInteraction } from "./interactions.ts";
-import { translatePart } from "./parts.ts";
-import { TranslationState } from "./translation-state.ts";
-
-/** v1 HTTP + global SSE translator. */
+import { NativeEvent, eventSession } from "./boundaries.ts";
+import { object, array, string, number, retryReason } from "./data.ts";
+import { NativeState } from "./native-state.ts";
+import { tool, text, projected } from "./native-content.ts";
+import { interaction } from "./interactions.ts";
 export class OpenCodeTranslator implements Translator {
-  private state: TranslationState;
+  private state: NativeState;
   constructor(init: { threadId: ThreadId; rootKey: Key }) {
-    this.state = new TranslationState(init);
+    this.state = new NativeState(init.rootKey);
   }
   translate(frame: Frame, now: number): Fact[] {
-    // Provider frames are JSON. Invalid shapes remain available as raw notices.
     try {
       return this.frame(frame, now);
     } catch {
-      return this.state.notice(frame.data, "malformed frame");
-    } finally {
-      this.state.refresh();
+      this.state.disconnected = true;
+      return [
+        { type: "agent.disconnected", agent: this.state.rootKey },
+        ...this.state.note(frame.data, "Malformed or over-limit OpenCode frame"),
+      ];
     }
   }
   private frame(frame: Frame, now: number): Fact[] {
-    const data = object(frame.data);
+    const data = object(frame.data),
+      state = this.state;
+    if (frame.channel === "clock") return [];
+    if (frame.channel === "interaction.resolving" || frame.channel === "interaction.rejected") {
+      const pending = state.pending.get(string(data.key));
+      if (pending) {
+        if (frame.channel === "interaction.resolving")
+          pending.resolution = InteractionResolution.parse(data.resolution);
+        else delete pending.resolution;
+      }
+      return [];
+    }
+    if (frame.channel === "transport.activity") return [{ type: "signal" }];
     if (frame.channel === "lifecycle") {
-      if (data.type === "background.grace.expired") return this.tick(now);
-      if (data.type === "started")
+      if (data.type === "started") return [{ type: "process.started" }];
+      if (data.type === "exited") {
+        state.pending.clear();
         return [
-          { type: "process.started" },
-          ...this.state.metadata("process.started", "process", frame.data),
-        ];
-      if (data.type === "exited")
-        return [
-          ...this.state.metadata("process.exited", "process", frame.data),
           {
             type: "process.exited",
             deliberate: data.deliberate === true,
             message: string(data.message),
           },
         ];
-      if (data.type === "disconnected") {
-        this.state.disconnected = true;
-        const facts: Fact[] = [...this.state.pending.keys()].map((interaction) => ({
-          type: "interaction.closed",
-          interaction,
-          state: "expired",
-        }));
-        this.state.pending.clear();
-        return [
-          ...facts,
-          ...this.transportFacts("agent.disconnected"),
-          ...this.state.metadata("transport.lost", "stream", frame.data),
-        ];
       }
-      if (data.type === "resynced") {
-        this.state.disconnected = false;
-        return [
-          ...this.transportFacts("agent.reconnected"),
-          ...this.state.metadata("transport.restored", "stream", frame.data),
-        ];
+      if (data.type === "disconnected" || data.type === "resynced") {
+        state.disconnected = data.type === "disconnected";
+        return [...state.agents.keys()]
+          .filter(
+            (id) =>
+              state.disconnected || !state.lostLocations.has(state.agents.get(id)?.directory ?? ""),
+          )
+          .map((id) => ({
+            type: state.disconnected ? "agent.disconnected" : "agent.reconnected",
+            agent: state.key(id),
+          }));
       }
       return [];
     }
-    if (frame.channel === "clock") {
-      if (typeof data.wallTime === "number") this.state.clockOffset = now - data.wallTime;
+    if (frame.channel === "input.sending") {
+      const id = string(data.id);
+      if (state.commands.size >= 1024 && !state.commands.has(id))
+        throw new Error("OpenCode command correlation limit");
+      const command = string(data.commandId);
+      if (command) state.commands.set(id, command);
       return [];
     }
-    if (frame.channel === "http") return this.http(frame, data);
-    if (frame.channel === "transport" && data.type === "request.failed") {
-      const match = /^\/session\/([^/]+)\/prompt_async$/.exec(string(data.path));
-      if (match) {
-        const id = string(match[1]);
-        const s = this.state.session(id);
-        const turn = string(data.messageID, `failed-send:${frame.seq}`);
-        s.sent = false;
-        s.awaiting = false;
-        return [
-          { type: "turn.started", agent: this.state.key(id), nativeTurnId: turn, trigger: "user" },
-          {
-            type: "turn.ended",
-            agent: this.state.key(id),
-            nativeTurnId: turn,
-            outcome: "failed",
-            error: { kind: "network", message: string(data.message, "Prompt delivery failed") },
-          },
-          ...this.state.notice(frame.data, "request.failed"),
-        ];
-      }
+    if (frame.channel === "input.uncertain") {
+      const id = string(data.id),
+        session = state.inputs.get(id);
+      return session && !state.admitted.has(id)
+        ? state.background(`admission:${id}`, session, "other")
+        : [];
     }
-    if (frame.channel !== "sse") return this.state.notice(frame.data, frame.channel);
-    const payload = object(data.payload ?? data);
-    const type = string(payload.type);
-    if (type === "sync")
-      return [{ type: "signal" }, ...this.state.metadata(type, "stream", frame.data)]; // Durable twin; never apply it twice.
-    const eventId = string(payload.id);
-    if (eventId && this.state.seenEvents.has(eventId)) return [{ type: "signal" }];
-    if (eventId) {
-      this.state.seenEvents.add(eventId);
-      if (this.state.seenEvents.size > 10_000) {
-        const first = this.state.seenEvents.values().next().value;
-        if (first !== undefined) this.state.seenEvents.delete(first);
-      }
-    }
-    const p = object(payload.properties);
-    const id = string(
-      p.sessionID,
-      string(object(p.info).sessionID, string(object(p.part).sessionID)),
-    );
-    const facts: Fact[] = [{ type: "signal" }];
-    const agent = this.state.key(id);
-    const s = this.state.session(id);
-    if (type === "session.created" || type === "session.updated")
+    if (frame.channel === "input.rejected") {
+      state.inputs.delete(string(data.id));
+      state.commands.delete(string(data.id));
+      state.admissionPending.delete(string(data.id));
       return [
-        ...facts,
-        ...this.state.seen(object(p.info)),
-        ...this.state.metadata(type, string(object(p.info).id), frame.data),
+        ...state.finishBackground(`admission:${string(data.id)}`, "stopped"),
+        ...state.queue(),
       ];
-    if (type === "session.status") {
-      const status = object(p.status);
-      facts.push(...this.state.metadata(type, id, frame.data));
-      if (status.type === "busy" || status.type === "retry") this.state.backgrounds.resumed(id);
-      if (status.type === "retry") {
-        s.status = "retry";
-        s.retrying = true;
+    }
+    if (frame.channel === "http") {
+      const path = string(data.path).split("?")[0] ?? "",
+        body = object(data.body);
+      if (frame.dir === "recv" && data.method === "POST" && path === "/api/session")
+        return state.seen(object(body.data));
+      const prompt = /^\/api\/session\/([^/]+)\/prompt$/.exec(path);
+      if (prompt && frame.dir === "send") {
+        state.triggers.set(string(prompt[1]), "user");
+        state.admissionPending.add(string(body.id));
         return [
-          ...facts,
-          {
-            type: "retry",
-            agent,
-            on: retryReason(string(status.message)),
-            attempt: number(status.attempt, 1),
-            until: number(status.next) + (this.state.clockOffset ?? 0),
-            message: string(status.message),
-          },
+          ...state.input(string(body.id), string(prompt[1])),
+          ...projected(state, string(prompt[1]), { id: body.id, type: "user", text: body.text }),
         ];
       }
-      if (status.type === "busy") {
-        s.status = "busy";
-        facts.push({ type: "retry.cleared", agent });
-        facts.push(...this.state.start(id, s));
-        if (s.active && s.retrying && !s.hasParts)
-          facts.push({ type: "activity", agent, activity: "retrying" });
-        return facts;
-      }
-      if (status.type !== "idle") return [...facts, ...this.state.notice(frame.data, type)];
-      s.status = "idle";
-      this.state.settleParts(id);
-      facts.push({ type: "retry.cleared", agent });
-      this.state.backgrounds.idle(id, now);
-      if (!s.active && s.user && s.turn !== s.user && (s.error || s.abort || s.answered)) {
-        const aborted = s.abort;
-        const error = s.error;
-        facts.push(...this.state.start(id, s));
-        s.abort = aborted;
-        if (error) s.error = error;
-      }
-      if (!s.active) return facts;
-      // A native idle does not prove that a running tool stopped, especially on abort.
-      for (const partId of this.state.liveTools.get(id) ?? []) {
-        const part = this.state.getPart(partId);
-        if (!part) continue;
-        const state = object(part.data.state);
+      if (prompt && frame.dir === "recv" && data.status === 200) {
+        const admitted = object(body.data),
+          id = string(admitted.id),
+          session = string(prompt[1]);
         if (
-          part.agent !== id ||
-          part.data.type !== "tool" ||
-          !["pending", "running"].includes(string(state.status))
-        )
-          continue;
-        facts.push(...this.state.survivor(id, part.item, part.data));
-      }
-      s.active = false;
-      s.awaiting = false;
-      s.sent = false;
-      facts.push({
-        type: "turn.ended",
-        agent,
-        ...(s.turn ? { nativeTurnId: s.turn } : {}),
-        outcome: s.abort ? "interrupted" : s.error ? "failed" : "completed",
-        ...(s.error ? { error: s.error } : {}),
-      });
-      return facts;
-    }
-    if (type === "session.error") {
-      const error = object(p.error);
-      const name = string(error.name);
-      if (name === "MessageAbortedError") s.abort = true;
-      else
-        s.error = {
-          kind:
-            name === "ProviderAuthError"
-              ? "auth"
-              : name === "APIError" || name === "ContextOverflowError"
-                ? "provider"
-                : "unknown",
-          message: string(object(error.data).message, name),
-        };
-      return [...facts, ...this.state.notice(frame.data, type)];
-    }
-    if (type === "message.updated") {
-      const info = object(p.info);
-      const msg = string(info.id);
-      const previous = this.state.messages.get(msg);
-      this.state.messages.set(msg, { role: info.role, parentID: info.parentID });
-      facts.push(...this.state.metadata(type, msg, frame.data));
-      const created = number(object(info.time).created);
-      const historicalOlder =
-        p.historical === true &&
-        s.user !== undefined &&
-        (created && s.userOrder ? created < s.userOrder : msg <= s.user);
-      if (info.role === "user" && !previous && !historicalOlder) {
-        const sameUser = s.user === msg;
-        s.user = msg;
-        s.userOrder = created;
-        s.answered = false;
-        s.awaiting = true;
-        s.abort = false;
-        delete s.error;
-        s.trigger = this.state.own.has(msg) || s.sent ? "user" : sameUser ? s.trigger : "unknown";
-        if (s.sent) {
-          this.state.own.add(msg);
-          s.sent = false;
-        }
-        if (s.status !== "idle") facts.push(...this.state.start(id, s));
-        else if (!s.active)
-          facts.push({ type: "wake.expected", agent, until: Number.MAX_SAFE_INTEGER });
-      }
-      if (info.role === "assistant") {
-        if (info.parentID === s.user && typeof object(info.time).completed === "number")
-          s.answered = true;
-        if (!s.user && typeof info.parentID === "string") {
-          s.user = info.parentID;
-          if (s.status !== "idle") facts.push(...this.state.start(id, s));
-        }
-        if (info.error && (p.historical !== true || info.parentID === s.user)) {
-          const error = object(info.error);
-          if (error.name === "MessageAbortedError") s.abort = true;
-          else
-            s.error = {
-              kind: error.name === "ProviderAuthError" ? "auth" : "provider",
-              message: string(object(error.data).message, string(error.name)),
-            };
+          admitted.sessionID === session &&
+          state.inputs.get(id) === session &&
+          !state.admitted.has(id)
+        ) {
+          return [...state.admit(id, session), ...state.queue()];
         }
       }
-      return facts;
+      // Admission/interrupt receipts never settle a turn.
+      return [];
     }
-    if (type === "message.part.updated") {
-      const part = object(p.part);
-      if (!string(part.id)) return [...facts, ...this.state.notice(frame.data, "part without id")];
-      // The native part remains directly available in raw; retain its envelope's
-      // fields separately so transcript/input bodies are not copied twice.
-      const envelope = {
-        ...(data.payload === undefined ? {} : data),
-        payload: { ...payload, properties: { ...p } },
-      };
-      delete envelope.payload.properties.part;
-      return [...facts, ...translatePart(this.state, part, envelope)];
-    }
-    if (type === "message.part.delta") {
-      const part = this.state.getPart(string(p.partID));
-      if (!part) return [...facts, ...this.state.notice(frame.data, type)];
-      const field =
-        part.data.type === "reasoning"
-          ? "reasoning"
-          : part.data.type === "text"
-            ? "text"
-            : p.field === "output" && part.data.tool === "bash"
-              ? "output"
-              : undefined;
-      if (!field) return [...facts, ...this.state.notice(frame.data, type)];
-
+    if (frame.channel === "snapshot.message") {
+      const message = object(data.message),
+        id = string(message.id);
+      const delivered = message.type === "user" || message.type === "synthetic";
+      const admitted: Fact[] = [];
+      if (delivered && state.admissionPending.has(id) && !state.admitted.has(id)) {
+        admitted.push(...state.admit(id, string(data.sessionID)));
+      }
+      if (delivered) {
+        state.inputs.delete(id);
+        state.commands.delete(id);
+        state.admissionPending.delete(id);
+      }
       return [
-        ...facts,
-        ...this.state.metadata(type, part.item, frame.data),
-        {
-          type: "item.delta",
-          agent: this.state.key(part.agent),
-          item: part.item,
-          field,
-          append: string(p.delta),
-        },
-        ...(s.active
-          ? [
-              {
-                type: "activity" as const,
-                agent,
-                activity: field === "reasoning" ? ("thinking" as const) : ("responding" as const),
-              },
-            ]
+        ...admitted,
+        ...projected(state, string(data.sessionID), data.message),
+        ...(delivered
+          ? [...state.finishBackground(`admission:${id}`, "completed"), ...state.queue()]
           : []),
       ];
     }
-    if (type.startsWith("permission.") || type.startsWith("question."))
-      return [...facts, ...translateInteraction(this.state, type, p, frame.data)];
-    if (type === "server.connected" || type === "server.heartbeat" || type === "session.idle")
-      return [...facts, ...this.state.metadata(type, id || "stream", frame.data)];
-    return [...facts, ...this.state.notice(frame.data, type || "unknown")];
-  }
-  private transportFacts(type: "agent.disconnected" | "agent.reconnected"): Fact[] {
-    const agents = new Set([this.state.rootKey]);
-    for (const id of this.state.sessions.keys()) if (id) agents.add(this.state.key(id));
-    return [...agents].map((agent) => ({ type, agent }));
-  }
-  private http(frame: Frame, data: Data): Fact[] {
-    const path = string(data.path).split("?")[0] ?? "";
-    const body = object(data.body);
+    if (frame.channel === "snapshot.info") {
+      if (data.root === true && !state.rootNative) state.rootNative = string(object(data.info).id);
+      return [
+        ...state.seen(object(data.info)),
+        ...(data.recovering === true ? [] : state.reconcileOutcome(object(data.info))),
+      ];
+    }
+    if (frame.channel === "snapshot.active") {
+      const id = string(data.sessionID);
+      if (data.running !== true && !state.canSettle(id, number(data.idleAt, -1))) return [];
+      return data.running === true
+        ? state.start(id, `recovered:${id}:${string(data.revision)}`)
+        : [
+            ...state.reconcileWake(id, number(data.idleAt, -1)),
+            ...state.end(
+              id,
+              data.outcome === "interrupted"
+                ? "interrupted"
+                : data.outcome === "failed"
+                  ? "failed"
+                  : "completed",
+            ),
+          ];
+    }
+    if (frame.channel === "snapshot.interactions") {
+      const session = string(data.sessionID),
+        keys = new Set(array(data.keys).map((v) => string(v))),
+        facts: Fact[] = [];
+      for (const [key, pending] of state.pending)
+        if (pending.session === session && !keys.has(key)) {
+          state.pending.delete(key);
+          facts.push({ type: "interaction.closed", interaction: key, state: "expired" });
+        }
+      return facts;
+    }
+    if (frame.channel === "snapshot.inbox") {
+      const session = string(data.sessionID),
+        entries = array(data.items).map(object),
+        ids = new Set(entries.map((p) => string(p.id)));
+      // Absence alone cannot distinguish rejection from an accepted input whose
+      // inbox entry was consumed before history caught up. Retain uncertainty
+      // until delivery/history/cancellation or a definite admission rejection.
+      const facts: Fact[] = [];
+      for (const id of ids) {
+        if (state.admissionPending.has(id) && !state.admitted.has(id)) {
+          facts.push(...state.admit(id, session));
+        }
+        state.admissionPending.delete(id);
+        state.input(id, session);
+      }
+      return [...facts, ...state.queue()];
+    }
+    if (frame.channel !== "sse") return [];
+    const e = NativeEvent.parse(frame.data),
+      p = e.data,
+      type = e.type;
+    if (e.durable) {
+      const before = state.durable.get(e.durable.aggregateID);
+      if (before !== undefined && e.durable.seq <= before) return [];
+      state.durable.set(e.durable.aggregateID, e.durable.seq);
+    }
+    if (state.events.has(e.id)) return [];
+    state.events.add(e.id);
+    if (type === "location.shutdown" && e.location) {
+      const directory = e.location.directory;
+      state.lostLocations.add(directory);
+      const facts: Fact[] = [];
+      for (const [key, pending] of state.pending)
+        if (state.agents.get(pending.session)?.directory === directory) {
+          state.pending.delete(key);
+          facts.push({ type: "interaction.closed", interaction: key, state: "expired" });
+        }
+      for (const [id, owner] of state.agents)
+        if (owner.directory === directory)
+          facts.push({ type: "agent.disconnected", agent: state.key(id) });
+      return facts;
+    }
+    if (type === "session.created") return state.seen(p);
+    if (type === "shell.created") {
+      const info = object(p.info),
+        id = string(info.id),
+        session = string(object(info.metadata).sessionID);
+      if (!state.agents.has(session)) return [];
+      if (info.status !== "running") {
+        state.shells.delete(id);
+        const wake = state.wakeShells.delete(id);
+        return [
+          ...state.finishBackground(
+            `shell:${id}`,
+            info.status === "killed" ? "stopped" : info.exit === 0 ? "completed" : "failed",
+          ),
+          ...(wake
+            ? state.wake(session, number(object(info.time).completed, Number.MAX_SAFE_INTEGER))
+            : []),
+        ];
+      }
+      if (state.shells.size >= 2048 && !state.shells.has(id))
+        throw new Error("OpenCode shell limit");
+      state.shells.set(id, session);
+      return state.background(`shell:${id}`, session, "shell");
+    }
+    if (type === "shell.exited" || type === "shell.deleted") {
+      const id = string(p.id),
+        session = state.shells.get(id);
+      if (!session) return [];
+      state.shells.delete(id);
+      const wake = state.wakeShells.delete(id);
+      return [
+        ...state.finishBackground(
+          `shell:${id}`,
+          type === "shell.deleted" || p.status === "killed"
+            ? "stopped"
+            : p.exit === 0
+              ? "completed"
+              : "failed",
+        ),
+        ...(wake ? state.wake(session) : []),
+      ];
+    }
+    const id = eventSession(e);
+    if (!state.agents.has(id)) return [];
+    const agent = state.key(id);
+    if (type === "session.execution.started") {
+      const facts = state.start(id, `execution:${id}:${e.durable?.seq ?? e.id}`);
+      if (facts.length && typeof e.created === "number") state.executionCreated.set(id, e.created);
+      return facts;
+    }
     if (
-      frame.dir === "recv" &&
-      data.method === "POST" &&
-      path === "/session" &&
-      typeof body.id === "string"
+      type === "session.execution.succeeded" ||
+      type === "session.execution.failed" ||
+      type === "session.execution.interrupted"
     )
-      return [
-        ...this.state.seen(body),
-        ...this.state.metadata("session.created", string(body.id), frame.data),
-      ];
-    if (frame.dir === "recv" && path === "/mcp") {
-      this.state.mcp = new Set(Object.keys(body));
-      return this.state.metadata("mcp", "servers", frame.data);
-    }
-    const match = /^\/session\/([^/]+)\/(prompt_async|message|abort)$/.exec(path);
-    if (match && frame.dir === "send" && data.method === "POST") {
-      const id = string(match[1]);
-      const s = this.state.session(id);
-      if (match[2] === "abort") {
-        s.abort = true;
-        return this.state.metadata("abort", id, frame.data);
+      return state.end(
+        id,
+        type.endsWith("succeeded")
+          ? "completed"
+          : type.endsWith("failed")
+            ? "failed"
+            : "interrupted",
+        p.error,
+      );
+    if (type.startsWith("session.text.") || type.startsWith("session.reasoning."))
+      return text(state, type, p, e);
+    if (type.startsWith("session.tool."))
+      return type.endsWith("delta") ? [] : tool(state, p, type, e);
+    if (type.startsWith("permission.") || type.startsWith("form."))
+      return interaction(state, type, p, e);
+    if (type === "session.inbox.enqueued") {
+      const input = string(p.inboxID),
+        own = state.admissionPending.delete(input);
+      const facts = state.input(input, id);
+      if (own && !state.admitted.has(input)) {
+        facts.unshift(...state.admit(input, id));
       }
-      s.sent = true;
-      s.awaiting = true;
-      if (typeof body.messageID === "string") {
-        this.state.own.add(body.messageID);
-        s.user = body.messageID;
-        s.trigger = "user";
-      }
+      return facts;
+    }
+    if (type === "session.inbox.delivered" || type === "session.inbox.cancelled") {
+      const admitted = state.admissionPending.has(string(p.inboxID))
+        ? state.admit(string(p.inboxID), id)
+        : [];
+      state.inputs.delete(string(p.inboxID));
+      state.commands.delete(string(p.inboxID));
+      state.admissionPending.delete(string(p.inboxID));
       return [
-        { type: "wake.expected", agent: this.state.key(id), until: Number.MAX_SAFE_INTEGER },
-        ...this.state.metadata("prompt", string(body.messageID, id), frame.data),
+        ...admitted,
+        ...state.finishBackground(`admission:${string(p.inboxID)}`, "completed"),
+        ...state.queue(),
+        ...(type.endsWith("delivered") && !state.active.has(id) ? state.wake(id) : []),
       ];
     }
-    if (frame.dir === "recv" && number(data.status) >= 400)
-      return this.state.notice(frame.data, "HTTP error");
-    return this.state.notice(frame.data, `HTTP ${string(data.method)} ${path}`);
-  }
-  taskOwner(task: string): string | undefined {
-    const bg = this.state.backgrounds.get(task);
-    return bg?.child ?? bg?.agent;
+    if (type === "session.synthetic") {
+      const meta = object(p.metadata);
+      state.triggers.set(
+        id,
+        meta.source === "subagent" ? "subagent_result" : "background_completion",
+      );
+      return [
+        ...state.completion(meta, number(e.created, -1)),
+        ...state.wake(id, number(e.created, Number.MAX_SAFE_INTEGER)),
+      ];
+    }
+    if (type === "session.retry.scheduled")
+      return [
+        {
+          type: "retry",
+          agent,
+          on: retryReason(string(object(p.error).message)),
+          attempt: number(p.attempt),
+          until: now + Math.max(0, number(p.at) - number(e.created)),
+          message: string(object(p.error).message),
+        },
+      ];
+    if (type === "session.usage.updated") {
+      const tokens = object(p.tokens);
+      if (!Object.keys(tokens).length) return [];
+      return [
+        {
+          type: "usage",
+          agent,
+          inputTokens:
+            number(tokens.input) +
+            number(object(tokens.cache).read) +
+            number(object(tokens.cache).write),
+          outputTokens: number(tokens.output) + number(tokens.reasoning),
+          cachedInputTokens: number(object(tokens.cache).read),
+          reasoningTokens: number(tokens.reasoning),
+          cacheWriteTokens: number(object(tokens.cache).write),
+          counterMode: "cumulative",
+          counterKey: `session:${id}`,
+          costUsd: number(p.cost),
+        },
+      ];
+    }
+    if (type.startsWith("session.step.")) return [];
+    return state.note(e, type);
   }
   isSettled(): boolean {
     return this.state.settled();
   }
-  nextGraceDeadline(): number | undefined {
-    return this.nextDeadline();
+  liveMessages(session: string): string[] {
+    return [...(this.state.liveMessages.get(session)?.keys() ?? [])];
   }
-  nextDeadline(): number | undefined {
-    return this.state.graceDeadline;
+  taskOwner(task: string): string | undefined {
+    return this.state.backgrounds.get(task);
   }
-  tick(now: number): Fact[] {
-    const facts: Fact[] = [];
-    for (const [task, bg] of this.state.backgrounds.due(now))
-      if (
-        bg.child &&
-        bg.idleAt !== undefined &&
-        this.state.session(bg.child).status === "idle" &&
-        now >= bg.idleAt + 3_000
-      ) {
-        facts.push({ type: "background.ended", task, status: "completed" });
-        this.state.backgrounds.delete(task);
-      }
-    this.state.refresh();
-    return facts;
+  tick(_now: number): Fact[] {
+    return [];
   }
 }
