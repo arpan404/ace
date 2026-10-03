@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { Command, ThreadId } from "@ace/protocol";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
+import { transitionHarness } from "./transition-test-support.ts";
 
 test("idle intermediates cannot hide a tightened ancestor from descendant turns, setters or spawns", async () => {
   const frames = scriptFrames();
@@ -78,6 +79,20 @@ test("idle intermediates cannot hide a tightened ancestor from descendant turns,
     if (!inherited) throw new Error("Missing inherited");
     await send(inherited);
     expect(h.contexts.at(-1)?.permissionMode).toBe("read-only");
+  } finally {
+    await h.close();
+  }
+});
+
+test("scripted transition threads launch and fork under the default auto-review contract", async () => {
+  const h = transitionHarness({ native: true });
+  try {
+    const source = await h.create();
+    expect(h.store.getThread(source)?.status.state).toBe("done");
+    expect(h.sessions[0]?.context.permissionMode).toBe("auto-review");
+    const child = await h.fork(source);
+    expect(h.store.getThread(child)?.status.state).toBe("done");
+    expect(h.sessions.at(-1)?.context.permissionMode).toBe("auto-review");
   } finally {
     await h.close();
   }

@@ -75,6 +75,12 @@ export function transitionHarness(
         : {}),
       capabilities: () =>
         Capabilities.parse({
+          // These scripts implement the engine contract, not a native provider sandbox.
+          permissions: {
+            modes: ["read-only", "ask", "auto-review", "full-access"],
+            nativeAutoReview: false,
+            toolGate: true,
+          },
           steer: true,
           interruptCascades: false,
           resume: true,
