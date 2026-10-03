@@ -1,33 +1,9 @@
 import type { DiffRow } from "@ace/ui-core";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  GpuTextView,
-  pickRenderer,
-  textRendererSupport,
-  type TextLine,
-} from "@/components/gpu-text/index.ts";
-import { useFlag } from "@/lib/flags.ts";
+import { useCallback, useMemo, useState } from "react";
+import { GpuTextView, type TextLine } from "@/components/gpu-text/index.ts";
 
-/** Diffs at least this long may use the GPU text renderer (flag `gpuText`). */
-const gpuThreshold = 5_000;
+/** Gutter cells per line number. */
 const gutter = 6;
-
-/** The renderer for a diff of `rows` rows: the GPU only when flagged, supported and huge. */
-export function useDiffRenderer(rows: number): "webgpu" | "webgl2" | "dom" {
-  const enabled = useFlag("gpuText");
-  const [support, setSupport] = useState<{ webgpu: boolean; webgl2: boolean }>();
-  const wanted = enabled && rows >= gpuThreshold;
-  useEffect(() => {
-    if (wanted) void textRendererSupport().then(setSupport);
-  }, [wanted]);
-  return pickRenderer({
-    lines: rows,
-    enabled,
-    webgpu: support?.webgpu ?? false,
-    webgl2: support?.webgl2 ?? false,
-    threshold: gpuThreshold,
-  });
-}
 
 const number = (value: number | undefined) =>
   (value === undefined ? "" : String(value)).padStart(gutter - 1);
@@ -52,8 +28,11 @@ export function diffLines(rows: readonly DiffRow[]): TextLine[] {
   });
 }
 
-/** A huge file's diff drawn by the GPU, read-only; "Show as text" returns to the DOM view. */
-export function GpuDiff(props: {
+/**
+ * A huge file's diff drawn by the GPU, read-only; "Show as text" returns to the DOM view. Loaded
+ * on demand (the default export), so the renderer never weighs on the thread route.
+ */
+export default function GpuDiff(props: {
   path: string;
   rows: readonly DiffRow[];
   renderer: "webgpu" | "webgl2";
