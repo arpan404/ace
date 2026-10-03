@@ -1,6 +1,6 @@
 # Client gaps batch 2 verification
 
-Tests, probes, benchmarks and e2e runs are not executed. Runtime claims need run at merge. Static verification uses typecheck, lint, formatting, file size and protocol reference checks.
+Tests, probes, benchmarks and e2e runs are not executed. Runtime claims need run at merge. Static verification uses typecheck, lint, formatting and file size. Protocol references were regenerated while resolving the main merge. Protocol reference verification and runtime checks need run at merge under the current command whitelist.
 
 Each row names the behavioral assertion and the mutations it is intended to reject. Every mutation is **not executed (tests run at merge)**.
 
@@ -26,3 +26,5 @@ Each row names the behavioral assertion and the mutations it is intended to reje
 | `packages/adapter-testkit/src/turn-provider.test.ts`: delayed completion, quota failure/recovery and interrupt/close cancellation                                                      | End immediately; omit limit retry/failure; clear limits before reset; never recover; emit a completed turn after interrupt/close.                                                                 |
 
 Machine discovery has no runtime behavior test because ADR 0059 deliberately stops at the proposed protocol. Its owner and device-scoped directory persistence need a separate design. The fake reports the same unavailable service boundary rather than fabricating paired hosts.
+
+The [PR 82 review fixes](client-gaps-2-review.md) add the review regression inventory, synchronization changes and static performance bounds.
