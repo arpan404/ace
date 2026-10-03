@@ -39,3 +39,5 @@ export {
   MaintenanceStatus,
   DaemonHealth,
 } from "./release.ts";
+
+export * from "./agent-registry.ts";

@@ -1,3 +1,4 @@
+import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
 import { DiagnosticsHealth } from "./diagnostics.ts";
 import { ReviewData } from "./review.ts";
 import { z } from "zod";
@@ -108,6 +109,7 @@ export const ItemsPage = z.object({
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  RegistryRequest,
   ContextRequest,
   SettingsGet,
   SettingsSet,
@@ -170,6 +172,7 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  RegistryResult,
   ContextResult,
   SettingsResult,
   SettingsChanged,

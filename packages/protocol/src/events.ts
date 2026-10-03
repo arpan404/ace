@@ -1,3 +1,4 @@
+import { AcpSessionSupport } from "./agent-registry.ts";
 import { z } from "zod";
 import { UsageMetadata } from "./usage.ts";
 import { Agent, AgentFidelity, AgentOrigin, AgentStatus } from "./agent.ts";
@@ -15,7 +16,7 @@ import {
 } from "./ids.ts";
 import { Interaction, InteractionResolution, InteractionState } from "./interactions.ts";
 import { Item } from "./items.ts";
-import { NativeRef } from "./provider.ts";
+import { NativeRef, Capabilities } from "./provider.ts";
 import { Run, RunTrigger, Thread, ThreadStatus } from "./thread.ts";
 
 export const UsageUpdated = z.object({
@@ -35,6 +36,8 @@ export const EventPayload = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("thread.updated"),
     title: z.string().optional(),
+    effectiveCapabilities: Capabilities.optional(),
+    acpSupport: AcpSessionSupport.optional(),
     status: ThreadStatus.optional(),
     archivedAt: Timestamp.nullable().optional(),
   }),
