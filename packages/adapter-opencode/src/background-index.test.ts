@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { harness } from "./replay.ts";
+import { harness } from "./testing/v1/replay.ts";
 
 it("expires staggered background results in deadline order after a child resumes and idles again", () => {
   const h = harness();

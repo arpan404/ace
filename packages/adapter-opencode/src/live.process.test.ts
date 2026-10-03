@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
-import { OpenCodeServer } from "./index.ts";
-import { object } from "./data.ts";
+import { OpenCodeServer } from "./testing/v1/index.ts";
+import { object } from "./testing/v1/data.ts";
 it.skipIf(process.env.ACE_LIVE_CLI !== "1")(
   "handshakes with the installed server without creating a session",
   async () => {

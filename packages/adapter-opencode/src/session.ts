@@ -2,428 +2,405 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
-import { nativeResolution } from "./interactions.ts";
-import { SnapshotWatermarks } from "./watermarks.ts";
+import type { OpenCodeClient } from "@opencode/client";
+import { NativeEvent, SessionInfo, eventSession } from "./boundaries.ts";
+import { object, string } from "./data.ts";
+import { recoverSessions } from "./recovery.ts";
 import { HistoryReader } from "./history.ts";
 import { OpenCodeTranslator } from "./translator.ts";
-import { messageId, promptBody } from "./input.ts";
-import { array, object, string } from "./data.ts";
-import { OpenCodeServer, eventSession } from "./server.ts";
-type Queued = { input: ContentPart[]; resolve(): void; reject(error: Error): void };
+import { nativeResolution } from "./interactions.ts";
+import { promptBody, messageId, selectedModel } from "./input.ts";
+import { OpenCodeServer } from "./server.ts";
+import { z } from "zod";
+import { AncestryProbe } from "./ancestry.ts";
+import { cleanupOwned } from "./cleanup.ts";
+import { SessionOwnership } from "./ownership.ts";
 export class OpenCodeSession implements ProviderSession {
-  private nativeId: string;
-  private project = "";
-  get nativeSessionId(): string {
-    return this.nativeId;
-  }
-  private reportedExit = false;
-  private resynchronizing = false;
-  private disconnected = false;
-  private graceDeadline: number | undefined;
-  private cancelGrace: (() => void) | undefined;
-  private translator: OpenCodeTranslator;
   private ctx: SessionContext;
   private server: OpenCodeServer;
+  private client: OpenCodeClient;
   private controller = new AbortController();
+  private translator: OpenCodeTranslator;
+  private ownership: SessionOwnership;
+  private history = new HistoryReader();
   private sequence = 0;
-  private startedAt: number;
-  private known = new Set<string>();
-  private watermarks = new SnapshotWatermarks();
-  private history: HistoryReader;
   private promptSequence = 0;
-  private parents = new Map<string, string>();
-
-  private questions = new Map<string, unknown>();
-  private queue: Queued[] = [];
-
-  private unsubscribe: () => void = () => {};
+  private started: number;
   private opening = true;
-  private buffer: unknown[] = [];
   private closed = false;
+  private exitReported = false;
+  private recovering = false;
+  private openingBuffer: unknown[] = [];
+  private openingBytes = 0;
+  private moves = new Set<string>();
+  private snapshotBytes = 0;
+  private snapshots: { channel: string; data: unknown; session: string; started: number }[] = [];
+  private latest = new Map<string, number>();
+  private pending = new Map<
+    string,
+    { session: string; data: Record<string, unknown>; type: string }
+  >();
+  private waiters = new Set<{ resolve(): void; reject(error: Error): void }>();
+  private unsubscribe: () => void = () => {};
   private abortListener: () => void;
-  private pumping = false;
-  private constructor(ctx: SessionContext, server: OpenCodeServer, id: string) {
+  private sending = false;
+  private admissionRejected = false;
+  private executionObserved = new Set<string>();
+  private recoveryRead: Promise<void> | undefined;
+  private ancestry: AncestryProbe;
+  private recoveryStarted = 0;
+  get nativeSessionId(): string {
+    return this.ownership.root;
+  }
+  private constructor(ctx: SessionContext, server: OpenCodeServer) {
     this.ctx = ctx;
-    this.startedAt = server.runtime.monotonic();
+    this.server = server;
+    this.started = server.runtime.monotonic();
     this.translator = new OpenCodeTranslator({
       threadId: ctx.threadId,
       rootKey: ctx.rootKey ?? "root",
     });
-    this.server = server;
-    this.history = new HistoryReader(
-      server,
-      ctx.cwd,
-      this.emit,
-      this.controller.signal,
-      (data, started) => this.snapshot(data, started),
-    );
-    this.nativeId = id;
-    this.known.add(id);
+    this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "");
+    this.client = server.scoped(ctx.cwd, this.emit, this.controller.signal);
+    this.ancestry = new AncestryProbe({
+      client: this.client,
+      ownership: this.ownership,
+      directory: () => this.ownership.sessions.get(this.ownership.root)?.directory ?? this.ctx.cwd,
+      info: (info) => this.emit("recv", "snapshot.info", { info }),
+      receive: (data) => this.receive(data),
+    });
     this.abortListener = () => {
-      void this.close("shutdown").catch(() => {});
+      void this.close("shutdown");
     };
   }
   static async open(ctx: SessionContext, server: OpenCodeServer): Promise<OpenCodeSession> {
     ctx.signal.throwIfAborted();
-    await server.ready();
+    await server.ready(ctx.signal);
     if (ctx.signal.aborted) {
       await server.release();
       ctx.signal.throwIfAborted();
     }
-    const session = new OpenCodeSession(ctx, server, ctx.resume?.nativeSessionId ?? "");
-    // Subscribe before creation so early session/child announcements cannot be lost.
-    session.unsubscribe = server.subscribe({
+    const s = new OpenCodeSession(ctx, server);
+    s.unsubscribe = server.subscribe({
       accepts: (data, watermark) => {
-        if (!session.owns(data)) return false;
-        session.watermarks.observe(data, watermark);
+        if (!s.owns(data)) return false;
+        const id = eventSession(data);
+        if (id) s.latest.set(id, watermark);
         return true;
       },
-      receive: (data) => session.receive(data),
-      frame: session.emit,
-      disconnected: () => {
-        session.disconnected = true;
-        session.emit("note", "lifecycle", { type: "disconnected", transport: "lost" });
+      receive: (data) => s.receive(data),
+      frame: s.emit,
+      disconnected: (started) => {
+        s.recovering = true;
+        s.recoveryStarted = started;
+        s.emit("note", "lifecycle", { type: "disconnected" });
       },
-      buffered: (data) => {
-        if (!session.owns(data)) return false;
-        session.emit("recv", "sse.buffered", data);
-        return !["server.connected", "server.heartbeat"].includes(
-          string(object(object(data).payload).type),
-        );
+      reconcile: (data) => {
+        const type = string(object(data).type);
+        if (!type.endsWith(".delta")) s.receive(data);
       },
-      reconcile: (data, watermark) => {
-        if (!session.owns(data)) return;
-        const payload = object(object(data).payload);
-        const type = string(payload.type);
-        if (
-          !session.watermarks.isLatest(data, watermark) ||
-          session.watermarks.covers(data, watermark)
-        )
-          return;
-        if (
-          type === "session.status" ||
-          type === "session.error" ||
-          type === "session.created" ||
-          type.startsWith("permission.") ||
-          type.startsWith("question.") ||
-          (type === "message.part.updated" &&
-            object(object(payload.properties).part).type === "tool")
-        )
-          session.receive(data);
-      },
+      resync: () => s.resync(),
+      finalizeSnapshots: () => s.finalizeSnapshots(),
       recovered: () => {
-        session.disconnected = false;
-        session.emit("note", "lifecycle", { type: "resynced", transport: "restored" });
-        void session.pump();
+        s.recovering = false;
+        s.emit("note", "lifecycle", { type: "resynced" });
+        for (const w of s.waiters) w.resolve();
+        s.waiters.clear();
       },
-      resync: () => session.resync(),
-      finalizeSnapshots: () => session.finalizeSnapshots(),
       exited: (deliberate, message) => {
-        if (!session.closed && !session.reportedExit) {
-          session.reportedExit = true;
-          session.emit("note", "lifecycle", { type: "exited", deliberate, message });
-          ctx.onExit({ deliberate, ...(message ? { message } : {}) });
-          void session.close("shutdown").catch(() => {});
-        }
+        s.reportExit(deliberate, message);
+        void s.close("shutdown");
       },
     });
-    ctx.signal.addEventListener("abort", session.abortListener, { once: true });
+    ctx.signal.addEventListener("abort", s.abortListener, { once: true });
     try {
-      session.emit("note", "lifecycle", { type: "started" });
-      if (!ctx.resume) {
-        const info = object(await session.request("POST", "/session", { title: "ace" }));
-        const id = string(info.id);
-        if (!id) throw new Error("OpenCode did not return a session id");
-        session.nativeId = id;
-        session.project = string(info.projectID);
-        session.known.clear();
-        session.known.add(id);
-      }
-      session.opening = false;
-      for (const data of session.buffer.splice(0)) session.receive(data);
-      await session.request("GET", "/mcp");
+      s.emit("note", "lifecycle", { type: "started" });
+      const info = SessionInfo.parse(
+        ctx.resume
+          ? await s.client.session.get({ sessionID: ctx.resume.nativeSessionId })
+          : await s.client.session.create({
+              title: "ace",
+              location: { directory: ctx.cwd },
+              model: selectedModel(ctx.model),
+              permissions: [],
+            }),
+      );
+      s.ownership.establish(info);
+      s.emit("recv", "snapshot.info", { info, root: true });
+      s.opening = false;
+      for (const event of s.openingBuffer.splice(0)) s.receive(event);
       if (ctx.resume) {
-        await session.resync();
-        session.finalizeSnapshots();
+        s.recovering = true;
+        await s.resync();
+        s.finalizeSnapshots();
+        s.recovering = false;
       }
-      if (ctx.signal.aborted) {
-        await session.close("shutdown");
-        ctx.signal.throwIfAborted();
-      }
-      return session;
+      ctx.signal.throwIfAborted();
+      return s;
     } catch (error) {
-      await session.close("shutdown");
+      await s.close("shutdown");
       throw error;
     }
   }
   private emit = (dir: Frame["dir"], channel: string, data: unknown): void => {
-    const t = Math.round(this.server.runtime.monotonic() - this.startedAt);
-    const clockPayload = new ProviderPayload(
-      JSON.stringify({ wallTime: this.server.runtime.wallTime() }),
-    );
-    const clock: Frame = {
-      seq: this.sequence++,
-      t,
-      dir: "note",
-      channel: "clock",
-      data: clockPayload.data,
-      payload: clockPayload,
-    };
-    this.translator.translate(clock, t);
-    this.ctx.onFrame(clock);
+    const t = Math.round(this.server.runtime.monotonic() - this.started);
     const payload = new ProviderPayload(JSON.stringify(data));
     const frame: Frame = { seq: this.sequence++, t, dir, channel, data: payload.data, payload };
+    if (
+      dir === "recv" &&
+      channel === "http" &&
+      String(object(data).path).endsWith("/prompt") &&
+      typeof object(data).status === "number" &&
+      Number(object(data).status) >= 400
+    )
+      this.admissionRejected = true;
     this.translator.translate(frame, t);
     this.ctx.onFrame(frame);
   };
-  private snapshot(data: unknown, started: number): void {
-    if (this.watermarks.stage(data, started)) this.receive(data);
-    else this.emit("recv", "snapshot.deferred", data);
-  }
-  private finalizeSnapshots(): void {
-    for (const data of this.watermarks.flush()) this.receive(data);
-  }
   private owns(data: unknown): boolean {
-    const envelope = object(data);
-    if (
-      typeof envelope.directory === "string" &&
-      envelope.directory !== this.ctx.cwd &&
-      envelope.directory !== "global"
-    )
-      return false;
-    if (this.project && typeof envelope.project === "string" && envelope.project !== this.project)
-      return false;
-    const payload = object(envelope.payload);
-    const info = object(object(payload.properties).info);
-    const id = eventSession(data) || string(info.id);
-    if (!this.project && id === this.nativeSessionId) this.project = string(info.projectID);
-    if (payload.type === "session.created" && this.known.has(string(info.parentID))) {
-      this.known.add(string(info.id));
-      this.parents.set(string(info.id), string(info.parentID));
+    if (this.closed) return false;
+    if (this.opening) {
+      const directory = string(object(object(data).location).directory);
+      return directory === this.ctx.cwd;
     }
-    return !id || this.known.has(id);
-  }
-  private armGrace(): void {
-    const deadline = this.translator.nextDeadline();
-    if (deadline === this.graceDeadline) return;
-    this.graceDeadline = deadline;
-    this.cancelGrace?.();
-    if (deadline === undefined) {
-      this.cancelGrace = undefined;
-      return;
+    const accepted = this.ownership.accept(data);
+    if (!accepted) this.ancestry.prove(data);
+    if (accepted && object(data).type === "session.moved") {
+      const id = eventSession(data);
+      // Refetch a known ID before changing its stored location or accepting new-project frames.
+      if (this.moves.has(id)) return accepted;
+      this.moves.add(id);
+      void this.client.session
+        .get({ sessionID: id })
+        .then((value) => {
+          const info = SessionInfo.parse(value);
+          this.ownership.verify(info);
+          this.emit("recv", "snapshot.info", { info });
+        })
+        .catch(() => {
+          void this.server.reconcileNow();
+        })
+        .finally(() => this.moves.delete(id));
     }
-    this.cancelGrace = this.server.runtime.schedule(
-      () => {
-        this.cancelGrace = undefined;
-        this.graceDeadline = undefined;
-        this.emit("note", "lifecycle", { type: "background.grace.expired" });
-        this.armGrace();
-        void this.pump();
-      },
-      Math.max(0, deadline - (this.server.runtime.monotonic() - this.startedAt)),
-    );
-  }
-  private request(method: string, path: string, body?: unknown): Promise<unknown> {
-    return this.server
-      .request(method, path, this.ctx.cwd, body, this.emit, this.controller.signal)
-      .catch((error: unknown) => {
-        this.emit("note", "transport", {
-          type: "request.failed",
-          method,
-          path,
-          messageID: object(body).messageID,
-          message: String(error),
-        });
-        throw error;
-      });
+    return accepted;
   }
   private receive(data: unknown): void {
-    if (this.closed) return;
     if (this.opening) {
-      this.buffer.push(data);
+      this.openingBytes += Buffer.byteLength(JSON.stringify(data));
+      if (this.openingBuffer.length >= 128 || this.openingBytes > 8 * 1024 * 1024)
+        throw new Error("OpenCode startup event limit");
+      this.openingBuffer.push(data);
       return;
     }
     if (!this.owns(data)) return;
-    const payload = object(object(data).payload);
-    const p = object(payload.properties);
-    this.emit("recv", "sse", data);
-    if (payload.type === "question.asked" || payload.type === "permission.asked")
-      this.questions.set(string(p.id), p);
-    if (
-      ["question.replied", "question.rejected", "permission.replied"].includes(string(payload.type))
-    )
-      this.questions.delete(string(p.requestID));
-    this.armGrace();
-    void this.pump();
+    const e = NativeEvent.parse(data),
+      p = e.data;
+    if (!e.id.startsWith("snapshot:")) this.latest.set(eventSession(e), this.server.eventWatermark);
+    if (e.type === "permission.asked" || e.type === "form.created") {
+      const value = e.type === "form.created" ? object(p.form) : p,
+        session = string(value.sessionID);
+      const key = `${e.type === "permission.asked" ? "permission" : "form"}:${session}:${string(value.id)}`;
+      if (this.pending.size >= 1024 && !this.pending.has(key))
+        throw new Error("OpenCode interaction limit");
+      this.pending.set(key, { session, data: value, type: e.type });
+    } else if (
+      e.type === "permission.replied" ||
+      e.type === "form.replied" ||
+      e.type === "form.cancelled"
+    ) {
+      this.pending.delete(
+        `${e.type === "permission.replied" ? "permission" : "form"}:${string(p.sessionID)}:${string(p.requestID, string(p.id))}`,
+      );
+    }
+    if (e.type.startsWith("session.execution.") || e.type.startsWith("session.step."))
+      this.executionObserved.add(eventSession(e));
+    this.emit("recv", "sse", e);
+    if (e.type === "shell.exited" || e.type === "shell.deleted")
+      this.ownership.shells.delete(string(p.id));
+    if (e.type === "shell.created" && object(p.info).status !== "running")
+      this.ownership.shells.delete(string(object(p.info).id));
+  }
+  private async barrier(): Promise<void> {
+    if (this.closed) throw new Error("OpenCode session is closed");
+    if (!this.recovering) return;
+    if (this.waiters.size >= 64) throw new Error("OpenCode recovery send limit");
+    await new Promise<void>((resolve, reject) => this.waiters.add({ resolve, reject }));
+    this.controller.signal.throwIfAborted();
   }
   async send(input: ContentPart[], delivery: "steer" | "queue"): Promise<void> {
-    if (this.closed) throw new Error("OpenCode session is closed");
-    if (delivery === "steer")
-      throw new Error("OpenCode does not support native steering; use queue delivery");
-    return new Promise<void>((resolve, reject) => {
-      this.queue.push({ input, resolve, reject });
-      void this.pump();
-    });
-  }
-  private async pump(): Promise<void> {
-    if (
-      this.disconnected ||
-      this.resynchronizing ||
-      this.pumping ||
-      this.closed ||
-      !this.translator.isSettled()
-    )
-      return;
-    const next = this.queue.shift();
-    if (!next) return;
-    this.pumping = true;
+    await this.barrier();
+    if (this.sending) throw new Error("OpenCode input admission already in progress");
+    this.sending = true;
+    this.admissionRejected = false;
+    const id = messageId(
+      this.server.runtime.wallTime(),
+      ++this.promptSequence,
+      this.server.runtime.entropy(16),
+    );
     try {
-      await this.request(
-        "POST",
-        `/session/${this.nativeSessionId}/prompt_async`,
-        promptBody(
-          next.input,
-          this.ctx.cwd,
-          messageId(
-            this.server.runtime.wallTime(),
-            ++this.promptSequence,
-            this.server.runtime.entropy(7),
-          ),
-          this.ctx.model,
-        ),
+      // Engine owns waiting-to-send. Native inbox owns an input exactly once after admission.
+      const reply = z
+        .object({ id: z.literal(id), sessionID: z.literal(this.nativeSessionId) })
+        .passthrough()
+        .parse(
+          await this.client.session.prompt({
+            sessionID: this.nativeSessionId,
+            ...promptBody(
+              input,
+              this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd,
+              id,
+            ),
+            delivery,
+          }),
+        );
+      this.emit("note", "input.accepted", reply);
+    } catch {
+      if (this.admissionRejected) {
+        this.emit("note", "input.rejected", { id });
+        throw new Error("OpenCode rejected input admission");
+      }
+      // The server may have committed admission before the socket failed. Never retry.
+      this.recovering = true;
+      this.emit("note", "lifecycle", { type: "disconnected" });
+      void this.server.reconcileNow();
+      throw new Error(
+        "OpenCode input acknowledgement uncertain; reconcile inbox before sending again",
       );
-      next.resolve();
-    } catch (error) {
-      next.reject(error instanceof Error ? error : new Error(String(error)));
     } finally {
-      this.pumping = false;
-      void this.pump();
+      this.sending = false;
     }
   }
   async interrupt(target: { agent?: Key; cascade: boolean }): Promise<void> {
-    const id =
-      target.agent && target.agent !== this.ctx.rootKey && this.known.has(target.agent)
-        ? target.agent
-        : this.nativeSessionId;
-    await this.abortNative(id, target.cascade);
+    await this.barrier();
+    const root =
+      !target.agent || target.agent === this.ctx.rootKey || target.agent === "root"
+        ? this.nativeSessionId
+        : target.agent;
+    if (!this.ownership.sessions.has(root)) throw new Error("Unknown OpenCode agent");
+    const ids = target.cascade ? this.ownership.descendants(root).concat(root) : [root];
+    for (const sessionID of ids) {
+      const result = z
+        .object({ interrupted: z.boolean() })
+        .parse(await this.client.session.interrupt({ sessionID }));
+      if (!result.interrupted) throw new Error("OpenCode interrupt was not accepted");
+    }
+    if (target.cascade)
+      for (const [id, owner] of this.ownership.shells)
+        if (ids.includes(owner)) await this.removeShell(id);
   }
-  private async abortNative(id: string, cascade: boolean): Promise<void> {
-    const visited = new Set<string>();
-    const descendants = (parent: string): string[] =>
-      [...this.parents]
-        .filter(([child, p]) => p === parent && child !== id && !visited.has(child))
-        .flatMap(([child]) => {
-          visited.add(child);
-          return descendants(child).concat(child);
-        });
-    for (const child of cascade ? descendants(id) : [])
-      await this.request("POST", `/session/${child}/abort`, {});
-    await this.request("POST", `/session/${id}/abort`, {});
+  async resolve(key: Key, choice: InteractionResolution): Promise<void> {
+    await this.barrier();
+    const pending = this.pending.get(key);
+    if (!pending) throw new Error("OpenCode interaction is no longer pending");
+    const command = nativeResolution(choice, pending);
+    if (command.kind === "permission") await this.client.permission.reply(command);
+    else if (command.cancel)
+      await this.client.session.form.cancel({
+        sessionID: command.sessionID,
+        formID: command.formID,
+        ...(command.message === undefined ? {} : { message: command.message }),
+      });
+    else
+      await this.client.session.form.reply({
+        sessionID: command.sessionID,
+        formID: command.formID,
+        answer: z
+          .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
+          .parse(command.answer),
+      });
   }
-  async resolve(interaction: Key, resolution: InteractionResolution): Promise<void> {
-    const command = nativeResolution(interaction, resolution, this.questions.get(interaction));
-    await this.request("POST", command.path, command.body);
+  private async removeShell(id: string): Promise<void> {
+    const owner = this.ownership.shells.get(id);
+    if (!owner) throw new Error("Unknown OpenCode shell");
+    const location = { directory: this.ownership.sessions.get(owner)?.directory ?? this.ctx.cwd };
+    await this.client.shell.remove({ id, location });
   }
   async stopTask(task: Key): Promise<void> {
-    const id = task.startsWith("survivor:") ? this.translator.taskOwner(task) : task;
-    if (!id || !this.known.has(id)) throw new Error("Unknown OpenCode task");
-    await this.abortNative(id, true);
+    await this.barrier();
+    if (task.startsWith("shell:")) return this.removeShell(task.slice(6));
+    const owner = task.startsWith("child:") ? task.slice(6) : this.translator.taskOwner(task);
+    if (!owner || !this.ownership.sessions.has(owner)) throw new Error("Unknown OpenCode task");
+    await this.interrupt({ agent: owner, cascade: true });
   }
   async resync(): Promise<void> {
+    this.recoveryRead ??= this.readSnapshots().finally(() => {
+      this.recoveryRead = undefined;
+    });
+    await this.recoveryRead;
+  }
+  private async readSnapshots(): Promise<void> {
     if (this.closed || this.opening) return;
-    this.resynchronizing = true;
-    this.questions.clear();
-    const visited = new Set<string>();
-    const visit = async (id: string): Promise<void> => {
-      if (visited.has(id)) return;
-      visited.add(id);
-      const started = this.server.eventWatermark;
-      const info = await this.request("GET", `/session/${id}`);
-      this.snapshot(
-        {
-          directory: this.ctx.cwd,
-          payload: { type: "session.created", properties: { info, sessionID: id } },
-        },
-        started,
-      );
-      for (const child of array(await this.request("GET", `/session/${id}/children`))) {
-        const c = object(child);
-        if (typeof c.id === "string") {
-          this.known.add(c.id);
-          this.parents.set(c.id, id);
-          await visit(c.id);
-        }
-      }
-      await this.history.read(id);
-    };
-    await visit(this.nativeSessionId);
-    for (const path of ["/permission", "/question"]) {
-      const started = this.server.eventWatermark;
-      const pending = await this.request("GET", path);
-      this.watermarks.category(path.slice(1), started);
-      for (const p of array(pending))
-        this.snapshot(
-          {
-            payload: {
-              type: path === "/permission" ? "permission.asked" : "question.asked",
-              properties: p,
-            },
+    this.snapshots = [];
+    this.snapshotBytes = 0;
+    await recoverSessions({
+      client: this.client,
+      ownership: this.ownership,
+      history: this.history,
+      watermark: () => this.server.eventWatermark,
+      frame: this.emit,
+      receive: (event) => this.receive(event),
+      stage: (channel, data, session, started) => {
+        this.snapshotBytes += Buffer.byteLength(JSON.stringify(data));
+        if (this.snapshotBytes > 8 * 1024 * 1024 || this.snapshots.length >= 4096)
+          throw new Error("OpenCode snapshot budget exceeded");
+        this.snapshots.push({
+          channel,
+          data,
+          session,
+          started: Math.min(started, this.recoveryStarted),
+        });
+      },
+      liveMessages: (id) => this.translator.liveMessages(id),
+      executionObserved: this.executionObserved,
+      shell: async (id, directory) => {
+        let status = 0;
+        const client = this.server.scoped(
+          directory,
+          (dir, channel, data) => {
+            if (dir === "recv" && channel === "http") status = Number(object(data).status);
+            this.emit(dir, channel, data);
           },
-          started,
+          this.controller.signal,
         );
+        try {
+          return await client.shell.get({ id, location: { directory } });
+        } catch {
+          if (status === 404) return undefined;
+          throw new Error("OpenCode shell recovery incomplete");
+        }
+      },
+    });
+  }
+
+  private finalizeSnapshots(): void {
+    for (const snap of this.snapshots.splice(0)) {
+      if ((this.latest.get(snap.session) ?? 0) > snap.started) continue;
+      this.emit("recv", snap.channel, snap.data);
+      if (snap.channel === "snapshot.interactions") {
+        const keys = new Set(z.array(z.string()).parse(object(snap.data).keys));
+        for (const [key, pending] of this.pending)
+          if (pending.session === snap.session && !keys.has(key)) this.pending.delete(key);
+      }
     }
-    const started = this.server.eventWatermark;
-    const statuses = object(await this.request("GET", "/session/status"));
-    for (const id of this.known)
-      this.snapshot(
-        {
-          payload: {
-            type: "session.status",
-            properties: { sessionID: id, status: statuses[id] ?? { type: "idle" } },
-          },
-        },
-        started,
-      );
-    this.resynchronizing = false;
-    void this.pump();
+  }
+  private reportExit(deliberate: boolean, message?: string): void {
+    if (this.exitReported) return;
+    this.exitReported = true;
+    this.emit("note", "lifecycle", { type: "exited", deliberate, message });
+    this.ctx.onExit({ deliberate, ...(message ? { message } : {}) });
   }
   async close(reason: "idle" | "user" | "shutdown"): Promise<void> {
     if (this.closed) return;
-    const unsettled = !this.translator.isSettled();
-    if (reason === "idle" && unsettled)
-      throw new Error("Cannot idle-close an unsettled OpenCode session");
-    const abortProvider = reason !== "idle" && unsettled && !this.reportedExit;
+    if (reason === "idle" && !this.translator.isSettled())
+      throw new Error("Cannot idle-close unsettled OpenCode session");
     this.closed = true;
-    // Local cancellation cannot depend on the provider accepting an abort.
     this.controller.abort();
-    this.cancelGrace?.();
     this.unsubscribe();
     this.ctx.signal.removeEventListener("abort", this.abortListener);
-    for (const q of this.queue.splice(0)) q.reject(new Error("OpenCode session closed"));
-    if (!this.reportedExit) {
-      this.reportedExit = true;
-      this.emit("note", "lifecycle", { type: "exited", deliberate: true });
-      this.ctx.onExit({ deliberate: true });
-    }
-    const abort = new AbortController();
-    const cancel = this.server.runtime.schedule(() => abort.abort(), this.server.shutdownTimeoutMs);
-    try {
-      if (abortProvider) {
-        for (const id of [...this.known].toReversed())
-          await this.server.request(
-            "POST",
-            `/session/${id}/abort`,
-            this.ctx.cwd,
-            {},
-            () => {},
-            abort.signal,
-          );
-      }
-    } catch {
-      /* Process teardown owns cancellation if abort fails or times out. */
-    } finally {
-      cancel();
-      await this.server.release();
-    }
+    for (const waiter of this.waiters) waiter.reject(new Error("OpenCode session closed"));
+    this.waiters.clear();
+    if (reason !== "idle") await cleanupOwned(this.server, this.ownership);
+    this.reportExit(true);
+    await this.server.release();
   }
 }

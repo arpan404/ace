@@ -6,13 +6,17 @@ import {
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 import { z } from "zod";
 import { cursorSessionOptions, isMissingMethod } from "./cursor.ts";
-import { OpenCodeParser } from "./open-code.ts";
+import { discoverOpenCodeModels } from "@ace/adapter-opencode";
+import { normalizeOpenCodeV2 } from "./open-code.ts";
 import { CodexPage } from "./native-schemas.ts";
 import { normalizeAcp, normalizeClaude, normalizeCodex } from "./normalize.ts";
 import type { DiscoverModels, ModelInstance } from "./types.ts";
 import type { CatalogModel } from "@ace/protocol";
 
-export type DiscoveryOptions = { spawn?: (options: SpawnOptions) => SupervisedProcess };
+export type DiscoveryOptions = {
+  spawn?: (options: SpawnOptions) => SupervisedProcess;
+  opencode?: (instance: ModelInstance, signal: AbortSignal) => Promise<unknown>;
+};
 const ControlReply = z.object({
   type: z.literal("control_response"),
   response: z.object({
@@ -72,6 +76,29 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
   const spawn = options.spawn ?? spawnSupervised;
   return async (instance: ModelInstance, signal: AbortSignal): Promise<CatalogModel[]> => {
     signal.throwIfAborted();
+    if (instance.provider === "opencode") {
+      const payload = await (
+        options.opencode ??
+        ((entry, abort) =>
+          discoverOpenCodeModels(
+            {
+              discovery: { overrides: { opencode: entry.executable }, env: entry.env },
+              runtime: {
+                spawn: (launch) =>
+                  spawn({
+                    ...launch,
+                    args: [...entry.args, ...(launch.args ?? [])],
+                    cwd: entry.cwd,
+                  }),
+              },
+            },
+            entry.cwd,
+            abort,
+          ))
+      )(instance, signal);
+      signal.throwIfAborted();
+      return normalizeOpenCodeV2(payload, instance);
+    }
     const args = [...instance.args];
     switch (instance.provider) {
       case "codex":
@@ -91,9 +118,6 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
           "--mcp-config",
           '{"mcpServers":{}}',
         );
-        break;
-      case "opencode":
-        args.push("models", "--verbose");
         break;
       case "cursor":
         args.push("acp");
@@ -118,29 +142,6 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
     async function readModels(): Promise<CatalogModel[]> {
       if (instance.provider === "claude")
         return normalizeClaude(await claudeInitialize(proc, signal), instance);
-      if (instance.provider === "opencode") {
-        const parser = new OpenCodeParser(instance);
-        let failure: unknown;
-        const receive = (line: string) => {
-          try {
-            parser.push(line);
-          } catch (error) {
-            failure = error;
-            proc.stdout.removeListener("line", receive);
-            void proc.stop({ graceMs: 0 });
-          }
-        };
-        proc.stdout.on("line", receive);
-        try {
-          const exit = await proc.exited;
-          signal.throwIfAborted();
-          if (failure) throw failure;
-          if (exit.code !== 0) throw new Error("Model listing failed");
-          return parser.finish();
-        } finally {
-          proc.stdout.removeListener("line", receive);
-        }
-      }
       rpc = new JsonRpcPeer(proc, { timeoutMs: null });
       if (instance.provider === "codex") {
         await rpc.request(

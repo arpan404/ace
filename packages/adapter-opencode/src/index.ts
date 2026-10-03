@@ -60,3 +60,7 @@ export function createOpenCodeAdapter(
 export const opencodeAdapter = createOpenCodeAdapter();
 
 export const adapter = opencodeAdapter;
+
+export { discoverOpenCodeModels } from "./metadata.ts";
+
+export { SessionOwnership } from "./ownership.ts";
