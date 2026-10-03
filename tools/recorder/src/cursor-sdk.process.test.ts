@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createCursorAdapter, type CursorAdapterOptions } from "@ace/adapter-cursor";
 import type { SessionContext, ProviderSession } from "@ace/engine-api";
 import { recordCursorSdkScenario, cursorSdkCapture } from "@ace/recorder/cursor-sdk";
+import { readFixture } from "@ace/adapter-testkit";
 
 // Synthetic provider service only: the public translator/core, filesystem capture,
 // approval gate, scenario controls and cleanup are the production implementations.
@@ -181,6 +182,75 @@ it.each([
   },
 );
 
+it("runs an explicitly approved behavioural full-access turn and labels its evidence without Auto-review", async () => {
+  const root = await mkdtemp(join(tmpdir(), "sdk-rec-full-access-option-"));
+  const path = join(root, "capture.jsonl");
+  let id = 0;
+  try {
+    await recordCursorSdkScenario(
+      {
+        approval: { scenario: "text-thinking-read", approved: true },
+        recordingPolicy: "full-access",
+        path,
+        instance: { id: "fixture", homeDir: join(root, "instance") },
+        freshFixtureInstance: true,
+        startedAt: "2026-10-03T00:00:00.000Z",
+        platform: "synthetic",
+      },
+      {
+        now: () => 0,
+        id: () => `id-${++id}`,
+        signal: new AbortController().signal,
+        launchEnv: {},
+        adapter: provider,
+        modelCatalog: async () => [],
+      },
+    );
+    const data = await rows(path);
+    expect(data[0]).toMatchObject({
+      scenario: "text-thinking-read",
+      recordingPolicy: "full-access",
+      sandbox: false,
+      autoReview: false,
+    });
+    expect(JSON.stringify(data)).toContain("isolated composer-2.5 full-access");
+    expect(data.at(-1)).toMatchObject({
+      observations: {
+        recordingPolicy: "full-access",
+        runtimePolicy: "full-access",
+        outcome: "observed",
+      },
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses to turn MCP scenarios into full-access behavioural evidence", async () => {
+  await expect(
+    recordCursorSdkScenario(
+      {
+        approval: { scenario: "restricted-mcp", approved: true },
+        recordingPolicy: "full-access",
+        path: join(tmpdir(), "must-not-create-sdk-mcp.jsonl"),
+        instance: { id: "fixture", homeDir: tmpdir() },
+        freshFixtureInstance: true,
+        startedAt: "2026-10-03T00:00:00.000Z",
+        platform: "synthetic",
+      },
+      {
+        now: () => 0,
+        id: () => "id",
+        signal: new AbortController().signal,
+        launchEnv: {},
+        adapter: () => {
+          throw new Error("Provider must not open");
+        },
+      },
+    ),
+  ).rejects.toThrow("does not authorize MCP");
+});
+
 it.each(["full-access", "checkpoint-resume", "portable-fork"])(
   "records approved %s SDK workflow with isolated identity, complete output and redacted metadata",
   async (scenario) => {
@@ -212,6 +282,8 @@ it.each(["full-access", "checkpoint-resume", "portable-fork"])(
       );
       const data = await rows(path),
         header = data[0];
+      // Resume/fork restart source session clocks but must remain a readable recording.
+      expect((await readFixture(path)).frames.length).toBeGreaterThan(0);
       expect(header).toMatchObject({
         provider: "cursor-sdk",
         sdkVersion: "1.0.35",

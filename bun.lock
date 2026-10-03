@@ -226,6 +226,9 @@
         "@cursor/sdk": "1.0.35",
         "zod": "^4.6.5",
       },
+      "devDependencies": {
+        "@ace/adapter-testkit": "workspace:*",
+      },
     },
     "packages/adapter-opencode": {
       "name": "@ace/adapter-opencode",
@@ -694,6 +697,9 @@
         "@ace/redaction": "workspace:*",
         "@anthropic-ai/claude-agent-sdk": "0.3.287",
         "zod": "^4.4.3",
+      },
+      "devDependencies": {
+        "@ace/adapter-testkit": "workspace:*",
       },
     },
     "tools/release": {

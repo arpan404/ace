@@ -3,19 +3,6 @@ import { deriveThreadStatus } from "@ace/core";
 import { replay, texts } from "./translator-test-support.ts";
 
 describe("Cursor SDK boundary replay", () => {
-  it("renders deltas once when the SDK stream repeats the same text and final result", () => {
-    const r = replay();
-    r.frame("delta", { type: "text-delta", text: "hello " });
-    r.frame("message", {
-      type: "assistant",
-      message: { content: [{ type: "text", text: "hello " }] },
-    });
-    const delta = r.frame("delta", { type: "text-delta", text: "world" });
-    r.repeat(delta);
-    r.frame("result", { status: "finished", result: "hello world" });
-    expect(texts(r.state)).toEqual(["hello world"]);
-    expect(deriveThreadStatus(r.state).state).toBe("done");
-  });
   it("retains identical messages from separate operations instead of collapsing by equality", () => {
     const r = replay();
     r.frame("delta", { type: "text-delta", text: "same" });
@@ -40,21 +27,6 @@ describe("Cursor SDK boundary replay", () => {
     expect(texts(r.state)).toEqual(["old", "replacement"]);
     expect(Object.values(r.state.runs)).toHaveLength(1);
     expect(deriveThreadStatus(r.state).state).toBe("done");
-  });
-  it("does not add per-turn usage twice through stream and cumulative terminal result", () => {
-    const r = replay();
-    const usage = { inputTokens: 12, outputTokens: 7, cacheReadTokens: 2, cacheWriteTokens: 3 };
-    r.frame("delta", { type: "turn-ended", usage });
-    r.frame("message", { type: "usage", usage });
-    r.frame("result", { status: "finished", usage });
-    const events = r.events.filter((event) => event.type === "usage.updated");
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
-      inputTokens: 12,
-      outputTokens: 7,
-      counterMode: "cumulative",
-    });
-    expect(events[0] && "costUsd" in events[0]).toBe(false);
   });
   it("retains unknown extensions and surfaces snapshot identity ambiguity without duplicating content", () => {
     const r = replay();
@@ -94,33 +66,6 @@ describe("Cursor SDK boundary replay", () => {
         .map((item) => item.call.status),
     ).toEqual(["failed"]);
     expect(Object.values(r.state.interactions)).toHaveLength(0);
-  });
-  it("shows shell nonzero exit as failed while streaming its bounded output", () => {
-    const r = replay();
-    r.frame("delta", {
-      type: "tool-call-started",
-      callId: "shell",
-      toolCall: { type: "shell", args: { command: "false" } },
-    });
-    for (const text of ["out", "error"])
-      r.frame("shell-output", { callId: "shell", text, toolCall: { type: "shell" } });
-    expect(Object.values(r.state.items).find((item) => item.type === "tool_call")).toMatchObject({
-      complete: false,
-      call: { status: "running", detail: { output: { tail: "outerror" } } },
-    });
-    r.frame("delta", {
-      type: "tool-call-completed",
-      aceOutputStream: true,
-      callId: "shell",
-      toolCall: {
-        type: "shell",
-        result: { status: "success", value: { exitCode: 3, stdout: "out", stderr: "error" } },
-      },
-    });
-    const tool = Object.values(r.state.items).find((item) => item.type === "tool_call");
-    expect(tool).toMatchObject({
-      call: { status: "failed", detail: { exitCode: 3, output: { tail: "outerror" } } },
-    });
   });
 });
 

@@ -20,10 +20,17 @@ const FrameSchema = z.looseObject({
   channel: z.string(),
   data: z.unknown(),
 });
+const SdkFrameSource = z.object({ threadId: z.string().optional() });
+const SdkSupplement = z.looseObject({
+  type: z.enum(["sdk-model-catalog", "sdk-scenario-analysis"]),
+});
 
 export interface Fixture {
   header: RecordingHeader;
   frames: Frame[];
+  metadata?: z.infer<typeof SdkSupplement>[];
+  /** SDK portable handoffs carry independent thread streams in one capture. */
+  threads?: Record<string, Frame[]>;
 }
 
 /** Reject broken ordering rather than silently changing the provider transcript. */
@@ -42,11 +49,26 @@ export function validateFrames(frames: readonly Frame[]): void {
 export async function readFixture(path: string): Promise<Fixture> {
   const lines = (await readFile(path, "utf8")).split(/\r?\n/);
   const rows: unknown[] = [];
+  const metadata: z.infer<typeof SdkSupplement>[] = [];
+  let sdkRecording = false;
   for (const [index, line] of lines.entries()) {
     if (!line.trim()) continue;
     try {
       const value: unknown = JSON.parse(line);
-      rows.push(rows.length === 0 ? RecordingHeader.parse(value) : FrameSchema.parse(value));
+      if (rows.length === 0) {
+        const header = RecordingHeader.parse(value);
+        sdkRecording = header.provider === "cursor-sdk";
+        rows.push(header);
+        continue;
+      }
+      if (sdkRecording) {
+        const supplement = SdkSupplement.safeParse(value);
+        if (supplement.success) {
+          metadata.push(supplement.data);
+          continue;
+        }
+      }
+      rows.push(FrameSchema.parse(value));
     } catch (error) {
       throw new Error(`${path}:${index + 1}: ${String(error)}`, { cause: error });
     }
@@ -54,5 +76,16 @@ export async function readFixture(path: string): Promise<Fixture> {
   const header = RecordingHeader.parse(rows[0]);
   const frames = rows.slice(1).map((row) => FrameSchema.parse(row));
   validateFrames(frames);
-  return { header, frames };
+  const threads: Record<string, Frame[]> = Object.create(null);
+  if (sdkRecording)
+    for (const frame of frames) {
+      const { threadId } = SdkFrameSource.parse(frame);
+      if (threadId) (threads[threadId] ??= []).push(frame);
+    }
+  return {
+    header,
+    frames,
+    ...(metadata.length ? { metadata } : {}),
+    ...(Object.keys(threads).length ? { threads } : {}),
+  };
 }

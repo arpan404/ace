@@ -14,6 +14,8 @@ const TOKEN_COUNTERS = new Set([
   "cacheReadTokens",
   "cacheWriteTokens",
   "reasoningTokens",
+  "totalTokens",
+  "tokens",
 ]);
 const NATIVE_TOKEN_COUNTERS = new Set(["input", "output", "reasoning", "total"]);
 function nonnegativeCounter(value: unknown): value is number {

@@ -1,0 +1,45 @@
+{
+  "checkpoints": [
+    {
+      "t": 3263,
+      "thread": "working",
+      "agentStates": {
+        "root": "working"
+      }
+    },
+    {
+      "t": 8718,
+      "thread": "working",
+      "agentStates": {
+        "root": "blocked"
+      }
+    },
+    {
+      "t": 11137,
+      "thread": "working",
+      "agentStates": {
+        "root": "working"
+      }
+    },
+    {
+      "t": 12752,
+      "thread": "done",
+      "agentStates": {
+        "root": "idle"
+      }
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 2,
+    "agentStates": {
+      "root": "idle"
+    },
+    "items": {
+      "tool_call": 3
+    },
+    "interactions": {
+      "pending": 0
+    }
+  }
+}

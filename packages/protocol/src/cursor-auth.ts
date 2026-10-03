@@ -44,6 +44,8 @@ export const CursorAuthEvent = z.discriminatedUnion("type", [
     type: z.literal("cursor.auth.error"),
     requestId,
     code: z.enum(["unavailable", "busy", "not_found", "forbidden", "auth_failed"]),
+    // Safe categories only; provider diagnostics may contain credentials or private paths.
+    reason: z.enum(["service_unavailable", "instance_unavailable", "sdk_unavailable"]).optional(),
   }),
 ]);
 export type CursorAuthEvent = z.infer<typeof CursorAuthEvent>;

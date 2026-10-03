@@ -1,0 +1,19 @@
+{
+  "approval": "Owner-approved 2026-10-03 continuation: 12 behavioural scenarios once in full-access, no retries",
+  "recordingPolicy": "full-access",
+  "scenarios": [
+    "text-thinking-read",
+    "edit-shell-results",
+    "plan-question",
+    "foreground-child",
+    "background-child",
+    "nested-task",
+    "background-shell",
+    "interrupt-work",
+    "steering-restart",
+    "checkpoint-resume",
+    "portable-fork",
+    "usage"
+  ],
+  "scenarioTimeCapMs": 180000
+}

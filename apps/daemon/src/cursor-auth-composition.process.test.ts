@@ -4,7 +4,10 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { startDaemon, AdapterRegistry } from "@ace/daemon";
 import { CursorTranslator, cursorCapabilities } from "@ace/adapter-cursor";
-import { Command } from "@ace/protocol";
+import { Command, DeviceId } from "@ace/protocol";
+import { Client } from "./socket-test-support.ts";
+import { once } from "node:events";
+import { readFile } from "node:fs/promises";
 
 it("registers the original default SDK home before admitting a thread or browser auth request", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-default-account-")));
@@ -83,6 +86,29 @@ createInterface({input:process.stdin}).on('line', line => {
       type: "cursor.auth.changed",
       auth: { status: "logged-out", source: "none" },
     });
+    const token = await readFile(daemon.tokenPath, "utf8");
+    const client = new Client(daemon.url);
+    try {
+      await once(client.socket, "open");
+      client.send({
+        type: "hello",
+        protocolVersion: 1,
+        deviceId: DeviceId.parse("fixture-cli"),
+        token,
+      });
+      await client.next();
+      client.send({
+        type: "cursor.auth.status",
+        requestId: "fixture-auth-status",
+        instanceId: "cursor-sdk-default",
+      });
+      expect(await client.next()).toMatchObject({
+        type: "cursor.auth.changed",
+        auth: { status: "logged-out", source: "none" },
+      });
+    } finally {
+      await client.close();
+    }
     const workspaceId = daemon.store.createWorkspace(root, "Default account workspace");
     const command = Command.parse({
       id: "create",
