@@ -1,27 +1,34 @@
-import { lazy, Suspense, useCallback, useEffect } from "react";
-import { CommandDialog } from "@/components/ui/command.tsx";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 
-// The palette's commands reach into most views; they load on first use (or when the
-// browser is idle), keeping them out of the first paint's bundle.
-const load = () => import("./palette-body.tsx");
-const PaletteBody = lazy(load);
+// The palette's sheet (Base UI's Autocomplete) and its commands, which reach into most views,
+// load on first use or when the browser is idle, keeping them out of the first paint's bundle.
+const load = () => import("./palette-dialog.tsx");
+const PaletteDialog = lazy(load);
 
 /** ⌘K. Focus moves to the search field on open and returns to the opener on close. */
 export function CommandPalette() {
   const { paletteOpen, setPaletteOpen } = useLayout();
   const close = useCallback(() => setPaletteOpen(false), [setPaletteOpen]);
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
+    let live = true;
     const idle = globalThis.requestIdleCallback ?? ((run: () => void) => setTimeout(run, 2_000));
-    idle(() => void load());
+    idle(
+      () =>
+        void load().then(() => {
+          if (live) setLoaded(true);
+        }),
+    );
+    return () => {
+      live = false;
+    };
   }, []);
+  // Mounted once loaded (or asked for), so its exit animation always has a dialog to play on.
+  if (!loaded && !paletteOpen) return null;
   return (
-    <CommandDialog open={paletteOpen} onOpenChange={setPaletteOpen}>
-      {paletteOpen && (
-        <Suspense fallback={null}>
-          <PaletteBody close={close} />
-        </Suspense>
-      )}
-    </CommandDialog>
+    <Suspense fallback={null}>
+      <PaletteDialog open={paletteOpen} onOpenChange={setPaletteOpen} close={close} />
+    </Suspense>
   );
 }
