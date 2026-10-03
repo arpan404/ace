@@ -2,7 +2,7 @@ import { clipItem } from "./item-window.ts";
 import { pageWindow } from "./page-window.ts";
 import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
-import { applyDelivery } from "@ace/projection";
+import { applyDelivery, usageSnapshotKey } from "@ace/projection";
 import type { ThreadView, EventBatch, Progress, Item, ItemsPage } from "@ace/protocol";
 import { Notifications, type Selection } from "./observable.ts";
 import { ClientError, type Limits } from "./types.ts";
@@ -18,7 +18,8 @@ export type ThreadKey =
   | `run:${string}`
   | `interaction:${string}`
   | `task:${string}`
-  | `usage:${string}`;
+  | `usage:${string}`
+  | `usageSnapshot:${string}`;
 export interface ThreadReader {
   readonly error: ClientError | undefined;
   readonly thread: ThreadView["thread"] | undefined;
@@ -31,6 +32,7 @@ export interface ThreadReader {
   interaction(id: string): ThreadView["interactions"][string] | undefined;
   task(id: string): ThreadView["backgroundTasks"][string] | undefined;
   usage(id: string): ThreadView["usage"][string] | undefined;
+  usageSnapshot(key: string): ThreadView["usageSnapshots"][string] | undefined;
   truncated(id: string): boolean;
 }
 const emptyOrder: readonly string[] = [];
@@ -87,6 +89,9 @@ export class ThreadStore implements ThreadReader {
   usage(id: string) {
     return this.own(this.view?.usage, id);
   }
+  usageSnapshot(key: string) {
+    return this.own(this.view?.usageSnapshots, key);
+  }
   truncated(id: string) {
     return this.clipped.has(id);
   }
@@ -120,6 +125,7 @@ export class ThreadStore implements ThreadReader {
       interactions: view.interactions,
       tasks: view.backgroundTasks,
       usage: view.usage,
+      usageSnapshots: view.usageSnapshots,
     })) {
       const size = Object.keys(record).length;
       if (size > this.limits.entities) throw new ClientError("limit", "Entity capacity exceeded");
@@ -264,10 +270,18 @@ export class ThreadStore implements ThreadReader {
           this.copy(view.backgroundTasks, p.taskId);
           keys.add(`task:${p.taskId}`);
           break;
-        case "usage.updated":
-          if (!keys.has(`usage:${p.agentId}`)) this.capacity("usage", !!this.usage(p.agentId));
-          keys.add(`usage:${p.agentId}`);
+        case "usage.updated": {
+          if (p.usageScope === "provider_session" || p.usageScope === "model_session") {
+            const key = usageSnapshotKey(p);
+            if (!keys.has(`usageSnapshot:${key}`))
+              this.capacity("usageSnapshots", !!this.usageSnapshot(key));
+            keys.add(`usageSnapshot:${key}`);
+          } else {
+            if (!keys.has(`usage:${p.agentId}`)) this.capacity("usage", !!this.usage(p.agentId));
+            keys.add(`usage:${p.agentId}`);
+          }
           break;
+        }
       }
       const result = applyDelivery(
         view,

@@ -215,3 +215,10 @@ these snapshots transactionally. Provider estimates are not billing statements.
 `bench/session-totals.ts` measures this prepared-statement ingestion path through
 the public store. It has not run; latency, throughput and peak RSS need measurement
 at merge.
+
+Canonical daemon replay must retain `usageScope`. Inclusive scopes require a
+`counterKey` at protocol and replay boundaries. Incompatible retained records
+produce omission markers and advance the replay cursor, so healthy activity
+keeps flowing. The daemon exposes inclusive estimates through authorized
+`usage.session_totals` reads after catch-up. One-hour cache-write subsets survive
+snapshot storage and its table migration.

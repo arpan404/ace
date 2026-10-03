@@ -7,8 +7,19 @@ import {
   type Thread,
   type ThreadId,
 } from "@ace/protocol";
-import { applyEvent, createThreadView, rebuildAgentChildren } from "@ace/projection";
-type Collection = "agents" | "runs" | "interactions" | "backgroundTasks" | "usage";
+import {
+  applyEvent,
+  createThreadView,
+  rebuildAgentChildren,
+  usageSnapshotKey,
+} from "@ace/projection";
+type Collection =
+  | "agents"
+  | "runs"
+  | "interactions"
+  | "backgroundTasks"
+  | "usage"
+  | "usageSnapshots";
 function target(p: EventPayload): { collection: Collection; id: string } | undefined {
   switch (p.type) {
     case "agent.created":
@@ -29,7 +40,9 @@ function target(p: EventPayload): { collection: Collection; id: string } | undef
     case "background_task.updated":
       return { collection: "backgroundTasks", id: p.taskId };
     case "usage.updated":
-      return { collection: "usage", id: p.agentId };
+      return p.usageScope === "provider_session" || p.usageScope === "model_session"
+        ? { collection: "usageSnapshots", id: usageSnapshotKey(p) }
+        : { collection: "usage", id: p.agentId };
     default:
       return undefined;
   }
@@ -43,7 +56,10 @@ export class StatusStore {
   }
   initialize(getThread: (id: ThreadId) => Thread | undefined): void {
     this.db.exec("CREATE INDEX IF NOT EXISTS view_entity_ids ON view_entities(collection, id)");
-    if (this.db.prepare("SELECT id FROM status_migration WHERE id = 1").get()) return;
+    if (this.db.prepare("SELECT id FROM status_migration WHERE id = 1").get()) {
+      this.migrateUsage(getThread);
+      return;
+    }
     this.db.exec("BEGIN IMMEDIATE");
     try {
       for (const row of this.db
@@ -51,18 +67,49 @@ export class StatusStore {
           "SELECT * FROM events WHERE type NOT IN ('item.created', 'item.updated', 'item.delta') ORDER BY seq",
         )
         .iterate()) {
-        const event = Event.parse({
+        const input = {
+          seq: row.seq,
+          id: row.id,
+          threadId: row.thread_id,
+          at: row.at,
+          payload: JSON.parse(String(row.payload)),
+        };
+        const parsed = Event.safeParse(input);
+        if (!parsed.success && row.type === "usage.updated") continue;
+        const event = parsed.success ? parsed.data : Event.parse(input);
+        const thread = getThread(event.threadId);
+        if (!thread) throw new Error("Unknown thread");
+        this.persist(event, thread);
+      }
+      this.db.exec("INSERT INTO status_migration VALUES (1); COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+    this.migrateUsage(getThread);
+  }
+  private migrateUsage(getThread: (id: ThreadId) => Thread | undefined): void {
+    if (this.db.prepare("SELECT id FROM status_migration WHERE id=2").get()) return;
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      // Rebuild the previously agent-keyed materialization from retained usage only.
+      // Stream rows at startup; malformed legacy snapshots remain in the raw log for replay omissions.
+      this.db.exec("DELETE FROM view_entities WHERE collection IN ('usage', 'usageSnapshots')");
+      for (const row of this.db
+        .prepare("SELECT * FROM events WHERE type='usage.updated' ORDER BY seq")
+        .iterate()) {
+        const parsed = Event.safeParse({
           seq: row.seq,
           id: row.id,
           threadId: row.thread_id,
           at: row.at,
           payload: JSON.parse(String(row.payload)),
         });
-        const thread = getThread(event.threadId);
-        if (!thread) throw new Error("Unknown thread");
-        this.persist(event, thread);
+        if (!parsed.success) continue;
+        const thread = getThread(parsed.data.threadId);
+        if (thread) this.persist(parsed.data, thread);
       }
-      this.db.exec("INSERT INTO status_migration VALUES (1); COMMIT");
+      this.db.exec("INSERT INTO status_migration VALUES (2); COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
@@ -105,6 +152,7 @@ export class StatusStore {
       interactions: {},
       backgroundTasks: {},
       usage: {},
+      usageSnapshots: {},
     };
     for (const row of this.db
       .prepare("SELECT collection, id, value FROM view_entities WHERE thread_id = ?")
@@ -115,7 +163,8 @@ export class StatusStore {
         collection !== "runs" &&
         collection !== "interactions" &&
         collection !== "backgroundTasks" &&
-        collection !== "usage"
+        collection !== "usage" &&
+        collection !== "usageSnapshots"
       )
         throw new Error("Unknown entity collection");
       Object.defineProperty(input[collection], String(row.id), {

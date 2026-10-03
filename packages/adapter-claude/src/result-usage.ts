@@ -1,7 +1,8 @@
 import { z } from "zod";
 import type { Fact } from "@ace/core";
 import type { ClaudeState } from "./state.ts";
-import { number, object, string, type Data } from "./native.ts";
+import { string, type Data } from "./native.ts";
+import { tokenCounts } from "./token-counts.ts";
 
 const counts = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const modelTotals = z
@@ -44,19 +45,14 @@ export class ResultUsage {
   facts(state: ClaudeState, data: Data): Fact[] {
     // Startup failures carry zeros, not evidence that saved accounting disappeared.
     if (data["startup_failure_reason"] !== undefined) return [];
-    const usage = object(data["usage"]);
+    const usage = tokenCounts(data["usage"]);
     const uuid = string(data["uuid"], state.key("result", String(state.turn)));
-    const read = number(usage["cache_read_input_tokens"]);
-    const write = number(usage["cache_creation_input_tokens"]);
     const facts: Fact[] = [];
-    if (data["usage"] !== undefined)
+    if (usage)
       facts.push({
         type: "usage",
         agent: state.root,
-        inputTokens: number(usage["input_tokens"]) + read + write,
-        outputTokens: number(usage["output_tokens"]),
-        cachedInputTokens: read,
-        cacheWriteTokens: write,
+        ...usage,
         counterMode: "incremental",
         counterKey: `claude:result:${uuid}`,
         usageScope: "agent",

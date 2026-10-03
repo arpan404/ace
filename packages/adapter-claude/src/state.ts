@@ -31,6 +31,7 @@ export class ClaudeState {
   toolFrames = new Map<string, number>();
   rawItems = new Map<Key, Set<Key>>();
   childUsage: ChildUsage = new Map();
+  childUsageOverflow = false;
   terminalChildren = new Set<Key>();
   children = new Map<string, Key>();
   bindings: string[] = [];
