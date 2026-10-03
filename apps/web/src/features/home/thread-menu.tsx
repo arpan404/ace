@@ -97,9 +97,12 @@ export function ThreadMenu(props: {
             Unsettle
           </MenuItem>
         ) : (
-          <MenuItem icon={<Icon icon={CheckIcon} />} onClick={() => actions.settle(entry)}>
-            Settle
-          </MenuItem>
+          // The daemon settles only finished work.
+          entry.status.state === "done" && (
+            <MenuItem icon={<Icon icon={CheckIcon} />} onClick={() => actions.settle(entry)}>
+              Settle
+            </MenuItem>
+          )
         )}
         <MenuSeparator />
         <MenuItem icon={<Icon icon={ArchiveIcon} />} onClick={() => actions.archive(entry)}>

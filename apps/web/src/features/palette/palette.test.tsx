@@ -58,12 +58,20 @@ test("picking a project narrows Home to it", async () => {
   expect(links.every((link) => link.textContent?.includes("billing-api"))).toBe(true);
 });
 
-test("on a thread, the palette settles it", async () => {
+test("on a settled thread, the palette brings it back to the list", async () => {
+  await openApp("/t/thread-bump-codex");
+  await screen.findByRole("heading", { level: 1, name: "Bump Codex app-server to 0.48" });
+  const search = await palette();
+  await userEvent.type(search, "unsettle this");
+  await userEvent.keyboard("{Enter}");
+  expect(await screen.findByText("Back in the list · Bump Codex app-server to 0.48")).toBeTruthy();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy());
+});
+
+test("the palette offers no Settle for a thread that is still working", async () => {
   await openApp("/t/thread-fan-out");
   await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" });
   const search = await palette();
   await userEvent.type(search, "settle this");
-  await userEvent.keyboard("{Enter}");
-  expect(await screen.findByText("Settled · Backpressure on broadcast fan-out")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Settled (2)" })).toBeTruthy();
+  expect(screen.queryByRole("option", { name: /Settle this thread/ })).toBeNull();
 });

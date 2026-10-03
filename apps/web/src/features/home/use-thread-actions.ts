@@ -1,12 +1,14 @@
 import { useClient } from "@ace/client-react";
-import type { ThreadListEntry } from "@ace/protocol";
+import type { CommandPayload, ThreadListEntry } from "@ace/protocol";
+import { ThreadId } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import { type ThreadMark, describeWake } from "@ace/ui-core";
+import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
+import { describeWake } from "@ace/ui-core";
 import { useOrganizer } from "./use-organizer.ts";
 
-/** How long Undo stays on screen; an archive is sent to the daemon only after it. */
+/** How long Undo stays on screen; a delete is sent to the daemon only after it. */
 export const undoWindowMs = 6_000;
 
 export interface ThreadActions {
@@ -22,9 +24,27 @@ export interface ThreadActions {
   newThreadOnMain(entry: ThreadListEntry): void;
 }
 
+type Organize = Extract<
+  CommandPayload,
+  {
+    type:
+      | "thread.settle"
+      | "thread.unsettle"
+      | "thread.snooze"
+      | "thread.pin"
+      | "thread.read"
+      | "thread.rename"
+      | "thread.archive"
+      | "thread.unarchive"
+      | "thread.delete";
+  }
+>;
+
 /**
- * Every list action, each reversible from its toast. Undo restores the thread's previous
- * mark exactly, so actions never need their own inverse.
+ * Every list action as a daemon command (ADR 0057), so the organization follows the person to
+ * every device. Each reports a refusal in a toast; the reversible ones offer Undo, which sends
+ * the opposite command. Delete is permanent on the daemon, so it waits out the Undo window
+ * first, with the thread hidden meanwhile.
  */
 export function useThreadActions(): ThreadActions {
   const organizer = useOrganizer();
@@ -32,89 +52,117 @@ export function useThreadActions(): ThreadActions {
   const toast = useToast();
   const navigate = useNavigate();
   return useMemo(() => {
-    const titleOf = (entry: ThreadListEntry) => organizer.mark(entry.id)?.title ?? entry.title;
-    /** Apply a change and offer Undo back to the mark as it was. */
-    const change = (
-      entry: ThreadListEntry,
-      next: (mark: ThreadMark) => ThreadMark,
-      message?: string,
-    ) => {
-      const before = organizer.mark(entry.id) ?? {};
-      organizer.update(entry.id, next);
-      if (!message) return;
-      const id = toast.add({
-        title: message,
+    const id = (entry: ThreadListEntry) => ThreadId.parse(entry.id);
+    const send = (payload: Organize, failed: string) =>
+      runCommand(client, payload).then(
+        () => true,
+        (error: unknown) => {
+          toast.add({ title: `Couldn't ${failed}`, description: failureMessage(error) });
+          return false;
+        },
+      );
+    /** Run, then offer Undo with the opposite command. */
+    const reversible = async (payload: Organize, failed: string, done: string, undo: Organize) => {
+      if (!(await send(payload, failed))) return;
+      const toastId = toast.add({
+        title: done,
         timeout: undoWindowMs,
         actionProps: {
           children: "Undo",
           onClick: () => {
-            organizer.update(entry.id, () => before);
-            toast.close(id);
+            toast.close(toastId);
+            void send(undo, "undo that");
           },
         },
       });
     };
     return {
       settle: (entry) =>
-        change(
-          entry,
-          (mark) => ({
-            ...mark,
-            settledAt: entry.updatedAt,
-            unsettledAt: undefined,
-            snoozedUntil: undefined,
-          }),
-          `Settled · ${titleOf(entry)}`,
+        void reversible(
+          { type: "thread.settle", threadId: id(entry) },
+          "settle the thread",
+          `Settled · ${entry.title}`,
+          { type: "thread.unsettle", threadId: id(entry) },
         ),
       unsettle: (entry) =>
-        change(
-          entry,
-          (mark) => ({ ...mark, settledAt: undefined, unsettledAt: entry.updatedAt }),
-          `Back in the list · ${titleOf(entry)}`,
+        void reversible(
+          { type: "thread.unsettle", threadId: id(entry) },
+          "unsettle the thread",
+          `Back in the list · ${entry.title}`,
+          { type: "thread.settle", threadId: id(entry) },
         ),
       snooze: (entry, until, now) =>
-        change(
-          entry,
-          (mark) => ({ ...mark, snoozedUntil: until }),
+        void reversible(
+          { type: "thread.snooze", threadId: id(entry), until },
+          "snooze the thread",
           `Snoozed until ${describeWake(until, now)}`,
+          { type: "thread.snooze", threadId: id(entry), until: entry.snoozedUntil ?? null },
         ),
-      wake: (entry) => change(entry, (mark) => ({ ...mark, snoozedUntil: undefined })),
-      setPinned: (entry, pinned) => change(entry, (mark) => ({ ...mark, pinned })),
+      wake: (entry) =>
+        void send({ type: "thread.snooze", threadId: id(entry), until: null }, "wake the thread"),
+      setPinned: (entry, pinned) =>
+        void send(
+          { type: "thread.pin", threadId: id(entry), pinned },
+          pinned ? "pin the thread" : "unpin the thread",
+        ),
       setUnread: (entry, unread) =>
-        change(entry, (mark) =>
-          unread ? { ...mark, unread: true } : { ...mark, unread: false, seenAt: entry.updatedAt },
+        void send(
+          { type: "thread.read", threadId: id(entry), unread },
+          unread ? "mark the thread unread" : "mark the thread read",
         ),
       rename: (entry, title) => {
         const trimmed = title.trim();
-        if (!trimmed || trimmed === titleOf(entry)) return;
-        change(
-          entry,
-          (mark) => ({ ...mark, title: trimmed === entry.title ? undefined : trimmed }),
+        if (!trimmed || trimmed === entry.title) return;
+        void reversible(
+          { type: "thread.rename", threadId: id(entry), title: trimmed },
+          "rename the thread",
           `Renamed · ${trimmed}`,
+          { type: "thread.rename", threadId: id(entry), title: entry.title },
         );
       },
       archive: (entry) => {
+        // Hidden at once; the daemon's archivedAt keeps it hidden once it arrives.
+        organizer.setHiding(entry.id, true);
+        void send({ type: "thread.archive", threadId: id(entry) }, "archive the thread").then(
+          (archived) => {
+            if (!archived) return organizer.setHiding(entry.id, false);
+            const toastId = toast.add({
+              title: `Archived · ${entry.title}`,
+              timeout: undoWindowMs,
+              actionProps: {
+                children: "Undo",
+                onClick: () => {
+                  toast.close(toastId);
+                  organizer.setHiding(entry.id, false);
+                  void send({ type: "thread.unarchive", threadId: id(entry) }, "unarchive it");
+                },
+              },
+            });
+          },
+        );
+      },
+      remove: (entry) => {
         let undone = false;
-        organizer.setArchiving(entry.id, true);
-        const id = toast.add({
-          title: `Archived · ${titleOf(entry)}`,
+        organizer.setHiding(entry.id, true);
+        const toastId = toast.add({
+          title: `Deleted · ${entry.title}`,
           timeout: undoWindowMs,
           actionProps: {
             children: "Undo",
             onClick: () => {
               undone = true;
-              organizer.setArchiving(entry.id, false);
-              toast.close(id);
+              organizer.setHiding(entry.id, false);
+              toast.close(toastId);
             },
           },
-          // The daemon has no unarchive, so the command waits out the undo window.
           onClose: () => {
-            if (!undone) void client.enqueue({ type: "thread.archive", threadId: entry.id });
+            if (undone) return;
+            void send({ type: "thread.delete", threadId: id(entry) }, "delete the thread").then(
+              (deleted) => deleted || organizer.setHiding(entry.id, false),
+            );
           },
         });
       },
-      remove: (entry) =>
-        change(entry, (mark) => ({ ...mark, deleted: true }), `Deleted · ${titleOf(entry)}`),
       newThreadOnMain: (entry) =>
         void navigate({ to: "/new", search: { project: entry.workspaceId, base: "main" } }),
     };

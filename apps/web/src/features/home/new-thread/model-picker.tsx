@@ -15,29 +15,33 @@ import { accountTag, providerNames } from "@ace/ui-core";
 import type { NewThreadOptions, Resolved } from "./choices.ts";
 
 /**
- * Model and account in one chip ("Opus 4.6 personal ▾"). Models are grouped by provider; the
- * account list follows the chosen model's provider, each with how much quota it has left.
+ * Model, account and effort in one chip ("Opus 4.6 personal high ▾"). Models are grouped by
+ * provider; the account list follows the chosen model's provider, each with how much quota it
+ * has left, and the efforts are the chosen model's.
  */
 export function ModelPicker(props: {
   options: NewThreadOptions | undefined;
   resolved: Resolved;
   onModel(id: string): void;
   onAccount(id: string): void;
+  onEffort(effort: string): void;
 }) {
-  const { model, account } = props.resolved;
+  const { model, account, effort } = props.resolved;
+  const efforts = model?.efforts ?? [];
   const providers = [...new Set(props.options?.models.map((m) => m.provider) ?? [])];
   const accounts = props.options?.accounts.filter((a) => a.provider === model?.provider) ?? [];
   return (
     <Menu>
       <MenuTrigger
         disabled={!model}
-        aria-label={`Model: ${model?.label ?? "loading"}${account ? `, account ${accountTag(account.label)}` : ""}`}
+        aria-label={`Model: ${model?.label ?? "loading"}${account ? `, account ${accountTag(account.label)}` : ""}${effort ? `, ${effort} effort` : ""}`}
         className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-ui font-medium text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent aria-expanded:bg-accent disabled:opacity-50"
       >
         {model?.label ?? "Loading models…"}
         {account && (
           <span className="font-normal text-subtle-foreground">{accountTag(account.label)}</span>
         )}
+        {effort && <span className="font-normal text-subtle-foreground">{effort}</span>}
         <CaretDownIcon aria-hidden size={12} className="text-muted-foreground" />
       </MenuTrigger>
       <MenuContent align="end" side="top" className="max-h-[60vh] min-w-[260px] overflow-y-auto">
@@ -75,6 +79,24 @@ export function ModelPicker(props: {
                       {accountTag(a.label)}
                       <span className="ml-auto text-xs text-subtle-foreground">{a.usage}</span>
                     </span>
+                  </MenuRadioItem>
+                ))}
+              </MenuRadioGroup>
+            </MenuGroup>
+          </>
+        )}
+        {efforts.length > 0 && (
+          <>
+            <MenuSeparator />
+            <MenuGroup>
+              <MenuLabel>Effort</MenuLabel>
+              <MenuRadioGroup
+                value={effort ?? ""}
+                onValueChange={(value) => props.onEffort(String(value))}
+              >
+                {efforts.map((option) => (
+                  <MenuRadioItem key={option} value={option} aria-label={`${option} effort`}>
+                    {option}
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>

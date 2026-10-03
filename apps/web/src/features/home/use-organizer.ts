@@ -1,14 +1,9 @@
-// TODO(client-gaps): feat/client-protocol-gaps makes settle, snooze, pin, read state and rename
-// daemon-owned thread organization (ADR 0052). Until then they live on this device, in the
-// injected storage; this hook is the one seam Home reads them through.
-import { useCallback, useSyncExternalStore } from "react";
+// How this device shows the Home list (project filter, Settled open, the unread baseline and
+// threads hiding for Undo). The organization itself (settled, snoozed, pinned, read, titles,
+// deletion) is the daemon's and arrives on each thread list entry.
+import { useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";
-import {
-  type KeyValueStorage,
-  Organizer,
-  type OrganizerState,
-  type ThreadMark,
-} from "@ace/ui-core";
+import { type KeyValueStorage, Organizer, type OrganizerState } from "@ace/ui-core";
 
 // One organizer per injected storage, so each app instance (and each test) has its own.
 const organizers = new WeakMap<KeyValueStorage, Organizer>();
@@ -31,11 +26,4 @@ export function useOrganizer(): Organizer {
 export function useOrganizerState(): OrganizerState {
   const organizer = useOrganizer();
   return useSyncExternalStore(organizer.subscribe, organizer.getState, organizer.getState);
-}
-
-/** One thread's mark. Marks are replaced on change, so other rows don't re-render. */
-export function useThreadMark(threadId: string): ThreadMark | undefined {
-  const organizer = useOrganizer();
-  const read = useCallback(() => organizer.mark(threadId), [organizer, threadId]);
-  return useSyncExternalStore(organizer.subscribe, read, read);
 }

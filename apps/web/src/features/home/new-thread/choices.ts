@@ -16,6 +16,7 @@ export const Choices = z.object({
   model: z.string().min(1).optional().catch(undefined),
   account: z.string().min(1).optional().catch(undefined),
   mode: WorkMode.optional().catch(undefined),
+  effort: z.string().min(1).optional().catch(undefined),
 });
 export type Choices = z.infer<typeof Choices>;
 
@@ -29,6 +30,8 @@ export interface Resolved {
   model: ModelOption | undefined;
   account: AccountOption | undefined;
   mode: WorkMode;
+  /** One of the model's efforts: the chosen one, else the model's default. */
+  effort: string | undefined;
 }
 
 /** The chosen model if it still exists, else the default; an account for that provider. */
@@ -42,7 +45,14 @@ export function resolve(options: NewThreadOptions | undefined, choices: Choices)
     forProvider.find((a) => a.id === choices.account) ??
     forProvider.find((a) => a.isDefault) ??
     forProvider[0];
-  return { model, account, mode: choices.mode ?? "worktree" };
+  const efforts = model?.efforts ?? [];
+  const effort =
+    choices.effort && efforts.includes(choices.effort)
+      ? choices.effort
+      : model?.defaultEffort && efforts.includes(model.defaultEffort)
+        ? model.defaultEffort
+        : undefined;
+  return { model, account, mode: choices.mode ?? "worktree", effort };
 }
 
 /** Explicit request, then the remembered project, then the Home filter, then the first one. */
