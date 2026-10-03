@@ -12,7 +12,9 @@ import { electronVersion, repo } from "./common.ts";
  * prefers the rebuilt `build/Release/pty.node`.
  */
 const terminal = join(repo, "packages/terminal");
-const modulePath = dirname(createRequire(join(terminal, "package.json")).resolve("node-pty/package.json"));
+const modulePath = dirname(
+  createRequire(join(terminal, "package.json")).resolve("node-pty/package.json"),
+);
 await rebuild({
   buildPath: terminal,
   electronVersion: electronVersion(),

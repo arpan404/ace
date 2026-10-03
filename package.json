@@ -24,7 +24,17 @@
     "postinstall": "bun run --filter @ace/workspace build:native && bun run --filter @ace/terminal prepare-native",
     "docs:protocol": "bun tools/protocol-docs/src/cli.ts",
     "docs:protocol:compat": "bun tools/protocol-docs/src/cli.ts --compat",
-    "docs:protocol:snapshot": "bun tools/protocol-docs/src/cli.ts --snapshot"
+    "docs:protocol:snapshot": "bun tools/protocol-docs/src/cli.ts --snapshot",
+    "dev": "node tools/dev/src/cli.ts dev",
+    "dev:web": "node tools/dev/src/cli.ts dev:web",
+    "dev:fake": "node tools/dev/src/cli.ts dev:fake",
+    "dev:desktop:fake": "node tools/dev/src/cli.ts dev:desktop:fake",
+    "daemon": "node tools/dev/src/cli.ts daemon",
+    "doctor": "node tools/dev/src/cli.ts doctor",
+    "desktop:build": "node apps/desktop/scripts/package.ts",
+    "desktop:package": "node apps/desktop/scripts/package.ts --full",
+    "desktop:rebuild-native": "node apps/desktop/scripts/rebuild-native.ts",
+    "desktop:e2e": "node apps/desktop/scripts/e2e.ts"
   },
   "devDependencies": {
     "@ace/provider-kit": "workspace:*",

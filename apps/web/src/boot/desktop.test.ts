@@ -6,7 +6,11 @@ const token = "ab".repeat(32);
 describe("desktop daemon hand-off", () => {
   it("connects to the daemon the desktop bridge hands over", async () => {
     const scope = {
-      ace: { daemon: { connection: async () => ({ mode: "daemon", url: "ws://127.0.0.1:4242/", token }) } },
+      ace: {
+        daemon: {
+          connection: async () => ({ mode: "daemon", url: "ws://127.0.0.1:4242/", token }),
+        },
+      },
     };
     await expect(desktopTarget(scope)).resolves.toEqual({ url: "ws://127.0.0.1:4242/", token });
   });
@@ -17,7 +21,9 @@ describe("desktop daemon hand-off", () => {
       desktopTarget({ ace: { daemon: { connection: async () => ({ mode: "fake" }) } } }),
     ).resolves.toBeUndefined();
     await expect(
-      desktopTarget({ ace: { daemon: { connection: async () => Promise.reject(new Error("down")) } } }),
+      desktopTarget({
+        ace: { daemon: { connection: async () => Promise.reject(new Error("down")) } },
+      }),
     ).resolves.toBeUndefined();
   });
 });

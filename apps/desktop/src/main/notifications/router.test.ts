@@ -59,7 +59,9 @@ describe("notification routing", () => {
       kind: "drop",
       reason: "category",
     });
-    expect(r.route(daemonAlert({ id: "b", status: "unresponsive", preview: undefined }))).toMatchObject({
+    expect(
+      r.route(daemonAlert({ id: "b", status: "unresponsive", preview: undefined })),
+    ).toMatchObject({
       kind: "show",
       notification: { body: "Stopped responding", actions: [] },
     });
@@ -73,7 +75,10 @@ describe("notification routing", () => {
   });
 
   it("stays silent during quiet hours, including ones that wrap past midnight", () => {
-    const night = router({ quietHours: { start: 22 * 60, end: 7 * 60 } }, { now: 0, minute: 23 * 60 });
+    const night = router(
+      { quietHours: { start: 22 * 60, end: 7 * 60 } },
+      { now: 0, minute: 23 * 60 },
+    );
     expect(night.router.route(daemonAlert({ id: "a" }))).toEqual({ kind: "drop", reason: "quiet" });
     night.clock.minute = 6 * 60 + 59;
     expect(night.router.route(daemonAlert({ id: "b" }))).toEqual({ kind: "drop", reason: "quiet" });

@@ -13,7 +13,12 @@ export interface CdpTarget {
 }
 
 export interface ViewHost {
-  open(request: { sessionId: string; workspaceId: string; threadId?: string; url?: string }): CdpTarget;
+  open(request: {
+    sessionId: string;
+    workspaceId: string;
+    threadId?: string;
+    url?: string;
+  }): CdpTarget;
 }
 
 export interface BackendOptions {
@@ -26,7 +31,8 @@ export interface BackendOptions {
 const Metadata = z.record(z.string(), z.unknown()).catch({});
 
 /** Event domains worth relaying: navigation, page lifecycle, console and network logs. */
-const relayed = /^(Page\.(frameNavigated|loadEventFired|domContentEventFired|javascriptDialogOpening)|Runtime\.(consoleAPICalled|exceptionThrown)|Log\.entryAdded|Network\.(requestWillBeSent|responseReceived|loadingFailed))$/;
+const relayed =
+  /^(Page\.(frameNavigated|loadEventFired|domContentEventFired|javascriptDialogOpening)|Runtime\.(consoleAPICalled|exceptionThrown)|Log\.entryAdded|Network\.(requestWillBeSent|responseReceived|loadingFailed))$/;
 
 interface Session {
   target: CdpTarget;
@@ -36,7 +42,9 @@ interface Session {
   /** Frame sent and not yet acknowledged by the daemon. */
   inFlight: boolean;
   /** The newest frame waiting for that acknowledgement; replaced, never queued. */
-  latest: Omit<Extract<BackendUp, { type: "browser.backend.frame" }>, "type" | "sessionId"> | undefined;
+  latest:
+    | Omit<Extract<BackendUp, { type: "browser.backend.frame" }>, "type" | "sessionId">
+    | undefined;
   frames: number;
   window: { start: number; count: number; dropped: number };
 }
@@ -139,7 +147,11 @@ export class BrowserBackend {
       case "browser.backend.close":
         this.dispose(session);
         this.sessions.delete(frame.sessionId);
-        this.channel.send({ type: "browser.backend.closed", sessionId: frame.sessionId, reason: "requested" });
+        this.channel.send({
+          type: "browser.backend.closed",
+          sessionId: frame.sessionId,
+          reason: "requested",
+        });
         return;
       case "browser.backend.call":
         return void this.call(session, frame);
@@ -177,7 +189,11 @@ export class BrowserBackend {
       target.onHumanInput(() => this.setController(frame.sessionId, "human")),
     );
     this.sessions.set(frame.sessionId, session);
-    this.channel.send({ type: "browser.backend.opened", sessionId: frame.sessionId, url: target.url() });
+    this.channel.send({
+      type: "browser.backend.opened",
+      sessionId: frame.sessionId,
+      url: target.url(),
+    });
   }
 
   private async call(
@@ -194,7 +210,10 @@ export class BrowserBackend {
         this.channel.send({ ...result(frame), error: "payload_too_large" });
       else this.channel.send({ ...result(frame), result: value });
     } catch (error) {
-      this.channel.send({ ...result(frame), error: String(error instanceof Error ? error.message : error).slice(0, 2000) });
+      this.channel.send({
+        ...result(frame),
+        error: String(error instanceof Error ? error.message : error).slice(0, 2000),
+      });
     }
   }
 
@@ -203,14 +222,24 @@ export class BrowserBackend {
     session.screencast = enabled;
     session.latest = undefined;
     void session.target
-      .send(enabled ? "Page.startScreencast" : "Page.stopScreencast", enabled ? { format: "jpeg", quality: 70, maxWidth: 1600, maxHeight: 1600 } : {})
+      .send(
+        enabled ? "Page.startScreencast" : "Page.stopScreencast",
+        enabled ? { format: "jpeg", quality: 70, maxWidth: 1600, maxHeight: 1600 } : {},
+      )
       .catch(() => {});
   }
 
-  private event(sessionId: string, session: Session, method: string, params: Record<string, unknown>): void {
+  private event(
+    sessionId: string,
+    session: Session,
+    method: string,
+    params: Record<string, unknown>,
+  ): void {
     if (method === "Page.screencastFrame") {
       // Chrome waits for this ack before producing the next frame.
-      void session.target.send("Page.screencastFrameAck", { sessionId: params.sessionId }).catch(() => {});
+      void session.target
+        .send("Page.screencastFrameAck", { sessionId: params.sessionId })
+        .catch(() => {});
       if (!session.screencast || typeof params.data !== "string") return;
       const metadata = Metadata.parse(params.metadata);
       session.latest = { seq: session.frames++, data: params.data, metadata };
@@ -222,10 +251,18 @@ export class BrowserBackend {
     const window = session.window;
     if (now - window.start >= 1_000) {
       if (window.dropped)
-        this.channel.send({ type: "browser.backend.event", sessionId, method: "ace.eventsDropped", params: { count: window.dropped } });
+        this.channel.send({
+          type: "browser.backend.event",
+          sessionId,
+          method: "ace.eventsDropped",
+          params: { count: window.dropped },
+        });
       session.window = { start: now, count: 0, dropped: 0 };
     }
-    if (session.window.count >= (this.options.eventsPerSecond ?? 200) || JSON.stringify(params).length > 64 * 1024) {
+    if (
+      session.window.count >= (this.options.eventsPerSecond ?? 200) ||
+      JSON.stringify(params).length > 64 * 1024
+    ) {
       session.window.dropped++;
       return;
     }
@@ -255,5 +292,9 @@ export class BrowserBackend {
 }
 
 function result(frame: { sessionId: string; callId: number }) {
-  return { type: "browser.backend.result" as const, sessionId: frame.sessionId, callId: frame.callId };
+  return {
+    type: "browser.backend.result" as const,
+    sessionId: frame.sessionId,
+    callId: frame.callId,
+  };
 }

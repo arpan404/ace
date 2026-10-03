@@ -82,7 +82,11 @@ export class DaemonRuntime {
   async start(): Promise<void> {
     this.resolvedPath = await this.path;
     if (this.target.kind === "remote" || this.target.kind === "fake") {
-      this.update({ ...this.status, state: "running", ...(this.target.kind === "remote" ? { url: this.target.url } : {}) });
+      this.update({
+        ...this.status,
+        state: "running",
+        ...(this.target.kind === "remote" ? { url: this.target.url } : {}),
+      });
       return;
     }
     // Development (attach) waits for `bun run daemon` and never spawns one itself.
@@ -125,8 +129,13 @@ export class DaemonRuntime {
   /** `ace doctor --json` with the bundled daemon (managed) for the repair flow. */
   async diagnose(): Promise<DoctorReport> {
     if (this.target.kind !== "managed")
-      throw new Error("Diagnostics run against the bundled daemon; use `bun run doctor` in development");
-    const result = await runDaemonCommand(this.spawnOptions(this.target.home, await this.path), ["doctor", "--json"]);
+      throw new Error(
+        "Diagnostics run against the bundled daemon; use `bun run doctor` in development",
+      );
+    const result = await runDaemonCommand(this.spawnOptions(this.target.home, await this.path), [
+      "doctor",
+      "--json",
+    ]);
     const line = result.stdout.trim().split("\n").at(-1) ?? "";
     try {
       return DoctorReport.parse(JSON.parse(line));

@@ -23,7 +23,11 @@ const config: Configuration = {
   productName: "ace",
   executableName: "ace",
   electronVersion: electronVersion(),
-  directories: { app: join(dist, "app"), output: join(dist, "release"), buildResources: join(desktop, "build") },
+  directories: {
+    app: join(dist, "app"),
+    output: join(dist, "release"),
+    buildResources: join(desktop, "build"),
+  },
   files: ["**/*"],
   asar: true,
   // Native addons and helper binaries cannot run from inside an asar archive.
@@ -70,7 +74,11 @@ const config: Configuration = {
     extendInfo: {
       // "Open With → ace" and dropping folders on the dock icon.
       CFBundleDocumentTypes: [
-        { CFBundleTypeName: "Folder", CFBundleTypeRole: "Viewer", LSItemContentTypes: ["public.folder"] },
+        {
+          CFBundleTypeName: "Folder",
+          CFBundleTypeRole: "Viewer",
+          LSItemContentTypes: ["public.folder"],
+        },
       ],
       NSScreenCaptureUsageDescription: "ace shows only apps you explicitly approve.",
     },
@@ -89,6 +97,10 @@ const config: Configuration = {
 if (!full) process.env.CSC_IDENTITY_AUTO_DISCOVERY = "false";
 
 const targets =
-  process.platform === "darwin" ? Platform.MAC : process.platform === "win32" ? Platform.WINDOWS : Platform.LINUX;
+  process.platform === "darwin"
+    ? Platform.MAC
+    : process.platform === "win32"
+      ? Platform.WINDOWS
+      : Platform.LINUX;
 const outputs = await build({ targets: targets.createTarget(), config, publish: "never" });
 for (const output of outputs) console.log(`[package] ${output}`);

@@ -50,7 +50,8 @@ export class Background {
     this.attention = new Attention(options.settings, options.window);
     this.tray = new StatusTray({
       open: () => options.open(),
-      pause: (paused) => void options.runtime.pause(paused).catch((error: unknown) => options.log(String(error))),
+      pause: (paused) =>
+        void options.runtime.pause(paused).catch((error: unknown) => options.log(String(error))),
       quitAll: options.quitAll,
     });
     this.views = new EmbeddedViews({
@@ -61,7 +62,8 @@ export class Background {
     });
     this.notifier = new NativeNotifier({
       open: (link) => options.open(link),
-      send: (command) => this.link?.enqueue(command.id, command.payload) ?? Promise.reject(new Error("offline")),
+      send: (command) =>
+        this.link?.enqueue(command.id, command.payload) ?? Promise.reject(new Error("offline")),
       log: options.log,
     });
     options.runtime.onStatus((status) => this.tray.update({ status }));

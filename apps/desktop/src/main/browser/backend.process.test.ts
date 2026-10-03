@@ -126,7 +126,7 @@ function fakeViews() {
 
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+  for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
 async function setup() {
@@ -139,7 +139,10 @@ async function setup() {
     onController: (sessionId, controller) => controllers.push(`${sessionId}:${controller}`),
   });
   socket.connect();
-  cleanups.push(() => daemon.close(), () => socket.close());
+  cleanups.push(
+    () => daemon.close(),
+    () => socket.close(),
+  );
   await daemon.waitFor("browser.backend.register");
   return { daemon, views, socket, backend, controllers };
 }
@@ -196,7 +199,11 @@ describe("embedded browser backend", () => {
     target?.emit("Runtime.consoleAPICalled", { type: "log", args: [{ value: "ready" }] });
     const event = await daemon.waitFor("browser.backend.event");
     expect(event).toMatchObject({ method: "Runtime.consoleAPICalled", sessionId: "s-1" });
-    expect(daemon.received.some((frame) => "method" in frame && frame.method === "DOM.attributeModified")).toBe(false);
+    expect(
+      daemon.received.some(
+        (frame) => "method" in frame && frame.method === "DOM.attributeModified",
+      ),
+    ).toBe(false);
   });
 
   it("sends only the latest screencast frame while the daemon has not acknowledged", async () => {
@@ -204,16 +211,22 @@ describe("embedded browser backend", () => {
     await openSession(daemon);
     daemon.send({ type: "browser.backend.screencast", sessionId: "s-1", enabled: true });
     const target = views.targets.get("s-1");
-    await expectEventually(() => target?.calls.some((call) => call.method === "Page.startScreencast"));
+    await expectEventually(() =>
+      target?.calls.some((call) => call.method === "Page.startScreencast"),
+    );
     for (const data of ["f0", "f1", "f2", "f3"])
       target?.emit("Page.screencastFrame", { data, sessionId: 1, metadata: {} });
     await daemon.waitFor("browser.backend.frame");
     daemon.send({ type: "browser.backend.ack", sessionId: "s-1", seq: 0 });
     await daemon.waitFor("browser.backend.frame", (frame) => frame.data === "f3");
-    const frames = daemon.received.flatMap((frame) => (frame.type === "browser.backend.frame" ? [frame.data] : []));
+    const frames = daemon.received.flatMap((frame) =>
+      frame.type === "browser.backend.frame" ? [frame.data] : [],
+    );
     expect(frames).toEqual(["f0", "f3"]);
     // Chrome gets its own ack for every frame so the stream keeps flowing.
-    expect(target?.calls.filter((call) => call.method === "Page.screencastFrameAck")).toHaveLength(4);
+    expect(target?.calls.filter((call) => call.method === "Page.screencastFrameAck")).toHaveLength(
+      4,
+    );
   });
 
   it("hands control to the person on input and back to the agent on hand-back", async () => {
@@ -222,15 +235,39 @@ describe("embedded browser backend", () => {
     views.targets.get("s-1")?.human();
     await daemon.waitFor("browser.backend.controller", (frame) => frame.controller === "human");
 
-    daemon.send({ type: "browser.backend.call", sessionId: "s-1", callId: 1, method: "Input.dispatchMouseEvent", params: { type: "mousePressed", x: 1, y: 1 } });
-    daemon.send({ type: "browser.backend.call", sessionId: "s-1", callId: 2, method: "Accessibility.getFullAXTree", params: {} });
-    expect(await daemon.waitFor("browser.backend.result", (frame) => frame.callId === 1)).toMatchObject({ error: "human_in_control" });
-    expect(await daemon.waitFor("browser.backend.result", (frame) => frame.callId === 2)).toMatchObject({ result: {} });
+    daemon.send({
+      type: "browser.backend.call",
+      sessionId: "s-1",
+      callId: 1,
+      method: "Input.dispatchMouseEvent",
+      params: { type: "mousePressed", x: 1, y: 1 },
+    });
+    daemon.send({
+      type: "browser.backend.call",
+      sessionId: "s-1",
+      callId: 2,
+      method: "Accessibility.getFullAXTree",
+      params: {},
+    });
+    expect(
+      await daemon.waitFor("browser.backend.result", (frame) => frame.callId === 1),
+    ).toMatchObject({ error: "human_in_control" });
+    expect(
+      await daemon.waitFor("browser.backend.result", (frame) => frame.callId === 2),
+    ).toMatchObject({ result: {} });
 
     daemon.send({ type: "browser.backend.handback", sessionId: "s-1" });
     await daemon.waitFor("browser.backend.controller", (frame) => frame.controller === "agent");
-    daemon.send({ type: "browser.backend.call", sessionId: "s-1", callId: 3, method: "Input.dispatchMouseEvent", params: { type: "mousePressed", x: 1, y: 1 } });
-    expect(await daemon.waitFor("browser.backend.result", (frame) => frame.callId === 3)).toMatchObject({ result: {} });
+    daemon.send({
+      type: "browser.backend.call",
+      sessionId: "s-1",
+      callId: 3,
+      method: "Input.dispatchMouseEvent",
+      params: { type: "mousePressed", x: 1, y: 1 },
+    });
+    expect(
+      await daemon.waitFor("browser.backend.result", (frame) => frame.callId === 3),
+    ).toMatchObject({ result: {} });
     expect(controllers).toEqual(["s-1:human", "s-1:agent"]);
   });
 
@@ -264,11 +301,19 @@ describe("embedded browser backend", () => {
     await openSession(daemon);
     const allowed = backend.requestOrigin("s-1", "https://example.com");
     const request = await daemon.waitFor("browser.backend.origin");
-    daemon.send({ type: "browser.backend.originDecision", sessionId: "s-1", requestId: request.requestId, allowed: true });
+    daemon.send({
+      type: "browser.backend.originDecision",
+      sessionId: "s-1",
+      requestId: request.requestId,
+      allowed: true,
+    });
     expect(await allowed).toBe(true);
 
     const pending = backend.requestOrigin("s-1", "https://tracker.example");
-    await daemon.waitFor("browser.backend.origin", (frame) => frame.origin === "https://tracker.example");
+    await daemon.waitFor(
+      "browser.backend.origin",
+      (frame) => frame.origin === "https://tracker.example",
+    );
     daemon.drop();
     expect(await pending).toBe(false);
   });

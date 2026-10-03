@@ -20,10 +20,27 @@ import { ProcessGroup, runUntilInterrupted } from "./runner.ts";
  * development daemon writes lives under `.ace-dev/`, never in `~/.ace`.
  */
 const repo = resolve(import.meta.dirname, "../../..");
-const name = z.enum(profileNames).parse(process.argv[2]);
 const layout = devLayout(repo, process.env);
 mkdirSync(layout.home, { recursive: true, mode: 0o700 });
 mkdirSync(layout.electron, { recursive: true });
+
+if (process.argv[2] === "doctor") {
+  // The daemon's own checks, against the development home and port.
+  try {
+    execFileSync(
+      process.execPath,
+      [join(repo, "apps/daemon/src/cli.ts"), "doctor", ...process.argv.slice(3)],
+      {
+        stdio: "inherit",
+        env: { ...process.env, ACE_HOME: layout.home, ACE_PORT: String(layout.daemonPort) },
+      },
+    );
+  } catch {
+    process.exitCode = 1;
+  }
+  process.exit();
+}
+const name = z.enum(profileNames).parse(process.argv[2]);
 
 if (usesDaemon(name) && process.env.ACE_DEV_SEED === "1") {
   // Seeding writes the store directly, so it runs before the daemon takes its lock.

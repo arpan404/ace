@@ -70,3 +70,12 @@ export const translucentCss = `
 html, body { background: transparent !important; }
 :root { --wall: transparent; }
 `;
+
+/**
+ * macOS: the traffic lights sit at (16, 16) inside the rail, as in the prototype; the rail's
+ * first item starts below them (16 + 12 + 14 px) and the rail's empty space drags the window.
+ */
+export const macTitleBarCss = `
+nav[aria-label="Views"] { padding-top: 42px; -webkit-app-region: drag; }
+nav[aria-label="Views"] a, nav[aria-label="Views"] button { -webkit-app-region: no-drag; }
+`;

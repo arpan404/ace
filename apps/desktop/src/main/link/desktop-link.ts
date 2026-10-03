@@ -121,9 +121,13 @@ export class DesktopLink {
   }
 
   private register(): void {
-    this.send?.({ type: "notification.register", device: { channel: "websocket", platform: "desktop" } });
+    this.send?.({
+      type: "notification.register",
+      device: { channel: "websocket", platform: "desktop" },
+    });
     this.updatePreferences();
-    if (this.presence) this.send?.({ type: "presence.update", threadId: this.presence, inputAgeMs: 0 });
+    if (this.presence)
+      this.send?.({ type: "presence.update", threadId: this.presence, inputAgeMs: 0 });
   }
 
   /** The client's own transport, with notification frames observed on the way in. */

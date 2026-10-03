@@ -21,14 +21,30 @@ import { applyDevCsp, registerAppScheme, serveRenderer } from "./renderer.ts";
 import { SettingsStore } from "./settings-store.ts";
 import { createMainWindow } from "./window/main-window.ts";
 
+/** Set at build time; unpackaged runs have no app package.json for `app.getVersion()`. */
+declare const ACE_APP_VERSION: string;
+
 // Development keeps window state, sessions and settings in `.ace-dev/electron`.
-if (process.env.ACE_DESKTOP_USER_DATA) app.setPath("userData", resolve(process.env.ACE_DESKTOP_USER_DATA));
+if (process.env.ACE_DESKTOP_USER_DATA)
+  app.setPath("userData", resolve(process.env.ACE_DESKTOP_USER_DATA));
 registerAppScheme();
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   main();
+}
+
+function log(level: "info" | "warn" | "error", message: string): void {
+  (level === "error" ? console.error : console.log)(`[${level}] ${message}`);
+}
+
+function isDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 function main(): void {
@@ -39,18 +55,21 @@ function main(): void {
     platform: process.platform,
   });
   const info: AppInfo = {
-    version: app.getVersion(),
-    platform: process.platform === "darwin" || process.platform === "win32" ? process.platform : "linux",
+    version: app.isPackaged ? app.getVersion() : ACE_APP_VERSION,
+    platform:
+      process.platform === "darwin" || process.platform === "win32" ? process.platform : "linux",
     arch: process.arch,
     electron: process.versions.electron ?? "",
     packaged: app.isPackaged,
   };
-  const log = (level: "info" | "warn" | "error", message: string) =>
-    (level === "error" ? console.error : console.log)(`[${level}] ${message}`);
   const runtime = new DaemonRuntime({
     packaged: app.isPackaged,
     version: info.version,
-    resources: { entry: paths.daemonEntry, screenHelper: paths.screenHelper, binDirectory: paths.binDirectory },
+    resources: {
+      entry: paths.daemonEntry,
+      screenHelper: paths.screenHelper,
+      binDirectory: paths.binDirectory,
+    },
     env: process.env,
     log,
   });
@@ -69,7 +88,8 @@ function main(): void {
     open: (link) => open(link),
     quitAll: () => app.quit(),
     log: (message) => log("warn", message),
-    onController: (sessionId, controller) => emit(contents(), "browser.controller", { sessionId, controller }),
+    onController: (sessionId, controller) =>
+      emit(contents(), "browser.controller", { sessionId, controller }),
   });
 
   /** Show the window (creating it if needed) and follow a deep link. */
@@ -90,7 +110,10 @@ function main(): void {
 
   function focusChanged(): void {
     const match = /^\/t\/([^/]+)/.exec(route);
-    background.setFocus(Boolean(window?.isFocused()), match?.[1] ? decodeURIComponent(match[1]) : undefined);
+    background.setFocus(
+      Boolean(window?.isFocused()),
+      match?.[1] ? decodeURIComponent(match[1]) : undefined,
+    );
   }
 
   function createWindow(): void {
@@ -120,7 +143,8 @@ function main(): void {
 
   function applySettings(next: DesktopSettings): void {
     background.settingsChanged(next);
-    if (process.platform !== "linux")
+    // Login items belong to the installed app; development builds never register one.
+    if (app.isPackaged && process.platform !== "linux")
       app.setLoginItemSettings({ openAtLogin: next.openAtLogin, args: ["--background"] });
     globalShortcut.unregisterAll();
     if (next.globalShortcut)
@@ -134,13 +158,6 @@ function main(): void {
 
   // Deep links: `ace://` on every platform, folders from "Open in ace", and the dock.
   const launchArgs = process.argv.slice(process.defaultApp ? 2 : 1);
-  const isDirectory = (path: string) => {
-    try {
-      return statSync(path).isDirectory();
-    } catch {
-      return false;
-    }
-  };
   pending.push(...linksFromArgv(launchArgs, isDirectory));
   // Development never claims `ace://` from the installed app unless asked to.
   if (app.isPackaged) app.setAsDefaultProtocolClient(protocolScheme);
@@ -187,7 +204,14 @@ function main(): void {
       rendererUrl = devUrl;
     } else rendererUrl = await serveRenderer(paths.renderer, remote);
 
-    const handlers = createHandlers({ info, runtime, settings, background, window: () => window, env: process.env });
+    const handlers = createHandlers({
+      info,
+      runtime,
+      settings,
+      background,
+      window: () => window,
+      env: process.env,
+    });
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(
         applicationMenu({
@@ -197,7 +221,11 @@ function main(): void {
             emit(contents(), "menu.command", command);
             const key = acceleratorToKey(accelerator, process.platform);
             for (const type of ["keyDown", "keyUp"] as const)
-              window?.webContents.sendInputEvent({ type, keyCode: key.keyCode, modifiers: key.modifiers });
+              window?.webContents.sendInputEvent({
+                type,
+                keyCode: key.keyCode,
+                modifiers: key.modifiers,
+              });
           },
           checkForUpdates: () =>
             void Promise.resolve(handlers["updates.check"](undefined)).then((status) =>

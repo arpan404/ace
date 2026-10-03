@@ -55,7 +55,14 @@ function web(layout: DevLayout, fake: boolean): ProcessSpec {
   return {
     name: fake ? "web:fake" : "web",
     command: "bun",
-    args: ["x", "vite", ...(fake ? ["--mode", "fake"] : []), "--port", `${layout.webPort}`, "--strictPort"],
+    args: [
+      "x",
+      "vite",
+      ...(fake ? ["--mode", "fake"] : []),
+      "--port",
+      `${layout.webPort}`,
+      "--strictPort",
+    ],
     cwd: join(layout.repo, "apps/web"),
     env: fake ? {} : { VITE_ACE_DAEMON_URL: daemonUrl(layout) },
   };

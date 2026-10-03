@@ -57,7 +57,9 @@ export function createHandlers(options: {
         threadId: request.threadId,
         title: request.title,
         body: request.body,
-        link: request.threadId ? { kind: "thread", threadId: request.threadId } : { kind: "new-thread" },
+        link: request.threadId
+          ? { kind: "thread", threadId: request.threadId }
+          : { kind: "new-thread" },
       }),
     "badge.set": (count) => {
       background.attention.update({ ...background.attention.current(), needsYou: count });

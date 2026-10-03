@@ -48,7 +48,10 @@ export async function serveRenderer(directory: string, daemonOrigins: readonly s
       try {
         const body = await readFile(path);
         return new Response(body, {
-          headers: { ...headers, "content-type": types[extname(path)] ?? "application/octet-stream" },
+          headers: {
+            ...headers,
+            "content-type": types[extname(path)] ?? "application/octet-stream",
+          },
         });
       } catch {
         return new Response("Not found", { status: 404, headers });
@@ -63,9 +66,11 @@ export async function serveRenderer(directory: string, daemonOrigins: readonly s
 export function applyDevCsp(devUrl: string, daemonOrigins: readonly string[]): void {
   const origin = new URL(devUrl).origin;
   const policy = contentSecurityPolicy({ dev: { origin }, daemonOrigins });
-  session.defaultSession.webRequest.onHeadersReceived({ urls: [`${origin}/*`] }, (details, callback) =>
-    callback({
-      responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [policy] },
-    }),
+  session.defaultSession.webRequest.onHeadersReceived(
+    { urls: [`${origin}/*`] },
+    (details, callback) =>
+      callback({
+        responseHeaders: { ...details.responseHeaders, "Content-Security-Policy": [policy] },
+      }),
   );
 }

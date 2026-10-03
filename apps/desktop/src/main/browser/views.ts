@@ -76,7 +76,7 @@ export class EmbeddedViews implements ViewHost {
   }
 
   closeAll(): void {
-    for (const sessionId of [...this.views.keys()]) this.close(sessionId);
+    for (const sessionId of this.views.keys()) this.close(sessionId);
   }
 
   private configure(partition: string): void {
@@ -95,10 +95,15 @@ export class EmbeddedViews implements ViewHost {
         return callback({ cancel: true });
       }
       if (["devtools:", "data:", "blob:", "about:"].includes(url.protocol)) return callback({});
-      if (!["http:", "https:", "ws:", "wss:"].includes(url.protocol) || url.username || url.password)
+      if (
+        !["http:", "https:", "ws:", "wss:"].includes(url.protocol) ||
+        url.username ||
+        url.password
+      )
         return callback({ cancel: true });
       if (local.has(url.hostname) || approved.has(url.origin)) return callback({});
-      const sessionId = details.webContentsId === undefined ? undefined : sessionIds.get(details.webContentsId);
+      const sessionId =
+        details.webContentsId === undefined ? undefined : sessionIds.get(details.webContentsId);
       if (!sessionId) return callback({ cancel: true });
       void this.options
         .allowOrigin(sessionId, url.origin)
@@ -131,7 +136,11 @@ function target(contents: WebContents, close: () => void): CdpTarget {
     onHumanInput(listener) {
       const handler = (_event: Electron.Event, input: Electron.InputEvent) => {
         if (Date.now() < agentInputUntil) return;
-        if (/^(mouseDown|keyDown|rawKeyDown|mouseWheel|gestureScrollBegin|touchStart)$/.test(input.type))
+        if (
+          /^(mouseDown|keyDown|rawKeyDown|mouseWheel|gestureScrollBegin|touchStart)$/.test(
+            input.type,
+          )
+        )
           listener();
       };
       contents.on("input-event", handler);

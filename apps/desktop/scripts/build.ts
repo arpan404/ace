@@ -30,7 +30,11 @@ log("main and preload");
 await Promise.all(electronBundles(app, process.env).map((options) => build(options)));
 
 log("renderer (apps/web)");
-run("bun", ["x", "vite", "build", "--outDir", join(app, "renderer"), "--emptyOutDir"], join(repo, "apps/web"));
+run(
+  "bun",
+  ["x", "vite", "build", "--outDir", join(app, "renderer"), "--emptyOutDir"],
+  join(repo, "apps/web"),
+);
 
 const manifest = z
   .object({ version: z.string(), description: z.string(), license: z.string() })
@@ -76,13 +80,19 @@ async function stageNodePty(root: string): Promise<void> {
   const source = dirname(require.resolve("node-pty/package.json"));
   const target = join(root, "node_modules/node-pty");
   await mkdir(target, { recursive: true });
-  for (const name of ["lib", "package.json", "LICENSE"]) await cp(join(source, name), join(target, name), { recursive: true });
+  for (const name of ["lib", "package.json", "LICENSE"])
+    await cp(join(source, name), join(target, name), { recursive: true });
   const rebuilt = join(source, "build/Release");
   const prebuild = join(source, "prebuilds", `${process.platform}-${process.arch}`);
   const from = existsSync(join(rebuilt, "pty.node")) ? rebuilt : prebuild;
-  const to = from === rebuilt ? join(target, "build/Release") : join(target, "prebuilds", `${process.platform}-${process.arch}`);
+  const to =
+    from === rebuilt
+      ? join(target, "build/Release")
+      : join(target, "prebuilds", `${process.platform}-${process.arch}`);
   if (!existsSync(join(from, "pty.node")))
-    throw new Error("No node-pty binary for this platform; run `bun run desktop:rebuild-native` first");
+    throw new Error(
+      "No node-pty binary for this platform; run `bun run desktop:rebuild-native` first",
+    );
   await mkdir(to, { recursive: true });
   await copyFile(join(from, "pty.node"), join(to, "pty.node"));
   if (existsSync(join(from, "spawn-helper"))) {
@@ -118,18 +128,28 @@ async function stageScreenHelper(helpers: string): Promise<void> {
       });
       await copyFile(join(built, "manifest.json"), join(helpers, "manifest.json"));
     } else if (process.platform === "win32") {
-      const triple = process.arch === "arm64" ? "aarch64-pc-windows-msvc" : "x86_64-pc-windows-msvc";
+      const triple =
+        process.arch === "arm64" ? "aarch64-pc-windows-msvc" : "x86_64-pc-windows-msvc";
       const crate = join(repo, "native/screen-helper-windows");
       run("cargo", ["build", "--locked", "--release", "--target", triple], crate);
-      await copyFile(join(crate, "target", triple, "release/ace-screen-helper-windows.exe"), join(helpers, "ace-screen-helper-windows.exe"));
+      await copyFile(
+        join(crate, "target", triple, "release/ace-screen-helper-windows.exe"),
+        join(helpers, "ace-screen-helper-windows.exe"),
+      );
     } else if (process.platform === "linux") {
       run("sh", [join(repo, "native/screen-helper-linux/build.sh")]);
-      const triple = process.arch === "arm64" ? "aarch64-unknown-linux-gnu" : "x86_64-unknown-linux-gnu";
-      await copyFile(join(repo, "native/screen-helper-linux/build", `ace-screen-helper-linux-${triple}`), join(helpers, "ace-screen-helper-linux"));
+      const triple =
+        process.arch === "arm64" ? "aarch64-unknown-linux-gnu" : "x86_64-unknown-linux-gnu";
+      await copyFile(
+        join(repo, "native/screen-helper-linux/build", `ace-screen-helper-linux-${triple}`),
+        join(helpers, "ace-screen-helper-linux"),
+      );
       await chmod(join(helpers, "ace-screen-helper-linux"), 0o755);
     }
   } catch (error) {
     if (process.env.ACE_REQUIRE_SCREEN_HELPER === "1") throw error;
-    console.warn(`[build] screen helper skipped: ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(
+      `[build] screen helper skipped: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }

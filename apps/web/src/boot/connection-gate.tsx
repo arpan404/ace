@@ -29,7 +29,8 @@ export function ConnectionGate(props: {
 }) {
   const { stores, defaultUrl, createClient, fragment, onFragmentRead } = props;
   const [state, setState] = useState(() => {
-    const handed = props.handed ?? (fragment ? targetFromFragment(fragment, defaultUrl) : undefined);
+    const handed =
+      props.handed ?? (fragment ? targetFromFragment(fragment, defaultUrl) : undefined);
     if (handed) saveTarget(stores, handed, false);
     const stored = loadTarget(stores, defaultUrl);
     return { target: stored.target, url: stored.url, remembered: stored.remembered };

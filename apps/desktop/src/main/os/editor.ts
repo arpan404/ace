@@ -6,7 +6,19 @@ import type { OpenInEditor } from "../../shared/contract.ts";
 
 /** Opening these with the default handler would run them; reveal them instead. */
 const executable = new Set([
-  ".app", ".bat", ".cmd", ".com", ".command", ".exe", ".jar", ".lnk", ".msi", ".ps1", ".scr", ".sh", ".vbs",
+  ".app",
+  ".bat",
+  ".cmd",
+  ".com",
+  ".command",
+  ".exe",
+  ".jar",
+  ".lnk",
+  ".msi",
+  ".ps1",
+  ".scr",
+  ".sh",
+  ".vbs",
 ]);
 
 /** Editor URL handlers, so no editor CLI needs to be on PATH. */
@@ -38,7 +50,10 @@ export async function openInEditor(request: OpenInEditor): Promise<boolean> {
     const args = [...(request.line ? ["--line", String(request.line)] : []), request.path];
     return new Promise((resolve) => execFile("xed", args, (error) => resolve(!error)));
   }
-  if (!statSync(request.path).isDirectory() && executable.has(extname(request.path).toLowerCase())) {
+  if (
+    !statSync(request.path).isDirectory() &&
+    executable.has(extname(request.path).toLowerCase())
+  ) {
     shell.showItemInFolder(request.path);
     return true;
   }

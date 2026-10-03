@@ -4,7 +4,7 @@ import { BrowserWindow, nativeTheme, screen, shell, systemPreferences } from "el
 import type { WindowState } from "../../shared/contract.ts";
 import { isAppUrl, isExternalUrl } from "../csp.ts";
 import { restoreBounds, SavedWindow } from "./bounds.ts";
-import { translucentCss, windowOptions } from "./options.ts";
+import { macTitleBarCss, translucentCss, windowOptions } from "./options.ts";
 
 export interface MainWindowOptions {
   url: string;
@@ -17,7 +17,10 @@ export interface MainWindowOptions {
 
 /** Reduce transparency (macOS) turns the glass solid, as `prefers-reduced-transparency` does. */
 export function reducedTransparency(): boolean {
-  return process.platform === "darwin" && systemPreferences.getUserDefault("reduceTransparency", "boolean") === true;
+  return (
+    process.platform === "darwin" &&
+    systemPreferences.getUserDefault("reduceTransparency", "boolean") === true
+  );
 }
 
 export function windowState(window: BrowserWindow): WindowState {
@@ -34,7 +37,9 @@ export function windowState(window: BrowserWindow): WindowState {
  */
 export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   const saved = readSaved(options.statePath);
-  const areas = [screen.getPrimaryDisplay(), ...screen.getAllDisplays()].map((display) => display.workArea);
+  const areas = [screen.getPrimaryDisplay(), ...screen.getAllDisplays()].map(
+    (display) => display.workArea,
+  );
   const bounds = restoreBounds(saved, areas);
   const reduced = reducedTransparency();
   const window = new BrowserWindow(
@@ -69,6 +74,7 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   const translucent = !reduced && (process.platform === "darwin" || process.platform === "win32");
   contents.on("dom-ready", () => {
     if (translucent) void contents.insertCSS(translucentCss);
+    if (process.platform === "darwin") void contents.insertCSS(macTitleBarCss);
   });
   // Retry while the dev server starts; packaged builds load from disk and never fail here.
   contents.on("did-fail-load", (_event, code, _description, url, isMainFrame) => {
@@ -77,7 +83,14 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
   window.once("ready-to-show", () => window.show());
 
   const emit = () => options.onState(windowState(window));
-  for (const name of ["focus", "blur", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"] as const)
+  for (const name of [
+    "focus",
+    "blur",
+    "maximize",
+    "unmaximize",
+    "enter-full-screen",
+    "leave-full-screen",
+  ] as const)
     window.on(name as "focus", emit);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const persist = () => {

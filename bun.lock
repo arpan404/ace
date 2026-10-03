@@ -521,6 +521,9 @@
     "tools/dev": {
       "name": "@ace/dev",
       "dependencies": {
+        "@ace/daemon": "workspace:*",
+        "@ace/fake-daemon": "workspace:*",
+        "@ace/protocol": "workspace:*",
         "zod": "^4.6.5",
       },
     },

@@ -16,7 +16,13 @@ function machine() {
   const children: FakeChild[] = [];
   const signals: string[] = [];
   const log: string[] = [];
-  const state = { answering: false, healthy: true, external: false, blockers: 0, maintenance: false };
+  const state = {
+    answering: false,
+    healthy: true,
+    external: false,
+    blockers: 0,
+    maintenance: false,
+  };
   class FakeChild implements DaemonProcess {
     exit: ((code: number | null, signal: NodeJS.Signals | null) => void) | undefined;
     alive = true;
@@ -120,7 +126,10 @@ describe("daemon supervisor", () => {
   it("waits for a development daemon it may not start, and follows its restarts", async () => {
     const m = machine();
     m.ports.spawn = undefined;
-    const supervisor = new DaemonSupervisor(m.ports, { healthIntervalMs: 1_000, healthFailures: 1 });
+    const supervisor = new DaemonSupervisor(m.ports, {
+      healthIntervalMs: 1_000,
+      healthFailures: 1,
+    });
     void supervisor.start();
     await m.advance(60_000);
     expect(supervisor.current().state).toBe("starting");
@@ -212,7 +221,10 @@ describe("daemon supervisor", () => {
 
   it("kills the daemon it started when it stops answering health checks", async () => {
     const m = machine();
-    const supervisor = new DaemonSupervisor(m.ports, { healthIntervalMs: 1_000, healthFailures: 2 });
+    const supervisor = new DaemonSupervisor(m.ports, {
+      healthIntervalMs: 1_000,
+      healthFailures: 2,
+    });
     await supervisor.start();
     m.state.answering = true;
     await m.advance(300);

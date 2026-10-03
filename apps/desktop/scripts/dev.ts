@@ -2,7 +2,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { context, type Plugin } from "esbuild";
-import { desktop, electronBinary, electronBundles } from "./common.ts";
+import { appEnvironment, desktop, electronBinary, electronBundles } from "./common.ts";
 
 /**
  * `bun run dev` / `dev:desktop:fake` (through tools/dev): bundles main and preload in watch
@@ -18,7 +18,7 @@ let restartTimer: ReturnType<typeof setTimeout> | undefined;
 function launch(): void {
   child = spawn(binary, [join(outdir, "main.cjs")], {
     stdio: "inherit",
-    env: { ...process.env, ELECTRON_ENABLE_LOGGING: "1" },
+    env: { ...appEnvironment(process.env), ELECTRON_ENABLE_LOGGING: "1" },
   });
   const current = child;
   current.once("exit", (code) => {
@@ -60,9 +60,7 @@ const watch: Plugin = {
 };
 
 const contexts = await Promise.all(
-  electronBundles(outdir, process.env).map((options) =>
-    context({ ...options, plugins: [watch] }),
-  ),
+  electronBundles(outdir, process.env).map((options) => context({ ...options, plugins: [watch] })),
 );
 await Promise.all(contexts.map((build) => build.watch()));
 

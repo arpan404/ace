@@ -2,7 +2,7 @@ import { checkRelease, isNewer, releaseFetch } from "@ace/service";
 import type { UpdateStatus } from "../../shared/contract.ts";
 
 /** Replaced at build time with the release authority's Ed25519 public key (ADR 0041). */
-declare const __ACE_RELEASE_PUBLIC_KEY__: string;
+declare const ACE_RELEASE_PUBLIC_KEY: string;
 const feed = "https://api.github.com/repos/arpan404/ace/releases/latest";
 
 /**
@@ -12,7 +12,7 @@ const feed = "https://api.github.com/repos/arpan404/ace/releases/latest";
  * this platform authenticates the new version, and the installer is offered from its release.
  */
 export async function checkForUpdate(current: string): Promise<UpdateStatus> {
-  const key = typeof __ACE_RELEASE_PUBLIC_KEY__ === "string" ? __ACE_RELEASE_PUBLIC_KEY__ : "";
+  const key = typeof ACE_RELEASE_PUBLIC_KEY === "string" ? ACE_RELEASE_PUBLIC_KEY : "";
   if (!key.includes("BEGIN PUBLIC KEY"))
     return { state: "error", message: "Updates are not configured for this build" };
   const target = `${process.platform}-${process.arch}`;

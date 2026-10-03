@@ -17,7 +17,12 @@ export function contentSecurityPolicy(options: {
 }): string {
   const dev = options.dev?.origin;
   const devSocket = dev?.replace(/^http/, "ws");
-  const loopback = ["http://127.0.0.1:*", "ws://127.0.0.1:*", "http://localhost:*", "ws://localhost:*"];
+  const loopback = [
+    "http://127.0.0.1:*",
+    "ws://127.0.0.1:*",
+    "http://localhost:*",
+    "ws://localhost:*",
+  ];
   const hashes = (options.inlineScripts ?? []).map((hash) => `'${hash}'`);
   const directives: Record<string, string[]> = {
     "default-src": ["'self'"],
@@ -48,7 +53,10 @@ export function contentSecurityPolicy(options: {
 export async function inlineScriptHashes(html: string): Promise<string[]> {
   const { createHash } = await import("node:crypto");
   return [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
-    (match) => `sha256-${createHash("sha256").update(match[1] ?? "").digest("base64")}`,
+    (match) =>
+      `sha256-${createHash("sha256")
+        .update(match[1] ?? "")
+        .digest("base64")}`,
   );
 }
 

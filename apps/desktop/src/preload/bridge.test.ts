@@ -65,9 +65,9 @@ describe("window.ace bridge", () => {
     await expect(ace.shell.openExternal("file:///etc/passwd")).rejects.toBeInstanceOf(BridgeError);
     await expect(ace.shell.openExternal("javascript:alert(1)")).rejects.toBeInstanceOf(BridgeError);
     await expect(ace.notifications.setBadge(-1)).rejects.toBeInstanceOf(BridgeError);
-    await expect(
-      ace.settings.update({ globalShortcut: "x".repeat(200) }),
-    ).rejects.toBeInstanceOf(BridgeError);
+    await expect(ace.settings.update({ globalShortcut: "x".repeat(200) })).rejects.toBeInstanceOf(
+      BridgeError,
+    );
     expect(main.sent).toEqual([]);
   });
 
@@ -78,7 +78,10 @@ describe("window.ace bridge", () => {
       true,
     );
     expect(main.sent).toEqual([
-      { channel: requestChannel("shell.openInEditor"), payload: { path: "/repo/src/app.ts", line: 12 } },
+      {
+        channel: requestChannel("shell.openInEditor"),
+        payload: { path: "/repo/src/app.ts", line: 12 },
+      },
     ]);
   });
 
@@ -101,21 +104,22 @@ describe("window.ace bridge", () => {
   });
 });
 
-describe("page hooks", () => {
-  function page(path: string) {
-    const pushed: string[] = [];
-    const events: string[] = [];
-    const window: PageWindow = {
-      history: { pushState: (_state, _title, url) => void pushed.push(String(url)) },
-      location: { pathname: path, search: "" },
-      dispatchEvent: (event) => {
-        events.push(event.type);
-        return true;
-      },
-    };
-    return { window, pushed, events };
-  }
+/** A page whose history pushes and dispatched events are recorded. */
+function page(path: string) {
+  const pushed: string[] = [];
+  const events: string[] = [];
+  const window: PageWindow = {
+    history: { pushState: (_state, _title, url) => void pushed.push(String(url)) },
+    location: { pathname: path, search: "" },
+    dispatchEvent: (event) => {
+      events.push(event.type);
+      return true;
+    },
+  };
+  return { window, pushed, events };
+}
 
+describe("page hooks", () => {
   it("routes a deep link through history so the router follows it", () => {
     const main = fakeIpc();
     const target = page("/");

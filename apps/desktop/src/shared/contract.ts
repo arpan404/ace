@@ -90,7 +90,11 @@ export type NativeAppearance = z.infer<typeof NativeAppearance>;
 
 /** `ace://` links, parsed by `parseDeepLink`. */
 export const DeepLink = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("thread"), threadId: z.string().min(1), itemId: z.string().optional() }),
+  z.object({
+    kind: z.literal("thread"),
+    threadId: z.string().min(1),
+    itemId: z.string().optional(),
+  }),
   z.object({ kind: z.literal("deck"), runId: z.string().optional() }),
   z.object({ kind: z.literal("settings"), page: z.string().optional() }),
   z.object({ kind: z.literal("new-thread") }),
@@ -126,7 +130,11 @@ export const NotificationCategory = z.enum([
 ]);
 export type NotificationCategory = z.infer<typeof NotificationCategory>;
 
-const Minute = z.number().int().min(0).max(24 * 60 - 1);
+const Minute = z
+  .number()
+  .int()
+  .min(0)
+  .max(24 * 60 - 1);
 export const DesktopSettings = z.object({
   /** Keep the daemon and tray running after the last window closes. */
   background: z.boolean().default(true),
@@ -149,7 +157,13 @@ export const DesktopSettings = z.object({
 export type DesktopSettings = z.infer<typeof DesktopSettings>;
 export const DesktopSettingsPatch = DesktopSettings.partial();
 
-export const ScreenPermission = z.enum(["granted", "denied", "not-determined", "restricted", "unknown"]);
+export const ScreenPermission = z.enum([
+  "granted",
+  "denied",
+  "not-determined",
+  "restricted",
+  "unknown",
+]);
 export const Permissions = z.object({
   screenRecording: ScreenPermission,
   accessibility: z.boolean(),
