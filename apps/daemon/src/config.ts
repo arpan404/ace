@@ -11,10 +11,14 @@ const Environment = z.object({
   ACE_LISTEN: z.enum(["local", "lan", "tailscale"]).default("local"),
   ACE_LOG_LEVEL: LogLevelSchema.default("info"),
   ACE_HOME: z.string().optional(),
+  ACE_WORKSPACE_ROOT: z.string().optional(),
+  ACE_RELAY_URL: z.url().optional(),
   ACE_ADVERTISE_HOST: z.string().optional(),
 });
 export interface Config {
   dataDir: string;
+  workspaceRoot?: string;
+  relayUrl?: string;
   host: "127.0.0.1";
   port: number;
   listen: "local" | "lan" | "tailscale";
@@ -28,6 +32,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const remotePort = settings.ACE_REMOTE_PORT ?? (port === 0 || port === 65535 ? 0 : port + 1);
   return {
     dataDir: resolve(settings.ACE_HOME ?? resolve(homedir(), ".ace")),
+    ...(settings.ACE_WORKSPACE_ROOT ? { workspaceRoot: resolve(settings.ACE_WORKSPACE_ROOT) } : {}),
+    ...(settings.ACE_RELAY_URL ? { relayUrl: settings.ACE_RELAY_URL } : {}),
     host: "127.0.0.1",
     port,
     listen: settings.ACE_LISTEN,

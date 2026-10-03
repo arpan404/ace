@@ -17,6 +17,8 @@ export interface CommandRegistration {
   accept(command: Command, device: DeviceId): void | Promise<void>;
 }
 export interface SocketService {
+  binary?(frame: Buffer): boolean;
+  authenticated?(): void;
   handle?(message: SocketMessage, device: DeviceId): boolean | Promise<boolean>;
   command?: CommandRegistration;
   close?(): void;

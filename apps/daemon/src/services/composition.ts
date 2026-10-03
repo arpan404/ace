@@ -1,3 +1,5 @@
+import { startFiles } from "./files.ts";
+import { startRelayKeys } from "./relay.ts";
 import { startPlugins } from "./plugins.ts";
 import { startBrowser } from "./browser.ts";
 import { startContext } from "./context.ts";
@@ -12,6 +14,8 @@ import { startEngine } from "./engine.ts";
 import type { ServiceContext, Services } from "./types.ts";
 /** Ordered composition: provider sessions are admitted only after their services open. */
 export const serviceFactories = [
+  startFiles,
+  startRelayKeys,
   startPlugins,
   startBrowser,
   startContext,
@@ -67,6 +71,8 @@ export function readyServices(services: Partial<Services>): Services {
     notifications,
     review,
     usage,
+    ...(services.files ? { files: services.files } : {}),
+    ...(services.relay ? { relay: services.relay } : {}),
     ...(services.engine ? { engine: services.engine } : {}),
     ...(services.history ? { history: services.history } : {}),
   };

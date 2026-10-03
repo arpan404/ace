@@ -1,3 +1,4 @@
+import { createFilesSession } from "./files.ts";
 import { ClientMessage, BrowserClientMessage } from "@ace/protocol";
 import { PluginClientMessage } from "@ace/protocol/plugins";
 import { createNotificationsSession } from "./notifications.ts";
@@ -13,6 +14,7 @@ import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
+  createFilesSession,
   createNotificationsSession,
   createPluginsSession,
   createBrowserSession,

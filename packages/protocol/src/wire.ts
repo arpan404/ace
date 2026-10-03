@@ -1,3 +1,4 @@
+import { FilesClientMessage, FilesServerMessage } from "./files.ts";
 import { DiagnosticsHealth } from "./diagnostics.ts";
 import { ReviewData } from "./review.ts";
 import { z } from "zod";
@@ -118,6 +119,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   HistoryContinueRequest,
   UsageSummary,
   UsageSeries,
+  ...FilesClientMessage.options,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -179,6 +181,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   HistoryScanResponse,
   HistoryContinueResponse,
   UsageMessage,
+  ...FilesServerMessage.options,
   ModelsResult,
   NotificationMessage,
   z.object({

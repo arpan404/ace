@@ -26,6 +26,7 @@ ace never asks for or stores your provider credentials. Each agent CLI uses the 
 | `packages/protocol`       | Canonical protocol: Zod schemas and types, no runtime logic             |
 | `packages/provider-kit`   | Supervised provider processes, JSON-RPC, SSE and local CLI discovery    |
 | `packages/workspace`      | Workspace file listing, reads, search and change subscriptions          |
+| `packages/files`          | Streamed transfers, atomic workspace mutations, trash and artifacts     |
 | `tools/recorder`          | Records raw provider sessions as fixtures for adapter contract tests    |
 | `docs/adr`                | Architecture decision records                                           |
 | `docs/research`           | Primary-source research behind the decisions                            |

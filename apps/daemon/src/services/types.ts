@@ -1,3 +1,5 @@
+import type { FilesService } from "@ace/files";
+import type { KeyPair } from "@ace/secure-channel";
 import type { createLogger } from "@ace/diagnostics";
 import type { BrowserService } from "@ace/browser";
 import type { ContextService } from "@ace/context";
@@ -19,6 +21,8 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  files?: FilesService;
+  relay?: { url: string; keys: KeyPair };
   handler: CommandHandler;
   engine?: Engine;
   plugins: PluginService;

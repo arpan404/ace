@@ -1,3 +1,5 @@
+import type { FilesService } from "@ace/files";
+import type { KeyPair } from "@ace/secure-channel";
 import type { SettingsService } from "@ace/settings";
 import type { DaemonPreviewOptions } from "./preview.ts";
 import type { ReviewPort } from "./review.ts";
@@ -23,6 +25,8 @@ import type { CommandHandler } from "./commands.ts";
 import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
+  files?: FilesService;
+  relay?: { url: string; keys: KeyPair };
   settings?: SettingsService;
   preview?: DaemonPreviewOptions;
   history?: Pick<DaemonHistory, "handle">;

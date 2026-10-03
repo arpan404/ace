@@ -1,3 +1,4 @@
+import { startTransports } from "./services/transports.ts";
 import { createServiceSessions, parseSocketMessage } from "./services/registry.ts";
 import type { SocketMessage } from "./services/socket.ts";
 import { previewHttp } from "./preview-http.ts";
@@ -41,6 +42,7 @@ const closeListener = (listener: Server) =>
 export type { ServerOptions } from "./server-options.ts";
 import type { ServerOptions } from "./server-options.ts";
 export async function startServer(options: ServerOptions): Promise<{
+  relayHostId?: string;
   maintenance: MaintenanceGate;
   url: string;
   notify(device: DeviceId, notification: Notification): boolean;
@@ -250,7 +252,16 @@ export async function startServer(options: ServerOptions): Promise<{
       lastActivity = auth.now();
       let message: SocketMessage;
       try {
-        if (binary) throw new Error("Text required");
+        if (binary) {
+          const frame = Buffer.isBuffer(data)
+            ? data
+            : Array.isArray(data)
+              ? Buffer.concat(data)
+              : Buffer.from(data);
+          if (!device || !sessions.some((service) => service.binary?.(frame)))
+            throw new Error("No binary channel");
+          return;
+        }
         message = parseSocketMessage(JSON.parse(data.toString()));
       } catch {
         fail(
@@ -304,6 +315,7 @@ export async function startServer(options: ServerOptions): Promise<{
           }
           connections.set(socket, send);
         }
+        for (const service of sessions) service.authenticated?.();
         send({
           type: "welcome",
           hostId,
@@ -478,16 +490,19 @@ export async function startServer(options: ServerOptions): Promise<{
     Math.max(10, Math.min(1000, (options.idleTimeoutMs ?? 60_000) / 2)),
   );
   let port: number;
+  let transports: Awaited<ReturnType<typeof startTransports>> | undefined;
   try {
     port = await bind(local, "127.0.0.1", options.port);
     if (remote && options.remote) {
       const remotePort = await bind(remote, options.remote.host, options.remote.port);
       remoteOrigin = `https://${urlHost(options.remote.advertisedHost)}:${remotePort}`;
     }
+    transports = await startTransports(options, auth);
     if (options.preview)
       preview = await createDaemonPreview(options.store, options.preview, auth.now);
   } catch (error) {
     stopTimer();
+    await transports?.close();
     await preview?.close();
     stopRevocation();
     await closeListener(local);
@@ -498,6 +513,7 @@ export async function startServer(options: ServerOptions): Promise<{
   let closing: Promise<void> | undefined;
   return {
     ...(preview ? { preview } : {}),
+    ...(transports?.relayHostId ? { relayHostId: transports.relayHostId } : {}),
     maintenance,
     url: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
@@ -538,6 +554,7 @@ export async function startServer(options: ServerOptions): Promise<{
           closeListener(local),
           ...(remote ? [closeListener(remote)] : []),
           preview?.close(),
+          transports?.close(),
         ]).then(
           () =>
             wss.close((error) => {

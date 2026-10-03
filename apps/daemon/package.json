@@ -18,7 +18,8 @@
     "bench:mcp": "node bench/mcp.ts",
     "bench:remote": "node --expose-gc src/remote.bench.ts",
     "bench:context": "node bench/context.ts",
-    "bench:notifications": "node bench/notifications.ts"
+    "bench:notifications": "node bench/notifications.ts",
+    "bench:files": "node bench/files.ts"
   },
   "dependencies": {
     "@ace/adapter-acp": "workspace:*",
@@ -30,6 +31,7 @@
     "@ace/core": "workspace:*",
     "@ace/diagnostics": "workspace:*",
     "@ace/engine-api": "workspace:*",
+    "@ace/files": "workspace:*",
     "@ace/history-import": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/models": "workspace:*",
@@ -40,7 +42,9 @@
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "@ace/redaction": "workspace:*",
+    "@ace/relay": "workspace:*",
     "@ace/review": "workspace:*",
+    "@ace/secure-channel": "workspace:*",
     "@ace/service": "workspace:*",
     "@ace/settings": "workspace:*",
     "@ace/usage": "workspace:*",

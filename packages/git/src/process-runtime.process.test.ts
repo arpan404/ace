@@ -96,6 +96,8 @@ test.each(["darwin", "win32"] as const)(
       const due = Array.from(deadlines);
       for (const expire of due) expire();
       await exited.promise;
+      // Parent exit can precede descendant pipe closure. Probe after the public operation settles.
+      await rejected;
       expect(() => process.kill(pids.parent, 0)).toThrow(
         expect.objectContaining({ code: "ESRCH" }),
       );

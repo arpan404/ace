@@ -13,9 +13,10 @@ import {
   type CommandId,
   type EventPayload,
   type RawPayload,
-  type ThreadId,
+  ThreadId,
   type ThreadView,
   WorkspaceId,
+  WorkspaceFileChange,
 } from "@ace/protocol";
 import { applyDelivery, updateThread } from "@ace/projection";
 import { McpData } from "./mcp-data.ts";
@@ -71,6 +72,9 @@ export class Store {
       this.usageReplay = new UsageReplay(this.db);
       this.db.exec(
         `CREATE INDEX IF NOT EXISTS threads_update_blockers ON threads(id) WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')`,
+      );
+      this.db.exec(
+        "CREATE INDEX IF NOT EXISTS threads_workspace_live ON threads(workspace_id, archived_at, id)",
       );
       this.payloads.initialize();
       this.status.initialize((id) => this.getThread(id));
@@ -270,6 +274,24 @@ export class Store {
   getWorkspacePath(id: WorkspaceId): string | undefined {
     const row = this.statement("SELECT path FROM workspaces WHERE id = ?").get(id);
     return typeof row?.path === "string" ? row.path : undefined;
+  }
+  /** Indexed fan-out to current workspace threads; never scan event or transcript history. */
+  recordWorkspaceFileChange(workspaceId: WorkspaceId, input: WorkspaceFileChange): void {
+    const change = WorkspaceFileChange.parse(input);
+    let after = "";
+    for (;;) {
+      const rows = this.statement(
+        "SELECT id FROM threads WHERE workspace_id=? AND archived_at IS NULL AND id>? ORDER BY id LIMIT 64",
+      ).all(workspaceId, after);
+      if (!rows.length) return;
+      this.transaction(() => {
+        for (const row of rows) {
+          const id = ThreadId.parse(row.id);
+          this.appendEvents(id, [{ type: "workspace.files_changed", workspaceId, change }]);
+          after = id;
+        }
+      });
+    }
   }
   getThread(id: ThreadId): Thread | undefined {
     const row = this.statement("SELECT * FROM threads WHERE id = ?").get(id);
@@ -494,6 +516,15 @@ export class Store {
   readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
     return { ...this.payloads.wirePage(threadId, before, limit, byteLimit), seq: this.headSeq() };
+  }
+  blobInfo(blobRef: string) {
+    return this.payloads.blobInfo(blobRef);
+  }
+  outputInfo(streamId: string) {
+    return this.payloads.outputInfo(streamId);
+  }
+  readOutputBytes(streamId: string, offset: number, limit: number) {
+    return this.payloads.readOutputBytes(streamId, offset, limit);
   }
   readOutput(streamId: string, offset: number, limit: number) {
     return this.payloads.readOutput(streamId, offset, limit);

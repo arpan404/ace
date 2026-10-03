@@ -1,3 +1,4 @@
+import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
 import { UsageMetadata } from "./usage.ts";
 import { Agent, AgentFidelity, AgentOrigin, AgentStatus } from "./agent.ts";
@@ -97,6 +98,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     endedAt: Timestamp.optional(),
   }),
   UsageUpdated,
+  WorkspaceFilesChanged,
 ]);
 export type EventPayload = z.infer<typeof EventPayload>;
 export type EventType = EventPayload["type"];

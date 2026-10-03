@@ -1,3 +1,4 @@
+import { fingerprint as relayFingerprint } from "@ace/secure-channel";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync } from "node:fs";
@@ -128,6 +129,13 @@ export async function startDaemon(options: DaemonOptions = {}) {
     endpointPath = path;
     let closing: Promise<void> | undefined;
     return {
+      ...(server.relayHostId && services.relay
+        ? {
+            relayHostId: server.relayHostId,
+            relayFingerprint: relayFingerprint(services.relay.keys.publicKey),
+          }
+        : {}),
+      ...(services.files ? { files: services.files } : {}),
       maintenance: server.maintenance,
       url: server.url,
       tokenPath,
