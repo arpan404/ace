@@ -1,4 +1,5 @@
 // Non-gating benchmark. Do not run locally under the current repo-owner rule.
+import { z } from "zod";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -46,7 +47,13 @@ registry.register(
         ] satisfies Fact[],
       tick: () => [],
     }),
-    steps: [{ on: "send", frames: [{ seq: 1, t: 0, dir: "recv", channel: "bench", data: {} }] }],
+    steps: [
+      {
+        on: "send",
+        exit: { deliberate: true },
+        frames: [{ seq: 1, t: 0, dir: "recv", channel: "bench", data: {} }],
+      },
+    ],
   }),
   { installed: true, auth: "logged_in", loginHint: "unused" },
 );
@@ -62,6 +69,40 @@ const service = new DelegationService({
   },
 });
 try {
+  const historicalReceipts = z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(9000)
+    .parse(process.env["ACE_BENCH_HISTORY"] ?? 0);
+  for (let base = 0; base < historicalReceipts; base += 32) {
+    const result = service.command(randomUUID(), {
+      type: "thread.create",
+      workspaceId: workspace,
+      provider: "codex",
+      input: [{ type: "text", text: "history" }],
+    });
+    if (!result.ok || !result.threadId) throw new Error("History parent failed");
+    await engine.flush();
+    const root = store.getThread(result.threadId)?.rootAgentId;
+    if (!root) throw new Error("History root missing");
+    const owner: McpAttribution = {
+      sessionId: "history",
+      threadId: result.threadId,
+      agentId: root,
+    };
+    for (let i = base; i < Math.min(base + 32, historicalReceipts); i++)
+      service.prepare(owner, {
+        requestId: `history-${i}`,
+        provider: "codex",
+        task: "history",
+        role: "worker",
+        wait: false,
+        estimatedLoad: 0,
+      });
+    service.cancelDescendants(result.threadId);
+    await engine.flush();
+  }
   const parent = service.command(randomUUID(), {
     type: "thread.create",
     workspaceId: workspace,
@@ -152,6 +193,7 @@ try {
   const contextMs = performance.now() - contextBegin;
   console.log(
     JSON.stringify({
+      historicalReceipts,
       admissionUs: (admissionMs * 1000) / 32,
       statusUpdatesPerSecond: (updates * 1000) / updateMs,
       usageEventsPerSecond: (10000 * 1000) / usageMs,
