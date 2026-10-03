@@ -1,3 +1,4 @@
+import type { CommandLibrary } from "@ace/commands";
 import type { FilesService } from "@ace/files";
 import type { KeyPair } from "@ace/secure-channel";
 import type { createLogger } from "@ace/diagnostics";
@@ -21,6 +22,7 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  commands?: CommandLibrary;
   files?: FilesService;
   relay?: { url: string; keys: KeyPair };
   handler: CommandHandler;

@@ -27,6 +27,7 @@
     "@ace/adapter-codex": "workspace:*",
     "@ace/adapter-opencode": "workspace:*",
     "@ace/browser": "workspace:*",
+    "@ace/commands": "workspace:*",
     "@ace/context": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/diagnostics": "workspace:*",

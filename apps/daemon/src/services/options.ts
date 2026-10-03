@@ -1,3 +1,4 @@
+import type { DaemonCommandIntegration } from "./commands.ts";
 import type { Config } from "../config.ts";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineOptions } from "../engine/index.ts";
@@ -11,6 +12,7 @@ import type { DaemonPreviewOptions } from "../preview.ts";
 import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 export type DaemonOptions = {
+  commands?: DaemonCommandIntegration;
   config?: Config;
   handler?: CommandHandler | undefined;
   engine?: EngineOptions & { adapterDiscovery?: typeof discoverProviders };

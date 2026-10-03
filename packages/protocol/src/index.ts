@@ -40,3 +40,4 @@ export {
   MaintenanceStatus,
   DaemonHealth,
 } from "./release.ts";
+export * from "./command-library.ts";

@@ -9,3 +9,4 @@
 - Replace incoming process manifests with `.process.test.ts` filenames. Preserve all-package externalization in the process fixture build so native bindings, CommonJS dependencies and worker URLs resolve normally.
 
 Each feature merge is typechecked before its commit. Full runtime validation follows the final merge.
+- #46: move catalog startup and socket requests to service factories. Keep trusted runtime/execution event subscriptions and shutdown cancellation. Retain the stronger typed workspace lookup instead of coercing database values to strings. Migrate command I/O suites by filename.

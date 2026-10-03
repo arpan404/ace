@@ -1,3 +1,6 @@
+export { createDaemonCommandLibrary } from "./command-library.ts";
+export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
+export type { DaemonCommandIntegration } from "./services/commands.ts";
 import { fingerprint as relayFingerprint } from "@ace/secure-channel";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -149,6 +152,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       browser: services.browser,
       context: services.context,
       settings: services.settings,
+      commands: services.commands,
       models: services.models,
       notifications: services.notifications,
       review: services.review,
