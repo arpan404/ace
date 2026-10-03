@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RawPayload } from "@ace/protocol";
 import { ContentPart } from "@ace/protocol";
 import { CursorSdkAuth } from "@ace/protocol/accounts";
 
@@ -29,6 +30,7 @@ export const Envelope = z
     runId: identity.optional(),
     kind: z.string().min(1).max(128),
     body: z.unknown(),
+    raw: RawPayload.optional(),
     boundaryOffset: z.number().int().positive().max(10000000).optional(),
     observeOffset: identity.optional(),
     replayed: z.boolean().optional(),

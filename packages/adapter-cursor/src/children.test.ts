@@ -14,6 +14,11 @@ it("links a late native child ID once and waits for foreground task completion",
     callId: "task",
     taskUpdate: { type: "text-delta", text: "child output" },
   });
+  expect(deriveThreadStatus(r.state).state).not.toBe("done");
+  expect(
+    Object.values(r.state.agents).find((record) => record.agent.origin === "provider_subagent")
+      ?.activeRun,
+  ).toBeDefined();
   const complete = {
     type: "tool-call-completed",
     callId: "task",
@@ -124,4 +129,39 @@ it("preserves an open shell before ending its owning root turn", () => {
   expect(Object.values(r.state.items).find((item) => item.type === "tool_call")?.call.status).toBe(
     "running",
   );
+});
+
+it("preserves child-owned shell work and closes child text before foreground task success", () => {
+  const r = replay();
+  r.frame("delta", {
+    type: "tool-call-started",
+    callId: "task",
+    toolCall: { type: "task", args: {} },
+  });
+  for (const taskUpdate of [
+    { type: "text-delta", text: "child text" },
+    {
+      type: "tool-call-started",
+      callId: "shell",
+      toolCall: { type: "shell", args: { command: "synthetic" } },
+    },
+  ])
+    r.frame("delta", { type: "tool-call-delta", callId: "task", taskUpdate });
+  r.frame("delta", {
+    type: "tool-call-completed",
+    callId: "task",
+    toolCall: { type: "task", result: { status: "success", value: { isBackground: false } } },
+  });
+  r.frame("result", { status: "finished" });
+  const shell = Object.values(r.state.items).find(
+    (item) => item.type === "tool_call" && item.call.kind === "shell",
+  );
+  expect(shell).toMatchObject({ complete: false, call: { status: "running" } });
+  expect(Object.values(r.state.tasks)).toMatchObject([{ status: "unknown" }]);
+  expect(deriveThreadStatus(r.state)).toEqual({ state: "waiting", on: "background_task" });
+  expect(
+    Object.values(r.state.items).find(
+      (item) => item.type === "message" && item.role === "assistant",
+    ),
+  ).toMatchObject({ complete: true });
 });

@@ -125,10 +125,16 @@ export class Children {
       stoppable: false,
     };
   }
+  preserveOwned(parent: Key): Fact[] {
+    return this.preserveChildren(parent);
+  }
   preserve(): Fact[] {
+    return this.preserveChildren();
+  }
+  private preserveChildren(parent?: Key): Fact[] {
     const facts: Fact[] = [];
     for (const child of this.calls.values())
-      if (!child.settled && !child.uncertain) {
+      if ((parent === undefined || child.parent === parent) && !child.settled && !child.uncertain) {
         child.uncertain = true;
         child.background = true;
         facts.push(this.surviving(child));

@@ -102,8 +102,15 @@ describe("Cursor SDK boundary replay", () => {
       callId: "shell",
       toolCall: { type: "shell", args: { command: "false" } },
     });
+    for (const text of ["out", "error"])
+      r.frame("shell-output", { callId: "shell", text, toolCall: { type: "shell" } });
+    expect(Object.values(r.state.items).find((item) => item.type === "tool_call")).toMatchObject({
+      complete: false,
+      call: { status: "running", detail: { output: { tail: "outerror" } } },
+    });
     r.frame("delta", {
       type: "tool-call-completed",
+      aceOutputStream: true,
       callId: "shell",
       toolCall: {
         type: "shell",
