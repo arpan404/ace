@@ -157,14 +157,18 @@ it("keeps the daemon alive when an excess upgrade includes an oversized frame", 
   const home = tempHome();
   const daemon = launch(home);
   const url = await daemon.ready;
-  const clients = await Promise.all(
-    Array.from({ length: 256 }, async () => {
+  // Fill the loopback's anonymous budget (128 sockets). An authenticated socket would leave
+  // it, so these stay silent; the last one says hello later to prove the daemon survived.
+  const anonymous = await Promise.all(
+    Array.from({ length: 128 }, async () => {
       const client = new Client(url);
       cleanups.push(() => client.close());
       await once(client.socket, "open");
       return client;
     }),
   );
+  const probe = anonymous.at(-1);
+  if (!probe) throw new Error("Missing admitted client");
   const socket = connectTcp({ host: "127.0.0.1", port: Number(new URL(url).port) });
   cleanups.push(() => {
     socket.destroy();
@@ -190,23 +194,7 @@ it("keeps the daemon alive when an excess upgrade includes an oversized frame", 
     ]),
   );
   await closed;
-  const client = clients[0];
-  if (!client) throw new Error("Missing admitted client");
-  client.send({
-    type: "hello",
-    protocolVersion: 1,
-    deviceId: DeviceId.parse("probe"),
-    token: readFileSync(join(home, "daemon-token"), "utf8"),
-  });
-  expect(
-    await Promise.race([
-      client.next(),
-      daemon.exited.then(() => {
-        throw new Error("Daemon exited after excess upgrade");
-      }),
-    ]),
-  ).toMatchObject({ type: "welcome" });
-  expect(response).not.toContain("101 Switching Protocols");
+  // The budget is still enforced after the oversized head was dropped.
   const status = await new Promise<number>((resolve, reject) => {
     const request = httpRequest(url.replace("ws:", "http:"), {
       headers: {
@@ -228,6 +216,21 @@ it("keeps the daemon alive when an excess upgrade includes an oversized frame", 
     request.end();
   });
   expect(status).toBe(503);
+  probe.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("probe"),
+    token: readFileSync(join(home, "daemon-token"), "utf8"),
+  });
+  expect(
+    await Promise.race([
+      probe.next(),
+      daemon.exited.then(() => {
+        throw new Error("Daemon exited after excess upgrade");
+      }),
+    ]),
+  ).toMatchObject({ type: "welcome" });
+  expect(response).not.toContain("101 Switching Protocols");
   daemon.child.kill("SIGTERM");
   expect((await daemon.exited)[0]).toBe(0);
 });
