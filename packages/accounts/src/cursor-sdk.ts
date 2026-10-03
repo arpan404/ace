@@ -106,6 +106,7 @@ export function cursorSdkLoginDriver(
     return status;
   };
   return {
+    checkAvailability: driver.checkAvailability,
     async status(instance: ProviderInstance, signal: AbortSignal) {
       const account = selected(instance);
       return publish(account, await driver.status(cursorIdentity(account), signal));

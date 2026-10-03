@@ -123,6 +123,14 @@
           ],
           "type": "string"
         },
+        "reason": {
+          "enum": [
+            "service_unavailable",
+            "instance_unavailable",
+            "sdk_unavailable"
+          ],
+          "type": "string"
+        },
         "requestId": {
           "maxLength": 128,
           "minLength": 1,

@@ -3,6 +3,14 @@ import { CursorInstance, cursorSdkEnvironment } from "./instance.ts";
 import { CursorHostSlots } from "./slots.ts";
 import { SafeAuth } from "./contracts.ts";
 
+/** Discovery failure is not a rejected sign-in. Keep provider diagnostics off the auth wire. */
+export class CursorSdkUnavailableError extends Error {
+  constructor() {
+    super("Cursor SDK backend is unavailable");
+    this.name = "CursorSdkUnavailableError";
+  }
+}
+
 export interface CursorAccountDriverOptions extends Omit<HostOptions, "env" | "cwd"> {
   launchEnv: NodeJS.ProcessEnv;
   /** Accounts owns credential-key filtering; this runs only for its selected home. */
@@ -22,6 +30,10 @@ const reserve = (kind: "login" | "logout") => {
 
 /** Official SDK auth seam for AccountService. It never handles a key-bearing value. */
 export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
+  const checkAvailability = async () => {
+    const installed = await discoverCursorSdk(options.discovery);
+    if (!installed.supported) throw new CursorSdkUnavailableError();
+  };
   const slots = options.slots ?? new CursorHostSlots(2);
   let workers = 0;
   const changingAuth = new Map<
@@ -40,8 +52,7 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
     loginUrl?: (url: string) => void,
   ) => {
     signal.throwIfAborted();
-    const installed = await discoverCursorSdk(options.discovery);
-    if (!installed.supported) throw new Error(installed.error ?? "Cursor SDK missing");
+    await checkAvailability();
     if (method !== "logout" && method !== "login" && changingAuth.has(instance.id))
       throw new Error("SDK authentication change is fencing this instance");
     if (workers >= 2) throw new Error("SDK account worker capacity reached");
@@ -76,6 +87,7 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
     }
   };
   return {
+    checkAvailability,
     async status(instance: CursorInstance, signal: AbortSignal) {
       return SafeAuth.parse(await operate(CursorInstance.parse(instance), "status", signal));
     },

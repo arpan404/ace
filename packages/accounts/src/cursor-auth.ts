@@ -1,10 +1,12 @@
 import { CursorAuthRequest, CursorAuthEvent } from "@ace/protocol";
+import { CursorSdkUnavailableError } from "@ace/adapter-cursor";
 import type { ProviderInstance, CursorSdkAuth } from "@ace/protocol/accounts";
 import type { z } from "zod";
 import type { AccountRegistry } from "./registry.ts";
 
 type Auth = z.infer<typeof CursorSdkAuth>;
 interface Driver {
+  checkAvailability?(): Promise<void>;
   status(instance: ProviderInstance, signal: AbortSignal): Promise<Auth>;
   login(
     instance: ProviderInstance,
@@ -48,10 +50,9 @@ export class CursorAuthService {
   constructor(options: CursorAuthOptions) {
     this.options = options;
   }
-  private account(id: string): ProviderInstance {
+  private account(id: string): ProviderInstance | undefined {
     const instance = this.options.registry.get(id)?.instance;
-    if (!instance || instance.provider !== "cursor") throw new Error("Unknown Cursor instance");
-    return instance;
+    return instance?.provider === "cursor" ? instance : undefined;
   }
   private event(requestId: string, job: Job): CursorAuthEvent {
     return CursorAuthEvent.parse({
@@ -84,8 +85,14 @@ export class CursorAuthService {
     const request = CursorAuthRequest.parse(input);
     const error = (
       code: "busy" | "not_found" | "forbidden" | "auth_failed" | "unavailable",
-    ): CursorAuthEvent => ({ type: "cursor.auth.error", requestId: request.requestId, code });
-    if (this.closed) return error("unavailable");
+      reason?: Extract<CursorAuthEvent, { type: "cursor.auth.error" }>["reason"],
+    ): CursorAuthEvent => ({
+      type: "cursor.auth.error",
+      requestId: request.requestId,
+      code,
+      ...(reason ? { reason } : {}),
+    });
+    if (this.closed) return error("unavailable", "service_unavailable");
     try {
       if (request.type === "cursor.auth.poll" || request.type === "cursor.auth.cancel") {
         const job = this.jobs.get(request.loginId);
@@ -122,9 +129,12 @@ export class CursorAuthService {
           await this.options.registry.register(instance);
         }
         const instance = this.account(request.instanceId);
+        if (!instance) return error("unavailable", "instance_unavailable");
         this.lifetime.signal.throwIfAborted();
         if (request.type === "cursor.auth.start") {
           if (this.jobs.size >= 8) return error("busy");
+          await this.options.driver.checkAvailability?.();
+          this.lifetime.signal.throwIfAborted();
           return this.start(owner, request.requestId, instance);
         }
         if (request.type === "cursor.auth.logout") {
@@ -158,7 +168,10 @@ export class CursorAuthService {
       } finally {
         this.busy.delete(request.instanceId);
       }
-    } catch {
+    } catch (cause) {
+      if (this.closed) return error("unavailable", "service_unavailable");
+      if (cause instanceof CursorSdkUnavailableError)
+        return error("unavailable", "sdk_unavailable");
       return error("auth_failed");
     }
   }

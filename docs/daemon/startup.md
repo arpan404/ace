@@ -90,6 +90,19 @@ on reconnect and is updated by list/scan replies and progress events. A complete
 
 ## Other background work
 
+Cursor SDK auth uses ephemeral `cursor.auth.error` replies, outside the durable
+intent outbox. `code: "unavailable"` means authentication could not be attempted.
+Its safe `reason` identifies a missing or closed service (`service_unavailable`),
+an absent instance or an instance registered to another provider
+(`instance_unavailable`), or SDK discovery/admission failure (`sdk_unavailable`).
+SDK admission covers the pinned version, Node runtime and platform helpers;
+browser login checks it before admitting a login job. Status on a usable,
+logged-out SDK instance returns `cursor.auth.changed` with logged-out auth.
+Selecting that instance returns `auth_failed`, as do failed auth operations after
+admission. Unknown login job IDs return `not_found`. Provider diagnostics and
+credentials are never included in these replies. The accounts CLI displays the
+safe code and reason.
+
 Accounts open their database before canonicalizing saved homes. Reads, assignments
 and writes remain gated until validation completes. Command-library initialization
 waits for that validation in the background and publishes through the live registry.

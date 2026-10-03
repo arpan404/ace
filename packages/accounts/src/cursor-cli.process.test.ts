@@ -6,13 +6,14 @@ import { CursorAuthService, openRegistry, createInstance, runAccountsCommand } f
 import { cursorDaemonDriver } from "./cursor-cli-auth.ts";
 
 it.each(["status", "login"] as const)(
-  "SDK %s surfaces the daemon's error code",
+  "SDK %s surfaces the daemon's error code and safe reason",
   async (operation) => {
     const driver = cursorDaemonDriver({
       request: async () => ({
         type: "cursor.auth.error",
         requestId: "failure",
         code: "unavailable",
+        reason: "sdk_unavailable",
       }),
       wait: async () => {},
       close: async () => {},
@@ -28,7 +29,7 @@ it.each(["status", "login"] as const)(
         ? driver.status(instance, new AbortController().signal)
         : driver.login(instance, new AbortController().signal, () => {}),
     ).rejects.toThrow(
-      `Daemon SDK ${operation === "status" ? "auth status" : "login"} failed: unavailable`,
+      `Daemon SDK ${operation === "status" ? "auth status" : "login"} failed: unavailable (sdk_unavailable)`,
     );
   },
 );

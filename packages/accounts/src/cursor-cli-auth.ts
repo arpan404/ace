@@ -15,7 +15,7 @@ export interface CursorCliAuth {
 function daemonAuthError(event: CursorAuthEvent, operation: string): Error {
   return new Error(
     event.type === "cursor.auth.error"
-      ? `Daemon SDK ${operation} failed: ${event.code}`
+      ? `Daemon SDK ${operation} failed: ${event.code}${event.reason ? ` (${event.reason})` : ""}`
       : `Daemon SDK ${operation} unavailable: unexpected ${event.type}`,
   );
 }

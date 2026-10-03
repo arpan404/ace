@@ -79,6 +79,7 @@ export function createCursorAuthSession(context: SocketContext): SocketService {
           type: "cursor.auth.error",
           requestId: request.requestId,
           code: "unavailable",
+          reason: "service_unavailable",
         });
       else if (pending >= 8)
         context.send({ type: "cursor.auth.error", requestId: request.requestId, code: "busy" });
