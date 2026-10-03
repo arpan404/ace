@@ -110,12 +110,14 @@ if (provider === "opencode") {
         .object({ location: z.object({ directory: z.string() }) })
         .parse(JSON.parse(body));
       result = {
-        id: "native",
-        projectID: "project",
-        location: input.location,
-        mcpProof: await proof(config.url, config.headers.Authorization),
-        echoedAuthorization: config.headers.Authorization,
-        echoedBearerRaw: config.headers.Authorization.slice(7),
+        data: {
+          id: "native",
+          projectID: "project",
+          location: input.location,
+          mcpProof: await proof(config.url, config.headers.Authorization),
+          echoedAuthorization: config.headers.Authorization,
+          echoedBearerRaw: config.headers.Authorization.slice(7),
+        },
       };
     } else if (path.endsWith("/interrupt")) result = { interrupted: true };
     else throw new Error(`Unexpected fake OpenCode route: ${path}`);

@@ -28,7 +28,7 @@ it("a terminated Simulator whose stop reported an error can be disabled, reappro
     args: [new URL("./testing/stop-error-helper.ts", import.meta.url).pathname],
     env: { STOP_ERROR_MARKER: join(root, "rejected") },
     platform: "darwin",
-    protocolVersion: 2,
+    // Negotiate macOS capabilities on its capture-capable request path, as production does.
     nextId: () => `screen-${++id}`,
     recordingDirectory: root,
     publishArtifact: async () => {},
