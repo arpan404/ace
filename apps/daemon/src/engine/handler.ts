@@ -49,6 +49,14 @@ export function engineHandler(
       if (transition) return transition;
       const p = command.payload;
       let deliveryCommand = command;
+      if (
+        "threadId" in p &&
+        p.threadId &&
+        (repo.store.getThread(ThreadId.parse(p.threadId))?.details?.workspaceChange?.state ===
+          "preparing" ||
+          repo.store.getThread(ThreadId.parse(p.threadId))?.details?.workspaceChange?.uncertain)
+      )
+        return { commandId: command.id, ok: false, error: "workspace_change_in_progress" };
       if (isSend(p) && (p.type === "thread.send" || p.type === "thread.create")) {
         try {
           if (p.input.length > 64)

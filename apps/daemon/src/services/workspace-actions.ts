@@ -12,7 +12,13 @@ export function startWorkspaceActions({
   options,
   log,
 }: ServiceContext): void {
-  const workspace = new WorkspaceRuntime(store, config.dataDir, now, options.workspaceActions);
+  const workspace = new WorkspaceRuntime(store, config.dataDir, now, {
+    ...options.workspaceActions,
+    changeWorkspace: (id, commandId, effect) => {
+      if (!services.engine) throw new Error("engine_unavailable");
+      return services.engine.changeWorkspace(id, commandId, effect);
+    },
+  });
   services.workspaceActions = workspace;
   services.canReadThread = (_device, id) =>
     Boolean(store.getThread(id)) && store.getThread(id)?.deletedAt === undefined;

@@ -11,7 +11,7 @@ test("commit stages changed files with the requested message and rejects stale H
     await put(root, "tracked.txt", "changed\n");
     await expect(
       service.commit({ worktree: root, expectedHead: "a".repeat(40), message: "Stale" }),
-    ).rejects.toMatchObject({ code: "invalid_argument" });
+    ).rejects.toMatchObject({ code: "head_moved" });
     expect(await scalar(root, "diff", "--cached", "--name-only")).toBe("");
     const head = await service.commit({
       worktree: root,
@@ -45,6 +45,95 @@ test("push updates an existing remote branch and refuses detached HEAD", async (
     await expect(service.push({ worktree: root, remote: "origin" })).rejects.toMatchObject({
       code: "invalid_argument",
     });
+  } finally {
+    await service.close();
+  }
+});
+
+import { chmod } from "node:fs/promises";
+import { proxyGit } from "./test-repo.ts";
+
+test("a silent failing pre-commit hook reports a safe hook failure and preserves HEAD", async () => {
+  const root = await repository();
+  const service = new GitService();
+  try {
+    const expectedHead = await scalar(root, "rev-parse", "HEAD");
+    await put(root, "tracked.txt", "edited\n");
+    await put(root, ".git/hooks/pre-commit", "#!/bin/sh\nexit 1\n");
+    await chmod(join(root, ".git/hooks/pre-commit"), 0o700);
+    await expect(
+      service.commit({ worktree: root, expectedHead, message: "Rejected" }),
+    ).rejects.toMatchObject({ code: "hook_failed", message: "Git command failed" });
+    expect(await scalar(root, "rev-parse", "HEAD")).toBe(expectedHead);
+  } finally {
+    await service.close();
+  }
+});
+
+test.each([
+  ["fatal: Authentication failed for https://token@example.org/private", "auth_failed"],
+  ["fatal: private /home/user/repo failed", "git_failed"],
+])("push classifies %s without publishing local diagnostics", async (diagnostic, code) => {
+  const root = await repository();
+  await git(root, "remote", "add", "origin", "https://example.org/repo");
+  const binary = await proxyGit(
+    `if (args.includes('push')) { process.stderr.write(${JSON.stringify(diagnostic)}); process.exit(1); }`,
+  );
+  const service = new GitService({ gitBinary: binary });
+  try {
+    await expect(service.push({ worktree: root, remote: "origin" })).rejects.toMatchObject({
+      code,
+      message: "Git command failed",
+      details: { code: 1 },
+    });
+  } finally {
+    await service.close();
+  }
+});
+
+test("branch switching rejects dirty files by default and carries them only with explicit permission", async () => {
+  const root = await repository();
+  const service = new GitService();
+  try {
+    const branch = await scalar(root, "branch", "--show-current");
+    await git(root, "branch", "feature");
+    await put(root, "tracked.txt", "dirty\n");
+    await expect(
+      service.switchBranch({ worktree: root, branch: "feature", allowUncommitted: false }),
+    ).rejects.toMatchObject({ code: "dirty_worktree" });
+    expect(await scalar(root, "branch", "--show-current")).toBe(branch);
+    await service.switchBranch({ worktree: root, branch: "feature", allowUncommitted: true });
+    expect(await scalar(root, "branch", "--show-current")).toBe("feature");
+    expect(await scalar(root, "diff", "--", "tracked.txt")).toContain("+dirty");
+    await expect(
+      service.switchBranch({ worktree: root, branch: "--force", allowUncommitted: true }),
+    ).rejects.toMatchObject({ code: "invalid_ref" });
+  } finally {
+    await service.close();
+  }
+});
+
+test("commit distinguishes unmerged files from a command failure without changing the index", async () => {
+  const root = await repository();
+  const service = new GitService();
+  try {
+    const branch = await scalar(root, "branch", "--show-current");
+    await git(root, "switch", "-c", "divergent");
+    await put(root, "tracked.txt", "divergent\n");
+    await git(root, "commit", "-am", "Divergent");
+    await git(root, "switch", branch);
+    await put(root, "tracked.txt", "main\n");
+    await git(root, "commit", "-am", "Main");
+    await expect(git(root, "merge", "divergent")).rejects.toThrow();
+    const index = await git(root, "ls-files", "--unmerged");
+    await expect(
+      service.commit({
+        worktree: root,
+        expectedHead: await scalar(root, "rev-parse", "HEAD"),
+        message: "Unresolved",
+      }),
+    ).rejects.toMatchObject({ code: "conflicts" });
+    expect(await git(root, "ls-files", "--unmerged")).toEqual(index);
   } finally {
     await service.close();
   }

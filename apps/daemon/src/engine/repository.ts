@@ -439,7 +439,7 @@ export class EngineRepository {
         ...(row.instance_id == null
           ? {}
           : { instanceId: z.string().min(1).max(256).parse(row.instance_id) }),
-        workspaceReady: this.store.executionWorkspace(id).ready,
+        workspaceReady: row.workspace_ready === 1,
         ...(row.options == null
           ? {}
           : { options: ExecutionOptions.parse(JSON.parse(String(row.options))) }),

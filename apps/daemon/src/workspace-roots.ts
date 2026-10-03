@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import type { GitService } from "@ace/git";
+import { GitError, type GitService } from "@ace/git";
 import type { ThreadId, ThreadDetails } from "@ace/protocol";
 import type { Store } from "./store.ts";
 export type WorkspaceGit = Pick<GitService, keyof GitService>;
@@ -85,6 +85,69 @@ export class WorkspaceRoots {
       );
     });
     return path;
+  }
+  async change(
+    id: ThreadId,
+    selection: {
+      mode: "local" | "worktree";
+      branch?: string | undefined;
+      allowUncommitted: boolean;
+    },
+  ): Promise<ThreadDetails> {
+    const thread = this.store.getThread(id);
+    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
+    const project = this.store.getWorkspacePath(thread.workspaceId);
+    if (!project) throw new Error("workspace_not_found");
+    const previous = this.store.atomic((db) =>
+      db.prepare("SELECT cwd FROM engine_sessions WHERE thread_id=?").get(id),
+    );
+    if (typeof previous?.cwd !== "string") throw new Error("workspace_unavailable");
+    const status = await this.git.status(previous.cwd);
+    if (status.conflicted.length)
+      throw new GitError("conflicts", "Resolve conflicts before switching");
+    if (
+      !selection.allowUncommitted &&
+      (status.staged.length || status.unstaged.length || status.untracked.length)
+    )
+      throw new GitError("dirty_worktree", "Commit or explicitly allow uncommitted changes");
+    let path = await realpath(project);
+    if (selection.mode === "worktree") {
+      const key = createHash("sha256").update(id).digest("hex");
+      await mkdir(join(this.directory, "worktrees"), { recursive: true, mode: 0o700 });
+      path = join(await realpath(join(this.directory, "worktrees")), key);
+      const existing = (await this.git.listWorktrees(project)).find((tree) => tree.path === path);
+      if (!existing)
+        await this.git.createWorktree({
+          repo: project,
+          path,
+          branch: selection.branch ?? `ace/${key.slice(0, 24)}`,
+          baseRef: selection.branch ?? thread.details?.baseBranch ?? "HEAD",
+          reuseBranch: true,
+        });
+      else if (selection.branch)
+        await this.git.switchBranch({
+          worktree: path,
+          branch: selection.branch,
+          allowUncommitted: selection.allowUncommitted,
+        });
+    } else if (selection.branch)
+      await this.git.switchBranch({
+        worktree: path,
+        branch: selection.branch,
+        allowUncommitted: selection.allowUncommitted,
+      });
+    const info = await this.git.repositoryInfo(path);
+    return {
+      ...thread.details,
+      mode: selection.mode,
+      worktree: path,
+      branch: info.branch,
+      head: info.head,
+      ahead: info.ahead,
+      behind: info.behind,
+      machine: this.machine,
+      ...(selection.branch ? { baseBranch: selection.branch } : {}),
+    };
   }
   async details(id: ThreadId): Promise<ThreadDetails> {
     for (let attempt = 0; attempt < 2; attempt++) {
