@@ -1,3 +1,4 @@
+import { decodeCursorSdkModels } from "./cursor.ts";
 import { CatalogModel } from "@ace/protocol";
 import {
   AcpSession,
@@ -146,4 +147,25 @@ export function normalizeOpenCode(output: string, instance: ModelInstance): Cata
   }
   if (start < output.length) parser.push(output.slice(start).replace(/\r$/, ""));
   return parser.finish();
+}
+
+/** SDK catalog is authenticated in the selected instance host; never substitute ACP rows. */
+export function normalizeCursorSdk(payload: unknown, instance: ModelInstance): CatalogModel[] {
+  return decodeCursorSdkModels(payload).map((native) => {
+    const model = base(instance, native.id, native.displayName, native);
+    model.serviceTiers = (native.variants ?? []).map((variant, index) => ({
+      id: String(index),
+      name: variant.displayName,
+      parameters: Object.fromEntries(
+        variant.params.map((parameter) => [parameter.id, parameter.value]),
+      ),
+    }));
+    const defaultVariant = native.variants?.findIndex((variant) => variant.isDefault);
+    if (defaultVariant !== undefined && defaultVariant >= 0)
+      model.defaultTier = String(defaultVariant);
+    const effort = native.parameters?.find((parameter) => parameter.id === "reasoning_effort");
+    model.reasoningEfforts = effort?.values.map((value) => value.value) ?? [];
+    // Arbitrary SDK parameters remain in bounded raw metadata. No guessed model defaults/modalities.
+    return CatalogModel.parse(model);
+  });
 }

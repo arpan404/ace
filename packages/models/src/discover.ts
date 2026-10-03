@@ -5,14 +5,18 @@ import {
 } from "@ace/provider-kit/process";
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 import { z } from "zod";
+import { CursorHostSlots } from "@ace/adapter-cursor";
 import { cursorSessionOptions, isMissingMethod } from "./cursor.ts";
 import { OpenCodeParser } from "./open-code.ts";
 import { CodexPage } from "./native-schemas.ts";
-import { normalizeAcp, normalizeClaude, normalizeCodex } from "./normalize.ts";
+import { normalizeAcp, normalizeClaude, normalizeCodex, normalizeCursorSdk } from "./normalize.ts";
 import type { DiscoverModels, ModelInstance } from "./types.ts";
 import type { CatalogModel } from "@ace/protocol";
 
-export type DiscoveryOptions = { spawn?: (options: SpawnOptions) => SupervisedProcess };
+export type DiscoveryOptions = {
+  spawn?: (options: SpawnOptions) => SupervisedProcess;
+  cursorSlots?: CursorHostSlots;
+};
 const ControlReply = z.object({
   type: z.literal("control_response"),
   response: z.object({
@@ -70,8 +74,25 @@ function claudeInitialize(proc: SupervisedProcess, signal: AbortSignal): Promise
 }
 export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverModels {
   const spawn = options.spawn ?? spawnSupervised;
+  const cursorSlots = options.cursorSlots ?? new CursorHostSlots(2);
   return async (instance: ModelInstance, signal: AbortSignal): Promise<CatalogModel[]> => {
     signal.throwIfAborted();
+    if (instance.backend === "cursor-sdk") {
+      const { createCursorAccountDriver } = await import("@ace/adapter-cursor");
+      if (!instance.homeDir) throw new Error("Cursor SDK catalog needs its selected instance home");
+      const driver = createCursorAccountDriver({
+        launchEnv: instance.env,
+        slots: cursorSlots,
+        ...(options.spawn ? { spawn: options.spawn } : {}),
+        stopInstance: async () => {
+          throw new Error("Catalog worker cannot sign out live sessions");
+        },
+      });
+      return normalizeCursorSdk(
+        await driver.models({ id: instance.id, homeDir: instance.homeDir }, signal),
+        instance,
+      );
+    }
     const args = [...instance.args];
     switch (instance.provider) {
       case "codex":

@@ -1,7 +1,13 @@
 export { ModelCatalog, type CatalogOptions } from "./catalog.ts";
 export { openModelStorage } from "./storage.ts";
 export { createModelDiscovery, type DiscoveryOptions } from "./discover.ts";
-export { normalizeCodex, normalizeClaude, normalizeAcp, normalizeOpenCode } from "./normalize.ts";
+export {
+  normalizeCodex,
+  normalizeClaude,
+  normalizeAcp,
+  normalizeOpenCode,
+  normalizeCursorSdk,
+} from "./normalize.ts";
 export { resolveModel } from "./resolve.ts";
 export {
   ModelInstance,
