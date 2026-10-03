@@ -20,6 +20,16 @@ export const ThreadOrganization = z.object({
 });
 export type ThreadOrganization = z.infer<typeof ThreadOrganization>;
 export const ThreadDetails = z.object({
+  workspaceChange: z
+    .object({
+      commandId: z.string().min(1).max(256),
+      state: z.enum(["preparing", "applied", "failed"]),
+      at: Timestamp,
+      error: z.string().max(128).optional(),
+      lossy: z.boolean().default(true),
+      uncertain: z.boolean().optional(),
+    })
+    .optional(),
   workspace: z
     .object({ id: z.string().min(1), name: z.string().max(256), path: z.string().max(4096) })
     .optional(),

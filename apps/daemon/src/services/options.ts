@@ -35,7 +35,7 @@ export type DaemonOptions = {
   devices?: DevicesService;
   commands?: DaemonCommandIntegration;
   config?: Config;
-  /** Explicit owner-approved local bindings. Remote clients cannot send paths/argv. */
+  /** Explicit owner-approved local bindings, also available through admin registry.bind. */
   acpBindings?: readonly import("@ace/agent-registry").LocalBinding[];
   acpManagers?: Partial<Record<"npm" | "uv", string>>;
   acpMcpServers?: readonly unknown[];

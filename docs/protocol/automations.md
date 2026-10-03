@@ -29,13 +29,13 @@ Example:
 
 ```json
 {
-  "concurrency": 5,
+  "concurrency": 8,
   "enabled": false,
   "id": "example",
-  "jitterMs": 9,
+  "jitterMs": 1,
   "missedRun": "skip",
   "prompt": "example",
-  "provider": "claude",
+  "provider": "antigravity",
   "title": "example",
   "trigger": {
     "kind": "manual"
@@ -76,7 +76,7 @@ Example:
 
 ```json
 {
-  "before": 9,
+  "before": null,
   "runs": []
 }
 ```
@@ -102,18 +102,16 @@ Example:
     "enabled": false,
     "id": "example",
     "jitterMs": 6,
-    "missedRun": "skip",
+    "missedRun": "run_once",
+    "model": "example",
     "prompt": "example",
-    "provider": "codex",
+    "provider": "acp",
     "title": "example",
     "trigger": {
-      "kind": "file",
-      "paths": [
-        "example"
-      ]
+      "kind": "manual"
     },
     "workspace": "example",
-    "worktree": false
+    "worktree": true
   },
   "requestId": "example",
   "type": "automation.put"
@@ -187,7 +185,8 @@ Example:
 
 ```json
 {
-  "limit": 6,
+  "before": 6,
+  "limit": 9,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -212,7 +211,8 @@ Example:
 
 ```json
 {
-  "ok": false,
+  "error": "example",
+  "ok": true,
   "requestId": "example",
   "type": "automation.result"
 }
@@ -241,12 +241,13 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 0,
+  "finishedAt": 7,
   "id": "example",
-  "startedAt": 6,
-  "status": "running",
+  "result": "example",
+  "startedAt": 1,
+  "status": "succeeded",
   "title": "example",
-  "trigger": "file"
+  "trigger": "schedule"
 }
 ```
 
@@ -266,7 +267,7 @@ Example:
 ```json
 {
   "expression": "example",
-  "kind": "rrule",
+  "kind": "cron",
   "startAt": 0,
   "timezone": "example"
 }
@@ -304,7 +305,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   }
@@ -326,10 +327,11 @@ Example:
 
 ```json
 {
-  "event": "ci_failed",
+  "event": "pr_changed",
   "kind": "github",
-  "pollIntervalMs": 60006,
-  "repository": "WQ/59BKiXSBVKQ"
+  "pollIntervalMs": 60009,
+  "pullRequest": 6,
+  "repository": "7_ENDfw1fd/TaDA"
 }
 ```
 

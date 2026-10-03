@@ -1,0 +1,91 @@
+{
+  "$id": "https://ace.local/protocol/v1/MachinesResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "list",
+              "type": "string"
+            },
+            "machines": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/Machine.json"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "next": {
+              "$ref": "https://ace.local/protocol/v1/HostId.json"
+            }
+          },
+          "required": [
+            "kind",
+            "machines"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "status",
+              "type": "string"
+            },
+            "machine": {
+              "anyOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/Machine.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "machine"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "unavailable",
+              "type": "string"
+            },
+            "reason": {
+              "enum": [
+                "directory_not_configured",
+                "forbidden"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "machines.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}

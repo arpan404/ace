@@ -1,4 +1,4 @@
-import { BrowserClientMessage, type BrowserServerMessage } from "@ace/protocol";
+import { ThreadId, BrowserClientMessage, type BrowserServerMessage } from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
 
 function requiredAccess(message: BrowserClientMessage): "read" | "operate" {
@@ -25,7 +25,23 @@ export function connectBrowser(
     send: (message: BrowserServerMessage, serialized?: string) => boolean;
   },
 ): { handle(raw: unknown): Promise<void>; close(): void } {
-  const subscriptions = new Map<string, () => void>();
+  type Subscription = { stop(): void; subscribers: Set<string> };
+  const subscriptions = new Map<string, Subscription>();
+  const bind = (threadId: string, entry: Subscription) => {
+    entry.stop = service.subscribe(
+      threadId,
+      options.connectionId,
+      {
+        send: (frame) =>
+          options.send(
+            { type: "browser.frame", threadId: ThreadId.parse(threadId), frame },
+            service.serializeFrame(threadId, frame),
+          ),
+      },
+      (state) => options.send({ type: "browser.state", state }),
+      (event) => options.send(event),
+    );
+  };
   let pending = 0;
   let closed = false;
   return {
@@ -57,7 +73,8 @@ export function connectBrowser(
               if (!closed) options.send(progress);
             });
             try {
-              respond(await service.open(message.options));
+              const state = await service.open(message.options);
+              respond(state);
             } finally {
               stopProgress();
             }
@@ -86,33 +103,33 @@ export function connectBrowser(
             respond(service.handback(threadId, options.connectionId));
             break;
           case "browser.subscribe": {
-            subscriptions.get(threadId)?.();
-            subscriptions.delete(threadId);
-            if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
-            subscriptions.set(
-              threadId,
-              service.subscribe(
-                threadId,
-                options.connectionId,
-                {
-                  send: (frame) =>
-                    options.send(
-                      { type: "browser.frame", threadId: message.threadId, frame },
-                      service.serializeFrame(threadId, frame),
-                    ),
-                },
-                (state) => options.send({ type: "browser.state", state }),
-                (event) => options.send(event),
-              ),
-            );
+            const subscriber = message.subscriberId ?? "legacy";
+            let entry = subscriptions.get(threadId);
+            if (entry) {
+              if (entry.subscribers.size >= 64 && !entry.subscribers.has(subscriber))
+                throw new Error("Browser subscriber limit");
+              options.send({ type: "browser.state", state: service.state(threadId) });
+              service.replayFrame(threadId, options.connectionId);
+              entry.subscribers.add(subscriber);
+            } else {
+              if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
+              entry = { subscribers: new Set([subscriber]), stop() {} };
+              bind(threadId, entry);
+              subscriptions.set(threadId, entry);
+            }
             respond(null);
             break;
           }
-          case "browser.unsubscribe":
-            subscriptions.get(threadId)?.();
-            subscriptions.delete(threadId);
+          case "browser.unsubscribe": {
+            const entry = subscriptions.get(threadId);
+            entry?.subscribers.delete(message.subscriberId ?? "legacy");
+            if (entry && !entry.subscribers.size) {
+              entry.stop();
+              subscriptions.delete(threadId);
+            }
             respond(null);
             break;
+          }
           case "browser.ack":
             service.acknowledge(threadId, options.connectionId, message.sequence);
             break;
@@ -141,7 +158,7 @@ export function connectBrowser(
     },
     close() {
       closed = true;
-      for (const stop of subscriptions.values()) stop();
+      for (const entry of subscriptions.values()) entry.stop();
       subscriptions.clear();
       service.disconnect(options.connectionId);
     },

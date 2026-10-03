@@ -1,5 +1,4 @@
 import { connectHostToRelay, type HostChannel } from "@ace/relay";
-import type { FilesService } from "@ace/files";
 import { randomUUID } from "node:crypto";
 import { attachRelayService, type RelayServices } from "./services/relay-channel.ts";
 import { HostId } from "@ace/protocol";
@@ -12,7 +11,6 @@ export async function startFilesRelay(
   options: RelayServices & {
     url: string;
     keys: KeyPair;
-    files: FilesService;
     auth: RemoteAuth;
     devices: Devices;
     hostId: string;

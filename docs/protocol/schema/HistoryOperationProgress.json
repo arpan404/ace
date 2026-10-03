@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/HistoryOperationProgress.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "events": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "operation": {
+      "enum": [
+        "history.import",
+        "history.continue"
+      ],
+      "type": "string"
+    },
+    "phase": {
+      "enum": [
+        "preparing",
+        "reading",
+        "publishing",
+        "opening",
+        "sending",
+        "completed",
+        "unsupported",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "history.operation.progress",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "operation",
+    "phase"
+  ],
+  "type": "object"
+}

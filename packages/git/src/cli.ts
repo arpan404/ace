@@ -1,8 +1,9 @@
+import { z } from "zod";
 import { Readable, type Writable } from "node:stream";
 import { killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
 import { stat } from "node:fs/promises";
-import { z } from "zod";
+import { GitDiagnostics } from "./diagnostics.ts";
 import { count, decode } from "./decode.ts";
 import { GitError, toGitError, type GitOptions, type GitProcessRuntime } from "./types.ts";
 
@@ -133,6 +134,7 @@ export class GitCli {
       const limit = options.captureBytes ?? 64 * 1024 * 1024;
       let captured = 0;
       let errorBytes = 0;
+      const diagnostics = new GitDiagnostics();
       let truncated = false;
       let failure: GitError | undefined;
       let spawnFailure: Promise<GitError> | undefined;
@@ -181,8 +183,9 @@ export class GitCli {
         }
       };
       const stderrData = (chunk: Buffer) => {
+        diagnostics.accept(chunk);
         const keep = Math.min(chunk.length, Math.max(0, 65_536 - errorBytes));
-        if (keep) errors.push(chunk.subarray(0, keep));
+        if (keep) errors.push(Buffer.from(chunk.subarray(0, keep)));
         errorBytes += keep;
       };
       child.stdout.on("data", stdout);
@@ -212,7 +215,7 @@ export class GitCli {
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
         if (code !== 0 && !options.allowFailure) {
-          return reject(new GitError("git_failed", stderr.trim() || "Git failed", { args, code }));
+          return reject(new GitError(diagnostics.finish(), "Git command failed", { code }));
         }
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
       });

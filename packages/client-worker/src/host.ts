@@ -5,9 +5,10 @@ import {
   type SidebarExport,
   type ThreadExport,
 } from "@ace/client";
-import type { Item, ServerMessage } from "@ace/protocol";
+import { ClientMessage, type Item, type ServerMessage } from "@ace/protocol";
 import { sidebarPatches, threadPatches, type Patch } from "./patches.ts";
-import { callArgs, iterateArgs, sendArgs } from "./calls.ts";
+import { callArgs, iterateArgs, objectInput, sendArgs } from "./calls.ts";
+import type { TabChannels } from "./tab-channels.ts";
 import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire.ts";
 
 /*
@@ -32,6 +33,7 @@ export interface HostOptions {
 
 interface Entry {
   key: string;
+  generation: number;
   client: Client;
   tabs: Set<Tab>;
   started: Promise<void>;
@@ -62,7 +64,26 @@ const internal = new Set<string>([
   "pong",
 ]);
 const isServicePush = (message: ServerMessage) =>
-  !internal.has(message.type) && !("requestId" in message && message.requestId);
+  !internal.has(message.type) &&
+  (message.type === "history.operation.progress" || !("requestId" in message && message.requestId));
+
+/** Requests that open or use a file channel or a Preview subscription (`tab-channels.ts`). */
+const isChannelRequest = (input: unknown) => {
+  const type = objectInput(input).type;
+  return typeof type === "string" && (type.startsWith("files.") || type.startsWith("browser."));
+};
+
+/** One-way controls that belong to a file channel or a Preview subscription. */
+const channelControls = new Set<string>([
+  "files.request",
+  "files.abort",
+  "files.pull",
+  "files.chunk",
+  "files.credit",
+  "files.cancel",
+  "browser.subscribe",
+  "browser.unsubscribe",
+]);
 
 const errorShape = (error: unknown) =>
   error instanceof ClientError
@@ -74,6 +95,10 @@ export class ClientHost {
   private entries = new Map<string, Entry>();
   private tabs = new Set<Tab>();
   private sweep: (() => void) | undefined;
+  private subscriberSequence = 0;
+  subscriberId(): string {
+    return `tab-${++this.subscriberSequence}`;
+  }
   constructor(options: HostOptions) {
     this.options = options;
   }
@@ -94,6 +119,7 @@ export class ClientHost {
       const client = target.create();
       const created: Entry = {
         key: target.key,
+        generation: 0,
         client,
         tabs: new Set(),
         started: client.start(),
@@ -102,6 +128,7 @@ export class ClientHost {
       };
       const selection = client.connectionState();
       created.unwatch = selection.subscribe(() => {
+        if (client.state !== "ready") created.generation++;
         for (const member of created.tabs) member.connection();
       });
       this.entries.set(target.key, created);
@@ -143,6 +170,10 @@ export class ClientHost {
 class Tab {
   lastSeen: number;
   private host: ClientHost;
+  private subscriber: string;
+  /** File channels and Preview subscriptions, loaded with the tab's first such request. */
+  private channels: TabChannels | undefined;
+  private loadingChannels: Promise<TabChannels> | undefined;
   private port: PortLike;
   private options: HostOptions;
   private entry: Entry | undefined;
@@ -158,6 +189,7 @@ class Tab {
   private listener = (event: { data: unknown }) => this.receive(event.data);
   constructor(host: ClientHost, port: PortLike, options: HostOptions) {
     this.host = host;
+    this.subscriber = host.subscriberId();
     this.port = port;
     this.options = options;
     this.lastSeen = options.now();
@@ -177,6 +209,7 @@ class Tab {
   connection(): void {
     const client = this.entry?.client;
     if (!client) return;
+    if (client.state !== "ready") this.channels?.reset();
     this.post({
       t: "connection",
       state: client.state,
@@ -232,7 +265,7 @@ class Tab {
       case "abort":
         return this.calls.get(message.call)?.abort();
       case "send":
-        return sendArgs(client, message.message);
+        return this.sendControl(client, message.message);
       case "watchIntent":
         return this.watch(client, message.id);
       case "unwatchIntent":
@@ -366,13 +399,59 @@ class Tab {
     const controller = new AbortController();
     this.calls.set(call, controller);
     try {
-      const value = await callArgs(client, method, args, controller.signal);
+      const value =
+        method === "request" && isChannelRequest(args[0])
+          ? await this.channelRequest(client, call, controller, args)
+          : await callArgs(client, method, args, controller.signal);
       this.post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
     } catch (error) {
       this.post({ t: "failed", call, error: errorShape(error) });
     } finally {
       this.calls.delete(call);
     }
+  }
+  private async channelRequest(
+    client: Client,
+    call: number,
+    controller: AbortController,
+    args: unknown[],
+  ): Promise<unknown> {
+    // The connection a request starts on is fixed before the module loads.
+    const entry = this.entry;
+    const generation = entry?.generation;
+    const channels = this.channels ?? (await this.loadChannels());
+    return channels.request({
+      client,
+      args,
+      signal: controller.signal,
+      forward: (forwarded) => callArgs(client, "request", forwarded, controller.signal),
+      current: () => entry !== undefined && entry.generation === generation,
+      pending: () => this.calls.has(call) && !controller.signal.aborted,
+    });
+  }
+  private loadChannels(): Promise<TabChannels> {
+    this.loadingChannels ??= import("./tab-channels.ts").then(
+      ({ TabChannels }) => (this.channels = new TabChannels(this.subscriber)),
+      (error: unknown) => {
+        // A failed load is retried by the next request rather than remembered.
+        this.loadingChannels = undefined;
+        throw error;
+      },
+    );
+    return this.loadingChannels;
+  }
+  /**
+   * Pass a tab's one-way control on. File and Preview controls go through the tab's channels;
+   * before the tab opened any, none of them is the tab's to send.
+   */
+  private sendControl(client: Client, value: unknown): void {
+    // Only channel controls are decoded here; `sendArgs` decodes every control it passes on.
+    const type = objectInput(value).type;
+    if (typeof type === "string" && channelControls.has(type)) {
+      const control = ClientMessage.safeParse(value);
+      if (control.success && !this.channels?.admits(control.data)) return;
+    }
+    sendArgs(client, value);
   }
   private iterate(client: Client, call: number, method: string, args: unknown[]): void {
     const controller = new AbortController();
@@ -411,6 +490,7 @@ class Tab {
     this.calls.delete(call);
   }
   private detach(): void {
+    this.channels?.detach(this.entry?.client);
     for (const lease of this.leases.keys()) this.release(lease);
     for (const stop of this.intents.values()) stop();
     this.intents.clear();

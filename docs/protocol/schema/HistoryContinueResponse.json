@@ -10,6 +10,11 @@
         "nativeSessionId": {
           "type": "string"
         },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "status": {
           "const": "continued",
           "type": "string"
@@ -34,6 +39,11 @@
     {
       "properties": {
         "reason": {
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
           "type": "string"
         },
         "status": {

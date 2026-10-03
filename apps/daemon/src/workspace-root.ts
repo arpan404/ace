@@ -14,6 +14,11 @@ export function executionWorkspace(
   session: unknown,
   project: string | undefined,
 ): ExecutionWorkspace {
+  if (
+    thread.details?.workspaceChange?.state === "preparing" ||
+    thread.details?.workspaceChange?.uncertain
+  )
+    throw new Error("workspace_change_in_progress");
   if (thread.deletedAt !== undefined) throw new Error("thread_not_found");
   if (session !== undefined) {
     const row = sessionRoot.parse(session);

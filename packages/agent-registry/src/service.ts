@@ -80,8 +80,8 @@ export class AgentRegistry {
     if (!command) throw new Error("Approved login CLI unavailable");
     return { command, args: [...login.args], env: { ...plan.env } };
   }
-  /** Local configuration API only. Never exposed as remote executable/argv input. */
-  async bind(input: LocalBinding): Promise<void> {
+  /** Owner-approved installed command binding. Resolves and hashes without executing it. */
+  async bind(input: LocalBinding): Promise<{ durability?: "uncertain" }> {
     if (this.#closed || this.#binding || this.#active) throw new Error("Registry busy");
     this.#binding = true;
     try {
@@ -89,8 +89,15 @@ export class AgentRegistry {
       if (this.#closed) throw new Error("Registry closed");
       const next = new LocalInventory(this.inventory.all());
       next.add(installation);
-      await this.#options.storage.save(next.all());
+      let durability: "uncertain" | undefined;
+      try {
+        await this.#options.storage.save(next.all());
+      } catch (error) {
+        if (!(error instanceof CommittedWriteError)) throw error;
+        durability = "uncertain";
+      }
       this.inventory.add(installation);
+      return durability ? { durability } : {};
     } finally {
       this.#binding = false;
     }
@@ -105,6 +112,24 @@ export class AgentRegistry {
     if (this.#closed) return reply({ ok: false, reason: "Registry closed" });
     try {
       switch (request.type) {
+        case "registry.bind": {
+          if (!request.acpAgentId.startsWith("local:"))
+            return reply({ ok: false, reason: "Local commands require a local: agent identity" });
+          const durability = await this.bind({
+            acpAgentId: request.acpAgentId,
+            installationId: request.installationId,
+            instanceId: request.instanceId,
+            version: request.version,
+            command: request.command,
+            args: request.args,
+            ...(request.underlyingCommand ? { underlyingCommand: request.underlyingCommand } : {}),
+          });
+          const installation = this.inventory
+            .list()
+            .find((entry) => entry.installationId === request.installationId);
+          if (!installation) throw new Error("Binding not persisted");
+          return reply({ ok: true, installation, ...durability });
+        }
         case "registry.list":
           return reply({
             ...this.catalog.list(request.offset, request.limit),

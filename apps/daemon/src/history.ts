@@ -193,7 +193,11 @@ export class DaemonHistory {
       this.lifetime.signal,
     );
   }
-  async handle(request: HistoryRequest, signal: AbortSignal): Promise<ServerMessage> {
+  async handle(
+    request: HistoryRequest,
+    signal: AbortSignal,
+    progress: (event: import("@ace/protocol").HistoryOperationProgress) => void = () => {},
+  ): Promise<ServerMessage> {
     signal.throwIfAborted();
     this.externalSignal?.throwIfAborted();
     this.lifetime.signal.throwIfAborted();
@@ -222,17 +226,46 @@ export class DaemonHistory {
       ...(this.externalSignal ? [this.externalSignal] : []),
     ]);
     lifetime.throwIfAborted();
-    const active = this.stopScan().then(() => this.run(request, lifetime));
+    const report = (
+      phase: import("@ace/protocol").HistoryOperationProgress["phase"],
+      events?: number,
+    ) => {
+      if (request.requestId)
+        progress({
+          type: "history.operation.progress",
+          requestId: request.requestId,
+          operation: request.type,
+          phase,
+          ...(events === undefined ? {} : { events }),
+        });
+    };
+    report("preparing");
+    const active = this.stopScan().then(() => this.run(request, lifetime, report));
     this.active = active;
     try {
-      return await active;
+      const result = await active;
+      report("status" in result && result.status === "unsupported" ? "unsupported" : "completed");
+      if (result.type !== "history.import" && result.type !== "history.continue")
+        throw new Error("Invalid history reply");
+      return request.requestId ? { ...result, requestId: request.requestId } : result;
+    } catch (error) {
+      report("failed");
+      throw error;
     } finally {
       this.active = undefined;
       if (this.changesQueued) this.scheduleChanges();
     }
   }
-  private async run(request: HistoryRequest, signal: AbortSignal): Promise<ServerMessage> {
-    if (request.type === "history.continue") return this.continuation.continue(request, signal);
+  private async run(
+    request: HistoryRequest,
+    signal: AbortSignal,
+    report: (
+      phase: import("@ace/protocol").HistoryOperationProgress["phase"],
+      events?: number,
+    ) => void,
+  ): Promise<ServerMessage> {
+    if (request.type === "history.continue")
+      return this.continuation.continue(request, signal, report);
     if (request.type !== "history.import") throw new Error("Unexpected history operation");
     const source = await this.service.get(request.sourceId);
     if (!source) throw new Error("Unknown registered history source");
@@ -246,6 +279,7 @@ export class DaemonHistory {
     let archived = await this.service.findImported(source.id);
     if (!archived) {
       const threadId = ThreadId.parse(this.nextId());
+      report("reading");
       await this.service.importSession(
         {
           sourceId: source.id,
@@ -266,6 +300,7 @@ export class DaemonHistory {
     const resumePersistence = await this.continuation.pausePersistence(signal);
     try {
       signal.throwIfAborted();
+      report("publishing");
       await publishHistory(
         this.store,
         join(this.dataDir, "events.sqlite"),

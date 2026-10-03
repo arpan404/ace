@@ -1,5 +1,6 @@
+import { FilesWorkspaces } from "../files-workspaces.ts";
 import { warmup } from "./warmup.ts";
-import { FilesService, attachFilesSocket } from "@ace/files";
+import { FilesService, attachFilesSocket, chunkFilesChannel } from "@ace/files";
 import { mkdir, realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { homedir } from "node:os";
@@ -13,9 +14,9 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
   const context = { home: homedir(), env: process.env };
   let files: FilesService | undefined;
   let artifacts: ReturnType<typeof daemonArtifacts> | undefined;
-  let maintenance: ReturnType<typeof setInterval> | undefined;
-  if (config.relayUrl && !config.workspaceRoot)
-    throw new Error("Relay files require ACE_WORKSPACE_ROOT");
+  const scoped = new FilesWorkspaces(owner);
+  services.threadFiles = scoped;
+  resources.own(() => scoped.close());
   if (config.workspaceRoot) {
     const eventStore = store;
     const workspaceRoot = await realpath(config.workspaceRoot);
@@ -32,7 +33,7 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
       now: now,
       id: id,
       // Socket-scoped read/operate checks are enforced by the authenticated server.
-      authorize: () => true,
+      authorize: () => !store.workspaceReservations.reserved(workspaceRoot),
       onChange: (change) => eventStore.recordWorkspaceFileChange(workspaceId, change),
       exportSupport: (_device, assertAuthorized) => {
         if (!artifacts) throw new Error("Artifact producer not initialized");
@@ -47,9 +48,9 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
         return artifacts.output(streamId, assertAuthorized);
       },
     });
-    resources.own(() => filesService.close());
     const filesService = files;
     services.files = filesService;
+    scoped.register(workspaceRoot, filesService);
     artifacts = daemonArtifacts(
       files,
       artifactsRoot,
@@ -71,19 +72,50 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
       await artifactsService.support(loadHostId(config.dataDir));
     });
     resources.own(() => job);
-    const ownedFiles = files;
-    maintenance = setInterval(() => {
-      void ownedFiles
-        .sweep(owner.signal)
-        .catch((error: unknown) => log.log("error", "File retention failed", error));
-    }, 60_000);
-    maintenance.unref();
-    const timer = maintenance;
-    resources.own(() => clearInterval(timer));
   }
+  let sweeping: Promise<void> | undefined;
+  const maintenance = setInterval(() => {
+    if (sweeping) return;
+    sweeping = (async () => {
+      await scoped.sweep(owner.signal);
+    })()
+      .catch((error: unknown) => log.log("error", "File retention failed", error))
+      .finally(() => {
+        sweeping = undefined;
+      });
+  }, 60_000);
+  maintenance.unref();
+  resources.own(async () => {
+    clearInterval(maintenance);
+    await sweeping;
+  });
 }
 export function createFilesSession(context: SocketContext): SocketService {
   let channel: ReturnType<typeof attachFilesSocket> | undefined;
+  let chunks: ReturnType<typeof chunkFilesChannel> | undefined;
+  const getChunks = () => {
+    const device = context.device();
+    const files = context.options.threadFiles;
+    if (!device || !files) return undefined;
+    chunks ??= chunkFilesChannel({
+      device,
+      send: context.send,
+      async resolve(threadId) {
+        if (!context.canReadThread(threadId)) throw new Error("File thread unavailable");
+        const root = files.root(threadId);
+        const service = await files.get(threadId);
+        return {
+          service,
+          allowed: (access) =>
+            context.connected() &&
+            context.authorize(access) &&
+            context.canReadThread(threadId) &&
+            files.matches(threadId, root),
+        };
+      },
+    });
+    return chunks;
+  };
   const getChannel = () => {
     const device = context.device();
     if (!device || !context.options.files) return undefined;
@@ -98,6 +130,7 @@ export function createFilesSession(context: SocketContext): SocketService {
     },
     close() {
       channel?.close();
+      chunks?.close();
     },
     binary(frame) {
       const active = getChannel();
@@ -107,6 +140,27 @@ export function createFilesSession(context: SocketContext): SocketService {
     },
     handle(message) {
       if (!message.type.startsWith("files.")) return false;
+      if (
+        message.type === "files.abort" ||
+        message.type === "files.pull" ||
+        message.type === "files.chunk" ||
+        (message.type === "files.request" && message.threadId)
+      ) {
+        const scoped = getChunks();
+        if (scoped) scoped.accept(message);
+        else
+          context.fail(
+            "files_unavailable",
+            "File service unavailable",
+            false,
+            "requestId" in message ? { requestId: message.requestId } : {},
+          );
+        return true;
+      }
+      if (message.type === "files.cancel" && message.channel > 0x80000000 && chunks) {
+        chunks.accept(message);
+        return true;
+      }
       const active = getChannel();
       if (active) active.accept(message);
       else context.fail("files_unavailable", "File service unavailable");

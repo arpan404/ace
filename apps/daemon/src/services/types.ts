@@ -47,6 +47,7 @@ export interface Services {
   accountRegistry?: AccountRegistry;
   commands?: CommandLibrary;
   files?: FilesService;
+  threadFiles?: import("../files-workspaces.ts").FilesWorkspaces;
   relay?: { url: string; keys: KeyPair };
   handler: CommandHandler;
   agentRegistry?: import("@ace/agent-registry").AgentRegistry;

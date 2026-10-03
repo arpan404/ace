@@ -261,6 +261,7 @@
     "packages/adapter-testkit": {
       "name": "@ace/adapter-testkit",
       "dependencies": {
+        "@ace/provider-kit": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
         "@ace/projection": "workspace:*",
