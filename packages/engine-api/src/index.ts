@@ -62,6 +62,12 @@ export interface SessionContext {
   env?: NodeJS.ProcessEnv;
   runtimePolicy?: "restricted" | "full-access";
   resume?: { nativeSessionId: string; backend?: ProviderBackend; instanceId?: string };
+  /** Persist selection before host admission and native identity before publishing its open frame. */
+  onSessionIdentity?(identity: {
+    backend: ProviderBackend;
+    instanceId: string;
+    nativeSessionId?: string;
+  }): void;
   /** Every sent and received frame goes to the engine for translation and persistence. */
   onFrame(frame: Frame): void;
   onExit(exit: { deliberate: boolean; message?: string }): void;

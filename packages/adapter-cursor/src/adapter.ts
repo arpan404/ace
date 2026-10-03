@@ -64,6 +64,7 @@ export function createCursorAdapter(
         throw new Error("Cursor instance is signed out or shutting down");
       if (sessions.size + opening >= limits.maxWorkers)
         throw new Error("Cursor SDK host capacity reached");
+      context.onSessionIdentity?.({ backend: "cursor-sdk", instanceId: selected.id });
       opening++;
       const { promise: admission, resolve: admissionDone } = Promise.withResolvers<void>();
       admissions.set(admission, selected.id);
@@ -77,10 +78,11 @@ export function createCursorAdapter(
         let session: ProviderSession | undefined;
         let exitedDuringAdmission = false;
         const { mcp: _mcpFactory, ...hostOptions } = options;
+        let recoverySnapshot: Awaited<ReturnType<typeof readCursorSnapshot>> | undefined;
         if (context.resume) {
           // Canonical ace history already owns content. Validate a bounded snapshot
           // without appending positional SDK messages as new live transcript entries.
-          await readCursorSnapshot(
+          recoverySnapshot = await readCursorSnapshot(
             { ...hostOptions, slots, env, instanceId: selected.id },
             { threadId: context.threadId, agentId: context.resume.nativeSessionId },
             context.signal,
@@ -102,6 +104,7 @@ export function createCursorAdapter(
             env,
             instanceId: selected.id,
             limits,
+            ...(recoverySnapshot ? { recoverySnapshot } : {}),
             ...(lease ? { mcp: lease.connection } : {}),
           },
         );

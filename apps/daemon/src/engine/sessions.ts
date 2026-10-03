@@ -2,6 +2,13 @@ import type { ThreadId } from "@ace/protocol";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
+import { z } from "zod";
+
+const SessionIdentity = z.strictObject({
+  backend: z.enum(["acp", "cursor-sdk"]),
+  instanceId: z.string().min(1).max(256),
+  nativeSessionId: z.string().min(1).max(512).optional(),
+});
 
 interface SessionDependencies {
   repo: EngineRepository;
@@ -51,6 +58,17 @@ export class Sessions {
             }),
         ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
         signal: lifetime.signal,
+        onSessionIdentity: (identity) => {
+          if (generation !== actor.generation || lifetime.signal.aborted)
+            throw new Error("Provider identity arrived after host admission was fenced");
+          const parsed = SessionIdentity.parse(identity);
+          if (parsed.backend !== backend) throw new Error("Provider changed its selected backend");
+          this.dependencies.repo.pinSessionIdentity(actor.id, {
+            backend: parsed.backend,
+            instanceId: parsed.instanceId,
+            ...(parsed.nativeSessionId ? { nativeSessionId: parsed.nativeSessionId } : {}),
+          });
+        },
         onFrame: (frame) => actor.frame(frame, generation),
         onExit: (exit) =>
           actor.enqueue(() => {

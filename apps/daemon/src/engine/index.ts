@@ -71,6 +71,7 @@ export class Engine {
       silenceMs,
       (id) => this.wake(id),
       options.threadId ?? randomUUID,
+      this.limits,
     );
     this.handler = {
       handle: (command, context) =>

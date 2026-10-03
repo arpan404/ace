@@ -14,7 +14,7 @@ const frame = (kind, body) => out({method:'frame',params:{schemaVersion:1,genera
 createInterface({input:process.stdin}).on('line',(line)=>{
  const input=JSON.parse(line);
  if(input.method==='open'){options=input.params;frame('open',{cwd:options.cwd});out({id:input.id,result:{agentId:'synthetic-agent'}});}
- else if(input.method==='send'){sending=input.params;run++;frame('send',{input:sending.input});frame('segment',{nativeRunId:'run-'+run});frame('delta',{type:'text-delta',text:'segment-'+run});out({id:input.id,result:{runId:'run-'+run}});}
+ else if(input.method==='send'){sending=input.params;run++;frame('send',{input:sending.input});frame('segment',{nativeRunId:'run-'+run});frame('delta',{type:'text-delta',text:'segment-'+run});if(sending.input[0]?.text==='uncertain')frame('result',{status:'future-status'});out({id:input.id,result:{runId:'run-'+run}});}
  else if(input.method==='cancel'){frame('result',{status:'cancelled'});out({id:input.id,result:{settled:true}});}
  else if(input.method==='close'){frame('result',{status:'finished'});out({id:input.id,result:{disposed:true}});}
 });
@@ -29,15 +29,20 @@ it("supervises a real host, keeps steering in one ace run and rejects child cont
     const state = createThreadState({ threadId, config: { provider: "cursor", silenceMs: 90000 } });
     let id = 0;
     let exit: { deliberate: boolean } | undefined;
+    let pinnedNative: string | undefined;
     const session = await openCursorSession(
       {
         threadId,
         cwd: home,
         signal: new AbortController().signal,
+        onSessionIdentity: (identity) => {
+          pinnedNative = identity.nativeSessionId;
+        },
         onExit: (value) => {
           exit = value;
         },
         onFrame: (frame) => {
+          expect(pinnedNative).toBe("synthetic-agent");
           for (const fact of translator.translate(frame, frame.t))
             apply(state, fact, { now: frame.t, ids: { next: (kind) => `${kind}-${++id}` } });
         },
@@ -63,6 +68,17 @@ it("supervises a real host, keeps steering in one ace run and rejects child cont
     await expect(
       session.resolve("question", { kind: "question", answers: {}, dismissed: true }),
     ).rejects.toThrow("sandbox-only");
+    await session.send([{ type: "text", text: "uncertain" }], "steer", {
+      operationId: "durable-command-3",
+    });
+    await expect(
+      session.send([{ type: "text", text: "must not dispatch" }], "queue"),
+    ).rejects.toThrow("uncertain");
+    expect(Object.values(state.runs)).toHaveLength(1);
+    await session.interrupt({ cascade: true });
+    await expect(session.send([{ type: "text", text: "after stop" }], "queue")).rejects.toThrow(
+      "closed",
+    );
     await session.close("shutdown");
     expect(exit).toEqual({ deliberate: true });
     expect(Object.values(state.runs)).toHaveLength(1);

@@ -26,7 +26,7 @@ export class HostRuntime {
   private callbackBytes = 0;
   private root: string | undefined;
   private store: InstanceType<SdkModule["JsonlLocalAgentStore"]> | undefined;
-  private scrub = createRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } });
+  private scrub = createRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } }, ["text"]);
   private sdk: SdkModule;
   private emit: (frame: CursorEnvelope) => Promise<void>;
   constructor(sdk: SdkModule, emit: (frame: CursorEnvelope) => Promise<void>) {
@@ -58,6 +58,7 @@ export class HostRuntime {
         schemaVersion: 1,
         generation: options.generation,
         operationId: scope?.operationId ?? "open",
+        ...(scope?.commandId ? { commandId: scope.commandId } : {}),
         segment: scope?.segment ?? 0,
         ...(this.agent ? { agentId: this.agent.agentId } : {}),
         ...(nativeRun ? { runId: nativeRun.id } : {}),
@@ -82,11 +83,18 @@ export class HostRuntime {
           "Cursor SDK requires separate SDK sign-in or launch-environment authentication",
         );
       this.root = checkpointDirectory(homedir(), options.threadId);
-      await checkCheckpointBudget(this.root, options.limits.maxCheckpointBytes);
+      const checkpoint = await checkCheckpointBudget(this.root, options.limits.maxCheckpointBytes);
+      if (!options.nativeSessionId && checkpoint.files !== 0)
+        throw new Error(
+          "Unclaimed SDK checkpoint; recover its identity or use explicit context handoff",
+        );
       this.store = new this.sdk.JsonlLocalAgentStore(this.root);
-      this.scrub = createRedactor({
-        env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY, ACE_MCP_BEARER: options.mcp?.bearer },
-      });
+      this.scrub = createRedactor(
+        {
+          env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY, ACE_MCP_BEARER: options.mcp?.bearer },
+        },
+        ["text"],
+      );
       const injection = options.mcp ? cursorSdkInjection(options.mcp) : undefined;
       const agentOptions = {
         local: { cwd: options.cwd, store: this.store, ...policy },
@@ -103,6 +111,7 @@ export class HostRuntime {
         sdkVersion: "1.0.35",
         resumed: !!options.nativeSessionId,
         cwd: options.cwd,
+        model: options.model ?? "composer-2.5",
         deltaSource: true,
       });
       return { agentId: this.agent.agentId };
@@ -110,7 +119,7 @@ export class HostRuntime {
       await this.frame("error", {
         code: "setup_failed",
         message:
-          "Cursor SDK setup failed. Check separate SDK sign-in, checkpoint budget, sandbox helpers and Auto-review availability. Execution was not downgraded.",
+          "Cursor SDK setup failed. Check separate SDK sign-in, checkpoint identity/budget, sandbox helpers and Auto-review availability. Preserve unclaimed checkpoints and use explicit context handoff. Execution was not downgraded.",
       });
       throw new Error("SDK setup failed");
     } finally {

@@ -50,7 +50,13 @@ function escape(text: string): string {
 }
 
 /** Build a redactor that scrubs one JSONL line of personal or secret data. */
-export function createRedactor(ctx: RedactionContext): (line: string) => string {
+export function createRedactor(
+  ctx: RedactionContext,
+  literalTextFields: readonly string[] = [],
+): (line: string) => string {
+  // Streaming text is literal, even when a delta happens to start with a JSON delimiter.
+  // Structural fields keep recursive decoding; literal fields still receive lexical scrubbing.
+  const literalFields = new Set(literalTextFields);
   const home = ctx.home ?? "";
   const username = ctx.username ?? "";
   const host = ctx.host ?? "";
@@ -104,9 +110,10 @@ export function createRedactor(ctx: RedactionContext): (line: string) => string 
   return (line) => {
     if (line.length > 262144) return '"<OVERSIZED REDACTED>"';
     let remaining = 10000;
-    function clean(value: unknown, depth: number): unknown {
+    function clean(value: unknown, depth: number, field?: string): unknown {
       if (--remaining < 0 || depth > 32) return "<OMITTED>";
       if (typeof value === "string") {
+        if (field !== undefined && literalFields.has(field)) return scrub(value);
         const text = value.trimStart();
         if (text.startsWith("{") || text.startsWith("[") || text.startsWith('"')) {
           try {
@@ -133,7 +140,7 @@ export function createRedactor(ctx: RedactionContext): (line: string) => string 
                 ? "<SECRET>"
                 : identity.test(key)
                   ? "<ID>"
-                  : clean(item, depth + 1),
+                  : clean(item, depth + 1, key),
           });
         }
         return result;

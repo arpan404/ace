@@ -21,6 +21,7 @@ export const Envelope = z
   .object({
     schemaVersion: z.literal(1),
     operationId: identity,
+    commandId: identity.optional(),
     generation: identity,
     segment: z.number().int().nonnegative(),
     agentId: identity.optional(),
@@ -47,6 +48,7 @@ export const Open = z.strictObject({
 export type OpenOptions = z.infer<typeof Open>;
 export const Send = z.strictObject({
   operationId: identity,
+  commandId: identity.optional(),
   segment: z.number().int().nonnegative(),
   input: z.array(ContentPart).max(64),
 });

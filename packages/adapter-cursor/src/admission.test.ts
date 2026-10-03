@@ -27,6 +27,16 @@ it("admits an SDK without requiring a CLI and refuses unsupported resolved versi
   ).toMatchObject({ installed: true, supported: false, version: "1.0.36" });
 });
 it("distinguishes absent SDK from a broken installation and refuses Windows supervision", async () => {
+  expect(await discoverCursorSdk({ ...options, nodeVersion: "malformed" })).toMatchObject({
+    installed: true,
+    supported: false,
+  });
+  expect(
+    await discoverCursorSdk({ ...options, read: async () => "x".repeat(65537) }),
+  ).toMatchObject({
+    installed: true,
+    supported: false,
+  });
   const missing = Object.assign(new Error("missing"), { code: "MODULE_NOT_FOUND" });
   expect(
     await discoverCursorSdk({

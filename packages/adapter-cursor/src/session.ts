@@ -15,6 +15,8 @@ export interface CursorSessionOptions extends HostOptions {
   now?: () => number;
   operationId?: () => string;
   mcp?: AceMcpConnection;
+  /** Validated, bounded checkpoint evidence; never appended as fresh live history. */
+  recoverySnapshot?: Awaited<ReturnType<typeof import("./history.ts").readCursorSnapshot>>;
 }
 const OpenReply = z.object({ agentId: z.string().min(1).max(512) });
 export async function openCursorSession(
@@ -32,7 +34,7 @@ export async function openCursorSession(
   const started = now();
   const frame = (
     dir: "send" | "note",
-    kind: "cancel" | "host-exit",
+    kind: "cancel" | "host-exit" | "snapshot",
     body: unknown,
     operationId: string,
     segment: number,
@@ -57,12 +59,25 @@ export async function openCursorSession(
     });
   };
   const host = new CursorHost(options, (data, payload) => {
+    if (data.kind === "open" && data.agentId)
+      context.onSessionIdentity?.({
+        backend: "cursor-sdk",
+        instanceId: options.instanceId,
+        nativeSessionId: data.agentId,
+      });
     if (
       (data.kind === "result" || data.kind === "error") &&
       data.operationId === operation &&
       data.segment === segment
-    )
-      active = false;
+    ) {
+      const result = z.object({ status: z.string() }).safeParse(data.body);
+      if (
+        data.kind === "error" ||
+        (result.success && ["finished", "cancelled", "error"].includes(result.data.status))
+      )
+        active = false;
+      else uncertain = true;
+    }
     context.onFrame({
       seq: ++seq,
       t: now() - started,
@@ -77,6 +92,7 @@ export async function openCursorSession(
   let operation = "open";
   let segment = 0;
   let active = false;
+  let uncertain = false;
   let control = false;
   let closing: Promise<void> | undefined;
   const abort = () => {
@@ -124,19 +140,30 @@ export async function openCursorSession(
       }),
     );
     context.signal.throwIfAborted();
+    if (options.recoverySnapshot) frame("note", "snapshot", options.recoverySnapshot, "open", 0);
     return {
       nativeSessionId: reply.agentId,
       backend: "cursor-sdk",
       instanceId: options.instanceId,
       async send(input: ContentPart[], delivery, intent) {
         if (closing || exited) throw new Error("SDK host is closed");
+        if (uncertain)
+          throw new Error(
+            "SDK delivery or terminal state is uncertain; close and reconcile before sending",
+          );
         if (control) throw new Error("SDK control already in flight");
         boundedJson(input, limits.maxInputBytes);
         // The engine serializes queued sends. SDK terminal evidence clears active via cancel.
         control = true;
         try {
           if (delivery === "steer" && active) {
-            frame("send", "cancel", { replacement: true }, operation, segment);
+            frame(
+              "send",
+              "cancel",
+              { replacement: true, commandId: intent?.operationId },
+              operation,
+              segment,
+            );
             await host.request("cancel");
             segment++;
           } else {
@@ -148,9 +175,15 @@ export async function openCursorSession(
           }
           active = true;
           try {
-            await host.request("send", { operationId: operation, segment, input });
+            await host.request("send", {
+              operationId: operation,
+              commandId: intent?.operationId ?? operation,
+              segment,
+              input,
+            });
           } catch (error) {
             active = false;
+            uncertain = true;
             throw error;
           }
         } finally {
@@ -164,8 +197,14 @@ export async function openCursorSession(
         control = true;
         try {
           frame("send", "cancel", { replacement: false }, operation, segment);
-          await host.request("cancel");
-          active = false;
+          try {
+            await host.request("cancel");
+          } finally {
+            // Root interruption owns the whole host; disposal/group exit also
+            // stops work that outlived the SDK run handle. Steering stays separate.
+            await close("user");
+            active = false;
+          }
         } finally {
           control = false;
         }

@@ -1,6 +1,7 @@
 import type { Fact, Key } from "@ace/core";
 import type { Frame, Translator } from "@ace/engine-api";
-import type { ThreadId } from "@ace/protocol";
+import { ContentPart, type ThreadId } from "@ace/protocol";
+import { z } from "zod";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { Envelope, object, string, nativeIdentity, type CursorEnvelope } from "./contracts.ts";
@@ -84,6 +85,7 @@ export class CursorTranslator implements Translator {
       const namespace = `${event.generation}:${event.operationId}:${event.segment}`;
       if (event.kind === "open") {
         this.cwd = string(body.cwd) ?? "";
+        const model = string(body.model);
         return [
           {
             type: "agent.seen",
@@ -91,6 +93,7 @@ export class CursorTranslator implements Translator {
             origin: "root",
             fidelity: "full",
             cwd: this.cwd,
+            ...(model ? { model } : {}),
             native: { provider: "cursor", ...(event.agentId ? { nativeId: event.agentId } : {}) },
           },
           this.notice(
@@ -119,6 +122,14 @@ export class CursorTranslator implements Translator {
           });
         }
         facts.push(...this.transcript.end());
+        const input = z.array(ContentPart).max(64).safeParse(body.input);
+        if (input.success && input.data.length)
+          facts.push({
+            type: "item.upsert",
+            agent: this.root,
+            item: `${namespace}:user:${event.commandId ?? event.segment}`,
+            draft: { type: "message", role: "user", parts: input.data, complete: true },
+          });
         this.segment = event.segment;
         this.replacement = false;
         this.interrupted = false;
@@ -131,6 +142,14 @@ export class CursorTranslator implements Translator {
         );
         return facts;
       }
+      if (event.kind === "snapshot")
+        return [
+          this.notice(
+            "Checkpoint snapshot retained for reconciliation; positional UUIDs do not establish live-message identity. No uncertain history was appended.",
+            event,
+            "warning",
+          ),
+        ];
       const stale = event.operationId !== this.operation || event.segment !== this.segment;
       if (event.kind === "host-exit")
         return [
@@ -179,14 +198,6 @@ export class CursorTranslator implements Translator {
             return [this.notice("SDK task summary has no independent child identity", event)];
           return [this.notice("Unknown SDK stream message retained", event)];
         }
-        case "snapshot":
-          return [
-            this.notice(
-              "Checkpoint snapshot retained for reconciliation; positional UUIDs do not establish live-message identity. No uncertain history was appended.",
-              event,
-              "warning",
-            ),
-          ];
         case "cancel": {
           if (frame.dir === "send") {
             this.replacement = body.replacement === true;
@@ -202,6 +213,23 @@ export class CursorTranslator implements Translator {
           ];
         }
         case "result": {
+          if (!this.active)
+            return [
+              this.notice(
+                "Repeated SDK terminal result retained; the canonical outcome is unchanged",
+                event,
+              ),
+            ];
+          if (!["finished", "cancelled", "error"].includes(string(body.status) ?? ""))
+            return [
+              ...this.preserveTools(),
+              ...this.children.preserve(),
+              this.notice(
+                "Unrecognized SDK terminal status; execution remains uncertain",
+                event,
+                "warning",
+              ),
+            ];
           const facts = [
             ...this.transcript.end(),
             ...this.preserveTools(),

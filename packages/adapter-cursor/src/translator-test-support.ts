@@ -51,7 +51,7 @@ export function replay(limits: { maxPendingBytes?: number } = {}) {
 }
 export function texts(state: ReturnType<typeof replay>["state"]) {
   return Object.values(state.items).flatMap((item) =>
-    item.type === "message"
+    item.type === "message" && item.role === "assistant"
       ? [item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")]
       : [],
   );

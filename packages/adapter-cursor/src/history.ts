@@ -66,7 +66,7 @@ export async function snapshotInHost(sdk: SnapshotSdkBoundary, input: unknown, h
     )
       throw new Error("Snapshot position/agent identity mismatch");
   }
-  const scrub = createRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } });
+  const scrub = createRedactor({ env: { CURSOR_API_KEY: process.env.CURSOR_API_KEY } }, ["text"]);
   const safeItems: unknown = JSON.parse(
     scrub(boundedJson(items, Math.min(request.limits.maxFrameBytes - 4096, 262144))),
   );

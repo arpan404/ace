@@ -215,6 +215,18 @@ export class EngineRepository {
       ),
     );
   }
+  inputCapacity(id: ThreadId, limit: number): boolean {
+    // Both branches use existing live-intent indexes, with output bounded by admission capacity.
+    return this.store.atomic(
+      (db) =>
+        db
+          .prepare(`SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
+        AND status IN ('pending','queued','running')
+        UNION ALL SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
+        AND awaiting=1 AND status NOT IN ('pending','queued','running') LIMIT ?`)
+          .all(id, id, limit).length < limit,
+    );
+  }
   beginSend(intent: Intent, target: number | undefined): void {
     this.store.atomic((db) =>
       db
@@ -283,6 +295,33 @@ export class EngineRepository {
         )
         .run(nativeId, backend ?? null, instanceId ?? null, id),
     );
+  }
+  pinSessionIdentity(
+    id: ThreadId,
+    identity: {
+      backend: ProviderBackend;
+      instanceId: string;
+      nativeSessionId?: string;
+    },
+  ): void {
+    this.store.atomic((db) => {
+      const before = this.session(id);
+      if (
+        (before.backend && before.backend !== identity.backend) ||
+        (before.instanceId && before.instanceId !== identity.instanceId) ||
+        (before.nativeSessionId &&
+          identity.nativeSessionId &&
+          before.nativeSessionId !== identity.nativeSessionId)
+      )
+        throw new Error("Provider session identity conflicts with its durable binding");
+      db.prepare(`UPDATE engine_sessions SET backend=?, instance_id=?,
+        native_session_id=COALESCE(?,native_session_id) WHERE thread_id=?`).run(
+        identity.backend,
+        identity.instanceId,
+        identity.nativeSessionId ?? null,
+        id,
+      );
+    });
   }
   backend(id: ThreadId): ProviderBackend | undefined {
     const metadata = this.session(id);

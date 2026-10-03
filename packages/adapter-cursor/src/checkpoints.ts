@@ -6,7 +6,10 @@ import { createHash } from "node:crypto";
 export function checkpointDirectory(home: string, threadId: string): string {
   return join(home, ".cursor", "sdk", "ace", createHash("sha256").update(threadId).digest("hex"));
 }
-export async function checkCheckpointBudget(root: string, maxBytes: number): Promise<void> {
+export async function checkCheckpointBudget(
+  root: string,
+  maxBytes: number,
+): Promise<{ bytes: number; files: number }> {
   await mkdir(root, { recursive: true, mode: 0o700 });
   const rootStat = await lstat(root);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink())
@@ -25,4 +28,5 @@ export async function checkCheckpointBudget(root: string, maxBytes: number): Pro
         "SDK checkpoint exceeds recovery budget; preserve source and use explicit context handoff",
       );
   }
+  return { bytes, files };
 }

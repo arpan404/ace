@@ -1,4 +1,5 @@
 import { portableContext } from "@ace/context";
+import { boundedJson } from "@ace/provider-kit/ipc";
 import { realpathSync, statSync } from "node:fs";
 import { validResolution } from "./resolution.ts";
 import { createThreadState } from "@ace/core";
@@ -6,6 +7,7 @@ import { Thread, type Command, type CommandResult, type ThreadId } from "@ace/pr
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
+import type { EngineLimits } from "./limits.ts";
 
 export function engineHandler(
   repo: EngineRepository,
@@ -14,6 +16,7 @@ export function engineHandler(
   silenceMs: number,
   wake: (id: ThreadId) => void,
   nextId: () => string,
+  limits: EngineLimits,
 ): CommandHandler {
   return {
     handle(command: Command): CommandResult {
@@ -60,7 +63,9 @@ export function engineHandler(
               {
                 threadId: source.id,
                 provider: source.provider,
-                ...(source.backend ? { backend: source.backend } : {}),
+                ...((source.backend ?? (source.provider === "cursor" ? "acp" : undefined))
+                  ? { backend: source.backend ?? "acp" }
+                  : {}),
               },
               page.items,
               { maxBytes: 65536, maxItems: 100, historyTruncated: page.itemsBefore !== null },
@@ -71,6 +76,14 @@ export function engineHandler(
             };
           }
           const at = now();
+          if (entry.adapter.backend === "cursor-sdk") {
+            try {
+              const input = deliveryCommand.payload;
+              if (input.type === "thread.create") boundedJson(input.input, limits.maxInputBytes);
+            } catch {
+              return fail("provider_input_budget_exceeded");
+            }
+          }
           const thread = Thread.parse({
             id: nextId(),
             workspaceId: p.workspaceId,
@@ -162,6 +175,15 @@ export function engineHandler(
           if (!threadId)
             return fail(p.type === "interaction.resolve" ? "already_resolved" : "task_not_found");
         } else return fail("not_implemented");
+        if (p.type === "thread.send" && repo.backend(threadId) === "cursor-sdk") {
+          try {
+            boundedJson(p.input, limits.maxInputBytes);
+          } catch {
+            return fail("provider_input_budget_exceeded");
+          }
+          if (!repo.inputCapacity(threadId, limits.maxPendingInputs))
+            return fail("provider_input_queue_full");
+        }
         if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
         repo.add(deliveryCommand, threadId, resolutionId);
         // Microtasks execute only after the enclosing receipt transaction commits.

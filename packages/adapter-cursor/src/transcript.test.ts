@@ -191,3 +191,33 @@ it("fences retained tool argument overflow visibly and refuses later transcript 
   expect(texts(r.state)).toEqual([]);
   expect(deriveThreadStatus(r.state).state).not.toBe("done");
 });
+
+it("retains the first failed outcome when a duplicate terminal result claims success", () => {
+  const r = replay();
+  r.frame("result", { status: "error", error: { message: "failure" } });
+  r.frame("result", { status: "finished" });
+  expect(Object.values(r.state.runs)[0]).toMatchObject({ state: "failed" });
+  expect(deriveThreadStatus(r.state).state).toBe("failed");
+});
+
+it("records supplied user input once while the SDK repeats its user stream message", () => {
+  const r = replay();
+  r.frame("message", {
+    type: "user",
+    message: { role: "user", content: [{ type: "text", text: "synthetic input" }] },
+  });
+  expect(
+    Object.values(r.state.items).filter((item) => item.type === "message" && item.role === "user"),
+  ).toMatchObject([{ parts: [{ type: "text", text: "synthetic input" }] }]);
+});
+it("keeps an unrecognized SDK result uncertain instead of claiming completion or failure", () => {
+  const r = replay();
+  r.frame("result", { status: "future-terminal" });
+  expect(Object.values(r.state.runs)[0]).toMatchObject({ state: "active" });
+  expect(deriveThreadStatus(r.state).state).not.toBe("done");
+  expect(
+    Object.values(r.state.items).some(
+      (item) => item.type === "notice" && item.text.includes("Unrecognized SDK terminal status"),
+    ),
+  ).toBe(true);
+});
