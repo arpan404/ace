@@ -1,14 +1,43 @@
 # Cursor SDK audit for ace
 
-Researched 2026-10-02. Decision proposal: [ADR 0043](../../adr/0043-cursor-local-acp-and-sdk-boundary.md).
+Researched 2026-10-02. Accepted decision: [ADR 0043](../../adr/0043-cursor-sdk-local-runtime.md).
 
-## Recommendation
+## Decision and recommendation
 
-Keep `agent acp` for ace's local Cursor provider. Cursor has an official SDK with **both local and cloud execution**, but its local mode embeds an agent loop in the caller's process. It does not drive the user's installed `cursor-agent` with that CLI's login. Its credential resolver accepts an API key, an environment key, or a key minted through its own browser login. That fails ace's binding [ADR 0002](../../adr/0002-local-cli-providers.md). Even if the credential restriction changed, the inspected local SDK denies interactive approval requests, rejects questions, and accepts plan creation without a human review callback. These are losses for ace. [Package source](#primary-source-index): S-auth, S-local, S-options.
+Use **`@cursor/sdk`'s local runtime** for new Cursor threads, with ace's event log
+as canonical history and SDK checkpoints for native continuation. The owner
+accepted this choice on 2026-10-02. The SDK supplies structured failures, tool
+names, token usage and session history. It embeds a local runtime rather than
+driving the installed `cursor-agent`; its login is separate from editor and CLI
+login. S-auth, S-local, S-run, S-messages, S-store in the [source index](#primary-source-index).
 
-The SDK does improve steering, error reporting, token usage, and SDK-owned history. Those improvements warrant revisiting it, but they do not justify replacing ace's authenticated local CLI or its bidirectional interaction channel. Use ACP live events and ace's own event log for owned threads. Treat on-disk Cursor transcripts as a possible, lossy history supplement, not as authoritative live state or an automatic continuation path. S-run, S-errors, S-messages, S-store; [existing recordings](../fixtures/cursor.md), especially sections 2 and 5.
+This changes the original ACP-retention recommendation. The
+[official SDK login amendment to ADR 0002](../../adr/0002-local-cli-providers.md#amendment-official-sdk-logins)
+authorizes SDK-owned per-instance browser sign-in and environment-only API keys.
+ace remains local and never holds provider credentials in its own storage or
+client protocols. Cloud execution is available in the SDK, but ace selects only
+local execution; this decision adds neither Cursor Cloud nor hosted ace.
 
-Do not add a Cursor Cloud provider under the current ADR. A separate provider would avoid confusing local and remote sessions, but separation alone does not authorize API-key handling or bypass the local-CLI requirement. Cloud support needs an explicit superseding decision. This audit proposes neither a credential exception nor a hosted ace service. [ADR 0002](../../adr/0002-local-cli-providers.md); [Cloud API authentication](https://cursor.com/docs/cloud-agent/api/endpoints).
+The price is reduced human interaction and incomplete child transcripts. The
+inspected runtime denies requests needing human approval, rejects questions, and
+accepts plan creation without a review callback. Sandbox plus Auto-review is the
+chosen policy, advertised as `approvals: "sandbox-only"`. Task children are
+read-only tree projections. Steering uses interrupt/restart under one ace run;
+forks use a portable-context handoff to a fresh agent. These are ace decisions,
+not claims of native SDK feature parity. S-local, S-options, S-deltas; [ADR 0043](../../adr/0043-cursor-sdk-local-runtime.md).
+
+Keep generic ACP for registry agents, existing Cursor ACP threads and fallback
+when the SDK is absent. Resume identities stay tied to their original backend.
+On-disk CLI transcripts remain a possible lossy import source; they are neither
+SDK continuation state nor evidence of live completion. [Existing recordings](../fixtures/cursor.md), sections 2 and 5; S-store; C-storage.
+
+As requested by the owner, only t3code's
+[public Cursor user documentation at commit `de343914`](https://github.com/pingdotgg/t3code/blob/de343914273eceb852a1d1d739cd1d38df7796ee/docs/user/cursor.md)
+was read to understand its published integration approach. That document describes
+local SDK execution, separate sign-in, policy-based execution and projected task
+children. It is primary evidence of t3code's user-facing approach, not authority
+for Cursor API claims. No t3code implementation was read or copied. The SDK
+findings below come from Cursor's own docs and published package.
 
 ## What “Cursor SDK” means
 
@@ -35,7 +64,40 @@ The decisive distinction is **local execution versus local CLI integration**.
 4. There is consequently no CLI launch/readiness/exit lifecycle for ace to supervise through this SDK. An SDK host would need explicit run cancellation, resource disposal, and probably its own supervised sidecar to isolate faults. `SDKAgent.close()` initiates disposal; `[Symbol.asyncDispose]()` can be awaited. The Python bridge has a readiness handshake and shutdown RPC, but supervises an SDK process, not Cursor CLI. S-agent, S-run; B-protocol.
 5. ACP instead launches the user-resolved `agent acp`. The initialize-only probe below advertises `cursor_login` and explicitly describes reuse of existing CLI credentials. ace can tell a logged-out user to run `agent login` outside ace. [ACP docs](https://cursor.com/docs/cli/acp#authentication); [probe](#prompt-free-local-evidence); T-adapter, `createAcpAdapter`.
 
-Reading a user-created API key implicitly from the SDK file would still make ace's SDK runtime consume provider credentials directly. Installing the SDK in a sidecar would still replace the user's installed CLI with a bundled agent implementation. Neither satisfies ADR 0002. This is an architectural conclusion from the credential resolver and executor, not a claim that local SDK execution is itself hosted. S-auth, S-local; [ADR 0002](../../adr/0002-local-cli-providers.md).
+Under the accepted amendment, the SDK owns browser login and all provider
+credential persistence and authenticated requests. ace supervises an isolated
+host and exposes safe auth status. Discard `SdkLoginResult.apiKey` inside that
+host. The daemon, event log, frame recorder, clients and account registry never
+receive key-bearing login results or credential-store contents. User keys enter
+only through the launch environment, which the SDK reads directly. This is an
+explicit architecture change, not evidence of CLI credential reuse.
+[ADR 0002 amendment](../../adr/0002-local-cli-providers.md#amendment-official-sdk-logins); S-auth.
+
+A critical isolation detail is that `login`, `status` and `logout` can accept a
+custom `FileCredentialStore`, but `resolveDefaultApiKey()` reads the **default**
+SDK path and caches the stored key process-wide for five seconds. Passing a
+custom store to login does not wire it into `Agent.create()`. Start each SDK host
+with the selected instance's private home before importing the SDK, and use that
+host's default store. The accounts contract places Cursor's `HOME` at
+`<instance.homeDir>/user`, yielding
+`<instance.homeDir>/user/.cursor/sdk/auth.json` on the inspected macOS/Linux path.
+Verify Windows home resolution for the pinned runtime before claiming support.
+This host design is an inference from S-auth and A-instances, not an SDK-managed
+multi-account feature.
+
+The SDK store uses directory mode 0700 and file mode 0600, subject to Windows chmod
+handling. `Cursor.auth.logout()` removes the local credential file and clears its
+cache; it does not revoke the minted key or delete conversation history. Stop
+selected-instance hosts before logout. Revocation is in Cursor's dashboard. An
+inherited environment key takes precedence and remains active until removed from
+the launch environment. S-auth, `FileCredentialStore.save`, `clear`, `sdkLogout`.
+
+Accounts PR #25 currently strips ambient `CURSOR_API_KEY` in `instanceEnv`.
+Implementation therefore needs a narrow SDK-only environment inheritance policy
+and an SDK auth driver at the accounts boundary. Persist only instance identity
+and safe auth status, never a key or key-bearing environment value. Preserve
+instance pinning on resume and the isolation rules for every other provider.
+A-instances, A-service, A-login; [accounts ADR 0018](https://github.com/arpan404/ace/blob/a30aa2c85849b92ee471f0ccc6147f0b3a6f6492/docs/adr/0018-accounts-and-session-portability.md).
 
 ## API inventory of the local SDK
 
@@ -52,7 +114,7 @@ These are published API and source findings, **not model-turn observations**. No
 | Background children  | The current executor drains background child results through parent follow-up turns. This improves on the SDK's earlier behavior, but is not proof that every shell or descendant has stopped when `wait()` resolves.                                                                                                                                                                                                 | S-local, `createLocalExecutor`, background follow-up loop; [1.0.31 changelog](https://cursor.com/docs/sdk/changelog). |
 | Models and modes     | `Cursor.models.list()` yields models, parameters and variants under SDK auth. Local creation requires a model selection; successful send overrides update the handle's model. `AgentModeOption` is `agent` or `plan`; no public `ask` mode in this version.                                                                                                                                                           | S-options, S-agent, S-stubs.                                                                                          |
 | Steering and cancel  | Optional `run.steer(text)` resolves `complete_delivered` or `revert_to_followup`. Delivery ownership transfers only on the first result. This is a local live-run feature; detached/cloud handles fall back. `run.cancel()` is public, but is not an individual subagent/task-stop API.                                                                                                                               | S-run; S-local, steer handling; [steering docs](https://cursor.com/docs/sdk/typescript#steering-a-run-in-flight).     |
-| Resume and fork      | `Agent.resume` restores SDK-owned checkpoints. No public fork operation or CLI/ACP-store import operation found in `Agent`, `SDKAgent`, `Run`, `AgentOptions` or the bridge agent service. Do not equate a new agent with a fork.                                                                                                                                                                                     | S-stubs, S-agent, S-run, S-options; B-agent.                                                                          |
+| Resume and fork      | `Agent.resume` restores SDK-owned checkpoints. No public fork operation or CLI/ACP-store import operation found in `Agent`, `SDKAgent`, `Run`, `AgentOptions` or the bridge agent service. ace implements a context handoff to a fresh agent; this is not a native checkpoint fork.                                                                                                                                   | S-stubs, S-agent, S-run, S-options; B-agent.                                                                          |
 | Usage and limits     | Per-turn `usage` messages; cumulative `run.usage`/`RunResult.usage`; `getUsage()` supplies billed token/cost records. Local entries use usage UUIDs, not client run IDs. `RateLimitError` is useful failure evidence, not an account quota-window feed. No public account rate-limit snapshot API found.                                                                                                              | S-messages, S-usage, S-agent, S-errors, S-stubs.                                                                      |
 | History and recovery | `LocalAgentStore` composes agents, runs, events and checkpoint blobs; JSONL and SQLite implementations exist. `Agent.messages.list`, `listRuns`, `getRun` and `conversation()` read SDK history. SDK IDs/stores are separate from ACP IDs/stores.                                                                                                                                                                     | S-store, S-stubs, S-run; C-storage.                                                                                   |
 
@@ -60,19 +122,19 @@ These are published API and source findings, **not model-turn observations**. No
 
 ACP evidence here comes from the installed bundle and existing raw fixtures, not from assuming the generic ACP schema is implemented. The [fixture analysis](../fixtures/cursor.md) corrects several earlier code-reading assumptions in [cursor.md](cursor.md).
 
-| Finding                      | ACP today                                                                                                                                                                                                                                                                 | SDK today                                                                                                                                          | Consequence for ace                                                                                                                       |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Subagent tree                | `_meta.subagents` enables spawned/state updates; child content carries its own session ID. Background child keeps the prompt open in existing recordings. C-tree; F-subagent.                                                                                             | Rich task execution but limited nested delta fidelity; high-level events lack parent linkage. S-deltas, S-messages, S-options.                     | ACP already offers stronger evidence for ace's observed tree. Do not advertise full SDK child fidelity from the existence of a Task tool. |
-| Turn failure                 | Runtime failure is diagnostic text followed by `end_turn`, so success cannot be inferred from stop reason. C-errors.                                                                                                                                                      | `RunResult.error`, typed exceptions and error status. S-run, S-errors.                                                                             | SDK wins on structured diagnostics; it does not fix the auth/HITL mismatch.                                                               |
-| Tool failure and identity    | Provider reports completion; ace must inspect `rawOutput.error`, rejection, denial or nonzero exit. Mostly no raw tool name. C-tools; T-tools.                                                                                                                            | Tool name plus `error` status, opaque args/results with truncation flags. S-messages.                                                              | SDK is richer. ACP must preserve raw frames and avoid inventing certainty.                                                                |
-| Mid-turn steering            | A second prompt cancels the first; ace queues input. C-prompt; T-session, `drain`.                                                                                                                                                                                        | Live local `steer` with acknowledgement and follow-up fallback. S-run.                                                                             | SDK wins this feature. Keep ACP `steer:false`.                                                                                            |
-| Human interactions           | Permission RPC plus Cursor question/plan requests. Existing plan rejection fixture exercises the bidirectional path; the approval/question recordings did not actually request their named feature. C-interactions; F-plan, F-approval.                                   | No interactive approval callback; questions rejected; plan creation auto-accepted. S-local.                                                        | Decisive functional reason to retain ACP. A sandbox or automatic classifier cannot replace a pending human interaction.                   |
-| Token usage                  | No `usage_update` in bundle or recordings. C-errors, F-tool.                                                                                                                                                                                                              | Per-turn/cumulative usage and billed lookup. S-usage, S-agent.                                                                                     | Keep ACP usage unavailable. Do not open an API-key SDK just to fetch it.                                                                  |
-| Rate limits and network      | ACP exposes no structured retry/connection events. C-errors.                                                                                                                                                                                                              | Typed rate/network failures and local retry option; no account quota-window API found. S-errors, S-options.                                        | Improve narrow ACP diagnostic classification when there is evidence; do not promise native quota meters.                                  |
-| Models and modes             | Parameterized picker opt-in; agent/plan/ask recorded, and model selection is process-global. C-models; F-tool, seq 3.                                                                                                                                                     | Per-agent/per-send model config, agent/plan modes, API-key catalog. S-options, S-agent.                                                            | Continue one ACP process per thread/workspace. Reuse `@ace/models` discovery.                                                             |
-| Resume/fork                  | `session/load` for ACP-created stores; no native fork. C-storage.                                                                                                                                                                                                         | SDK checkpoint resume; no public fork or ACP conversion found. S-stubs, S-store.                                                                   | Preserve native ACP IDs. Replacing the backend would strand existing resumable threads.                                                   |
-| Transcripts                  | Recordings found no root ACP JSONL transcript; child transcripts appeared at top-level child-ID paths. TUI transcript content is lossy. C-storage; F-subagent, seq 92; [fixture corrections](../fixtures/cursor.md#2-open-questions-in-cursormd-and-the-recorded-claims). | SDK store/events/checkpoints and history reads, not CLI history readers. S-store, S-stubs.                                                         | Own live history in ace. Keep general Cursor history import unsupported until a partial-history contract is explicit.                     |
-| Cancellation and hidden work | Child disconnect does not prove termination; background shells can look completed while still running. F-background, F-interrupt; C-tree.                                                                                                                                 | Run cancellation and background follow-up processing exist; no separately addressable background-task inventory/control API found. S-run, S-stubs. | Keep uncertain work visible. Neither SDK terminal status nor ACP `end_turn` alone proves tree completion.                                 |
+| Finding                      | ACP today                                                                                                                                                                                                                                                                 | SDK today                                                                                                                                          | Consequence for ace                                                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Subagent tree                | `_meta.subagents` enables spawned/state updates; child content carries its own session ID. Background child keeps the prompt open in existing recordings. C-tree; F-subagent.                                                                                             | Rich task execution but limited nested delta fidelity; high-level events lack parent linkage. S-deltas, S-messages, S-options.                     | Show SDK task children read-only with summary/placeholder fidelity. Keep unresolved background children live.        |
+| Turn failure                 | Runtime failure is diagnostic text followed by `end_turn`, so success cannot be inferred from stop reason. C-errors.                                                                                                                                                      | `RunResult.error`, typed exceptions and error status. S-run, S-errors.                                                                             | Use typed SDK errors. Never treat a terminal event as proof that the whole tree settled.                             |
+| Tool failure and identity    | Provider reports completion; ace must inspect `rawOutput.error`, rejection, denial or nonzero exit. Mostly no raw tool name. C-tools; T-tools.                                                                                                                            | Tool name plus `error` status, opaque args/results with truncation flags. S-messages.                                                              | Use SDK identity/status and preserve opaque output, including truncation markers.                                    |
+| Mid-turn steering            | A second prompt cancels the first; ace queues input. C-prompt; T-session, `drain`.                                                                                                                                                                                        | Live local `steer` with acknowledgement and follow-up fallback. S-run.                                                                             | Choose interrupt/restart under the same ace run, despite optional native SDK steering. Keep backend policy explicit. |
+| Human interactions           | Permission RPC plus Cursor question/plan requests. Existing plan rejection fixture exercises the bidirectional path; the approval/question recordings did not actually request their named feature. C-interactions; F-plan, F-approval.                                   | No interactive approval callback; questions rejected; plan creation auto-accepted. S-local.                                                        | Accept the loss. Advertise sandbox-only approvals; no fake question, approval or plan-review prompts.                |
+| Token usage                  | No `usage_update` in bundle or recordings. C-errors, F-tool.                                                                                                                                                                                                              | Per-turn/cumulative usage and billed lookup. S-usage, S-agent.                                                                                     | Use SDK usage on SDK threads; ACP fallback remains unavailable. Billed lookup is separate from token totals.         |
+| Rate limits and network      | ACP exposes no structured retry/connection events. C-errors.                                                                                                                                                                                                              | Typed rate/network failures and local retry option; no account quota-window API found. S-errors, S-options.                                        | Report SDK rate/network failures; keep account quota windows unknown without independent evidence.                   |
+| Models and modes             | Parameterized picker opt-in; agent/plan/ask recorded, and model selection is process-global. C-models; F-tool, seq 3.                                                                                                                                                     | Per-agent/per-send model config, agent/plan modes, API-key catalog. S-options, S-agent.                                                            | Use per-agent SDK settings and SDK catalog through `@ace/models`; do not offer local ask mode.                       |
+| Resume/fork                  | `session/load` for ACP-created stores; no native fork. C-storage.                                                                                                                                                                                                         | SDK checkpoint resume; no public fork or ACP conversion found. S-stubs, S-store.                                                                   | Pin existing ACP IDs to ACP. Resume SDK checkpoints; fork through explicit context handoff.                          |
+| Transcripts                  | Recordings found no root ACP JSONL transcript; child transcripts appeared at top-level child-ID paths. TUI transcript content is lossy. C-storage; F-subagent, seq 92; [fixture corrections](../fixtures/cursor.md#2-open-questions-in-cursormd-and-the-recorded-claims). | SDK store/events/checkpoints and history reads, not CLI history readers. S-store, S-stubs.                                                         | Keep ace events canonical and SDK history as reconciliation input. CLI import remains partial and separate.          |
+| Cancellation and hidden work | Child disconnect does not prove termination; background shells can look completed while still running. F-background, F-interrupt; C-tree.                                                                                                                                 | Run cancellation and background follow-up processing exist; no separately addressable background-task inventory/control API found. S-run, S-stubs. | Keep uncertain work visible. Neither SDK terminal status nor ACP `end_turn` alone proves tree completion.            |
 
 ## Version, stability and operational risks
 
@@ -82,7 +144,19 @@ The published changelog currently stops at 1.0.31, behind npm. It documents rece
 
 The bridge promises additive `sdk.v1` wire compatibility, while the SDK tool payloads remain opaque. Some docs lag implementation: bridge prose still calls usage cloud-only and shows `local.cwd` as an array, while 1.0.35 types allow local billed usage and use `cwd: string` plus `dirs`. Treat published versioned code as the deciding source. S-agent, S-options; B-versioning, B-services.
 
-SDK local resume needs durable checkpoint storage. Dropping a bridge stream does not cancel a run, and live `Send` offsets cannot safely be reused as durable `ObserveRun` offsets. A future SDK adapter would need recovery deduplication and crash reconciliation, not just a stream iterator. B-streaming; S-store. These findings have not been tested against a live model run.
+SDK local resume needs durable checkpoint storage. Dropping a bridge stream does not cancel a run, and live `Send` offsets cannot safely be reused as durable `ObserveRun` offsets. The SDK adapter needs recovery deduplication and crash reconciliation. The bridge offset caveat is specific to bridge consumers; ace selects the direct TypeScript SDK. B-streaming; S-store. These findings have not been tested against a live model run.
+
+History paging has an important implementation limit. In 1.0.35,
+`CursorAgentPlatform.getAgentMessages()` loads
+`checkpointStore.getFullConversation(agentId).turns` **before** applying
+`offset`/`limit`. Paging bounds returned data, not SDK heap. Its history UUID is
+synthesized as `${agentId}:${offset + index}`, while live
+`SDKAssistantMessage` has no message ID. A shared stable message identity across
+streams and snapshots cannot be assumed. Recovery needs persisted segment/order
+provenance, snapshot revision checks and an explicit memory budget in an isolated
+host. Ambiguous snapshots must not append duplicate text or collapse equal
+messages from different turns. S-history, S-messages. These are source-derived
+implementation constraints, not measured runtime behavior.
 
 ## Migration from integration/train-1
 
@@ -90,15 +164,59 @@ Inspected `origin/integration/train-1` at **`8d98459e20c181d93abb269cc12d1df5a28
 
 The train already resolves the installed `agent`, spawns ACP through provider-kit, opts into Cursor subagents/models, translates vendor requests, queues sends, detects raw tool failures, and retains cancellation uncertainty. Discovery still advertises Cursor capabilities from a date-shaped version string. Session initialization checks protocol v1 but does not require the advertised subagent capability. General history scan explicitly returns Cursor unsupported. T-adapter, T-session, T-quirks, T-routing, T-tools, T-history.
 
-The migration is an incremental ACP hardening task, **not a switch to SDK sessions**:
+The migration adds the SDK adapter while preserving ACP-owned history and
+continuation. It requires coordinated engine and accounts changes, rather than
+an SDK package substitution:
 
-1. Carry the existing ACP package and daemon registration forward. Preserve provider kind, native session IDs, append-only events and `session/load` behavior; keep the generic/Antigravity implementations. T-adapter, T-daemon, T-session.
-2. Validate the initialize response leniently and require the Cursor subagent capability before starting a model turn. If absent, fail opening the Cursor session with an actionable incompatibility message rather than claim a complete tree. Keep unsupported steering/fork/usage/task-control capabilities false. Do not widen the engine contract merely to solve a Cursor handshake. T-session, T-quirks; [ADR 0004](../../adr/0004-canonical-agent-model.md).
-3. Preserve the tested queue, child ownership, plan rejection, raw failure and disconnect handling. Audit diagnostic classification against final provider diagnostic segments only; use synthetic cases for contracts and owner-approved recordings for real error families. T-routing, T-tools, T-session; C-errors.
-4. Keep ace event history primary. Retain the Cursor history import unsupported result for this delivery. A later partial, read-only transcript viewer can use shared native-session readers, but must declare missing tool outputs and disable continuation unless an ACP native ID is positively verified. Do not parse opaque store blobs or map SDK IDs onto ACP IDs. T-history; C-storage; [recorded transcript corrections](../fixtures/cursor.md).
-5. Prepare fixture changes and behavior tests listed in the implementation brief. Request owner approval before recording; existing fixtures remain versioned and usable offline. No recordings ran during this research.
+1. Add `packages/adapter-cursor` with an exact `@cursor/sdk` 1.0.35 pin, pure
+   translator and supervised Node SDK host. Extend discovery to identify the SDK
+   separately from the CLI and gate its version before opening a turn. Register
+   SDK-first selection for new Cursor threads; use ACP only on package absence.
+   Keep generic ACP registry and Antigravity paths intact. T-adapter, T-daemon;
+   S-package; [ADR 0007](../../adr/0007-adapter-and-engine-contract.md).
+2. Store backend identity with the native session and provider instance. Existing
+   Cursor ACP threads remain on `session/load`; SDK threads use `Agent.resume`
+   with their own durable store. Offer migration as a bounded portable-context
+   handoff into a fresh SDK agent, preserving source provenance and history.
+   Neither SDK auth errors nor unknown versions authorize automatic ACP downgrade.
+   C-storage, S-store, S-stubs; A-service; [ADR 0043](../../adr/0043-cursor-sdk-local-runtime.md).
+3. Integrate SDK login/status/logout with accounts' private homes. Isolate SDK
+   imports and caches in child processes; narrowly allow the user's environment
+   key into the selected SDK host. Preserve account pinning, writer reservations
+   and safe status. SDK logout removes only its auth store, and dashboard
+   revocation stays external. A-instances, A-service, A-login; S-auth.
+4. Add honest `approvals: "sandbox-only"` capabilities and distinguish native
+   controls from ace's steering/fork policies. SDK restricted mode enables
+   sandbox plus Auto-review; full access disables sandbox. Persist restart
+   segments under one ace run, including pending input and cancellation
+   uncertainty. Expose SDK task children read-only and reduce status over the
+   entire tree. S-options, S-local, S-run, S-deltas; [ADR 0004](../../adr/0004-canonical-agent-model.md).
+5. Use ace's existing thread-scoped MCP server and public injection helper.
+   SDK custom tools execute host callbacks outside the normal approval path, so
+   they are not the integration mechanism. Keep SDK checkpoint state private to
+   the instance; reconcile `messages.list` snapshots with ace events using stable
+   identities and bounded pages. CLI transcript import stays unsupported for
+   automatic SDK continuation. S-options, `customTools`; S-stubs, S-store;
+   [MCP owner](../../../packages/mcp-server/README.md).
+6. Extend the recorder with SDK-boundary frames, keep all ACP recordings versioned,
+   and add replay expectations plus offline behavior tests. Record `composer-2.5`
+   scenarios only after the owner approves the list in the implementation brief.
+   No recordings ran during this research. [ADR 0007](../../adr/0007-adapter-and-engine-contract.md).
 
-The self-contained worker handoff is `/tmp/ace-orch/impl-cursor-brief.md`. A future SDK reconsideration must show an official installed-CLI execution/login path, interactive callbacks for approvals/questions/plans, adequate child lifecycle evidence, and an existing-thread resume strategy. Until then, do not add `@cursor/sdk` as a runtime dependency.
+Task-child association needs special care. High-level `SDKTaskMessage` lacks a
+child ID. Task tool args/results can carry `agentId`; results may also carry
+`isBackground`, `backgroundReason` and `transcriptPath`. Use the owning call ID
+for a provisional child, then associate its native identity when observed. A
+background dispatch result does not prove child completion. Nested delta
+conversion exposes one level and omits deeper tool-call, shell-output and edit
+deltas. Declare summary or placeholder fidelity, preserve unknown payloads and
+keep unresolved work conservative. S-task, S-deltas, S-local,
+`LocalSubagentHostAdapter.awaitBackgroundWorkers`.
+
+The self-contained worker handoff is `/tmp/ace-orch/impl-cursor-brief.md`. It names
+packages, boundary capture, behavior tests, memory limits and the quota-spending
+fixture scenarios for owner approval. These changes are a future implementation
+scope; this PR contains documentation only.
 
 ## Prompt-free local evidence
 
@@ -151,6 +269,8 @@ All npm file citations below mean **the extracted 1.0.35 package**, not a mutabl
 - **S-stubs**: `dist/esm/stubs.d.ts`, public `Agent` and `Cursor` declarations. Despite the filename, the runtime `index.js` implements these APIs; do not infer nonimplementation from the name.
 - **S-run**: `dist/esm/run.d.ts`, `Run`, `RunResult`, `RunOperation`, `SteerAckOutcome`.
 - **S-messages**: `dist/esm/messages.d.ts`, `SDKMessage`, `SDKToolUseMessage`, `SDKRequestMessage`, `SDKUsageMessage`.
+- **S-history**: `dist/esm/index.js`, `CursorAgentPlatform.getAgentMessages`, full-conversation load before page slicing and positional `AgentMessage.uuid`; `dist/esm/messages.d.ts`, `SDKAssistantMessage`.
+- **S-task**: `dist/esm/vendor/cursor-sdk-shared/tool-call-types.d.ts`, `TaskArgsSchema`, `TaskSuccessSchema`; `dist/esm/messages.d.ts`, `SDKTaskMessage`; `dist/esm/689.js`, local Task conversion and `LocalSubagentHostAdapter.awaitBackgroundWorkers`.
 - **S-errors**: `dist/esm/errors.d.ts`, `CursorSdkError`, `RateLimitError`, `NetworkError`, `AgentBusyError`.
 - **S-usage**: `dist/esm/usage-types.d.ts`, `TokenUsage`, `AgentUsage`, `RunUsage`, `UsageCost`.
 - **S-deltas**: `dist/esm/vendor/cursor-sdk-shared/delta-types.d.ts:9607`, `NestedTaskUpdateSchema` and its fidelity comment; `dist/esm/types/delta-types.d.ts`, `InteractionUpdate`.
@@ -193,5 +313,12 @@ Train references mean `git show 8d98459e20c181d93abb269cc12d1df5a28ff75a:<path>`
 - **T-tools**: `packages/adapter-acp/src/{tools,tool-raw,tool-final}.ts`, `toolStatus`, raw preservation.
 - **T-daemon**: `apps/daemon/src/engine/adapters.ts`, `discoverAdapters`.
 - **T-history**: `packages/history-import/src/scan.ts`, `scan`, Cursor unsupported branch.
+
+Accounts references are pinned to PR #25 head
+`a30aa2c85849b92ee471f0ccc6147f0b3a6f6492`, fetched as `origin/feat/accounts`:
+
+- **A-instances**: [packages/accounts/src/instances.ts](https://github.com/arpan404/ace/blob/a30aa2c85849b92ee471f0ccc6147f0b3a6f6492/packages/accounts/src/instances.ts), `createInstance`, `instanceEnv`, `loginStatus`, environment masking and private home selection.
+- **A-service**: [packages/accounts/src/service.ts](https://github.com/arpan404/ace/blob/a30aa2c85849b92ee471f0ccc6147f0b3a6f6492/packages/accounts/src/service.ts), `AccountAdapterFactory`, `AccountService.bindAdapter`, `openSession` and pinned resume.
+- **A-login**: [packages/accounts/src/login.ts](https://github.com/arpan404/ace/blob/a30aa2c85849b92ee471f0ccc6147f0b3a6f6492/packages/accounts/src/login.ts), `addAccount`, current CLI login driver.
 
 No tests, benchmark, fixture recorder, provider login or model turn ran. Verification for this docs-only change is formatting and source review.
