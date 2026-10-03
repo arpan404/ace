@@ -1,4 +1,4 @@
-import type { DeviceTransport } from "@ace/client";
+import type { DeviceTransport } from "@ace/client/devices";
 import {
   AppDevice,
   DeviceClientMessage,
@@ -89,6 +89,11 @@ export class FakeAppDevices {
         screen: "home",
         logs: [],
       });
+  }
+
+  /** The thread a device is approved for, as tests check what a person allowed. */
+  approval(deviceId: string): string | undefined {
+    return this.sessions.get(deviceId)?.threadId;
   }
 
   /** One authenticated devices channel, as `deviceTransport()` opens against a real daemon. */

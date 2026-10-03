@@ -5,3 +5,4 @@ export { ChangesTab } from "./changes/changes-tab.tsx";
 export { LogsTab } from "./logs/logs-tab.tsx";
 export { PreviewTab } from "./preview/preview-tab.tsx";
 export { TerminalTab } from "./terminal/terminal-tab.tsx";
+export { DevicesTab } from "@/features/devices/index.ts";
