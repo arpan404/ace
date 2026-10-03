@@ -209,6 +209,30 @@ function main(): void {
       rendererUrl = devUrl;
     } else rendererUrl = await serveRenderer(paths.renderer, remote);
 
+    // The page waits for its daemon at boot. If the daemon is not up within a few seconds the
+    // page falls back to its connection screen, and reloads once the daemon is running.
+    let missedConnection = false;
+    const connection = async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          runtime.connection(),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => {
+              missedConnection = true;
+              reject(new Error("The daemon is still starting"));
+            }, 15_000);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    runtime.onStatus((status) => {
+      if (status.state !== "running" || !missedConnection) return;
+      missedConnection = false;
+      window?.webContents.reload();
+    });
     const handlers = createHandlers({
       info,
       runtime,
@@ -216,6 +240,7 @@ function main(): void {
       background,
       window: () => window,
       env: process.env,
+      connection,
     });
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(

@@ -1,6 +1,6 @@
 import { nativeTheme, type BrowserWindow } from "electron";
 import { shell } from "electron";
-import type { AppInfo, NativeAppearance } from "../shared/contract.ts";
+import type { AppInfo, DaemonConnection, NativeAppearance } from "../shared/contract.ts";
 import type { Background } from "./background.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { Handlers } from "./ipc.ts";
@@ -28,6 +28,8 @@ export function createHandlers(options: {
   background: Background;
   window(): BrowserWindow | undefined;
   env: NodeJS.ProcessEnv;
+  /** The renderer's daemon hand-off; may reject while the daemon is still starting. */
+  connection(): Promise<DaemonConnection>;
 }): Handlers {
   const { runtime, settings, background } = options;
   const requireWindow = () => {
@@ -37,7 +39,7 @@ export function createHandlers(options: {
   };
   return {
     "app.info": () => options.info,
-    "daemon.connection": () => runtime.connection(),
+    "daemon.connection": () => options.connection(),
     "daemon.status": () => runtime.current(),
     "daemon.restart": () => runtime.restart(),
     "daemon.diagnose": () => runtime.diagnose(),
