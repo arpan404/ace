@@ -25,10 +25,11 @@ test("Run starts the project's default script in a new terminal in the bottom pa
       within(bottom).getByRole("tab", { name: "Terminal" }).getAttribute("aria-selected"),
     ).toBe("true"),
   );
+  // The script's tab shows it running; the panel opening on it is the only confirmation.
   expect(
-    await within(bottom).findByRole("tab", { name: "dev:relay", selected: true }),
+    await within(bottom).findByRole("tab", { name: "dev:relay, running", selected: true }),
   ).toBeTruthy();
-  expect(await screen.findByText("Running bun run dev:relay")).toBeTruthy();
+  expect(screen.queryByText("Running bun run dev:relay")).toBeNull();
   expect(app.daemon.terminals.list("thread-replay-cursor").map((t) => t.name)).toEqual([
     "dev:relay",
   ]);
@@ -38,7 +39,7 @@ test("Run's picker runs another of the project's scripts", async () => {
   const app = await openThread();
   await userEvent.click(await screen.findByRole("button", { name: "Choose a script" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /bun run soak/ }));
-  expect(await screen.findByText("Running bun run soak")).toBeTruthy();
+  expect(await screen.findByRole("tab", { name: "soak, running" })).toBeTruthy();
   expect(app.daemon.terminals.list("thread-replay-cursor").map((t) => t.name)).toEqual(["soak"]);
 });
 

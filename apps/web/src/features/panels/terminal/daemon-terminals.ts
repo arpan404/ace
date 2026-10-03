@@ -62,6 +62,18 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
     for (const terminal of terminals) threadOf.set(terminal.id, threadId);
     changed();
   };
+  /** The shell ended: its tab stops showing it running without another list read. */
+  const exited = (terminalId: string) => {
+    const threadId = threadOf.get(terminalId);
+    const terminals = threadId && lists.get(threadId);
+    if (!threadId || !terminals) return;
+    remember(
+      threadId,
+      terminals.map((terminal) =>
+        terminal.id === terminalId ? { ...terminal, exited: true } : terminal,
+      ),
+    );
+  };
   const refresh = async (threadId: string) => {
     const reply = await request({ op: "list", threadId: ThreadId.parse(threadId) });
     remember(threadId, (reply.terminals ?? []).map(info));
@@ -102,6 +114,7 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
     streams.delete(message.subscriptionId);
     if (event.type === "exit") {
       stream.listener({ type: "exit", code: event.status.code, nextOffset: event.nextOffset });
+      exited(stream.terminalId);
       return;
     }
     stream.listener(event);

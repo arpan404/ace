@@ -81,7 +81,7 @@ export function TerminalTab(props: { threadId: string }) {
       live: task.status === "running",
       closable: false,
     })),
-    ...list.map((info) => ({ id: info.id, label: info.name, live: false, closable: true })),
+    ...list.map((info) => ({ id: info.id, label: info.name, live: !info.exited, closable: true })),
   ];
   const active = tabs.find((tab) => tab.id === selected) ?? tabs[0];
   // Remember which tab is showing (not chosen), so Clear acts on it.

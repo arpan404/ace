@@ -122,7 +122,7 @@ export class FakeWorkspaceWire {
         cols: 80,
         rows: 24,
       });
-      this.terminals.output(terminal.id, `$ ${script.command}\r\n`);
+      this.terminals.output(terminal.id, `${script.command}\r\n`);
       return { ok: true, terminalId: terminal.id };
     }
     if (payload.type === "git.commit") {

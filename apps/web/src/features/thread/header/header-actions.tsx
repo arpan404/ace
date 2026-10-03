@@ -51,8 +51,8 @@ export function RunButton(props: { thread: ThreadRef }) {
       (terminalId) => {
         setTab("bottom", "terminal");
         setPanelOpen("bottom", true);
+        // The bottom panel opening on the new, running tab is the confirmation.
         void revealTerminal(client, props.thread.id, terminalId);
-        toast.add({ title: `Running ${script.command}` });
       },
       (error: unknown) =>
         toast.add({ title: `Couldn't run ${script.command}`, description: failure(error) }),
