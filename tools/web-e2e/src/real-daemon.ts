@@ -116,15 +116,15 @@ const daemon = await startDaemon({
 });
 // Context and files resolve only canonical roots (macOS's tmpdir is behind a symlink).
 const workspace = daemon.store.createWorkspace(realpathSync(project), workspaceName);
-const token = readFileSync(daemon.tokenPath, "utf8").trim();
+const daemonToken = readFileSync(daemon.tokenPath, "utf8").trim();
 await seedThread(
   daemon.url,
-  token,
+  daemonToken,
   workspace,
   seededTitle,
   "Say hello from the scripted provider.",
 );
-await seedThread(daemon.url, token, workspace, screensTitle, "List what is in this project.");
+await seedThread(daemon.url, daemonToken, workspace, screensTitle, "List what is in this project.");
 process.stdout.write(`e2e daemon ready on ${daemon.url}\n`);
 
 const stop = () => void daemon.close().finally(() => process.exit(0));
