@@ -89,4 +89,12 @@ The first full gate exposed integration regressions and invalid fixtures. Focuse
 
 ## Gate evidence
 
-Pending final full-suite results. Local runtime: Node 26.8.1, Bun 1.4.0. Vitest retains the repository's two-worker cap. Process tests use fake provider boundaries and recorded fixtures; no recorder or provider prompts are permitted.
+The full `bun run check` passed with exit code 0: formatting, lint, file-size checks, every workspace typecheck and the complete Vitest run. All 1,301 source files are within the 1,500-line limit.
+
+```text
+Test Files  407 passed | 6 skipped (413)
+     Tests  2699 passed | 10 skipped (2709)
+  Duration  296.41s
+```
+
+The skips are existing conditional suites; no test was newly skipped to clear the gate. The separate confirmation run is recorded in the PR's validation output. Local runtime: Node 26.8.1, Bun 1.4.0. Vitest retains the repository's two-worker cap. Process tests use fake provider boundaries and recorded fixtures; no recorder or provider prompts were used.
