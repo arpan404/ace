@@ -33,7 +33,7 @@ export interface EngineOptions {
     threadId: ThreadId,
     agentId: string,
     lifetime: AbortSignal,
-  ) => { url: string; bearer: string };
+  ) => NonNullable<import("@ace/engine-api").SessionContext["aceMcp"]>;
 }
 export class Engine {
   readonly handler: CommandHandler;
@@ -50,6 +50,10 @@ export class Engine {
   private sessions: Sessions;
   private closing = false;
   private closePromise?: Promise<void>;
+  private commandPolicy?: (
+    command: Command,
+    accept: () => import("@ace/protocol").CommandResult,
+  ) => import("@ace/protocol").CommandResult;
   private prepareInput: EngineOptions["prepareInput"];
   constructor(store: Store, options: EngineOptions = {}) {
     this.prepareInput = options.prepareInput;
@@ -91,9 +95,17 @@ export class Engine {
       handle: (command, context) =>
         this.closing
           ? { commandId: command.id, ok: false, error: "daemon_shutting_down" }
-          : handler.handle(command, context),
+          : store.atomic(() =>
+              this.commandPolicy
+                ? this.commandPolicy(command, () => handler.handle(command, context))
+                : handler.handle(command, context),
+            ),
     };
     this.recover();
+  }
+  /** One trusted host policy for accepted commands, inside the receipt transaction. */
+  bindCommandPolicy(policy: NonNullable<Engine["commandPolicy"]>): void {
+    this.commandPolicy = policy;
   }
   private actor(id: ThreadId): ThreadActor {
     let actor = this.actors.get(id);

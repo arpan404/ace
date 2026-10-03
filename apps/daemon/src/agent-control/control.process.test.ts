@@ -320,6 +320,13 @@ test("follow-up messages wake again on the same native thread and retries do not
   await h.complete(child.childId, "first");
   h.clock.advance(1050);
   await h.engine.flush();
+  const initialNativeId = [...h.nativeHistories.keys()].find((id) =>
+    id.startsWith("native-claude-"),
+  );
+  if (!initialNativeId) throw new Error("Missing native child history");
+  // Force the idle process to close. The follow-up must resume provider history.
+  h.clock.advance(101100);
+  await h.engine.flush();
   const port = createAgentControlPort(h.store, h.service);
   const message = {
     op: "thread.message",
@@ -332,13 +339,18 @@ test("follow-up messages wake again on the same native thread and retries do not
   expect(h.store.getThread(parent.threadId)?.status.state).toBe("working");
   await h.engine.flush();
   expect(h.store.getThread(parent.threadId)?.status.state).toBe("working");
+  expect(h.contexts.get(child.childId)?.resume?.nativeSessionId).toBe(initialNativeId);
+  expect(h.nativeHistories.get(initialNativeId)).toEqual([
+    "Role: implementer\n\nTask:\nImplement safely",
+    "Refine the result",
+  ]);
   await h.complete(child.childId, "refined");
-  h.clock.advance(1100);
+  h.clock.advance(101150);
   await h.engine.flush();
   expect(wakes(h.events, parent.threadId)).toHaveLength(2);
   expect((await port.execute(parent, message, new AbortController().signal)).ok).toBe(true);
   await h.engine.flush();
-  h.clock.advance(1150);
+  h.clock.advance(101200);
   await h.engine.flush();
   expect(h.store.getThread(parent.threadId)?.status.state).toBe("done");
   expect(wakes(h.events, parent.threadId)).toHaveLength(2);

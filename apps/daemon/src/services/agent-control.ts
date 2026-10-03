@@ -41,18 +41,6 @@ export function startAgentControl(context: ServiceContext): void {
       : {}),
   });
   services.agentControl = { delegations, port, previews: owners.previews };
-  // User interrupts and MCP interrupts use the same cascade policy.
-  services.handler = {
-    handle(command, commandScope) {
-      if (
-        command.payload.type === "thread.interrupt" &&
-        command.payload.cascade &&
-        store.getThread(command.payload.threadId)
-      )
-        delegations.cancelDescendants(command.payload.threadId);
-      return engine.handler.handle(command, commandScope);
-    },
-  };
   // Drain accepted legacy spawn intents through the same child creation receipts.
   onListen.push(() => {
     for (const entry of store.readMcpIntents(100)) {

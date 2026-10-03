@@ -4,9 +4,11 @@
   "additionalProperties": false,
   "properties": {
     "accountId": {
-      "maxLength": 128,
+      "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+    },
+    "acpAgentId": {
+      "maxLength": 256,
       "minLength": 1,
-      "pattern": "^[a-zA-Z0-9_.-]+$",
       "type": "string"
     },
     "estimatedLoad": {
@@ -14,6 +16,16 @@
       "maximum": 100,
       "minimum": 0,
       "type": "number"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
     },
     "model": {
       "maxLength": 256,

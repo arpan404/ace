@@ -2,6 +2,8 @@ import { z } from "zod";
 import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
 import { InteractionResolution } from "./interactions.ts";
+import { AcpIdentity } from "./agent-registry.ts";
+import { AccountInstanceId } from "./accounts.ts";
 import { AutomationRequest } from "./automations.ts";
 
 const key = z
@@ -16,8 +18,9 @@ export const AgentLaunchOptions = z.strictObject({
 export type AgentLaunchOptions = z.infer<typeof AgentLaunchOptions>;
 export const AgentSelection = z.object({
   provider: ProviderKind,
+  ...AcpIdentity.partial().shape,
   model: z.string().min(1).max(256).optional(),
-  accountId: key.optional(),
+  accountId: AccountInstanceId.optional(),
   options: AgentLaunchOptions.optional(),
 });
 export type AgentSelection = z.infer<typeof AgentSelection>;

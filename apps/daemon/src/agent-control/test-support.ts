@@ -27,7 +27,9 @@ export function setup(
   path?: string,
   answerable = false,
   opening?: { entered(): void; ready: Promise<void> },
-  followup = false,
+  _followup = false,
+  accounts?: import("@ace/accounts").AccountRegistry,
+  capacity?: number,
 ) {
   const home = path ? join(path, "..") : mkdtempSync(join(tmpdir(), "ace-control-"));
   if (!path) homes.push(home);
@@ -36,6 +38,9 @@ export function setup(
   const workspace = store.createWorkspace(home, "workspace");
   const clock = new ManualClock();
   const frames = scriptFrames();
+  let admitting = true;
+  let nativeSequence = 0;
+  const nativeHistories = new Map<string, string[]>();
   const contexts = new Map<ThreadId, SessionContext>();
   const registry = new AdapterRegistry();
   const capabilities = Capabilities.parse({
@@ -56,7 +61,7 @@ export function setup(
     const adapter = createScriptedAdapter({
       provider,
       capabilities,
-      nativeSessionId: `native-${provider}`,
+      nativeSessionId: `unused-${provider}`,
       createTranslator: () => ({ translate: frames.translate, tick: () => [] }),
       steps:
         provider === "codex" && answerable
@@ -91,16 +96,7 @@ export function setup(
                 on: "send" as const,
                 frames: [frames.frame(start, end)],
               }))
-            : followup
-              ? [
-                  { on: "send", frames: [frames.frame(start)] },
-                  { on: "send", frames: [frames.frame(start)] },
-                  { on: "interrupt", frames: [frames.frame({ ...end, outcome: "interrupted" })] },
-                ]
-              : [
-                  { on: "send", frames: [frames.frame(start)] },
-                  { on: "interrupt", frames: [frames.frame({ ...end, outcome: "interrupted" })] },
-                ],
+            : [],
     });
     registry.register(
       {
@@ -112,8 +108,23 @@ export function setup(
             await opening.ready;
           }
           const session = await adapter.openSession(ctx);
+          const nativeSessionId =
+            ctx.resume?.nativeSessionId ?? `native-${provider}-${++nativeSequence}`;
+          const history = nativeHistories.get(nativeSessionId) ?? [];
+          nativeHistories.set(nativeSessionId, history);
           return {
             ...session,
+            nativeSessionId,
+            async send(input, delivery) {
+              await session.send(input, delivery);
+              history.push(...input.flatMap((part) => (part.type === "text" ? [part.text] : [])));
+              if (provider === "claude") ctx.onFrame(frames.frame(start));
+            },
+            async interrupt(target) {
+              await session.interrupt(target);
+              if (provider === "claude")
+                ctx.onFrame(frames.frame({ ...end, outcome: "interrupted" }));
+            },
             close: async () => {
               ctx.onExit({ deliberate: true });
             },
@@ -137,6 +148,9 @@ export function setup(
     clock,
     id: randomUUID,
     policy,
+    ...(capacity === undefined ? {} : { journalCapacity: capacity }),
+    ...(accounts ? { accounts } : {}),
+    admitsWork: () => admitting,
     onError: (error) => errors.push(error),
   });
   const events: Event[] = [];
@@ -204,6 +218,13 @@ export function setup(
   }
   return {
     home,
+    nativeHistories,
+    closeAdmission: () => {
+      admitting = false;
+    },
+    openAdmission: () => {
+      admitting = true;
+    },
     registry,
     frames,
     dbPath,
@@ -230,6 +251,9 @@ export function setup(
         clock,
         id: randomUUID,
         policy,
+        ...(capacity === undefined ? {} : { journalCapacity: capacity }),
+        ...(accounts ? { accounts } : {}),
+        admitsWork: () => admitting,
         onError: (error) => errors.push(error),
       });
     },

@@ -129,7 +129,6 @@ export function createAgentControlPort(
           return { ok: true, data };
         }
         case "thread.interrupt": {
-          service.cancelDescendants(operation.threadId);
           const result = service.command(
             controlCommandId(caller.threadId, operation.requestId, operation.op),
             { type: "thread.interrupt", threadId: operation.threadId, cascade: true },

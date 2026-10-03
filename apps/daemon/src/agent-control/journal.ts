@@ -4,6 +4,11 @@ import { z } from "zod";
 import { DelegationRecord, ThreadId, type DelegationOutcome, type Event } from "@ace/protocol";
 import type { Store } from "../store.ts";
 
+export const DelegationReservation = z.object({
+  record: DelegationRecord,
+  accountId: z.string().max(128).optional(),
+});
+export type DelegationReservation = z.infer<typeof DelegationReservation>;
 const treeRow = z.object({
   root_id: ThreadId,
   started_at: z.number(),
@@ -15,8 +20,10 @@ const treeRow = z.object({
 /** One writer on Store's transaction boundary; only indexed current rows enter memory. */
 export class DelegationJournal {
   private store: Store;
+  private capacity: number;
   private statements = new Map<string, StatementSync>();
-  constructor(store: Store) {
+  constructor(store: Store, capacity = 10000) {
+    this.capacity = z.number().int().min(1).max(10000).parse(capacity);
     this.store = store;
     store.atomic((db) =>
       db.exec(`
@@ -36,7 +43,23 @@ export class DelegationJournal {
       CREATE INDEX IF NOT EXISTS delegated_root ON delegated_threads(root_id, child_id);
       CREATE INDEX IF NOT EXISTS delegated_active ON delegated_threads(child_id) WHERE phase<>'settled';
       CREATE INDEX IF NOT EXISTS delegated_live_root ON delegated_threads(root_id,phase);
+      CREATE TABLE IF NOT EXISTS delegation_capacity (
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1), receipts INTEGER NOT NULL, reservations INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT OR IGNORE INTO delegation_capacity(singleton,receipts) SELECT 1,COUNT(*) FROM delegated_threads;
+      CREATE TRIGGER IF NOT EXISTS delegation_receipt_added AFTER INSERT ON delegated_threads BEGIN
+        UPDATE delegation_capacity SET receipts=receipts+1 WHERE singleton=1;
+      END;
+      CREATE TRIGGER IF NOT EXISTS delegation_receipt_deleted AFTER DELETE ON delegated_threads BEGIN
+        UPDATE delegation_capacity SET receipts=receipts-1 WHERE singleton=1;
+      END;
+      CREATE TABLE IF NOT EXISTS delegation_reservations (
+        child_id TEXT PRIMARY KEY, parent_id TEXT NOT NULL, root_id TEXT NOT NULL,
+        request_id TEXT NOT NULL, reservation JSON NOT NULL, UNIQUE(parent_id,request_id)
+      );
+      CREATE INDEX IF NOT EXISTS delegation_reserved_parent ON delegation_reservations(parent_id);
       CREATE INDEX IF NOT EXISTS delegated_results ON delegated_threads(parent_id, result_pending, child_id);
+      CREATE TABLE IF NOT EXISTS delegation_subtree_stops (thread_id TEXT PRIMARY KEY REFERENCES threads(id));
       CREATE TABLE IF NOT EXISTS delegation_wakes (
         parent_id TEXT PRIMARY KEY REFERENCES threads(id), due INTEGER NOT NULL
       );
@@ -92,14 +115,73 @@ export class DelegationJournal {
   }
   concurrent(parent: ThreadId) {
     return Number(
-      this.sql(
-        "SELECT COUNT(*) AS n FROM delegated_threads WHERE parent_id=? AND phase<>'settled'",
-      ).get(parent)?.n,
+      this.sql(`SELECT
+      (SELECT COUNT(*) FROM delegated_threads WHERE parent_id=? AND phase<>'settled') +
+      (SELECT COUNT(*) FROM delegation_reservations WHERE parent_id=?) AS n`).get(parent, parent)
+        ?.n,
+    );
+  }
+  assertCapacity() {
+    const row = z
+      .object({ receipts: z.number(), reservations: z.number() })
+      .parse(
+        this.sql("SELECT receipts,reservations FROM delegation_capacity WHERE singleton=1").get(),
+      );
+    if (row.receipts + row.reservations >= this.capacity)
+      throw new Error("Delegation journal capacity");
+  }
+  reservation(parent: ThreadId, request: string) {
+    const row = this.sql(
+      "SELECT reservation FROM delegation_reservations WHERE parent_id=? AND request_id=?",
+    ).get(parent, request);
+    return row
+      ? DelegationReservation.parse(JSON.parse(z.string().parse(row.reservation)))
+      : undefined;
+  }
+  reservations() {
+    return this.sql("SELECT reservation FROM delegation_reservations ORDER BY child_id LIMIT 4")
+      .all()
+      .map((row) => DelegationReservation.parse(JSON.parse(z.string().parse(row.reservation))));
+  }
+  reserve(reservation: DelegationReservation) {
+    this.assertCapacity();
+    if (
+      Number(
+        this.sql("SELECT reservations FROM delegation_capacity WHERE singleton=1").get()
+          ?.reservations,
+      ) >= 4
+    )
+      throw new Error("Reservation capacity");
+    const r = reservation.record;
+    this.sql("INSERT INTO delegation_reservations VALUES (?,?,?,?,?)").run(
+      r.childId,
+      r.parentId,
+      r.rootId,
+      r.requestId,
+      JSON.stringify(reservation),
+    );
+    this.sql("UPDATE delegation_capacity SET reservations=reservations+1 WHERE singleton=1").run();
+    this.sql("UPDATE delegation_trees SET children=children+1,active=active+1 WHERE root_id=?").run(
+      r.rootId,
+    );
+  }
+  release(reservation: DelegationReservation) {
+    const r = reservation.record;
+    const deleted = this.sql("DELETE FROM delegation_reservations WHERE child_id=?").run(
+      r.childId,
+    ).changes;
+    if (!deleted) return;
+    this.sql("UPDATE delegation_capacity SET reservations=reservations-1 WHERE singleton=1").run();
+    this.sql("UPDATE delegation_trees SET children=children-1,active=active-1 WHERE root_id=?").run(
+      r.rootId,
     );
   }
   add(record: DelegationRecord) {
-    if (Number(this.sql("SELECT COUNT(*) AS n FROM delegated_threads").get()?.n) >= 10000)
-      throw new Error("Delegation journal capacity");
+    const reservation = this.reservation(record.parentId, record.requestId);
+    if (!reservation || reservation.record.childId !== record.childId)
+      throw new Error("Missing reservation");
+    this.sql("DELETE FROM delegation_reservations WHERE child_id=?").run(record.childId);
+    this.sql("UPDATE delegation_capacity SET reservations=reservations-1 WHERE singleton=1").run();
     this.sql(
       "INSERT INTO delegated_threads(child_id,parent_id,root_id,request_id,record,phase) VALUES (?,?,?,?,?,?)",
     ).run(
@@ -109,9 +191,6 @@ export class DelegationJournal {
       record.requestId,
       JSON.stringify(record),
       record.phase,
-    );
-    this.sql("UPDATE delegation_trees SET children=children+1,active=active+1 WHERE root_id=?").run(
-      record.rootId,
     );
   }
   save(record: DelegationRecord) {
@@ -123,7 +202,8 @@ export class DelegationJournal {
   }
   activeCount() {
     return Number(
-      this.sql("SELECT COUNT(*) AS n FROM delegated_threads WHERE phase<>'settled'").get()?.n,
+      this.sql(`SELECT (SELECT COUNT(*) FROM delegated_threads WHERE phase<>'settled') + reservations AS n
+        FROM delegation_capacity WHERE singleton=1`).get()?.n,
     );
   }
   readMetadata(thread: ThreadId) {
@@ -157,6 +237,7 @@ export class DelegationJournal {
     return false;
   }
   reopen(record: DelegationRecord) {
+    this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(record.childId);
     record.phase = "running";
     record.generation++;
     delete record.outcome;
@@ -209,7 +290,16 @@ export class DelegationJournal {
     ).run(parent);
     this.sql("DELETE FROM delegation_wakes WHERE parent_id=?").run(parent);
   }
+  stopped(thread: ThreadId) {
+    return !!this.sql("SELECT thread_id FROM delegation_subtree_stops WHERE thread_id=?").get(
+      thread,
+    );
+  }
+  stop(thread: ThreadId) {
+    this.sql("INSERT OR IGNORE INTO delegation_subtree_stops VALUES (?)").run(thread);
+  }
   cancel(thread: ThreadId) {
+    this.stop(thread);
     this.sql("UPDATE delegation_trees SET cancelled=1 WHERE root_id=?").run(thread);
   }
   metadata(thread: ThreadId, input: { prUrl?: string; until?: number | null }) {

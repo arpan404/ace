@@ -1,7 +1,10 @@
-import { createHash } from "node:crypto";
-import { admitDelegation, delegationBudget, childResultPrompt } from "@ace/orchestrator";
-import { pickInstance, type AccountRegistry } from "@ace/accounts";
-import { AccountProvider } from "@ace/protocol/accounts";
+import { callerThread } from "./authorization.ts";
+import { ReservationLifetimes } from "./reservation-lifetimes.ts";
+import { controlCommandId } from "./command-id.ts";
+export { controlCommandId } from "./command-id.ts";
+import { delegationCommandPolicy } from "./command-policy.ts";
+import { delegationBudget, childResultPrompt } from "@ace/orchestrator";
+import { type AccountRegistry } from "@ace/accounts";
 import {
   Command,
   ThreadId,
@@ -18,7 +21,8 @@ import type { Engine, EngineClock } from "../engine/index.ts";
 import type { Store } from "../store.ts";
 import { commandContext } from "../commands.ts";
 import { OutcomeWaiters } from "./waiters.ts";
-import { DelegationJournal } from "./journal.ts";
+import { DelegationAdmission } from "./admission.ts";
+import { type DelegationReservation, DelegationJournal } from "./journal.ts";
 import { threadOutcome } from "./results.ts";
 
 export interface DelegationDependencies {
@@ -27,42 +31,54 @@ export interface DelegationDependencies {
   clock: EngineClock;
   id(): string;
   accounts?: AccountRegistry;
+  /** Host may lower the durable receipt cap, never raise its 10,000 hard limit. */
+  journalCapacity?: number;
   policy?: Partial<DelegationPolicy>;
   onError(error: unknown): void;
   /** The daemon maintenance gate remains the owner of autonomous turn admission. */
   admitsWork?(): boolean;
 }
-export function controlCommandId(thread: string, request: string, operation: string) {
-  return `agent-${createHash("sha256")
-    .update(JSON.stringify([thread, request, operation]))
-    .digest("hex")}`;
-}
 /** Durable execution owner shared by agent tools and Deck, independent of MCP transport. */
 export class DelegationService {
   readonly journal: DelegationJournal;
   readonly policy: DelegationPolicy;
+  private admission: DelegationAdmission;
   private deps: DelegationDependencies;
   private unsubscribe: () => void;
   private cancelTimer: (() => void) | undefined;
   private closed = false;
+  private reservationLifetimes = new ReservationLifetimes();
   private waiters = new OutcomeWaiters();
   constructor(deps: DelegationDependencies) {
     this.deps = deps;
     this.policy = DelegationPolicy.parse(deps.policy ?? {});
-    this.journal = new DelegationJournal(deps.store);
+    this.journal = new DelegationJournal(deps.store, deps.journalCapacity);
+    this.admission = new DelegationAdmission(
+      deps,
+      this.journal,
+      this.policy,
+      () => !this.closed && deps.admitsWork?.() !== false,
+      (id, payload) => this.command(id, payload),
+    );
+    deps.engine.bindCommandPolicy(
+      delegationCommandPolicy({
+        journal: this.journal,
+        policy: this.policy,
+        engine: deps.engine,
+        store: deps.store,
+        now: () => deps.clock.now(),
+        admits: () => !this.closed && deps.admitsWork?.() !== false,
+        cancel: (thread, request) => this.cancelDescendants(thread, request),
+        changed: () => this.arm(),
+      }),
+    );
     this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
     // Recovery visits current work only, never transcript history or old receipts.
     for (const edge of this.journal.active()) this.reconcile(edge);
     this.arm();
   }
-  private identity(caller: McpAttribution) {
-    const thread = this.deps.store.getThread(caller.threadId);
-    if (!thread || !this.deps.store.getMcpAgent(caller.threadId, caller.agentId))
-      throw new Error("Forbidden caller");
-    return thread;
-  }
   authorize(caller: McpAttribution, target: ThreadId, write: boolean): boolean {
-    const source = this.identity(caller);
+    const source = callerThread(this.deps.store, caller);
     const thread = this.deps.store.getThread(target);
     return (
       !!thread &&
@@ -107,38 +123,18 @@ export class DelegationService {
         trigger: "parent_agent",
       },
     });
-    const result = this.deps.store.recordCommand(command.id, command.deviceId, () => {
-      const edge = this.journal.get(threadId);
-      if (edge?.phase === "cancelling") throw new Error("cancelled");
-      if (edge?.phase === "settled") {
-        const tree = this.journal.tree(edge.parentId, this.deps.clock.now());
-        const rejection = tree.cancelled
-          ? "cancelled"
-          : delegationBudget(tree, this.policy, this.deps.clock.now());
-        if (
-          rejection ||
-          this.journal.concurrent(edge.parentId) >= this.policy.maxConcurrent ||
-          this.journal.activeCount() >= 64
-        )
-          throw new Error(rejection ?? "concurrency_limit");
-      }
-      const accepted = this.deps.engine.handler.handle(command, commandContext(this.deps.store));
-      if (accepted.ok && edge?.phase === "settled") {
-        this.journal.reopen(edge);
-        const child = this.deps.store.getThread(threadId);
-        if (child)
-          this.deps.engine.updateChild(edge.parentId, {
-            ...child,
-            status: { state: "waiting", on: "queue" },
-          });
-      }
-      return accepted;
-    });
+    const result = this.deps.store.recordCommand(command.id, command.deviceId, () =>
+      this.deps.engine.handler.handle(command, commandContext(this.deps.store)),
+    );
     this.arm();
     return result;
   }
   prepare(caller: McpAttribution, value: DelegationRequest): DelegationRecord {
-    return this.prepareInWorkspace(caller, value, this.identity(caller).workspaceId);
+    return this.prepareInWorkspace(
+      caller,
+      value,
+      callerThread(this.deps.store, caller).workspaceId,
+    );
   }
   /** Host-only workspace selection for Deck/worktree owners; never exposed as tool input. */
   prepareInWorkspace(
@@ -146,79 +142,38 @@ export class DelegationService {
     value: DelegationRequest,
     workspace: WorkspaceId,
   ): DelegationRecord {
-    if (this.closed || this.deps.admitsWork?.() === false) throw new Error("Admission closed");
     const input = DelegationRequest.parse(value);
-    const parent = this.identity(caller);
     return this.deps.store.atomic(() => {
-      const receipt = this.journal.receipt(parent.id, input.requestId);
+      if (this.closed || this.deps.admitsWork?.() === false) throw new Error("Admission closed");
+      const receipt = this.journal.receipt(caller.threadId, input.requestId);
       if (receipt) {
-        if (
-          receipt.parentAgentId !== caller.agentId ||
-          JSON.stringify(receipt.request) !== JSON.stringify(input)
-        )
-          throw new Error("Request identity conflict");
+        this.admission.match(caller, input, receipt);
         return receipt;
       }
-      const now = this.deps.clock.now();
-      const tree = this.journal.tree(parent.id, now);
-      if (this.journal.get(parent.id)?.phase === "cancelling") throw new Error("cancelled");
-      const rejection = admitDelegation(
-        { ...tree, concurrent: this.journal.concurrent(parent.id) },
-        this.policy,
-        now,
-      );
-      if (rejection || this.journal.activeCount() >= 64)
-        throw new Error(rejection ?? "active_limit");
-      const provider = AccountProvider.safeParse(input.provider);
-      const candidates = provider.success
-        ? (this.deps.accounts
-            ?.list()
-            .filter(
-              (entry) =>
-                entry.instance.provider === provider.data &&
-                (!input.accountId || entry.instance.id === input.accountId),
-            ) ?? [])
-        : [];
-      const selected = provider.success
-        ? pickInstance(
-            { provider: provider.data, role: input.role, estimatedLoad: input.estimatedLoad },
-            candidates,
-            now,
-          )
-        : undefined;
-      if ((input.accountId || candidates.length > 0) && !selected)
-        throw new Error("Account unavailable or quota exhausted");
-      const childId = ThreadId.parse(this.deps.id());
-      const result = this.command(controlCommandId(parent.id, input.requestId, "create"), {
-        type: "thread.prepare",
-        threadId: childId,
-        workspaceId: workspace,
-        provider: input.provider,
-        title: input.role.slice(0, 256),
-        ...(input.model ? { model: input.model } : {}),
-        ...(input.options ? { options: input.options } : {}),
-        ...(selected ? { accountId: selected.id } : {}),
-      });
-      if (!result.ok) throw new Error(result.error);
-      const child = this.deps.store.getThread(childId);
-      if (!child) throw new Error("Child creation failed");
-      const record: DelegationRecord = {
-        childId,
-        parentId: parent.id,
-        parentAgentId: caller.agentId,
-        rootId: tree.root,
-        requestId: input.requestId,
-        request: input,
-        depth: tree.depth + 1,
-        createdAt: now,
-        phase: "created",
-        generation: 0,
-      };
-      this.journal.add(record);
-      this.deps.engine.attachChild(parent.id, caller.agentId, child, input.role, !input.wait);
+      const reservation = this.reserve(caller, input);
+      const record = this.prepareReserved(caller, reservation, workspace);
       this.arm();
       return record;
     });
+  }
+  reserve(caller: McpAttribution, value: DelegationRequest) {
+    const reservation = this.admission.reserve(caller, value);
+    this.arm();
+    return reservation;
+  }
+  prepareReserved(
+    caller: McpAttribution,
+    reservation: DelegationReservation,
+    workspace: WorkspaceId,
+  ) {
+    return this.admission.commit(caller, reservation, workspace);
+  }
+  watchReservation(reservation: DelegationReservation) {
+    return this.reservationLifetimes.watch(reservation);
+  }
+  releaseReservation(reservation: DelegationReservation) {
+    this.deps.store.atomic(() => this.journal.release(reservation));
+    this.arm();
   }
   delegate(caller: McpAttribution, value: DelegationRequest): DelegationRecord {
     return this.deps.store.atomic(() => {
@@ -228,6 +183,7 @@ export class DelegationService {
     });
   }
   launch(record: DelegationRecord, text: string): void {
+    if (this.closed || this.deps.admitsWork?.() === false) throw new Error("Admission closed");
     this.deps.store.atomic(() => {
       const current = this.journal.get(record.childId);
       if (!current || current.phase !== "created") return;
@@ -243,10 +199,13 @@ export class DelegationService {
       this.journal.save(current);
     });
   }
-  cancelDescendants(thread: ThreadId) {
+  cancelDescendants(thread: ThreadId, request = this.deps.id()) {
     this.deps.store.atomic(() => {
       const tree = this.journal.tree(thread, this.deps.clock.now());
       this.journal.cancel(thread);
+      this.reservationLifetimes.cancel(thread, (target, ancestor) =>
+        this.journal.isDescendant(target, ancestor),
+      );
       const own = this.journal.get(thread);
       if (own && own.phase !== "settled") {
         own.phase = "cancelling";
@@ -259,13 +218,17 @@ export class DelegationService {
         )
         .toSorted((a, b) => b.depth - a.depth);
       for (const child of children) {
+        this.journal.stop(child.childId);
         child.phase = "cancelling";
         this.journal.save(child);
-        const result = this.command(controlCommandId(child.childId, "cascade", "interrupt"), {
-          type: "thread.interrupt",
-          threadId: child.childId,
-          cascade: true,
-        });
+        const result = this.command(
+          controlCommandId(child.childId, `${request}:${child.generation}`, "cascade.interrupt"),
+          {
+            type: "thread.interrupt",
+            threadId: child.childId,
+            cascade: true,
+          },
+        );
         if (!result.ok) throw new Error(result.error);
       }
     });
@@ -371,7 +334,9 @@ export class DelegationService {
         const tree = this.journal.tree(next.parent_id, this.deps.clock.now());
         const pending = this.journal.pending(next.parent_id);
         const cancelled =
-          tree.cancelled || this.journal.get(next.parent_id)?.phase === "cancelling";
+          tree.cancelled ||
+          this.journal.stopped(next.parent_id) ||
+          this.journal.get(next.parent_id)?.phase === "cancelling";
         if (!parent || cancelled) {
           this.journal.consume(next.parent_id);
           return;
@@ -404,6 +369,7 @@ export class DelegationService {
   }
   close() {
     this.closed = true;
+    this.reservationLifetimes.close();
     this.waiters.close();
     this.unsubscribe();
     this.cancelTimer?.();

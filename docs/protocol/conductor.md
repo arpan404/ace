@@ -23,7 +23,7 @@ Example:
 ```json
 {
   "decision": "reject",
-  "gateId": "O-Kp0ONxF9c32gqT4FY6DMtmZhtx8ZamcNUrN810md4T7aPkeVe"
+  "gateId": "pS1ZBaxW-qEk6g31LX2.G0bJLIEEOqT9"
 }
 ```
 
@@ -71,7 +71,7 @@ Example:
 
 ```json
 {
-  "runId": "83vE3fXC2gn",
+  "runId": "W2AdT9P",
   "spec": {
     "constraints": {
       "accounts": [
@@ -154,9 +154,9 @@ Example:
 {
   "approval": {
     "decision": "reject",
-    "gateId": "Ya_9FT3Ucj60hSSn8LEB893uotYEFnq0nAk.NDlPu1CTUZP-T2WabipmTB967OKOLALFyflngAwSA_mRxOrpMHy.MCpjUm0j.ZrpzFgnTztqYpqS1ZBaxW-qEk6g31"
+    "gateId": "CHaMqzVL5TTGO3jb1q8WpQNc9ZwbHKVrqWsz.DCYFRa"
   },
-  "runId": "UozN7mOClw6aRRJQ8r_UPB5hjA4hZWRgAKtoxd9dsHAJnfGm3yU8hT1rjuLSUlzxs81MBjpRBl",
+  "runId": "c6xFciOLycOhYGr4t.5ivja8rcidPgKKytJ6dfiYwYQbaL2M.PVmWI8dSjchm.rIdszj1ARDNC",
   "type": "conductor.approve"
 }
 ```
@@ -172,7 +172,7 @@ Example:
 
 ```json
 {
-  "runId": "FbJLIEEOqT9M_H5Yd2AdT9P2dL6xFciOLycOhYGr4t.5ivja8rcidPgKKytJ6dfiYwYQbaL2M.PVmWI8dSjchm.rIdszj1ARDNCEvHaM",
+  "runId": "TFZDnEEKQ.5iRAqOd",
   "type": "conductor.pause"
 }
 ```
@@ -188,7 +188,7 @@ Example:
 
 ```json
 {
-  "runId": "pVL5TTGO3jb1q8WpQNc9ZwbHKVrqWsz.DCYFRa2TwDWiFZDnEE",
+  "runId": "hXryEK2PHmjGCn",
   "type": "conductor.resume"
 }
 ```
@@ -204,7 +204,7 @@ Example:
 
 ```json
 {
-  "runId": "I.5iRAqOdhhXryEK2PHmjGCnhKPGxeJ5h3QcBfNHfdy48N9gyi_8Rxz25mTM7u720Cc-mvttXblHh4Dygk6",
+  "runId": "gPGxeJ5h3QcBfNHfdy48N9gyi_8Rxz25mTM7u720Cc-mvttXblHh4Dygk6M01KCRgCiBtjjZr",
   "type": "conductor.cancel"
 }
 ```
@@ -225,10 +225,10 @@ Example:
 
 ```json
 {
-  "cost": 7,
-  "model": "XKCRgCiBtjjZrhpiN3WMG3kqjbuMrB26ElpY.GhXArASyPysmR_j-54lTjWbGBFkTAZJNYmiqViSvg.GflLf6ax.cXwiBFENRxgCUuRfX",
-  "provider": "cursor",
-  "quota": 6,
+  "cost": 1,
+  "model": "oN3WMG3kqjbuMrB26",
+  "provider": "claude",
+  "quota": 3,
   "tier": "fast"
 }
 ```
@@ -544,8 +544,8 @@ Example:
     "risks": []
   },
   "dependencies": [],
-  "id": "eBk3ibi-rTpi45drgI_gzGEf0CUNp3RSH3lwy4zHItpnM-nnR3YKFoEQOEbOyeEq7Lb8eH4a1GMYvfJ6coH5qfPmm",
-  "priority": 8,
+  "id": "VrASyPysmR_j-54lTjWbGBFkTAZJNYmiqViSvg.GflLf6ax.cXwi",
+  "priority": 4,
   "title": "example"
 }
 ```

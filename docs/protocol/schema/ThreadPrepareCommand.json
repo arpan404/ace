@@ -3,9 +3,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
     "accountId": {
-      "maxLength": 128,
+      "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+    },
+    "acpAgentId": {
+      "maxLength": 256,
       "minLength": 1,
-      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
       "type": "string"
     },
     "model": {
