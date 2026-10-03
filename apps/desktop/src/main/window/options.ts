@@ -35,6 +35,9 @@ export function windowOptions(options: {
       webSecurity: true,
       allowRunningInsecureContent: false,
       webviewTag: false,
+      // A hidden or minimised window runs timers at background rate and draws no frames; the
+      // client worker sends a hidden page nothing until it is shown (ADR 0056).
+      backgroundThrottling: true,
       spellcheck: true,
       additionalArguments: [`--ace-info=${options.info}`],
     },
