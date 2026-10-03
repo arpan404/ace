@@ -32,7 +32,7 @@ export function tool(state: NativeState, p: Data, type: string, evidence: unknow
       ? source
       : {
           command: string(source.command).slice(0, 8192),
-          filePath: string(source.filePath).slice(0, 4096),
+          filePath: string(source.path, string(source.filePath)).slice(0, 4096),
           prompt: string(source.prompt).slice(0, 8192),
           agent: string(source.agent).slice(0, 256),
           background: source.background === true,

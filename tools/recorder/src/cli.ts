@@ -1,15 +1,17 @@
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { z } from "zod";
 import { installShutdownHandlers } from "@ace/provider-kit/process";
 import { claude } from "./providers/claude.ts";
 import { codex } from "./providers/codex.ts";
 import { cursor } from "./providers/cursor.ts";
 import { opencode } from "./providers/opencode.ts";
 import type { Driver, RunContext } from "./providers/types.ts";
-import { Recording, type RecordingHeader } from "./recording.ts";
+import { Recording } from "./recording.ts";
 import { createRedactor } from "./redact.ts";
 import { SCENARIOS, findScenario, type Scenario } from "./scenarios.ts";
+import { settleWatcher } from "./settle.ts";
 import { createWorkspace } from "./workspace.ts";
 
 const DRIVERS: readonly Driver[] = [claude, codex, opencode, cursor];
@@ -20,33 +22,12 @@ const FIXTURE_DIR = join(REPO_ROOT, "fixtures");
 /** Write the redacted copy of a raw recording into fixtures/, mirroring its path. */
 function writeFixture(rawPath: string): string {
   const lines = readFileSync(rawPath, "utf8").split("\n").filter(Boolean);
-  const header = JSON.parse(lines[0] ?? "{}") as RecordingHeader;
+  const header = z.object({ workspace: z.string() }).parse(JSON.parse(lines[0] ?? "{}"));
   const redact = createRedactor({ workspace: header.workspace });
   const fixturePath = join(FIXTURE_DIR, relative(RAW_DIR, rawPath));
   mkdirSync(dirname(fixturePath), { recursive: true });
   writeFileSync(fixturePath, `${lines.map(redact).join("\n")}\n`);
   return fixturePath;
-}
-
-function settleWatcher(rec: Recording, scenario: Scenario, signal: AbortSignal) {
-  let open = 0;
-  const interactions = { open: () => void open++, close: () => void open-- };
-  const settled = () =>
-    new Promise<void>((done) => {
-      const timer = setInterval(() => {
-        if (signal.aborted) return finish("aborted");
-        if (rec.elapsedMs() >= scenario.maxMs) return finish("max-time");
-        if (rec.marks("turn-end") > 0 && open === 0 && rec.quietForMs() >= scenario.quietMs) {
-          finish("settled");
-        }
-      }, 250);
-      function finish(reason: string) {
-        clearInterval(timer);
-        rec.note("stop", { reason });
-        done();
-      }
-    });
-  return { settled, interactions };
 }
 
 async function runOne(
@@ -55,8 +36,25 @@ async function runOne(
   scenario: Scenario,
   model: string | undefined,
 ): Promise<string> {
+  const modelDirectory =
+    driver.id === "opencode"
+      ? (model ?? "opencode-go/muse-spark-1.3-contributor").split("/").at(-1)
+      : undefined;
+  if (modelDirectory && !/^[a-zA-Z0-9._-]+$/.test(modelDirectory))
+    throw new Error("Invalid model directory");
+  const rawPath = join(
+    RAW_DIR,
+    driver.id,
+    version,
+    ...(modelDirectory ? [modelDirectory] : []),
+    `${scenario.id}.jsonl`,
+  );
+  const fixturePath = join(FIXTURE_DIR, relative(RAW_DIR, rawPath));
+  if (existsSync(rawPath) || existsSync(fixturePath))
+    throw new Error(
+      `Capture already exists for ${driver.id}/${version}/${scenario.id}; a new attempt needs approval and a separate path`,
+    );
   const workspace = createWorkspace(`${driver.id}-${scenario.id}`);
-  const rawPath = join(RAW_DIR, driver.id, version, `${scenario.id}.jsonl`);
   const rec = new Recording(rawPath, {
     format: "ace-recording/v1",
     provider: driver.id,
@@ -65,6 +63,7 @@ async function runOne(
     startedAt: new Date().toISOString(),
     platform: `${process.platform}-${process.arch}`,
     workspace,
+    ...(model ? { model } : {}),
   });
   const abort = new AbortController();
   const { settled, interactions } = settleWatcher(rec, scenario, abort.signal);
@@ -114,7 +113,10 @@ async function main(): Promise<void> {
     if (!driver) throw new Error(`Unknown provider: ${id}`);
     const version = await driver.version();
     for (const scenario of scenarios) {
-      if (driver.unsupported?.includes(scenario.id)) continue;
+      if (driver.unsupported?.includes(scenario.id)) {
+        process.stdout.write(`${driver.id}@${version} ${scenario.id}: skipped (unsupported)\n`);
+        continue;
+      }
       const started = Date.now();
       process.stdout.write(`${driver.id}@${version} ${scenario.id} … `);
       const path = await runOne(driver, version, scenario, values.model);

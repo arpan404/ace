@@ -460,3 +460,88 @@ it("a later background dispatch to the same child waits for its own completion",
   h.event("session.execution.succeeded");
   expect(h.view.thread.status.state).toBe("done");
 });
+
+it("native synthetic inbox delivery completes background children before parent settlement", () => {
+  const h = setup();
+  h.event("session.created", {
+    sessionID: "child",
+    parentID: "s-root",
+    projectID: "p",
+    location: { directory: "/one" },
+  });
+  h.event("session.execution.started");
+  h.event("session.execution.started", { sessionID: "child" });
+  h.event("session.tool.input.started", {
+    assistantMessageID: "m",
+    id: "delegate",
+    name: "subagent",
+  });
+  h.event("session.tool.called", {
+    assistantMessageID: "m",
+    id: "delegate",
+    input: { background: true, agent: "general" },
+  });
+  h.event("session.tool.success", {
+    assistantMessageID: "m",
+    id: "delegate",
+    metadata: { sessionID: "child", status: "running" },
+  });
+  h.event("session.execution.succeeded");
+  expect(h.view.thread.status.state).toBe("working");
+  h.event("session.execution.succeeded", { sessionID: "child" });
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
+  h.event("session.inbox.enqueued", {
+    inboxID: "result",
+    item: {
+      type: "synthetic",
+      payload: {
+        metadata: { source: "subagent", childID: "child", state: "completed" },
+        text: "summary",
+      },
+    },
+  });
+  expect(h.view.thread.status).toEqual({ state: "waiting", on: "queue" });
+  h.event("session.inbox.delivered", { inboxID: "result" });
+  expect(h.view.thread.status.state).toBe("working");
+  h.event("session.execution.started");
+  h.event("session.execution.succeeded");
+  expect(h.view.thread.status.state).toBe("done");
+  expect(Object.values(h.view.backgroundTasks).every((task) => task.status === "completed")).toBe(
+    true,
+  );
+});
+
+it("a synthetic shell result consumed in an active execution clears its completion wake", () => {
+  const h = setup();
+  h.event("session.execution.started");
+  h.event("shell.created", {
+    info: { id: "shell-1", status: "running", metadata: { sessionID: "s-root" } },
+  });
+  h.event("session.tool.input.started", {
+    assistantMessageID: "m",
+    id: "shell-call",
+    name: "shell",
+  });
+  h.event("session.tool.called", {
+    assistantMessageID: "m",
+    id: "shell-call",
+    input: { command: "sleep 15", background: true },
+  });
+  h.event("session.tool.success", {
+    assistantMessageID: "m",
+    id: "shell-call",
+    metadata: { shellID: "shell-1", status: "running" },
+  });
+  h.event("shell.exited", { id: "shell-1", exit: 0 });
+  h.event("session.inbox.enqueued", {
+    inboxID: "shell-result",
+    item: {
+      type: "synthetic",
+      payload: { metadata: { source: "shell", shellID: "shell-1", state: "completed" } },
+    },
+  });
+  h.event("session.inbox.delivered", { inboxID: "shell-result" });
+  h.event("session.execution.succeeded");
+  expect(h.view.thread.status.state).toBe("done");
+  expect(h.translator.isSettled()).toBe(true);
+});

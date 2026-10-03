@@ -60,3 +60,33 @@ describe("createRedactor", () => {
     expect(redact('"jane jane-doe janeway"')).toBe('"<USER> <USER>-doe janeway"');
   });
 });
+
+it("preserves literal OpenCode text fragments while removing personal data", () => {
+  const out = redact(JSON.stringify({ text: "{\n", delta: "[ /Users/jane jane@example.com" }));
+  expect(JSON.parse(out)).toEqual({ text: "{\n", delta: "[ <HOME> <EMAIL>" });
+});
+
+it("retains native usage counts while rejecting secret-bearing token objects", () => {
+  const tokens = { input: 41, output: 7, reasoning: 2, cache: { read: 11, write: 0 } };
+  expect(JSON.parse(redact(JSON.stringify({ tokens })))).toEqual({ tokens });
+  expect(
+    JSON.parse(redact(JSON.stringify({ tokens: { ...tokens, access: "private-token" } }))),
+  ).toEqual({ tokens: "<SECRET>" });
+  expect(JSON.parse(redact(JSON.stringify({ tokens: "private-token" })))).toEqual({
+    tokens: "<SECRET>",
+  });
+});
+
+it("removes other absolute home paths in provider output", () => {
+  expect(
+    JSON.parse(redact(JSON.stringify({ text: "/Users/another/.local /home/elsewhere/src" }))),
+  ).toEqual({ text: "<HOME>/.local <HOME>/src" });
+});
+
+it("omits opaque encrypted provider reasoning state from captures", () => {
+  expect(
+    JSON.parse(
+      redact(JSON.stringify({ state: { reasoningEncryptedContent: "opaque-provider-state" } })),
+    ),
+  ).toEqual({ state: { reasoningEncryptedContent: "<SECRET>" } });
+});

@@ -1,0 +1,37 @@
+{
+  "checkpoints": [
+    {
+      "t": 5932,
+      "thread": "working"
+    },
+    {
+      "t": 10803,
+      "thread": "needs_you",
+      "agentStates": {
+        "root": "blocked",
+        "ses_efe5c24d8ffegnk4a7x2fdumu5": "blocked"
+      },
+      "note": "A child permission keeps the whole thread waiting on a human."
+    },
+    {
+      "t": 10807,
+      "thread": "working"
+    },
+    {
+      "t": 12214,
+      "thread": "working"
+    },
+    {
+      "t": 14192,
+      "thread": "done"
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 2,
+    "interactions": {
+      "resolved": 1,
+      "pending": 0
+    }
+  }
+}

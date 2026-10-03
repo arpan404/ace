@@ -1,0 +1,34 @@
+{
+  "checkpoints": [
+    {
+      "t": 10883,
+      "thread": "working"
+    },
+    {
+      "t": 21176,
+      "thread": "working",
+      "agentStates": {
+        "root": "working",
+        "ses_efe5b8927ffe75sYcbD2YBWFes": "working"
+      },
+      "note": "The background child is visible while its parent is active."
+    },
+    {
+      "t": 23242,
+      "thread": "working",
+      "note": "The synthetic child result is queued before parent continuation ends."
+    },
+    {
+      "t": 24666,
+      "thread": "done"
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 3,
+    "interactions": {
+      "resolved": 0,
+      "pending": 0
+    }
+  }
+}
