@@ -120,6 +120,7 @@ try {
           detail: { kind: "shell", command: "offline-benchmark" },
         },
       });
+      if (shell.type !== "tool_call") throw new Error("Invalid shell fixture");
       store.appendEvents(
         thread.id,
         [

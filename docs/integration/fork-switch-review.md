@@ -43,8 +43,7 @@ no history-sized memory index is introduced.
 
 Non-gating benchmarks are written in `packages/handoff/bench/selection.ts`,
 `apps/daemon/bench/thread-transitions.ts` and
-`apps/daemon/bench/history-revisions.ts`. The latter reports append and bounded
-count/page costs with 100 and 10,000 historical items. Ops/s, microseconds/op and
+`apps/daemon/bench/history-revisions.ts`. The latter reports append, bounded count/page and UTF-8 shell suffix costs with 100 and 10,000 historical items. Ops/s, microseconds/op and
 peak RSS are **unmeasured: needs run at merge**. No runtime tests, probes,
 mutations, benchmarks, provider prompts, recorder or CI checks were executed.
 Only the owner's permitted static checks are development gates.
