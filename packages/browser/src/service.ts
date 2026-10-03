@@ -27,6 +27,8 @@ export type { BrowserServiceOptions } from "./service-options.ts";
 export class BrowserService {
   private options: BrowserServiceOptions;
   private sessions = new Map<string, BrowserSession>();
+  private generations = new WeakMap<BrowserSession, number>();
+  private sequence = 0;
   private opening = new Map<string, Promise<BrowserSession>>();
   private leases = new Set<string>();
   private listeners = new Map<string, Set<(state: BrowserState) => void>>();
@@ -254,6 +256,7 @@ export class BrowserService {
       });
       await session.live.start();
       this.sessions.set(options.threadId, session);
+      this.generations.set(session, ++this.sequence);
       this.emit(session.state);
       return session;
     } catch (error) {
@@ -276,6 +279,14 @@ export class BrowserService {
     const session = this.sessions.get(threadId);
     if (!session || session.state.closed) throw new Error("Browser session not open");
     return session;
+  }
+  generation(threadId: string): number {
+    const generation = this.generations.get(this.get(threadId));
+    if (generation === undefined) throw new Error("Browser generation unavailable");
+    return generation;
+  }
+  replayFrame(threadId: string, connectionId: string): void {
+    this.get(threadId).live.fanout.replay(connectionId);
   }
   state(threadId: string): BrowserState {
     return this.get(threadId).state;
@@ -329,7 +340,8 @@ export class BrowserService {
     const unsubscribe = () => {
       stop();
       if (onBackendEvent) events.delete(onBackendEvent);
-      if (!events.size) this.backendEvents.delete(threadId);
+      if (!events.size && this.backendEvents.get(threadId) === events)
+        this.backendEvents.delete(threadId);
       listeners.delete(onState);
       if (!listeners.size && this.listeners.get(threadId) === listeners)
         this.listeners.delete(threadId);

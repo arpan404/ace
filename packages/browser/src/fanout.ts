@@ -24,6 +24,13 @@ export class FrameFanout {
       if (this.viewers.get(id) === viewer) this.viewers.delete(id);
     };
   }
+  replay(id: string): void {
+    const viewer = this.viewers.get(id);
+    if (!viewer) return;
+    viewer.inflight = undefined;
+    viewer.latest = this.latest;
+    this.flushViewer(viewer);
+  }
   publish(frame: BrowserFrame): void {
     this.latest = frame;
     for (const viewer of this.viewers.values()) {

@@ -1,4 +1,4 @@
-import { BrowserClientMessage, type BrowserServerMessage } from "@ace/protocol";
+import { ThreadId, BrowserClientMessage, type BrowserServerMessage } from "@ace/protocol";
 import type { BrowserService } from "./service.ts";
 
 function requiredAccess(message: BrowserClientMessage): "read" | "operate" {
@@ -25,7 +25,27 @@ export function connectBrowser(
     send: (message: BrowserServerMessage, serialized?: string) => boolean;
   },
 ): { handle(raw: unknown): Promise<void>; close(): void } {
-  const subscriptions = new Map<string, { stop(): void; subscribers: Set<string> }>();
+  type Subscription = { stop(): void; subscribers: Set<string>; generation: number };
+  const subscriptions = new Map<string, Subscription>();
+  const bind = (threadId: string, entry: Subscription) => {
+    const generation = service.generation(threadId);
+    if (entry.generation === generation) return;
+    entry.stop();
+    entry.stop = service.subscribe(
+      threadId,
+      options.connectionId,
+      {
+        send: (frame) =>
+          options.send(
+            { type: "browser.frame", threadId: ThreadId.parse(threadId), frame },
+            service.serializeFrame(threadId, frame),
+          ),
+      },
+      (state) => options.send({ type: "browser.state", state }),
+      (event) => options.send(event),
+    );
+    entry.generation = generation;
+  };
   let pending = 0;
   let closed = false;
   return {
@@ -57,7 +77,10 @@ export function connectBrowser(
               if (!closed) options.send(progress);
             });
             try {
-              respond(await service.open(message.options));
+              const state = await service.open(message.options);
+              const entry = subscriptions.get(threadId);
+              if (entry) bind(threadId, entry);
+              respond(state);
             } finally {
               stopProgress();
             }
@@ -87,31 +110,23 @@ export function connectBrowser(
             break;
           case "browser.subscribe": {
             const subscriber = message.subscriberId ?? "legacy";
-            const existing = subscriptions.get(threadId);
-            if (existing) {
-              if (existing.subscribers.size >= 64 && !existing.subscribers.has(subscriber))
+            let entry = subscriptions.get(threadId);
+            if (entry) {
+              if (entry.subscribers.size >= 64 && !entry.subscribers.has(subscriber))
                 throw new Error("Browser subscriber limit");
-              existing.subscribers.add(subscriber);
-              respond(null);
-              break;
+              const generation = service.generation(threadId);
+              if (entry.generation !== generation) bind(threadId, entry);
+              else {
+                options.send({ type: "browser.state", state: service.state(threadId) });
+                service.replayFrame(threadId, options.connectionId);
+              }
+              entry.subscribers.add(subscriber);
+            } else {
+              if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
+              entry = { subscribers: new Set([subscriber]), generation: -1, stop() {} };
+              bind(threadId, entry);
+              subscriptions.set(threadId, entry);
             }
-            if (subscriptions.size >= 8) throw new Error("Browser subscription limit");
-            subscriptions.set(threadId, {
-              subscribers: new Set([subscriber]),
-              stop: service.subscribe(
-                threadId,
-                options.connectionId,
-                {
-                  send: (frame) =>
-                    options.send(
-                      { type: "browser.frame", threadId: message.threadId, frame },
-                      service.serializeFrame(threadId, frame),
-                    ),
-                },
-                (state) => options.send({ type: "browser.state", state }),
-                (event) => options.send(event),
-              ),
-            });
             respond(null);
             break;
           }
