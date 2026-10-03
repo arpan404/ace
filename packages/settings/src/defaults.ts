@@ -16,6 +16,8 @@ export const defaults: SettingsValues = {
   "providers.planner.model": "default",
   "providers.planner.tier": "default",
   "providers.planner.reasoningEffort": "default",
+  "browser.backend": "auto",
+  "browser.backendLoss": "pause",
   "approvals.policy": "ask",
   "notifications.enabled": true,
   "notifications.sound": false,

@@ -8,7 +8,12 @@
         "operate"
       ],
       "items": {
-        "$ref": "https://ace.local/protocol/v1/DeviceScope.json"
+        "enum": [
+          "read",
+          "operate",
+          "admin"
+        ],
+        "type": "string"
       },
       "maxItems": 3,
       "minItems": 1,

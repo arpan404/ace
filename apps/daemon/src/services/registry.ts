@@ -9,7 +9,7 @@ import { createSearchSession } from "./search.ts";
 import { createAccountsSession } from "./accounts.ts";
 import { createCommandsSession } from "./commands.ts";
 import { createFilesSession } from "./files.ts";
-import { ClientMessage, BrowserClientMessage } from "@ace/protocol";
+import { ClientMessage, BrowserClientMessage, BrowserBackendClientMessage } from "@ace/protocol";
 import { PluginClientMessage } from "@ace/protocol/plugins";
 import { createNotificationsSession } from "./notifications.ts";
 import { createPluginsSession } from "./plugins.ts";
@@ -55,7 +55,12 @@ export function createSocketRegistry() {
   ];
 }
 export function parseSocketMessage(input: unknown): SocketMessage {
-  for (const schema of [ClientMessage, PluginClientMessage, BrowserClientMessage]) {
+  for (const schema of [
+    ClientMessage,
+    PluginClientMessage,
+    BrowserClientMessage,
+    BrowserBackendClientMessage,
+  ]) {
     const result = schema.safeParse(input);
     if (result.success) return result.data;
   }

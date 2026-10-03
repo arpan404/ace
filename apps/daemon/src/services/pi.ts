@@ -34,7 +34,7 @@ export async function startPi(context: ServiceContext): Promise<void> {
               threadId: ctx.threadId,
               agentId: AgentId.parse(root),
               sessionId: context.id(),
-              capabilities: ["agents", "notify"],
+              capabilities: ["agents", "notify", "browser"],
             },
             lifetime,
           );

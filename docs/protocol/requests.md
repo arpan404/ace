@@ -148,7 +148,7 @@ Example:
 ```json
 {
   "keys": [
-    "notifications.onCompletion"
+    "notifications.sound"
   ],
   "requestId": "example",
   "scope": {

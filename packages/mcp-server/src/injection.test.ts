@@ -71,3 +71,20 @@ it("refuses to inject ace credentials into remote or decorated URLs", () => {
     expect(() => acpInjection({ ...connection, url })).toThrow();
   }
 });
+
+it("keeps OpenCode user configuration and other MCP servers while replacing ace's credential", () => {
+  const result = openCodeInjection(
+    connection,
+    `{
+    // Existing user preferences and servers stay in the provider's overlay.
+    "model": "local/model", "mcp": { "user": { "type": "local", "command": ["node", "tool.js"] }, "ace": { "url": "old" } },
+  }`,
+  );
+  expect(JSON.parse(result.env.OPENCODE_CONFIG_CONTENT)).toMatchObject({
+    model: "local/model",
+    mcp: {
+      user: { type: "local", command: ["node", "tool.js"] },
+      ace: { url: connection.url, oauth: false },
+    },
+  });
+});
