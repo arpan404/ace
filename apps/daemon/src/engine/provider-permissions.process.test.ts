@@ -1,4 +1,6 @@
 import { expect, test } from "vitest";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createCodexAdapter } from "@ace/adapter-codex";
 import { createClaudeAdapter } from "@ace/adapter-claude";
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
@@ -56,7 +58,7 @@ const providers = [
 ];
 
 test.each(providers)(
-  "$adapter.provider launches in auto-review and exposes its coverage before and after creation",
+  "$adapter.provider metadata admits auto-review through a scripted engine and exposes coverage before and after creation",
   async ({ adapter, version, level, gates }) => {
     const frames = scriptFrames();
     const capabilities = adapter.capabilities({
@@ -288,3 +290,59 @@ test("a Codex network escalation cannot earn approval from an otherwise low-risk
     await h.close();
   }
 });
+
+test.each([
+  { toolName: "Grep", input: { pattern: ".", path: ".", glob: "*", output_mode: "content" } },
+  { toolName: "Read", input: { file_path: "." } },
+])(
+  "Claude $toolName cannot auto-approve a directory that may contain secret files",
+  async ({ toolName, input }) => {
+    const frames = scriptFrames();
+    const adapter = createClaudeAdapter();
+    const translator = adapter.createTranslator({
+      threadId: ThreadId.parse("native-test"),
+      rootKey: "root",
+    });
+    translator.translate(
+      {
+        seq: 1,
+        t: 1,
+        dir: "recv",
+        channel: "sdk",
+        data: { type: "system", subtype: "init", session_id: "native" },
+      },
+      1,
+    );
+    const opened = translator
+      .translate(
+        {
+          seq: 2,
+          t: 2,
+          dir: "recv",
+          channel: "can_use_tool",
+          data: { toolName, input, options: { requestId: "permission" } },
+        },
+        2,
+      )
+      .find((f) => f.type === "interaction.opened");
+    if (!opened || opened.type !== "interaction.opened")
+      throw new Error("Missing native permission");
+    const h = await harness([], frames, { provider: "claude" });
+    try {
+      writeFileSync(join(h.home, "secrets.json"), '{"secret":"fixture"}');
+      const id = await h.create();
+      h.contexts[0]?.onFrame(
+        frames.frame(start, { ...opened, agent: "root", interaction: "permission" }),
+      );
+      await h.engine.flush();
+      const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
+      expect(interaction?.review).toMatchObject({ decision: "escalate" });
+      expect(interaction?.review?.reason.length).toBeGreaterThan(0);
+      expect(interaction?.state).toBe("pending");
+      expect(h.store.getThread(id)?.status.state).toBe("needs_you");
+      expect(h.adapter.commands.filter((c) => c.type === "resolve")).toEqual([]);
+    } finally {
+      await h.close();
+    }
+  },
+);

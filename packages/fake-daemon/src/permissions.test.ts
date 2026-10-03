@@ -216,3 +216,35 @@ test("a dangerous request is denied through cancellation when the provider has n
     await f.client.close();
   }
 });
+
+test("fake broad reads stay pending for human review", async () => {
+  const f = await fixture();
+  try {
+    const created = await f.client.command({
+      type: "thread.create",
+      workspaceId: WorkspaceId.parse("workspace"),
+      provider: "claude",
+      input: [{ type: "text", text: "task" }],
+    });
+    if (!created.threadId) throw new Error("Missing thread");
+    const request = approval("unused");
+    if (request.type !== "interaction.opened" || request.request.kind !== "approval")
+      throw new Error("Bad request");
+    request.request.target = {
+      tool: "Grep",
+      access: "read",
+      paths: ["."],
+      input: { pattern: ".", path: ".", glob: "*", output_mode: "content" },
+    };
+    f.daemon.apply(created.threadId, [request]);
+    const snapshot = f.daemon.snapshot({ kind: "thread", threadId: created.threadId });
+    if (!snapshot || snapshot.kind !== "thread") throw new Error("Missing thread");
+    expect(Object.values(snapshot.interactions)[0]).toMatchObject({
+      state: "pending",
+      review: { decision: "escalate" },
+    });
+    expect(snapshot.thread.status.state).toBe("needs_you");
+  } finally {
+    await f.client.close();
+  }
+});

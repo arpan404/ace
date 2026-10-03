@@ -327,3 +327,27 @@ test("read-only cannot approve a protected write after it escalates for human re
     await h.close();
   }
 });
+
+test("an exact ordinary regular-file read earns one-shot automatic permission", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send" }, { on: "resolve", frames: [frames.frame(end)] }], frames);
+  try {
+    writeFileSync(join(h.home, "ordinary.txt"), "safe");
+    const request = approval("unused");
+    if (request.type !== "interaction.opened" || request.request.kind !== "approval")
+      throw new Error("Bad request");
+    request.request.target = { tool: "Read", paths: ["ordinary.txt"], access: "read" };
+    const id = await h.create();
+    h.contexts[0]?.onFrame(frames.frame(start, request));
+    await h.engine.flush();
+    const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
+    expect(interaction?.review).toMatchObject({
+      decision: "approve",
+      reason: "Read of verified non-secret workspace files",
+    });
+    expect(interaction?.resolution).toMatchObject({ optionId: "once" });
+    expect(h.store.getThread(id)?.status.state).toBe("done");
+  } finally {
+    await h.close();
+  }
+});

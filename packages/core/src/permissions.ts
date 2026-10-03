@@ -46,7 +46,7 @@ export function permissionDecisionOption(
   );
 }
 /** Boundary resolves symlinks and existing ancestors. Unknown paths can never earn approval. */
-export type PathRisk = "workspace" | "outside" | "secret" | "unknown";
+export type PathRisk = "workspace-file" | "workspace" | "outside" | "secret" | "unknown";
 const secret =
   /(?:^|[\s/\\"':])(?:\.env(?:\.[\w.-]+)?|\.ssh|\.aws|\.azure|\.gnupg|\.codex|\.claude|\.kube|\.git-credentials|secrets?(?:\.[\w.-]+)?|credentials(?:\.[\w.-]+)?|\.netrc|\.npmrc|id_rsa|id_ed25519)(?:$|[\s/\\"'*:])|(?:api[_-]?key|access[_-]?token|password|keychain|printenv|process\.env|gcloud|hosts\.yml)/i;
 export function containsSecretReference(value: string): boolean {
@@ -103,11 +103,12 @@ export function reviewPermission(input: {
   }
   if (
     target.access === "read" &&
+    ["Read", "read"].includes(target.tool) &&
     target.paths?.length &&
     paths.length === target.paths.length &&
-    paths.every((path) => path === "workspace")
+    paths.every((path) => path === "workspace-file")
   )
-    return { decision: "approve", reason: "Read of verified non-secret workspace paths" };
+    return { decision: "approve", reason: "Read of verified non-secret workspace files" };
   return { decision: "escalate", reason: "Tool effects are not proven low risk" };
 }
 

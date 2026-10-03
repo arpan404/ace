@@ -22,9 +22,9 @@ test("a verified ordinary workspace read earns a reason but a write in read-only
     reviewPermission({
       mode: "auto-review",
       target: { tool: "Read", access: "read", paths: ["src/main.ts"] },
-      paths: ["workspace"],
+      paths: ["workspace-file"],
     }),
-  ).toEqual({ decision: "approve", reason: "Read of verified non-secret workspace paths" });
+  ).toEqual({ decision: "approve", reason: "Read of verified non-secret workspace files" });
   expect(
     reviewPermission({
       mode: "read-only",
@@ -59,3 +59,16 @@ test("an unknown tool cannot disguise its effects with a low-risk command field"
     }).decision,
   ).toBe("escalate");
 });
+
+test.each(["Grep", "Glob", "arbitrary-plugin"])(
+  "%s cannot earn approval from a contained path alone",
+  (tool) => {
+    expect(
+      reviewPermission({
+        mode: "auto-review",
+        target: { tool, access: "read", paths: ["src/main.ts"] },
+        paths: ["workspace-file"],
+      }).decision,
+    ).toBe("escalate");
+  },
+);

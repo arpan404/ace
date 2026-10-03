@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { resolve, relative, dirname, basename, isAbsolute } from "node:path";
 import { containsSecretReference, type PathRisk } from "@ace/core";
 import type { ApprovalTarget } from "@ace/protocol";
@@ -36,7 +36,15 @@ export function permissionPaths(workspace: string, target?: ApprovalTarget): Pat
       return "unknown";
     }
   };
-  const results = paths.map(check);
+  const results = paths.map((path) => {
+    const risk = check(path);
+    if (risk !== "workspace" || target.access !== "read") return risk;
+    try {
+      return statSync(resolve(cwd, path)).isFile() ? "workspace-file" : "workspace";
+    } catch {
+      return "unknown";
+    }
+  });
   const cwdRisk = check(cwd);
   if (cwdRisk !== "workspace") results.push(cwdRisk);
   return results;
