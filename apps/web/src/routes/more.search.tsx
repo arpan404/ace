@@ -1,10 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { z } from "zod";
+// Route search schemas load with the route tree on first paint: zod/mini keeps classic Zod out.
+import * as z from "zod/mini";
 import { SearchPage } from "@/features/search/index.ts";
 
 const Search = z.object({
-  q: z.string().max(512).optional().catch(undefined),
-  kind: z.enum(["all", "message", "tool_call", "artifact", "thread"]).optional().catch(undefined),
+  q: z.catch(z.optional(z.string().check(z.maxLength(512))), undefined),
+  kind: z.catch(
+    z.optional(z.enum(["all", "message", "tool_call", "artifact", "thread"])),
+    undefined,
+  ),
 });
 
 /** Full-text search across every thread. */

@@ -1,19 +1,19 @@
-import { z } from "zod";
+// zod/mini: the connection gate is on the first paint, and classic Zod is ~20 KB gzip more.
+import * as z from "zod/mini";
 import { type KeyValueStorage } from "@ace/ui-core";
 
 /** The daemon listens on 127.0.0.1:4242 by default (ACE_PORT) and upgrades `/` to WebSocket. */
 export const defaultDaemonUrl = "ws://127.0.0.1:4242/";
 
-export const DaemonUrl = z
-  .string()
-  .trim()
-  .url("Enter a ws:// or wss:// address")
-  .refine((value) => /^wss?:$/.test(new URL(value).protocol), "Use a ws:// or wss:// address");
+export const DaemonUrl = z.string().check(
+  z.trim(),
+  z.url("Enter a ws:// or wss:// address"),
+  z.refine((value) => /^wss?:$/.test(new URL(value).protocol), "Use a ws:// or wss:// address"),
+);
 /** The local token (`~/.ace/daemon-token`) or a paired device token: 64 hex characters. */
 export const DaemonToken = z
   .string()
-  .trim()
-  .regex(/^[0-9a-f]{64}$/i, "A daemon token is 64 hexadecimal characters");
+  .check(z.trim(), z.regex(/^[0-9a-f]{64}$/i, "A daemon token is 64 hexadecimal characters"));
 export const DaemonTarget = z.object({ url: DaemonUrl, token: DaemonToken });
 export type DaemonTarget = z.infer<typeof DaemonTarget>;
 
