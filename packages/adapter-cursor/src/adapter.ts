@@ -81,7 +81,7 @@ export function createCursorAdapter(
           // Canonical ace history already owns content. Validate a bounded snapshot
           // without appending positional SDK messages as new live transcript entries.
           await readCursorSnapshot(
-            { ...hostOptions, slots, env },
+            { ...hostOptions, slots, env, instanceId: selected.id },
             { threadId: context.threadId, agentId: context.resume.nativeSessionId },
             context.signal,
           );

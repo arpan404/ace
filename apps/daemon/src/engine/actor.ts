@@ -134,15 +134,17 @@ export class ThreadActor {
       });
       return;
     }
-    const decoded = result.data;
+    const { payload, ...metadata } = result.data;
+    const decoded: Frame = { ...metadata, ...(payload ? { payload } : {}) };
     let bytes: number;
     try {
-      const payload = decoded.payload;
-      if (decoded.channel === "sdk" && (!payload || payload.data !== decoded.data))
+      const certificate = decoded.payload;
+      if (decoded.channel === "sdk" && (!certificate || certificate.data !== decoded.data))
         throw new Error("SDK frame lacks matching encoded admission certificate");
-      bytes = payload && payload.data === decoded.data
-        ? payload.bytes + 512
-        : Buffer.byteLength(boundedJson(decoded, this.limits.maxFrameBytes));
+      bytes =
+        certificate && certificate.data === decoded.data
+          ? certificate.bytes + 512
+          : Buffer.byteLength(boundedJson(decoded, this.limits.maxFrameBytes));
     } catch (error) {
       this.enqueue(() => {
         throw error;

@@ -12,6 +12,7 @@ export interface CursorAccountDriverOptions extends Omit<HostOptions, "env" | "c
 export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
   const slots = options.slots ?? new CursorHostSlots(2);
   let workers = 0;
+  const signingOut = new Set<string>();
   const operate = async (
     instance: CursorInstance,
     method: "status" | "login" | "logout" | "models",
@@ -21,12 +22,19 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
     signal.throwIfAborted();
     const installed = await discoverCursorSdk(options.discovery);
     if (!installed.supported) throw new Error(installed.error ?? "Cursor SDK missing");
+    if (method !== "logout" && signingOut.has(instance.id))
+      throw new Error("SDK sign-out is fencing this instance");
     if (workers >= 2) throw new Error("SDK account worker capacity reached");
     workers++;
     let host: CursorHost | undefined;
     try {
       host = new CursorHost(
-        { ...options, slots, env: cursorSdkEnvironment(instance, options.launchEnv) },
+        {
+          ...options,
+          slots,
+          instanceId: instance.id,
+          env: cursorSdkEnvironment(instance, options.launchEnv),
+        },
         () => {
           throw new Error("Auth workers must not emit captured frames");
         },
@@ -62,8 +70,16 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
     },
     async logout(instance: CursorInstance, signal: AbortSignal) {
       const selected = CursorInstance.parse(instance);
-      await options.stopInstance(selected.id);
-      return SafeAuth.parse(await operate(selected, "logout", signal));
+      if (signingOut.has(selected.id) || signingOut.size >= 2)
+        throw new Error("SDK sign-out already in flight or at capacity");
+      signingOut.add(selected.id);
+      try {
+        await options.stopInstance(selected.id);
+        await slots.stopInstance(selected.id);
+        return SafeAuth.parse(await operate(selected, "logout", signal));
+      } finally {
+        signingOut.delete(selected.id);
+      }
     },
     models(instance: CursorInstance, signal: AbortSignal) {
       return operate(CursorInstance.parse(instance), "models", signal);

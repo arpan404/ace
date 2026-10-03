@@ -18,6 +18,7 @@ import {
 export interface HostOptions {
   env: NodeJS.ProcessEnv;
   slots?: CursorHostSlots;
+  instanceId?: string;
   cwd?: string;
   limits?: Partial<CursorLimits>;
   spawn?: typeof spawnSupervised;
@@ -64,7 +65,13 @@ export class CursorHost {
       release?.();
       throw error;
     }
-    void this.process.exited.finally(() => release?.());
+    const untrack = options.instanceId
+      ? options.slots?.track(options.instanceId, () => this.stop())
+      : undefined;
+    void this.process.exited.finally(() => {
+      untrack?.();
+      release?.();
+    });
     this.rpc = new JsonRpcPeer(this.process, {
       timeoutMs: this.limits.timeoutMs,
       maxMessageBytes: this.limits.maxFrameBytes,
