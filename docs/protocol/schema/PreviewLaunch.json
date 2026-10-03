@@ -1,0 +1,72 @@
+{
+  "$id": "https://ace.local/protocol/v1/PreviewLaunch.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    {
+      "command": "node",
+      "name": "example"
+    }
+  ],
+  "properties": {
+    "args": {
+      "default": [],
+      "items": {
+        "maxLength": 4096,
+        "type": "string"
+      },
+      "maxItems": 128,
+      "type": "array"
+    },
+    "autoPort": {
+      "default": false,
+      "type": "boolean"
+    },
+    "command": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "cwd": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "env": {
+      "additionalProperties": {
+        "maxLength": 8192,
+        "type": "string"
+      },
+      "default": {},
+      "propertyNames": {
+        "maxLength": 128,
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "name": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "port": {
+      "$ref": "https://ace.local/protocol/v1/PreviewPort.json"
+    },
+    "runtimeExecutable": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "url": {
+      "format": "ace-whatwg-url",
+      "type": "string",
+      "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.",
+      "x-ace-url-maxLength": 4096
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object",
+  "x-ace-constraint": "Choose exactly one executable, or an attach URL without an executable or autoPort."
+}

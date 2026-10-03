@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/InstalledRelease.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "channel": {
+      "enum": [
+        "stable",
+        "preview"
+      ],
+      "type": "string"
+    },
+    "target": {
+      "$ref": "https://ace.local/protocol/v1/ReleaseTarget.json"
+    },
+    "version": {
+      "$ref": "https://ace.local/protocol/v1/ReleaseVersion.json"
+    }
+  },
+  "required": [
+    "version",
+    "channel",
+    "target"
+  ],
+  "type": "object"
+}

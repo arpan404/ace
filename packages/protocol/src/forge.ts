@@ -11,7 +11,11 @@ export const ForgeRepository = z.object({
     .string()
     .regex(/^[\w.-]+(?:\/[\w.-]+)*$/)
     .max(512)
-    .refine((value) => value.split("/").every((part) => part !== "." && part !== "..")),
+    .refine((value) => value.split("/").every((part) => part !== "." && part !== ".."))
+    .meta({
+      "x-ace-constraint": "Every owner path segment must differ from . and ..",
+      not: { pattern: "(?:^|/)\\.{1,2}(?:/|$)" },
+    }),
   name: z
     .string()
     .regex(/^[\w.-]+$/)

@@ -9,6 +9,9 @@ export function migrateEngine(db: DatabaseSync): void {
   const row = db.prepare("SELECT version FROM engine_schema_version WHERE id=1").get();
   if (row) {
     requireEngineVersion(row);
+    const columns = db.prepare("PRAGMA table_info(engine_sessions)").all();
+    if (!columns.some((column) => column.name === "instance_id"))
+      db.exec("ALTER TABLE engine_sessions ADD COLUMN instance_id TEXT");
     return;
   }
   const legacy = db
@@ -24,7 +27,7 @@ export function migrateEngine(db: DatabaseSync): void {
   );
   CREATE TABLE engine_sessions (
     thread_id TEXT PRIMARY KEY REFERENCES threads(id), cwd TEXT NOT NULL,
-    model TEXT, native_session_id TEXT
+    model TEXT, native_session_id TEXT, instance_id TEXT
   );
   CREATE TABLE intents (
     id INTEGER PRIMARY KEY AUTOINCREMENT, command_id TEXT NOT NULL UNIQUE,

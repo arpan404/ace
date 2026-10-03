@@ -1,0 +1,99 @@
+{
+  "$id": "https://ace.local/protocol/v1/InteractionResolution.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "approval",
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "optionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "optionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "answers": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "dismissed": {
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "question",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "answers"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "decision": {
+          "enum": [
+            "approve",
+            "reject",
+            "cancel"
+          ],
+          "type": "string"
+        },
+        "feedback": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "plan_review",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "decision"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "enum": [
+            "accept",
+            "decline",
+            "cancel"
+          ],
+          "type": "string"
+        },
+        "content": {},
+        "kind": {
+          "const": "elicitation",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "action"
+      ],
+      "type": "object"
+    }
+  ]
+}

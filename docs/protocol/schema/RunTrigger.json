@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/RunTrigger.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "user",
+    "spawn",
+    "parent_agent",
+    "background_completion",
+    "subagent_result",
+    "goal",
+    "queue",
+    "schedule",
+    "unknown"
+  ],
+  "type": "string"
+}

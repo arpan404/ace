@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/SettingsGet.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "key": {
+      "$ref": "https://ace.local/protocol/v1/SettingsKey.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "https://ace.local/protocol/v1/SettingsScope.json"
+    },
+    "type": {
+      "const": "settings.get",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "key",
+    "scope"
+  ],
+  "type": "object"
+}

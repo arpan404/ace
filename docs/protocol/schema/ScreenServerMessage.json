@@ -1,0 +1,46 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenServerMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "state": {
+          "$ref": "https://ace.local/protocol/v1/ScreenState.json"
+        },
+        "type": {
+          "const": "screen.state",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "data": {},
+        "error": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "type": {
+          "const": "screen.result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "ok"
+      ],
+      "type": "object"
+    }
+  ]
+}

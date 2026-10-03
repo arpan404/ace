@@ -1,0 +1,57 @@
+[
+  {
+    "reviewMutation": 6,
+    "behavior": "cancel queued input before permission inspection",
+    "killed": true
+  },
+  {
+    "reviewMutation": 8,
+    "behavior": "disable terminates owned captures",
+    "killed": true
+  },
+  {
+    "reviewMutation": 14,
+    "behavior": "unsubscribe removes an active viewer",
+    "killed": true
+  },
+  {
+    "reviewMutation": 22,
+    "behavior": "reversed helper replies correlate by id",
+    "killed": true
+  },
+  {
+    "reviewMutation": 24,
+    "behavior": "advertised text limit matches accepted input",
+    "killed": true
+  },
+  {
+    "reviewMutation": 31,
+    "behavior": "newline-free output is bounded before accumulation",
+    "killed": true
+  },
+  {
+    "reviewMutation": 32,
+    "behavior": "indicator remains visible during termination",
+    "killed": true
+  },
+  {
+    "reviewMutation": 33,
+    "behavior": "capture closes independently of publication",
+    "killed": true
+  },
+  {
+    "reviewMutation": 34,
+    "behavior": "helper deadlines fail outstanding work",
+    "killed": true
+  },
+  {
+    "reviewMutation": 36,
+    "behavior": "startup indicator is visible before capture dispatch",
+    "killed": true
+  },
+  {
+    "reviewMutation": 37,
+    "behavior": "startup cleanup publishes final indicator state",
+    "killed": true
+  }
+]

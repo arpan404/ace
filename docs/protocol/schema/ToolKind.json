@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/ToolKind.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "shell",
+    "file.read",
+    "file.edit",
+    "file.write",
+    "file.delete",
+    "file.move",
+    "search",
+    "web.search",
+    "web.fetch",
+    "mcp",
+    "agent.spawn",
+    "agent.message",
+    "todo",
+    "plan",
+    "ask_user",
+    "browser",
+    "image",
+    "notebook",
+    "custom"
+  ],
+  "type": "string"
+}

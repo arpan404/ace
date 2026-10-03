@@ -120,10 +120,14 @@ export class SafeRoot {
       throw error;
     }
   }
-  async file(input: string): Promise<{ handle: FileHandle | Descriptor; info: Stats }> {
+  async file(
+    input: string,
+  ): Promise<{ handle: FileHandle | Descriptor; info: Stats; resolved: string }> {
     let handle: FileHandle | Descriptor | undefined;
     try {
       const resolved = await this.resolve(input);
+      if (transferTemporary(relative(this.root, resolved).split(sep).join("/")))
+        throw new WorkspaceError("INVALID_PATH", "Upload temporary files are private");
       const expected = await this.fs.lstat(resolved);
       if (!expected.isFile()) throw new WorkspaceError("NOT_FILE", "Path is not a regular file");
       handle = await this.anchored(resolved, constants.O_RDONLY);
@@ -131,11 +135,38 @@ export class SafeRoot {
       if (!info.isFile() || !same(info, expected))
         throw new WorkspaceError("PATH_CHANGED", "File was replaced while opening");
       await this.verify(input, resolved, info);
-      return { handle, info };
+      return { handle, info, resolved };
     } catch (error) {
       await handle?.close();
       throw failure(error);
     }
+  }
+  /** Mutation endpoints never follow links, including links within the workspace. */
+  async target(input: string): Promise<{ path: string; verify(): Promise<void> }> {
+    const path = this.path(input);
+    if (!path || internal(path)) throw new WorkspaceError("INVALID_PATH", "Reserved mutation path");
+    const parts = path.split("/");
+    const name = parts.pop();
+    if (!name) throw new WorkspaceError("INVALID_PATH", "Missing filename");
+    let prefix = "";
+    for (const part of parts) {
+      prefix = prefix ? `${prefix}/${part}` : part;
+      const info = await this.fs.lstat(join(this.root, prefix));
+      if (info.isSymbolicLink())
+        throw new WorkspaceError("PATH_ESCAPE", "Mutation crosses a symlink");
+    }
+    const parent = parts.join("/");
+    const resolved = await this.resolve(parent);
+    const expected = await this.fs.lstat(resolved);
+    if (!expected.isDirectory()) throw new WorkspaceError("NOT_DIRECTORY", "Invalid parent");
+    const destination = join(resolved, name);
+    try {
+      if ((await this.fs.lstat(destination)).isSymbolicLink())
+        throw new WorkspaceError("PATH_ESCAPE", "Mutation target is a symlink");
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") throw error;
+    }
+    return { path: destination, verify: () => this.verify(parent, resolved, expected) };
   }
   async metadata(input: string) {
     try {
@@ -211,8 +242,11 @@ export class SafeRoot {
     }
   }
 }
+export function transferTemporary(path: string): boolean {
+  return path.split("/").some((part) => part.startsWith(".ace-upload-"));
+}
 export function internal(path: string): boolean {
-  return path.split("/").includes(".git");
+  return path.split("/").includes(".git") || transferTemporary(path);
 }
 export function transient(error: unknown): boolean {
   return (

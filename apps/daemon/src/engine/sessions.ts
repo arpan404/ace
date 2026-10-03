@@ -67,6 +67,7 @@ export class Sessions {
         threadId: actor.id,
         rootKey,
         cwd: metadata.cwd,
+        ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
         ...(metadata.model === undefined ? {} : { model: metadata.model }),
         ...(metadata.nativeSessionId === undefined
           ? {}
@@ -95,7 +96,7 @@ export class Sessions {
       }
       actor.session = session;
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
-      this.dependencies.repo.nativeSession(actor.id, session.nativeSessionId);
+      this.dependencies.repo.nativeSession(actor.id, session.nativeSessionId, session.instanceId);
       this.dependencies.wake(actor.id);
     } catch (error) {
       await actor.flush();

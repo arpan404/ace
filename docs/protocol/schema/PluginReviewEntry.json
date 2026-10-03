@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginReviewEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "execution": {
+          "$ref": "https://ace.local/protocol/v1/PluginExecution.json"
+        },
+        "type": {
+          "const": "execution",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "execution"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "type": {
+          "const": "diagnostic",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "message"
+      ],
+      "type": "object"
+    }
+  ]
+}

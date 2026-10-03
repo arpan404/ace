@@ -8,9 +8,14 @@ Tests use jsQR 1.4.0, Apache-2.0 licensed. These dependencies are accepted under
 
 JSONC parsing and minimal edits use jsonc-parser 3.3.1, Copyright (c) Microsoft, MIT licensed. This dependency is accepted under that license.
 
+Descriptor-relative command discovery uses Koffi 3.1.0, Copyright (C) 2026 Niels Martignène,
+MIT licensed. This dependency and its bundled MIT license are accepted for the POSIX FFI binding.
+The integrated command discovery and incremental SQLite blob reader use Koffi 3.3.2 under the same accepted MIT license.
 Support archive encoding uses tar-stream 3.2.1, Copyright (c) 2014 Mathias Buus, MIT licensed. This dependency is accepted under its MIT license.
 Image header dimensions use image-size 2.0.2, Copyright 2013-Present Aditya Yadav, MIT licensed.
 This dependency is accepted under its MIT license; no provider or competitor implementation is copied.
+Protocol documentation uses Ajv 8, ajv-formats 3 and randexp 0.5 under the MIT license.
+Protocol property tests use fast-check 4 under the MIT license. These dependencies are accepted under their respective licenses.
 
 Workspace descriptor support uses node-api-headers 1.9.0, MIT licensed, from the Node.js project. This header dependency is accepted under its license; the syscall bridge is written for ace.
 

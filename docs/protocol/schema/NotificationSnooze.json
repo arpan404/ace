@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/NotificationSnooze.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "threadId": {
+      "allOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        }
+      ]
+    },
+    "type": {
+      "const": "notification.snooze",
+      "type": "string"
+    },
+    "until": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    }
+  },
+  "required": [
+    "type",
+    "threadId",
+    "until"
+  ],
+  "type": "object"
+}

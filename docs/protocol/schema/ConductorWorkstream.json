@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/ConductorWorkstream.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "brief": {
+      "$ref": "https://ace.local/protocol/v1/ConductorBrief.json"
+    },
+    "dependencies": {
+      "items": {
+        "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+        "type": "string"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "id": {
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+      "type": "string"
+    },
+    "priority": {
+      "maximum": 1000,
+      "minimum": -1000,
+      "type": "integer"
+    },
+    "title": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "title",
+    "brief",
+    "dependencies",
+    "priority"
+  ],
+  "type": "object"
+}

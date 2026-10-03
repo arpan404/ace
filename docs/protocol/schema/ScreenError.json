@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenError.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "code": {
+      "enum": [
+        "permission_denied",
+        "target_gone",
+        "not_supported",
+        "bounds",
+        "busy",
+        "timeout",
+        "internal"
+      ],
+      "type": "string"
+    },
+    "message": {
+      "maxLength": 1024,
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "message"
+  ],
+  "type": "object"
+}

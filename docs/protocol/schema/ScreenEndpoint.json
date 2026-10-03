@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenEndpoint.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    "unix:/example/frames.sock"
+  ],
+  "maxLength": 256,
+  "pattern": "^(?:unix:\\/[^\\0\\r\\n]+|pipe:\\\\\\\\\\.\\\\pipe\\\\ace-screen-[a-zA-Z0-9_-]+)$",
+  "type": "string",
+  "x-ace-constraint": "Absolute unix: path without NUL, CR or LF, or an ace-screen named pipe."
+}

@@ -1,0 +1,73 @@
+{
+  "$id": "https://ace.local/protocol/v1/BackgroundTask.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "ambient": {
+      "default": false,
+      "type": "boolean"
+    },
+    "childAgentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "endedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/BackgroundTaskId.json"
+    },
+    "kind": {
+      "enum": [
+        "shell",
+        "monitor",
+        "subagent",
+        "other"
+      ],
+      "type": "string"
+    },
+    "outputPath": {
+      "type": "string"
+    },
+    "raw": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+      },
+      "type": "array"
+    },
+    "startedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "status": {
+      "enum": [
+        "running",
+        "completed",
+        "failed",
+        "stopped",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "stoppable": {
+      "type": "boolean"
+    },
+    "title": {
+      "type": "string"
+    },
+    "toolCallId": {
+      "$ref": "https://ace.local/protocol/v1/ItemId.json"
+    }
+  },
+  "required": [
+    "id",
+    "agentId",
+    "kind",
+    "title",
+    "status",
+    "stoppable",
+    "startedAt"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/ContextRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operation": {
+      "$ref": "https://ace.local/protocol/v1/ContextOperation.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[\\w-]+$",
+      "type": "string"
+    },
+    "type": {
+      "const": "context.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "operation"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,399 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "op": {
+          "const": "enable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "bundleId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+        },
+        "op": {
+          "const": "approve",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "bundleId",
+        "allowed"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "permissions",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "targets",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "sessions",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "fps": {
+          "default": 10,
+          "maximum": 30,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "start",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
+        }
+      },
+      "required": [
+        "op",
+        "target"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "stop",
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "controller": {
+          "enum": [
+            "agent",
+            "human",
+            "none"
+          ],
+          "type": "string"
+        },
+        "op": {
+          "const": "controller",
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId",
+        "controller"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "$ref": "https://ace.local/protocol/v1/ScreenAction.json"
+        },
+        "op": {
+          "const": "action",
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId",
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "subscribe",
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "unsubscribe",
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "record.start",
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "record.stop",
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "capabilities",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "maxDepth": {
+          "default": 8,
+          "maximum": 16,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxNodes": {
+          "default": 128,
+          "maximum": 512,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "ui.tree",
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "limit": {
+          "default": 16,
+          "maximum": 64,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "ui.find",
+          "type": "string"
+        },
+        "query": {
+          "$ref": "https://ace.local/protocol/v1/ScreenUIQuery.json"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        }
+      },
+      "required": [
+        "query",
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "$ref": "https://ace.local/protocol/v1/ScreenUIAction.json"
+        },
+        "op": {
+          "const": "ui.act",
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "https://ace.local/protocol/v1/ScreenUIRef.json"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "properties": {
+                "dx": {
+                  "default": 0,
+                  "maximum": 1000,
+                  "minimum": -1000,
+                  "type": "integer"
+                },
+                "dy": {
+                  "default": 0,
+                  "maximum": 1000,
+                  "minimum": -1000,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "ref",
+        "action",
+        "op",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "input": {
+          "$ref": "https://ace.local/protocol/v1/ScreenInput.json"
+        },
+        "op": {
+          "const": "input",
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        }
+      },
+      "required": [
+        "op",
+        "sessionId",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "simulators",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "simulator.boot",
+          "type": "string"
+        },
+        "udid": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "udid"
+      ],
+      "type": "object"
+    }
+  ]
+}

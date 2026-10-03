@@ -46,6 +46,7 @@ export function createAcpAdapter(
       };
     },
     async openSession(ctx) {
+      const env = { ...options.env, ...ctx.env };
       if (options.resolveLaunch) {
         const plan = await options.resolveLaunch(ctx);
         return openAcpSession(ctx, quirks, {
@@ -64,22 +65,19 @@ export function createAcpAdapter(
         const cli = (
           await discoverProviders({
             overrides: { cursor: command },
-            ...(options.env ? { env: options.env } : {}),
+            env,
           })
         ).cursor;
         path = cli.path;
         version = cli.version;
       } else {
-        path = await findExecutable(
-          command,
-          options.env ? { ...process.env, ...options.env } : process.env,
-        );
+        path = await findExecutable(command, { ...process.env, ...env });
       }
       if (!path) throw new Error(`Installed ACP CLI not found: ${command}`);
       return openAcpSession(ctx, quirks, {
         command: path,
         args: options.args ?? quirks.args,
-        env: { ...options.env, ...ctx.env },
+        env,
         ...(version ? { version } : {}),
       });
     },

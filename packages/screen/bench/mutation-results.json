@@ -1,0 +1,47 @@
+[
+  {
+    "mutation": "off-by-default",
+    "test": "capture is off by default",
+    "killed": true
+  },
+  {
+    "mutation": "per-app-approval",
+    "test": "capture is off by default",
+    "killed": true
+  },
+  {
+    "mutation": "ownership",
+    "test": "live screenshots and MCP actions",
+    "killed": true
+  },
+  {
+    "mutation": "accessibility",
+    "test": "denied Screen Recording",
+    "killed": true
+  },
+  {
+    "mutation": "display-view-only",
+    "test": "display streams cannot inject",
+    "killed": true
+  },
+  {
+    "mutation": "latest-frame",
+    "test": "slow subscribers get the newest",
+    "killed": true
+  },
+  {
+    "mutation": "header-cap",
+    "test": "rejects oversized headers",
+    "killed": true
+  },
+  {
+    "mutation": "recording-cap",
+    "test": "recording byte limits",
+    "killed": true
+  },
+  {
+    "mutation": "session-cap",
+    "test": "session limits are bounded",
+    "killed": true
+  }
+]

@@ -15,13 +15,18 @@ export const OrchestrationState = z.object({
   startedAt: z.number().int().nonnegative(),
   status: OrchestrationRunStatus,
   stopReason: z.enum(["cancelled", "budget_exhausted", "winner"]).optional(),
-  lanes: z.record(OrchestrationId, OrchestrationLane).refine((v) => Object.keys(v).length <= 64),
+  lanes: z
+    .record(OrchestrationId, OrchestrationLane)
+    .refine((v) => Object.keys(v).length <= 64)
+    .meta({ maxProperties: 64, "x-ace-constraint": "At most 64 entries." }),
   intents: z
     .record(OrchestrationId, OrchestrationIntent)
-    .refine((v) => Object.keys(v).length <= 129),
+    .refine((v) => Object.keys(v).length <= 129)
+    .meta({ maxProperties: 129, "x-ace-constraint": "At most 129 entries." }),
   spawnReceipts: z
     .record(z.string().max(300), OrchestrationId)
-    .refine((v) => Object.keys(v).length <= 64),
+    .refine((v) => Object.keys(v).length <= 64)
+    .meta({ maxProperties: 64, "x-ace-constraint": "At most 64 entries." }),
   open: count,
   waiting: count,
   succeeded: count,

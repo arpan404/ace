@@ -1,0 +1,15 @@
+{
+  "$id": "https://ace.local/protocol/v1/SettingsRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/SettingsGet.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SettingsSet.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SettingsSubscribe.json"
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { findExecutable } from "./executable.ts";
 export { findExecutable, isPackageRunner } from "./executable.ts";
+import { z } from "zod";
 import { probeOutput } from "../process.ts";
 import {
   parseClaudeAuth,
@@ -18,6 +19,7 @@ export {
 } from "./parsers.ts";
 export type { AuthStatus } from "./parsers.ts";
 
+const ProviderSchema = z.enum(["claude", "codex", "opencode", "cursor"]);
 export type Provider = "claude" | "codex" | "opencode" | "cursor";
 export type { DiscoveryResult } from "./types.ts";
 import type { DiscoveryResult } from "./types.ts";
@@ -66,58 +68,62 @@ function probeError(label: string, error: unknown): string {
     : `${label} failed`;
 }
 
+/** Probe only the requested CLI, without inspecting other providers' accounts. */
+export async function discoverProvider(
+  input: Provider,
+  options: DiscoveryOptions = {},
+): Promise<DiscoveryResult> {
+  const provider = ProviderSchema.parse(input);
+  const env = { ...process.env, ...options.env };
+  const spec = specs[provider];
+  const result: DiscoveryResult = {
+    installed: false,
+    auth: "unknown",
+    loginHint: spec.loginHint,
+  };
+  const path = await findExecutable(options.overrides?.[provider] ?? spec.command, env);
+  if (!path) return result;
+  result.installed = true;
+  result.path = path;
+  const probeOptions = { env, timeoutMs: options.timeoutMs ?? 10_000 };
+  const [version, auth] = await Promise.allSettled([
+    probeOutput(path, ["--version"], probeOptions),
+    probeOutput(path, spec.authArgs, probeOptions),
+  ]);
+  const errors: string[] = [];
+  if (version.status === "fulfilled" && version.value.code === 0) {
+    const parsed = parseVersion(provider, version.value.stdout);
+    if (parsed) result.version = parsed;
+    else errors.push("Unrecognized version output");
+  } else
+    errors.push(
+      version.status === "rejected"
+        ? probeError("Version probe", version.reason)
+        : "Version probe exited unsuccessfully",
+    );
+  if (auth.status === "fulfilled") {
+    Object.assign(result, spec.parse(auth.value.stdout || auth.value.stderr));
+    if (result.auth === "unknown")
+      errors.push(
+        auth.value.code === 0
+          ? "Unrecognized auth status output"
+          : "Authentication probe exited unsuccessfully",
+      );
+  } else errors.push(probeError("Authentication probe", auth.reason));
+  if (errors.length) result.error = errors.join("; ");
+  return result;
+}
+
 export async function discoverProviders(
   options: DiscoveryOptions = {},
 ): Promise<Record<Provider, DiscoveryResult>> {
-  const env = { ...process.env, ...options.env };
-  const entries = await Promise.all(
-    (Object.keys(specs) as Provider[]).map(
-      async (provider): Promise<[Provider, DiscoveryResult]> => {
-        const spec = specs[provider];
-        const result: DiscoveryResult = {
-          installed: false,
-          auth: "unknown",
-          loginHint: spec.loginHint,
-        };
-        const path = await findExecutable(options.overrides?.[provider] ?? spec.command, env);
-        if (!path) return [provider, result];
-        result.installed = true;
-        result.path = path;
-        const probeOptions = {
-          env,
-          timeoutMs: options.timeoutMs ?? 10_000,
-          ...(options.signal ? { signal: options.signal } : {}),
-        };
-        const [version, auth] = await Promise.allSettled([
-          (options.probe ?? probeOutput)(path, ["--version"], probeOptions),
-          (options.probe ?? probeOutput)(path, spec.authArgs, probeOptions),
-        ]);
-        const errors: string[] = [];
-        if (version.status === "fulfilled" && version.value.code === 0) {
-          const parsed = parseVersion(provider, version.value.stdout);
-          if (parsed) result.version = parsed;
-          else errors.push("Unrecognized version output");
-        } else
-          errors.push(
-            version.status === "rejected"
-              ? probeError("Version probe", version.reason)
-              : "Version probe exited unsuccessfully",
-          );
-        if (auth.status === "fulfilled") {
-          Object.assign(result, spec.parse(auth.value.stdout || auth.value.stderr));
-          if (result.auth === "unknown")
-            errors.push(
-              auth.value.code === 0
-                ? "Unrecognized auth status output"
-                : "Authentication probe exited unsuccessfully",
-            );
-        } else errors.push(probeError("Authentication probe", auth.reason));
-        if (errors.length) result.error = errors.join("; ");
-        return [provider, result];
-      },
-    ),
-  );
-  return Object.fromEntries(entries) as Record<Provider, DiscoveryResult>;
+  const [claude, codex, opencode, cursor] = await Promise.all([
+    discoverProvider("claude", options),
+    discoverProvider("codex", options),
+    discoverProvider("opencode", options),
+    discoverProvider("cursor", options),
+  ]);
+  return { claude, codex, opencode, cursor };
 }
 
 /** No documented read-only login-status command: never enter the interactive login flow. */

@@ -1,0 +1,178 @@
+{
+  "$id": "https://ace.local/protocol/v1/DiagnosticsHealth.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "activeSessions": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "at": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "eventLoop": {
+      "properties": {
+        "maxMs": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "meanMs": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "p99Ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "meanMs",
+        "p99Ms",
+        "maxMs"
+      ],
+      "type": "object"
+    },
+    "logs": {
+      "properties": {
+        "dropped": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failed": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "queued": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dropped",
+        "failed",
+        "queued"
+      ],
+      "type": "object"
+    },
+    "memory": {
+      "properties": {
+        "heapTotalBytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "heapUsedBytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rssBytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rssBytes",
+        "heapUsedBytes",
+        "heapTotalBytes"
+      ],
+      "type": "object"
+    },
+    "openHandles": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "queues": {
+      "additionalProperties": {
+        "maximum": 9007199254740991,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "maxProperties": 64,
+      "propertyNames": {
+        "maxLength": 128,
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "At most 64 queue entries."
+    },
+    "sqlite": {
+      "properties": {
+        "pageBytes": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "walBytes": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "pageBytes",
+        "walBytes"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "at",
+    "eventLoop",
+    "memory",
+    "openHandles",
+    "sqlite",
+    "activeSessions",
+    "queues",
+    "logs"
+  ],
+  "type": "object"
+}

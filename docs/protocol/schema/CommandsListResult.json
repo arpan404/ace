@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/CommandsListResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "commands": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PaletteCommand.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "diagnostics": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CommandDiagnostic.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "type": {
+      "const": "commands.list.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "commands",
+    "diagnostics"
+  ],
+  "type": "object"
+}

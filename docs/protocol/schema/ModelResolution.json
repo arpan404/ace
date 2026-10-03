@@ -1,0 +1,56 @@
+{
+  "$id": "https://ace.local/protocol/v1/ModelResolution.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "effort": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "model": {
+          "$ref": "https://ace.local/protocol/v1/CatalogModel.json"
+        },
+        "ok": {
+          "const": true,
+          "type": "boolean"
+        },
+        "reason": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "tier": {
+          "$ref": "https://ace.local/protocol/v1/ModelTier.json"
+        }
+      },
+      "required": [
+        "ok",
+        "model",
+        "stale",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "ok": {
+          "const": false,
+          "type": "boolean"
+        },
+        "reason": {
+          "maxLength": 1024,
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

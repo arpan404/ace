@@ -1,0 +1,185 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "button": {
+          "default": "left",
+          "enum": [
+            "none",
+            "left",
+            "middle",
+            "right"
+          ],
+          "type": "string"
+        },
+        "clickCount": {
+          "default": 1,
+          "maximum": 3,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "event": {
+          "enum": [
+            "mouseMoved",
+            "mousePressed",
+            "mouseReleased"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "const": "mouse",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 100000,
+          "minimum": -100000,
+          "type": "number"
+        },
+        "y": {
+          "maximum": 100000,
+          "minimum": -100000,
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "event",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "code": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "event": {
+          "enum": [
+            "keyDown",
+            "keyUp",
+            "char"
+          ],
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "key",
+          "type": "string"
+        },
+        "modifiers": {
+          "default": 0,
+          "maximum": 15,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "maxLength": 256,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "event",
+        "key"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deltaX": {
+          "maximum": 100000,
+          "minimum": -100000,
+          "type": "number"
+        },
+        "deltaY": {
+          "maximum": 100000,
+          "minimum": -100000,
+          "type": "number"
+        },
+        "kind": {
+          "const": "scroll",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 100000,
+          "minimum": -100000,
+          "type": "number"
+        },
+        "y": {
+          "maximum": 100000,
+          "minimum": -100000,
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "x",
+        "y",
+        "deltaX",
+        "deltaY"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "event": {
+          "enum": [
+            "touchStart",
+            "touchMove",
+            "touchEnd",
+            "touchCancel"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "const": "touch",
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "properties": {
+              "id": {
+                "maximum": 9,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "x": {
+                "maximum": 100000,
+                "minimum": -100000,
+                "type": "number"
+              },
+              "y": {
+                "maximum": 100000,
+                "minimum": -100000,
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "id"
+            ],
+            "type": "object"
+          },
+          "maxItems": 10,
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "event",
+        "points"
+      ],
+      "type": "object"
+    }
+  ]
+}

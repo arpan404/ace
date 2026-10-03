@@ -1,0 +1,70 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenV2FrameHeader.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bytes": {
+      "exclusiveMinimum": 0,
+      "maximum": 8388608,
+      "type": "integer"
+    },
+    "captureGeneration": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "codec": {
+      "const": "jpeg",
+      "type": "string"
+    },
+    "dirtyRects": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ScreenRect.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "height": {
+      "exclusiveMinimum": 0,
+      "maximum": 2160,
+      "type": "integer"
+    },
+    "scale": {
+      "exclusiveMinimum": 0,
+      "maximum": 8,
+      "type": "number"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sessionId": {
+      "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+    },
+    "ts": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "version": {
+      "const": 2,
+      "type": "number"
+    },
+    "width": {
+      "exclusiveMinimum": 0,
+      "maximum": 3840,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "version",
+    "sessionId",
+    "seq",
+    "ts",
+    "width",
+    "height",
+    "scale",
+    "codec",
+    "bytes"
+  ],
+  "type": "object"
+}

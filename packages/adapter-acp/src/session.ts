@@ -3,6 +3,7 @@ import { AGENT_METHODS, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import { AcpConfiguration } from "./configuration.ts";
 import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
 import { redactLease } from "./frame-redaction.ts";
+import { ProviderPayload } from "@ace/provider-kit/payload";
 import { ShellSettlement } from "./shell-settlement.ts";
 import { cancellationGraceMs, promptStop } from "./settlement.ts";
 import type { ProviderSession, SessionContext } from "@ace/engine-api";
@@ -190,12 +191,16 @@ class AcpSession implements ProviderSession {
     void this.close("shutdown");
   };
   frame(dir: "send" | "recv" | "stderr" | "note", channel: string, data: unknown): void {
+    const payload = new ProviderPayload(
+      JSON.stringify(redactLease(data, this.ctx.mcp?.secrets ?? [])),
+    );
     this.ctx.onFrame({
       seq: this.sequence++,
       t: Math.round(this.now() - this.started),
       dir,
       channel,
-      data: redactLease(data, this.ctx.mcp?.secrets ?? []),
+      data: payload.data,
+      payload,
     });
   }
   async initialize(): Promise<void> {

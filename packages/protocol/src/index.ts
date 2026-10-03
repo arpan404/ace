@@ -12,8 +12,12 @@ export * from "./terminal.ts";
 export * from "./tools.ts";
 export * from "./wire.ts";
 export * from "./settings.ts";
+export * from "./files.ts";
+
+export * from "./screen.ts";
 export * from "./diagnostics.ts";
 export * from "./context.ts";
+export * from "./search.ts";
 export * from "./conductor.ts";
 export * from "./automations.ts";
 export * from "./models.ts";
@@ -41,3 +45,6 @@ export {
 } from "./release.ts";
 
 export * from "./agent-registry.ts";
+export * from "./command-library.ts";
+export * from "./screen-v2.ts";
+export { ScreenAgentScope, ScreenUITree, ScreenUIBounds } from "./screen-ui.ts";

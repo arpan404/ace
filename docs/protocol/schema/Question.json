@@ -1,0 +1,50 @@
+{
+  "$id": "https://ace.local/protocol/v1/Question.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "allowOther": {
+      "default": false,
+      "type": "boolean"
+    },
+    "header": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "multiSelect": {
+      "default": false,
+      "type": "boolean"
+    },
+    "options": {
+      "items": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "text": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "text",
+    "options"
+  ],
+  "type": "object"
+}

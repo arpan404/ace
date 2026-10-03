@@ -1,0 +1,277 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "source": {
+          "$ref": "https://ace.local/protocol/v1/ReviewSource.json"
+        },
+        "type": {
+          "const": "review.open",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "source"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "position": {
+          "$ref": "https://ace.local/protocol/v1/ReviewPosition.json"
+        },
+        "sessionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "suggestion": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "review.comment",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sessionId",
+        "position",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commentId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sessionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "review.reply",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sessionId",
+        "commentId",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commentId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "resolved": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "review.resolve",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sessionId",
+        "commentId",
+        "resolved"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commentId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sessionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "review.applySuggestion",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sessionId",
+        "commentId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commentIds": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "type": "array"
+        },
+        "sessionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "review.sendToAgent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sessionId",
+        "threadId",
+        "commentIds"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "sessionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "review.askReviewer",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sessionId",
+        "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "from": {
+          "$ref": "https://ace.local/protocol/v1/ReviewRevision.json"
+        },
+        "sessionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "to": {
+          "$ref": "https://ace.local/protocol/v1/ReviewRevision.json"
+        },
+        "type": {
+          "const": "review.refresh",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sessionId",
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "sessionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "changes-requested",
+            "approved"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "review.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "sessionId",
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "commentId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "cursor": {
+          "default": "",
+          "maxLength": 128,
+          "type": "string"
+        },
+        "limit": {
+          "default": 20,
+          "maximum": 20,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sessionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "review.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    }
+  ]
+}

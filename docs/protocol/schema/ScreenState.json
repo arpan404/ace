@@ -1,0 +1,52 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "capabilities": {
+      "$ref": "https://ace.local/protocol/v1/ScreenCapabilities.json"
+    },
+    "controller": {
+      "enum": [
+        "agent",
+        "human",
+        "none"
+      ],
+      "type": "string"
+    },
+    "error": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "indicator": {
+      "type": "boolean"
+    },
+    "lifecycle": {
+      "enum": [
+        "starting",
+        "live",
+        "stopping",
+        "stopped",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "permissions": {
+      "$ref": "https://ace.local/protocol/v1/ScreenPermissions.json"
+    },
+    "sessionId": {
+      "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+    },
+    "target": {
+      "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
+    }
+  },
+  "required": [
+    "sessionId",
+    "lifecycle",
+    "controller",
+    "indicator",
+    "target",
+    "permissions"
+  ],
+  "type": "object"
+}

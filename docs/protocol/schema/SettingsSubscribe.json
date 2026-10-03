@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/SettingsSubscribe.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "keys": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SettingsKey.json"
+      },
+      "maxItems": 32,
+      "minItems": 1,
+      "type": "array"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "https://ace.local/protocol/v1/SettingsScope.json"
+    },
+    "subscriptionId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "settings.subscribe",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "subscriptionId",
+    "keys",
+    "scope"
+  ],
+  "type": "object"
+}

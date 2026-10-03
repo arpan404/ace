@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginClientMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "request": {
+      "$ref": "https://ace.local/protocol/v1/PluginRequest.json"
+    },
+    "requestId": {
+      "maxLength": 80,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "pluginRequest",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "request"
+  ],
+  "type": "object"
+}

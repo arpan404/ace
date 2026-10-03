@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenRect.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "h": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "w": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "x": {
+      "type": "number"
+    },
+    "y": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "x",
+    "y",
+    "w",
+    "h"
+  ],
+  "type": "object"
+}

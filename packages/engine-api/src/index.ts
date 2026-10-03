@@ -1,5 +1,6 @@
 import type { Fact, Key } from "@ace/core";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
+import type { ProviderPayload } from "@ace/provider-kit/payload";
 import type {
   Capabilities,
   AcpIdentity,
@@ -21,6 +22,8 @@ export type Frame = {
   /** Transport-specific channel, such as stdio, sse, http or sdk. */
   channel: string;
   data: unknown;
+  /** Immutable decoded value admitted from bounded encoded bytes; data must be payload.data. */
+  payload?: ProviderPayload;
 };
 
 export interface ProviderAdapter {
@@ -50,10 +53,12 @@ export interface SessionContext {
   rootKey?: Key;
   threadId: ThreadId;
   cwd: string;
+  /** Instance-specific environment; adapters must pass it to every owned provider process. */
+  env?: NodeJS.ProcessEnv;
+  /** Persist this assignment with the native session ID; resume must reuse the same instance. */
+  instanceId?: string;
   model?: string;
   acpIdentity?: AcpIdentity;
-  /** Daemon/account-owned environment; never persisted by an adapter. */
-  env?: NodeJS.ProcessEnv;
   mcp?: {
     configuredServers?: readonly unknown[];
     httpServers: readonly unknown[];
@@ -71,6 +76,7 @@ export interface SessionContext {
 }
 
 export interface ProviderSession {
+  readonly instanceId?: string;
   readonly nativeSessionId: string;
   readonly effectiveCapabilities?: Capabilities | undefined;
   readonly acpSupport?: AcpSessionSupport | undefined;

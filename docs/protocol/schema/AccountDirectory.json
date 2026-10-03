@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/AccountDirectory.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    "/example/home"
+  ],
+  "maxLength": 4096,
+  "pattern": "^(?:\\/|[A-Za-z]:[\\\\/])",
+  "type": "string",
+  "x-ace-constraint": "Absolute Unix or drive-qualified Windows directory."
+}

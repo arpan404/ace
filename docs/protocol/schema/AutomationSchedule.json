@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/AutomationSchedule.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "expression": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "rrule",
+        "cron"
+      ],
+      "type": "string"
+    },
+    "startAt": {
+      "maximum": 8640000000000000,
+      "minimum": 0,
+      "multipleOf": 60000,
+      "type": "integer",
+      "x-ace-constraint": "DTSTART must be a multiple of 60000 milliseconds."
+    },
+    "timezone": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "expression",
+    "timezone",
+    "startAt"
+  ],
+  "type": "object"
+}

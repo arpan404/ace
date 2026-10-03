@@ -1,0 +1,44 @@
+{
+  "$id": "https://ace.local/protocol/v1/WorkspaceFileChange.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "destination": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "op": {
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "trashId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "version": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "op",
+    "path",
+    "version"
+  ],
+  "type": "object"
+}

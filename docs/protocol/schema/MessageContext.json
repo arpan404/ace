@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/MessageContext.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "attachments": {
+      "default": [],
+      "items": {
+        "properties": {
+          "sha256": {
+            "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+          }
+        },
+        "required": [
+          "sha256"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "mentions": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/Mention.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    }
+  },
+  "type": "object"
+}

@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/UsageMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "kind": {
+      "enum": [
+        "summary",
+        "series"
+      ],
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "$ref": "https://ace.local/protocol/v1/UsageResult.json"
+    },
+    "type": {
+      "const": "usage.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "kind",
+    "result"
+  ],
+  "type": "object"
+}

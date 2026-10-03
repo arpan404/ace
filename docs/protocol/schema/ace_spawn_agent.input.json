@@ -1,0 +1,5 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_spawn_agent.input.json",
+  "$ref": "https://ace.local/protocol/v1/McpSpawnInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

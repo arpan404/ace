@@ -1,0 +1,102 @@
+{
+  "$id": "https://ace.local/protocol/v1/PreviewControl.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "type": {
+          "const": "preview.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "preview.start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "preview.stop",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "port": {
+          "$ref": "https://ace.local/protocol/v1/PreviewPort.json"
+        },
+        "type": {
+          "const": "preview.forward",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "port"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "port": {
+          "$ref": "https://ace.local/protocol/v1/PreviewPort.json"
+        },
+        "type": {
+          "const": "preview.unforward",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "port"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "port": {
+          "$ref": "https://ace.local/protocol/v1/PreviewPort.json"
+        },
+        "type": {
+          "const": "preview.link",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "port"
+      ],
+      "type": "object"
+    }
+  ]
+}

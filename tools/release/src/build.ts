@@ -81,7 +81,7 @@ async function main() {
   await cp(join(installedPty, "package.json"), join(destination, "package.json"));
   await cp(join(installedPty, "LICENSE"), join(destination, "LICENSE"));
   await stageNativeFiles(target, prebuild, join(destination, "prebuilds", target), native);
-  const inputs = await bundleDaemon(repo, root, publicKey);
+  const inputs = await bundleDaemon(repo, root, publicKey, target);
   await collectLicenses(inputs, root);
   await cp(join(repo, "LICENSE"), join(root, "ACE-LICENSE"));
   await writeFile(

@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "closed": {
+      "type": "boolean"
+    },
+    "controller": {
+      "enum": [
+        "agent",
+        "human",
+        "none"
+      ],
+      "type": "string"
+    },
+    "owner": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "url": {
+      "maxLength": 8192,
+      "type": "string"
+    }
+  },
+  "required": [
+    "threadId",
+    "controller",
+    "url",
+    "closed"
+  ],
+  "type": "object"
+}
