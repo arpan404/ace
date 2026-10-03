@@ -47,6 +47,7 @@ export class DelegationService {
   private unsubscribe: () => void;
   private cancelTimer: (() => void) | undefined;
   private closed = false;
+  private suspending = new Set<ThreadId>();
   private reservationLifetimes = new ReservationLifetimes();
   private waiters = new OutcomeWaiters();
   constructor(deps: DelegationDependencies) {
@@ -70,6 +71,7 @@ export class DelegationService {
         admits: () => !this.closed && deps.admitsWork?.() !== false,
         cancel: (thread, request) => this.cancelDescendants(thread, request),
         changed: () => this.arm(),
+        suspending: (thread) => this.suspending.has(thread),
       }),
     );
     this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
@@ -156,8 +158,8 @@ export class DelegationService {
       return record;
     });
   }
-  reserve(caller: McpAttribution, value: DelegationRequest) {
-    const reservation = this.admission.reserve(caller, value);
+  reserve(caller: McpAttribution, value: DelegationRequest, resultDelivery?: "owner") {
+    const reservation = this.admission.reserve(caller, value, resultDelivery);
     this.arm();
     return reservation;
   }
@@ -165,8 +167,9 @@ export class DelegationService {
     caller: McpAttribution,
     reservation: DelegationReservation,
     workspace: WorkspaceId,
+    ownership?: { resultDelivery: "owner"; handoffFrom?: ThreadId },
   ) {
-    return this.admission.commit(caller, reservation, workspace);
+    return this.admission.commit(caller, reservation, workspace, ownership);
   }
   watchReservation(reservation: DelegationReservation) {
     return this.reservationLifetimes.watch(reservation);
@@ -198,6 +201,16 @@ export class DelegationService {
       current.phase = "running";
       this.journal.save(current);
     });
+  }
+  /** Host-owned pause preserves recovery history and does not write subtree stop markers. */
+  suspend(thread: ThreadId, request: string) {
+    this.deps.engine.captureContinuation(thread);
+    this.suspending.add(thread);
+    try {
+      return this.command(request, { type: "thread.interrupt", threadId: thread, cascade: true });
+    } finally {
+      this.suspending.delete(thread);
+    }
   }
   cancelDescendants(thread: ThreadId, request = this.deps.id()) {
     this.deps.store.atomic(() => {
