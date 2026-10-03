@@ -17,7 +17,7 @@ export function accountSummary(account: FakeAccount, now: number): AccountSummar
     id: account.id,
     provider: account.provider,
     ...(account.provider === "acp"
-      ? { acpAgentId: "gemini-cli", installationId: "installed", instanceId: account.id }
+      ? { acpAgentId: "Gemini CLI", installationId: "installed", instanceId: account.id }
       : {}),
     installationVersion: account.cliVersion,
     label: account.label,
@@ -37,7 +37,23 @@ export function accountSummary(account: FakeAccount, now: number): AccountSummar
   };
 }
 
+/** A CLI signed in with its default home and no quota windows to report. */
+function plain(id: "opencode" | "cursor", version: string, now: number): AccountSummary {
+  return {
+    id,
+    provider: id,
+    installationVersion: version,
+    label: "Default",
+    availability: "available",
+    quota: { auth: "logged_in", observedAt: now, windows: {}, blockers: {}, usage: {} },
+  };
+}
+
 /** The accounts in the approved design, as the daemon lists them. */
 export function accountSummaries(now: number): AccountSummary[] {
-  return accountList(now).map((account) => accountSummary(account, now));
+  return [
+    ...accountList(now).map((account) => accountSummary(account, now)),
+    plain("opencode", "1.4", now),
+    plain("cursor", "0.9", now),
+  ];
 }
