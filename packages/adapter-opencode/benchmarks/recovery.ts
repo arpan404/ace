@@ -1,8 +1,8 @@
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { ThreadId } from "@ace/protocol";
-import { createOpenCodeAdapter } from "../src/index.ts";
-import { object } from "../src/data.ts";
+import { createOpenCodeAdapter } from "../src/testing/v1/index.ts";
+import { object } from "../src/testing/v1/data.ts";
 const cli = fileURLToPath(new URL("../src/testing/cli.mjs", import.meta.url));
 async function measure(count: number) {
   let origin = "";

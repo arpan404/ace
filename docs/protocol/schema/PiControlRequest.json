@@ -1,0 +1,76 @@
+{
+  "$id": "https://ace.local/protocol/v1/PiControlRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operation": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "profile",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entryId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "const": "fork",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entryId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "kind": {
+              "const": "rollback",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "entryId"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "pi.control",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId",
+    "operation"
+  ],
+  "type": "object"
+}

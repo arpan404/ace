@@ -11,9 +11,19 @@ export const providerNames: Record<ProviderKind, string> = {
   cursor: "Cursor",
   antigravity: "Antigravity",
   acp: "ACP agent",
+  pi: "Pi",
 };
 
 const marks: Record<ProviderKind, ReactNode> = {
+  pi: (
+    <path
+      d="M2 4h12M5 4v9M11 4v7c0 1.2.5 2 2 2"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+    />
+  ),
   claude: (
     <path
       d="M8 2v12M2 8h12M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4"

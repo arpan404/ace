@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ThreadId } from "@ace/protocol";
-import { harness } from "./replay.ts";
-import { OpenCodeTranslator } from "./index.ts";
+import { harness } from "./testing/v1/replay.ts";
+import { OpenCodeTranslator } from "./testing/v1/index.ts";
 function setup() {
   const h = harness();
   let seq = 0;

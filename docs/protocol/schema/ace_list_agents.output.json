@@ -84,7 +84,8 @@
                   "opencode",
                   "cursor",
                   "antigravity",
-                  "acp"
+                  "acp",
+                  "pi"
                 ],
                 "type": "string"
               }
