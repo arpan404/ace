@@ -2,15 +2,16 @@ import { CardsIcon, PauseIcon, PlayIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { Screen } from "@/features/shell/screen.tsx";
+import { Screen } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { ConductorCommandPayload } from "@ace/protocol";
 import { CardGraph } from "./card-graph.tsx";
 import { DeckGate } from "./deck-gate.tsx";
-import { defaultCard, type DeckRun } from "./deck-model.ts";
+import { deckStepper, defaultCard, type DeckRun } from "@ace/ui-core";
 import { useDeckRun, useDeckSource } from "./deck-source.ts";
 import { DeckStepper } from "./deck-stepper.tsx";
 import { LanesTab, LogTab, PlanChanges } from "./deck-tabs.tsx";
@@ -37,13 +38,15 @@ export function DeckRunPage(props: {
   if (!run)
     return (
       <Screen title="Deck">
-        {ready && (
+        {ready ? (
           <EmptyState
             icon={CardsIcon}
             heading
             title="This deck isn't here"
             description="It may have been removed, or it lives on another daemon."
           />
+        ) : (
+          <DeckSkeleton />
         )}
       </Screen>
     );
@@ -126,7 +129,7 @@ function RunScreen(props: {
               <p className="mt-1 max-w-[62ch] text-base leading-normal text-muted-foreground">
                 {run.goal}
               </p>
-              <DeckStepper run={run} />
+              <DeckStepper {...deckStepper(run)} />
             </div>
             <SegmentedControl
               label="Deck view"
@@ -168,5 +171,27 @@ function RunScreen(props: {
         </div>
       </div>
     </Screen>
+  );
+}
+
+/** The deck's shape while it loads: title, goal, stepper, then a row of card columns. */
+function DeckSkeleton() {
+  return (
+    <LoadingRegion label="deck" className="flex flex-col gap-3 px-9 pt-11">
+      <Skeleton className="h-6 w-64" />
+      <Skeleton className="h-3.5 w-[28rem] max-w-full" />
+      <Skeleton className="mt-3 h-3 w-96 max-w-full" />
+      <div className="mt-8 grid grid-cols-4 gap-4">
+        {Array.from({ length: 4 }, (_, column) => (
+          <span key={column} className="flex flex-col gap-3">
+            <Skeleton className="h-2.5 w-16" />
+            <Skeleton
+              className="h-16 rounded-card"
+              style={{ animationDelay: `${column * 80}ms` }}
+            />
+          </span>
+        ))}
+      </div>
+    </LoadingRegion>
   );
 }

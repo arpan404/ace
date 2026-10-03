@@ -1,4 +1,4 @@
-import { replayCursor } from "@ace/fake-daemon";
+import { coldStartReplay, replayCursor } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -71,6 +71,32 @@ test("the changed-files card lists the turn's files and opens the Changes tab", 
       .getByRole("tab", { name: /^Changes/ })
       .getAttribute("aria-selected"),
   ).toBe("true");
+});
+
+test("a full-text edit's changed-files stat counts the lines that changed, as Changes does", async () => {
+  const app = harness();
+  app.play(coldStartReplay()).runThrough("turn-1");
+  await app.open("/t/thread-cold-start");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const card = await within(feed).findByRole("region", { name: "1 changed file" });
+  const stat = await waitFor(() => {
+    const text = card.textContent?.match(/\+(\d+) −(\d+)/);
+    expect(text).toBeTruthy();
+    return text;
+  });
+  // replay.ts is far longer than the edit, so a whole-file count would be much larger.
+  expect(Number(stat?.[1])).toBeGreaterThan(0);
+  expect(Number(stat?.[1])).toBeLessThan(20);
+
+  // The work log's step for the same edit reads the same count.
+  await userEvent.click(await within(feed).findByRole("button", { name: /^Worked for/ }));
+  const step = within(feed).getByRole("button", { name: /^Edited apps\/server\/src\/replay.ts/ });
+  await waitFor(() => expect(step.textContent).toContain(`+${stat?.[1]} −${stat?.[2]}`));
+
+  await userEvent.click(within(card).getByRole("button", { name: "Open diff" }));
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  const tab = within(panel).getByRole("tab", { name: /^Changes/ });
+  await waitFor(() => expect(tab.textContent).toContain(`+${stat?.[1]} −${stat?.[2]}`));
 });
 
 test("subagents open inline as a tree, and the agent tree is one click away", async () => {

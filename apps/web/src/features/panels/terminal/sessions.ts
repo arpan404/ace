@@ -1,8 +1,17 @@
 import type { TerminalEvent, TerminalInfo, TerminalSource } from "../sources.ts";
 import { TerminalScreen } from "./screen.ts";
 
+/** Raw output for a renderer that parses escapes itself (xterm), or a reset of the screen. */
+export type Output = { kind: "data"; data: string } | { kind: "reset" };
+/** Raw output kept per terminal for a renderer mounting late; about the screen's scrollback. */
+const rawLimit = 1_000_000;
+
 interface Attached {
   screen: TerminalScreen;
+  /** Recent raw output, oldest first, at most `rawLimit` characters. */
+  raw: string[];
+  rawLength: number;
+  outputs: Set<(output: Output) => void>;
   /** Next output offset this client has not drawn. Reattach resumes here. */
   offset: number;
   detach: (() => void) | undefined;
@@ -48,6 +57,13 @@ export class TerminalSessions {
   write(id: string, data: string): void {
     this.source.write(id, data);
   }
+  /** The raw output kept so far, then every new chunk or reset as it arrives. */
+  output(id: string, listener: (output: Output) => void): () => void {
+    const entry = this.ensure(id);
+    if (entry.raw.length) listener({ kind: "data", data: entry.raw.join("") });
+    entry.outputs.add(listener);
+    return () => entry.outputs.delete(listener);
+  }
   resize(id: string, cols: number, rows: number): void {
     this.source.resize(id, cols, rows);
   }
@@ -55,6 +71,7 @@ export class TerminalSessions {
     const entry = this.attached.get(id);
     if (!entry) return;
     entry.screen.clear();
+    this.reset(entry);
     this.redraw(entry);
   }
   async open(threadId: string, cwd: string): Promise<TerminalInfo> {
@@ -92,6 +109,9 @@ export class TerminalSessions {
     if (!entry) {
       entry = {
         screen: new TerminalScreen(),
+        raw: [],
+        rawLength: 0,
+        outputs: new Set(),
         offset: 0,
         detach: undefined,
         exitCode: null,
@@ -112,15 +132,16 @@ export class TerminalSessions {
       case "data": {
         if (event.endOffset <= entry.offset) return;
         if (event.truncatedBefore)
-          entry.screen.write("\r\n\x1b[2m[earlier output was dropped]\x1b[0m\r\n");
+          this.emit(entry, "\r\n\x1b[2m[earlier output was dropped]\x1b[0m\r\n");
         const skip = Math.max(0, entry.offset - event.offset);
-        entry.screen.write(event.data.slice(skip));
+        this.emit(entry, event.data.slice(skip));
         entry.offset = event.endOffset;
         break;
       }
       case "resync":
         // The daemon's ring no longer holds our offset: start over from what it has.
         entry.screen.clear();
+        this.reset(entry);
         entry.offset = event.oldestOffset;
         break;
       case "exit":
@@ -129,6 +150,19 @@ export class TerminalSessions {
         break;
     }
     this.redraw(entry);
+  }
+  private emit(entry: Attached, data: string): void {
+    entry.screen.write(data);
+    entry.raw.push(data);
+    entry.rawLength += data.length;
+    while (entry.rawLength > rawLimit && entry.raw.length > 1)
+      entry.rawLength -= entry.raw.shift()?.length ?? 0;
+    for (const listener of entry.outputs) listener({ kind: "data", data });
+  }
+  private reset(entry: Attached): void {
+    entry.raw = [];
+    entry.rawLength = 0;
+    for (const listener of entry.outputs) listener({ kind: "reset" });
   }
   private redraw(entry: Attached): void {
     entry.version++;

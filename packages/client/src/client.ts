@@ -1,14 +1,14 @@
 import {
-  decodeServiceResponse,
-  type ServiceRequest,
-  type ServiceResponse,
-} from "./service-requests.ts";
-import {
   HistoryScanStatus,
   HistoryScanResponse,
   HistoryListRequest,
   HistoryListResponse,
 } from "@ace/protocol/history";
+import {
+  decodeServiceResponse,
+  type ServiceRequest,
+  type ServiceResponse,
+} from "./service-requests.ts";
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
@@ -26,6 +26,7 @@ import {
   type SettingsScope,
   type SettingsLayer,
 } from "@ace/protocol";
+import type { ClientApi, RegistryQuery } from "./api.ts";
 import { Connection } from "./connection.ts";
 import { Intents, type Intent } from "./intents.ts";
 import { Notifications, type Selection } from "./observable.ts";
@@ -40,10 +41,9 @@ import {
   type ConnectionState,
 } from "./types.ts";
 
-type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
-export type RegistryQuery = WithoutRequestId<RegistryRequest>;
+export type { RegistryQuery } from "./api.ts";
 
-export class Client {
+export class Client implements ClientApi {
   private options: ClientOptions;
   private connection: Connection;
   private requests: Requests;
@@ -72,7 +72,7 @@ export class Client {
           try {
             listener(message);
           } catch {
-            /* Consumers cannot break protocol delivery. */
+            // A consumer cannot break protocol delivery.
           }
         }
         if ("requestId" in message && message.type !== "error" && message.requestId)
@@ -104,14 +104,14 @@ export class Client {
               this.historyState = message.scan;
               this.notifications.emit(["historyScan"]);
             }
-            if (message.requestId) this.requests.resolve(message.requestId, message);
+            // The reply itself was resolved above with every other correlated reply.
             break;
           case "queue.result":
           case "settings.result":
           case "registry.result":
           case "items.page":
           case "output.data":
-            this.requests.resolve(message.requestId, message);
+            // Resolved above with every other correlated reply.
             break;
           case "error":
             if (message.requestId)
@@ -243,7 +243,7 @@ export class Client {
       },
     );
   }
-  /** Subscribe to ephemeral service changes; caller releases on unmount. */
+  /** Uncorrelated service messages (such as `settings.changed`); the caller releases it. */
   onMessage(listener: (message: ServerMessage) => void): () => void {
     if (this.closed) throw new ClientError("offline");
     if (this.serviceListeners.size >= (this.options.limits?.listeners ?? defaultLimits.listeners))
@@ -374,6 +374,13 @@ export class Client {
       },
       options,
     );
+  }
+  async loadOlder(threadId: string, limit: number, options: RequestOptions = {}): Promise<void> {
+    const store = this.subscriptions.held(threadId);
+    if (!store) throw new ClientError("offline", "Thread is not leased");
+    const before = store.itemsBefore;
+    if (before === null || before === undefined) return;
+    store.page(await this.itemsPage({ threadId, before, limit }, options));
   }
   outputRead(
     payload: { streamId: string; offset: number; limit: number },

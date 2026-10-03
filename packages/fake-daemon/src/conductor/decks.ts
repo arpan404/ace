@@ -33,6 +33,28 @@ function card(
   };
 }
 
+const sequenceNumbers: FakeLane = {
+  worker: {
+    account: "Claude Code · personal",
+    provider: "claude",
+    detail: "Sonnet 4.6, worktree lanes/sequence-numbers",
+  },
+  reviewer: {
+    account: "Codex · personal",
+    provider: "codex",
+    detail: "Adversarial: replays out-of-order and duplicated frames",
+  },
+  threadId: null,
+  rounds: [
+    {
+      label: "Round 1",
+      verdict: "Approved",
+      detail: "merged as #211",
+      findings: [],
+    },
+  ],
+};
+
 const clientAck: FakeLane = {
   worker: {
     account: "Codex · personal",
@@ -161,6 +183,8 @@ function relayStreams(now: number): FakeDeckRun {
     stages,
     cards: [
       card("sequence-numbers", "Sequence numbers on every event", [], "merged", {
+        round: 1,
+        lane: sequenceNumbers,
         note: "Merged into deck/resumable-streams as #211. Reviewer approved on round 1.",
       }),
       card("replay-cursor", "Server-side replay cursor", ["sequence-numbers"], "in_review", {
@@ -241,6 +265,13 @@ function mobileColdStart(now: number): FakeDeckRun {
     stages: ["Measure", "Build", "Ship"],
     cards: [
       card("trace", "Startup trace baseline", [], "merged", {
+        round: 1,
+        lane: {
+          ...coldStartLane("Codex · personal", "codex", "GPT-5.3 Codex, worktree lanes/trace"),
+          rounds: [
+            { label: "Round 1", verdict: "Approved", detail: "merged as #88", findings: [] },
+          ],
+        },
         note: "Merged as #88. Baseline is 1.84s on the Pixel 6a profile.",
       }),
       card("lazy-fonts", "Lazy-load fonts and icons", ["trace"], "working", {

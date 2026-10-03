@@ -34,7 +34,7 @@ export function fakeBrowserSession(
         case "browser.open":
           if (thread.thread.workspaceId !== message.options.workspaceId)
             throw new Error("workspace_mismatch");
-          browser.drive(id, { owner: "agent", url: "about:blank" });
+          browser.drive(id, { url: "about:blank" });
           break;
         case "browser.close":
           browser.close(id);
@@ -53,9 +53,9 @@ export function fakeBrowserSession(
           if (!browser.view(id) || browser.view(id)?.closed) throw new Error("browser_not_open");
           if (browser.view(id)?.controller === "human") throw new Error("human_control_active");
           const command = message.command;
-          if (command.action === "navigate")
-            browser.drive(id, { owner: "agent", url: command.url });
+          if (command.action === "navigate") browser.drive(id, { url: command.url });
           else if (command.action === "type") browser.type(id, command.text);
+          else if (command.action === "resize") browser.resize(id, command.width, command.height);
           else if (command.action === "snapshot") result = { text: "Synthetic fixture page" };
           else if (command.action === "screenshot") result = browser.frame(id);
           else if (command.action === "logs") result = [];

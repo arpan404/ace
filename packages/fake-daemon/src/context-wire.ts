@@ -1,5 +1,21 @@
-import { ContextResult, type ContextRequest } from "@ace/protocol";
+import { ContextErrorCode, ContextResult, type ContextRequest } from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
+import { completePaths } from "./services/workspace-files.ts";
+
+const mimeTypes: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  pdf: "application/pdf",
+  md: "text/markdown",
+  txt: "text/plain",
+  json: "application/json",
+};
+function mimeType(name: string): string {
+  return mimeTypes[name.split(".").at(-1)?.toLowerCase() ?? ""] ?? "application/octet-stream";
+}
 interface Upload {
   device: string;
   scope: string;
@@ -136,7 +152,7 @@ export class FakeContextWire {
           const attachment = {
             sha256: hash,
             bytes: bytes.length,
-            mimeType: "application/octet-stream",
+            mimeType: mimeType(upload.name),
             name: upload.name,
           };
           refs.set(hash, attachment);
@@ -179,12 +195,13 @@ export class FakeContextWire {
           })),
         };
       } else {
-        check("draftId" in op ? op.draftId : op.threadId);
+        const scope = "draftId" in op ? op.draftId : op.threadId;
+        check(scope);
+        const workspaceId =
+          this.drafts.get(scope)?.workspaceId ?? this.context.thread(scope)?.thread.workspaceId;
         result = {
           kind: "completion",
-          paths: ["README.md", "package.json", "src/index.ts"]
-            .filter((path) => path.includes(op.query))
-            .slice(0, op.limit),
+          paths: workspaceId ? completePaths(workspaceId, op.query, op.limit) : [],
         };
       }
     } catch (error) {
@@ -192,7 +209,7 @@ export class FakeContextWire {
       result = {
         kind: "error",
         code: ["quota", "busy", "offset", "hash_mismatch", "not_found", "forbidden"].includes(code)
-          ? importCode.parse(code)
+          ? ContextErrorCode.parse(code)
           : "invalid_request",
         message: code,
       };
@@ -200,4 +217,3 @@ export class FakeContextWire {
     return ContextResult.parse({ type: "context.result", requestId: request.requestId, result });
   }
 }
-import { ContextErrorCode as importCode } from "@ace/protocol";

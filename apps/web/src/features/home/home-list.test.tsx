@@ -33,10 +33,11 @@ test("Home lists what needs you first, then work in motion, then trouble; done w
     "Partial refunds double-count tax",
     "Approval sheet loses its state on rotate",
     "Retry budget for app-server restarts",
-    // Working and waiting rank together, most recent first.
+    // Working and waiting rank together, by when each last moved: the hero thread's
+    // subagent picked up work 35s ago, the install page has been drafting for minutes.
     "Backpressure on broadcast fan-out",
-    "Rewrite the install page for the daemon",
     "Dedupe thread events after reconnect",
+    "Rewrite the install page for the daemon",
     "Invoice PDF locale fallback",
   ]);
   // The finished thread is long quiet, so it has settled out of the way.
@@ -143,4 +144,17 @@ test("the project filter narrows Home to one project and is remembered", async (
   await openHome(workbenchApp({ storage }));
   expect(await screen.findByRole("button", { name: "Project filter: relay" })).toBeTruthy();
   await waitFor(() => expect(order()).toHaveLength(2));
+});
+
+test("Tab walks a row's link, its Settle and Snooze, then the next row", async () => {
+  await openHome(workbenchApp());
+  const [first, second] = within(threads()).getAllByRole("link");
+  if (!first || !second) throw new Error("expected two rows");
+  first.focus();
+  await userEvent.tab();
+  expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Settle /);
+  await userEvent.tab();
+  expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Snooze /);
+  await userEvent.tab();
+  expect(document.activeElement).toBe(second);
 });

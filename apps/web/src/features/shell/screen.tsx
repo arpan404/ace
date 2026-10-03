@@ -38,8 +38,9 @@ export function Screen(
         panels={{ right: !!props.right, bottom: !!props.bottom }}
       />
       <ConnectionNotice />
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
+      {/* Relative: on narrow windows the panels float over this area. */}
+      <div className="relative flex min-h-0 flex-1">
+        <div className="relative flex min-w-0 flex-1 flex-col">
           <main
             id="main"
             tabIndex={-1}

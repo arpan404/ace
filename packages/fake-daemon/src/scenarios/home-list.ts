@@ -16,7 +16,7 @@ const day = 24 * hour;
 
 /** Ages from the approved design, keyed by workbench thread id. */
 const workbenchAges: Record<string, number> = {
-  "thread-retry-budget": 2 * minute,
+  "thread-retry-budget": 2 * minute + 17_000,
   "thread-sheet-rotate": 9 * minute,
   "thread-refund-tax": 14 * minute,
   "thread-dedupe": 0,

@@ -5,14 +5,15 @@ import { buttonVariants } from "./button.tsx";
 
 /**
  * Toasts: glass pills at the bottom centre with an optional action (Undo). Queue them from
- * anywhere under <ToastProvider> with `useToast().add({ title, actionProps })`.
+ * anywhere under <ToastProvider> with `useToast().add({ title, actionProps })`. They stand
+ * clear of the composer (`useToastClearance`) and of the phone's tab bar, never over an input.
  */
 function ToastProvider(props: { children: ReactNode }) {
   return (
     <Toast.Provider limit={3} timeout={5000}>
       {props.children}
       <Toast.Portal>
-        <Toast.Viewport className="fixed bottom-[22px] left-1/2 z-[115] flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col items-center gap-2 outline-none">
+        <Toast.Viewport className="fixed bottom-[var(--toast-bottom,22px)] left-1/2 max-sm:bottom-[var(--toast-bottom,78px)] z-[115] flex w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col items-center gap-2 outline-none">
           <ToastList />
         </Toast.Viewport>
       </Toast.Portal>
@@ -28,7 +29,7 @@ function ToastList() {
       toast={toast}
       className={cn(
         "glass rounded-lg text-ui font-medium text-popover-foreground",
-        "transition-[opacity,transform] duration-[240ms] ease-spring data-ending-style:translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",
+        "transition-[opacity,transform] duration-(--dur-3) ease-spring data-ending-style:translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",
       )}
     >
       <Toast.Content className="flex items-center gap-2.5 py-[9px] pr-3 pl-3.5">

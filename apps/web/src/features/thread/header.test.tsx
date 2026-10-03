@@ -53,7 +53,7 @@ test("the git control walks the branch from Commit to Push to Create PR to the P
   const pr = await screen.findByRole("button", { name: "PR #221" });
   await userEvent.click(pr);
   expect(opened).toHaveBeenCalledWith(
-    "https://github.com/acme/acme-web/pull/221",
+    "https://github.com/acme/billing-api/pull/221",
     "_blank",
     "noopener,noreferrer",
   );

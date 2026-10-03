@@ -1,7 +1,13 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, expect, test } from "vitest";
+import { ClientMessage } from "@ace/protocol";
 import { setup, ready, memoryStorage, when } from "./test-support.ts";
 import { AccessClient, ticketCredential } from "./index.ts";
-import { ClientMessage } from "@ace/protocol";
+
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
   await cleanup?.();
@@ -64,6 +70,25 @@ test("legacy health command callers receive health without creating a durable in
   ).toBe(0);
 });
 
+test("an invalid request is refused before it reaches the daemon", async () => {
+  const f = await setup();
+  cleanup = f.cleanup;
+  const { client, faults } = f.make();
+  await ready(client);
+  const sent = faults.sent.length;
+  await expect(
+    client.request({ type: "search.query", text: "x".repeat(600) }),
+  ).rejects.toMatchObject({ code: "protocol" });
+  expect(faults.sent).toHaveLength(sent);
+});
+
+test("a request made while offline rejects instead of waiting for a connection", async () => {
+  const f = await setup();
+  cleanup = f.cleanup;
+  const { client } = f.make();
+  await expect(client.request({ type: "models.list" })).rejects.toMatchObject({ code: "offline" });
+});
+
 test("disconnect rejects one-off requests and reconnect never replays them", async () => {
   const f = await setup();
   cleanup = f.cleanup;
@@ -107,7 +132,7 @@ test("cancellation releases request capacity and does not cancel a different cor
   expect((await client.request({ type: "accounts.list" })).type).toBe("accounts.list");
 });
 
-test("settings subscriptions release explicitly and later settings writes produce no stale update", async () => {
+test("a written setting reads back, is pushed to subscribers, and stops pushing once released", async () => {
   const f = await setup();
   cleanup = f.cleanup;
   const { client } = f.make();
@@ -135,6 +160,16 @@ test("settings subscriptions release explicitly and later settings writes produc
         entries: [{ key: "threads.autoSettleAfter", value: "never", provenance: "global" }],
       }),
     );
+    const read = await client.request({
+      type: "settings.get",
+      key: "threads.autoSettleAfter",
+      scope: {},
+    });
+    expect(read.entries).toContainEqual({
+      key: "threads.autoSettleAfter",
+      value: "never",
+      provenance: "global",
+    });
     await client.request({ type: "settings.unsubscribe", subscriptionId: "preferences" });
     changes.length = 0;
     await client.request({
@@ -177,12 +212,6 @@ test("a denied service write rejects that request while a read-only device stays
   expect((await client.request({ type: "diagnostics.health" })).ok).toBe(true);
   expect(client.state).toBe("ready");
 });
-
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 
 test("mention completion uses the authoritative workspace rather than a projected client path", async () => {
   const f = await setup();

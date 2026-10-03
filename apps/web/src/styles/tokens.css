@@ -10,12 +10,7 @@
     system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
 
-  /* Motion: 150 hover/colour, 200 popovers, 240 panels. */
-  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
-  --spring: cubic-bezier(0.3, 1.25, 0.5, 1);
-  --dur-1: 150ms;
-  --dur-2: 200ms;
-  --dur-3: 240ms;
+  /* Motion tokens live in motion.css. */
 
   /* Layout. */
   --rail-w: 68px;
@@ -32,7 +27,8 @@
   /* Materials that let the wallpaper show through. */
   --rail: rgb(var(--rail-rgb) / calc(1 - 0.62 * var(--glass-k)));
   --sidebar: rgb(var(--sidebar-rgb) / calc(1 - 0.5 * var(--glass-k)));
-  --reading: rgb(var(--reading-rgb) / calc(1 - 0.16 * var(--glass-k)));
+  /* The reading column is a page, not glass: opaque enough that the washes never read as discs. */
+  --reading: rgb(var(--reading-rgb) / calc(1 - 0.1 * var(--glass-k)));
   --glass-bg: rgb(var(--glass-rgb) / calc(1 - (1 - var(--glass-a)) * var(--glass-k)));
   --panel: color-mix(in oklab, var(--reading), var(--background) 30%);
 

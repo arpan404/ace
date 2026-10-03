@@ -2,7 +2,7 @@
 import { CheckIcon, CopyIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useMemo, useState } from "react";
-import { highlight, type TokenKind } from "./highlight.ts";
+import { highlight, type CodeToken, type TokenKind } from "./highlight.ts";
 
 const tone: Record<TokenKind, string> = {
   plain: "",
@@ -31,8 +31,17 @@ export function useCopy(): { copied: boolean; copy(text: string): void } {
 }
 
 /** A fenced code block: language and Copy in a quiet header, tonal highlighting below. */
-export function CodeBlock(props: { code: string; lang?: string | undefined }) {
-  const tokens = useMemo(() => highlight(props.code, props.lang), [props.code, props.lang]);
+export function CodeBlock(props: {
+  code: string;
+  lang?: string | undefined;
+  /** Tokens highlighted in the markdown worker; nested blocks highlight here. */
+  tokens?: CodeToken[];
+}) {
+  const local = useMemo(
+    () => (props.tokens ? undefined : highlight(props.code, props.lang)),
+    [props.tokens, props.code, props.lang],
+  );
+  const tokens = props.tokens ?? local ?? [];
   const { copied, copy } = useCopy();
   return (
     <figure className="group/code my-3 overflow-hidden rounded-card bg-code shadow-[inset_0_0_0_1px_var(--border)]">
@@ -42,7 +51,7 @@ export function CodeBlock(props: { code: string; lang?: string | undefined }) {
           type="button"
           onClick={() => copy(props.code)}
           aria-label={copied ? "Copied" : "Copy code"}
-          className="ml-auto inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+          className="ml-auto inline-flex h-6 items-center gap-1 rounded-sm px-1.5 text-xs text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
         >
           {copied ? <CheckIcon aria-hidden size={13} /> : <CopyIcon aria-hidden size={13} />}
           {copied ? "Copied" : "Copy"}

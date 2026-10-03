@@ -1,8 +1,8 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
-import { readJson, writeJson, type KeyValueStorage } from "@/lib/storage.ts";
+import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 
 /**
  * In-app toast preferences for this device. They decide which live changes surface as a
@@ -47,7 +47,7 @@ export function prefsStore(storage: KeyValueStorage | undefined): PrefsStore {
 
 // One store per daemon client over this window's localStorage: device-wide values, but a fresh
 // in-memory copy whenever the app reconnects (and in every test).
-const stores = new WeakMap<Client, PrefsStore>();
+const stores = new WeakMap<ClientApi, PrefsStore>();
 
 export function useNotificationPrefs(): [
   NotificationPrefs,

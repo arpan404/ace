@@ -70,3 +70,12 @@ test("a search with no matches says so", async () => {
   await harness().open("/more/search?q=kubernetes");
   expect(await screen.findByText("No results")).toBeTruthy();
 });
+
+test("Clear empties the query and the results", async () => {
+  await harness().open("/more/search?q=replay");
+  expect(within(await results()).getAllByRole("option").length).toBeGreaterThan(2);
+  await userEvent.click(screen.getByRole("button", { name: "Clear search" }));
+  const input = screen.getByRole("combobox", { name: "Search every thread" });
+  expect(input).toHaveProperty("value", "");
+  expect(screen.queryByRole("option")).toBeNull();
+});

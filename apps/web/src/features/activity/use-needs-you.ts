@@ -1,7 +1,7 @@
 import type { SidebarReader } from "@ace/client";
 import { useSidebar, useSidebarIds, type SidebarKey } from "@ace/client-react";
 import { useCallback, useMemo } from "react";
-import { useThreadIdsWhere } from "@/features/shell/use-threads.ts";
+import { useThreadIdsWhere } from "@/features/shell/index.ts";
 import { inProject, useActivityState } from "./activity-state.tsx";
 import { useFeed, type FeedEvent } from "./feed-source.ts";
 

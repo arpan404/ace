@@ -2,7 +2,7 @@ import type { UsageRow, UsageTotals } from "@ace/protocol";
 import { useMemo, useState } from "react";
 import { DataTable, type DataColumns } from "@/components/data-table.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
-import { providerNames } from "@/components/ui/provider-glyph.tsx";
+import { providerNames } from "@ace/ui-core";
 import { useNow } from "@/lib/time.ts";
 import { ProviderKind } from "@ace/protocol";
 import { useUsage } from "./accounts-source.ts";
@@ -145,7 +145,7 @@ function DailyBars(props: { rows: readonly UsageRow[] }) {
             >
               <span
                 style={{ height: `${Math.max(2, (value / max) * 100)}%` }}
-                className="block w-full rounded-t-[4px] bg-[color-mix(in_oklab,var(--foreground)_55%,transparent)] transition-colors duration-150 group-hover:bg-foreground group-focus-visible:bg-foreground"
+                className="block w-full rounded-t-[4px] bg-[color-mix(in_oklab,var(--foreground)_55%,transparent)] transition-colors duration-(--dur-1) group-hover:bg-foreground group-focus-visible:bg-foreground"
               />
             </li>
           );

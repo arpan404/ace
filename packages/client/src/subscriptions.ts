@@ -70,6 +70,11 @@ export class Subscriptions {
       },
     };
   }
+  /** The store of a thread some caller holds, without taking a lease. */
+  held(threadId: string): ThreadStore | undefined {
+    const entry = this.cache.get(threadId);
+    return entry?.refs ? entry.store : undefined;
+  }
   private subscribe(threadId: string, entry: Cached): void {
     const id = this.id();
     entry.snapshotAllowed = true;

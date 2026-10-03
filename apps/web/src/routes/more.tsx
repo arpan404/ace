@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { MoreSidebar } from "@/features/more/more-sidebar.tsx";
-import { ViewFrame } from "@/features/shell/view-frame.tsx";
+import { MoreSidebar } from "@/features/more/index.ts";
+import { ViewFrame } from "@/features/shell/index.ts";
 
 export const Route = createFileRoute("/more")({
   component: () => (

@@ -1,12 +1,15 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
+import { frameBatch } from "@ace/client-react";
 import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, AppFrame } from "./app.tsx";
-import { ConnectionGate } from "./boot/connection-gate.tsx";
+import { ConnectionGate } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl } from "./boot/connection-settings.ts";
 import { createDaemonClient } from "./boot/daemon.ts";
 import { desktopTarget, hasDesktopBridge } from "./boot/desktop.ts";
-import { StartingScreen } from "./boot/starting-screen.tsx";
+import { StartingScreen } from "./features/connect/index.ts";
+import { markSeen } from "./features/thread/index.ts";
+import { profileName, setProfileName } from "./lib/profile.ts";
 import "./styles/index.css";
 
 const environment = {
@@ -14,13 +17,24 @@ const environment = {
   matchMedia: (query: string) => matchMedia(query),
   root: document.documentElement,
 };
-const app = (client: Client) => <App client={client} storage={localStorage} />;
+// Store changes reach React once per animation frame (none while the tab is hidden).
+const batch = frameBatch((flush) => requestAnimationFrame(flush));
+const app = (client: ClientApi) => <App client={client} storage={localStorage} batch={batch} />;
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 async function content() {
   // The fake daemon is only bundled in `vite --mode fake`.
   if (import.meta.env.MODE === "fake") {
-    const { client } = (await import("./boot/fake.ts")).bootFake();
+    const fake = (await import("./boot/fake.ts")).bootFake();
+    const { client, seen } = fake;
+    for (const mark of seen) markSeen(mark.threadId, mark.itemId);
+    if (!profileName(localStorage)) setProfileName(localStorage, fake.profileName);
+    await client.start();
+    return app(client);
+  }
+  // The endless-agent load test (tools/web-perf); only bundled in `vite --mode perf`.
+  if (import.meta.env.MODE === "perf") {
+    const { client } = (await import("./boot/perf.ts")).bootPerf();
     await client.start();
     return app(client);
   }

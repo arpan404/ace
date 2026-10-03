@@ -1,5 +1,6 @@
 import type { Selection } from "@ace/client";
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
+import { useNotifyBatch } from "./context.ts";
 
 const noop = () => {};
 const unloaded: Selection<undefined> = {
@@ -10,7 +11,18 @@ const unloaded: Selection<undefined> = {
 /** Read a client Selection. Undefined while its store is not leased yet. */
 export function useSelection<T>(selection: Selection<T> | undefined): T | undefined {
   const source: Selection<T | undefined> = selection ?? unloaded;
-  return useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot);
+  const batch = useNotifyBatch();
+  const subscribe = useCallback(
+    (changed: () => void) => {
+      const stop = source.subscribe(() => batch.schedule(changed));
+      return () => {
+        batch.cancel(changed);
+        stop();
+      };
+    },
+    [source, batch],
+  );
+  return useSyncExternalStore(subscribe, source.getSnapshot, source.getSnapshot);
 }
 
 export function arrayEqual<T>(a: readonly T[] | undefined, b: readonly T[] | undefined): boolean {

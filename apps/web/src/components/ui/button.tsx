@@ -5,7 +5,7 @@ import { cn } from "@/lib/cn.ts";
 const buttonVariants = cva(
   [
     "inline-flex shrink-0 items-center justify-center gap-1.5 font-medium whitespace-nowrap select-none",
-    "transition-[background-color,color,box-shadow,transform] duration-150 ease-smooth active:not-aria-[haspopup]:scale-[0.98]",
+    "transition-[background-color,color,box-shadow,transform] duration-(--dur-1) ease-smooth active:not-aria-[haspopup]:scale-[0.98]",
     "disabled:pointer-events-none disabled:opacity-50 data-disabled:pointer-events-none data-disabled:opacity-50",
     "[&_svg]:pointer-events-none [&_svg]:shrink-0",
   ],

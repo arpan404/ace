@@ -1,7 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { fakeBackend } from "@/features/more/fake-backend.ts";
 import { harness } from "@/test/harness.tsx";
 
 const card = (name: string) => screen.findByRole("article", { name });
@@ -69,12 +68,9 @@ test("Refresh picks up quota the providers reported since the page opened", asyn
     within(work).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
   ).toBe("23");
 
-  const backend = await fakeBackend(app.client);
-  const window = backend.accounts
-    .find((account) => account.id === "claude-work")
-    ?.windows.find((w) => w.id === "five-hour");
-  if (!window) throw new Error("missing the Work 5-hour window");
-  window.usedPercent = 47;
+  const reported = app.daemon.services.accounts.find((account) => account.id === "claude-work");
+  if (!reported) throw new Error("missing the Work account");
+  reported.quota.windows["five_hour"] = { usedPercent: 47, resetsAt: null };
   await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
   await waitFor(async () =>

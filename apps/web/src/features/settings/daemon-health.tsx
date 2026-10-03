@@ -1,5 +1,5 @@
 import { useClient, useConnectionState } from "@ace/client-react";
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { DataTable, type DataColumns } from "@/components/data-table.tsx";
@@ -10,7 +10,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
  * Live thread, sidebar and agent state never enter the Query cache.
  */
 export const daemonQueries = {
-  health: (client: Client) => ({
+  health: (client: ClientApi) => ({
     queryKey: ["daemon", "health"] as const,
     queryFn: async () => {
       const result = await client.command({ type: "diagnostics.health" }, { timeoutMs: 10_000 });

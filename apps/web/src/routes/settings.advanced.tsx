@@ -1,11 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AdvancedSettings } from "@/features/settings/advanced-page.tsx";
-import { SettingsBody } from "@/features/settings/settings-body.tsx";
+import { AdvancedSettingsScreen } from "@/features/settings/index.ts";
 
-export const Route = createFileRoute("/settings/advanced")({
-  component: () => (
-    <SettingsBody page="Advanced">
-      <AdvancedSettings />
-    </SettingsBody>
-  ),
-});
+export const Route = createFileRoute("/settings/advanced")({ component: AdvancedSettingsScreen });

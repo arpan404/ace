@@ -1,4 +1,4 @@
-// TODO(train-2): wire to protocol when merged. Only `thread.archive` is a daemon command on
+// TODO(client-gaps): feat/client-protocol-gaps. Only `thread.archive` is a daemon command on
 // main; rename, fork, settle, snooze, delete and removing a queued message are not.
 import type { ThreadRef } from "./workspace-source.ts";
 

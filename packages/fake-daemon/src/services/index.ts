@@ -1,0 +1,156 @@
+import type { z } from "zod";
+import type { AccountSummary as Summary } from "@ace/protocol/accounts";
+import type {
+  CatalogModel,
+  ClientMessage,
+  PaletteCommand,
+  ProviderKind,
+  ServerMessage,
+} from "@ace/protocol";
+import { usageReport } from "../catalog/usage.ts";
+import { modelCatalog, settingsValues } from "../scenarios/settings.ts";
+import { accountSummaries } from "./accounts.ts";
+import { commandCatalog, listCommands } from "./commands.ts";
+import { search } from "./search.ts";
+import { listModels, resolveModel } from "./models.ts";
+import { FakeSettings, type Push } from "./settings.ts";
+
+type AccountSummary = z.infer<typeof Summary>;
+
+export interface ServiceHost {
+  clock(): number;
+  /** The thread's project and provider, or undefined when the thread doesn't exist. */
+  thread(threadId: string): { workspaceId: string; provider: ProviderKind } | undefined;
+}
+
+/**
+ * The daemon's catalog services (accounts, usage, models, settings, search, slash commands) over
+ * the fake daemon's catalogs. Context, workspace, terminal, plugin, planning and browser services
+ * are per-connection sessions in `services-wire.ts`. Replies use the wire shapes, so the app
+ * reads them through `Client.request` exactly as it does from a real daemon. Tests change the
+ * public fields to stage what the daemon reports next.
+ */
+export class FakeServices {
+  accounts: AccountSummary[];
+  models: CatalogModel[];
+  commands: PaletteCommand[];
+  readonly settings: FakeSettings;
+  private host: ServiceHost;
+  constructor(host: ServiceHost) {
+    this.host = host;
+    const now = host.clock();
+    this.accounts = accountSummaries(now);
+    this.models = modelCatalog();
+    this.commands = commandCatalog();
+    this.settings = new FakeSettings(
+      settingsValues(),
+      (threadId) => host.thread(threadId)?.workspaceId,
+    );
+  }
+  /** Answers one service message. False when it isn't a service this fake serves. */
+  handle(message: ClientMessage, push: Push): boolean {
+    const reply = this.reply(message, push);
+    if (reply) push(reply);
+    return reply !== undefined;
+  }
+  release(push: Push): void {
+    this.settings.release(push);
+  }
+  private reply(message: ClientMessage, push: Push): ServerMessage | undefined {
+    switch (message.type) {
+      case "accounts.list":
+        return { type: "accounts.list", requestId: message.requestId, accounts: this.accounts };
+      case "accounts.status":
+        return {
+          type: "accounts.status",
+          requestId: message.requestId,
+          account: this.accounts.find((account) => account.id === message.instanceId) ?? null,
+        };
+      case "usage.summary":
+      case "usage.series":
+        return {
+          type: "usage.result",
+          requestId: message.requestId,
+          kind: message.type === "usage.summary" ? "summary" : "series",
+          result: usageReport(message.query),
+        };
+      case "accounts.migrate":
+        return {
+          type: "accounts.migrate",
+          requestId: message.requestId,
+          result: { status: "unsupported", reason: "No native sessions in the fake daemon" },
+        };
+      case "usage.session_totals":
+        return { type: "usage.session_totals.result", requestId: message.requestId, totals: [] };
+      case "models.list":
+        return {
+          type: "models.result",
+          requestId: message.requestId,
+          result: listModels(this.models, message.options),
+        };
+      case "models.refresh":
+        return {
+          type: "models.result",
+          requestId: message.requestId,
+          result: listModels(this.models, { ...message.filter, offset: 0, limit: 100 }),
+        };
+      case "models.resolve":
+        return {
+          type: "models.result",
+          requestId: message.requestId,
+          result: resolveModel(this.models, message.roleSpec),
+        };
+      case "settings.get":
+      case "settings.set":
+      case "settings.subscribe":
+      case "settings.unsubscribe":
+        return this.settings.handle(message, push);
+      case "search.query":
+        return {
+          type: "search.results",
+          requestId: message.requestId,
+          ...search(message, this.host.clock()),
+        };
+      case "search.status":
+        return {
+          type: "search.progress",
+          requestId: message.requestId,
+          indexedSeq: 0,
+          headSeq: 0,
+          pending: 0,
+          indexWrites: 0,
+          generation: 1,
+          ready: true,
+        };
+      case "commands.list":
+        return {
+          type: "commands.list.result",
+          requestId: message.requestId,
+          commands: listCommands(
+            this.commands,
+            this.host.thread(message.threadId)?.provider,
+            message.query,
+            message.limit,
+          ),
+          diagnostics: [],
+        };
+      case "commands.resolve":
+        return {
+          type: "commands.resolve.result",
+          requestId: message.requestId,
+          result: { ok: false, error: "not_found" },
+        };
+      case "files.request":
+        return {
+          type: "files.error",
+          requestId: message.requestId,
+          code: "not_found",
+          message: "No file fixture",
+        };
+      default:
+        return undefined;
+    }
+  }
+}
+export { FakeSettings } from "./settings.ts";
+export type { Push } from "./settings.ts";

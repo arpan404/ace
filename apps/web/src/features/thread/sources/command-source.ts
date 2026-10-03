@@ -1,38 +1,28 @@
-// TODO(train-2): wire to protocol when merged. Slash commands are PR #46.
+// Slash commands from the daemon's command library (`commands.list`): the provider CLI's own
+// commands, the project's prompt files and ace's built-ins, for the thread's provider.
+import type { ClientApi } from "@ace/client";
+import { ThreadId, type PaletteCommand } from "@ace/protocol";
 import type { ThreadRef } from "./workspace-source.ts";
 
 export interface SlashCommand {
   /** Without the slash, e.g. "review". */
   name: string;
   description: string;
-  /** Where it comes from: the provider CLI, a skill, or ace itself. */
+  /** Where it comes from: the provider CLI, a prompt file or skill, or ace itself. */
   source: "provider" | "skill" | "ace";
   /** Placeholder for the argument, shown after the command. */
   argument?: string | undefined;
 }
 
 export interface CommandSource {
-  commands(thread: ThreadRef): Promise<readonly SlashCommand[]>;
+  commands(thread: ThreadRef, signal?: AbortSignal): Promise<readonly SlashCommand[]>;
 }
 
-const commands: readonly SlashCommand[] = [
-  { name: "review", description: "Review the changes on this branch", source: "provider" },
-  {
-    name: "test",
-    description: "Run the tests and fix what fails",
-    source: "skill",
-    argument: "path",
-  },
-  { name: "plan", description: "Plan before editing; ask me to approve", source: "provider" },
-  {
-    name: "compact",
-    description: "Summarise the conversation to free context",
-    source: "provider",
-  },
-  { name: "init", description: "Write an AGENTS.md for this project", source: "provider" },
-  { name: "pr", description: "Open a pull request for this branch", source: "skill" },
-  { name: "fork", description: "Continue in a new thread from here", source: "ace" },
-];
+const sources: Record<PaletteCommand["namespace"], SlashCommand["source"]> = {
+  provider: "provider",
+  prompt: "skill",
+  ace: "ace",
+};
 
 /** Matches by prefix first, then anywhere in the name. */
 export function matchCommands(list: readonly SlashCommand[], query: string): SlashCommand[] {
@@ -42,6 +32,22 @@ export function matchCommands(list: readonly SlashCommand[], query: string): Sla
   return [...prefix, ...inner];
 }
 
-export function fakeCommandSource(): CommandSource {
-  return { commands: () => Promise.resolve(commands) };
+export function daemonCommandSource(client: ClientApi): CommandSource {
+  return {
+    async commands(thread, signal) {
+      // TODO(client-gaps): feat/client-protocol-gaps. A thread that doesn't exist yet (New
+      // thread) has no scope to ask in until the daemon offers a pre-thread draft scope.
+      if (thread.draft) return [];
+      const reply = await client.request(
+        { type: "commands.list", threadId: ThreadId.parse(thread.id), limit: 100 },
+        signal ? { signal } : {},
+      );
+      return reply.commands.map((command) => ({
+        name: command.name,
+        description: command.description,
+        source: sources[command.namespace],
+        argument: command.argumentHint,
+      }));
+    },
+  };
 }

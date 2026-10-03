@@ -1,9 +1,10 @@
 import type { Item } from "@ace/protocol";
 
 /**
- * The transcript reads like a document: consecutive tool work collapses into one "Worked for"
- * line, spawns into one "Started N subagents" line, and a changed-files card follows the answer
- * that comes after edits. Blocks depend only on item order, item types and kinds, and which
+ * The transcript reads like a document: between two messages, all tool work collapses into one
+ * "Worked for" line and all spawns into one "Started N subagents" line (subagents' own work
+ * interleaves with the parent's, so these are per stretch, not per run of adjacent items), and a
+ * changed-files card follows the answer that comes after edits. Blocks depend only on item order, item types and kinds, and which
  * calls started background tasks, all of which are fixed once an item exists, so a streaming
  * delta never regroups the transcript.
  */
@@ -28,20 +29,30 @@ const editKinds = new Set(["file.edit", "file.write", "file.delete", "file.move"
 export function buildBlocks(source: BlockSource): Block[] {
   const blocks: Block[] = [];
   let edits: string[] = [];
+  // The work and spawn groups of the stretch since the last message; a message ends it.
+  let stretch: Partial<Record<"work" | "subagents", { itemIds: string[] }>> = {};
   const group = (kind: "work" | "subagents", id: string) => {
-    const last = blocks.at(-1);
-    if (last?.kind === kind) last.itemIds.push(id);
-    else blocks.push({ kind, key: `${kind}:${id}`, itemIds: [id] });
+    const open = stretch[kind];
+    if (open) open.itemIds.push(id);
+    else {
+      const block = { kind, key: `${kind}:${id}`, itemIds: [id] };
+      blocks.push(block);
+      stretch[kind] = block;
+    }
+  };
+  const standalone = (block: Block) => {
+    blocks.push(block);
+    stretch = {};
   };
   for (const id of source.order) {
     const item = source.item(id);
     if (!item) continue;
     switch (item.type) {
       case "message":
-        if (item.synthetic) blocks.push({ kind: "item", key: id, itemId: id });
-        else if (item.role === "user") blocks.push({ kind: "user", key: id, itemId: id });
+        if (item.synthetic) standalone({ kind: "item", key: id, itemId: id });
+        else if (item.role === "user") standalone({ kind: "user", key: id, itemId: id });
         else {
-          blocks.push({ kind: "message", key: id, itemId: id });
+          standalone({ kind: "message", key: id, itemId: id });
           if (edits.length) {
             blocks.push({ kind: "files", key: `files:${id}`, itemIds: edits });
             edits = [];
@@ -63,13 +74,26 @@ export function buildBlocks(source: BlockSource): Block[] {
         break;
       case "notice":
         if (item.toolCallId) group("work", id);
-        else blocks.push({ kind: "item", key: id, itemId: id });
+        else standalone({ kind: "item", key: id, itemId: id });
         break;
       default:
-        blocks.push({ kind: "item", key: id, itemId: id });
+        standalone({ kind: "item", key: id, itemId: id });
     }
   }
   return blocks;
+}
+
+/**
+ * The work block still taking items: the last stretch's, when no message has followed it.
+ * While the agent works, it reads "Working for …"; -1 when there is none.
+ */
+export function openWorkIndex(blocks: readonly Block[]): number {
+  for (let index = blocks.length - 1; index >= 0; index--) {
+    const kind = blocks[index]?.kind;
+    if (kind === "work") return index;
+    if (kind !== "subagents" && kind !== "background") return -1;
+  }
+  return -1;
 }
 
 export function blockItems(block: Block): readonly string[] {

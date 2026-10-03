@@ -23,7 +23,7 @@ export function ProjectFilter() {
     <Menu>
       <MenuTrigger
         aria-label={`Project filter: ${project ?? "All projects"}`}
-        className="inline-flex h-[26px] max-w-[140px] items-center gap-1 rounded-[7px] pr-2 pl-[9px] text-sm font-medium text-muted-foreground outline-none transition-colors duration-150 hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent aria-expanded:text-foreground"
+        className="inline-flex h-[26px] max-w-[140px] items-center gap-1 rounded-[7px] pr-2 pl-[9px] text-sm font-medium text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent aria-expanded:text-foreground"
       >
         <span className="truncate">{project ?? "All projects"}</span>
         <CaretDownIcon aria-hidden size={14} className="shrink-0" />

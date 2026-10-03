@@ -3,8 +3,7 @@ import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useDaemonConnection } from "@/boot/connection.tsx";
-import { DaemonForm } from "@/features/connect/daemon-form.tsx";
-import { DaemonHealth } from "./daemon-health.tsx";
+import { DaemonForm } from "@/features/connect/index.ts";
 
 const stateLabels = {
   connecting: "Connecting",
@@ -14,7 +13,7 @@ const stateLabels = {
   fatal: "Disconnected",
 } as const;
 
-/** Which daemon this window uses, a way to point it elsewhere, and the daemon's health. */
+/** Which daemon this window uses and a way to point it elsewhere. Diagnostics live under Advanced. */
 export function DaemonSettings() {
   const connection = useDaemonConnection();
   const state = useConnectionState();
@@ -54,9 +53,6 @@ export function DaemonSettings() {
           />
         </div>
       )}
-      <div className="border-t py-4">
-        <DaemonHealth />
-      </div>
     </SettingSection>
   );
 }

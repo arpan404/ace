@@ -1,7 +1,7 @@
 @import "tailwindcss";
-@import "tw-animate-css";
 @import "./shadcn.css";
 @import "./tokens.css";
+@import "./motion.css";
 
 @custom-variant dark (&:where([data-scheme="dark"], [data-scheme="dark"] *));
 @custom-variant compact (&:where([data-density="compact"], [data-density="compact"] *));
@@ -66,6 +66,8 @@
 
   --ease-smooth: var(--ease);
   --ease-spring: var(--spring);
+  --ease-sheet: var(--sheet);
+  --ease-exit: var(--leave);
 
   --text-prose: var(--transcript-size);
   --text-prose--line-height: 1.6;
@@ -229,4 +231,16 @@
   to {
     background-position: -100% 0;
   }
+}
+
+/*
+ * Fades the end of a line that a row's hover actions float over, instead of cutting a letter in
+ * half. `--under` is how much of the line's end the actions cover.
+ */
+@utility fade-under-actions {
+  mask-image: linear-gradient(
+    to right,
+    #000 calc(100% - var(--under, 0px) - 1.75rem),
+    transparent calc(100% - var(--under, 0px))
+  );
 }

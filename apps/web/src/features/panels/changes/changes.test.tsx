@@ -88,19 +88,21 @@ test("a line comment goes to the agent through review mode and lands in the thre
   await userEvent.click(within(line).getByRole("button", { name: /^Comment on line \d+$/ }));
   await userEvent.type(
     within(replay).getByRole("textbox", { name: /Comment on line/ }),
-    "Should the ack also carry coldStartWindow?",
+    "Should the ack also carry `coldStartWindow`?",
   );
   await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
 
   const card = within(replay).getByRole("article", { name: /Comment on line/ });
   expect(within(card).getByText("just now", { exact: false })).toBeTruthy();
+  // The identifier reads as code, as it would in the agent's own prose.
+  expect(within(card).getByText("coldStartWindow").tagName).toBe("CODE");
   expect(app.daemon.review.comments()).toEqual([]);
 
   await userEvent.click(within(card).getByRole("button", { name: "Send to agent" }));
   await within(card).findByText("Sent to agent");
   const [held] = app.daemon.review.comments();
   expect(held).toMatchObject({
-    text: "Should the ack also carry coldStartWindow?",
+    text: "Should the ack also carry `coldStartWindow`?",
     sent: true,
     anchor: { position: { file: "apps/server/src/replay.ts", side: "new" } },
   });
@@ -133,4 +135,36 @@ test("the diff follows the thread live as a later turn edits more files", async 
   expect(within(panel).queryByRole("region", { name: "apps/web/src/relay/outbox.ts" })).toBeNull();
   await act(async () => script.runThrough("turn-2"));
   await within(panel).findByRole("region", { name: "apps/web/src/relay/outbox.ts" });
+});
+
+test("a collapsed file stays collapsed after looking at another tab and coming back", async () => {
+  const { panel } = await openChanges();
+  const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
+  await userEvent.click(within(replay).getByRole("button", { name: /replay\.ts/, expanded: true }));
+  await userEvent.click(within(panel).getByRole("tab", { name: /Agents/ }));
+  await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
+  const again = within(panel).getByRole("region", { name: "apps/server/src/replay.ts" });
+  expect(
+    within(again)
+      .getByRole("button", { name: /replay\.ts/ })
+      .getAttribute("aria-expanded"),
+  ).toBe("false");
+});
+
+test("a line comment stays on its line when the diff switches between Unified and Split", async () => {
+  const { panel } = await openChanges();
+  const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
+  const line = within(replay).getByText(/client.send\(\{ type: "resume.ack", headSeq/);
+  await userEvent.click(within(line).getByRole("button", { name: /^Comment on line \d+$/ }));
+  await userEvent.type(within(replay).getByRole("textbox"), "Carry coldStartWindow too?");
+  await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
+  const name = within(replay).getByRole("article").getAttribute("aria-label");
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Split" }));
+  const split = within(panel).getByRole("region", { name: "apps/server/src/replay.ts" });
+  const card = within(split).getByRole("article", { name: name ?? "" });
+  expect(within(card).getByText("Carry coldStartWindow too?")).toBeTruthy();
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Unified" }));
+  expect(within(panel).getByText("Carry coldStartWindow too?")).toBeTruthy();
 });

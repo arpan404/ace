@@ -58,9 +58,9 @@ const time = new Intl.DateTimeFormat(undefined, {
 export function LogsTab(props: { threadId: string }) {
   const lines = useThreadLog(props.threadId);
   const services = usePanelServices();
-  const cutoffs = useLocal(services.logCutoffs, (value) => value);
-  const cutoff = cutoffs.get(props.threadId);
-  const shown = cutoff === undefined ? lines : lines.filter((line) => line.at > cutoff);
+  const clearedByThread = useLocal(services.logCleared, (value) => value);
+  const cleared = clearedByThread.get(props.threadId);
+  const shown = cleared === undefined ? lines : lines.filter((line) => !cleared.has(line.key));
   const hidden = lines.length - shown.length;
   if (!lines.length)
     return (
@@ -79,7 +79,7 @@ export function LogsTab(props: { threadId: string }) {
             type="button"
             className="underline-offset-2 hover:text-foreground hover:underline"
             onClick={() =>
-              services.logCutoffs.set((previous) => {
+              services.logCleared.set((previous) => {
                 const next = new Map(previous);
                 next.delete(props.threadId);
                 return next;
@@ -94,12 +94,9 @@ export function LogsTab(props: { threadId: string }) {
         {shown.map((line) => (
           <li key={line.key} className="grid grid-cols-[auto_8ch_minmax(0,1fr)] gap-x-3">
             <span className="text-subtle-foreground tabular-nums">{time.format(line.at)}</span>
-            <span
-              className={cn(
-                line.level === "error" && "text-status-failed",
-                line.level === "warn" && "text-status-needs-you",
-              )}
-            >
+            {/* Warnings and errors share the failed colour (the design's Logs); amber stays
+                reserved for "needs you". */}
+            <span className={cn(line.level !== "info" && "text-status-failed")}>
               {line.level === "info" ? line.source : line.level === "warn" ? "warn" : "error"}
             </span>
             <span className="break-words whitespace-pre-wrap">{line.text}</span>

@@ -11,39 +11,48 @@ import { FakeBrowser } from "./browser.ts";
 import { fakeBrowserSession } from "./browser-wire.ts";
 import { FakeTerminalStream } from "./terminal-stream.ts";
 import { fakeHealth } from "./health.ts";
-import { FakeCatalogWire } from "./catalog-wire.ts";
 import { FakeContextWire } from "./context-wire.ts";
 import { FakeWorkspaceWire } from "./workspace-wire.ts";
 import { FakeConductor } from "./conductor/fake-conductor.ts";
 import { FakePlanningWire } from "./planning-wire.ts";
 import { FakePluginsWire } from "./plugins-wire.ts";
 import type { FakeServiceContext } from "./service-context.ts";
+import type { FakeSettings } from "./services/settings.ts";
 export interface FakeWireSession {
   handle(message: ClientMessage, device: string): Promise<void>;
   close(): void;
 }
+/** A correlated request no fixture service answers gets the daemon's `unsupported` error. */
+export function replyUnsupported(message: ClientMessage, send: (message: Message) => void): void {
+  if ("requestId" in message && message.requestId)
+    send({
+      type: "error",
+      requestId: message.requestId,
+      code: "unsupported",
+      message: "Service unavailable in this fixture",
+    });
+}
+/**
+ * Per-connection services: context drafts and uploads, workspace reads, health, plugins, Deck
+ * and automations, previews, terminals and the browser. Catalog services and settings are
+ * `FakeServices`; this reads settings through the same store.
+ */
 export class FakeServicesWire {
   readonly browser = new FakeBrowser();
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
-  private catalogs: FakeCatalogWire;
   private planning: FakePlanningWire;
   private plugins = new FakePluginsWire();
   private host: FakeServiceContext;
-  private owner = 0;
-  constructor(context: FakeServiceContext) {
+  constructor(context: FakeServiceContext, settings: FakeSettings) {
     this.host = context;
     this.context = new FakeContextWire(context);
     this.workspace = new FakeWorkspaceWire(context);
-    this.catalogs = new FakeCatalogWire(context);
     this.planning = new FakePlanningWire(
       new FakeConductor({ clock: context.now, runs: [] }),
       context.now,
-      () => this.catalogs.automationsEnabled(),
+      () => settings.get("automations.enabled") === true,
     );
-  }
-  organizationEntries(scope: import("@ace/protocol").SettingsScope) {
-    return this.catalogs.organizationEntries(scope);
   }
   command(payload: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
     const conductor = ConductorCommandPayload.safeParse(payload);
@@ -51,7 +60,6 @@ export class FakeServicesWire {
     return this.workspace.command(payload);
   }
   session(send: (message: Message) => void): FakeWireSession {
-    const owner = `socket-${++this.owner}`;
     const subscriptions = new Map<string, () => void>();
     const terminalStreams = new Map<string, FakeTerminalStream>();
     let closed = false;
@@ -63,18 +71,12 @@ export class FakeServicesWire {
       close: () => {
         closed = true;
         browser.close();
-        this.catalogs.release(owner);
         for (const stop of subscriptions.values()) stop();
         subscriptions.clear();
         terminalStreams.clear();
       },
       handle: async (message, device) => {
         try {
-          const catalog = this.catalogs.handle(message, emit, owner);
-          if (catalog) {
-            emit(catalog);
-            return;
-          }
           if (message.type === "context.request") {
             emit(await this.context.handle(message, device));
             return;
@@ -195,13 +197,7 @@ export class FakeServicesWire {
             return;
           }
 
-          if ("requestId" in message)
-            emit({
-              type: "error",
-              requestId: message.requestId,
-              code: "unsupported",
-              message: "Service unavailable in this fixture",
-            });
+          replyUnsupported(message, emit);
         } catch (error) {
           if ("requestId" in message)
             emit({

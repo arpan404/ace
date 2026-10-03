@@ -14,7 +14,8 @@ export function seedAutomations(startAt: number, zone: string): Automation[] {
       enabled: true,
       workspace: "ace",
       provider: "claude",
-      model: "sonnet-4.6",
+      // A catalog row id: Sonnet on the work account.
+      model: "claude-work:claude-sonnet-4-5",
       prompt:
         "Audit dependencies in each project for advisories, open one thread per project with a proposed fix, and link the advisory. Skip devDependencies.",
       worktree: true,
@@ -35,7 +36,7 @@ export function seedAutomations(startAt: number, zone: string): Automation[] {
       enabled: true,
       workspace: "ace",
       provider: "codex",
-      model: "gpt-5.3-codex",
+      model: "codex-personal:gpt-5-codex",
       prompt:
         "Review the pull request against the repository's standards and the issue it links. Leave one summary comment, and line comments only for real problems.",
       worktree: true,
@@ -142,6 +143,7 @@ export function seedRuns(now: number): AutomationRun[] {
       "succeeded",
       "#209 · requested changes",
       "github",
+      "thread-worktree-cleanup",
     ),
     run(
       "run-audit-1",

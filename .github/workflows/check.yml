@@ -87,6 +87,9 @@ jobs:
         # Set up before tests because runner images can include Chromium already.
         run: node packages/browser/ci/sandbox.ts && bun run test
 
+      - name: Web performance budgets (bundle per route, month-long soak)
+        run: bun run --filter @ace/web-perf check:static
+
       - name: PTY throughput (informational)
         continue-on-error: true
         run: bun run --filter @ace/terminal bench 100
@@ -113,3 +116,5 @@ jobs:
         run: bun run --cwd packages/browser playwright-core install --with-deps chromium
       - name: Browser tests
         run: node packages/browser/ci/sandbox.ts && bun run test -- packages/browser apps/daemon/src/browser.process.test.ts apps/daemon/src/browser-remote.process.test.ts
+      - name: Web main-thread budgets (5,000 events/s, input latency, long tasks)
+        run: cd tools/web-perf && bunx playwright install --with-deps chromium && bun run browser

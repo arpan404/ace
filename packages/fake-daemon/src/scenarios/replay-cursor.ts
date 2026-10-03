@@ -94,6 +94,7 @@ export function replayCursor(id = "thread-replay-cursor"): Scenario {
       {
         kind: "facts",
         label: "asked",
+        agoMs: 5 * 60_000,
         facts: [
           rootAgent("claude", "/Users/dev/relay"),
           turn("root"),
@@ -106,9 +107,11 @@ export function replayCursor(id = "thread-replay-cursor"): Scenario {
         ],
       },
       {
+        // Reading and searching start a few seconds after the ask; editing and tests follow
+        // minutes later, so the work log reads as real time.
         kind: "facts",
-        delayMs: 600,
-        label: "worked",
+        delayMs: 300,
+        agoMs: 4 * 60_000 + 50_000,
         facts: [
           {
             type: "item.upsert",
@@ -129,6 +132,14 @@ export function replayCursor(id = "thread-replay-cursor"): Scenario {
             detail: { kind: "search", query: "lastAckedSeq", path: "apps", matches: 4 },
           }),
           toolDone("root", "search-acked"),
+        ],
+      },
+      {
+        kind: "facts",
+        delayMs: 300,
+        label: "worked",
+        agoMs: 2 * 60_000 + 20_000,
+        facts: [
           ...shell(
             "test-server",
             "bun run test apps/server",
@@ -159,12 +170,14 @@ export function replayCursor(id = "thread-replay-cursor"): Scenario {
         kind: "facts",
         delayMs: 600,
         label: "answered",
+        agoMs: 2 * 60_000,
         facts: [message("root", "answer", "assistant", answer)],
       },
       {
         kind: "facts",
         delayMs: 600,
         label: "delegated",
+        agoMs: 110_000,
         facts: [
           tool("root", "spawn-audit", {
             kind: "agent.spawn",
@@ -201,6 +214,7 @@ export function replayCursor(id = "thread-replay-cursor"): Scenario {
         kind: "facts",
         delayMs: 600,
         label: "background",
+        agoMs: 100_000,
         facts: [
           tool("root", "relay", {
             kind: "shell",
@@ -227,6 +241,7 @@ export function replayCursor(id = "thread-replay-cursor"): Scenario {
         kind: "facts",
         delayMs: 1500,
         label: "finding",
+        agoMs: 40_000,
         facts: [
           message(
             "root",
