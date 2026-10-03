@@ -20,6 +20,10 @@ interface SessionDependencies {
 }
 export class Sessions {
   private dependencies: SessionDependencies;
+  private closing = new Set<ThreadId>();
+  isClosing(id: ThreadId): boolean {
+    return this.closing.has(id);
+  }
   constructor(dependencies: SessionDependencies) {
     this.dependencies = dependencies;
   }
@@ -125,31 +129,37 @@ export class Sessions {
     const session = actor.session;
     if (!session) return;
     const lifetime = actor.lifetime;
+    this.closing.add(actor.id);
     actor.session = undefined;
     const generation = actor.generation;
     try {
       await actor.flush();
       await session.close(reason);
     } finally {
-      await actor.flush();
-      lifetime?.abort();
-      const ownsGeneration = actor.generation === generation;
-      if (ownsGeneration) {
-        actor.generation++;
-        this.dependencies.expireDelivery(actor);
-        actor.idleDue = false;
-        this.dependencies.repo.apply(
-          actor.id,
-          [
-            { type: "process.exited", deliberate: !actor.poisoned },
-            { type: "queue.changed", source: "provider", count: 0 },
-          ],
-          this.dependencies.clock.now(),
-        );
+      let ownsGeneration = false;
+      try {
+        await actor.flush();
+        lifetime?.abort();
+        ownsGeneration = actor.generation === generation;
+        if (ownsGeneration) {
+          actor.generation++;
+          this.dependencies.expireDelivery(actor);
+          actor.idleDue = false;
+          this.dependencies.repo.apply(
+            actor.id,
+            [
+              { type: "process.exited", deliberate: !actor.poisoned },
+              { type: "queue.changed", source: "provider", count: 0 },
+            ],
+            this.dependencies.clock.now(),
+          );
+        }
+        if (ownsGeneration) actor.releaseInputs();
+        actor.schedule();
+      } finally {
+        this.closing.delete(actor.id);
+        if (!actor.session && !actor.poisoned) this.dependencies.released(actor.id);
       }
-      if (ownsGeneration) actor.releaseInputs();
-      actor.schedule();
-      if (ownsGeneration && !actor.session && !actor.poisoned) this.dependencies.released(actor.id);
     }
   }
 }

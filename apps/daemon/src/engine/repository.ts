@@ -66,18 +66,7 @@ export class EngineRepository {
     this.opening.delete(id);
   }
   private recoveryAcknowledgement(id: ThreadId): boolean {
-    return (
-      !this.opening.has(id) &&
-      this.store.atomic((db) =>
-        Boolean(
-          db
-            .prepare(
-              "SELECT 1 FROM intents i JOIN engine_state_records r ON r.thread_id=i.thread_id AND r.section='engineRecovery' AND r.key='root' AND i.id=CAST(r.value AS INTEGER) WHERE i.thread_id=? AND i.status<>'failed' AND (i.awaiting=1 OR i.acknowledged=1) LIMIT 1",
-            )
-            .get(id),
-        ),
-      )
-    );
+    return !this.opening.has(id) && this.pending.recoveryAcknowledgement(id);
   }
   state(id: ThreadId): ThreadState | undefined {
     return this.store.atomic((db) => {
@@ -205,13 +194,7 @@ export class EngineRepository {
         }
         if (continuationStarted && this.queue.get(id).trigger) {
           this.queue.set(id, { continuation: null, trigger: null }, now);
-          this.store.atomic((db) =>
-            db
-              .prepare(
-                "DELETE FROM engine_state_records WHERE thread_id=? AND section='engineRecovery' AND key='root'",
-              )
-              .run(id),
-          );
+          this.pending.finishContinuation(id);
         }
         this.save(state, events, now);
         this.observe?.(state, facts, events, now);

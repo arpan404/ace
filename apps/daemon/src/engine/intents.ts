@@ -100,6 +100,18 @@ export class IntentStore {
       }
     }
   }
+  recoveryAcknowledgement(id: ThreadId): boolean {
+    return Boolean(
+      this.sql(
+        "SELECT 1 FROM intents i JOIN engine_state_records r ON r.thread_id=i.thread_id AND r.section='engineRecovery' AND r.key='root' AND i.id=CAST(r.value AS INTEGER) WHERE i.thread_id=? AND i.status<>'failed' AND (i.awaiting=1 OR i.acknowledged=1) LIMIT 1",
+      ).get(id),
+    );
+  }
+  finishContinuation(id: ThreadId): void {
+    this.sql(
+      "DELETE FROM engine_state_records WHERE thread_id=? AND section='engineRecovery' AND key='root'",
+    ).run(id);
+  }
   recovering(id: ThreadId): boolean {
     return Boolean(
       this.sql(

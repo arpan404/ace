@@ -229,7 +229,13 @@ export class Engine {
   }
   private releaseDormant(id: ThreadId): void {
     const actor = this.actors.get(id);
-    if (actor?.session || this.repo.sessionOpening(id) || this.repo.pending.running(id)) return;
+    if (
+      actor?.session ||
+      this.sessions.isClosing(id) ||
+      this.repo.sessionOpening(id) ||
+      this.repo.pending.running(id)
+    )
+      return;
     const queue = this.repo.queue.get(id);
     if (
       this.repo.pending.recovery(id) ||

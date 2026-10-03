@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { createCodexTranslator } from "@ace/adapter-codex";
-import { ThreadId, CommandId } from "@ace/protocol";
+import { ThreadId, CommandId, Command } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
 import {
   fixture,
@@ -11,7 +11,7 @@ import {
   crashCopy,
   dispatch,
 } from "./recovery-test-support.ts";
-import { scriptFrames, start, end, task } from "./test-support.ts";
+import { scriptFrames, start, end, task, until } from "./test-support.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ContextService } from "@ace/context";
@@ -338,4 +338,72 @@ test("provider exit during a limit cannot make an unacknowledged send replayable
   await h.engine.flush();
   expect(h.engine.queue(id).messages[0]?.state).toBe("uncertain");
   expect(resume(h, h.engine, id).error).toBe("uncertain_delivery");
+});
+
+test("idle shutdown retains capacity until the provider close operation settles", async () => {
+  const frames = scriptFrames();
+  const h = await fixture([{ on: "send", frames: [frames.frame(start, end)] }], frames, {
+    limits: { maxActiveThreads: 1 },
+    idleMs: 10,
+  });
+  const entered = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
+  const adapter = h.registry.get("codex").adapter;
+  h.registry.register(
+    {
+      ...adapter,
+      async openSession(ctx) {
+        const session = await adapter.openSession(ctx);
+        return {
+          ...session,
+          async close(reason) {
+            entered.resolve();
+            await release.promise;
+            await session.close(reason);
+          },
+        };
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+  const id = await h.create();
+  h.clock.advance(1010);
+  try {
+    await entered.promise;
+    const client = await h.connect("closing-device");
+    const pause = Command.parse({
+      id: "pause-closing",
+      deviceId: "closing-device",
+      payload: {
+        type: "queue.pause",
+        threadId: id,
+        expectedRevision: h.engine.queue(id).revision,
+      },
+    });
+    client.send({ type: "command", command: pause });
+    await until(
+      client,
+      (message) => message.type === "commandResult" && message.commandId === pause.id,
+    );
+    expect(
+      h.command({
+        type: "thread.create",
+        workspaceId: h.workspace,
+        provider: "codex",
+        input: text("too early"),
+      }).error,
+    ).toBe("engine_capacity_exceeded");
+  } finally {
+    release.resolve();
+    await h.engine.flush();
+  }
+  expect(
+    h.command({
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "codex",
+      input: text("after close"),
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
 });

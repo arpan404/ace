@@ -66,6 +66,10 @@ Review regression mutations, also **not executed (tests run at merge)**:
 | Bypass accounts copying or bind before success        | Native history is copied before destination resume                  |
 | Ignore native writer locks                            | Locked native migration preserves source binding and history        |
 
+A further capacity mutation removes the close-operation fence; the real WebSocket
+pause receipt while native shutdown is gated must still refuse a second thread.
+This case is **not executed (tests run at merge)**.
+
 The real-delta benchmark uses the production Codex translator, including its generic
 `retry.cleared`, with 256 held messages of 250,000 text bytes each. Queue scheduling
 uses indexed lightweight headers and decodes only one claimed payload. Repeated
