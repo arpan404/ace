@@ -1,5 +1,7 @@
 /** Synthetic documented RPC peer. This executable never imports or starts Pi. */
 import { createInterface } from "node:readline";
+import { copyFileSync, realpathSync } from "node:fs";
+import { join } from "node:path";
 import { z } from "zod";
 const Command = z.looseObject({ type: z.string(), id: z.string().optional() });
 let session = "/synthetic/source.jsonl",
@@ -43,7 +45,7 @@ input.on("line", (line) => {
     case "fork":
       if (
         process.env.FAKE_PI_COLD_CWD &&
-        (process.cwd() !== process.env.FAKE_PI_COLD_CWD || inputDelivered)
+        (process.cwd() !== realpathSync(process.env.FAKE_PI_COLD_CWD) || inputDelivered)
       ) {
         emit({
           type: "response",
@@ -58,7 +60,11 @@ input.on("line", (line) => {
         reply(c, { cancelled: true });
         return;
       }
-      session = "/synthetic/fork.jsonl";
+      if (process.env.FAKE_PI_COLD_CWD) {
+        const target = join(process.env.FAKE_PI_COLD_CWD, "fork.jsonl");
+        copyFileSync(session, target);
+        session = target;
+      } else session = "/synthetic/fork.jsonl";
       reply(c, { cancelled: false, text: "original prompt" });
       return;
     case "clear_queue":

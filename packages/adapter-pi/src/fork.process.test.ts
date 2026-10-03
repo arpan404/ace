@@ -38,7 +38,8 @@ test("cold native fork uses saved cwd, preserves source and never delivers input
   try {
     expect(
       await adapter.forkSession({ nativeSessionId: path, signal: new AbortController().signal }),
-    ).toBe("/synthetic/fork.jsonl");
+    ).toBe(join(cwd, "fork.jsonl"));
+    expect(await readFile(join(cwd, "fork.jsonl"), "utf8")).toBe(source);
     expect(await readFile(path, "utf8")).toBe(source);
   } finally {
     await rm(cwd, { recursive: true, force: true });
