@@ -211,16 +211,33 @@ export async function deckFixture(
     message: import("@ace/protocol").ClientMessage,
     matches: (reply: ServerMessage) => boolean,
   ): Promise<ServerMessage> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      const socket = client.socket;
+      const cleanup = () => {
+        socket.off("message", receive);
+        socket.off("close", closed);
+        socket.off("error", failed);
+      };
+      const closed = (code: number) => {
+        cleanup();
+        reject(new Error(`Deck socket closed before reply: ${code}`));
+      };
+      const failed = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
       const receive = (data: import("ws").RawData) => {
         const reply = ServerMessage.parse(JSON.parse(data.toString()));
         if (matches(reply)) {
-          client.socket.off("message", receive);
+          cleanup();
           resolve(reply);
         }
       };
-      client.socket.on("message", receive);
-      client.send(message);
+      socket.on("message", receive);
+      socket.once("close", closed);
+      socket.once("error", failed);
+      if (socket.readyState !== socket.OPEN) closed(1006);
+      else client.send(message);
     });
   }
   async function listRuns() {
