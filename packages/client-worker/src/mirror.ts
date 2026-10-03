@@ -261,6 +261,7 @@ export class MirrorSidebar implements SidebarSource {
       if (kind === "ids") this.list = trusted<readonly string[] | undefined>(patch.v) ?? none;
       else if (kind === "thread") set(this.threads, id, patch.v);
       else this.failure = errorOf(trusted<ErrorShape | undefined>(patch.v));
+      if (kind === "ids" || kind === "thread") keys.add("threads");
     }
     this.notifications.emit(keys);
   }

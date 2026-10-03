@@ -101,15 +101,15 @@ try {
       lazy: found(/\bimport\(\s*"\.\/([^"]+\.js)"\s*\)/g),
     };
   };
-  const workerClosure = (entry: string, into = new Set<string>()) => {
-    if (into.has(entry)) return into;
-    into.add(entry);
-    for (const file of imports(entry).eager) workerClosure(file, into);
+  const workerClosure = (file: string, into = new Set<string>()) => {
+    if (into.has(file)) return into;
+    into.add(file);
+    for (const next of imports(file).eager) workerClosure(next, into);
     return into;
   };
-  for (const entry of assets.filter((name) => /worker/.test(name) && name.endsWith(".js"))) {
-    const label = `worker ${entry.replace(/-[\w-]{8}\.js$/, "")}`;
-    const eager = workerClosure(entry);
+  for (const worker of assets.filter((name) => /worker/.test(name) && name.endsWith(".js"))) {
+    const label = `worker ${worker.replace(/-[\w-]{8}\.js$/, "")}`;
+    const eager = workerClosure(worker);
     const weighOf = (files: Iterable<string>) =>
       weigh([...files].map((file) => join("assets", file)));
     report(label, weighOf(eager), budgets.bundle.workerKb);

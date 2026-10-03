@@ -1,12 +1,10 @@
 import type { SidebarReader } from "@ace/client";
-import { useSidebar, useSidebarIds, type SidebarKey } from "@ace/client-react";
+import { useSidebarAll } from "@ace/client-react";
 import { useCallback, useMemo } from "react";
 import { useThreadIdsWhere } from "@/features/shell/index.ts";
 import { inProject, useActivityState } from "./activity-state.tsx";
 import { useEscalations } from "./escalations.ts";
 import type { FeedEvent } from "./feed-events.ts";
-
-const none: readonly string[] = [];
 
 /** Threads waiting on a person (live from the daemon) and open Deck escalations, filtered. */
 export function useNeedsYou(): { threadIds: readonly string[]; escalations: FeedEvent[] } {
@@ -35,12 +33,7 @@ const pendingTotal = (reader: SidebarReader) =>
 
 /** Every open request across threads (the daemon's per-thread counts) plus escalations. */
 export function useNeedsYouCount(): number {
-  const ids = useSidebarIds() ?? none;
-  const keys = useMemo<SidebarKey[]>(
-    () => ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)],
-    [ids],
-  );
-  const pending = useSidebar(keys, pendingTotal) ?? 0;
+  const pending = useSidebarAll(pendingTotal) ?? 0;
   const escalations = useEscalations();
   return pending + escalations.length;
 }

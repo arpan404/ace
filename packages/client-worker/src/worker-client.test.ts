@@ -507,3 +507,29 @@ test("a tab remembers only its newest sent commands that nobody watches", async 
   expect(remote.intent(first).getSnapshot()).toBeUndefined();
   expect(remote.intent(last).getSnapshot()).toBeDefined();
 });
+
+test("a view over the whole thread list follows every entry through one key, and deleted threads leave it", async () => {
+  const { daemon, tab } = world();
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  const lease = remote.threads();
+  const titles = lease.store.select(["threads"], (reader) =>
+    reader.ids.map((id) => reader.thread(id)?.title),
+  );
+  let heard = 0;
+  const stop = titles.subscribe(() => heard++);
+  daemon.createThread({ id: "relay", workspaceId: "acme", title: "Relay", provider: "codex" });
+  daemon.createThread({ id: "cache", workspaceId: "acme", title: "Cache", provider: "codex" });
+  await vi.waitFor(() => expect(titles.getSnapshot()).toEqual(["Relay", "Cache"]));
+  expect(heard).toBeGreaterThan(0);
+  const deleted = await remote.command({
+    type: "thread.delete",
+    threadId: ThreadId.parse("relay"),
+  });
+  expect(deleted).toMatchObject({ ok: true });
+  await vi.waitFor(() => expect(lease.store.ids).toEqual(["cache"]));
+  expect(titles.getSnapshot()).toEqual(["Cache"]);
+  stop();
+  lease.release();
+});

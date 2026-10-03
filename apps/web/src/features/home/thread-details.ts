@@ -1,21 +1,14 @@
 import type { SidebarReader } from "@ace/client";
-import { useSidebar, useSidebarIds, type SidebarKey } from "@ace/client-react";
+import { useSidebarAll } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { cardDetails, homeMachine, type CardDetails } from "@ace/ui-core";
-import { createContext, use, useCallback, useMemo } from "react";
+import { createContext, use, useCallback } from "react";
 
 /** The machine most threads run on; cards name a machine only when it is another one. */
 export const HomeMachine = createContext<string | undefined>(undefined);
 
-const none: readonly string[] = [];
-
 /** Read once for the whole list, so rows don't each scan every entry. */
 export function useHomeMachine(): string | undefined {
-  const ids = useSidebarIds() ?? none;
-  const keys = useMemo<SidebarKey[]>(
-    () => ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)],
-    [ids],
-  );
   const select = useCallback(
     (reader: SidebarReader) =>
       homeMachine(
@@ -26,7 +19,7 @@ export function useHomeMachine(): string | undefined {
       ),
     [],
   );
-  return useSidebar(keys, select);
+  return useSidebarAll(select);
 }
 
 /** Branch, PR, worktree, machine and diff for a card, from the daemon's `details`. */

@@ -141,6 +141,8 @@ export function threadPatches(
 export function sidebarPatches(reader: SidebarReader, keys: Iterable<string>): Patch[] {
   const patches: Patch[] = [];
   for (const k of keys) {
+    // The mirror derives `threads` from the entry and membership patches it applies.
+    if (k === "threads") continue;
     const { kind, id } = splitKey(k);
     const v =
       kind === "ids"

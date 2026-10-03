@@ -4,10 +4,9 @@
  * conductor (`@/features/deck`). Which events this device has read is kept per client here.
  */
 import type { SidebarReader } from "@ace/client";
-import { useClient, useConnectionState, useSidebar, useSidebarIds } from "@ace/client-react";
-import type { SidebarKey } from "@ace/client-react";
+import { useClient, useConnectionState, useSidebarAll } from "@ace/client-react";
 import { useQueries } from "@tanstack/react-query";
-import { useMemo, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { useDeckSender } from "@/features/deck/index.ts";
 import { useEscalations } from "./escalations.ts";
 import { pullRequestEvents, type FeedEvent, type LinkedThread } from "./feed-events.ts";
@@ -48,7 +47,6 @@ export function useFeedSource(): FeedSource {
 /** At most this many linked pull requests are read, the most recently active first. */
 const linkedLimit = 12;
 const prRefreshMs = 120_000;
-const noIds: readonly string[] = [];
 
 function readLinked(reader: SidebarReader): LinkedThread[] {
   return reader.ids
@@ -87,12 +85,7 @@ const sameList = (a: readonly LinkedThread[], b: readonly LinkedThread[]) =>
   });
 
 function useLinkedThreads(): LinkedThread[] {
-  const ids = useSidebarIds() ?? noIds;
-  const keys = useMemo<SidebarKey[]>(
-    () => ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)],
-    [ids],
-  );
-  return useSidebar(keys, readLinked, sameList) ?? [];
+  return useSidebarAll(readLinked, sameList) ?? [];
 }
 
 /** The forge's view of each linked PR: checks and comments, read again every two minutes. */
