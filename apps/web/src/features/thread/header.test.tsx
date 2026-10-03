@@ -19,7 +19,9 @@ test("Run starts the project's default script in the bottom terminal", async () 
   await openThread();
   await userEvent.click(await screen.findByRole("button", { name: "Run bun run dev:relay" }));
   const bottom = await screen.findByRole("region", { name: "Bottom panel" });
-  expect(within(bottom).getByRole("tab", { selected: true }).textContent).toBe("Terminal");
+  expect(within(bottom).getByRole("tab", { name: "Terminal" }).getAttribute("aria-selected")).toBe(
+    "true",
+  );
   expect(await screen.findByText("Running bun run dev:relay")).toBeTruthy();
 });
 
@@ -63,7 +65,11 @@ test("View diff in the git menu shows the Changes tab", async () => {
   await userEvent.click(await screen.findByRole("button", { name: "Git actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: /View diff/ }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Changes");
+  expect(
+    within(panel)
+      .getByRole("tab", { name: /^Changes/ })
+      .getAttribute("aria-selected"),
+  ).toBe("true");
 });
 
 test("renaming from the ⋯ menu changes the title", async () => {

@@ -66,7 +66,11 @@ test("the changed-files card lists the turn's files and opens the Changes tab", 
 
   await userEvent.click(within(card).getByRole("button", { name: "Open diff" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  expect(within(panel).getByRole("tab", { selected: true }).textContent).toBe("Changes");
+  expect(
+    within(panel)
+      .getByRole("tab", { name: /^Changes/ })
+      .getAttribute("aria-selected"),
+  ).toBe("true");
 });
 
 test("subagents open inline as a tree, and the agent tree is one click away", async () => {

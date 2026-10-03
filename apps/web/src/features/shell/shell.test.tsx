@@ -52,9 +52,9 @@ test("the rail marks the current view and the header's back and forward follow h
   expect(button("Back").disabled).toBe(true);
   expect(button("Forward").disabled).toBe(true);
 
-  await userEvent.click(within(rail).getByRole("link", { name: "Deck" }));
-  await title("Deck");
-  expect(within(rail).getByRole("link", { name: "Deck" }).getAttribute("aria-current")).toBe(
+  await userEvent.click(within(rail).getByRole("link", { name: "Activity" }));
+  await title("Activity");
+  expect(within(rail).getByRole("link", { name: "Activity" }).getAttribute("aria-current")).toBe(
     "page",
   );
   expect(button("Back").disabled).toBe(false);
@@ -65,7 +65,7 @@ test("the rail marks the current view and the header's back and forward follow h
   expect(button("Forward").disabled).toBe(false);
 
   await userEvent.keyboard("{Meta>}]{/Meta}");
-  await title("Deck");
+  await title("Activity");
   expect(button("Forward").disabled).toBe(true);
 });
 

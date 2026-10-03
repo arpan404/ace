@@ -34,7 +34,7 @@ export { searchThreads } from "./catalog/search.ts";
 export type { FakeSearchHit, FakeSearchKind } from "./catalog/search.ts";
 export { settingsFixture } from "./scenarios/settings.ts";
 export type {
-  FakeAccount,
+  FakeLogin,
   FakeMachine,
   FakeProviderInstall,
   SettingsFixture,

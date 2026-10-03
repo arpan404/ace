@@ -107,6 +107,7 @@ export function stopTaskFacts(host: ThreadHost, taskId: string): ThreadCommandOu
   const task = key === undefined ? undefined : host.state.tasks[key];
   if (key === undefined || !task) return undefined;
   // The daemon's answer for both: nothing left to stop.
-  if (!task.stoppable || task.status !== "running") return { ok: false, error: "task_not_stoppable" };
+  if (!task.stoppable || task.status !== "running")
+    return { ok: false, error: "task_not_stoppable" };
   return { ok: true, facts: [{ type: "background.ended", task: key, status: "stopped" }] };
 }

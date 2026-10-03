@@ -6,7 +6,8 @@ import { CatalogModel, Device, type ProviderKind, type SettingsValues } from "@a
  * Matches the approved design (Claude Code and Codex with two accounts each, one at its limit;
  * OpenCode and Cursor signed in; Gemini via ACP; a Linux build box and a paired iPhone).
  */
-export interface FakeAccount {
+/** A CLI login as Settings lists it; usage windows live in catalog/accounts.ts. */
+export interface FakeLogin {
   id: string;
   label: string;
   plan: string;
@@ -22,7 +23,7 @@ export interface FakeProviderInstall {
   version: string | null;
   /** "via ACP" for agents ace reaches through the Agent Client Protocol. */
   via?: string;
-  accounts: FakeAccount[];
+  accounts: FakeLogin[];
 }
 
 export interface FakeMachine {
