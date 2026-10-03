@@ -1,4 +1,4 @@
-import { ClientError, type ThreadKey, type ThreadReader, type ThreadStore } from "@ace/client";
+import { ClientError, type ThreadKey, type ThreadReader, type ThreadSource } from "@ace/client";
 import type { Item } from "@ace/protocol";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useClient } from "./context.ts";
@@ -7,7 +7,7 @@ import { arrayEqual, useSelection } from "./selection.ts";
 
 /** Select from an already leased thread store; see useThread. */
 export function useStoreSelect<T>(
-  store: ThreadStore | undefined,
+  store: ThreadSource | undefined,
   keys: readonly ThreadKey[],
   selector: (reader: ThreadReader) => T,
   equal?: (a: T, b: T) => boolean,
@@ -85,13 +85,12 @@ export function useHistoryPager(threadId: string | undefined, pageSize = 50): Hi
   const inFlight = useRef(false);
   const loadOlder = useCallback(async () => {
     if (!store || !threadId || inFlight.current) return;
-    const cursor = store.itemsBefore;
-    if (cursor === null || cursor === undefined) return;
+    if (typeof store.itemsBefore !== "number") return;
     inFlight.current = true;
     setLoading(true);
     setError(undefined);
     try {
-      store.page(await client.itemsPage({ threadId, before: cursor, limit: pageSize }));
+      await client.loadOlder(threadId, pageSize);
     } catch (caught) {
       setError(caught instanceof ClientError ? caught : new ClientError("protocol"));
     } finally {

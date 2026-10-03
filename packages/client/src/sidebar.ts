@@ -1,14 +1,13 @@
 import { applyDelivery } from "@ace/projection";
 import type { ClientMessage, ServerMessage, ThreadListView, ThreadListEntry } from "@ace/protocol";
-import { Notifications, type Selection } from "./observable.ts";
+import type { Mirrorable, SidebarExport, SidebarSource } from "./api.ts";
+import type { SidebarKey, SidebarReader } from "./readers.ts";
+import { Notifications, type ChangeTap, type Selection } from "./observable.ts";
 import { ClientError, type Limits } from "./types.ts";
 
-export interface SidebarReader {
-  readonly error: ClientError | undefined;
-  readonly ids: readonly string[];
-  thread(id: string): ThreadListEntry | undefined;
-}
-export class Sidebar implements SidebarReader {
+export type { SidebarReader } from "./readers.ts";
+
+export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   private failure: ClientError | undefined;
   get error() {
     return this.failure;
@@ -48,11 +47,22 @@ export class Sidebar implements SidebarReader {
     return this.view && Object.hasOwn(this.view.threads, id) ? this.view.threads[id] : undefined;
   }
   select<T>(
-    keys: readonly ("error" | "ids" | `thread:${string}`)[],
+    keys: readonly SidebarKey[],
     read: (sidebar: SidebarReader) => T,
     equal: (a: T, b: T) => boolean = Object.is,
   ): Selection<T> {
     return this.notifications.select(keys, () => read(this), equal);
+  }
+  observe(tap: ChangeTap): () => void {
+    return this.notifications.tap(tap);
+  }
+  export(): SidebarExport {
+    const failure = this.failure;
+    return {
+      error: failure && { code: failure.code, message: failure.message },
+      view: this.view,
+      ids: this.order,
+    };
   }
   acquire(): { store: Sidebar; release(): void } {
     if (this.refs++ === 0 && this.ready()) this.subscribe();

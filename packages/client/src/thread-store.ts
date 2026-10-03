@@ -3,49 +3,16 @@ import { pageWindow } from "./page-window.ts";
 import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
 import { applyDelivery, usageSnapshotKey } from "@ace/projection";
-import type { ThreadView, EventBatch, Progress, Item, ItemsPage } from "@ace/protocol";
-import { Notifications, type Selection } from "./observable.ts";
+import type { ThreadView, EventBatch, Progress, ItemsPage } from "@ace/protocol";
+import type { Mirrorable, ThreadExport, ThreadSource } from "./api.ts";
+import type { ThreadKey, ThreadReader } from "./readers.ts";
+import { Notifications, type ChangeTap, type Selection } from "./observable.ts";
 import { ClientError, type Limits } from "./types.ts";
 
-export type ThreadKey =
-  | "error"
-  | "thread"
-  | "order"
-  | "cursor"
-  | "history"
-  | "agents"
-  | "interactions"
-  | "tasks"
-  | `item:${string}`
-  | `agent:${string}`
-  | `run:${string}`
-  | `interaction:${string}`
-  | `task:${string}`
-  | `usage:${string}`
-  | `usageSnapshot:${string}`;
-export interface ThreadReader {
-  readonly error: ClientError | undefined;
-  readonly thread: ThreadView["thread"] | undefined;
-  readonly order: readonly string[];
-  readonly cursor: number | undefined;
-  readonly itemsBefore: number | null | undefined;
-  /** Fresh membership lists: select with the "agents", "interactions" or "tasks" key and
-   * an array equality, because each call returns a new array. */
-  agentIds(): readonly string[];
-  children(agentId: string): readonly string[];
-  interactionIds(): readonly string[];
-  taskIds(): readonly string[];
-  item(id: string): Item | undefined;
-  agent(id: string): ThreadView["agents"][string] | undefined;
-  run(id: string): ThreadView["runs"][string] | undefined;
-  interaction(id: string): ThreadView["interactions"][string] | undefined;
-  task(id: string): ThreadView["backgroundTasks"][string] | undefined;
-  usage(id: string): ThreadView["usage"][string] | undefined;
-  usageSnapshot(key: string): ThreadView["usageSnapshots"][string] | undefined;
-  truncated(id: string): boolean;
-}
+export type { ThreadKey, ThreadReader } from "./readers.ts";
+
 const emptyOrder: readonly string[] = [];
-export class ThreadStore implements ThreadReader {
+export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   private messageDeltas = new MessageDeltas();
   private journal: PageJournal;
   private hydrated = new Map<string, number>();
@@ -126,6 +93,32 @@ export class ThreadStore implements ThreadReader {
     equal: (a: T, b: T) => boolean = Object.is,
   ): Selection<T> {
     return this.notifications.select(keys, () => selector(this), equal);
+  }
+  observe(tap: ChangeTap): () => void {
+    return this.notifications.tap(tap);
+  }
+  /** Shares the store's own objects; a structured clone (postMessage) copies them. */
+  export(): ThreadExport {
+    const failure = this.failure;
+    const view = this.view;
+    return {
+      error: failure && { code: failure.code, message: failure.message },
+      view: view && {
+        seq: view.seq,
+        thread: view.thread,
+        agents: view.agents,
+        agentChildren: view.agentChildren,
+        runs: view.runs,
+        items: view.items,
+        itemOrder: view.itemOrder,
+        itemsBefore: view.itemsBefore,
+        interactions: view.interactions,
+        backgroundTasks: view.backgroundTasks,
+        usage: view.usage,
+        usageSnapshots: view.usageSnapshots,
+      },
+      truncated: [...this.clipped],
+    };
   }
   snapshot(view: ThreadView): void {
     if (view.itemOrder.length > 200 || Object.keys(view.items).length > 200)
