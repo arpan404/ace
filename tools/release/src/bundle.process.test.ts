@@ -31,6 +31,35 @@ test(
       .publicKey.export({ type: "spki", format: "pem" })
       .toString();
     await bundleDaemon(resolve(import.meta.dirname, "../../.."), root, publicKey);
+    // Use only the packaged SDK and its local store; no auth or provider turn is started.
+    const runtimeCheckpoint = await promisify(execFile)(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `
+import { SqliteLocalAgentStore } from '@cursor/sdk/sqlite';
+import { createRequire } from 'node:module';
+import { access } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { dirname, join } from 'node:path';
+const resolveSdk = createRequire(createRequire(import.meta.url).resolve('@cursor/sdk')).resolve;
+await access(join(dirname(resolveSdk('@cursor/sdk-${process.platform}-${process.arch}/package.json')),'bin','rg'), constants.X_OK);
+const options = {stateRoot:join(process.cwd(),'offline-sdk-state'),workspaceRef:process.cwd()};
+let store = await SqliteLocalAgentStore.open(options);
+try {
+  const blobId = 'ab'.repeat(32);
+  await store.agents.create({agent:{agentId:'offline',cwd:process.cwd(),status:'idle',createdAt:1,updatedAt:1}});
+  await store.checkpoints.create({agentId:'offline',blobId,data:new Uint8Array([1,2,3])});
+  await store.dispose();
+  store = await SqliteLocalAgentStore.open(options);
+  console.log(JSON.stringify(Array.from(await store.checkpoints.get({agentId:'offline',blobId}))));
+} catch (error) {console.error(error.message);process.exitCode=1;} finally {await store.dispose();}
+`,
+      ],
+      { cwd: root, env: { HOME: root, PATH: emptyPath }, maxBuffer: 65536 },
+    );
+    expect(JSON.parse(runtimeCheckpoint.stdout)).toEqual([1, 2, 3]);
     // Caller instrumentation can depend on the checkout and must not reach the artifact.
     const bootstrap = join(root, "host-only-bootstrap.mjs");
     await writeFile(

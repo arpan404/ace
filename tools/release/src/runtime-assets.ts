@@ -1,3 +1,4 @@
+import { stageCursorRuntime } from "./cursor-runtime-assets.ts";
 import { cp, mkdir, readFile, realpath } from "node:fs/promises";
 import { join, basename, dirname } from "node:path";
 import { z } from "zod";
@@ -7,6 +8,7 @@ export const runtimePackages = [
   { name: "koffi", workspace: "packages/files" },
   { name: "playwright-core", workspace: "packages/browser" },
   { name: "@anthropic-ai/claude-agent-sdk", workspace: "packages/adapter-claude" },
+  { name: "@cursor/sdk", workspace: "packages/adapter-cursor" },
 ];
 const Manifest = z.object({
   name: z.string(),
@@ -23,6 +25,10 @@ export async function stageRuntimePackages(
   const manifests: string[] = [];
   for (const pkg of runtimePackages) {
     const source = await realpath(join(repo, pkg.workspace, "node_modules", pkg.name));
+    if (pkg.name === "@cursor/sdk") {
+      manifests.push(...(await stageCursorRuntime(source, root, target)));
+      continue;
+    }
     const manifest = join(source, "package.json");
     const parsed = Manifest.parse(JSON.parse(await readFile(manifest, "utf8")));
     if (parsed.name !== pkg.name || Object.keys(parsed.dependencies ?? {}).length)
