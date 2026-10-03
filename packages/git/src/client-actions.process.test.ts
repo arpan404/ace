@@ -138,3 +138,48 @@ test("commit distinguishes unmerged files from a command failure without changin
     await service.close();
   }
 });
+
+test("successful hook traces do not misclassify a subsequent command failure", async () => {
+  const root = await repository();
+  await put(root, "tracked.txt", "edited\n");
+  const binary = await proxyGit(`if (args.includes('commit')) {
+    process.stderr.write(JSON.stringify({event:'child_start',sid:'a',child_id:0,child_class:'hook',hook_name:'pre-commit'})+'\\n');
+    process.stderr.write(JSON.stringify({event:'child_exit',sid:'a',child_id:0,code:0})+'\\n');
+    process.stderr.write('fatal: unrelated command failure\\n'); process.exit(1);
+  }`);
+  const service = new GitService({ gitBinary: binary });
+  try {
+    await expect(
+      service.commit({
+        worktree: root,
+        expectedHead: await scalar(root, "rev-parse", "HEAD"),
+        message: "fail",
+      }),
+    ).rejects.toMatchObject({ code: "git_failed", message: "Git command failed" });
+  } finally {
+    await service.close();
+  }
+});
+
+test("a noisy failing commit-msg hook remains a safe hook failure beyond the diagnostic capture budget", async () => {
+  const root = await repository();
+  const service = new GitService();
+  try {
+    const expectedHead = await scalar(root, "rev-parse", "HEAD");
+    await put(root, "tracked.txt", "edited\n");
+    await put(root, ".git/hooks/pre-commit", "#!/bin/sh\nexit 0\n");
+    await put(
+      root,
+      ".git/hooks/commit-msg",
+      `#!${process.execPath}\nprocess.stderr.write('x'.repeat(100000), () => process.exit(1));\n`,
+    );
+    await chmod(join(root, ".git/hooks/pre-commit"), 0o700);
+    await chmod(join(root, ".git/hooks/commit-msg"), 0o700);
+    await expect(
+      service.commit({ worktree: root, expectedHead, message: "fail" }),
+    ).rejects.toMatchObject({ code: "hook_failed", message: "Git command failed" });
+    expect(await scalar(root, "rev-parse", "HEAD")).toBe(expectedHead);
+  } finally {
+    await service.close();
+  }
+});

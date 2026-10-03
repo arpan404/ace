@@ -1,8 +1,9 @@
+import { z } from "zod";
 import { Readable, type Writable } from "node:stream";
 import { killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
 import { stat } from "node:fs/promises";
-import { z } from "zod";
+import { GitDiagnostics } from "./diagnostics.ts";
 import { count, decode } from "./decode.ts";
 import { GitError, toGitError, type GitOptions, type GitProcessRuntime } from "./types.ts";
 
@@ -133,6 +134,7 @@ export class GitCli {
       const limit = options.captureBytes ?? 64 * 1024 * 1024;
       let captured = 0;
       let errorBytes = 0;
+      const diagnostics = new GitDiagnostics();
       let truncated = false;
       let failure: GitError | undefined;
       let spawnFailure: Promise<GitError> | undefined;
@@ -181,8 +183,9 @@ export class GitCli {
         }
       };
       const stderrData = (chunk: Buffer) => {
+        diagnostics.accept(chunk);
         const keep = Math.min(chunk.length, Math.max(0, 65_536 - errorBytes));
-        if (keep) errors.push(chunk.subarray(0, keep));
+        if (keep) errors.push(Buffer.from(chunk.subarray(0, keep)));
         errorBytes += keep;
       };
       child.stdout.on("data", stdout);
@@ -212,7 +215,7 @@ export class GitCli {
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
         if (code !== 0 && !options.allowFailure) {
-          return reject(new GitError(classifyGitFailure(stderr), "Git command failed", { code }));
+          return reject(new GitError(diagnostics.finish(), "Git command failed", { code }));
         }
         resolve({ stdout: Buffer.concat(chunks), stderr, exitCode: code ?? -1, truncated });
       });
@@ -258,44 +261,4 @@ export function patchOutput(output: Output): string {
   const decoder = new StringDecoder("utf8");
   const text = decoder.write(output.stdout);
   return output.truncated ? text : text + decoder.end();
-}
-
-/** Only bounded local diagnostics inform the code; no output is exposed in the error message. */
-function classifyGitFailure(stderr: string): import("./types.ts").GitErrorCode {
-  const hooks = new Set<number>();
-  const trace = z.object({
-    event: z.string(),
-    child_id: z.number().int().optional(),
-    child_class: z.string().optional(),
-    code: z.number().int().optional(),
-  });
-  for (const line of stderr.split("\n")) {
-    if (!line.startsWith("{")) continue;
-    try {
-      const value = trace.safeParse(JSON.parse(line));
-      if (!value.success || value.data.child_id === undefined) continue;
-      if (value.data.event === "child_start" && value.data.child_class === "hook")
-        hooks.add(value.data.child_id);
-      if (
-        value.data.event === "child_exit" &&
-        hooks.has(value.data.child_id) &&
-        value.data.code !== undefined &&
-        value.data.code !== 0
-      )
-        return "hook_failed";
-    } catch {
-      /* Diagnostic text is not a required wire contract. */
-    }
-  }
-  if (
-    /authentication failed|could not read (Username|Password)|permission denied \(publickey\)|authorization failed|HTTP[^\n]*40[13]|returned error: 40[13]|access denied/i.test(
-      stderr,
-    )
-  )
-    return "auth_failed";
-  if (/CONFLICT|unmerged files|resolve your current index/i.test(stderr)) return "conflicts";
-  if (/hook[^\n]*(failed|declined|exit)|pre-receive hook declined|pre-commit/i.test(stderr))
-    return "hook_failed";
-  // Unknown failures retain the general command-failed code.
-  return "git_failed";
 }
