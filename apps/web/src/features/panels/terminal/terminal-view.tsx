@@ -1,8 +1,16 @@
 import { cn } from "@/lib/cn.ts";
-import { useCallback, useEffect, useEffectEvent, useRef, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ClipboardEvent, KeyboardEvent } from "react";
 import type { Row, Style } from "./screen.ts";
 import type { TerminalSessions } from "./sessions.ts";
+import { canUseXterm, XtermView } from "./xterm-view.tsx";
 
 const keys: Record<string, string> = {
   Enter: "\r",
@@ -99,6 +107,12 @@ function useSession(sessions: TerminalSessions, id: string) {
  * into PTY bytes. Click anywhere in it to type. Size follows the panel.
  */
 export function TerminalView(props: { sessions: TerminalSessions; id: string; name: string }) {
+  // xterm with WebGL where the browser has it; the accessible DOM screen otherwise.
+  const [xterm] = useState(canUseXterm);
+  return xterm ? <XtermView {...props} /> : <DomTerminalView {...props} />;
+}
+
+function DomTerminalView(props: { sessions: TerminalSessions; id: string; name: string }) {
   const { sessions, id } = props;
   const { rows, exitCode } = useSession(sessions, id);
   const input = useRef<HTMLTextAreaElement>(null);
