@@ -6,6 +6,8 @@
   "exports": {
     "./payload": "./src/payload.ts",
     "./process": "./src/process.ts",
+    "./sdk": "./src/sdk.ts",
+    "./ipc": "./src/ipc.ts",
     "./jsonrpc": "./src/jsonrpc.ts",
     "./sse": "./src/sse.ts",
     "./discovery": "./src/discovery/index.ts",

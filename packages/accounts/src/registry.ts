@@ -3,10 +3,12 @@ import { mkdir, open, chmod, lstat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import {
+  AccountId,
   AccountInstanceId,
   AccountEnvKey,
   ProviderInstance,
   AccountQuota,
+  CursorSdkAuth,
 } from "@ace/protocol/accounts";
 import { object } from "./quota-decode.ts";
 import { initialQuota, ingestQuota, availability, type QuotaFact } from "./quota.ts";
@@ -67,6 +69,9 @@ export class AccountRegistry {
     db.exec(
       "CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, instance TEXT NOT NULL, quota TEXT NOT NULL)",
     );
+    db.exec(
+      "CREATE TABLE IF NOT EXISTS account_selection (backend TEXT PRIMARY KEY, instance_id TEXT NOT NULL REFERENCES accounts(id))",
+    );
     this.updateQuota = db.prepare("UPDATE accounts SET quota=? WHERE id=?");
     this.select = db.prepare("SELECT instance, quota FROM accounts WHERE id = ?");
     this.all = db.prepare("SELECT instance, quota FROM accounts ORDER BY id LIMIT 257");
@@ -97,6 +102,31 @@ export class AccountRegistry {
   private readAccount(id: string) {
     const value = this.select.get(AccountInstanceId.parse(id));
     return value === undefined ? undefined : this.decode(value);
+  }
+  setCursorSdkAuth(id: string, input: unknown): void {
+    const status = CursorSdkAuth.parse(input);
+    const account = this.get(id);
+    if (!account || account.instance.provider !== "cursor")
+      throw new Error("Unknown Cursor instance");
+    this.updateQuota.run(JSON.stringify({ ...account.quota, cursorSdkAuth: status }), id);
+  }
+  selectedCursorSdk(): string | undefined {
+    const value = this.db
+      .prepare("SELECT instance_id FROM account_selection WHERE backend='cursor-sdk'")
+      .get();
+    return value ? AccountId.parse(value.instance_id) : undefined;
+  }
+  selectCursorSdk(id: string | undefined): void {
+    if (id === undefined) {
+      this.db.prepare("DELETE FROM account_selection WHERE backend='cursor-sdk'").run();
+      return;
+    }
+    if (this.get(id)?.instance.provider !== "cursor") throw new Error("Unknown Cursor instance");
+    this.db
+      .prepare(
+        "INSERT INTO account_selection VALUES ('cursor-sdk',?) ON CONFLICT(backend) DO UPDATE SET instance_id=excluded.instance_id",
+      )
+      .run(AccountId.parse(id));
   }
   list() {
     if (this.validating) throw new Error("Account homes are still being validated");

@@ -402,6 +402,11 @@ export class Store {
       workspaceId: row.workspace_id,
       title: row.title,
       provider: row.provider,
+      ...(row.provider_metadata == null
+        ? {}
+        : Thread.pick({ backend: true, capabilities: true, handoff: true }).parse(
+            JSON.parse(String(row.provider_metadata)),
+          )),
       ...(row.acp == null ? {} : ThreadProviderMetadata.parse(JSON.parse(String(row.acp)))),
       status: JSON.parse(String(row.status)),
       createdAt: row.created_at,
@@ -477,7 +482,7 @@ export class Store {
             thread.id,
           );
         this.statement(
-          "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ?, provider = ?, transitions = ? WHERE id = ?",
+          "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ?, provider = ?, transitions = ?, provider_metadata = ? WHERE id = ?",
         ).run(
           thread.title,
           JSON.stringify(thread.status),
@@ -489,6 +494,11 @@ export class Store {
             lineage: thread.lineage,
             execution: thread.execution,
             switch: thread.switch,
+          }),
+          JSON.stringify({
+            backend: thread.backend,
+            capabilities: thread.capabilities,
+            handoff: thread.handoff,
           }),
           thread.id,
         );
@@ -691,6 +701,12 @@ export class Store {
   readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
     return { ...this.payloads.wirePage(threadId, before, limit, byteLimit), seq: this.headSeq() };
+  }
+  appendRawChunk(threadId: ThreadId, chunk: unknown): void {
+    this.payloads.streamed.append(threadId, chunk);
+  }
+  readRawChunk(blobRef: string, offset: number, limit: number): Uint8Array {
+    return this.payloads.streamed.read(blobRef, offset, limit);
   }
   historicalItemCount(threadId: ThreadId, through: number): number {
     return this.history.count(threadId, through);

@@ -1,3 +1,4 @@
+import { startCursorAuth } from "./cursor-auth.ts";
 import { startPreviewClient } from "./preview-client.ts";
 import { startConductor } from "./conductor.ts";
 import { startAutomations } from "./automations.ts";
@@ -77,6 +78,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
       "workspaceActions",
     ],
     start: startEngine,
+  },
+  {
+    name: "cursorAuth",
+    phase: "listener",
+    requires: ["engine", "accounts"],
+    after: [],
+    start: startCursorAuth,
   },
   { name: "context", phase: "listener", requires: [], after: [], start: startContext },
   { name: "review", phase: "listener", requires: [], after: [], start: startReview },

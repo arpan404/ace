@@ -253,7 +253,7 @@ export class OpenCodeTranslator implements Translator {
               ? "completed"
               : "failed",
         ),
-        ...(wake ? state.wake(session) : []),
+        ...(wake ? state.wake(session, number(e.created, Number.MAX_SAFE_INTEGER)) : []),
       ];
     }
     const id = eventSession(e);
@@ -291,6 +291,15 @@ export class OpenCodeTranslator implements Translator {
       if (own && !state.admitted.has(input)) {
         facts.unshift(...state.admit(input, id));
       }
+      const item = object(p.item);
+      if (item.type === "synthetic") {
+        const metadata = object(object(item.payload).metadata);
+        state.triggers.set(
+          id,
+          metadata.source === "subagent" ? "subagent_result" : "background_completion",
+        );
+        facts.push(...state.completion(metadata, number(e.created, -1)));
+      }
       return facts;
     }
     if (type === "session.inbox.delivered" || type === "session.inbox.cancelled") {
@@ -304,7 +313,11 @@ export class OpenCodeTranslator implements Translator {
         ...admitted,
         ...state.finishBackground(`admission:${string(p.inboxID)}`, "completed"),
         ...state.queue(),
-        ...(type.endsWith("delivered") && !state.active.has(id) ? state.wake(id) : []),
+        ...(type.endsWith("delivered")
+          ? state.active.has(id)
+            ? state.reconcileWake(id, number(e.created, Number.MAX_SAFE_INTEGER))
+            : state.wake(id)
+          : []),
       ];
     }
     if (type === "session.synthetic") {

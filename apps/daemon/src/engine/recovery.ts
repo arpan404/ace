@@ -119,6 +119,7 @@ export class Recovery {
     const text = lostWork(
       this.repo.requireState(id),
       this.repo.pending.recoveryAcknowledgement(id) ? 1 : 0,
+      this.repo.backend(id),
     );
     if (!text) return;
     this.repo.queue.set(id, { continuation: text, trigger: "restart" }, this.clock.now());
@@ -304,7 +305,7 @@ export class Recovery {
   async migrate(id: ThreadId, target?: string): Promise<void> {
     if (!this.ports.migrate) throw new Error("Account migration is unavailable");
     const result = await this.ports.migrate(id, target);
-    this.repo.nativeSession(id, result.nativeSessionId, result.instanceId);
+    this.repo.nativeSession(id, result.nativeSessionId, this.repo.backend(id), result.instanceId);
     const metadata = this.repo.transitions.get(id);
     if (metadata.selection) {
       metadata.selection.instanceId = result.instanceId;

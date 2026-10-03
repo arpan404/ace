@@ -52,6 +52,7 @@ const authOverrides = [
 export function instanceEnv(
   instance: ProviderInstance,
   base: NodeJS.ProcessEnv,
+  backend?: "cursor-sdk" | "acp",
 ): NodeJS.ProcessEnv {
   const parsed = ProviderInstance.parse(instance);
   if (parsed.provider === "acp") return { ...base };
@@ -83,6 +84,8 @@ export function instanceEnv(
     env["APPDATA"] = join(parsed.homeDir, "appdata");
     env["XDG_CONFIG_HOME"] = join(parsed.homeDir, "config");
   }
+  if (parsed.provider === "cursor" && backend === "cursor-sdk")
+    env["CURSOR_API_KEY"] = base["CURSOR_API_KEY"];
   return { ...env, ...parsed.env };
 }
 export async function loginStatus(instance: ProviderInstance, options: DiscoveryOptions = {}) {

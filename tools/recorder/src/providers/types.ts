@@ -14,7 +14,7 @@ export type RunContext = {
    * interaction is pending, and the provider has been quiet for
    * `scenario.quietMs`, or the hard cap was reached.
    */
-  settled: () => Promise<void>;
+  settled: (canSettle?: () => boolean, stopSignal?: AbortSignal) => Promise<void>;
   /** Track open interactions so settling waits for them. */
   interactions: { open(): void; close(): void };
 };

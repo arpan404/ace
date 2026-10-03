@@ -21,6 +21,9 @@ export function createEngineThread(
     lineage?: ThreadLineage;
     client?: import("@ace/protocol").ThreadClientFields;
     acpIdentity?: AcpIdentity;
+    backend?: import("@ace/engine-api").ProviderBackend;
+    capabilities?: import("@ace/protocol").Capabilities;
+    handoff?: { sourceThreadId: ThreadId; truncated: boolean; bytes: number };
   },
 ): void {
   const { id, workspaceId, selection, cwd, at, lineage } = input;
@@ -47,6 +50,9 @@ export function createEngineThread(
     provider: selection.provider,
     execution: selection,
     lineage,
+    backend: input.backend,
+    capabilities: input.capabilities,
+    handoff: input.handoff,
     ...input.acpIdentity,
     status: { state: "new" },
     createdAt: at,
@@ -66,8 +72,23 @@ export function createEngineThread(
   });
   repo.save(state, [{ type: "thread.created", thread }], at);
   if (unprepared)
-    repo.createUnpreparedSession(id, cwd, selection.model, selection.instanceId, selection.options);
-  else repo.createSession(id, cwd, selection.model, selection.instanceId, selection.options);
+    repo.createUnpreparedSession(
+      id,
+      cwd,
+      selection.model,
+      input.backend,
+      selection.instanceId,
+      selection.options,
+    );
+  else
+    repo.createSession(
+      id,
+      cwd,
+      selection.model,
+      input.backend,
+      selection.instanceId,
+      selection.options,
+    );
   repo.queue.ensure(id);
   repo.transitions.set(id, { selection, context: [] });
   repo.transitions.remember(id, selection);

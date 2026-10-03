@@ -82,11 +82,17 @@ export function handoff(
 ) {
   const totalItems = repo.store.historicalItemCount(id, throughSeq);
   const page = repo.store.readHistoricalItemPage(id, throughSeq, throughSeq + 1, 200, 1024 * 1024);
-  return portableContext({ threadId: id, throughSeq, totalItems, provider }, page.items, {
-    maxBytes: budget,
-    maxItems: 200,
-    historyTruncated: page.items.length < totalItems,
-  }).handoff;
+  const thread = repo.store.getThread(id);
+  const backend = thread?.provider === provider ? repo.backend(id) : undefined;
+  return portableContext(
+    { threadId: id, throughSeq, totalItems, provider, ...(backend ? { backend } : {}) },
+    page.items,
+    {
+      maxBytes: budget,
+      maxItems: 200,
+      historyTruncated: page.items.length < totalItems,
+    },
+  ).handoff;
 }
 export function validateCitations(
   repo: EngineRepository,

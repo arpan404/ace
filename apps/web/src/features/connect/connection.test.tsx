@@ -11,7 +11,7 @@ const token = "ab".repeat(32);
 const url = "ws://127.0.0.1:4242/";
 
 /** The real gate and app, with a fake daemon behind whatever address is entered. */
-function boot(options: { fragment?: string } = {}) {
+function boot(options: { fragment?: string; onDemand?: boolean } = {}) {
   const daemon = new FakeDaemon({ clock: () => 1, token });
   new ScenarioPlayer(daemon, flakyCheckout()).runThrough("explorer-spawned");
   const local = memoryKeyValue();
@@ -21,7 +21,12 @@ function boot(options: { fragment?: string } = {}) {
       <ConnectionGate
         stores={{ local, session }}
         defaultUrl={url}
-        createClient={(target) => fakeClient(daemon, target.token)}
+        createClient={(target) =>
+          // The in-page fallback client arrives later, after its chunk loads.
+          options.onDemand
+            ? Promise.resolve().then(() => fakeClient(daemon, target.token))
+            : fakeClient(daemon, target.token)
+        }
         {...(options.fragment ? { fragment: options.fragment } : {})}
       >
         {(client) => (
@@ -81,4 +86,15 @@ test("disconnecting forgets the token and returns to the connection screen", asy
   await screen.findByRole("heading", { name: "Connect to your daemon" });
   expect(local.getItem("ace.daemon.token")).toBeNull();
   expect(session.getItem("ace.daemon.token")).toBeNull();
+});
+
+test("a client that loads on demand connects once it arrives, and disconnecting still works", async () => {
+  const { local } = boot({ onDemand: true });
+  await connectWith(token, true);
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
+  expect(await screen.findByRole("status", { name: "Daemon: Connected" })).toBeTruthy();
+  await userEvent.click(await screen.findByRole("button", { name: "Account and connection" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Disconnect" }));
+  await screen.findByRole("heading", { name: "Connect to your daemon" });
+  expect(local.getItem("ace.daemon.token")).toBeNull();
 });

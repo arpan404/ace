@@ -1,3 +1,7 @@
+import { ProviderRecovery } from "./provider-recovery.ts";
+import type { ProviderBackend, Frame } from "@ace/engine-api";
+import { z } from "zod";
+import { boundedJson } from "@ace/provider-kit/ipc";
 import { TransitionReadiness } from "./transition-readiness.ts";
 import { captureExecutionSources } from "./execution-provenance.ts";
 import { quiescent } from "./transition-history.ts";
@@ -17,6 +21,8 @@ import { IntentStore, type IntentHeader } from "./intents.ts";
 export type { Intent, IntentHeader } from "./intents.ts";
 export class EngineRepository {
   readonly store: Store;
+  readonly recovery: ProviderRecovery;
+  private capture: StatementSync;
   readonly queue: QueueStore;
   readonly pending: IntentStore;
   observe?: (state: ThreadState, facts: Fact[], events: EventPayload[], at: number) => void;
@@ -45,6 +51,10 @@ export class EngineRepository {
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    this.recovery = new ProviderRecovery(store);
+    this.capture = store.atomic((db) =>
+      db.prepare("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)"),
+    );
     this.queue = new QueueStore(store);
     this.pending = new IntentStore(store, this.queue);
     this.transitions = new TransitionState(store);
@@ -382,6 +392,18 @@ export class EngineRepository {
       ),
     );
   }
+  inputCapacity(id: ThreadId, limit: number): boolean {
+    // Both branches use existing live-intent indexes, with output bounded by admission capacity.
+    return this.store.atomic(
+      (db) =>
+        db
+          .prepare(`SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
+        AND status IN ('pending','queued','running')
+        UNION ALL SELECT id FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send')
+        AND awaiting=1 AND status NOT IN ('pending','queued','running') LIMIT ?`)
+          .all(id, id, limit).length < limit,
+    );
+  }
   claim(intent: IntentHeader) {
     return this.pending.claim(intent);
   }
@@ -401,6 +423,7 @@ export class EngineRepository {
     cwd: string;
     model?: string;
     nativeSessionId?: string;
+    backend?: ProviderBackend;
     instanceId?: string;
     workspaceReady: boolean;
     options?: ExecutionOptions;
@@ -410,11 +433,16 @@ export class EngineRepository {
       if (!row) throw new Error("Missing engine session metadata");
       return {
         cwd: String(row.cwd),
+        ...(row.backend == null
+          ? {}
+          : { backend: z.enum(["acp", "cursor-sdk"]).parse(row.backend) }),
+        ...(row.instance_id == null
+          ? {}
+          : { instanceId: z.string().min(1).max(256).parse(row.instance_id) }),
         workspaceReady: this.store.executionWorkspace(id).ready,
         ...(row.options == null
           ? {}
           : { options: ExecutionOptions.parse(JSON.parse(String(row.options))) }),
-        ...(typeof row.instance_id === "string" ? { instanceId: row.instance_id } : {}),
         ...(row.model === null ? {} : { model: String(row.model) }),
         ...(row.native_session_id === null
           ? {}
@@ -426,10 +454,11 @@ export class EngineRepository {
     id: ThreadId,
     cwd: string,
     model?: string,
+    backend?: ProviderBackend,
     instanceId?: string,
     options?: ExecutionOptions,
   ): void {
-    this.createSession(id, cwd, model, instanceId, options);
+    this.createSession(id, cwd, model, backend, instanceId, options);
     this.store.atomic((db) =>
       db.prepare("UPDATE engine_sessions SET workspace_ready=0 WHERE thread_id=?").run(id),
     );
@@ -438,22 +467,35 @@ export class EngineRepository {
     id: ThreadId,
     cwd: string,
     model?: string,
+    backend?: ProviderBackend,
     instanceId?: string,
     options?: ExecutionOptions,
   ): void {
     this.store.atomic((db) =>
       db
         .prepare(
-          "INSERT INTO engine_sessions (thread_id, cwd, model, native_session_id, instance_id, options) VALUES (?, ?, ?, NULL, ?, ?)",
+          "INSERT INTO engine_sessions (thread_id,cwd,model,native_session_id,backend,instance_id,options) VALUES (?, ?, ?, NULL, ?, ?, ?)",
         )
-        .run(id, cwd, model ?? null, instanceId ?? null, options ? JSON.stringify(options) : null),
+        .run(
+          id,
+          cwd,
+          model ?? null,
+          backend ?? null,
+          instanceId ?? null,
+          options ? JSON.stringify(options) : null,
+        ),
     );
   }
-  nativeSession(id: ThreadId, nativeId: string, instanceId?: string): void {
+  nativeSession(
+    id: ThreadId,
+    nativeId: string,
+    backend?: ProviderBackend,
+    instanceId?: string,
+  ): void {
     this.store.atomic((db) => {
       db.prepare(
-        "UPDATE engine_sessions SET native_session_id = ?, instance_id = COALESCE(?, instance_id) WHERE thread_id = ?",
-      ).run(nativeId, instanceId ?? null, id);
+        "UPDATE engine_sessions SET native_session_id = ?, backend = COALESCE(?,backend), instance_id = COALESCE(?,instance_id) WHERE thread_id = ?",
+      ).run(nativeId, backend ?? null, instanceId ?? null, id);
       const thread = this.store.getThread(id);
       if (thread && instanceId && thread.live?.account !== instanceId)
         this.store.appendEvents(id, [
@@ -463,5 +505,86 @@ export class EngineRepository {
           },
         ]);
     });
+  }
+  pinSessionIdentity(
+    id: ThreadId,
+    identity: {
+      backend: ProviderBackend;
+      instanceId: string;
+      nativeSessionId?: string;
+    },
+  ): void {
+    this.store.atomic((db) => {
+      const before = this.session(id);
+      if (
+        (before.backend && before.backend !== identity.backend) ||
+        (before.instanceId && before.instanceId !== identity.instanceId) ||
+        (before.nativeSessionId &&
+          identity.nativeSessionId &&
+          before.nativeSessionId !== identity.nativeSessionId)
+      )
+        throw new Error("Provider session identity conflicts with its durable binding");
+      db.prepare(`UPDATE engine_sessions SET backend=?, instance_id=?,
+        native_session_id=COALESCE(?,native_session_id) WHERE thread_id=?`).run(
+        identity.backend,
+        identity.instanceId,
+        identity.nativeSessionId ?? null,
+        id,
+      );
+    });
+  }
+  backend(id: ThreadId): ProviderBackend | undefined {
+    // Recovery and teardown also read the binding of a tombstoned thread. They must
+    // not resolve its execution workspace, which intentionally rejects deleted threads.
+    const backend = this.store.atomic((db) => {
+      const row = db.prepare("SELECT backend FROM engine_sessions WHERE thread_id=?").get(id);
+      if (!row) throw new Error("Missing engine session metadata");
+      return row.backend == null ? undefined : z.enum(["acp", "cursor-sdk"]).parse(row.backend);
+    });
+    if (backend) return backend;
+    return this.requireState(id).config.provider === "cursor" ? "acp" : undefined;
+  }
+  captureFrame(id: ThreadId, frame: Frame): void {
+    // The SDK channel is shared by providers. Only Cursor owns this checkpoint journal.
+    if (
+      frame.channel !== "sdk" ||
+      this.requireState(id).config.provider !== "cursor" ||
+      this.backend(id) !== "cursor-sdk"
+    )
+      return;
+    const generation = z
+      .object({ generation: z.string().min(1).max(512) })
+      .parse(frame.data).generation;
+    const blob = z
+      .object({
+        kind: z.literal("blob"),
+        body: z.object({
+          id: z.string(),
+          offset: z.number(),
+          text: z.string().optional(),
+          done: z.boolean().optional(),
+        }),
+      })
+      .safeParse(frame.data);
+    // Shared raw storage already owns chunk bytes. Hydration needs only ordered provenance.
+    const data = blob.success
+      ? {
+          ...z.object({}).loose().parse(frame.data),
+          body: {
+            id: blob.data.body.id,
+            offset: blob.data.body.offset,
+            done: blob.data.body.done,
+            bytes: Buffer.byteLength(blob.data.body.text ?? ""),
+          },
+        }
+      : frame.data;
+    const json = boundedJson({
+      seq: frame.seq,
+      t: frame.t,
+      dir: frame.dir,
+      channel: frame.channel,
+      data,
+    });
+    this.store.atomic(() => this.capture.run(id, generation, frame.seq, json));
   }
 }

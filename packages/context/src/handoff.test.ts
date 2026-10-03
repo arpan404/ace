@@ -63,3 +63,17 @@ test("Cursor's handoff bounds iterator consumption and reports unread history", 
   expect(result.truncated).toBe(true);
   expect(PortableHandoff.parse(JSON.parse(result.text)).omittedItems).toBe(1);
 });
+
+test("identical completed messages retain distinct citations in portable Cursor history", () => {
+  const result = portableContext(
+    { threadId: "source", provider: "cursor", backend: "acp", throughSeq: 2, totalItems: 2 },
+    [message("first", "same"), message("second", "same")],
+    { maxBytes: 4096, maxItems: 5, historyTruncated: false },
+  );
+  const manifest = PortableHandoff.parse(JSON.parse(result.text));
+  expect(manifest.excerpts).toEqual([
+    { citation: { threadId: "source", itemId: "first" }, text: "assistant: same" },
+    { citation: { threadId: "source", itemId: "second" }, text: "assistant: same" },
+  ]);
+  expect(result.truncated).toBe(false);
+});

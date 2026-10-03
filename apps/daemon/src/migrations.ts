@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 
 const migrations = [
@@ -111,6 +112,9 @@ const migrations = [
      ON s.id=CASE WHEN json_extract(p.item,'$.type')='message'
        THEN json_extract(p.item,'$.parts[' || p.target || '].source.streamId')
        ELSE json_extract(p.item,'$.source.streamId') END;`,
+  `CREATE TABLE IF NOT EXISTS streamed_blobs(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,size INTEGER NOT NULL,sha256 TEXT,storage_id TEXT NOT NULL,chunks INTEGER NOT NULL DEFAULT 0);
+   CREATE TABLE IF NOT EXISTS streamed_blob_chunks(blob_id TEXT NOT NULL REFERENCES streamed_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));
+   CREATE INDEX IF NOT EXISTS streamed_blob_hash ON streamed_blobs(thread_id,sha256);`,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");
@@ -130,6 +134,18 @@ export function migrate(db: DatabaseSync): void {
         "INSERT INTO schema_version VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version",
       ).run(i + 1);
     }
+    // SDK and ACP branches independently appended the same numbered migration.
+    // Upgrade either historical shape by columns, without rewriting its metadata.
+    const columns = new Set(
+      db
+        .prepare("PRAGMA table_info(threads)")
+        .all()
+        .map((value) => z.object({ name: z.string() }).parse(value).name),
+    );
+    if (!columns.has("acp")) db.exec("ALTER TABLE threads ADD COLUMN acp JSON");
+    if (!columns.has("provider_metadata"))
+      db.exec("ALTER TABLE threads ADD COLUMN provider_metadata JSON");
+    ensureThreadMetadataColumns(db);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");

@@ -20,7 +20,8 @@ import {
 export function ConnectionGate(props: {
   stores: ConnectionStores;
   defaultUrl: string;
-  createClient(target: DaemonTarget): ClientApi;
+  /** A client now, or once it has loaded (the in-page fallback is fetched on demand). */
+  createClient(target: DaemonTarget): ClientApi | Promise<ClientApi>;
   /** `location.hash` at boot, for the daemon's `#token=` hand-off. */
   fragment?: string;
   /** A target handed over by the desktop app's preload bridge; wins over the fragment. */
@@ -43,6 +44,8 @@ export function ConnectionGate(props: {
   // Each client gets a fresh app tree (router, caches) keyed by its generation.
   const generation = useRef(0);
   const [client, setClient] = useState<{ client: ClientApi; key: number } | undefined>(undefined);
+  // An in-page client that failed to load (its chunk never arrived) is a boot failure.
+  const [failure, setFailure] = useState<{ error: unknown } | undefined>(undefined);
   useEffect(() => {
     // The client is an external resource with a start/close lifecycle. Creating it here (not
     // in render) keeps StrictMode's mount-unmount-mount from starting a closed client.
@@ -51,20 +54,35 @@ export function ConnectionGate(props: {
       setClient(undefined);
       return;
     }
-    const next = createClient(state.target);
-    // oxlint-disable-next-line react-compiler/set-state-in-effect
-    setClient({ client: next, key: ++generation.current });
-    void next.start().catch(() => {
-      /* The client reports a fatal state; the shell shows it. */
-    });
-    const online = () => next.networkOnline(true);
-    const offline = () => next.networkOnline(false);
+    let current: ClientApi | undefined;
+    let replaced = false;
+    const adopt = (next: ClientApi) => {
+      if (replaced) {
+        void next.close();
+        return;
+      }
+      current = next;
+      setClient({ client: next, key: ++generation.current });
+      void next.start().catch(() => {
+        /* The client reports a fatal state; the shell shows it. */
+      });
+    };
+    const created = createClient(state.target);
+    // The in-page client loads on demand; a worker-backed one is ready at once.
+    if (created instanceof Promise)
+      created.then(adopt, (error: unknown) => {
+        if (!replaced) setFailure({ error });
+      });
+    else adopt(created);
+    const online = () => current?.networkOnline(true);
+    const offline = () => current?.networkOnline(false);
     addEventListener("online", online);
     addEventListener("offline", offline);
     return () => {
+      replaced = true;
       removeEventListener("online", online);
       removeEventListener("offline", offline);
-      void next.close();
+      if (current) void current.close();
     };
   }, [state.target, createClient]);
 
@@ -91,6 +109,7 @@ export function ConnectionGate(props: {
     [state.url, state.remembered, state.target, connect, disconnect],
   );
 
+  if (failure) throw failure.error;
   return (
     <DaemonConnectionContext.Provider value={connection}>
       {!state.target ? (

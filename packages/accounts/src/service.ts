@@ -15,7 +15,7 @@ import { migrateSession, type MigrationSafety } from "./migration.ts";
 import { accountFrame } from "./frames.ts";
 export type AccountAdapterFactory = Pick<
   ProviderAdapter,
-  "provider" | "capabilities" | "createTranslator"
+  "provider" | "capabilities" | "createTranslator" | "backend"
 > & {
   /** Called after assignment, so native adapters using constructor env also select this account. */
   create(
@@ -43,6 +43,7 @@ export class AccountService {
   private timeZone: string;
   private safety: MigrationSafety;
   private env: NodeJS.ProcessEnv;
+  private cursorEnv: NodeJS.ProcessEnv;
   private resolveAcpLogin: AcpLoginResolver | undefined;
   private writers = new Map<string, number>();
   private migrating = new Set<string>();
@@ -51,6 +52,7 @@ export class AccountService {
     now: () => number;
     timeZone: string;
     env: NodeJS.ProcessEnv;
+    cursorEnv?: NodeJS.ProcessEnv;
     safety?: MigrationSafety;
     resolveAcpLogin?: AcpLoginResolver;
   }) {
@@ -58,6 +60,7 @@ export class AccountService {
     this.now = options.now;
     this.timeZone = options.timeZone;
     this.env = options.env;
+    this.cursorEnv = options.cursorEnv ?? options.env;
     this.resolveAcpLogin = options.resolveAcpLogin;
     this.safety = options.safety ?? { acquire: async () => undefined };
   }
@@ -91,6 +94,16 @@ export class AccountService {
       throw new Error("No matching ACP account identity");
     return { env: instanceEnv(chosen, this.env), loginRevision: chosen.loginRevision ?? "0" };
   }
+  preferredCursorInstance(): string | undefined {
+    return (
+      this.registry.selectedCursorSdk() ??
+      pickInstance(
+        { provider: "cursor", role: "worker", estimatedLoad: 1 },
+        this.registry.list().filter((a) => !this.migrating.has(a.instance.id)),
+        this.now(),
+      )?.id
+    );
+  }
   /** Register this adapter with the engine instead of the unbound native adapter. */
   bindAdapter(
     factory: AccountAdapterFactory,
@@ -105,6 +118,7 @@ export class AccountService {
     AccountProvider.parse(factory.provider);
     const adapter: ProviderAdapter = {
       provider: factory.provider,
+      ...(factory.backend ? { backend: factory.backend } : {}),
       capabilities: (cli) => factory.capabilities(cli),
       createTranslator: (init) => factory.createTranslator(init),
       openSession: async (context) =>
@@ -160,7 +174,14 @@ export class AccountService {
     context: SessionContext,
     selection: AccountAssignment,
   ): Promise<{ instanceId: string; session: ProviderSession }> {
-    const assignment = AccountAssignment.parse(selection);
+    const preferred =
+      adapter.backend === "cursor-sdk" && !context.resume
+        ? this.registry.selectedCursorSdk()
+        : undefined;
+    const assignment = AccountAssignment.parse({
+      ...selection,
+      instanceId: selection.instanceId ?? preferred,
+    });
     if (context.resume && !assignment.instanceId)
       throw new Error("Resuming requires a pinned provider instance");
     const provider = AccountProvider.parse(adapter.provider);
@@ -229,8 +250,13 @@ export class AccountService {
       const session = await adapter.openSession({
         ...context,
         instanceId: chosen.id,
+        instanceHomeDir: chosen.homeDir,
         signal: lifetime.signal,
-        env: instanceEnv(chosen, { ...this.env, ...context.env }),
+        env: instanceEnv(
+          chosen,
+          { ...(adapter.backend === "cursor-sdk" ? this.cursorEnv : this.env), ...context.env },
+          adapter.backend,
+        ),
         onFrame: (input) => {
           if (released || frameFailed) return;
           const frame = accountFrame(input);
@@ -249,7 +275,7 @@ export class AccountService {
               observedAt: this.now(),
               timeZone: this.timeZone,
             });
-          context.onFrame(frame);
+          return context.onFrame(frame);
         },
         onExit: (exit) => {
           if (frameFailed || released) return;
@@ -267,6 +293,7 @@ export class AccountService {
         instanceId: chosen.id,
         session: {
           instanceId: chosen.id,
+          ...(session.backend ? { backend: session.backend } : {}),
           get effectiveCapabilities() {
             return session.effectiveCapabilities;
           },
@@ -291,13 +318,13 @@ export class AccountService {
           get nativeSessionId() {
             return session.nativeSessionId;
           },
-          send: (input, delivery, commandId) => session.send(input, delivery, commandId),
           ...(session.configure
             ? {
                 configure: (execution: import("@ace/protocol").ExecutionSelection) =>
                   session.configure?.(execution) ?? Promise.resolve(),
               }
             : {}),
+          send: (input, delivery, intent) => session.send(input, delivery, intent),
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
           stopTask: (task) => session.stopTask(task),

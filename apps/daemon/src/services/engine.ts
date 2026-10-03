@@ -1,3 +1,4 @@
+import { cursorHosts } from "./cursor-hosts.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { AgentId } from "@ace/protocol";
 import { withDaemonMcp } from "./provider-mcp.ts";
@@ -5,6 +6,10 @@ import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
+import { defaultCursorInstance } from "@ace/adapter-cursor";
+import { homedir } from "node:os";
+import { bindCursorSdk, createInstance } from "@ace/accounts";
+import type { ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
@@ -17,12 +22,38 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     return;
   }
   const engineOptions = options.engine ?? {};
+  const cursorOptions = {
+    ...engineOptions.cursor,
+    slots: cursorHosts(context),
+    mcp:
+      engineOptions.cursor?.mcp ??
+      (async (
+        session: Parameters<
+          NonNullable<import("@ace/adapter-cursor").CursorAdapterOptions["mcp"]>
+        >[0],
+      ) => {
+        const mcp = services.mcp;
+        const root = store.getThread(session.threadId)?.rootAgentId;
+        if (!mcp || !root) throw new Error("Cursor MCP caller is not available");
+        const lease = mcp.openSession(
+          {
+            sessionId: `${session.instanceId}:${session.threadId}`,
+            threadId: session.threadId,
+            agentId: root,
+            capabilities: [],
+          },
+          session.signal,
+        );
+        return { connection: { url: mcp.url, bearer: lease.bearer }, end: () => lease.end() };
+      }),
+  };
   const registry =
     engineOptions.registry ??
     (await discoverAdapters(
       engineOptions.adapterDiscovery,
       (cli) => daemonClaudeAdapter(context, cli),
       (adapters) => registerPi(context, adapters),
+      cursorOptions,
     ));
   if (!engineOptions.registry) resources.own(() => registry.close());
   context.signal.throwIfAborted();
@@ -44,25 +75,58 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       : {};
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
+  const defaultInstance = cursorOptions.instance ?? defaultCursorInstance(homedir());
+  if (
+    accounts &&
+    accountRegistry &&
+    registry.has("cursor") &&
+    registry.get("cursor").adapter.backend === "cursor-sdk" &&
+    !accountRegistry.get(defaultInstance.id) &&
+    !accountRegistry.list().some(({ instance }) => instance.provider === "cursor")
+  ) {
+    // Preserve the SDK adapter's original home when it first enters accounts ownership.
+    await accountRegistry.register(
+      createInstance({ ...defaultInstance, provider: "cursor", label: "Cursor SDK" }),
+    );
+  }
   registry.bindSessions((adapter) => {
     if (!accounts || !accountRegistry || !AccountProvider.safeParse(adapter.provider).success)
       return withDaemonMcp(context, adapter);
-    const bound = accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
-    return withDaemonMcp(context, {
+    const sdkBinding =
+      adapter.backend === "cursor-sdk" ? bindCursorSdk(accounts, cursorOptions) : undefined;
+    if (sdkBinding) services.cursorAccounts = sdkBinding;
+    const bound: ProviderAdapter & { close?(): Promise<void> } =
+      sdkBinding ?? accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
+    const wrapped: ProviderAdapter = {
       ...adapter,
+      ...(bound.close ? { close: () => bound.close?.() ?? Promise.resolve() } : {}),
       openSession(session) {
+        if (
+          adapter.backend === "cursor-sdk" &&
+          session.instanceId === defaultInstance.id &&
+          !accountRegistry.get(session.instanceId)
+        )
+          return adapter.openSession(session);
         return session.instanceId ||
           accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
           ? bound.openSession(session)
           : adapter.openSession(session);
       },
-    });
+    };
+    // Cursor SDK owns its read-only HTTP lease, including account identity.
+    return adapter.backend === "cursor-sdk" ? wrapped : withDaemonMcp(context, wrapped);
   });
   const ports = recoveryPorts(context, (id) => engine.sessionMetadata(id));
   const engine = new Engine(store, {
     ...acp,
     ...engineOptions,
     registry,
+    selectInstance:
+      engineOptions.selectInstance ??
+      ((_provider, backend) =>
+        backend === "cursor-sdk"
+          ? (accounts?.preferredCursorInstance() ?? defaultInstance.id)
+          : undefined),
     ...(services.workspaceActions
       ? {
           prepareWorkspace: (id) =>
@@ -86,7 +150,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
             sessionId: context.id(),
             threadId,
             agentId: AgentId.parse(agentId),
-            capabilities: daemonMcpCapabilities(context.services),
+            capabilities:
+              store.getThread(threadId)?.backend === "cursor-sdk"
+                ? []
+                : daemonMcpCapabilities(context.services),
           },
           lifetime,
         );
@@ -113,7 +180,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
 import { commandContext } from "../commands.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export function createEngineSession(context: SocketContext): SocketService {
-  const { options, send } = context;
+  const { options, send, canReadThread } = context;
   return {
     command: {
       types: [
@@ -128,8 +195,35 @@ export function createEngineSession(context: SocketContext): SocketService {
       ],
       scope: () => "operate",
       async accept(command, device) {
+        const payload = command.payload;
+        if (
+          payload.type === "thread.create" &&
+          payload.handoffFrom &&
+          !canReadThread(payload.handoffFrom)
+        ) {
+          send({
+            type: "commandResult",
+            commandId: command.id,
+            ok: false,
+            error: "handoff_source_not_found",
+          });
+          return;
+        }
         await options.engine?.prepareCommand(command);
         if (!context.connected() || !context.authorize("operate")) return;
+        if (
+          payload.type === "thread.create" &&
+          payload.handoffFrom &&
+          !canReadThread(payload.handoffFrom)
+        ) {
+          send({
+            type: "commandResult",
+            commandId: command.id,
+            ok: false,
+            error: "handoff_source_not_found",
+          });
+          return;
+        }
         const result = options.store.recordCommand(command.id, device, () =>
           options.handler.handle(command, commandContext(options.store)),
         );

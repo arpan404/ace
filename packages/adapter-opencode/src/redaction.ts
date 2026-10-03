@@ -1,5 +1,5 @@
 const secretKey =
-  /authorization|password|cookie|api.?key|credential|access.?token|refresh.?token|headers|settings|providerState|resultState/i;
+  /authorization|password|cookie|api.?key|credential|access.?token|refresh.?token|headers|settings|providerState|resultState|encryptedContent/i;
 /** Bounded unknown evidence; secrets are removed before observation or translation. */
 export function sanitize(value: unknown, secrets: readonly string[] = [], depth = 0): unknown {
   if (depth > 12) return "[depth limit]";

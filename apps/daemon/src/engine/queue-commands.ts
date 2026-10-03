@@ -75,6 +75,12 @@ export function handleQueue(
       p.type === "thread.resume" ||
       p.type === "queue.resume"
     ) {
+      if (
+        p.type === "thread.limit" &&
+        p.action === "migrate_now" &&
+        dependencies.repo.backend(p.threadId) === "cursor-sdk"
+      )
+        return fail("sdk_account_migration_unsupported");
       if (p.type === "thread.limit" && p.action === "migrate_now" && !dependencies.ports.migrate)
         return fail("migration_unavailable");
       if (

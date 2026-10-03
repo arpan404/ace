@@ -2,6 +2,15 @@ import type { LaunchPlan } from "@ace/agent-registry";
 import type { Fact, Key } from "@ace/core";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { ProviderPayload } from "@ace/provider-kit/payload";
+
+export type ProviderBackend = "cursor-sdk" | "acp";
+export type SdkDiscovery = {
+  installed: boolean;
+  module?: string;
+  version?: string;
+  supported: boolean;
+  error?: string;
+};
 import type {
   ExecutionOptions,
   ExecutionSelection,
@@ -31,6 +40,7 @@ export type Frame = {
 
 export interface ProviderAdapter {
   readonly provider: ProviderKind;
+  readonly backend?: ProviderBackend;
   /** Probe the installed CLI through provider-kit and report this version's support. */
   capabilities(cli: DiscoveryResult): Capabilities;
   acceptsIdentity?(identity: AcpIdentity): boolean;
@@ -63,6 +73,21 @@ export interface SessionContext {
   /** Persist this assignment with the native session ID; resume must reuse the same instance. */
   instanceId?: string;
   model?: string;
+  /** Host-local selected account home, never a client-supplied credential selector. */
+  instanceHomeDir?: string;
+  runtimePolicy?: "restricted" | "full-access";
+  resume?: {
+    nativeSessionId: string;
+    backend?: ProviderBackend;
+    instanceId?: string;
+    afterFrameOffset?: number;
+  };
+  /** Persist selection before host admission and native identity before publishing its open frame. */
+  onSessionIdentity?(identity: {
+    backend: ProviderBackend;
+    instanceId: string;
+    nativeSessionId?: string;
+  }): void;
   /** Ephemeral ace capability, revoked with this session. Never persisted. */
   aceMcp?: { url: string; bearer: string; signal?: AbortSignal; end?(): void };
   acpIdentity?: AcpIdentity;
@@ -77,12 +102,12 @@ export interface SessionContext {
   };
   onCapabilities?(capabilities: Capabilities, support?: AcpSessionSupport): void;
   onSessionMetadata?(metadata: unknown): void;
-  resume?: { nativeSessionId: string };
   /** Exclusive with resume. Inclusive provider-native boundary; never a guessed canonical ID. */
   fork?: { nativeSessionId: string; point: { type: "turn" | "item" | "end"; nativeId: string } };
   options?: ExecutionOptions;
   /** Every sent and received frame goes to the engine for translation and persistence. */
-  onFrame(frame: Frame): void;
+  /** A returned promise acknowledges durable storage; its resolved value is ignored. */
+  onFrame(frame: Frame): unknown;
   onExit(exit: { deliberate: boolean; message?: string }): void;
   signal: AbortSignal;
 }
@@ -99,15 +124,10 @@ export interface ProviderSession {
   readonly mcp?: ProviderMcpControl;
   readonly instanceId?: string;
   readonly nativeSessionId: string;
+  readonly backend?: ProviderBackend;
   configure?(selection: ExecutionSelection): Promise<void>;
   readonly effectiveCapabilities?: Capabilities | undefined;
   readonly acpSupport?: AcpSessionSupport | undefined;
-  configure?(selection: {
-    provider: ProviderKind;
-    model?: string;
-    instanceId?: string;
-    options: import("@ace/protocol").TurnOptions;
-  }): Promise<void>;
   setModel?(model: string): Promise<void>;
   setMode?(mode: string): Promise<void>;
   /** Optional engine command correlation for providers with durable admission. */

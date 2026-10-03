@@ -23,6 +23,9 @@
       },
       "type": "object"
     },
+    "cursorSdkAuth": {
+      "$ref": "https://ace.local/protocol/v1/CursorSdkAuth.json"
+    },
     "observedAt": {
       "minimum": 0,
       "type": "number"

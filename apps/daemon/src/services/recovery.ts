@@ -55,6 +55,10 @@ export function recoveryPorts(
     },
     async migrate(id, target) {
       const session = metadata(id);
+      if (session.backend === "cursor-sdk")
+        throw new Error(
+          "Cursor SDK checkpoints cannot migrate accounts; create a portable context handoff instead",
+        );
       const provider = AccountProvider.parse(store.getThread(id)?.provider);
       if (!services.accounts || !session.instanceId || !session.nativeSessionId)
         throw new Error("Account-bound native session is required");

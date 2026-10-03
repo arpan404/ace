@@ -37,7 +37,8 @@ export async function executeIntent(
     if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
     const capabilities =
       actor.effectiveCapabilities ??
-      registry.get(repo.requireState(actor.id).config.provider).capabilities;
+      registry.get(repo.requireState(actor.id).config.provider, repo.backend(actor.id))
+        .capabilities;
     const session = actor.session;
     if (!session) throw new Error("Provider session exited before send");
     const state = repo.requireState(actor.id);
@@ -166,7 +167,8 @@ export async function executeIntent(
   } else if (p.type === "thread.interrupt") {
     const agent = p.agentId === undefined ? undefined : state.indexes.agentKeysById[p.agentId];
     const capabilities =
-      actor.effectiveCapabilities ?? registry.get(state.config.provider).capabilities;
+      actor.effectiveCapabilities ??
+      registry.get(state.config.provider, repo.backend(actor.id)).capabilities;
     if (p.cascade && !capabilities.interruptCascades) {
       const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
       const descendants = (id: string): string[] =>

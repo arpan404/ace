@@ -34,6 +34,8 @@ Builds write sorted, fixed-metadata tarballs and a file checksum manifest. Repea
 
 The first public release needs a reviewed production public key and native Linux inputs. No production authority has been fabricated for development. Key rotation requires an intentional release signed by the old authority before users accept the new pinned key. A stolen signing key requires an out-of-band recovery release and installer announcement.
 
+The Cursor runtime ships as the unchanged `@cursor/sdk` 1.0.35 package, its installed dependency and peer closure, and the release target's pinned helper package. The SDK and its subpaths stay external to esbuild; `cursor-sdk-host.mjs` runs in the selected account's supervised process. Staging refuses unsupported targets, conflicting dependency versions, more than 64 graph entries or manifests over 64 KiB. Archive mode normalization preserves executable helpers. The offline artifact guard writes and reopens a local SDK checkpoint without authentication or a provider turn.
+
 ## Install and operate
 
 Install.sh requires curl, tar and a SHA-256 utility. The trusted installer pins all four archive hashes independently of the feed. After that checksum succeeds, the bundled Node runtime verifies the Ed25519 manifest signature before installation. This works on macOS without an OpenSSL 3 dependency. Download the installer and verify its hash against the value in the trusted release announcement, then invoke `sh`. A release announcement can provide this as one shell command. Never pipe it into sudo. The installer verifies the manifest signature and archive checksum before executing bundled code.

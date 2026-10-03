@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/CursorSdkAuth.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "source": {
+      "enum": [
+        "environment",
+        "sdk-store",
+        "none"
+      ],
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "logged-in",
+        "logged-out"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "source"
+  ],
+  "type": "object"
+}

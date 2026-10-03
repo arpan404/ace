@@ -41,12 +41,3 @@ export function localOutbox(key: string): Storage {
     save: async (value) => localStorage.setItem(key, value),
   };
 }
-
-export function deviceId(): string {
-  const key = "ace.deviceId";
-  const existing = localStorage.getItem(key);
-  if (existing) return existing;
-  const created = `web-${crypto.randomUUID()}`;
-  localStorage.setItem(key, created);
-  return created;
-}

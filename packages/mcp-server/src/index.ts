@@ -27,6 +27,7 @@ export {
   claudeInjection,
   openCodeInjection,
   acpInjection,
+  cursorSdkInjection,
   developerInstructions,
   type AceMcpConnection,
 } from "./injection.ts";

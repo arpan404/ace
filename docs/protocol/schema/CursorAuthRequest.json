@@ -1,0 +1,153 @@
+{
+  "$id": "https://ace.local/protocol/v1/CursorAuthRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "label": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "cursor.auth.start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "instanceId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "loginId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "cursor.auth.poll",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "loginId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "loginId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "cursor.auth.cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "loginId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "cursor.auth.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "instanceId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "cursor.auth.select",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "instanceId"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "cursor.auth.logout",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "instanceId"
+      ],
+      "type": "object"
+    }
+  ]
+}

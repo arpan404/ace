@@ -12,6 +12,7 @@ export type RecordingHeader = {
   startedAt: string;
   platform: string;
   workspace: string;
+  model?: string;
 };
 
 /**

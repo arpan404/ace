@@ -36,6 +36,16 @@
             }
           ]
         },
+        "backend": {
+          "enum": [
+            "acp",
+            "cursor-sdk"
+          ],
+          "type": "string"
+        },
+        "capabilities": {
+          "$ref": "https://ace.local/protocol/v1/Capabilities.json"
+        },
         "effectiveCapabilities": {
           "$ref": "https://ace.local/protocol/v1/Capabilities.json"
         },

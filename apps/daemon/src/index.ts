@@ -256,6 +256,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       engine: services.engine,
       agentControl: services.agentControl,
       accounts: services.accounts,
+      cursorAuth: services.cursorAuth,
       get commands() {
         return services.commands;
       },

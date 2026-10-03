@@ -1,3 +1,5 @@
+import { portableContext } from "@ace/context";
+import { boundedJson } from "@ace/provider-kit/ipc";
 import { isSend, maxMessageBytes } from "./queue-store.ts";
 import type { Recovery } from "./recovery.ts";
 import { realpathSync, statSync } from "node:fs";
@@ -14,6 +16,7 @@ import {
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
+import type { EngineLimits } from "./limits.ts";
 
 export function engineHandler(
   repo: EngineRepository,
@@ -23,21 +26,38 @@ export function engineHandler(
   wake: (id: ThreadId) => void,
   nextId: () => string,
   recovery: Recovery,
+  limits: EngineLimits,
+  selectInstance?: (
+    provider: string,
+    backend?: import("@ace/engine-api").ProviderBackend,
+  ) => string | undefined,
   machine?: { host: string; name: string },
 ): CommandHandler {
   return {
     handle(command: Command): CommandResult {
       const result = recovery.handle(command);
       if (result) return result;
-      const transition = acceptTransition(repo, registry, command, now(), nextId, wake);
+      const transition = acceptTransition(
+        repo,
+        registry,
+        command,
+        now(),
+        nextId,
+        wake,
+        selectInstance,
+      );
       if (transition) return transition;
       const p = command.payload;
-      if (
-        isSend(p) &&
-        (p.type === "thread.send" || p.type === "thread.create") &&
-        (p.input.length > 64 || Buffer.byteLength(JSON.stringify(command)) > maxMessageBytes)
-      )
-        return { commandId: command.id, ok: false, error: "message_too_large" };
+      let deliveryCommand = command;
+      if (isSend(p) && (p.type === "thread.send" || p.type === "thread.create")) {
+        try {
+          if (p.input.length > 64)
+            return { commandId: command.id, ok: false, error: "message_too_large" };
+          boundedJson(command, maxMessageBytes);
+        } catch {
+          return { commandId: command.id, ok: false, error: "message_too_large" };
+        }
+      }
       const fail = (error: string): CommandResult => ({ commandId: command.id, ok: false, error });
       if (
         ![
@@ -70,6 +90,51 @@ export function engineHandler(
           } catch {
             return fail("workspace_unavailable");
           }
+          const entry = registry.get(p.provider);
+          const accountId = p.accountId ?? ("account" in p ? p.account : undefined);
+          if (p.type === "thread.create" && p.instanceId && accountId && p.instanceId !== accountId)
+            return fail("conflicting_account_selection");
+          const instanceId =
+            (p.type === "thread.create" ? p.instanceId : undefined) ??
+            accountId ??
+            selectInstance?.(p.provider, entry.adapter.backend);
+          let handoff: ReturnType<typeof portableContext> | undefined;
+          if (p.type === "thread.create" && p.handoffFrom) {
+            const source = repo.store.getThread(p.handoffFrom);
+            if (!source) return fail("handoff_source_not_found");
+            const page = repo.store.readItemPage(
+              p.handoffFrom,
+              Number.MAX_SAFE_INTEGER,
+              100,
+              262144,
+            );
+            handoff = portableContext(
+              {
+                threadId: source.id,
+                provider: source.provider,
+                throughSeq: page.seq,
+                totalItems: repo.store.historicalItemCount(source.id, page.seq),
+                ...((source.backend ?? (source.provider === "cursor" ? "acp" : undefined))
+                  ? { backend: source.backend ?? "acp" }
+                  : {}),
+              },
+              page.items,
+              { maxBytes: 65536, maxItems: 100, historyTruncated: page.itemsBefore !== null },
+            );
+            deliveryCommand = {
+              ...command,
+              payload: { ...p, input: [{ type: "text", text: handoff.text }, ...p.input] },
+            };
+          }
+          const at = now();
+          if (entry.adapter.backend === "cursor-sdk") {
+            try {
+              const input = deliveryCommand.payload;
+              if (input.type === "thread.create") boundedJson(input.input, limits.maxInputBytes);
+            } catch {
+              return fail("provider_input_budget_exceeded");
+            }
+          }
           if (
             p.options &&
             Object.keys(p.options)
@@ -82,7 +147,6 @@ export function engineHandler(
               )
           )
             return fail("launch_options_unsupported");
-          const at = now();
           threadId = ThreadId.parse(p.threadId ?? nextId());
           if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
           createEngineThread(repo, {
@@ -90,12 +154,21 @@ export function engineHandler(
             workspaceId: p.workspaceId,
             title: p.title ?? "New thread",
             ...(acpIdentity ? { acpIdentity } : {}),
+            capabilities: entry.capabilities,
+            ...(entry.adapter.backend ? { backend: entry.adapter.backend } : {}),
+            ...(handoff && p.type === "thread.create" && p.handoffFrom
+              ? {
+                  handoff: {
+                    sourceThreadId: p.handoffFrom,
+                    truncated: handoff.truncated,
+                    bytes: handoff.bytes,
+                  },
+                }
+              : {}),
             selection: {
               provider: p.provider,
               options: ExecutionOptions.parse(p.options ?? {}),
-              ...((p.accountId ?? ("account" in p ? p.account : undefined))
-                ? { instanceId: p.accountId ?? ("account" in p ? p.account : undefined) }
-                : {}),
+              ...(instanceId ? { instanceId } : {}),
               ...(p.model === undefined ? {} : { model: p.model }),
             },
             cwd,
@@ -116,15 +189,15 @@ export function engineHandler(
               live: {
                 provider: p.provider,
                 ...(p.model ? { model: p.model } : {}),
-                ...((p.accountId ?? ("account" in p ? p.account : undefined))
-                  ? { account: p.accountId ?? ("account" in p ? p.account : undefined) }
-                  : {}),
+                ...(instanceId ? { account: instanceId } : {}),
                 options: ExecutionOptions.parse(p.options ?? {}),
                 subagentCount: 0,
                 backgroundTaskCount: 0,
               },
             },
           });
+          if (handoff && p.type === "thread.create" && p.handoffFrom)
+            repo.transitions.history.grant(threadId, p.handoffFrom, handoff.source.throughSeq);
           if (p.type === "thread.prepare") {
             repo.release(threadId);
             return { commandId: command.id, ok: true, threadId };
@@ -150,6 +223,15 @@ export function engineHandler(
             )
           )
             return fail("agent_not_found");
+          if (p.type === "thread.interrupt" && p.agentId !== undefined) {
+            const state = repo.requireState(threadId);
+            const entry = registry.get(state.config.provider, repo.backend(threadId));
+            if (
+              entry.capabilities.childControls === "read-only" &&
+              state.agents[state.rootKey ?? ""]?.agent.id !== p.agentId
+            )
+              return fail("unsupported_child_control");
+          }
         } else if (p.type === "interaction.resolve" || p.type === "background_task.stop") {
           for (const state of repo.states()) {
             if (p.type === "interaction.resolve") {
@@ -174,7 +256,16 @@ export function engineHandler(
           if (!threadId)
             return fail(p.type === "interaction.resolve" ? "already_resolved" : "task_not_found");
         } else return fail("not_implemented");
-        const admitted = recovery.admit(command, threadId);
+        if (p.type === "thread.send" && repo.backend(threadId) === "cursor-sdk") {
+          try {
+            boundedJson(p.input, limits.maxInputBytes);
+          } catch {
+            return fail("provider_input_budget_exceeded");
+          }
+          if (!repo.inputCapacity(threadId, limits.maxPendingInputs))
+            return fail("provider_input_queue_full");
+        }
+        const admitted = recovery.admit(deliveryCommand, threadId);
         if (!admitted) return fail("queue_capacity_exceeded");
         const heldSend = p.type === "thread.send" && repo.queue.get(threadId).paused;
         if (!heldSend && !repo.reserve(threadId)) return fail("engine_capacity_exceeded");

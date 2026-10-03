@@ -75,6 +75,7 @@ export async function bindMcpSession(
       get nativeSessionId() {
         return session.nativeSessionId;
       },
+      ...(session.backend ? { backend: session.backend } : {}),
       ...(session.instanceId ? { instanceId: session.instanceId } : {}),
       get effectiveCapabilities() {
         return session.effectiveCapabilities;

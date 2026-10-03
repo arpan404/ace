@@ -1,3 +1,4 @@
+import type { CursorAdapterOptions } from "@ace/adapter-cursor";
 import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { DaemonCommandIntegration } from "./commands.ts";
@@ -43,7 +44,10 @@ export type DaemonOptions = {
     loginRevision: string;
   };
   handler?: CommandHandler | undefined;
-  engine?: EngineOptions & { adapterDiscovery?: typeof discoverProviders };
+  engine?: EngineOptions & {
+    adapterDiscovery?: typeof discoverProviders;
+    cursor?: CursorAdapterOptions;
+  };
   toolkits?: readonly Toolkit[];
   /** Worker spawner is injectable without changing notification policy. */
   notificationWorker?: ConstructorParameters<

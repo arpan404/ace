@@ -5,6 +5,7 @@ import { loginStatus, instanceEnv, loginArgs } from "./instances.ts";
 import type { ProviderInstance } from "@ace/protocol/accounts";
 import type { AccountRegistry } from "./registry.ts";
 import type { DiscoveryOptions } from "@ace/provider-kit/discovery";
+import type { cursorDaemonDriver } from "./cursor-cli-auth.ts";
 
 /** The CLI owns credential entry and browser login; ace inherits terminal streams. */
 export async function addAccount(
@@ -17,8 +18,33 @@ export async function addAccount(
     signal?: AbortSignal;
     spawn?: typeof spawnInteractive;
     cancellationGraceMs?: number;
+    cursorSdk?: Pick<ReturnType<typeof cursorDaemonDriver>, "status" | "login">;
+    loginUrl?: (url: string) => void;
   },
 ) {
+  if (instance.provider === "cursor" && options.cursorSdk) {
+    options.signal?.throwIfAborted();
+    await registry.register(instance);
+    const selected = registry.get(instance.id)?.instance;
+    if (!selected) throw new Error("Registered Cursor SDK instance is unavailable");
+    const signal = options.signal ?? new AbortController().signal;
+    const before = await options.cursorSdk.status(selected, signal);
+    if (before.status !== "logged-in") {
+      if (!options.loginUrl)
+        throw new Error("Cursor SDK login requires an authorized ephemeral URL callback");
+      await options.cursorSdk.login(selected, signal, options.loginUrl);
+    }
+    const after = await options.cursorSdk.status(selected, signal);
+    return {
+      code: after.status === "logged-in" ? 0 : 1,
+      status: {
+        installed: true,
+        auth: after.status === "logged-in" ? ("logged_in" as const) : ("logged_out" as const),
+        version: "1.0.35",
+        loginHint: "Cursor SDK sign-in is separate from CLI/editor login",
+      },
+    };
+  }
   if (instance.provider === "acp")
     throw new Error("Use the reviewed ACP local-login API; account isolation is unsupported");
   const args = loginArgs(instance.provider, options.mode);

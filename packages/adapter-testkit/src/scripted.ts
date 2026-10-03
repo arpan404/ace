@@ -1,3 +1,4 @@
+import { copyScriptedFrame } from "./scripted-frames.ts";
 import type { Key } from "@ace/core";
 import type { Frame, ProviderAdapter, ProviderSession, SessionContext } from "@ace/engine-api";
 import type { Capabilities, ContentPart, InteractionResolution, ProviderKind } from "@ace/protocol";
@@ -10,7 +11,7 @@ export type ScriptedCommand =
   | { type: "close"; reason: "idle" | "user" | "shutdown" };
 
 export interface ScriptedStep {
-  /** Steps run synchronously on open or the next matching command. No real clock or CLI. */
+  /** Steps run on open or the next matching command, awaiting frame admission. No real clock or CLI. */
   on: "open" | ScriptedCommand["type"];
   frames?: readonly Frame[];
   exit?: { deliberate: boolean; message?: string };
@@ -33,7 +34,11 @@ export interface ScriptedAdapter extends ProviderAdapter {
 
 /** Each opened session gets its own script cursor and command log. */
 export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
-  const steps = structuredClone(script.steps);
+  const steps = script.steps.map((step) => ({
+    on: step.on,
+    ...(step.frames ? { frames: step.frames.map(copyScriptedFrame) } : {}),
+    ...(step.exit ? { exit: structuredClone(step.exit) } : {}),
+  }));
   const capabilities = structuredClone(script.capabilities);
   const commands: ScriptedCommand[] = [];
   const sessions: ScriptedSession[] = [];
@@ -58,7 +63,7 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
       function abort(): void {
         exit({ deliberate: true, message: "aborted" });
       }
-      function emit(on: ScriptedStep["on"]): void {
+      async function emit(on: ScriptedStep["on"]): Promise<void> {
         const step = steps[cursor];
         if (!step) return;
         if (step.on !== on) {
@@ -68,7 +73,7 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
         cursor++;
         for (const frame of step.frames ?? []) {
           if (closed) break;
-          ctx.onFrame(structuredClone(frame));
+          await ctx.onFrame(copyScriptedFrame(frame));
         }
         if (step.exit && !closed) exit(step.exit);
       }
@@ -77,16 +82,16 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
         received.push(structuredClone(command));
         commands.push(structuredClone(command));
       }
-      function enqueue(operation: () => void): Promise<void> {
+      function enqueue(operation: () => void | Promise<void>): Promise<void> {
         const pending = emission.then(operation);
         emission = pending.catch(() => {});
         return pending;
       }
       async function receive(command: ScriptedCommand): Promise<void> {
         record(command);
-        await enqueue(() => {
+        await enqueue(async () => {
           if (closed) throw new Error("scripted session is closed");
-          emit(command.type);
+          await emit(command.type);
         });
       }
       const session: ScriptedSession = {
@@ -108,9 +113,9 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
         async close(reason) {
           if (closed) return;
           record({ type: "close", reason });
-          await enqueue(() => {
+          await enqueue(async () => {
             try {
-              if (!closed) emit("close");
+              if (!closed) await emit("close");
             } finally {
               exit({ deliberate: true });
             }
@@ -120,7 +125,7 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
       sessions.push(session);
       ctx.signal.addEventListener("abort", abort, { once: true });
       try {
-        emit("open");
+        await emit("open");
         return session;
       } catch (error) {
         closed = true;
