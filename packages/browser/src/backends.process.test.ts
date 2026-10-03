@@ -92,7 +92,7 @@ it("pause on desktop loss emits the URL and rejects an in-flight read without re
 });
 it("headless recovery preserves human ownership and invalidates old refs while reporting lost state", async () => {
   const f = await backendFixture({ backendLoss: () => "headless" });
-  await f.open();
+  await f.service.open({ threadId: "thread", workspaceId: "workspace", profile: "persistent" });
   await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000/page" });
   const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
     ?.ref;
@@ -138,32 +138,40 @@ it("headless recovery preserves human ownership and invalidates old refs while r
     "controlled by human",
   );
 });
-it("embedded snapshots, screenshots and logs use the same policy and ref behavior as headless", async () => {
-  const f = await backendFixture();
-  await f.open();
-  const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
-    ?.ref;
-  await expect(
-    f.service.execute("thread", { action: "evaluate", expression: "1" }),
-  ).rejects.toThrow("approval");
-  await expect(
-    f.service.execute("thread", { action: "navigate", url: "https://example.invalid" }),
-  ).rejects.toThrow("approval");
-  const sessionId = [...f.pages.keys()][0];
-  if (!sessionId) throw new Error("Missing session");
-  f.sendEvent(sessionId, "Runtime.consoleAPICalled", { type: "log", args: [{ value: "marker" }] });
-  // A subsequent round-trip fences the preceding event on the ordered socket.
-  const image = z
-    .object({ path: z.string() })
-    .parse(await f.service.execute("thread", { action: "screenshot" }));
-  expect(await readFile(image.path)).toEqual(Buffer.from([0]));
-  const logs = z
-    .object({ console: z.string() })
-    .parse(await f.service.execute("thread", { action: "logs" }));
-  expect(await readFile(logs.console, "utf8")).toContain("marker");
-  await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000" });
-  await expect(f.service.execute("thread", { action: "click", ref })).rejects.toThrow("ref");
-});
+it.each(["embedded", "headless"] as const)(
+  "%s sessions preserve policy, refs, screenshot bytes and console logs",
+  async (backend) => {
+    const f = await backendFixture({ backendPreference: () => backend });
+    await f.open();
+    const ref = snapshot.parse(await f.service.execute("thread", { action: "snapshot" })).nodes[0]
+      ?.ref;
+    await expect(
+      f.service.execute("thread", { action: "evaluate", expression: "1" }),
+    ).rejects.toThrow("approval");
+    await expect(
+      f.service.execute("thread", { action: "navigate", url: "https://example.invalid" }),
+    ).rejects.toThrow("approval");
+    if (backend === "embedded") {
+      const sessionId = [...f.pages.keys()][0];
+      if (!sessionId) throw new Error("Missing session");
+      f.sendEvent(sessionId, "Runtime.consoleAPICalled", {
+        type: "log",
+        args: [{ value: "marker" }],
+      });
+    } else f.headless.opens[0]?.log({ kind: "console", type: "log", text: "marker" });
+    // A subsequent round-trip fences the preceding event on the ordered socket.
+    const image = z
+      .object({ path: z.string() })
+      .parse(await f.service.execute("thread", { action: "screenshot" }));
+    expect(await readFile(image.path)).toEqual(Buffer.from([0]));
+    const logs = z
+      .object({ console: z.string() })
+      .parse(await f.service.execute("thread", { action: "logs" }));
+    expect(await readFile(logs.console, "utf8")).toContain("marker");
+    await f.service.execute("thread", { action: "navigate", url: "http://localhost:3000" });
+    await expect(f.service.execute("thread", { action: "click", ref })).rejects.toThrow("ref");
+  },
+);
 it("acknowledges desktop frames independently of a slow viewer and delivers only its latest pending frame", async () => {
   let now = 0;
   const f = await backendFixture({ now: () => (now += 200) });

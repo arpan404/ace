@@ -26,6 +26,8 @@ interface RemoteSession {
   events: EventEmitter;
   request: BackendOpen;
   url: string;
+  pending: Set<string>;
+  cleanup(): void;
 }
 interface Waiter {
   sessionId: string;
@@ -62,6 +64,8 @@ export class EmbeddedBackend implements BrowserBackend {
   }
   private call(sessionId: string, operation: BrowserBackendOperation): Promise<unknown> {
     if (this.closed) return Promise.reject(new Error("Desktop browser backend lost"));
+    const session = this.sessions.get(sessionId);
+    if (!session) return Promise.reject(new Error("Desktop browser session closed"));
     if (this.pending.size >= 128) return Promise.reject(new Error("Browser relay request limit"));
     const id = String(++this.sequence);
     const message: BrowserBackendRequest = {
@@ -75,6 +79,7 @@ export class EmbeddedBackend implements BrowserBackend {
       const timer = setTimeout(
         () => {
           this.pending.delete(id);
+          session.pending.delete(id);
           reject(new Error("Desktop browser command timed out"));
           // The command may have run. Stop this transport; never replay it.
           this.disconnect("Desktop browser command timed out");
@@ -83,11 +88,13 @@ export class EmbeddedBackend implements BrowserBackend {
       );
       timer.unref();
       this.pending.set(id, { sessionId, resolve, reject, timer });
+      session.pending.add(id);
       try {
         this.send(message);
       } catch (error) {
         clearTimeout(timer);
         this.pending.delete(id);
+        session.pending.delete(id);
         reject(error);
       }
     });
@@ -100,6 +107,7 @@ export class EmbeddedBackend implements BrowserBackend {
       const waiter = this.pending.get(message.id);
       if (!waiter || waiter.sessionId !== message.sessionId) return;
       this.pending.delete(message.id);
+      this.sessions.get(waiter.sessionId)?.pending.delete(message.id);
       clearTimeout(waiter.timer);
       if (message.error !== undefined) waiter.reject(new Error(message.error));
       else waiter.resolve(message.result);
@@ -182,28 +190,40 @@ export class EmbeddedBackend implements BrowserBackend {
         session.request.log({ kind: "network", type: "failed", text: parsed.data.errorText });
     }
     if (message.method === "Inspector.detached") {
-      session.request.lost("Desktop browser view closed");
+      this.loseSession(message.sessionId, "Desktop browser view closed");
       return;
     }
     session.events.emit(message.method, message.params);
+  }
+  private rejectPending(session: RemoteSession, reason: string): void {
+    for (const id of session.pending) {
+      const waiter = this.pending.get(id);
+      if (!waiter) continue;
+      this.pending.delete(id);
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error(reason));
+    }
+    session.pending.clear();
+  }
+  private loseSession(sessionId: string, reason: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    this.sessions.delete(sessionId);
+    this.rejectPending(session, reason);
+    session.cleanup();
+    session.request.lost(reason);
   }
   disconnect(reason: string): void {
     if (this.closed) return;
     this.closed = true;
     this.lost();
-    for (const waiter of this.pending.values()) {
-      clearTimeout(waiter.timer);
-      waiter.reject(new Error(reason));
-    }
-    this.pending.clear();
-    for (const session of this.sessions.values()) {
+    for (const sessionId of this.sessions.keys()) {
       try {
-        session.request.lost(reason);
-      } finally {
-        session.events.removeAllListeners();
+        this.loseSession(sessionId, reason);
+      } catch {
+        /* Notify every sibling on transport loss. */
       }
     }
-    this.sessions.clear();
     this.transport.close(reason);
   }
   async open(request: BackendOpen): Promise<BrowserBackendSession> {
@@ -211,7 +231,13 @@ export class EmbeddedBackend implements BrowserBackend {
       throw new Error("Embedded browser unavailable or session limit");
     request.signal.throwIfAborted();
     const sessionId = `${this.id}-${++this.sequence}`;
-    const remote: RemoteSession = { events: new EventEmitter(), request, url: "about:blank" };
+    const remote: RemoteSession = {
+      events: new EventEmitter(),
+      request,
+      url: "about:blank",
+      pending: new Set(),
+      cleanup() {},
+    };
     this.sessions.set(sessionId, remote);
     const call = (operation: BrowserBackendOperation) =>
       closing && operation.kind !== "close"
@@ -231,18 +257,11 @@ export class EmbeddedBackend implements BrowserBackend {
     let guard: Awaited<ReturnType<typeof installOriginGuard>> | undefined;
     const close = (): Promise<void> =>
       (closing ??= (async () => {
-        request.signal.removeEventListener("abort", abort);
-        for (const [id, waiter] of this.pending) {
-          if (waiter.sessionId === sessionId) {
-            this.pending.delete(id);
-            clearTimeout(waiter.timer);
-            waiter.reject(new Error("Desktop browser session closed"));
-          }
-        }
-        guard?.close();
+        remote.cleanup();
+        this.rejectPending(remote, "Desktop browser session closed");
         // A disconnected bridge has already destroyed all pending commands.
         try {
-          if (!this.closed) await call({ kind: "close" });
+          if (!this.closed && this.sessions.has(sessionId)) await call({ kind: "close" });
         } finally {
           this.sessions.delete(sessionId);
           remote.events.removeAllListeners();
@@ -250,6 +269,11 @@ export class EmbeddedBackend implements BrowserBackend {
       })());
     const abort = () => {
       void close().catch(() => {});
+    };
+    remote.cleanup = () => {
+      request.signal.removeEventListener("abort", abort);
+      guard?.close();
+      remote.events.removeAllListeners();
     };
     request.signal.addEventListener("abort", abort, { once: true });
     try {

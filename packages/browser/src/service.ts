@@ -122,6 +122,7 @@ export class BrowserService {
     let recoveryProfile: string | undefined;
     let session: BrowserSession | undefined;
     let released = false;
+    let backendLost = false;
     const release = async () => {
       if (released) return;
       released = true;
@@ -173,7 +174,8 @@ export class BrowserService {
             void session.close().catch((error) => this.options.onError?.(error));
             return;
           }
-          if (session.state.status === "paused") return;
+          if (backendLost) return;
+          backendLost = true;
           session.suspend(reason);
           const event: BrowserBackendLost = {
             type: "browser.backend.lost",

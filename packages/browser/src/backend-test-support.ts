@@ -113,6 +113,7 @@ export async function backendFixture(options: Partial<BrowserServiceOptions> = {
   const requests = new EventEmitter();
   let hold: string | undefined;
   let redirectUrl: string | undefined;
+  let controllerError: string | undefined;
   const sendEvent = (sessionId: string, method: string, params: unknown) =>
     desktop.send(
       JSON.stringify({
@@ -140,7 +141,7 @@ export async function backendFixture(options: Partial<BrowserServiceOptions> = {
     const page = pages.get(message.sessionId);
     if (!page) throw new Error("Unknown desktop session");
     if (op.kind === "cdp") result = page.command(op.method, op.params);
-    if (op.kind === "controller") page.lease = op.lease;
+    if (op.kind === "controller" && !controllerError) page.lease = op.lease;
     if (op.kind === "navigate") {
       page.url = redirectUrl ?? op.url;
       result = { url: page.url };
@@ -153,7 +154,7 @@ export async function backendFixture(options: Partial<BrowserServiceOptions> = {
         backendId: backend.id,
         sessionId: message.sessionId,
         id: message.id,
-        result,
+        ...(op.kind === "controller" && controllerError ? { error: controllerError } : { result }),
       }),
     );
   });
@@ -175,6 +176,9 @@ export async function backendFixture(options: Partial<BrowserServiceOptions> = {
     sendEvent,
     redirect(url: string) {
       redirectUrl = url;
+    },
+    failController(reason: string) {
+      controllerError = reason;
     },
     pressure() {
       pressured = true;
