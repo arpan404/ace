@@ -1,6 +1,7 @@
 import { ThreadId, WorkspaceId, type SearchQuery, type SearchResults } from "@ace/protocol";
 import { searchThreads, type FakeSearchKind } from "../catalog/search.ts";
 
+const week = 7 * 24 * 60 * 60_000;
 const kinds = new Set<string>(["thread", "message", "tool_call", "artifact"]);
 const isKind = (kind: string | undefined): kind is FakeSearchKind =>
   kind !== undefined && kinds.has(kind);
@@ -9,7 +10,8 @@ const isKind = (kind: string | undefined): kind is FakeSearchKind =>
 export function search(query: SearchQuery, now: number): SearchResults {
   const kind = query.filters.kind;
   if (kind !== undefined && !isKind(kind)) return { hits: [], cursor: null, generation: 1 };
-  const hits = searchThreads(query.text, now, { kind })
+  // Test clocks start near the epoch; keep every hit's time after it, in the catalog's order.
+  const hits = searchThreads(query.text, Math.max(now, week), { kind })
     .filter(
       (hit) =>
         (!query.filters.workspaceId || hit.workspaceId === query.filters.workspaceId) &&
