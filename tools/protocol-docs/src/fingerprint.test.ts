@@ -57,7 +57,16 @@ it("source changes, schema changes and toolkit metadata invalidate the generated
       await writeFile(
         join(root, name),
         name === "packages/protocol/package.json"
-          ? JSON.stringify({ exports: { ".": "./src/index.ts", "./forge": "./src/forge.ts" } })
+          ? JSON.stringify({
+              exports: {
+                ".": "./src/index.ts",
+                "./forge": "./src/forge.ts",
+                "./plugins": "./src/plugins.ts",
+                "./preview": "./src/preview.ts",
+                "./history": "./src/history.ts",
+                "./accounts": "./src/accounts.ts",
+              },
+            })
           : "source\n",
       );
     }

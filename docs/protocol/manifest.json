@@ -1181,8 +1181,8 @@
       "sha256": "6689447ade9787ed6cfc792d1fc55f3e4e2e240cb8b2337a1ee48b5d568952c4"
     },
     "schema/SearchKind.json": {
-      "bytes": 253,
-      "sha256": "3fa2aafb46a56fefb7d7916a8bc8db5d3995a18d6f20c57d8e4db71524ddf9d3"
+      "bytes": 269,
+      "sha256": "5ea2fb7d7ccfee6b9e9804d8fefeaee39c03a7f37b1f836dd107677f99ab1181"
     },
     "schema/SearchQuery.json": {
       "bytes": 842,
@@ -1469,10 +1469,10 @@
       "sha256": "bc4d18d5d9ea551348aa5f8b9d8391c23ece0e6c66a34a5495d0d434daecae0a"
     },
     "types.md": {
-      "bytes": 241461,
-      "sha256": "22afaf03d523c16500cd64d7cb72e0e3c37fcbf1cbe8e153d4264f51f2145d5b"
+      "bytes": 241472,
+      "sha256": "95b6db664906e4f4be30e381f990aee1ad21cd6f2086586ab74bf5add07db7e9"
     }
   },
-  "input": "b665e9f7eb31fd3330be058f71beed2b7545574e91a25528621c06fd6dd4e266",
+  "input": "7a339770d00d8542588a5c347e04a8b706dade13b7ef3fb26ae908c9a07270bb",
   "version": 1
 }
