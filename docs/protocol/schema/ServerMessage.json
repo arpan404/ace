@@ -928,11 +928,17 @@
         "code": {
           "type": "string"
         },
+        "commandId": {
+          "$ref": "https://ace.local/protocol/v1/CommandId.json"
+        },
         "message": {
           "type": "string"
         },
         "requestId": {
           "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
         },
         "subscriptionId": {
           "type": "string"

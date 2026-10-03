@@ -454,8 +454,18 @@ export async function startServer(options: ServerOptions): Promise<{
             .flatMap((service) => (service.command ? [service.command] : []))
             .find((service) => service.types.includes(message.command.payload.type));
           const scope = route?.scope(message.command) ?? "operate";
+          // Refusals carry the command id so the client settles that intent alone and keeps
+          // its connection; transient ones leave the intent pending for a retry.
+          const refuse = (code: string, text: string, retryable = false) =>
+            send({
+              type: "error",
+              code,
+              message: text,
+              commandId: message.command.id,
+              ...(retryable ? { retryable } : {}),
+            });
           if (!authorize(scope)) {
-            fail("forbidden", `${scope} scope required`);
+            refuse("forbidden", `${scope} scope required`);
             break;
           }
           try {
@@ -466,15 +476,15 @@ export async function startServer(options: ServerOptions): Promise<{
           }
           if (socket.readyState !== WebSocket.OPEN || !authenticated.has(socket)) break;
           if (!authorize(scope)) {
-            fail("forbidden", `${scope} scope required`);
+            refuse("forbidden", `${scope} scope required`);
             break;
           }
           if (message.command.deviceId !== device) {
-            fail("device_mismatch", "Command device must match hello");
+            refuse("device_mismatch", "Command device must match hello");
             break;
           }
           if (!maintenance.admitCommand(message.command)) {
-            fail("maintenance", "Daemon is draining for an update");
+            refuse("maintenance", "Daemon is draining for an update", true);
             break;
           }
           try {
@@ -488,7 +498,7 @@ export async function startServer(options: ServerOptions): Promise<{
               });
           } catch (error) {
             options.log?.(error);
-            fail("command_failed", "Command transaction rolled back");
+            refuse("command_failed", "Command transaction rolled back", true);
           }
           break;
         }
