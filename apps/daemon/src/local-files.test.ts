@@ -6,7 +6,7 @@ import { acquireLock } from "./local-files.ts";
 
 const roots: string[] = [];
 afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  for (const path of roots.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 function root(): string {
   const path = mkdtempSync(join(tmpdir(), "ace-data-dir-"));

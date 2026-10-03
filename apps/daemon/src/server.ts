@@ -13,6 +13,7 @@ import { createServer as httpServer, type Server } from "node:http";
 import { createServer as httpsServer } from "node:https";
 import { accessHttp } from "./access-http.ts";
 import { webOriginAllowlist } from "./web-origins.ts";
+import { PreAuthAdmission } from "./socket-admission.ts";
 import { allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { urlHost } from "./network.ts";
@@ -21,7 +22,6 @@ import { HostId, DeviceId, type ServerMessage, type Notification } from "@ace/pr
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
-import { PreAuthAdmission } from "./socket-admission.ts";
 import { subscribe } from "./subscription.ts";
 const bind = (listener: Server, host: string, port: number) =>
   new Promise<number>((resolve, reject) => {
@@ -41,6 +41,10 @@ const closeListener = (listener: Server) =>
     listener.close(() => resolve());
     listener.closeAllConnections();
   });
+const refuseUpgrade = (socket: import("node:stream").Duplex, status: string) =>
+  socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`, () =>
+    socket.destroy(),
+  );
 
 export type { ServerOptions } from "./server-options.ts";
 import type { ServerOptions } from "./server-options.ts";
@@ -127,11 +131,6 @@ export async function startServer(options: ServerOptions): Promise<{
     }
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
   const preAuth = new PreAuthAdmission(options.preAuth ?? {}, runtime.delay);
-  const refuse = (socket: import("node:stream").Duplex, status: string) =>
-    socket.end(
-      `HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
-      () => socket.destroy(),
-    );
   const attach = (listener: Server, isLocal: boolean) =>
     listener.on("upgrade", (request, socket, head) => {
       if (request.url !== "/") {
@@ -142,13 +141,13 @@ export async function startServer(options: ServerOptions): Promise<{
       // loopback socket. Native clients send none.
       const origin = request.headers.origin;
       if (isLocal && origin !== undefined && !access.allowedOrigins.has(origin)) {
-        refuse(socket, "403 Forbidden");
+        refuseUpgrade(socket, "403 Forbidden");
         return;
       }
       const kind = isLocal ? "local" : "remote";
       const address = request.socket.remoteAddress ?? "unknown";
       if (cleanups.size >= 256 || !preAuth.admits(kind, address)) {
-        refuse(socket, "503 Service Unavailable");
+        refuseUpgrade(socket, "503 Service Unavailable");
         return;
       }
       wss.handleUpgrade(request, socket, head, (websocket) => {
