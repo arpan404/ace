@@ -171,14 +171,15 @@ export function useAutomationsSource(): AutomationsSource {
 }
 
 /** A real daemon on main: nothing listed, and every write says the service isn't there. */
+const unavailable = () => Promise.reject(new UnavailableError("Automations"));
+
 function unavailableAutomationsSource(): AutomationsSource {
-  const no = () => Promise.reject(new UnavailableError("Automations"));
   return {
     list: async () => [],
     inbox: async () => [],
-    put: no,
-    remove: no,
-    run: no,
+    put: unavailable,
+    remove: unavailable,
+    run: unavailable,
     onChange: () => () => {},
   };
 }

@@ -21,8 +21,9 @@ export interface AccessSource {
   revoke(deviceId: string): Promise<void>;
 }
 
+const no = (feature: string) => () => Promise.reject(new UnavailableError(feature));
+
 export function unavailableAccess(): AccessSource {
-  const no = (feature: string) => () => Promise.reject(new UnavailableError(feature));
   return {
     acpAgents: async () => [],
     addAcpAgent: no("Adding an ACP agent by command"),

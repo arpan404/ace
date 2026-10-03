@@ -17,6 +17,11 @@ function loadFake(): Promise<FakeAccessModule> {
   return (fakeModule ??= import("./access-fake.ts"));
 }
 
+/** The browser's clock and randomness, injected at this boundary. */
+function withBrowserClock(module: FakeAccessModule) {
+  return module.fakeAccess({ now: () => Date.now(), random: () => Math.random() });
+}
+
 const defaults = Object.fromEntries(
   Object.values(settingKeys).map((setting): [string, unknown] => [setting.key, setting.fallback]),
 );
@@ -32,10 +37,7 @@ export function useSettingsBackend(): SettingsBackend {
   const module = fake ? use(loadFake()) : undefined;
   let backend = backends.get(client);
   if (!backend) {
-    // The browser's clock and randomness, injected at this boundary.
-    const access = module
-      ? module.fakeAccess({ now: () => Date.now(), random: () => Math.random() })
-      : unavailableAccess();
+    const access = module ? withBrowserClock(module) : unavailableAccess();
     backend = daemonSettingsBackend(client, { access, defaults });
     backends.set(client, backend);
   }

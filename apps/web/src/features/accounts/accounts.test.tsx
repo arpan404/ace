@@ -68,18 +68,9 @@ test("Refresh picks up quota the providers reported since the page opened", asyn
     within(work).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
   ).toBe("23");
 
-  const services = app.daemon.services;
-  services.accounts = services.accounts.map((account) =>
-    account.id === "claude-work"
-      ? {
-          ...account,
-          quota: {
-            ...account.quota,
-            windows: { ...account.quota.windows, five_hour: { usedPercent: 47, resetsAt: null } },
-          },
-        }
-      : account,
-  );
+  const reported = app.daemon.services.accounts.find((account) => account.id === "claude-work");
+  if (!reported) throw new Error("missing the Work account");
+  reported.quota.windows["five_hour"] = { usedPercent: 47, resetsAt: null };
   await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
   await waitFor(async () =>

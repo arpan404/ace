@@ -50,15 +50,15 @@ export function quotaWindowLabel(name: string): string {
 
 /** What the accounts screen and pickers show for one `accounts.list` entry. */
 export function accountView(summary: Summary): AccountView {
-  const windows = Object.entries(summary.quota.windows)
-    .map(([id, window]) => ({ id, ...classify(id), ...window }))
+  const ranked: (QuotaWindowView & { rank: number })[] = [];
+  for (const [id, window] of Object.entries(summary.quota.windows)) {
+    const { label, rank } = classify(id);
+    const usedPercent = Math.round(Math.min(100, Math.max(0, window.usedPercent)));
+    ranked.push({ id, label, rank, usedPercent, resetsAt: window.resetsAt });
+  }
+  const windows = ranked
     .toSorted((a, b) => a.rank - b.rank || a.label.localeCompare(b.label))
-    .map(({ id, label, usedPercent, resetsAt }) => ({
-      id,
-      label,
-      usedPercent: Math.round(Math.min(100, Math.max(0, usedPercent))),
-      resetsAt,
-    }));
+    .map(({ rank: _rank, ...window }) => window);
   return {
     id: summary.id,
     provider: summary.provider,
