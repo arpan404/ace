@@ -65,7 +65,7 @@ export function DeviceScreen(props: {
       alt={`${props.name} screen`}
       draggable={false}
       className={cn(
-        "mx-auto block h-auto max-h-[62vh] w-auto max-w-full touch-none rounded-[22px] bg-black object-contain select-none shadow-[0_0_0_1px_var(--border)]",
+        "block h-auto max-h-full w-auto max-w-full touch-none rounded-[22px] bg-black object-contain select-none shadow-[0_0_0_1px_var(--border)]",
         props.interactive ? "cursor-pointer" : "cursor-default",
       )}
       onPointerDown={(event) => {

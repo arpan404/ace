@@ -28,6 +28,12 @@ async function openDevices() {
   return { app, panel };
 }
 
+/** The line under the device list: "<device> · <what it is doing>". */
+const statusLine = (section: HTMLElement) =>
+  within(section).getByText(
+    (_, element) => element?.tagName === "P" && /·/.test(element.textContent ?? ""),
+  ).textContent;
+
 test("devices stay off until enabled, then list the simulator and emulator", async () => {
   const { panel } = await openDevices();
 
@@ -64,7 +70,7 @@ test("an emulator boots, streams its screen, and takes keys and text once you ta
 
   const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
   await waitFor(() => expect(screenImage.getAttribute("src")).toMatch(/^blob:frame-/));
-  expect(within(pixel).getByText(/^Live · You're in control$/)).toBeTruthy();
+  expect(statusLine(pixel)).toBe("Pixel 9 · Live · You're in control");
 
   await userEvent.click(within(pixel).getByRole("button", { name: "Back" }));
   await userEvent.type(within(pixel).getByRole("textbox", { name: "Type on the device" }), "hello");
@@ -77,7 +83,7 @@ test("an emulator boots, streams its screen, and takes keys and text once you ta
     ]),
   );
 
-  await userEvent.click(within(pixel).getByRole("button", { name: "Release control" }));
+  await userEvent.click(within(pixel).getByRole("button", { name: /Hand back/ }));
   await waitFor(() =>
     expect(within(pixel).getByRole("button", { name: "Back" }).hasAttribute("disabled")).toBe(true),
   );
@@ -92,6 +98,52 @@ test("without control the live screen only watches: keys stay off", async () => 
 
   expect(await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" })).toBeTruthy();
   expect(within(iphone).getByRole("button", { name: "Home" }).hasAttribute("disabled")).toBe(true);
+
+  // The control bar over the screen hands the device to you, and back.
+  await userEvent.click(within(iphone).getByRole("button", { name: /Take control/ }));
+  await waitFor(() =>
+    expect(within(iphone).getByRole("button", { name: "Home" }).hasAttribute("disabled")).toBe(
+      false,
+    ),
+  );
+  expect(statusLine(iphone)).toBe("iPhone 16 Pro · Live · You're in control");
+});
+
+test("the device's ⋯ menu stops the live view and shuts the device down", async () => {
+  const { panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const iphone = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
+  await userEvent.click(within(iphone).getByRole("button", { name: "Start live view" }));
+  await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
+
+  await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Stop live view" }));
+  await waitFor(() =>
+    expect(within(iphone).queryByRole("img", { name: "iPhone 16 Pro screen" })).toBeNull(),
+  );
+
+  await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Shut down" }));
+  expect(await within(iphone).findByText("iPhone 16 Pro is off.")).toBeTruthy();
+});
+
+test("disabling devices is machine-wide, so it asks first", async () => {
+  const { panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  const iphone = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
+
+  await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Disable devices…" }));
+  const confirm = await screen.findByRole("dialog", { name: "Disable devices on this machine?" });
+  await userEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+  expect(within(panel).queryByRole("button", { name: "Enable devices" })).toBeNull();
+
+  await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Disable devices…" }));
+  await userEvent.click(
+    within(await screen.findByRole("dialog")).getByRole("button", { name: "Disable devices" }),
+  );
+  expect(await within(panel).findByRole("button", { name: "Enable devices" })).toBeTruthy();
 });
 
 test("the device's logs appear while the log section is open", async () => {

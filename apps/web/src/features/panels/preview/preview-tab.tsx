@@ -2,18 +2,17 @@ import {
   ArrowSquareOutIcon,
   ArrowsOutSimpleIcon,
   BrowserIcon,
-  HandIcon,
   LockSimpleIcon,
 } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { useThreadMeta } from "@ace/client-react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
+import { ControlBar, ControlToggle } from "@/components/control-toggle.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -188,9 +187,9 @@ function LiveBrowser(props: {
   const frame = (
     <BrowserFrame url={props.view.url}>
       <LiveFrame {...props} interactive={props.view.controller === "human"} active={!full} />
-      <div className="glass absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full p-1">
+      <ControlBar>
         <ControlButton control={control} view={props.view} />
-      </div>
+      </ControlBar>
     </BrowserFrame>
   );
   return (
@@ -283,23 +282,12 @@ function ControlStatus(props: { view: BrowserView }) {
 }
 
 function ControlButton(props: { control: ReturnType<typeof useControl>; view: BrowserView }) {
-  const human = props.view.controller === "human";
   return (
-    <Button
-      size="sm"
-      variant={human ? "secondary" : "primary"}
+    <ControlToggle
+      inControl={props.view.controller === "human"}
       disabled={props.control.busy}
-      onClick={props.control.toggle}
-      className="rounded-full"
-    >
-      {!human && <HandIcon aria-hidden size={14} />}
-      {human ? "Hand back" : "Take control"}
-      <Kbd
-        aria-hidden
-        keys={keymap.takeControl.keys}
-        className="ml-0.5 bg-[rgb(255_255_255/0.18)] text-current"
-      />
-    </Button>
+      onToggle={props.control.toggle}
+    />
   );
 }
 
