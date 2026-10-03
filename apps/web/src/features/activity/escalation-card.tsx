@@ -7,12 +7,29 @@ import { eventKey } from "./activity-state.tsx";
 import { ButtonKey, CardActions, CardError, CardFrame, useCardFocused } from "./card-frame.tsx";
 import { useFeedSource, type FeedEvent } from "./feed-source.ts";
 import { useProjectName } from "@/lib/projects.ts";
+import { InteractionCard } from "./interaction-card.tsx";
 
 /**
- * A Deck escalation: a lane that keeps failing review, a budget or a deadline. Approve takes
- * A, and O opens the deck.
+ * A deck's decision: its plan, a merge, or an escalation (a lane that keeps failing review, a
+ * budget or a deadline). Approve takes A, and O opens the deck. An agent's own question in a
+ * deck is answered in place, like any request.
  */
 export function EscalationCard(props: { event: FeedEvent }) {
+  const projectName = useProjectName();
+  const { interaction } = props.event;
+  if (interaction)
+    return (
+      <InteractionCard
+        threadId={interaction.threadId}
+        interactionId={interaction.interactionId}
+        cardKey={eventKey(props.event.id)}
+        context={`${projectName(props.event.project)} · ${props.event.context}`}
+      />
+    );
+  return <DecisionCard event={props.event} />;
+}
+
+function DecisionCard(props: { event: FeedEvent }) {
   const { event } = props;
   const key = eventKey(event.id);
   const focused = useCardFocused(key);
@@ -28,7 +45,13 @@ export function EscalationCard(props: { event: FeedEvent }) {
     setSending(true);
     setFailure(undefined);
     source.resolve(event, actionId).then(
-      () => toast.add({ title: `${label} · the deck carries on` }),
+      () =>
+        toast.add({
+          title:
+            actionId === "reject"
+              ? "Rejected · the deck keeps its course"
+              : `${label} · the deck carries on`,
+        }),
       (error: unknown) => {
         setSending(false);
         setFailure(
@@ -65,7 +88,6 @@ export function EscalationCard(props: { event: FeedEvent }) {
           <Button
             key={action.id}
             variant={action.primary ? "primary" : "secondary"}
-
             disabled={sending}
             onClick={() => take(action.id, action.label)}
           >
