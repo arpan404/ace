@@ -103,8 +103,8 @@ export class FakeBrowser {
     entry.frame = {
       sequence: (entry.frame?.sequence ?? 0) + 1,
       src: pairPhoneFrame(typed),
-      width: 1280,
-      height: 800,
+      width: 760,
+      height: 900,
     };
     this.changed();
   }

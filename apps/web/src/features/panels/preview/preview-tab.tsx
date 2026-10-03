@@ -60,6 +60,9 @@ function LiveBrowser(props: {
   const frame = (
     <BrowserFrame url={props.view.url}>
       <LiveFrame {...props} interactive={props.view.controller === "human"} />
+      <div className="glass absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full p-1">
+        <ControlButton control={control} view={props.view} />
+      </div>
     </BrowserFrame>
   );
   return (
@@ -67,7 +70,6 @@ function LiveBrowser(props: {
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <ControlStatus view={props.view} />
         <span className="flex-1" />
-        <ControlButton control={control} view={props.view} />
         <Button size="sm" onClick={() => setFull(true)}>
           <ArrowsOutSimpleIcon aria-hidden size={14} />
           Open full view
@@ -147,10 +149,15 @@ function ControlButton(props: { control: ReturnType<typeof useControl>; view: Br
       variant={human ? "secondary" : "primary"}
       disabled={props.control.busy}
       onClick={props.control.toggle}
+      className="rounded-full"
     >
       {!human && <HandIcon aria-hidden size={14} />}
       {human ? "Hand back" : "Take control"}
-      <Kbd keys={keymap.takeControl.keys} className="ml-0.5" />
+      <Kbd
+        aria-hidden
+        keys={keymap.takeControl.keys}
+        className="ml-0.5 bg-[rgb(255_255_255/0.18)] text-current"
+      />
     </Button>
   );
 }
