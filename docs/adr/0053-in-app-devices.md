@@ -43,6 +43,17 @@ subscriber and one pending recording frame. Real Android compatibility and
 performance measurements need run at merge; no probes are permitted during this
 implementation.
 
+Simulator capture rejects duplicate booted display names before selecting a
+window. Android capture binds dimensions and pixels to one verified transport
+and terminates when inventory changes that identity. Accessibility dump/read/remove
+transactions are serialized per device with a bounded queue.
+
+Approval transitions invalidate subscriptions and replace the log ring. They
+clear completed recording ownership and wait for pending recording exports.
+Capture startup is cancellable and owned until shutdown has awaited its native
+handle and termination. Cleanup attempts capture, logs and recordings independently
+and aggregates failures instead of publishing an idle state after partial cleanup.
+
 Device control messages are additive schema exports. Binary image packets use the
 screen protocol, with device state mapping device identity to stream session id.
 The same authenticated connection contract applies locally and over the encrypted
@@ -52,11 +63,15 @@ time through the existing browser MP4 encoder. The file-transfer artifact
 registry publishes the result and streams downloads. No recording body travels
 in a JSON control message.
 
-The portable client and reusable DOM panel live in `@ace/devices` client/view
-exports. This branch contains daemon and relay applications, so actual
-web/Electron mounting and an Expo native renderer remain host integration work.
-The portable client carries the same contract over local and paired relay
-connections without replaying input after reconnect.
+The portable device client is exposed by `@ace/client` as `DeviceClient`,
+`deviceTransport` and `authenticatedChannel`. Injected sockets and Noise keys
+support authenticated local and pinned relay connections without Node-only
+transport dependencies. `downloadArtifact` streams registered files into an
+awaited sink. The existing `@ace/devices/view` export remains available.
+
+The owner assigns all UI code to Claude agents. Web/Electron mounting and Expo
+rendering/gestures belong to that workstream; this PR contains no `apps/web`
+changes or mobile UI. The public client never replays input after reconnect.
 
 ## Agent parity
 

@@ -21,12 +21,12 @@ There is no provider login or credential handling here.
   live view, pointer gestures, text and hardware input, approval/delegation, app
   lifecycle, settings, logs and recording controls.
 
-The repository currently contains daemon and relay applications only. The DOM
-panel is ready for web/Electron hosts to mount; it is not mounted in a shipped
-client in this change. Expo can use the portable client, but needs a native image
-and gesture renderer. Browser and computer buttons call the host's existing
-panel navigation callbacks. The device panel itself does not create a second
-browser or desktop capture implementation.
+UI mounting belongs to the owner's Claude web workstream. This PR contains no
+`apps/web` changes or Expo renderer. `@ace/client` exposes `DeviceClient`,
+`deviceTransport`, `authenticatedChannel`, `ticketCredential` and
+`downloadArtifact` for those hosts. The transport accepts injected browser/native
+sockets, credentials, scheduling and Noise keys, and supports authenticated local
+or fingerprint-pinned relay channels. The existing DOM panel export is retained.
 
 ## Authorization and transport
 
@@ -44,7 +44,7 @@ clients open a dedicated channel with `hello.channel = "devices"`, then perform
 the existing paired-client authentication. Browser and screen have dedicated
 relay channels too. File downloads retain their existing channel and protocol.
 Frames are fragmented into at most 64 KiB relay records and serialized as whole
-packets so multiple streams cannot interleave. Reconnect restores viewing only;
+packets so multiple streams cannot interleave. Reconnect requires fresh viewing requests;
 it never replays input or grants control.
 
 The daemon composes browser, screen and devices toolkits before provider sessions
@@ -76,7 +76,7 @@ cost require live verification at merge. No emulator gRPC endpoint is assumed.
 iOS capture and semantic actions use the approved Simulator window through the
 macOS helper. Set `ACE_SCREEN_HELPER` and grant Screen Recording and Accessibility
 permissions. Open the selected Simulator window before starting capture. Its
-name must match uniquely. The screen manager currently owns one native capture,
+name must match uniquely, and no other booted Simulator may share that name. The screen manager currently owns one native capture,
 so another computer/Simulator capture may need to stop first. Timed gestures use
 the helper's target-point drag operation; direct platform calls without a window
 binding can use detected idb.

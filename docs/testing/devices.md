@@ -13,6 +13,13 @@ No fixture recording or provider prompt is needed for this plan.
   reject unsupported text instead of sending corrupted text.
 - Ownership tests reject another thread/agent, expiry, disconnect, takeover and
   revocation, including actions queued behind a blocked command or SDK lookup.
+- Identity tests reject duplicate booted Simulator names and Android serial
+  replacement during dimension lookup, live capture and native-cycle restart.
+- Approval tests clear old-thread tails/subscriptions/recordings and recheck
+  human thread grants before delivery.
+- Shutdown tests await delayed startup and real native termination, attempt logs
+  and recording cleanup after capture stop rejects, and preserve failure state.
+- Concurrent subscription tests prove unsubscribe stops every frame/log delivery.
 - Log tests bound tails, batches and oversized native lines, and stop the owned
   process when its consumer closes.
 - Stream tests exercise fragmented headers/payloads, independent slow viewers,
@@ -36,11 +43,13 @@ when the owner permits them.
    Android SDK Platform Tools and Emulator into `~/Library/Android/sdk`; leave
    adb off PATH to exercise absolute resolution. Put ffmpeg on the daemon PATH.
    Configure `ACE_WORKSPACE_ROOT` for recording artifacts.
-2. Mount `mountDevicePanel` in the web/Electron host with a `DeviceClient`
-   transport. For phone testing, mount a native renderer for the same portable
-   client and use a paired relay channel whose hello selects `devices`. Those
-   application hosts do not exist in this branch, so this mounting step is an
-   integration prerequisite, not a completed manual result.
+2. The Claude web agent mounts the device view in the existing web thread panel;
+   Electron shares that bundle. Construct `DeviceClient` and `deviceTransport`
+   from `@ace/client`, using the host's authenticated credential callback,
+   injected socket, request IDs and scheduler. Local hello selects `devices`;
+   paired phone transport pins the daemon fingerprint over the encrypted relay.
+   Expo native rendering and scaled gestures remain Claude-owned UI work. Test
+   those hosts once that workstream lands; they are not claimed as delivered here.
 3. Refresh inventory. Remove one SDK temporarily and confirm the other platform
    still appears alongside a typed install hint. With both absent, confirm a
    typed SDK error. Restore SDKs. Check offline and unauthorized adb transports
@@ -92,8 +101,16 @@ also need an explicitly selected, initially shut down device through
 requires macOS, `ACE_DEVICE_GESTURE_LIVE=1` and helper permissions. These tests
 operate only on the named device or the dedicated test window.
 
+`video.live.process.test.ts` skips unless `ACE_DEVICE_VIDEO_LIVE=1`. With
+ffmpeg and ffprobe available, it generates its own RGB pixels, encodes valid JPEGs,
+exports MP4 and checks decoded colors, presentation times and duration. No captured
+fixtures or provider sessions are involved.
+
 When benchmark execution is permitted, record `packages/devices/bench/frames.ts`
 and `packages/mcp-server/bench/credential-redaction.ts` output, including peak RSS.
+`packages/devices/bench/video-admission.ts` compares binary and base64 admission;
+`packages/client/bench/device-channel.ts` measures authenticated relay round trips.
+Numbers remain unmeasured under the owner's no-execution rule.
 For native capture, measure CPU, RSS, frame latency and bytes per changed frame
 over a static interval, scrolling, rotation, two viewers and a blocked viewer.
 Compare the chosen H.264 path to emulator gRPC on the installed emulator before
