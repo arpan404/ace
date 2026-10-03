@@ -1,3 +1,6 @@
+// TODO(client-gaps): feat/client-protocol-gaps makes settle, snooze, pin, read state and rename
+// daemon-owned thread organization (ADR 0052). Until then they live on this device, in the
+// injected storage; this hook is the one seam Home reads them through.
 import { useCallback, useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 import {

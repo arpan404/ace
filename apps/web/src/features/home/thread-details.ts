@@ -1,8 +1,10 @@
-// TODO(train-2): wire to protocol when merged. The thread list entry on main carries no git or
-// machine facts, so the card's branch, PR, worktree, machine and diff come from this source.
-// Today it holds the fake daemon's Home list; components depend only on `ThreadDetailsSource`.
+// TODO(client-gaps): feat/client-protocol-gaps projects branch, PR, worktree, machine and diff
+// onto the thread list entry. Until then the card's third line comes from this source: the fake
+// daemon's Home list in fake mode, nothing against a real daemon. Components depend only on
+// `useThreadDetails`.
 
 import type { ThreadDetails } from "@ace/ui-core";
+import { useDaemonConnection } from "@/boot/connection.tsx";
 
 export interface ThreadDetailsSource {
   details(threadId: string): ThreadDetails | undefined;
@@ -44,5 +46,6 @@ export const threadDetailsSource: ThreadDetailsSource = {
 };
 
 export function useThreadDetails(threadId: string): ThreadDetails | undefined {
-  return threadDetailsSource.details(threadId);
+  const fake = useDaemonConnection().mode === "fake";
+  return fake ? threadDetailsSource.details(threadId) : undefined;
 }

@@ -1,9 +1,11 @@
-// TODO(train-2): wire to protocol when merged. Mentions, CI and pull-request events (forge,
-// ADR 0016) and Deck escalations (ADR 0017) have no daemon wire messages on main yet, so the
-// feed is served by an in-memory source with realistic content. Components depend only on
-// `FeedSource`; swapping in the daemon changes this file alone.
+// TODO(client-gaps): feat/client-protocol-gaps. Mentions, CI and pull-request events (forge,
+// ADR 0016) and Deck escalations (ADR 0017) have no daemon wire messages on main yet. Fake mode
+// serves an in-memory feed with realistic content; a real daemon's feed is empty (its open
+// requests still come from the live interaction store). Components depend only on `FeedSource`;
+// swapping in the daemon changes this file alone.
 import type { Client } from "@ace/client";
 import { useClient } from "@ace/client-react";
+import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useSyncExternalStore } from "react";
 
 export type FeedKind = "escalation" | "mention" | "ci" | "pr";
@@ -128,9 +130,10 @@ const sources = new WeakMap<Client, FeedSource>();
 
 export function useFeedSource(): FeedSource {
   const client = useClient();
+  const fake = useDaemonConnection().mode === "fake";
   let source = sources.get(client);
   if (!source) {
-    source = fakeFeedSource();
+    source = fake ? fakeFeedSource() : memoryFeedSource([]);
     sources.set(client, source);
   }
   return source;

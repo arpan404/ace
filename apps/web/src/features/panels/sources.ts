@@ -1,4 +1,4 @@
-// TODO(train-2): wire to protocol when merged. The daemon's terminal (`@ace/terminal`),
+// TODO(client-gaps): feat/client-protocol-gaps adds the client messages. The daemon's terminal (`@ace/terminal`),
 // browser (`@ace/browser`) and preview (`@ace/preview`) services have no client wire messages
 // on main yet. These interfaces follow their shapes (`TerminalEvent`, `BrowserState`,
 // `BrowserFrame`, `BrowserInput`, `PreviewDescriptor`), so wiring them is a change to this

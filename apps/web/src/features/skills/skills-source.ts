@@ -1,4 +1,5 @@
-// TODO(train-2): wire to protocol when merged
+// TODO(client-gaps): feat/client-protocol-gaps. Fake mode only; a real daemon reports
+// this feature unavailable.
 /*
  * The Skills catalog: skills, plugins (plugins service) and slash commands (command library,
  * #46). None is readable over the wire on this branch, so the catalog comes from the fake

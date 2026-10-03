@@ -1,7 +1,9 @@
-// TODO(train-2): wire to protocol when merged
+// TODO(client-gaps): feat/client-protocol-gaps. Fake mode only; a real daemon reports
+// this feature unavailable.
 /*
- * Files changed across threads, plus file transfer (#44: files.request download/upload).
- * Neither is on the wire on this branch, so both use the fake backend in fake mode.
+ * Files changed across threads, plus downloads and uploads. The list needs per-thread workspace
+ * details, and transfers need files.request's binary channels, which @ace/client can't carry
+ * yet; both use the fake backend in fake mode.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { UnavailableError, useFakeBackend, type FakeBackend } from "@/boot/fake-backend.ts";

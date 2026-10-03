@@ -1,10 +1,12 @@
-// TODO(train-2): wire to protocol when merged. ADR 0015's automation.put / remove / run /
-// list / inbox envelopes are schema-only on main (`@ace/protocol` automations.ts) and not yet
-// routed through the daemon wire or @ace/client, so this file serves them from memory with
-// the approved design's content. Components depend only on `AutomationsSource`; wiring the
-// daemon replaces `memoryAutomationsSource` and `useAutomationsSource` here and nothing else.
+// TODO(client-gaps): feat/client-protocol-gaps routes ADR 0015's automation.put / remove / run /
+// list / inbox through the daemon wire; on main they are schema-only. Fake mode (dev:fake and
+// tests) serves them from memory with the approved design's content; a real daemon gets an
+// empty list and writes that report the service unavailable. Components depend only on
+// `AutomationsSource`; wiring the daemon replaces `useAutomationsSource` here and nothing else.
 import type { Client } from "@ace/client";
 import { useClient } from "@ace/client-react";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { UnavailableError } from "@/boot/fake-backend.ts";
 import { Automation, type AutomationRun } from "@ace/protocol";
 import { seedAutomations, seedRuns } from "./automations-seed.ts";
 import { localTimeZone, scheduleToPreset, weekdays, type SchedulePreset } from "./schedule.ts";
@@ -159,12 +161,26 @@ const sources = new WeakMap<Client, AutomationsSource>();
 
 export function useAutomationsSource(): AutomationsSource {
   const client = useClient();
+  const fake = useDaemonConnection().mode === "fake";
   let source = sources.get(client);
   if (!source) {
-    source = fakeAutomationsSource();
+    source = fake ? fakeAutomationsSource() : unavailableAutomationsSource();
     sources.set(client, source);
   }
   return source;
+}
+
+/** A real daemon on main: nothing listed, and every write says the service isn't there. */
+function unavailableAutomationsSource(): AutomationsSource {
+  const no = () => Promise.reject(new UnavailableError("Automations"));
+  return {
+    list: async () => [],
+    inbox: async () => [],
+    put: no,
+    remove: no,
+    run: no,
+    onChange: () => () => {},
+  };
 }
 
 /** The in-memory stand-in, seeded with the design's automations and runs at the wall clock. */
