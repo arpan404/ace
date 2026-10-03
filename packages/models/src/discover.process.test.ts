@@ -386,3 +386,39 @@ test("large normalized model metadata cannot inflate picker wire pages past thei
     "8 KiB",
   );
 });
+
+test("Claude SDK discovery stops its synthetic CLI after success, malformed metadata and cancellation", async () => {
+  for (const mode of ["success", "malformed", "cancel"] as const) {
+    const { config } = await launch("claude", {
+      models:
+        mode === "malformed"
+          ? [{ value: 42 }]
+          : [{ value: "sonnet", displayName: "Sonnet", future: 42 }],
+    });
+    const controller = new AbortController();
+    const started = deferred<void>();
+    let exited: Promise<unknown> | undefined;
+    const discovery = createModelDiscovery({
+      spawn(options) {
+        expect(options.command).toBe(config.executable);
+        expect(options.args).toEqual(
+          expect.arrayContaining(["--setting-sources", "", "--strict-mcp-config"]),
+        );
+        const proc = spawnSupervised(options);
+        exited = proc.exited;
+        started.resolve();
+        return proc;
+      },
+    });
+    const rows = discovery(
+      mode === "cancel" ? { ...config, env: { FAKE_PROVIDER: "hang" } } : config,
+      controller.signal,
+    );
+    await started.promise;
+    if (mode === "cancel") controller.abort();
+    if (mode === "success") expect((await rows)[0]?.id).toBe("sonnet");
+    else await expect(rows).rejects.toThrow();
+    expect(exited).toBeDefined();
+    await exited;
+  }
+});

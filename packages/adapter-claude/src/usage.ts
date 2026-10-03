@@ -18,7 +18,10 @@ export function childUsage(state: ClaudeState, agent: Key, id: string, message: 
   if (agent === state.root || !message["usage"]) return;
   const usage = object(message["usage"]);
   const next = {
-    inputTokens: number(usage["input_tokens"]),
+    inputTokens:
+      number(usage["input_tokens"]) +
+      number(usage["cache_read_input_tokens"]) +
+      number(usage["cache_creation_input_tokens"]),
     outputTokens: number(usage["output_tokens"]),
     cachedInputTokens: number(usage["cache_read_input_tokens"]),
   };
@@ -37,5 +40,11 @@ export function childUsage(state: ClaudeState, agent: Key, id: string, message: 
   };
   messages.set(id, next);
   state.childUsage.set(agent, { messages, total });
-  state.emit({ type: "usage", agent, ...total });
+  state.emit({
+    type: "usage",
+    agent,
+    ...total,
+    counterMode: "cumulative",
+    counterKey: state.key("child-usage", agent),
+  });
 }

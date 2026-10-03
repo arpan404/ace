@@ -11,14 +11,18 @@ export function spawnSdkProcess(
     onStderr(line: string): void;
     onWire(dir: "send" | "recv", data: unknown): void;
     onProcess(process: SupervisedProcess): void;
+    spawn?: typeof spawnSupervised;
+    maxOutputBytes?: number;
   },
 ): SpawnedProcess {
-  const process = spawnSupervised({
+  const process = (hooks.spawn ?? spawnSupervised)({
     command: options.command,
     args: options.args,
     ...(options.cwd ? { cwd: options.cwd } : {}),
     env: options.env,
     name: "claude",
+    maxLineBytes: 16 * 1024 * 1024,
+    ...(hooks.maxOutputBytes === undefined ? {} : { maxOutputBytes: hooks.maxOutputBytes }),
   });
   const stdout = new PassThrough();
   const events = new EventEmitter();
@@ -55,13 +59,20 @@ export function spawnSdkProcess(
       ].includes(type)
     )
       hooks.onWire("recv", data);
-    stdout.write(`${line}\n`);
+    if (!stdout.write(`${line}\n`)) process.stdout.pause();
   });
+  stdout.on("drain", () => process.stdout.resume());
   process.stderr.on("line", hooks.onStderr);
   let outbound = "";
   const stdin = new Writable({
     write(chunk: Buffer | string, _encoding, callback) {
       outbound += String(chunk);
+      if (Buffer.byteLength(outbound) > 16 * 1024 * 1024) {
+        callback(new Error("Claude outbound frame capacity reached"));
+        outbound = "";
+        void process.stop({ graceMs: 0 });
+        return;
+      }
       let newline: number;
       while ((newline = outbound.indexOf("\n")) >= 0) {
         const line = outbound.slice(0, newline);

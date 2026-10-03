@@ -11,12 +11,42 @@ const write = (data: unknown) => console.log(JSON.stringify(data));
 const lines = createInterface({ input: process.stdin });
 let id = 0;
 let childText = false;
+const configIndex = process.argv.indexOf("--mcp-config");
+let mcp: Record<string, unknown> =
+  configIndex >= 0
+    ? object(object(JSON.parse(process.argv[configIndex + 1] ?? "{}"))["mcpServers"])
+    : {};
+const ownedServers = [
+  {
+    name: "project-tools",
+    source: "project",
+    status: "connected",
+    tools: [{ name: "read" }],
+    future: 42,
+  },
+  { name: "plugin-tools", source: "plugin", status: "connected" },
+];
 for await (const line of lines) {
   const data = object(JSON.parse(line) as unknown);
   if (data["type"] === "control_request") {
     const request = object(data["request"]);
     if (request["subtype"] === "initialize") childText = request["forwardSubagentText"] === true;
     write({ type: "system", subtype: "fake_control", request, argv: process.argv });
+    if (
+      request["subtype"] === "stop_task" &&
+      request["task_id"] === process.env["ACE_FAKE_STOP_TASK"]
+    ) {
+      write({
+        type: "control_response",
+        response: {
+          subtype: "error",
+          request_id: data["request_id"],
+          error: "Synthetic stop failure",
+        },
+      });
+      continue;
+    }
+    if (request["subtype"] === "mcp_set_servers") mcp = object(request["servers"]);
     write({
       type: "control_response",
       response: {
@@ -27,7 +57,25 @@ for await (const line of lines) {
             ? { commands: [], agents: [], models: [] }
             : request["subtype"] === "interrupt"
               ? { still_queued: [] }
-              : {},
+              : request["subtype"] === "mcp_status"
+                ? {
+                    mcpServers: [
+                      ...ownedServers,
+                      ...Object.keys(mcp).map((name) => ({
+                        name,
+                        source: "dynamic",
+                        status: "connected",
+                      })),
+                    ],
+                  }
+                : request["subtype"] === "mcp_set_servers"
+                  ? {
+                      added: Object.keys(mcp),
+                      removed: [],
+                      errors: "broken" in mcp ? { broken: "connection refused" } : {},
+                      future: "retained",
+                    }
+                  : {},
       },
     });
     if (request["subtype"] === "interrupt")
@@ -133,7 +181,43 @@ for await (const line of lines) {
         is_backgrounded: true,
       });
     }
-    if (["approval", "question", "plan", "cancel"].includes(text)) {
+    if (["form", "url", "elicitation-cancel", "dialog"].includes(text)) {
+      const requestId = `request-${++id}`;
+      write({
+        type: "control_request",
+        request_id: requestId,
+        request:
+          text === "dialog"
+            ? { subtype: "request_user_dialog", dialog_kind: "future-kind", payload: {} }
+            : {
+                subtype: "elicitation",
+                mcp_server_name: "project-tools",
+                message: "Pick a color",
+                mode: text === "url" ? "url" : "form",
+                ...(text === "url"
+                  ? { url: "https://example.test/consent", elicitation_id: "url-ask" }
+                  : {
+                      requested_schema: {
+                        type: "object",
+                        properties: { color: { type: "string" } },
+                      },
+                    }),
+                title: "Consent",
+                description: "From project MCP",
+              },
+      });
+      if (text === "elicitation-cancel")
+        write({ type: "control_cancel_request", request_id: requestId });
+    } else if (
+      [
+        "approval",
+        "permission-meta",
+        "permission-suppressed",
+        "question",
+        "plan",
+        "cancel",
+      ].includes(text)
+    ) {
       const tool =
         text === "question" ? "AskUserQuestion" : text === "plan" ? "ExitPlanMode" : "Edit";
       const input =
@@ -153,7 +237,25 @@ for await (const line of lines) {
           tool_use_id: `tool-${id}`,
           permission_suggestions: [
             { type: "setMode", mode: "acceptEdits", destination: "session" },
+            ...(text.startsWith("permission-")
+              ? [
+                  {
+                    type: "addDirectories",
+                    directories: ["/tmp/tools"],
+                    destination: "projectSettings",
+                  },
+                ]
+              : []),
           ],
+          ...(text.startsWith("permission-")
+            ? {
+                title: "Claude wants to edit fake.ts",
+                description: "Write access",
+                default_to_no: true,
+                suppress_always_allow_rule: text === "permission-suppressed",
+                mcp_server: { name: "project-tools", source: "project" },
+              }
+            : {}),
           requires_user_interaction: tool !== "Edit",
         },
       });

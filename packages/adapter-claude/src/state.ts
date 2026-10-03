@@ -19,6 +19,8 @@ export class ClaudeState {
   cwd = "";
   processId = "";
   sessionState: string | undefined;
+  retryOn: "rate_limit" | "network" | "upstream" | undefined;
+  rateBlocks = new Set<string>();
   errors = new Map<Key, { kind: "provider" | "auth" | "quota" | "network"; message: string }>();
   runTrigger: RunTrigger = "unknown";
   wakeUntil: number | undefined;
