@@ -114,16 +114,19 @@ and reads again after a reconnect. Live state still comes only from `@ace/client
 
 Wired on the wire in every mode: accounts and usage (`accounts.list`, `usage.series`), search
 (`search.query`), models (`models.list`, `models.refresh`), settings (`settings.subscribe` /
-`settings.set`), slash commands (`commands.list`), mentions and uploads (`context.request`). In
+`settings.set`, `lib/daemon-setting.ts` for one key), slash commands (`commands.list`), mentions
+and uploads (`context.request`, with a draft scope before New thread's first send), thread
+organization and transitions (rename, pin, read, settle, snooze, archive, delete, fork, switch;
+`lib/daemon-command.ts` turns refusals into sentences), card details (each entry's `details`),
+New thread's branches (`branches.list`) and `thread.create` options, and the server queue with
+its recovery and limit controls (`queue.get`, `queue.*`, `thread.limit`; `lib/server-queue.ts`). In
 fake mode `@ace/fake-daemon` serves the same messages from its catalogs
 (`packages/fake-daemon/src/services/`), so a feature has one code path.
 
 What `main` cannot carry yet sits behind one adapter per feature marked
 `// TODO(client-gaps): feat/client-protocol-gaps`. In fake mode it serves the fake daemon's
 stand-in; against a real daemon it reports the feature empty or unavailable, never fixture data.
-Today: workspace and forge actions, scripts and editors, thread organization (rename, fork,
-settle, snooze, pin, delete, unqueue), card details, New thread's branches and pre-thread
-mentions, account details and the run-out policy, settings keys outside the protocol schema,
+Today: workspace and forge actions, scripts and editors, account details and the run-out policy, settings keys outside the protocol schema,
 machines, devices and pairing, ACP agents added by command, automations, the Activity feed,
 Deck runs, skills and plugins, changed files and transfers, and the terminal, browser and
 preview panels. When the backend lands, wiring a feature changes only its adapter.
