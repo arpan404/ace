@@ -24,14 +24,25 @@ function machine() {
     maintenance: false,
   };
   class FakeChild implements DaemonProcess {
-    exit: ((code: number | null, signal: NodeJS.Signals | null) => void) | undefined;
+    exit:
+      | ((code: number | null, signal: NodeJS.Signals | null, error?: string) => void)
+      | undefined;
     alive = true;
+    /** A process that never started: signals do nothing and no exit ever follows. */
+    unstarted = false;
     kill(signal: NodeJS.Signals) {
       signals.push(signal);
+      if (this.unstarted) return;
       if (signal === "SIGKILL" || state.healthy) this.die(null, signal);
     }
-    onExit(listener: (code: number | null, signal: NodeJS.Signals | null) => void) {
+    onExit(listener: (code: number | null, signal: NodeJS.Signals | null, error?: string) => void) {
       this.exit = listener;
+    }
+    /** Node's `error` for a binary that could not be executed (ENOENT, EACCES). */
+    failToStart(message: string) {
+      this.unstarted = true;
+      this.alive = false;
+      this.exit?.(null, null, message);
     }
     die(code: number | null, signal: NodeJS.Signals | null = null) {
       if (!this.alive) return;
@@ -340,6 +351,72 @@ describe("daemon supervisor", () => {
     await expect(reachable).rejects.toThrow("The daemon exited (code 1)");
     // A client that asks again during the crash restart is told at once, not left waiting.
     await expect(supervisor.reachable()).rejects.toThrow("The daemon exited");
+  });
+
+  it("reports a daemon it cannot spawn at all as failed, so the page stops waiting", async () => {
+    const m = machine();
+    m.ports.spawn = () => {
+      throw new Error("The bundled Node runtime is missing (/app/runtime/bin/node)");
+    };
+    const supervisor = new DaemonSupervisor(m.ports);
+    const reachable = supervisor.reachable();
+    await supervisor.start();
+    expect(supervisor.current()).toMatchObject({
+      state: "failed",
+      message: expect.stringContaining("runtime is missing"),
+    });
+    await expect(reachable).rejects.toThrow("runtime is missing");
+    await m.advance(60_000);
+    expect(supervisor.current().state).toBe("failed");
+  });
+
+  it("treats a daemon binary that cannot be executed as a failed start, not a hang", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    const reachable = supervisor.reachable();
+    await supervisor.start();
+    m.children[0]?.failToStart("spawn /app/runtime/bin/node ENOENT");
+    await expect(reachable).rejects.toThrow("ENOENT");
+    // Retrying cannot help, so nothing respawns until the person repairs.
+    await m.advance(60_000);
+    expect(m.children).toHaveLength(1);
+    expect(supervisor.current().state).toBe("failed");
+  });
+
+  it("quits promptly after a spawn failure", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.children[0]?.failToStart("spawn EACCES");
+    let stopped = false;
+    void supervisor.stop().then(() => (stopped = true));
+    await m.advance(0);
+    expect(stopped).toBe(true);
+    expect(supervisor.current().state).toBe("stopped");
+  });
+
+  it("quits even when a killed daemon never reports its exit", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports, { stopGraceMs: 1_000 });
+    await supervisor.start();
+    const child = m.children[0];
+    if (child) child.unstarted = true; // signals change nothing and no exit arrives
+    let stopped = false;
+    void supervisor.stop().then(() => (stopped = true));
+    await m.advance(2_000);
+    expect(stopped).toBe(true);
+    expect(m.signals).toEqual(["SIGTERM", "SIGKILL"]);
+  });
+
+  it("does not start a daemon once quit was asked, even if the start was still on its way", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.stop();
+    // The app's start was waiting on the login-shell PATH and arrives after the quit.
+    await supervisor.start();
+    await m.advance(60_000);
+    expect(m.children).toHaveLength(0);
+    expect(supervisor.current().state).toBe("stopped");
   });
 
   it("drains before an update and reopens admission when work is still running", async () => {

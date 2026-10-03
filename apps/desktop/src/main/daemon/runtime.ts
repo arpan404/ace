@@ -20,6 +20,7 @@ export interface RuntimeOptions {
   version: string;
   resources: DaemonResources;
   env: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
   log(level: "info" | "warn" | "error", message: string): void;
 }
 
@@ -42,11 +43,21 @@ export class DaemonRuntime {
       packaged: options.packaged,
       daemonEntry: options.resources.entry,
       readToken: (path) => readFileSync(path, "utf8"),
+      platform: options.platform ?? process.platform,
     });
     this.path = loginShellPath(options.env);
     const source =
       this.target.kind === "remote" ? "remote" : this.target.kind === "fake" ? "fake" : "external";
-    this.status = { state: "starting", source, restarts: 0, paused: false };
+    this.status =
+      this.target.kind === "remote-only"
+        ? {
+            state: "unavailable",
+            source: "remote",
+            restarts: 0,
+            paused: false,
+            message: this.target.reason,
+          }
+        : { state: "starting", source, restarts: 0, paused: false };
     if (this.target.kind === "managed" || this.target.kind === "attach") {
       const home = this.target.home;
       this.supervisor = new DaemonSupervisor(
@@ -107,6 +118,7 @@ export class DaemonRuntime {
    */
   async connection(): Promise<DaemonConnection> {
     if (this.target.kind === "fake") return { mode: "fake" };
+    if (this.target.kind === "remote-only") throw new Error(this.target.reason);
     if (this.target.kind === "remote")
       return { mode: "daemon", url: this.target.url, token: this.target.token };
     if (!this.supervisor) throw new Error("No local daemon for this target");

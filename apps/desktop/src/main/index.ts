@@ -208,7 +208,13 @@ function main(): void {
 
   void app.whenReady().then(async () => {
     const devUrl = process.env.ACE_DESKTOP_RENDERER_URL;
-    const remote = runtime.target.kind === "remote" ? [new URL(runtime.target.url).origin] : [];
+    // A remote-only app lets the person enter a daemon, which must use TLS (`wss:`).
+    const remote =
+      runtime.target.kind === "remote"
+        ? [new URL(runtime.target.url).origin]
+        : runtime.target.kind === "remote-only"
+          ? ["wss:"]
+          : [];
     if (devUrl && !app.isPackaged) {
       applyDevCsp(devUrl, remote);
       rendererUrl = devUrl;

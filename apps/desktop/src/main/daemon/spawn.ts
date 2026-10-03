@@ -91,13 +91,28 @@ export function spawnDaemon(options: SpawnOptions): DaemonProcess {
       for (const line of lines) options.onOutput(line);
     });
   }
-  child.on("error", (error) => options.onOutput(`spawn failed: ${error.message}`));
+  // A process that never started emits `error` and `close`, but no `exit`.
+  type Exit = [code: number | null, signal: NodeJS.Signals | null, error?: string];
+  let result: Exit | undefined;
+  const listeners = new Set<(...exit: Exit) => void>();
+  const finish = (...exit: Exit) => {
+    if (result) return;
+    result = exit;
+    for (const listener of listeners) listener(...exit);
+    listeners.clear();
+  };
+  child.once("exit", (code, signal) => finish(code, signal));
+  child.on("error", (error) => {
+    options.onOutput(`spawn failed: ${error.message}`);
+    if (child.pid === undefined) finish(null, null, error.message);
+  });
   return {
     kill: (signal) => {
       if (child.exitCode === null && child.signalCode === null) child.kill(signal);
     },
     onExit: (listener) => {
-      child.once("exit", listener);
+      if (result) listener(...result);
+      else listeners.add(listener);
     },
   };
 }

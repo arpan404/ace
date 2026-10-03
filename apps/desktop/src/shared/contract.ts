@@ -31,6 +31,8 @@ export const DaemonState = z.enum([
   "failed",
   "stopping",
   "stopped",
+  /** No local daemon on this platform and no remote one configured. */
+  "unavailable",
 ]);
 export type DaemonState = z.infer<typeof DaemonState>;
 export const DaemonStatus = z.object({

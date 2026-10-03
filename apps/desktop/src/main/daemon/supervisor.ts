@@ -4,7 +4,13 @@ import type { LocalDaemon } from "./probe.ts";
 /** A daemon child process this app started. */
 export interface DaemonProcess {
   kill(signal: NodeJS.Signals): void;
-  onExit(listener: (code: number | null, signal: NodeJS.Signals | null) => void): void;
+  /**
+   * Called once when the process is gone. `error` is set when it never started (ENOENT,
+   * EACCES): Node then emits `error` but no `exit`.
+   */
+  onExit(
+    listener: (code: number | null, signal: NodeJS.Signals | null, error?: string) => void,
+  ): void;
 }
 
 export interface SupervisorPorts {
@@ -86,6 +92,8 @@ export class DaemonSupervisor {
   private runningSince = 0;
   /** False once the app asked to stop: nothing may spawn or restart after that. */
   private wanted = false;
+  /** `stop()` is final: the app is quitting, so later starts and restarts do nothing. */
+  private closed = false;
   private generation = 0;
   private transitions: Promise<void> = Promise.resolve();
   /** The one pending timer: a crash restart or the next health check. */
@@ -141,11 +149,13 @@ export class DaemonSupervisor {
   }
 
   start(): Promise<void> {
+    if (this.closed) return Promise.resolve();
     return this.transition(true, (generation) => this.bringUp(generation));
   }
 
   /** User-requested restart (the "repair" action): forgets earlier crashes. */
   async restart(): Promise<DaemonStatus> {
+    if (this.closed) return this.status;
     await this.transition(true, async (generation) => {
       this.crashes = 0;
       // A repair starts fresh: the last crash no longer describes what happens next.
@@ -157,8 +167,12 @@ export class DaemonSupervisor {
     return this.status;
   }
 
-  /** Stops the daemon this app started (never another one) and anything pending. */
+  /**
+   * Stops the daemon this app started (never another one) and anything pending. Final: a
+   * start that was still on its way (the login-shell PATH lookup) does nothing afterwards.
+   */
   stop(): Promise<void> {
+    this.closed = true;
     return this.transition(false, async () => {
       this.update({ state: "stopping" });
       await this.stopChild();
@@ -237,7 +251,21 @@ export class DaemonSupervisor {
         if (found) return this.running(found, "external");
       }
     }
-    this.awaitChild(generation, this.spawnChild(spawn));
+    let spawned: Child;
+    try {
+      spawned = this.spawnChild(spawn);
+    } catch (error) {
+      // Nothing to run (no bundled runtime, no entry): retrying cannot help.
+      this.couldNotStart(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    this.awaitChild(generation, spawned);
+  }
+
+  private couldNotStart(reason: string): void {
+    this.daemon = undefined;
+    this.ports.log("error", `The daemon could not start: ${reason}`);
+    this.update({ state: "failed", message: `The daemon could not start: ${reason}` });
   }
 
   private spawnChild(spawn: () => DaemonProcess): Child {
@@ -245,10 +273,11 @@ export class DaemonSupervisor {
     const exit = Promise.withResolvers<void>();
     const child: Child = { process: handle, exited: exit.promise, done: false, intentional: false };
     this.child = child;
-    handle.onExit((code, signal) => {
+    handle.onExit((code, signal, error) => {
+      if (child.done) return;
       child.done = true;
       exit.resolve();
-      this.onChildExit(child, code, signal);
+      this.onChildExit(child, code, signal, error);
     });
     return child;
   }
@@ -265,10 +294,20 @@ export class DaemonSupervisor {
     });
   }
 
-  private onChildExit(child: Child, code: number | null, signal: string | null): void {
+  private onChildExit(
+    child: Child,
+    code: number | null,
+    signal: string | null,
+    error: string | undefined,
+  ): void {
     if (this.child === child) this.child = undefined;
     // Stops this app asked for (restart, quit) are not crashes.
     if (child.intentional || !this.wanted) return;
+    if (error !== undefined) {
+      this.clearTimer();
+      this.couldNotStart(error);
+      return;
+    }
     this.daemon = undefined;
     this.clearTimer();
     if (this.runningSince && this.ports.now() - this.runningSince >= this.options.stableMs)
@@ -360,7 +399,24 @@ export class DaemonSupervisor {
     });
     await Promise.race([child.exited, forced]);
     cancel?.();
-    await child.exited;
+    if (child.done) return;
+    // SIGKILL cannot be ignored, but a process that never reports its exit must not hold
+    // up repair or quit forever.
+    let gaveUp = false;
+    let cancelWait: (() => void) | undefined;
+    const bound = new Promise<void>((resolve) => {
+      cancelWait = this.ports.timers.set(this.options.stopGraceMs, () => {
+        gaveUp = true;
+        resolve();
+      });
+    });
+    await Promise.race([child.exited, bound]);
+    cancelWait?.();
+    if (gaveUp && !child.done) {
+      this.ports.log("error", "The daemon did not report its exit after SIGKILL");
+      child.done = true;
+      if (this.child === child) this.child = undefined;
+    }
   }
 
   private clearTimer(): void {
