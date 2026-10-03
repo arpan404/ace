@@ -52,6 +52,17 @@ transform and opacity only.
 - Loading: `ListSkeleton`, `SkeletonText` and `LoadingRegion` from `components/ui/skeleton.tsx`,
   shaped like the content. Never show an empty state before the data has arrived
   (`useSidebarLoaded()` for the thread list, `query.data === undefined` for reads).
+- Boot: `index.html` paints a static, themed shell (`#boot`) before the script runs; the app
+  shell and the connection screen fade it out with `useDismissBootSplash()` (`lib/boot-splash.ts`).
+- Toasts stand clear of the composer: it registers with `useToastClearance` (`lib/toast-clearance.ts`).
+
+## Window sizes
+
+The widths the shell adapts at live in `lib/breakpoints.ts` (`usePhone`, `useSidebarInline`, ...),
+in line with Tailwind's `sm` and `md`. Below 640px the rail is a bottom tab bar (Home, Activity,
+Deck, More), the header folds its actions and ⋯ menu into one, and panels open as a sheet over the
+content. Below 768px the second sidebar is a sheet; below 1100px it steps aside while a right panel
+is open; below 1152px panels float over the content.
 
 ## Module boundaries
 
