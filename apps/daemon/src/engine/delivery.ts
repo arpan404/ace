@@ -31,11 +31,17 @@ export async function executeIntent(
     await actor.session.setModel(p.model);
     await actor.flush();
     const confirmed = repo.requireState(actor.id);
-    repo.store.atomic((db) => {
-      if (confirmed.rootKey)
-        actor.apply([{ type: "agent.linked", agent: confirmed.rootKey, model: p.model }]);
-      db.prepare("UPDATE engine_sessions SET model=? WHERE thread_id=?").run(p.model, actor.id);
-    });
+    try {
+      repo.store.atomic((db) => {
+        if (confirmed.rootKey)
+          actor.apply([{ type: "agent.linked", agent: confirmed.rootKey, model: p.model }]);
+        db.prepare("UPDATE engine_sessions SET model=? WHERE thread_id=?").run(p.model, actor.id);
+      });
+    } catch (error) {
+      // The outer transaction can fail after fact folding mutated the hot state.
+      repo.evict(actor.id);
+      throw error;
+    }
   } else if (p.type === "thread.mode.set") {
     if (!actor.session.setMode) throw new Error("Provider mode selection unavailable");
     await actor.session.setMode(p.mode);
