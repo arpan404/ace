@@ -153,6 +153,12 @@ export class IntentStore {
     ).get(id);
     return row ? header(row) : undefined;
   }
+  childResult(id: ThreadId): IntentHeader | undefined {
+    const row = this.sql(
+      `SELECT ${columns} FROM intents WHERE thread_id=? AND kind='thread.send' AND trigger='subagent_result' AND status IN ('pending','queued') ORDER BY position,id LIMIT 1`,
+    ).get(id);
+    return row ? header(row) : undefined;
+  }
   steerMessage(id: ThreadId): IntentHeader | undefined {
     const row = this.sql(
       `SELECT ${columns} FROM intents WHERE thread_id=? AND kind='thread.send' AND delivery='steer' AND status IN ('pending','queued') ORDER BY position,id LIMIT 1`,

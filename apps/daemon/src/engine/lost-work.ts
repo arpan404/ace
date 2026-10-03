@@ -9,6 +9,7 @@ export function lostWork(state: ThreadState, pendingNativeInputs = 0): string | 
   }
   let active = state.queueSources.provider > 0 || pendingNativeInputs > 0;
   for (const record of Object.values(state.agents)) {
+    if (record.externalStatus) continue;
     active ||= record.activeRun !== undefined || record.wakeUntil !== undefined;
     if (
       record.agent.origin === "root" ||

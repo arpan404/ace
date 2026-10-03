@@ -6,7 +6,7 @@ import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { Sessions } from "./sessions.ts";
 import type { ThreadTransitions } from "./transitions.ts";
 import type { Fact } from "@ace/core";
-import { executeIntent, DeliveryDeferred } from "./delivery.ts";
+import { executeIntent, DeliveryDeferred, DeliveryNotStarted } from "./delivery.ts";
 interface Dependencies {
   repo: EngineRepository;
   clock: EngineClock;
@@ -95,9 +95,10 @@ export class IntentDelivery {
       } else {
         // RPC failure cannot undo native consumption, nor prove nonconsumption.
         if (send && acknowledged) this.dependencies.transitions.delivered(actor.id);
-        if (editableSend && !acknowledged) this.dependencies.repo.queue.uncertain(intent.id);
+        const uncertain = editableSend && !acknowledged && !(error instanceof DeliveryNotStarted);
+        if (uncertain) this.dependencies.repo.queue.uncertain(intent.id);
         this.fail(intent, error instanceof Error ? error.message : String(error));
-        if (editableSend && !acknowledged)
+        if (uncertain)
           this.dependencies.repo.queue.set(
             actor.id,
             { paused: true, reason: "uncertain" },

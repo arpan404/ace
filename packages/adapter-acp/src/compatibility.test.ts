@@ -57,17 +57,24 @@ it("turns Antigravity interaction permissions into single choice questions", () 
     answers: { interaction_q: ["a"] },
   });
 });
-it.each([
-  "Usage Limit Reached\nDaily quota",
-  "Agent execution error: bad",
-  "connection lost after retry",
-])("fails Antigravity text errors: %s", (text) => {
+it("retains Antigravity usage limits after the turn ends", () => {
   const h = harness(antigravityQuirks);
   h.ready();
-  chunk(h, text);
+  chunk(h, "Usage Limit Reached\nDaily quota");
   end(h);
-  expect(h.state.status.state).toBe("failed");
+  expect(h.state.status).toEqual({ state: "limited" });
+  expect(Object.values(h.state.runs)).toContainEqual(expect.objectContaining({ state: "failed" }));
 });
+it.each(["Agent execution error: bad", "connection lost after retry"])(
+  "fails Antigravity text errors: %s",
+  (text) => {
+    const h = harness(antigravityQuirks);
+    h.ready();
+    chunk(h, text);
+    end(h);
+    expect(h.state.status.state).toBe("failed");
+  },
+);
 it("keeps Antigravity shells live after turn end and closes them from a later update", () => {
   const h = harness(antigravityQuirks);
   h.ready();

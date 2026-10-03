@@ -7,6 +7,7 @@ import type { AdapterRegistry } from "./registry.ts";
 import type { Sessions } from "./sessions.ts";
 
 export class DeliveryDeferred extends Error {}
+export class DeliveryNotStarted extends Error {}
 
 export async function executeIntent(
   actor: ThreadActor,
@@ -22,7 +23,11 @@ export async function executeIntent(
     if (p.type === "thread.fork") await transitions.freezeForkSource(p.threadId, actor.id);
     if ("context" in p && p.context && !prepare)
       throw new Error("Context preparation is unavailable");
-    await sessions.open(actor);
+    try {
+      await sessions.open(actor);
+    } catch (error) {
+      throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error));
+    }
     if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
     const capabilities =
       actor.effectiveCapabilities ??
@@ -107,7 +112,10 @@ export async function executeIntent(
     return;
   }
   if (!actor.session) {
-    if (p.type === "thread.interrupt") {
+    if (
+      p.type === "thread.interrupt" &&
+      (actor.lifetime ? !actor.lifetime.signal.aborted : !repo.requireState(actor.id).hasRun)
+    ) {
       if (actor.lifetime) actor.lifetime.abort();
       else actor.apply([{ type: "process.exited", deliberate: true }]);
       return;

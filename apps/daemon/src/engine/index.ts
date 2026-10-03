@@ -325,6 +325,12 @@ export class Engine {
   }
   async prepareCommand(command: Command): Promise<void> {
     await this.readyPromise;
+    if (
+      !["thread.create", "thread.send", "thread.resume", "queue.resume", "thread.limit"].includes(
+        command.payload.type,
+      )
+    )
+      return;
     await this.recovery.prepare(
       "threadId" in command.payload ? command.payload.threadId : undefined,
     );
@@ -403,8 +409,8 @@ export class Engine {
       this.syncQueue(actor);
       return;
     }
-    if (actor.idleDue && actor.session) await this.sessions.close(actor, "idle");
-    if (this.closing) return;
+    // Controls own idle retirement; sends must remain free to open a replacement.
+    if (this.closing || (actor.idleDue && actor.session)) return;
     const guard = this.repo.transitions.guardOwner(actor.id);
     const change = this.repo.pending.transition(actor.id);
     if (
@@ -439,7 +445,12 @@ export class Engine {
       return;
     }
     const first = this.repo.pending.message(actor.id);
-    const intent = first && this.isSteer(first) ? this.repo.pending.queuedMessage(actor.id) : first;
+    const intent =
+      first && ["thread.switch", "thread.merge"].includes(first.kind)
+        ? this.repo.pending.childResult(actor.id)
+        : first && this.isSteer(first)
+          ? this.repo.pending.queuedMessage(actor.id)
+          : first;
     if (
       intent &&
       (!guard || guard === intent.commandId) &&

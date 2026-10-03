@@ -2,6 +2,7 @@ import type { EngineRepository, IntentHeader } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
 import type { Recovery } from "./recovery.ts";
 import type { ThreadId } from "@ace/protocol";
+import { lostWork } from "./lost-work.ts";
 /** Startup is a cold pass over stored thread headers and outstanding sends. */
 export function recoverEngine(
   repo: EngineRepository,
@@ -44,17 +45,7 @@ export function recoverEngine(
       // A stopped provider no longer owns an admitted continuation. Native history
       // remains the source for a new restart continuation, never the old input.
       repo.pending.finishContinuation(state.threadId);
-      const live =
-        !state.processExit &&
-        (state.queueSources.provider > 0 ||
-          Object.values(state.agents).some(
-            (record) =>
-              record.activeRun ||
-              record.wakeUntil !== undefined ||
-              !["idle", "failed", "interrupted"].includes(record.agent.status.state),
-          ) ||
-          Object.keys(state.indexes.pendingInteractions).length ||
-          Object.keys(state.indexes.runningTasks).length);
+      const live = !state.processExit && lostWork(state) !== undefined;
       if (live)
         repo.apply(
           state.threadId,

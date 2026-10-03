@@ -165,6 +165,7 @@ export class Sessions {
     const generation = actor.generation;
     this.closing.add(actor.id);
     actor.session = undefined;
+    this.dependencies.wake(actor.id);
     try {
       await actor.flush();
       try {
