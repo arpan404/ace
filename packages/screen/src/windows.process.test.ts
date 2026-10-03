@@ -30,7 +30,7 @@ it("Windows resolves its installed executable and validates local pipe identifie
   );
   expect(windowsEndpoint("abc-123")).toBe("pipe:\\\\.\\pipe\\ace-screen-abc-123");
   expect(() => windowsEndpoint("../bad")).toThrow();
-  expect(() => screenHelperPath("/data", "linux")).toThrow();
+  expect(() => screenHelperPath("/data", "freebsd")).toThrow();
 });
 it("v2 negotiates capabilities and receives fragmented frames from a helper-owned endpoint", async () => {
   const f = await fixture();

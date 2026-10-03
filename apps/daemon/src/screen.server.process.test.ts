@@ -72,6 +72,7 @@ it("authenticated devices receive visible screen state and binary frames and dis
     target: { kind: "window", bundleId: "dev.ace.test", windowId: 1 },
   });
   if (started.type !== "screen.result") throw new Error("Expected screen result");
+  expect(started, JSON.stringify(started)).toMatchObject({ ok: true });
   const state = ScreenState.parse(started.data);
   await request({ op: "subscribe", sessionId: state.sessionId });
   await request({ op: "controller", sessionId: state.sessionId, controller: "human" });

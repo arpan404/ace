@@ -19,6 +19,7 @@ export type Session = {
   hadViewer: boolean;
   releasing: boolean;
   stopping: Promise<void> | undefined;
+  captureStopped: { promise: Promise<void>; resolve(): void };
   pixels: Pixels;
   recordingLease: { release(): void } | undefined;
 };
@@ -45,6 +46,7 @@ export function createSession(
     hadViewer: false,
     releasing: false,
     stopping: undefined,
+    captureStopped: Promise.withResolvers<void>(),
     recordingLease: undefined,
     pixels: new Pixels(helper, indicator, failure, nextGeneration),
     state: {

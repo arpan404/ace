@@ -72,11 +72,13 @@ export class ScreenManager {
   async enable(enabled: boolean): Promise<void> {
     this.policy.enable(enabled);
     if (!enabled) {
-      const results = await Promise.allSettled(
-        [...this.sessions.keys()].map((id) => this.stop(id)),
+      const sessions = [...this.sessions.values()];
+      const results = Promise.allSettled(
+        sessions.map((session) => this.stop(session.state.sessionId)),
       );
+      await Promise.all(sessions.map((session) => session.captureStopped.promise));
       await this.host.close();
-      const errors = results.flatMap((result) =>
+      const errors = (await results).flatMap((result) =>
         result.status === "rejected" ? [result.reason] : [],
       );
       if (errors.length) throw new AggregateError(errors, "Screen shutdown failed");
@@ -168,6 +170,8 @@ export class ScreenManager {
       if (epoch !== this.policy.epoch) throw new Error("Screen policy changed during start");
       session.state = { ...session.state, indicator: helper.capabilities?.platform !== "macos" };
       this.emit(session);
+      if (epoch !== this.policy.epoch || session.state.lifecycle !== "starting")
+        throw new Error("Screen start cancelled");
       const start = {
         op: "start" as const,
         sessionId: id,
@@ -201,8 +205,13 @@ export class ScreenManager {
       if (session) {
         this.fail(session, error instanceof Error ? error : new Error("Start failed"));
       }
+      if (session?.stopping) await session.stopping;
       if (helper) await this.host.close();
-      if (session) this.sessions.delete(session.state.sessionId);
+      if (session) {
+        session.state = terminated(session.state);
+        this.emit(session);
+        this.sessions.delete(session.state.sessionId);
+      }
       throw error;
     } finally {
       this.reservations--;
@@ -543,6 +552,7 @@ export class ScreenManager {
     } catch (error) {
       errors.push(error);
     }
+    session.captureStopped.resolve();
     session.state = terminated(session.state);
     this.emit(session);
     try {

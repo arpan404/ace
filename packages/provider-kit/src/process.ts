@@ -69,10 +69,14 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     return outputBytes <= maxOutputBytes;
   };
   const failOutput = (error: Error) => {
-    options.onOutputLimit?.(error);
     outputLimited = true;
     controller.abort(error);
     if (pid !== undefined) killGroup(pid, "SIGKILL");
+    try {
+      options.onOutputLimit?.(error);
+    } catch {
+      /* Observation cannot delay process termination. */
+    }
   };
   const gateOutput = (input: Readable): Readable => {
     if (maxLineBytes === undefined && maxOutputBytes === undefined) return input;
@@ -158,7 +162,12 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
 
 /** Raw bytes share the aggregate budget without imposing line framing on binary data. */
 export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess {
-  return spawnOwned(options, undefined);
+  return spawnOwned(
+    options,
+    options.maxLineBytes === undefined
+      ? undefined
+      : byteLimit(options.maxLineBytes, "maxLineBytes"),
+  );
 }
 
 /** Line-oriented facade over the same process-group owner. */

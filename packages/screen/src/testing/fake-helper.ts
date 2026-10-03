@@ -114,7 +114,7 @@ lines.on("line", (line) => {
     };
   }
   if (request.op === "ui.tree" && process.env.BAD_TREE) {
-    const root = node("root", "AXWindow", "bad");
+    const root = { ...node("x", "", ""), bounds: { x: 0, y: 0, w: 0, h: 0 }, actions: [] };
     const nested: { children: unknown[] } = { ...root, children: [] };
     if (process.env.BAD_TREE === "nodes") nested.children = Array.from({ length: 512 }, () => root);
     else {

@@ -120,7 +120,7 @@ export const ScreenUIActOptions = z.object({
 function boundedNodes(roots: number) {
   return z
     .array(z.unknown())
-    .max(roots)
+    .max(roots, { message: "UI tree exceeds root budget" })
     .superRefine((nodes, context) => {
       const pending = nodes.map((node) => ({ node, depth: 0 }));
       const shape = z.object({ children: z.array(z.unknown()).max(512) });
@@ -305,7 +305,7 @@ export const ScreenUIActInput = ScreenUIActOptions;
 export const ScreenNamedKey = z.object({
   key: z.string().min(1).max(64),
   modifiers: z
-    .array(z.enum(["control", "shift", "alt", "meta", "super", "super", "command", "option"]))
+    .array(z.enum(["control", "shift", "alt", "meta", "super", "command", "option"]))
     .max(4)
     .default([]),
 });

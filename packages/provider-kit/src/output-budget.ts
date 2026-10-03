@@ -27,7 +27,7 @@ export function outputGate(
           if (byte === 10 || byte === 13) lineBytes = 0;
           else if (++lineBytes > maxLineBytes) {
             exceeded = true;
-            fail(new OutputLimitError("Process output line exceeded limit"));
+            fail(new OutputLimitError("Process output exceeded line limit"));
             done();
             return;
           }

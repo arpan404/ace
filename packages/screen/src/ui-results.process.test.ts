@@ -9,11 +9,11 @@ it.each(["nodes", "depth", "findChildren", "findCount", "states"])(
       f.manager.controller(session.sessionId, "agent", "reader");
       if (mode === "findChildren")
         await expect(
-          f.manager.uiFind(session.sessionId, { query: {}, limit: 2 }, "reader"),
+          f.manager.uiFind(session.sessionId, { query: { role: "button" }, limit: 2 }, "reader"),
         ).rejects.toThrow("caps");
       else if (mode === "findCount")
         await expect(
-          f.manager.uiFind(session.sessionId, { query: {}, limit: 1 }, "reader"),
+          f.manager.uiFind(session.sessionId, { query: { role: "button" }, limit: 1 }, "reader"),
         ).rejects.toThrow();
       else if (mode === "states")
         await expect(

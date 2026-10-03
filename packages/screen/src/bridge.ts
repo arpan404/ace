@@ -36,6 +36,12 @@ export function screenConnection(
       try {
         let data: unknown;
         switch (operation.op) {
+          case "enable":
+            await manager.enable(operation.enabled);
+            break;
+          case "approve":
+            await manager.approve(operation.bundleId, operation.allowed);
+            break;
           case "input":
             await manager.input(operation.sessionId, "human", operation.input, owner);
             break;
