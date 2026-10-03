@@ -1,7 +1,8 @@
 import { fileConnection, type FileClient } from "./file-connection.ts";
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import type { ClientApi } from "./api.ts";
-import { decodeBase64, encodeBase64 } from "./base64.ts";
+import { decodeBase64 } from "./base64.ts";
+import { encodeBase64 } from "./base64-encode.ts";
 import { ClientError, type RequestOptions } from "./types.ts";
 
 /** Each pull completes before yielding; no download bytes are read ahead of the consumer. */

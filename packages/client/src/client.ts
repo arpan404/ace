@@ -1,4 +1,3 @@
-import { downloadFile, uploadFile } from "./files.ts";
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import {
   HistoryScanStatus,
@@ -401,14 +400,20 @@ export class Client implements ClientApi {
       options,
     );
   }
-  downloadFile(input: FileDownloadInput, options: RequestOptions = {}): AsyncGenerator<Uint8Array> {
-    return downloadFile(this, input, options);
+  // Transfers load on first use: the client worker starts without them (ADR 0056).
+  async *downloadFile(
+    input: FileDownloadInput,
+    options: RequestOptions = {},
+  ): AsyncGenerator<Uint8Array> {
+    const { downloadFile } = await import("./files.ts");
+    yield* downloadFile(this, input, options);
   }
-  uploadFile(
+  async uploadFile(
     input: FileUploadInput,
     source: AsyncIterable<Uint8Array>,
     options: RequestOptions = {},
   ): Promise<unknown> {
+    const { uploadFile } = await import("./files.ts");
     return uploadFile(this, input, source, options);
   }
   itemsPage(

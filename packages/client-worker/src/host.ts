@@ -1,5 +1,3 @@
-import { BrowserSubscriptions } from "./browser-subscriptions.ts";
-import { z } from "zod";
 import {
   ClientError,
   type Client,
@@ -7,14 +5,10 @@ import {
   type SidebarExport,
   type ThreadExport,
 } from "@ace/client";
-import {
-  ThreadId as importThreadIdSchema,
-  ClientMessage,
-  type Item,
-  type ServerMessage,
-} from "@ace/protocol";
+import { ClientMessage, type Item, type ServerMessage } from "@ace/protocol";
 import { sidebarPatches, threadPatches, type Patch } from "./patches.ts";
-import { callArgs, iterateArgs, sendArgs } from "./calls.ts";
+import { callArgs, iterateArgs, objectInput, sendArgs } from "./calls.ts";
+import type { TabChannels } from "./tab-channels.ts";
 import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire.ts";
 
 /*
@@ -72,6 +66,24 @@ const internal = new Set<string>([
 const isServicePush = (message: ServerMessage) =>
   !internal.has(message.type) &&
   (message.type === "history.operation.progress" || !("requestId" in message && message.requestId));
+
+/** Requests that open or use a file channel or a Preview subscription (`tab-channels.ts`). */
+const isChannelRequest = (input: unknown) => {
+  const type = objectInput(input).type;
+  return typeof type === "string" && (type.startsWith("files.") || type.startsWith("browser."));
+};
+
+/** One-way controls that belong to a file channel or a Preview subscription. */
+const channelControls = new Set<string>([
+  "files.request",
+  "files.abort",
+  "files.pull",
+  "files.chunk",
+  "files.credit",
+  "files.cancel",
+  "browser.subscribe",
+  "browser.unsubscribe",
+]);
 
 const errorShape = (error: unknown) =>
   error instanceof ClientError
@@ -159,8 +171,9 @@ class Tab {
   lastSeen: number;
   private host: ClientHost;
   private subscriber: string;
-  private browsers = new BrowserSubscriptions();
-  private fileChannels = new Map<number, string | undefined>();
+  /** File channels and Preview subscriptions, loaded with the tab's first such request. */
+  private channels: TabChannels | undefined;
+  private loadingChannels: Promise<TabChannels> | undefined;
   private port: PortLike;
   private options: HostOptions;
   private entry: Entry | undefined;
@@ -196,11 +209,7 @@ class Tab {
   connection(): void {
     const client = this.entry?.client;
     if (!client) return;
-    if (client.state !== "ready") {
-      this.fileChannels.clear();
-      this.browsers.close(() => {});
-      this.browsers = new BrowserSubscriptions();
-    }
+    if (client.state !== "ready") this.channels?.reset();
     this.post({
       t: "connection",
       state: client.state,
@@ -255,29 +264,8 @@ class Tab {
         return void this.stop(message.call);
       case "abort":
         return this.calls.get(message.call)?.abort();
-      case "send": {
-        const control = ClientMessage.safeParse(message.message);
-        if (
-          control.success &&
-          ["files.request", "files.abort", "browser.subscribe", "browser.unsubscribe"].includes(
-            control.data.type,
-          )
-        )
-          return;
-        if (
-          control.success &&
-          (control.data.type === "files.pull" ||
-            control.data.type === "files.chunk" ||
-            control.data.type === "files.credit") &&
-          !this.fileChannels.has(control.data.channel)
-        )
-          return;
-        if (control.success && control.data.type === "files.cancel") {
-          if (!this.fileChannels.has(control.data.channel)) return;
-          this.fileChannels.delete(control.data.channel);
-        }
-        return sendArgs(client, message.message);
-      }
+      case "send":
+        return this.sendControl(client, message.message);
       case "watchIntent":
         return this.watch(client, message.id);
       case "unwatchIntent":
@@ -411,109 +399,59 @@ class Tab {
     const controller = new AbortController();
     this.calls.set(call, controller);
     try {
-      let forwarded = args;
-      const entry = this.entry;
-      const generation = entry?.generation;
-      let browser:
-        | Extract<
-            import("@ace/protocol").ClientMessage,
-            { type: "browser.subscribe" | "browser.unsubscribe" }
-          >
-        | undefined;
-      const assertGeneration = () => {
-        if (!entry || entry.generation !== generation || client.state !== "ready")
-          throw new ClientError("offline");
-        controller.signal.throwIfAborted();
-      };
-      const cleanupBrowser = (thread: string) => {
-        if (entry?.generation === generation && client.state === "ready")
-          void client
-            .request({
-              type: "browser.unsubscribe",
-              threadId: importThreadIdSchema.parse(thread),
-              subscriberId: this.subscriber,
-            })
-            .catch(() => {});
-      };
-      if (method === "request") {
-        const parsed = ClientMessage.safeParse({ ...objectInput(args[0]), requestId: "worker" });
-        if (
-          parsed.success &&
-          (parsed.data.type === "browser.subscribe" || parsed.data.type === "browser.unsubscribe")
-        ) {
-          const input = parsed.data;
-          browser = input;
-          forwarded = [{ ...input, subscriberId: this.subscriber }, ...args.slice(1)];
-        }
-        if (
-          parsed.success &&
-          (parsed.data.type === "files.pull" || parsed.data.type === "files.chunk")
-        ) {
-          assertGeneration();
-          if (!this.fileChannels.has(parsed.data.channel))
-            throw new ClientError("offline", "File channel lifetime ended");
-        }
-      }
-      const run = () => {
-        assertGeneration();
-        return callArgs(client, method, forwarded, controller.signal);
-      };
-      const value = browser
-        ? await this.browsers.run(browser.threadId, browser.type, run, () => {
-            if (browser) cleanupBrowser(browser.threadId);
-          })
-        : await callArgs(client, method, forwarded, controller.signal);
-      if (method === "request") {
-        const input = ClientMessage.safeParse({ ...objectInput(args[0]), requestId: "worker" });
-        if (
-          input.success &&
-          input.data.type.startsWith("files.") &&
-          (entry?.generation !== generation || client.state !== "ready")
-        )
-          throw new ClientError("offline");
-        const response = z
-          .object({
-            type: z.string(),
-            channel: z.number().int(),
-            eof: z.boolean().optional(),
-            uploadId: z.string().optional(),
-          })
-          .safeParse(value);
-        if (response.success && response.data.type === "files.data" && response.data.eof)
-          this.fileChannels.delete(response.data.channel);
-        if (
-          response.success &&
-          (response.data.type === "files.ready" || response.data.type === "files.upload")
-        ) {
-          if (entry?.generation !== generation) throw new ClientError("offline");
-          if (!this.calls.has(call) || controller.signal.aborted)
-            client.send({ type: "files.cancel", channel: response.data.channel });
-          else this.fileChannels.set(response.data.channel, response.data.uploadId);
-        }
-      }
-      if (
-        method === "request" &&
-        z.object({ type: z.literal("files.result") }).safeParse(value).success
-      ) {
-        const completed = z
-          .object({
-            type: z.literal("files.request"),
-            operation: z.object({
-              op: z.enum(["upload.commit", "upload.cancel"]),
-              uploadId: z.string(),
-            }),
-          })
-          .safeParse(args[0]);
-        if (completed.success)
-          for (const [channel, uploadId] of this.fileChannels)
-            if (uploadId === completed.data.operation.uploadId) this.fileChannels.delete(channel);
-      }
+      const value =
+        method === "request" && isChannelRequest(args[0])
+          ? await this.channelRequest(client, call, controller, args)
+          : await callArgs(client, method, args, controller.signal);
       this.post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
     } catch (error) {
       this.post({ t: "failed", call, error: errorShape(error) });
     } finally {
       this.calls.delete(call);
     }
+  }
+  private async channelRequest(
+    client: Client,
+    call: number,
+    controller: AbortController,
+    args: unknown[],
+  ): Promise<unknown> {
+    // The connection a request starts on is fixed before the module loads.
+    const entry = this.entry;
+    const generation = entry?.generation;
+    const channels = this.channels ?? (await this.loadChannels());
+    return channels.request({
+      client,
+      args,
+      signal: controller.signal,
+      forward: (forwarded) => callArgs(client, "request", forwarded, controller.signal),
+      current: () => entry !== undefined && entry.generation === generation,
+      pending: () => this.calls.has(call) && !controller.signal.aborted,
+    });
+  }
+  private loadChannels(): Promise<TabChannels> {
+    this.loadingChannels ??= import("./tab-channels.ts").then(
+      ({ TabChannels }) => (this.channels = new TabChannels(this.subscriber)),
+      (error: unknown) => {
+        // A failed load is retried by the next request rather than remembered.
+        this.loadingChannels = undefined;
+        throw error;
+      },
+    );
+    return this.loadingChannels;
+  }
+  /**
+   * Pass a tab's one-way control on. File and Preview controls go through the tab's channels;
+   * before the tab opened any, none of them is the tab's to send.
+   */
+  private sendControl(client: Client, value: unknown): void {
+    // Only channel controls are decoded here; `sendArgs` decodes every control it passes on.
+    const type = objectInput(value).type;
+    if (typeof type === "string" && channelControls.has(type)) {
+      const control = ClientMessage.safeParse(value);
+      if (control.success && !this.channels?.admits(control.data)) return;
+    }
+    sendArgs(client, value);
   }
   private iterate(client: Client, call: number, method: string, args: unknown[]): void {
     const controller = new AbortController();
@@ -552,26 +490,7 @@ class Tab {
     this.calls.delete(call);
   }
   private detach(): void {
-    const client = this.entry?.client;
-    this.browsers.close((threadId) => {
-      if (client?.state === "ready")
-        void client
-          .request({
-            type: "browser.unsubscribe",
-            threadId: importThreadIdSchema.parse(threadId),
-            subscriberId: this.subscriber,
-          })
-          .catch(() => {});
-    });
-    this.browsers = new BrowserSubscriptions();
-    for (const channel of this.fileChannels.keys()) {
-      try {
-        client?.send({ type: "files.cancel", channel });
-      } catch {
-        /* Socket owns cleanup when offline. */
-      }
-    }
-    this.fileChannels.clear();
+    this.channels?.detach(this.entry?.client);
     for (const lease of this.leases.keys()) this.release(lease);
     for (const stop of this.intents.values()) stop();
     this.intents.clear();
@@ -592,10 +511,4 @@ class Tab {
     this.host.forget(this);
     this.entry = undefined;
   }
-}
-
-function objectInput(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null
-    ? Object.fromEntries(Object.entries(value))
-    : {};
 }

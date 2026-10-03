@@ -62,6 +62,13 @@ const options = (
   ...(parsed?.requestId === undefined ? {} : { requestId: parsed.requestId }),
 });
 
+/** A tab's request input as a plain record; anything else reads as an empty one. */
+export function objectInput(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? Object.fromEntries(Object.entries(value))
+    : {};
+}
+
 function decode<T extends z.ZodType>(schema: T, args: unknown[]): z.infer<T> {
   const parsed = schema.safeParse(args);
   if (!parsed.success) throw new ClientError("protocol", "Invalid worker request");
