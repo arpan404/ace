@@ -2,6 +2,7 @@
 export { GlobalHotkeys } from "./global-hotkeys.tsx";
 export type { PanelDefinition } from "./panels.tsx";
 export { Rail } from "./rail.tsx";
+export { TabBar } from "./tab-bar.tsx";
 export { Page, PageTitle, Screen } from "./screen.tsx";
 export { useThreadIdsWhere } from "./use-threads.ts";
 export { useWorkspaces } from "./use-workspaces.ts";

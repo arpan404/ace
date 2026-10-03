@@ -2,7 +2,6 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
   DotsThreeIcon,
-  DotsThreeVerticalIcon,
   SidebarSimpleIcon,
   SquareHalfBottomIcon,
   SquareSplitHorizontalIcon,
@@ -12,7 +11,7 @@ import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
-import { useMediaQuery } from "@/lib/media.ts";
+import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useHistoryNav } from "@/lib/history-nav.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useViewFrame } from "./view-frame.tsx";
@@ -43,7 +42,9 @@ export function AppHeader(
   const nav = useHistoryNav();
   const { layout, togglePanel } = useLayout();
   const hasPanels = props.panels.right || props.panels.bottom;
-  const wide = useMediaQuery("(min-width: 48rem)", true);
+  const wide = useSidebarInline();
+  // A phone keeps one ⋯ for the title menu and the actions, and leaves history to the system.
+  const phone = usePhone();
   return (
     <header
       className={cn(
@@ -59,22 +60,26 @@ export function AppHeader(
           onClick={frame.showSidebar}
         />
       )}
-      <IconButton
-        icon={CaretLeftIcon}
-        label="Back"
-        shortcut="back"
-        size="sm"
-        disabled={!nav.canGoBack}
-        onClick={nav.back}
-      />
-      <IconButton
-        icon={CaretRightIcon}
-        label="Forward"
-        shortcut="forward"
-        size="sm"
-        disabled={!nav.canGoForward}
-        onClick={nav.forward}
-      />
+      {!phone && (
+        <>
+          <IconButton
+            icon={CaretLeftIcon}
+            label="Back"
+            shortcut="back"
+            size="sm"
+            disabled={!nav.canGoBack}
+            onClick={nav.back}
+          />
+          <IconButton
+            icon={CaretRightIcon}
+            label="Forward"
+            shortcut="forward"
+            size="sm"
+            disabled={!nav.canGoForward}
+            onClick={nav.forward}
+          />
+        </>
+      )}
       <div className="ml-1.5 flex min-w-0 items-center gap-2">
         <h1 className="min-w-0 truncate text-base font-semibold tracking-[-0.005em]">
           {props.title}
@@ -84,7 +89,7 @@ export function AppHeader(
             {props.subtitle}
           </span>
         )}
-        {props.menu && (
+        {props.menu && !phone && (
           <Menu>
             <MenuTrigger
               render={<IconButton icon={DotsThreeIcon} label="More actions" size="sm" />}
@@ -94,20 +99,11 @@ export function AppHeader(
         )}
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
-        {/* On a phone-width window the actions fold into one button, so the title keeps room. */}
-        {props.actions &&
-          (wide ? (
-            props.actions
-          ) : (
-            <Popover>
-              <PopoverTrigger
-                render={<IconButton icon={DotsThreeVerticalIcon} label="Actions" />}
-              />
-              <PopoverContent align="end" className="flex flex-wrap items-center gap-1.5 p-1.5">
-                {props.actions}
-              </PopoverContent>
-            </Popover>
-          ))}
+        {props.actions && wide && props.actions}
+        {/* Narrower, the actions (and on a phone the title menu) fold into one ⋯. */}
+        {(props.actions || props.menu) && !wide && (
+          <Overflow actions={props.actions} menu={phone ? props.menu : undefined} />
+        )}
         {hasPanels && (
           <>
             {props.actions && wide && <span aria-hidden className="mx-1 h-4 w-px bg-border" />}
@@ -132,5 +128,42 @@ export function AppHeader(
         )}
       </div>
     </header>
+  );
+}
+
+/**
+ * The folded header: the actions in a row, then the title menu behind one more tap. One ⋯ in
+ * the header, so the title keeps the room.
+ */
+function Overflow(props: { actions: ReactNode; menu: ReactNode }) {
+  if (!props.actions && props.menu)
+    return (
+      <Menu>
+        <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="More actions" />} />
+        <MenuContent align="end">{props.menu}</MenuContent>
+      </Menu>
+    );
+  return (
+    <Popover>
+      <PopoverTrigger render={<IconButton icon={DotsThreeIcon} label="More actions" />} />
+      <PopoverContent
+        align="end"
+        className="flex max-w-[calc(100vw-1.5rem)] flex-col gap-1.5 p-1.5"
+      >
+        {props.actions && (
+          <div className="flex flex-wrap items-center gap-1.5">{props.actions}</div>
+        )}
+        {props.actions && props.menu && <span aria-hidden className="-mx-1.5 h-px bg-border" />}
+        {props.menu && (
+          <Menu>
+            <MenuTrigger className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-ui text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:bg-accent aria-expanded:bg-accent">
+              <DotsThreeIcon aria-hidden size={16} />
+              More options
+            </MenuTrigger>
+            <MenuContent align="end">{props.menu}</MenuContent>
+          </Menu>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

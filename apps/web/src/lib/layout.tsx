@@ -38,6 +38,10 @@ interface LayoutValue {
   setPanelSize(side: PanelSide, size: number, persist?: boolean): void;
   paletteOpen: boolean;
   setPaletteOpen(open: boolean): void;
+  /** A screen is showing its right panel now (not just remembered open), so a crowded window
+   * can give it the second sidebar's room. Set by the panel itself. */
+  rightPanelShown: boolean;
+  setRightPanelShown(shown: boolean): void;
   /** The injected key-value storage, for features that persist their own local UI state. */
   storage: KeyValueStorage | undefined;
 }
@@ -52,6 +56,7 @@ export function LayoutProvider(props: {
     readJson(storage, storageKey, ShellLayout, defaultLayout),
   );
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [rightPanelShown, setRightPanelShown] = useState(false);
   const change = useCallback(
     (next: (previous: ShellLayout) => ShellLayout, persist = true) =>
       setLayout((previous) => {
@@ -68,6 +73,8 @@ export function LayoutProvider(props: {
       layout,
       paletteOpen,
       setPaletteOpen,
+      rightPanelShown,
+      setRightPanelShown,
       storage,
       toggleSidebar: () => change((p) => ({ ...p, sidebarOpen: !p.sidebarOpen })),
       setSidebarOpen: (open) => change((p) => ({ ...p, sidebarOpen: open })),
@@ -80,7 +87,7 @@ export function LayoutProvider(props: {
       setTab: (side, tab) => panel(side, (p) => ({ ...p, tab })),
       setPanelSize: (side, size, persist = false) => panel(side, (p) => ({ ...p, size }), persist),
     };
-  }, [layout, paletteOpen, change, storage]);
+  }, [layout, paletteOpen, rightPanelShown, change, storage]);
   return <LayoutContext.Provider value={value}>{props.children}</LayoutContext.Provider>;
 }
 

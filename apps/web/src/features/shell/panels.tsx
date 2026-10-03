@@ -1,6 +1,6 @@
 import { XIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { Activity, useSyncExternalStore } from "react";
+import { Activity, useEffect, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ResizeHandle, clampSize } from "@/components/ui/resize-handle.tsx";
@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap, type KeymapId } from "@/lib/keymap.ts";
 import { useLayout, type PanelSide } from "@/lib/layout.tsx";
+import { overlayPanelsQuery, usePhone } from "@/lib/breakpoints.ts";
 import { useMediaQuery } from "@/lib/media.ts";
 import { panelMotion, usePresence } from "@/lib/motion.ts";
 
@@ -38,9 +39,6 @@ function useViewport() {
   );
 }
 
-/** Below this width the panels float over the content instead of squeezing the column. */
-export const overlayPanelsQuery = "(max-width: 72rem)";
-
 const bounds = (side: PanelSide, viewport: string, overlay: boolean) => {
   const [width = 1440, height = 900] = viewport.split("x").map(Number);
   // Right: 320px .. viewport − 600. Bottom: 120px .. 60vh (DESIGN-fable.md 5b). Floating, the
@@ -59,13 +57,20 @@ const bounds = (side: PanelSide, viewport: string, overlay: boolean) => {
  * edge; closing fades it out before the column reflows.
  */
 export function ShellPanel(props: { side: PanelSide; panel: PanelDefinition }) {
-  const { layout, setTab, setPanelOpen, setPanelSize, toggleTab } = useLayout();
+  const { layout, setTab, setPanelOpen, setPanelSize, toggleTab, setRightPanelShown } = useLayout();
   const state = layout[props.side];
   const viewport = useViewport();
   const overlay = useMediaQuery(overlayPanelsQuery, false);
+  // On a phone either panel is a sheet over the whole content area, rising from the bottom.
+  const sheet = usePhone();
+  const right = props.side === "right";
+  useEffect(() => {
+    if (!right) return;
+    setRightPanelShown(state.open);
+    return () => setRightPanelShown(false);
+  }, [right, state.open, setRightPanelShown]);
   const { min, max } = bounds(props.side, viewport, overlay);
   const size = clampSize(state.size, min, max);
-  const right = props.side === "right";
   const active = props.panel.tabs.some((tab) => tab.id === state.tab)
     ? state.tab
     : (props.panel.tabs[0]?.id ?? state.tab);
@@ -88,35 +93,50 @@ export function ShellPanel(props: { side: PanelSide; panel: PanelDefinition }) {
       <section
         aria-label={closing ? undefined : props.panel.label}
         inert={closing}
-        data-edge={right ? "right" : "bottom"}
-        style={right ? { width: size } : { height: size }}
-        data-overlay={overlay || undefined}
+        data-edge={right && !sheet ? "right" : "bottom"}
+        style={sheet ? undefined : right ? { width: size } : { height: size }}
+        data-overlay={overlay || sheet || undefined}
         className={cn(
           "relative flex min-h-0 min-w-0 shrink-0 flex-col bg-panel",
-          right ? "border-l" : "border-t",
-          overlay &&
-            (right
-              ? "absolute inset-y-0 right-0 z-20 max-w-[calc(100%-3rem)] bg-background shadow-[-12px_0_32px_rgb(0_0_0/0.18)]"
-              : "absolute inset-x-0 bottom-0 z-20 bg-background shadow-[0_-12px_32px_rgb(0_0_0/0.18)]"),
+          sheet
+            ? "absolute inset-0 z-30 rounded-t-xl border-t bg-background shadow-[0_-12px_32px_rgb(0_0_0/0.22)]"
+            : [
+                right ? "border-l" : "border-t",
+                overlay &&
+                  (right
+                    ? "absolute inset-y-0 right-0 z-20 max-w-[calc(100%-3rem)] bg-background shadow-[-12px_0_32px_rgb(0_0_0/0.18)]"
+                    : "absolute inset-x-0 bottom-0 z-20 bg-background shadow-[0_-12px_32px_rgb(0_0_0/0.18)]"),
+              ],
           panelMotion(presence),
         )}
       >
-        <ResizeHandle
-          label={`Resize ${props.panel.label.toLowerCase()}`}
-          edge={right ? "left" : "top"}
-          size={size}
-          min={min}
-          max={max}
-          onResize={(next) => setPanelSize(props.side, next)}
-          onResizeEnd={(next) => setPanelSize(props.side, next, true)}
-        />
+        {!sheet && (
+          <ResizeHandle
+            label={`Resize ${props.panel.label.toLowerCase()}`}
+            edge={right ? "left" : "top"}
+            size={size}
+            min={min}
+            max={max}
+            onResize={(next) => setPanelSize(props.side, next)}
+            onResizeEnd={(next) => setPanelSize(props.side, next, true)}
+          />
+        )}
         <Tabs
           value={active}
           onValueChange={(value) => setTab(props.side, String(value))}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <div className="flex h-10 shrink-0 items-center gap-0.5 border-b pr-1.5 pl-2">
-            <TabsList aria-label={props.panel.label} className="min-w-0 flex-1">
+          <div
+            className={cn(
+              "flex shrink-0 items-center gap-0.5 border-b pr-1.5 pl-2",
+              sheet ? "h-12 pr-2" : "h-10",
+            )}
+          >
+            {/* The tabs scroll sideways rather than run under the actions and the close. */}
+            <TabsList
+              aria-label={props.panel.label}
+              className="mr-1.5 min-w-0 flex-1 overflow-x-auto px-0.5 py-1 [scrollbar-width:none]"
+            >
               {props.panel.tabs.map((tab) => (
                 <TabsTab key={tab.id} value={tab.id}>
                   {tab.label}
@@ -128,7 +148,7 @@ export function ShellPanel(props: { side: PanelSide; panel: PanelDefinition }) {
             <IconButton
               icon={XIcon}
               label={`Close ${props.panel.label.toLowerCase()}`}
-              size="sm"
+              size={sheet ? "default" : "sm"}
               onClick={() => setPanelOpen(props.side, false)}
             />
           </div>

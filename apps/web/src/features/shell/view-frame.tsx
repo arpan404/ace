@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
 import { useLayout } from "@/lib/layout.tsx";
+import { crowdedQuery, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useMediaQuery } from "@/lib/media.ts";
 import { panelMotion, usePresence } from "@/lib/motion.ts";
 import { cn } from "@/lib/cn.ts";
@@ -23,23 +24,33 @@ export const useViewFrame = () => useContext(FrameContext);
 
 /**
  * A view: its second sidebar (296px, translucent, collapsible with ⌘\) and its main column.
- * Below 768px the sidebar becomes a sheet opened from the header.
+ * Below 768px the sidebar becomes a sheet opened from the header. Below 1100px it steps aside
+ * while the screen's right panel is open and comes back when the panel closes.
  */
 export function ViewFrame(props: { label: string; sidebar: ReactNode; children: ReactNode }) {
-  const { layout, setSidebarOpen } = useLayout();
-  const wide = useMediaQuery("(min-width: 48rem)", true);
+  const { layout, setSidebarOpen, setPanelOpen, rightPanelShown } = useLayout();
+  const wide = useSidebarInline();
+  const crowded = useMediaQuery(crowdedQuery, false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const shown = wide ? layout.sidebarOpen : sheetOpen;
+  // Yielding is not remembered: the person's own choice (sidebarOpen) is what comes back.
+  const yielded = crowded && rightPanelShown;
+  const inline = layout.sidebarOpen && !yielded;
+  const shown = wide ? inline : sheetOpen;
   // The sidebar stays mounted while hidden (it keeps its scroll and state); it slides in from
   // the left when shown and fades before the column takes its space back when hidden.
-  const presence = usePresence(layout.sidebarOpen);
+  const presence = usePresence(inline);
   const value = useMemo<FrameValue>(
     () => ({
       sidebarShown: shown,
-      showSidebar: () => (wide ? setSidebarOpen(true) : setSheetOpen(true)),
+      showSidebar: () => {
+        if (!wide) return setSheetOpen(true);
+        // Asking for the sidebar back on a crowded window puts the right panel away.
+        if (yielded) setPanelOpen("right", false);
+        setSidebarOpen(true);
+      },
       hideSidebar: () => (wide ? setSidebarOpen(false) : setSheetOpen(false)),
     }),
-    [shown, wide, setSidebarOpen],
+    [shown, wide, yielded, setSidebarOpen, setPanelOpen],
   );
   return (
     <FrameContext.Provider value={value}>
