@@ -65,14 +65,13 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
   /** The shell ended: its tab stops showing it running without another list read. */
   const exited = (terminalId: string) => {
     const threadId = threadOf.get(terminalId);
-    const terminals = threadId && lists.get(threadId);
-    if (!threadId || !terminals) return;
-    remember(
-      threadId,
-      terminals.map((terminal) =>
-        terminal.id === terminalId ? { ...terminal, exited: true } : terminal,
-      ),
-    );
+    const terminals = threadId ? lists.get(threadId) : undefined;
+    const at = terminals?.findIndex((terminal) => terminal.id === terminalId) ?? -1;
+    const terminal = terminals?.[at];
+    if (!threadId || !terminals || !terminal) return;
+    const next = [...terminals];
+    next[at] = { ...terminal, exited: true };
+    remember(threadId, next);
   };
   const refresh = async (threadId: string) => {
     const reply = await request({ op: "list", threadId: ThreadId.parse(threadId) });
