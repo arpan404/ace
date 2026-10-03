@@ -30,6 +30,7 @@ export interface ServerOptions {
   maintenance?: boolean;
   version?: string;
   models?: ModelCatalogApi;
+  agentRegistry?: Pick<import("@ace/agent-registry").AgentRegistry, "handle">;
   port: number;
   remote?: RemoteListener;
   now?: () => number;

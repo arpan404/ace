@@ -1,3 +1,4 @@
+import { acpEngineOptions } from "../acp-engine.ts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
@@ -12,7 +13,20 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const registry =
     engineOptions.registry ?? (await discoverAdapters(engineOptions.adapterDiscovery));
   if (!engineOptions.registry) resources.own(() => registry.close());
+  const acp =
+    services.agentRegistry && services.models && services.mcp
+      ? acpEngineOptions({
+          registry,
+          agents: services.agentRegistry,
+          models: services.models,
+          mcp: services.mcp,
+          store,
+          options,
+          report: (error) => log.log("error", "ACP metadata failure", error),
+        })
+      : {};
   const engine = new Engine(store, {
+    ...acp,
     ...engineOptions,
     registry,
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
@@ -32,6 +46,8 @@ export function createEngineSession({ options, send }: SocketContext): SocketSer
         "thread.send",
         "thread.interrupt",
         "thread.archive",
+        "thread.model.set",
+        "thread.mode.set",
         "interaction.resolve",
         "background_task.stop",
       ],

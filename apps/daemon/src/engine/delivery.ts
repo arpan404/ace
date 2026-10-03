@@ -13,7 +13,9 @@ export async function executeIntent(
   const p = intent.command.payload;
   if (p.type === "thread.create" || p.type === "thread.send") {
     await sessions.open(actor);
-    const capabilities = registry.get(repo.requireState(actor.id).config.provider).capabilities;
+    const capabilities =
+      actor.effectiveCapabilities ??
+      registry.get(repo.requireState(actor.id).config.provider).capabilities;
     const session = actor.session;
     if (!session) throw new Error("Provider session exited before send");
     await session.send(
@@ -24,9 +26,19 @@ export async function executeIntent(
   }
   if (!actor.session) throw new Error("Provider session is not live");
   const state = repo.requireState(actor.id);
-  if (p.type === "thread.interrupt") {
+  if (p.type === "thread.model.set") {
+    if (!actor.session.setModel) throw new Error("Provider model selection unavailable");
+    await actor.session.setModel(p.model);
+    repo.store.atomic((db) =>
+      db.prepare("UPDATE engine_sessions SET model=? WHERE thread_id=?").run(p.model, actor.id),
+    );
+  } else if (p.type === "thread.mode.set") {
+    if (!actor.session.setMode) throw new Error("Provider mode selection unavailable");
+    await actor.session.setMode(p.mode);
+  } else if (p.type === "thread.interrupt") {
     const agent = p.agentId === undefined ? undefined : state.indexes.agentKeysById[p.agentId];
-    const { capabilities } = registry.get(state.config.provider);
+    const capabilities =
+      actor.effectiveCapabilities ?? registry.get(state.config.provider).capabilities;
     if (p.cascade && !capabilities.interruptCascades) {
       const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
       const descendants = (id: string): string[] =>

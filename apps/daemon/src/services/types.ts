@@ -20,6 +20,7 @@ import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
   handler: CommandHandler;
+  agentRegistry?: import("@ace/agent-registry").AgentRegistry;
   engine?: Engine;
   plugins: PluginService;
   preparePlugins(provider: Provider, root: string): ReturnType<typeof preparePluginSession>;

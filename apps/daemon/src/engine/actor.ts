@@ -1,6 +1,6 @@
 import { nextDeadline, type Fact } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
-import type { ThreadId } from "@ace/protocol";
+import type { ThreadId, Capabilities } from "@ace/protocol";
 import { z } from "zod";
 import type { EngineLimits } from "./limits.ts";
 import type { EngineRepository } from "./repository.ts";
@@ -30,6 +30,7 @@ export class ThreadActor {
   readonly id: ThreadId;
   translator: Translator | undefined;
   session: ProviderSession | undefined;
+  effectiveCapabilities: Capabilities | undefined;
   lifetime: AbortController | undefined;
   generation = 0;
   poisoned = false;

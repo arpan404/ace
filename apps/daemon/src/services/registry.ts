@@ -1,3 +1,4 @@
+import { createAgentRegistrySession } from "./agent-registry.ts";
 import { ClientMessage, BrowserClientMessage } from "@ace/protocol";
 import { PluginClientMessage } from "@ace/protocol/plugins";
 import { createNotificationsSession } from "./notifications.ts";
@@ -21,6 +22,7 @@ export const socketServiceFactories = [
   createHistorySession,
   createUsageSession,
   createModelsSession,
+  createAgentRegistrySession,
   createReviewSession,
   createEngineSession,
   createDiagnosticsSession,

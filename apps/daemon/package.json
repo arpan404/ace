@@ -25,6 +25,7 @@
     "@ace/adapter-claude": "workspace:*",
     "@ace/adapter-codex": "workspace:*",
     "@ace/adapter-opencode": "workspace:*",
+    "@ace/agent-registry": "workspace:*",
     "@ace/browser": "workspace:*",
     "@ace/context": "workspace:*",
     "@ace/core": "workspace:*",
