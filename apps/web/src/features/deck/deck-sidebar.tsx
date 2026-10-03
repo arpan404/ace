@@ -6,7 +6,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-row.tsx";
-import { ViewSidebar } from "@/features/shell/view-frame.tsx";
+import { ViewSidebar } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAge, deckGroup, deckRunSummary, type DeckRun, type DeckGroup } from "@ace/ui-core";
 import { useDeckRuns } from "./deck-source.ts";
