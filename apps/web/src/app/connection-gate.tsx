@@ -2,6 +2,7 @@ import type { ClientApi } from "@ace/client";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ConnectionScreen } from "@/features/connect/index.ts";
+import { deviceId } from "@/boot/client.ts";
 import { DaemonConnectionContext, type DaemonConnection } from "@/boot/connection.tsx";
 import {
   forgetToken,
@@ -85,7 +86,7 @@ export function ConnectionGate(props: {
       remembered: state.remembered,
       connect,
       disconnect,
-      endpoint: state.target && { kind: "daemon", target: state.target },
+      endpoint: state.target && { kind: "daemon", target: state.target, deviceId: deviceId() },
     }),
     [state.url, state.remembered, state.target, connect, disconnect],
   );

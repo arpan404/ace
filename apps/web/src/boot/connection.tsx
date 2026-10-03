@@ -1,4 +1,5 @@
-import type { AccessOptions, DeviceTransport } from "@ace/client";
+import type { AccessOptions } from "@ace/client";
+import type { DeviceTransport } from "@ace/client/devices";
 import { createContext, useContext } from "react";
 import type { DaemonTarget } from "./connection-settings.ts";
 
@@ -8,7 +9,7 @@ import type { DaemonTarget } from "./connection-settings.ts";
  * both in memory. Features build their clients from this in their own lazy chunks.
  */
 export type DaemonEndpoint =
-  | { kind: "daemon"; target: DaemonTarget }
+  | { kind: "daemon"; target: DaemonTarget; deviceId: string }
   | { kind: "fake"; access: AccessOptions; devices(): DeviceTransport };
 
 /** Which daemon this window talks to, and how to change it. Provided by the ConnectionGate. */
@@ -24,7 +25,7 @@ export interface DaemonConnection {
   endpoint?: DaemonEndpoint | undefined;
 }
 
-const fallback: DaemonConnection = {
+export const fallback: DaemonConnection = {
   mode: "fake",
   url: "memory://fake-daemon",
   remembered: false,
@@ -36,26 +37,4 @@ export const DaemonConnectionContext = createContext<DaemonConnection>(fallback)
 
 export function useDaemonConnection(): DaemonConnection {
   return useContext(DaemonConnectionContext);
-}
-
-/** What the fake daemon serves beside its socket (`FakeDaemon` from @ace/fake-daemon). */
-export interface FakeSideServices {
-  access: { token: string; fetch: AccessOptions["fetch"] };
-  appDevices: { transport(): DeviceTransport };
-}
-
-/** The connection dev:fake and tests run on: the fake daemon's access routes and devices. */
-export function fakeConnection(daemon: FakeSideServices): DaemonConnection {
-  return {
-    ...fallback,
-    endpoint: {
-      kind: "fake",
-      access: {
-        origin: "http://127.0.0.1:4242/",
-        fetch: daemon.access.fetch,
-        token: async () => daemon.access.token,
-      },
-      devices: () => daemon.appDevices.transport(),
-    },
-  };
 }
