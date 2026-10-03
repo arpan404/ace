@@ -30,3 +30,13 @@ Every row below is **not executed (tests run at merge)**. The corresponding beha
 The native executor uses DelegationService admission, engine whole-thread status and recovery. Host reservation ownership is persisted before filesystem preparation. Launch and integration receipts survive retry. Observations are fenced by lane generation and terminal status. Reconciliation is serialized per run and shutdown awaits its I/O before closing storage. Indexed discovery includes nonterminal runs with empty outboxes. The event path coalesces transcript deltas; observations visit bounded live lane bindings rather than plan/history size. These are code-review findings; their execution behaviour needs run at merge.
 
 GitHub publication lookup follows the primary [pull request list API](https://docs.github.com/en/rest/pulls/pulls#list-pull-requests), filtering the exact owner/branch and base and retaining closed identities to prevent duplicate publication after recovery.
+
+## Static check results
+
+- `bun run fmt -- <changed backend, client and documentation files>`: passed.
+- `bun run lint`: passed.
+- `bun run check:size`: passed; 2,853 tracked source files are within the hard limit.
+- `bun run docs:protocol --check`: passed.
+- `bun run typecheck`: backend, protocol, conductor, client, fake-daemon, Git and Forge packages passed. The overall command fails in UI consumers added by #81: `packages/ui-core/src/deck-gate.ts` needs the new provider gate case; `packages/ui-core/src/deck-view.test.ts` needs timestamps and delegation defaults in its fixtures. Web typecheck also reports the gate mapper's errors. The repo owner's UI restriction leaves those changes to the Claude web agent.
+
+These static checks do not establish runtime acceptance; all behavioural claims above need run at merge.
