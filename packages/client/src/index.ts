@@ -45,6 +45,7 @@ export {
   PermissionClient,
   threadPermission,
   permissionModes,
+  permissionGuarantee,
   permissionReview,
 } from "./permissions.ts";
 export { oppositeFollowUpBehavior } from "./follow-up.ts";

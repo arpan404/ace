@@ -5,7 +5,7 @@ import {
   permissionResolutionError,
 } from "@ace/core";
 import { PermissionMode } from "@ace/protocol";
-import { fakeReviewEvents } from "./permissions.ts";
+import { fakeReviewEvents, fakePermissionCapabilities } from "./permissions.ts";
 import type { Fact, Key } from "@ace/core";
 import {
   organizationCommands,
@@ -191,6 +191,7 @@ export class FakeDaemon implements Host {
       workspaceId: WorkspaceId.parse(init.workspaceId),
       title: init.title,
       provider: init.provider,
+      capabilities: structuredClone(fakePermissionCapabilities),
       ...(init.details ? { details: init.details } : {}),
       ...(init.live ? { live: init.live } : {}),
       ...(init.lineage ? { lineage: init.lineage } : {}),

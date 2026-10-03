@@ -16,7 +16,9 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 // queue storage, removal, context leases and recovery remain with that owner.
 export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "queue.get"
   ? Extract<Reply, { type: "queue.result" }>
-  : ExistingServiceResponse<Q>;
+  : Q["type"] extends "permissions.capabilities"
+    ? Replies<"permissions.capabilities.result">
+    : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "history.list"
@@ -82,6 +84,7 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
                                                       : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
+  "permissions.capabilities": ["permissions.capabilities.result"],
   "pi.control": ["pi.result"],
   "history.list": ["history.list"],
   "history.scan": ["history.scan"],

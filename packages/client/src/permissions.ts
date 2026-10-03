@@ -1,11 +1,13 @@
 import {
   PermissionMode,
   type PermissionCapabilities,
+  type PermissionGuarantee,
   type PermissionState,
   type SettingsScope,
   type SettingsLayer,
   ThreadId,
   type PermissionReview,
+  type ProviderKind,
 } from "@ace/protocol";
 import type { ClientApi, ThreadSource } from "./api.ts";
 import type { RequestOptions } from "./types.ts";
@@ -15,6 +17,16 @@ export class PermissionClient {
   private client: ClientApi;
   constructor(client: ClientApi) {
     this.client = client;
+  }
+  getCapabilities(
+    provider: ProviderKind,
+    backend?: "acp" | "cursor-sdk",
+    options?: RequestOptions,
+  ) {
+    return this.client.request(
+      { type: "permissions.capabilities", provider, ...(backend ? { backend } : {}) },
+      options,
+    );
   }
   setThread(threadId: string, mode: PermissionMode | null, options?: RequestOptions) {
     return this.client.command(
@@ -44,6 +56,13 @@ export function permissionModes(
   capabilities: PermissionCapabilities | undefined,
 ): readonly PermissionMode[] {
   return capabilities?.modes ?? [];
+}
+/** Missing metadata is unknown, not a claim of complete protection. */
+export function permissionGuarantee(
+  capabilities: PermissionCapabilities | undefined,
+  mode: PermissionMode,
+): PermissionGuarantee | undefined {
+  return capabilities?.guarantees?.find((guarantee) => guarantee.mode === mode);
 }
 /** Select with interaction:<id>. Review notices are also available through source.item(id). */
 export function permissionReview(

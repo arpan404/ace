@@ -1,6 +1,36 @@
 import { reviewPermission, containsSecretReference, type PathRisk } from "@ace/core";
-import type { EventPayload, PermissionReview } from "@ace/protocol";
+import type { Capabilities, EventPayload, PermissionReview } from "@ace/protocol";
 import type { ThreadHost } from "./thread-host.ts";
+
+/** Scripted facts are fully gated in memory; these are not native provider guarantees. */
+export const fakePermissionCapabilities: Capabilities = {
+  steer: true,
+  interruptCascades: true,
+  resume: true,
+  fork: true,
+  subagentTranscripts: true,
+  backgroundTaskControl: true,
+  backgroundVisibility: "full",
+  planMode: false,
+  tokenUsage: false,
+  imageInput: true,
+  rewindFiles: false,
+  permissions: {
+    modes: ["read-only", "ask", "auto-review", "full-access"],
+    nativeAutoReview: false,
+    toolGate: true,
+    guarantees: [
+      {
+        mode: "auto-review",
+        level: "tool-gate",
+        gates: { writes: true, network: true, protectedReads: true, shell: true },
+        limitations: [
+          "Simulated permission requests only; no native provider or host tools execute.",
+        ],
+      },
+    ],
+  },
+};
 
 /** Fake paths describe an in-memory filesystem. No host filesystem is read. */
 function fakePaths(host: ThreadHost, paths: string[], cwd?: string): PathRisk[] {

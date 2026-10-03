@@ -272,8 +272,8 @@ export class Engine {
     }
     return actor;
   }
-  capabilities(provider: ProviderKind) {
-    return this.registry.get(provider).capabilities;
+  capabilities(provider: ProviderKind, backend?: import("@ace/engine-api").ProviderBackend) {
+    return structuredClone(this.registry.get(provider, backend).capabilities);
   }
   /** Trusted spawn boundary for Deck and delegation. Receipt identity is caller-owned. */
   spawn(

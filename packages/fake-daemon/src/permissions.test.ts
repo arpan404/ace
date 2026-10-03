@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { Client, PermissionClient, permissionReview } from "@ace/client";
+import { Client, PermissionClient, permissionReview, permissionGuarantee } from "@ace/client";
 import { DeviceId, ThreadId, WorkspaceId } from "@ace/protocol";
 import { FakeDaemon, fakeTransport } from "./index.ts";
 import type { Fact } from "@ace/core";
@@ -168,6 +168,25 @@ test("a fake child cannot widen inherited permissions", async () => {
     expect(f.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("child") })).toMatchObject({
       thread: { permission: { effective: "read-only" } },
     });
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("clients can preview simulated guarantees before creating a thread and unknown guarantees stay unknown", async () => {
+  const f = await fixture();
+  try {
+    const result = await f.permissions.getCapabilities("codex");
+    expect(result.ok).toBe(true);
+    expect(permissionGuarantee(result.permissions, "auto-review")).toMatchObject({
+      level: "tool-gate",
+      gates: { writes: true, network: true, protectedReads: true, shell: true },
+    });
+    expect(permissionGuarantee(result.permissions, "auto-review")?.limitations.join(" ")).toContain(
+      "Simulated",
+    );
+    expect(permissionGuarantee(undefined, "auto-review")).toBeUndefined();
+    expect(permissionGuarantee(result.permissions, "full-access")).toBeUndefined();
   } finally {
     await f.client.close();
   }

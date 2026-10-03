@@ -13,11 +13,27 @@ export const ApprovalTarget = z.object({
   input: z.unknown().optional(),
 });
 export type ApprovalTarget = z.infer<typeof ApprovalTarget>;
+/** Coverage of action classes, not a promise that every action is reviewed by ace. */
+export const PermissionGuarantee = z.object({
+  mode: PermissionMode,
+  level: z.enum(["tool-gate", "sandbox", "tool-selection", "permission-requests"]),
+  gates: z.object({
+    writes: z.boolean(),
+    network: z.boolean(),
+    protectedReads: z.boolean(),
+    shell: z.boolean(),
+  }),
+  limitations: z.array(z.string().min(1).max(2048)).max(32),
+});
+export type PermissionGuarantee = z.infer<typeof PermissionGuarantee>;
 export const PermissionCapabilities = z.object({
   modes: z.array(PermissionMode).max(4),
+  /** Native feature availability; this does not mean ace enables it. */
   nativeAutoReview: z.boolean(),
   /** Native approval requests can be answered through ace before execution. */
   toolGate: z.boolean(),
+  /** Missing entries mean unknown coverage. Native full access has no guarantee. */
+  guarantees: z.array(PermissionGuarantee).max(4).optional(),
 });
 export type PermissionCapabilities = z.infer<typeof PermissionCapabilities>;
 export const PermissionState = z.object({
