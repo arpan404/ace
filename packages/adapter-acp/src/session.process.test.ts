@@ -297,6 +297,7 @@ it("rejects active work and stops the process when stdout ends while it is alive
 });
 it("rejects ACP v2 before creating a native session", async () => {
   const frames: Frame[] = [];
+  let child: ReturnType<typeof spawnSupervised> | undefined;
   await expect(
     openAcpSession(
       {
@@ -308,8 +309,22 @@ it("rejects ACP v2 before creating a native session", async () => {
       },
       cursorQuirks,
       { command: process.execPath, args: [fake, "--protocol-v2"] },
+      {
+        now: () => 0,
+        spawn(options) {
+          child = spawnSupervised(options);
+          return child;
+        },
+      },
     ),
-  ).rejects.toThrow("protocol version");
+  ).rejects.toThrow();
+  expect(
+    frames.some(
+      (f) => f.dir === "recv" && object(object(f.data)["result"])["protocolVersion"] === 2,
+    ),
+  ).toBe(true);
+  if (!child) throw new Error("Synthetic ACP server did not start");
+  expect(await child.exited).toMatchObject({ reason: "stopped" });
   expect(frames.some((f) => method(f, "session/new"))).toBe(false);
 });
 

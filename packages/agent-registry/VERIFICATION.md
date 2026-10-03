@@ -1,6 +1,6 @@
 # ACP registry verification
 
-Status: the owner-authorized merge-conflict verification passed 45 tests in 10 selected files after merging main at `6a26d03`. Other suites, benchmarks and mutation cases remain **not executed (tests run at merge)**. Earlier static-only evidence below records the pre-merge development gate. No provider probes, sessions, prompts or recordings were run. The upstream schema/format and dependency manifests were read as primary-source metadata; fetching those documents is not provider execution. The canonical CDN refresh attempted during implementation returned HTTP 403, so no current production catalog refresh is claimed.
+Status: the latest owner-authorized failure follow-up passed 47 tests in the 7 named files. The preceding merge-conflict verification passed 45 tests in 10 selected files after merging main at `6a26d03`. Other suites, benchmarks and mutation cases remain **not executed (tests run at merge)**. Earlier static-only evidence below records the pre-merge development gate. No provider probes, sessions, prompts or recordings were run. The upstream schema/format and dependency manifests were read as primary-source metadata; fetching those documents is not provider execution. The canonical CDN refresh attempted during implementation returned HTTP 403, so no current production catalog refresh is claimed.
 
 ## Behavior coverage to run at merge
 
@@ -72,7 +72,7 @@ ZIP extraction, real npm/uv package behavior, Windows launch, actual provider ac
 - `models/registry.test.ts`: successful discovery would return visible sentinel models, proving generic refresh does not start discovery even when deadlines permit it.
 - `models/registry.test.ts`: explicit model category wins over an option named model that belongs to the mode category.
 - `daemon/engine/model-selection.process.test.ts`: confirmed selection changes snapshots and cold recovery; resume uses the same model; rejected selection preserves it; retry after a real SQLite model-write rejection does not reuse rolled-back hot state.
-- `daemon/agent-registry.server.process.test.ts`: admin without operate and operate without admin deny both a valid install plan and a valid install intent before execution.
+- `daemon/agent-registry.server.process.test.ts`: read-only and read/operate devices deny both a valid install plan and a valid install intent before download or publication. Admin-only devices are authorized through main's inherited read/operate scope policy.
 - `archive.process.test.ts`: traversal targets the actual surviving external location; absolute paths target a temporary external path; a link followed by a file cannot write through the link.
 - `adapter-acp/negotiation.process.test.ts`: source bridge profiles offer canonical and metadata child-session signals and require matching agent advertisement; generic agents retain limited support.
 - `accounts/acp.process.test.ts`: default-home sharing does not collapse identity or login generations; unverified home selectors and migration are unsupported; local synthetic login leaves auth unknown and credentials CLI-owned.
@@ -98,3 +98,16 @@ Under the owner's explicit merge-conflict exception:
 - `bunx vitest run packages/agent-registry/src/archive.process.test.ts`: **4 tests passed, 1 file**. Valid tar installs; traversal, absolute paths and link-following escapes remain denied.
 
 `bun run fmt`, `bun run lint`, `bun run typecheck`, `bun run check:size`, `bun run docs:protocol --check` and `git diff --check` passed. All 1,617 source files are below 1,500 lines. Full `bun run check`, the full suite, mutation execution and benchmarks were not run. CI is disabled and was not requested or watched. No provider prompts, sessions, probes or recordings were run. Performance numbers still need run at merge. No integration-rehearsal comment was present in the reread PR comments.
+
+## Merge-time failures, 2026-10-02
+
+`git pull` confirmed the pushed branch was current. The exact seven reported files reproduced all eight failures before changes. Four failure classes were resolved:
+
+- Session-derived model normalization threw synchronously from `updateFromSession`, despite its promise-returning contract. It is now async: malformed known select data rejects, preserves cached rows, and a later valid replacement succeeds.
+- The old-schema fixture helper retained the newer `threads.acp` column while resetting the schema version. It now removes that column with the other post-schema-five features; all four real SQLite upgrade cases pass without making production migrations skip invalid schemas.
+- ACP v2 was already rejected by the schema. The test depended on obsolete error wording; it now checks the received v2 response, rejection, supervised process termination and absence of `session/new`.
+- The scope test treated admin and operate as independent, contrary to main's device policy. It now denies read-only and read/operate devices before any artifact download, and confirms admin-only authorization with an explicit intent against a synthetic failing fetch boundary. No real artifacts or provider processes are installed.
+
+Authorized command: `bunx vitest run packages/models/src/acp-extensions.test.ts apps/daemon/src/status-storage.test.ts apps/daemon/src/device-payload-upgrade.test.ts apps/daemon/src/text-preview-migration.test.ts packages/adapter-acp/src/session.process.test.ts apps/daemon/src/text-storage.process.test.ts apps/daemon/src/agent-registry.server.process.test.ts`.
+
+Result: **47 tests passed across 7 files**. Only these named files were executed in this follow-up. Formatting, lint and typecheck passed. Full-suite tests, full `bun run check`, benchmarks, mutations, provider recordings and CI were not run.
