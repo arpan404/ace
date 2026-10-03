@@ -1,5 +1,5 @@
 import { watch, type FSWatcher } from "node:fs";
-import { resolve, relative, sep } from "node:path";
+import { resolve, relative, sep, dirname } from "node:path";
 import type { ProviderHome } from "./contracts.ts";
 
 export type InventoryChanges = { instanceId: string; paths: string[] }[];
@@ -7,6 +7,7 @@ export type InventoryChanges = { instanceId: string; paths: string[] }[];
 export class InventoryWatch {
   private watchers: FSWatcher[] = [];
   private dirty = new Map<string, Set<string>>();
+  private dirtyCount = 0;
   private primed = false;
   private uncertain = false;
   private unsupported = false;
@@ -15,11 +16,12 @@ export class InventoryWatch {
     for (const instance of instances) {
       if (instance.provider === "cursor") continue;
       try {
-        const watcher = watch(instance.homeDir, { recursive: true }, (_event, filename) => {
+        const watcher = watch(instance.homeDir, { recursive: true }, (event, filename) => {
           if (!filename) {
             this.invalidate();
             return;
           }
+          if (this.uncertain) return;
           const path = resolve(instance.homeDir, filename);
           const name = relative(instance.homeDir, path).split(sep).join("/");
           if (name.startsWith("../") || name === "..") {
@@ -45,16 +47,30 @@ export class InventoryWatch {
               ? /^state_\d+\.sqlite(?:-wal|-journal)?$/.test(name)
               : /^opencode(?:-[\w-]+)?\.db(?:-wal|-journal)?$/.test(name);
           if (!transcript && !database) return;
+          // A coalesced rename may report only the destination. Verify its parent so
+          // old names disappear, including case-only renames on case-insensitive homes.
+          if (database && event === "rename") {
+            this.invalidate();
+            return;
+          }
           let paths = this.dirty.get(instance.id);
           if (!paths) {
             paths = new Set();
             this.dirty.set(instance.id, paths);
           }
-          if (paths.size >= 4096) {
+          const root = name === "projects" || name === "sessions" || name === "archived_sessions";
+          const changed = database
+            ? path.replace(/-(?:wal|journal)$/, "")
+            : event === "rename" && !root
+              ? dirname(path)
+              : path;
+          if (paths.has(changed)) return;
+          if (this.dirtyCount >= 4096) {
             this.invalidate();
             return;
           }
-          paths.add(database ? path.replace(/-(?:wal|journal)$/, "") : path);
+          paths.add(changed);
+          this.dirtyCount++;
           this.notify();
         });
         watcher.on("error", () => {
@@ -89,6 +105,7 @@ export class InventoryWatch {
       paths: [...paths],
     }));
     this.dirty.clear();
+    this.dirtyCount = 0;
     this.uncertain = false;
     return full ? undefined : changes;
   }
@@ -102,6 +119,7 @@ export class InventoryWatch {
     for (const watcher of this.watchers) watcher.close();
     this.watchers = [];
     this.dirty.clear();
+    this.dirtyCount = 0;
     this.listeners.clear();
   }
 }

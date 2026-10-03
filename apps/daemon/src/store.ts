@@ -96,7 +96,7 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256;",
       );
       migrate(this.db);
-      this.workspaceReservations = new WorkspaceReservations(this.db);
+      this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
       this.usageReplay = new UsageReplay(this.db);
       this.db.exec(

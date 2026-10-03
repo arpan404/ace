@@ -6,7 +6,7 @@ import { CachedEntry } from "./cache-schema.ts";
 import type { CacheEntry, CatalogStorage } from "./types.ts";
 
 const Reply = z.object({ id: z.number().int().positive(), ok: z.boolean() });
-type Pending = { resolve: () => void; reject: (error: Error) => void };
+type Pending = { resolve: () => void; reject: (error: Error) => void; bytes: number };
 /** Startup reads are synchronous; later writes run on a dedicated SQLite worker. */
 export function openModelStorage(path: string): CatalogStorage {
   const db = new DatabaseSync(path);
@@ -39,6 +39,7 @@ export function openModelStorage(path: string): CatalogStorage {
     workerData: { path },
   });
   const pending = new Map<number, Pending>();
+  let pendingBytes = 0;
   let nextId = 1;
   let failure: Error | undefined;
   let closing: Promise<void> | undefined;
@@ -46,6 +47,7 @@ export function openModelStorage(path: string): CatalogStorage {
     failure ??= new Error("Model persistence worker failed");
     for (const request of pending.values()) request.reject(failure);
     pending.clear();
+    pendingBytes = 0;
   };
   worker.on("error", fail);
   worker.on("message", (value: unknown) => {
@@ -57,6 +59,7 @@ export function openModelStorage(path: string): CatalogStorage {
     }
     const request = pending.get(parsed.data.id);
     pending.delete(parsed.data.id);
+    if (request) pendingBytes -= request.bytes;
     if (parsed.data.ok) request?.resolve();
     else request?.reject(new Error("Model persistence failed"));
     if (!pending.size && path !== ":memory:") worker.idle();
@@ -75,14 +78,27 @@ export function openModelStorage(path: string): CatalogStorage {
     // with one reserved request outside the mutation admission limit.
     if (operation !== "close" && pending.size >= 128)
       return Promise.reject(new Error("Model persistence queue full"));
+    let bytes;
+    try {
+      bytes = Buffer.byteLength(JSON.stringify(data));
+    } catch {
+      return Promise.reject(new Error("Model persistence failed"));
+    }
+    if (
+      bytes > 4 * 1024 * 1024 ||
+      (operation !== "close" && pendingBytes + bytes > 8 * 1024 * 1024)
+    )
+      return Promise.reject(new Error("Model persistence byte backpressure"));
     const id = nextId++;
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
+      pending.set(id, { resolve, reject, bytes });
+      pendingBytes += bytes;
       try {
         // oxlint-disable-next-line unicorn/require-post-message-target-origin -- Node worker, not a browser window.
         worker.postMessage({ id, operation, data });
       } catch {
         pending.delete(id);
+        pendingBytes -= bytes;
         reject(new Error("Model persistence failed"));
       }
     });

@@ -15,6 +15,7 @@ const frameSchema = z.object({
   data: z.unknown(),
   payload: z.custom<ProviderPayload>(ProviderPayload.is).optional(),
 });
+const sdkBody = z.object({ kind: z.string(), body: z.unknown() });
 export interface EngineClock {
   now(): number;
   setTimer(callback: () => void, delay: number): () => void;
@@ -194,10 +195,12 @@ export class ThreadActor {
       const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
       const before = this.repo.requireState(this.id).status;
       this.repo.store.atomic(() => {
-        const body = z.object({ kind: z.string(), body: z.unknown() }).safeParse(decoded.data);
-        if (cursorSdk && body.success && body.data.kind === "blob")
-          this.repo.store.appendRawChunk(this.id, body.data.body);
-        if (cursorSdk) this.repo.captureFrame(this.id, decoded);
+        if (cursorSdk) {
+          const body = sdkBody.safeParse(decoded.data);
+          if (body.success && body.data.kind === "blob")
+            this.repo.store.appendRawChunk(this.id, body.data.body);
+          this.repo.captureFrame(this.id, decoded);
+        }
         this.apply(facts);
         if (
           facts.some(

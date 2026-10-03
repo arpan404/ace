@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import { unlink, appendFile } from "node:fs/promises";
+import { unlink, appendFile, writeFile, rename, mkdir } from "node:fs/promises";
 import { expect, test } from "vitest";
 import { environment, jsonl, claudeRecords, cwd } from "./test-support.ts";
 
@@ -52,6 +52,80 @@ test("a changed transcript and a deletion refresh without dropping unrelated cac
     expect(
       (await restarted.list({ type: "history.list", cwd, limit: 10 })).sessions[0]?.title,
     ).toBe("offline");
+  } finally {
+    await env.close();
+  }
+});
+
+test("watch overflow falls back to inventory verification without retaining every changed path", async () => {
+  const env = await environment();
+  const home = join(env.root, "claude");
+  const directory = join(home, "projects/p");
+  try {
+    await jsonl(join(directory, "retained.jsonl"), claudeRecords("retained", "retained"));
+    for (let offset = 0; offset < 4100; offset += 64)
+      await Promise.all(
+        Array.from({ length: Math.min(64, 4100 - offset) }, (_, index) =>
+          (async () => {
+            const parent = join(directory, `noise-${offset + index}`);
+            await mkdir(parent);
+            await writeFile(join(parent, "noise.tmp"), "");
+          })(),
+        ),
+      );
+    const service = await env.start([{ id: "account", provider: "claude", homeDir: home }]);
+    await service.scanChanges();
+    const overflow = Promise.withResolvers<void>();
+    let observed = 0;
+    const unsubscribe = service.subscribeChanges(() => {
+      // Native notifications provide the ordering boundary, without timing sleeps.
+      if (++observed > 4096) overflow.resolve();
+    });
+    try {
+      for (let offset = 0; offset < 4100; offset += 64)
+        await Promise.all(
+          Array.from({ length: Math.min(64, 4100 - offset) }, (_, index) =>
+            appendFile(join(directory, `noise-${offset + index}`, "noise.tmp"), "x"),
+          ),
+        );
+      await overflow.promise;
+      // None of the noise files are transcripts. Only a full fallback verifies this
+      // unchanged source; an unbounded dirty-path batch would visit zero transcripts.
+      expect(await service.scanChanges()).toMatchObject({ files: 1, reads: 0, skipped: 1 });
+      expect((await service.list({ type: "history.list", cwd })).sessions[0]?.title).toBe(
+        "retained",
+      );
+    } finally {
+      unsubscribe();
+    }
+  } finally {
+    await env.close();
+  }
+}, 30000);
+
+test("a renamed transcript removes the old source while preserving its native session", async () => {
+  const env = await environment();
+  const home = join(env.root, "claude"),
+    directory = join(home, "projects/p");
+  try {
+    await jsonl(join(directory, "old.jsonl"), claudeRecords("same", "native"));
+    const service = await env.start([{ id: "account", provider: "claude", homeDir: home }]);
+    await service.scanChanges();
+    const previous = (await service.list({ type: "history.list", cwd })).sessions[0];
+    if (!previous) throw new Error("Missing source");
+    const observed = Promise.withResolvers<void>();
+    const stop = service.subscribeChanges(() => observed.resolve());
+    try {
+      await rename(join(directory, "old.jsonl"), join(directory, "new.jsonl"));
+      await observed.promise;
+      await service.scanChanges();
+      const sessions = (await service.list({ type: "history.list", cwd })).sessions;
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.nativeId).toBe("native");
+      expect(await service.get(previous.id)).toBeNull();
+    } finally {
+      stop();
+    }
   } finally {
     await env.close();
   }

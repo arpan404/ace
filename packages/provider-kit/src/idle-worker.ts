@@ -34,7 +34,7 @@ export class IdleWorker extends EventEmitter {
   private idleMs: number;
   private failed = false;
   private retirementFailure: Error | undefined;
-  constructor(entry: URL, options: WorkerOptions, runtime = systemRuntime, idleMs = 1000) {
+  constructor(entry: URL, options: WorkerOptions, runtime = systemRuntime, idleMs = 5000) {
     super();
     if (!Number.isSafeInteger(idleMs) || idleMs < 1) throw new Error("Invalid worker idle timeout");
     this.entry = entry;
@@ -43,7 +43,8 @@ export class IdleWorker extends EventEmitter {
     this.idleMs = idleMs;
   }
   get started(): boolean {
-    return this.worker !== undefined || this.stopping !== undefined;
+    // An empty retiring isolate has no work to close; terminate() still awaits its exit.
+    return this.worker !== undefined || this.deferred.length > 0;
   }
   start(): void {
     if (this.closing || this.failed) throw new Error("Worker closed");
