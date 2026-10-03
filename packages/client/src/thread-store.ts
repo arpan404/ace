@@ -121,6 +121,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     };
   }
   snapshot(view: ThreadView): void {
+    const runs = Object.keys(view.runs).length;
+    if (runs > this.limits.entities) endedRuns(view, runs - this.limits.entities);
     if (view.itemOrder.length > 200 || Object.keys(view.items).length > 200)
       throw new ClientError("limit", "Snapshot item capacity exceeded");
     if (Object.keys(view.itemSeqs ?? {}).length > 200)
@@ -167,9 +169,11 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     // Entities are individually bounded. No full view or history copy on deltas.
     if (value !== undefined) record[id] = { ...value };
   }
-  private capacity(name: string, exists: boolean): void {
+  private capacity(name: string, exists: boolean, keys?: Set<ThreadKey>): void {
     if (exists) return;
-    const count = (this.counts.get(name) ?? 0) + 1;
+    let count = (this.counts.get(name) ?? 0) + 1;
+    if (count > this.limits.entities && name === "runs" && this.view)
+      count -= endedRuns(this.view, Math.ceil(this.limits.entities / 4), keys);
     if (count > this.limits.entities) throw new ClientError("limit", "Entity capacity exceeded");
     this.counts.set(name, count);
   }
@@ -233,7 +237,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           if (p.type === "agent.updated" && p.parentId !== undefined) keys.add("agents");
           break;
         case "run.started":
-          if (!keys.has(`run:${p.run.id}`)) this.capacity("runs", !!this.run(p.run.id));
+          if (!keys.has(`run:${p.run.id}`)) this.capacity("runs", !!this.run(p.run.id), keys);
           keys.add(`run:${p.run.id}`);
           break;
         case "run.ended":
@@ -398,4 +402,26 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     const item = this.item(id);
     if (item && clipItem(item, this.limits)) this.clipped.add(id);
   }
+}
+
+/**
+ * Drop up to `count` of the oldest ended runs that no loaded item belongs to, so a thread with
+ * more turns than the entity limit keeps working for as long as it runs. Active runs and the
+ * runs of loaded items stay: status and turn grouping never depend on an evicted run.
+ */
+function endedRuns(view: ThreadView, count: number, keys?: Set<ThreadKey>): number {
+  const referenced = new Set<string>();
+  for (const id of view.itemOrder) {
+    const runId = Object.hasOwn(view.items, id) ? view.items[id]?.runId : undefined;
+    if (runId) referenced.add(runId);
+  }
+  let freed = 0;
+  for (const [id, run] of Object.entries(view.runs)) {
+    if (freed >= count) break;
+    if (run.state === "active" || referenced.has(id)) continue;
+    delete view.runs[id];
+    keys?.add(`run:${id}`);
+    freed++;
+  }
+  return freed;
 }
