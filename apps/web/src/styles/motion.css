@@ -50,6 +50,10 @@
   .fx-rise-in {
     animation: fx-rise-in var(--dur-2) var(--spring) both;
   }
+  /* A scrim or overlay appearing: opacity only. */
+  .fx-fade-in {
+    animation: fx-fade-in var(--dur-3) var(--sheet) both;
+  }
   /* Something leaving in place before its neighbours close the gap. */
   .fx-fade-out {
     pointer-events: none;

@@ -26,7 +26,7 @@ function SheetOverlay({ className, ...props }: SheetPrimitive.Backdrop.Props) {
     <SheetPrimitive.Backdrop
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 z-[100] bg-black/30 transition-opacity duration-(--dur-3) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-(--dur-exit) data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
+        "fixed inset-0 z-[100] bg-black/40 transition-opacity duration-(--dur-3) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-(--dur-exit) data-starting-style:opacity-0 supports-backdrop-filter:backdrop-blur-xs",
         className,
       )}
       {...props}

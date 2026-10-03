@@ -85,11 +85,27 @@ export function ShellPanel(props: { side: PanelSide; panel: PanelDefinition }) {
       ),
   );
   const presence = usePresence(state.open);
-  if (!presence.mounted) return shortcuts;
   const closing = presence.phase === "exit";
+  // Floating over the content (not a phone sheet, which covers it all), the panel dims what it
+  // covers; a click there or Escape closes it.
+  const floating = overlay && !sheet;
+  useHotkey("escape", () => setPanelOpen(props.side, false), {
+    enabled: floating && state.open,
+  });
+  if (!presence.mounted) return shortcuts;
   return (
     <>
       {shortcuts}
+      {floating && (
+        <div
+          aria-hidden
+          onClick={() => setPanelOpen(props.side, false)}
+          className={cn(
+            "absolute inset-0 z-20 bg-black/20",
+            closing ? "fx-fade-out" : presence.toggled && "fx-fade-in",
+          )}
+        />
+      )}
       <section
         aria-label={closing ? undefined : props.panel.label}
         inert={closing}
@@ -104,8 +120,8 @@ export function ShellPanel(props: { side: PanelSide; panel: PanelDefinition }) {
                 right ? "border-l" : "border-t",
                 overlay &&
                   (right
-                    ? "absolute inset-y-0 right-0 z-20 max-w-[calc(100%-3rem)] bg-background shadow-[-12px_0_32px_rgb(0_0_0/0.18)]"
-                    : "absolute inset-x-0 bottom-0 z-20 bg-background shadow-[0_-12px_32px_rgb(0_0_0/0.18)]"),
+                    ? "absolute inset-y-0 right-0 z-20 max-w-[calc(100%-3rem)] bg-background shadow-[var(--glass-shadow)]"
+                    : "absolute inset-x-0 bottom-0 z-20 bg-background shadow-[var(--glass-shadow)]"),
               ],
           panelMotion(presence),
         )}

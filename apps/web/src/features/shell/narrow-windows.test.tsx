@@ -88,3 +88,23 @@ test("below 1100px the sidebar steps aside for the right panel and comes back wh
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   await waitFor(() => expect(sidebar()).toBeTruthy());
 });
+
+test("on a tablet the floating panel closes with Escape, as an overlay does", async () => {
+  windowWidth(1024);
+  await openThread();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  await screen.findByRole("region", { name: "Thread panel" });
+
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+});
+
+test("in a wide window the panel sits beside the thread and Escape leaves it open", async () => {
+  windowWidth(1440);
+  await openThread();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  await screen.findByRole("region", { name: "Thread panel" });
+
+  await userEvent.keyboard("{Escape}");
+  expect(screen.getByRole("region", { name: "Thread panel" })).toBeTruthy();
+});

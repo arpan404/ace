@@ -73,7 +73,7 @@ export function ViewFrame(props: { label: string; sidebar: ReactNode; children: 
             <SheetContent
               side="left"
               showCloseButton={false}
-              className="w-[min(320px,85vw)] gap-0 bg-sidebar p-0"
+              className="w-[min(320px,85vw)] gap-0 bg-[rgb(var(--sidebar-rgb))] p-0"
             >
               <SheetTitle className="sr-only">{props.label}</SheetTitle>
               <aside aria-label={props.label} className="flex min-h-0 flex-1 flex-col">
