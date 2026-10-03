@@ -1,29 +1,42 @@
-import { PlusIcon, TrashIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
+import { lazy, Suspense, type ReactNode } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import type { PanelDefinition } from "@/features/shell/index.ts";
-import { useLayout } from "@/lib/layout.tsx";
-import { AgentsTab } from "./agents/agents-tab.tsx";
-import { ChangesTab } from "./changes/changes-tab.tsx";
 import { ThreadDiffStat } from "./changes/diff-stat.tsx";
-import { useThreadLog } from "./logs/logs-tab.tsx";
-import { LogsTab } from "./logs/logs-tab.tsx";
-import { PreviewTab } from "./preview/preview-tab.tsx";
-import { PanelServicesContext, useLoadedServices, usePanelServices } from "./services.ts";
-import { TerminalTab, useOpenTerminal } from "./terminal/terminal-tab.tsx";
+import { PanelServicesContext, useLoadedServices } from "./services.ts";
 
-/** Provides the panel services to a tab, with a spinner for the moment they load. */
-function Loading(props: { children: ReactNode; quiet?: boolean }) {
-  const services = useLoadedServices();
-  if (!services)
-    return props.quiet ? null : (
-      <div className="grid h-full place-items-center">
-        <Spinner label="Loading" />
-      </div>
-    );
+/*
+ * Panels start closed, so their code loads (as one chunk) the first time a panel shows, not
+ * with the thread screen (ADR 0056 route budget). Only the Changes badge renders with the tab bar.
+ */
+const loadTabs = () => import("./tabs.ts");
+const ChangesTab = lazy(() => loadTabs().then((m) => ({ default: m.ChangesTab })));
+const PreviewTab = lazy(() => loadTabs().then((m) => ({ default: m.PreviewTab })));
+const AgentsTab = lazy(() => loadTabs().then((m) => ({ default: m.AgentsTab })));
+const TerminalTab = lazy(() => loadTabs().then((m) => ({ default: m.TerminalTab })));
+const LogsTab = lazy(() => loadTabs().then((m) => ({ default: m.LogsTab })));
+const BottomActions = lazy(() => loadTabs().then((m) => ({ default: m.BottomActions })));
+
+function Waiting() {
   return (
-    <PanelServicesContext.Provider value={services}>{props.children}</PanelServicesContext.Provider>
+    <div className="grid h-full place-items-center">
+      <Spinner label="Loading" />
+    </div>
+  );
+}
+
+/**
+ * Provides the panel services to a tab, with a spinner while they or the tab's code load.
+ * `services: false` is for a tab that needs no services (Agents).
+ */
+function Loading(props: { children: ReactNode; quiet?: boolean; services?: false }) {
+  const services = useLoadedServices();
+  const fallback = props.quiet ? null : <Waiting />;
+  if (props.services === false) return <Suspense fallback={fallback}>{props.children}</Suspense>;
+  if (!services) return fallback;
+  return (
+    <PanelServicesContext.Provider value={services}>
+      <Suspense fallback={fallback}>{props.children}</Suspense>
+    </PanelServicesContext.Provider>
   );
 }
 
@@ -63,7 +76,11 @@ export function threadPanels(threadId: string): {
           id: "agents",
           label: "Agents",
           shortcut: "agents",
-          content: <AgentsTab threadId={threadId} />,
+          content: (
+            <Loading services={false}>
+              <AgentsTab threadId={threadId} />
+            </Loading>
+          ),
         },
       ],
     },
@@ -96,38 +113,4 @@ export function threadPanels(threadId: string): {
       ),
     },
   };
-}
-
-/** New terminal (Terminal tab only) and Clear, for whichever bottom tab is showing. */
-function BottomActions(props: { threadId: string }) {
-  const { layout } = useLayout();
-  const services = usePanelServices();
-  const opener = useOpenTerminal(props.threadId);
-  const lines = useThreadLog(props.threadId);
-  const sessions = services.terminals;
-  const terminal = layout.bottom.tab !== "logs";
-  const clear = () => {
-    if (!terminal) {
-      if (lines.length)
-        services.logCleared.set((previous) =>
-          new Map(previous).set(props.threadId, new Set(lines.map((line) => line.key))),
-        );
-    } else {
-      const shown = sessions.shown(props.threadId);
-      if (shown && !shown.startsWith("task:")) sessions.clear(shown);
-    }
-  };
-  return (
-    <>
-      {terminal && opener.ready && (
-        <IconButton icon={PlusIcon} label="New terminal" size="sm" onClick={opener.open} />
-      )}
-      <IconButton
-        icon={TrashIcon}
-        label={terminal ? "Clear terminal" : "Clear logs"}
-        size="sm"
-        onClick={clear}
-      />
-    </>
-  );
 }
