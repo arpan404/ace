@@ -65,3 +65,22 @@ export function ViewRowSection(props: { label: string; children: ReactNode }) {
     </section>
   );
 }
+
+/**
+ * A second sidebar whose list failed while the main pane explains why: one quiet line and a way
+ * to read it again, so the failure isn't told twice in two voices.
+ */
+export function ViewSidebarError(props: { onRetry(): void }) {
+  return (
+    <p className="flex items-center gap-1.5 px-[11px] pt-3 text-sm text-subtle-foreground">
+      Couldn't load the list.
+      <button
+        type="button"
+        onClick={props.onRetry}
+        className="rounded-sm font-medium text-muted-foreground underline-offset-2 outline-none hover:text-foreground hover:underline focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]"
+      >
+        Try again
+      </button>
+    </p>
+  );
+}

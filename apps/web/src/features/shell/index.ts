@@ -5,5 +5,5 @@ export { Rail } from "./rail.tsx";
 export { TabBar } from "./tab-bar.tsx";
 export { Page, PageTitle, Screen } from "./screen.tsx";
 export { useThreadIdsWhere } from "./use-threads.ts";
-export { SidebarHeader, ViewFrame, ViewSidebar, ViewSidebarError } from "./view-frame.tsx";
+export { SidebarHeader, ViewFrame, ViewSidebar } from "./view-frame.tsx";
 export { railViews, type RailView } from "./views.ts";

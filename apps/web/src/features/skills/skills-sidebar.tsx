@@ -14,8 +14,13 @@ import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-row.tsx";
-import { ViewSidebar, ViewSidebarError } from "@/features/shell/index.ts";
+import {
+  ViewRowBody,
+  ViewRowSection,
+  viewRowClass,
+  ViewSidebarError,
+} from "@/components/ui/view-row.tsx";
+import { ViewSidebar } from "@/features/shell/index.ts";
 import { InstallPlugin } from "./install-plugin.tsx";
 import type { Skill, SkillKind } from "./skills-model.ts";
 import { useSkills } from "./skills-source.ts";

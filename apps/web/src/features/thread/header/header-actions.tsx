@@ -68,32 +68,30 @@ export function RunButton(props: { thread: ThreadRef }) {
       toast.add({ title: `Couldn't run ${script.command}`, description: failure(error) });
     }
   };
-  const status = scriptsStatus(query.status, scripts?.length ?? 0);
+  // Loading, unreadable or none: the caret's menu says which, so a click always explains.
+  const note = query.isPending
+    ? ["Loading scripts", "They show here once the daemon has read them"]
+    : query.isError
+      ? ["Couldn't read this project's scripts", "Try again, or check the daemon's log"]
+      : first
+        ? undefined
+        : ["No scripts in this project", "Add one to package.json and it shows here"];
   return (
     <SplitButton
       variant="ghost"
       icon={<PlayIcon aria-hidden size={16} />}
-      actionLabel={first ? `Run ${first.command}` : runLabels[status]}
+      actionLabel={first ? `Run ${first.command}` : (note?.[0] ?? "")}
       menuLabel="Choose a script"
-      actionDisabled={status === "error" || status === "empty"}
+      actionDisabled={!first && !query.isPending}
       onAction={() => first && void run(first)}
       menu={
-        status === "loading" ? (
-          <MenuItem disabled reason="They show here once the daemon has read them">
-            Loading scripts
-          </MenuItem>
-        ) : status === "error" ? (
+        note ? (
           <>
-            <MenuItem disabled reason="Couldn't read this project's scripts">
-              No scripts to run
+            <MenuItem disabled reason={note[1]}>
+              {note[0]}
             </MenuItem>
-            <MenuSeparator />
-            <MenuItem onClick={() => void query.refetch()}>Try again</MenuItem>
+            {query.isError && <MenuItem onClick={() => void query.refetch()}>Try again</MenuItem>}
           </>
-        ) : status === "empty" ? (
-          <MenuItem disabled reason="Add one to package.json and it shows here">
-            No scripts in this project
-          </MenuItem>
         ) : (
           scripts?.map((script, index) => (
             <MenuItem
@@ -109,21 +107,6 @@ export function RunButton(props: { thread: ThreadRef }) {
       }
     />
   );
-}
-
-type ScriptsStatus = "loading" | "error" | "empty" | "ready";
-
-const runLabels: Record<ScriptsStatus, string> = {
-  loading: "Loading scripts",
-  error: "Couldn't read this project's scripts",
-  empty: "No scripts in this project",
-  ready: "Run",
-};
-
-function scriptsStatus(query: "pending" | "error" | "success", count: number): ScriptsStatus {
-  if (query === "pending") return "loading";
-  if (query === "error") return "error";
-  return count ? "ready" : "empty";
 }
 
 const editorIcons: Record<string, PhosphorIcon> = {

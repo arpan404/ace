@@ -6,8 +6,13 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-row.tsx";
-import { ViewSidebar, ViewSidebarError } from "@/features/shell/index.ts";
+import {
+  ViewRowBody,
+  ViewRowSection,
+  viewRowClass,
+  ViewSidebarError,
+} from "@/components/ui/view-row.tsx";
+import { ViewSidebar } from "@/features/shell/index.ts";
 import { deckGroup, deckRunSummary, type DeckRun, type DeckGroup } from "@ace/ui-core";
 import { useDeckRetry, useDeckRuns } from "./deck-source.ts";
 import { useProjectName } from "@/lib/projects.ts";
