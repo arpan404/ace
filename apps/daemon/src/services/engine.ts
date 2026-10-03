@@ -1,4 +1,5 @@
 import { cursorHosts } from "./cursor-hosts.ts";
+import { withDaemonMcp } from "./provider-mcp.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { registerPi } from "./pi.ts";
@@ -82,31 +83,33 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       createInstance({ ...defaultInstance, provider: "cursor", label: "Cursor SDK" }),
     );
   }
-  if (accounts && accountRegistry)
-    registry.bindSessions((adapter) => {
-      if (!AccountProvider.safeParse(adapter.provider).success) return adapter;
-      const sdkBinding =
-        adapter.backend === "cursor-sdk" ? bindCursorSdk(accounts, cursorOptions) : undefined;
-      if (sdkBinding) services.cursorAccounts = sdkBinding;
-      const bound: ProviderAdapter & { close?(): Promise<void> } =
-        sdkBinding ?? accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
-      return {
-        ...adapter,
-        ...(bound.close ? { close: () => bound.close?.() ?? Promise.resolve() } : {}),
-        openSession(session) {
-          if (
-            adapter.backend === "cursor-sdk" &&
-            session.instanceId === defaultInstance.id &&
-            !accountRegistry.get(session.instanceId)
-          )
-            return adapter.openSession(session);
-          return session.instanceId ||
-            accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
-            ? bound.openSession(session)
-            : adapter.openSession(session);
-        },
-      };
-    });
+  registry.bindSessions((adapter) => {
+    if (!accounts || !accountRegistry || !AccountProvider.safeParse(adapter.provider).success)
+      return withDaemonMcp(context, adapter);
+    const sdkBinding =
+      adapter.backend === "cursor-sdk" ? bindCursorSdk(accounts, cursorOptions) : undefined;
+    if (sdkBinding) services.cursorAccounts = sdkBinding;
+    const bound: ProviderAdapter & { close?(): Promise<void> } =
+      sdkBinding ?? accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
+    const wrapped: ProviderAdapter = {
+      ...adapter,
+      ...(bound.close ? { close: () => bound.close?.() ?? Promise.resolve() } : {}),
+      openSession(session) {
+        if (
+          adapter.backend === "cursor-sdk" &&
+          session.instanceId === defaultInstance.id &&
+          !accountRegistry.get(session.instanceId)
+        )
+          return adapter.openSession(session);
+        return session.instanceId ||
+          accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
+          ? bound.openSession(session)
+          : adapter.openSession(session);
+      },
+    };
+    // Cursor SDK owns its read-only HTTP lease, including account identity.
+    return adapter.backend === "cursor-sdk" ? wrapped : withDaemonMcp(context, wrapped);
+  });
   const engine = new Engine(store, {
     ...acp,
     ...engineOptions,
@@ -117,6 +120,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         backend === "cursor-sdk"
           ? (accounts?.preferredCursorInstance() ?? defaultInstance.id)
           : undefined),
+    ...((engineOptions.transitions ?? services.transitions)
+      ? { transitions: engineOptions.transitions ?? services.transitions }
+      : {}),
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());

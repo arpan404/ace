@@ -12,6 +12,7 @@
   "dependencies": {
     "@ace/core": "workspace:*",
     "@ace/engine-api": "workspace:*",
+    "@ace/mcp-server": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "@opencode/client": "2.0.22",

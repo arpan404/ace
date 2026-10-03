@@ -12,6 +12,8 @@ export type SdkDiscovery = {
   error?: string;
 };
 import type {
+  ExecutionOptions,
+  ExecutionSelection,
   Capabilities,
   AcpIdentity,
   AcpSessionSupport,
@@ -68,6 +70,8 @@ export interface SessionContext {
   cwd: string;
   /** Instance-specific environment; adapters must pass it to every owned provider process. */
   env?: NodeJS.ProcessEnv;
+  /** Daemon-issued loopback MCP connection, valid only for this session lifetime. */
+  aceMcp?: { url: string; bearer: string };
   /** Persist this assignment with the native session ID; resume must reuse the same instance. */
   instanceId?: string;
   model?: string;
@@ -98,6 +102,9 @@ export interface SessionContext {
   };
   onCapabilities?(capabilities: Capabilities, support?: AcpSessionSupport): void;
   onSessionMetadata?(metadata: unknown): void;
+  /** Exclusive with resume. Inclusive provider-native boundary; never a guessed canonical ID. */
+  fork?: { nativeSessionId: string; point: { type: "turn" | "item" | "end"; nativeId: string } };
+  options?: ExecutionOptions;
   /** Every sent and received frame goes to the engine for translation and persistence. */
   /** A returned promise acknowledges durable storage; its resolved value is ignored. */
   onFrame(frame: Frame): unknown;
@@ -118,6 +125,7 @@ export interface ProviderSession {
   readonly instanceId?: string;
   readonly nativeSessionId: string;
   readonly backend?: ProviderBackend;
+  configure?(selection: ExecutionSelection): Promise<void>;
   readonly effectiveCapabilities?: Capabilities | undefined;
   readonly acpSupport?: AcpSessionSupport | undefined;
   setModel?(model: string): Promise<void>;

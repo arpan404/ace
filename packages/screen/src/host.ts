@@ -6,7 +6,11 @@ import { installScreenHelper } from "./install.ts";
 import { dirname } from "node:path";
 import { ScreenManager } from "./manager.ts";
 /** Local daemon boundary. Each artifact has a small adjacent manifest for later indexing. */
-export function localScreenManager(helperPath: string, artifactDirectory: string): ScreenManager {
+export function localScreenManager(
+  helperPath: string,
+  artifactDirectory: string,
+  options: { manifest?: string | undefined } = {},
+): ScreenManager {
   if (!["darwin", "win32", "linux"].includes(process.platform))
     throw new Error("No native helper for this platform");
   const backend = process.platform === "linux" ? linuxBackend(process.env) : undefined;
@@ -26,7 +30,10 @@ export function localScreenManager(helperPath: string, artifactDirectory: string
       : {}),
     command: helperPath,
     ...(process.platform === "darwin"
-      ? { prepare: () => installScreenHelper(helperPath, dirname(artifactDirectory)) }
+      ? {
+          prepare: () =>
+            installScreenHelper(helperPath, dirname(artifactDirectory), options.manifest),
+        }
       : {}),
     nextId: randomUUID,
     recordingDirectory: artifactDirectory,

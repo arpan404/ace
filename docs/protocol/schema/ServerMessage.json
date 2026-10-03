@@ -642,6 +642,9 @@
         "error": {
           "type": "string"
         },
+        "forkThreadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
         "health": {
           "$ref": "https://ace.local/protocol/v1/DiagnosticsHealth.json"
         },

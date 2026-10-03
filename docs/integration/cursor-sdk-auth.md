@@ -49,7 +49,9 @@ and environment authentication remains active until the launch value is removed.
 Selection persists only the default account ID. New `thread.create` requests pin
 that account at command acceptance; an optional `instanceId` selects another
 account explicitly. Changing the default leaves existing threads pinned to
-their original instance/backend. Resume cannot move checkpoints across accounts.
+their original instance/backend. Resume cannot move checkpoints across accounts. In-place `thread.switch` across
+SDK accounts or providers returns an actionable refusal. Create a fresh thread
+with `handoffFrom` and the destination `instanceId`; the source is preserved.
 A signed-out thread requires reauthentication of that account or an explicit new
 thread with bounded context handoff. Model cache entries are invalidated after
 authentication changes, and catalog workers use the selected account's narrow

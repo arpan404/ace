@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/ExecutionSource.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "nativeSessionId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "selection": {
+      "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"
+    }
+  },
+  "required": [
+    "nativeSessionId",
+    "selection"
+  ],
+  "type": "object"
+}

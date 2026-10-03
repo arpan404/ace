@@ -2,14 +2,9 @@ import { portableContext } from "@ace/context";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { realpathSync, statSync } from "node:fs";
 import { validResolution } from "./resolution.ts";
-import { createThreadState } from "@ace/core";
-import {
-  AcpIdentity,
-  Thread,
-  type Command,
-  type CommandResult,
-  type ThreadId,
-} from "@ace/protocol";
+import { createEngineThread } from "./create-thread.ts";
+import { acceptTransition } from "./transition-handler.ts";
+import { AcpIdentity, ThreadId, type Command, type CommandResult } from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -30,6 +25,16 @@ export function engineHandler(
 ): CommandHandler {
   return {
     handle(command: Command): CommandResult {
+      const transition = acceptTransition(
+        repo,
+        registry,
+        command,
+        now(),
+        nextId,
+        wake,
+        selectInstance,
+      );
+      if (transition) return transition;
       const p = command.payload;
       let deliveryCommand = command;
       const fail = (error: string): CommandResult => ({ commandId: command.id, ok: false, error });
@@ -79,6 +84,8 @@ export function engineHandler(
               {
                 threadId: source.id,
                 provider: source.provider,
+                throughSeq: page.seq,
+                totalItems: repo.store.historicalItemCount(source.id, page.seq),
                 ...((source.backend ?? (source.provider === "cursor" ? "acp" : undefined))
                   ? { backend: source.backend ?? "acp" }
                   : {}),
@@ -100,11 +107,13 @@ export function engineHandler(
               return fail("provider_input_budget_exceeded");
             }
           }
-          const thread = Thread.parse({
-            id: nextId(),
+          threadId = ThreadId.parse(nextId());
+          if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
+          createEngineThread(repo, {
+            id: threadId,
             workspaceId: p.workspaceId,
             title: p.title ?? "New thread",
-            provider: p.provider,
+            ...(acpIdentity ? { acpIdentity } : {}),
             capabilities: entry.capabilities,
             ...(entry.adapter.backend ? { backend: entry.adapter.backend } : {}),
             ...(handoff && p.handoffFrom
@@ -116,33 +125,18 @@ export function engineHandler(
                   },
                 }
               : {}),
-            ...acpIdentity,
-            status: { state: "new" },
-            createdAt: at,
-            updatedAt: at,
-          });
-          threadId = thread.id;
-          if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
-          const state = createThreadState({
-            threadId,
-            config: { provider: p.provider, silenceMs },
-            rootAgent: {
-              agent: "root",
-              fidelity: "full",
-              native: { provider: p.provider, ...acpIdentity },
-              cwd,
+            selection: {
+              provider: p.provider,
+              options: {},
+              ...(instanceId ? { instanceId } : {}),
               ...(p.model === undefined ? {} : { model: p.model }),
             },
-          });
-          repo.save(state, [{ type: "thread.created", thread }], at);
-          repo.createSession(
-            threadId,
             cwd,
-            p.model,
-            registry.get(p.provider).adapter.backend ??
-              (p.provider === "cursor" ? "acp" : undefined),
-            instanceId,
-          );
+            at,
+            silenceMs,
+          });
+          if (handoff && p.handoffFrom)
+            repo.transitions.history.grant(threadId, p.handoffFrom, handoff.source.throughSeq);
         } else if ("threadId" in p) {
           threadId = p.threadId;
           if (p.type === "thread.archive") {
@@ -152,6 +146,8 @@ export function engineHandler(
             return { commandId: command.id, ok: true };
           }
           if (!repo.state(threadId)) return fail("thread_not_found");
+          if (p.type === "thread.send" && repo.transitions.guarded(threadId))
+            return fail("thread_transition_in_progress");
           if (
             p.type === "thread.interrupt" &&
             p.agentId !== undefined &&

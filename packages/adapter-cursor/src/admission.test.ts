@@ -1,7 +1,13 @@
 import { expect, it } from "vitest";
-import { discoverCursorSdk, localPolicy, cursorSdkEnvironment } from "./index.ts";
+import {
+  discoverCursorSdk,
+  localPolicy,
+  cursorSdkEnvironment,
+  createCursorAdapter,
+} from "./index.ts";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { ProviderPayload } from "@ace/provider-kit/payload";
+import { ThreadId } from "@ace/protocol";
 
 const options = {
   resolve: (id: string) =>
@@ -97,4 +103,25 @@ it("fences oversized, deeply nested and getter-bearing callback data before seri
   const payload = new ProviderPayload(boundedJson({ future: { opaque: 9 } }));
   expect(payload.data).toEqual({ future: { opaque: 9 } });
   expect(Object.isFrozen(payload.data)).toBe(true);
+});
+
+it("refuses an opaque native fork before SDK admission and requires portable context", async () => {
+  const adapter = createCursorAdapter({ instance: { id: "fixture", homeDir: "/fixture" } });
+  try {
+    await expect(
+      adapter.openSession({
+        threadId: ThreadId.parse("fresh-thread"),
+        cwd: "/fixture",
+        signal: new AbortController().signal,
+        fork: {
+          nativeSessionId: "source-acp-or-task",
+          point: { type: "end", nativeId: "source-acp-or-task" },
+        },
+        onFrame: () => {},
+        onExit: () => {},
+      }),
+    ).rejects.toThrow("fresh ace portable context handoff");
+  } finally {
+    await adapter.close();
+  }
 });

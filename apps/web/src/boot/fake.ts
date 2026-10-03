@@ -44,6 +44,7 @@ export function bootFake(): { client: Client; daemon: FakeDaemon } {
     storage: memoryStorage(),
   });
   // Exposed for poking at fault injection from the console, e.g. ace.daemon.disconnectAll().
-  Object.assign(globalThis, { ace: { daemon, client } });
+  // In Electron `window.ace` is the read-only desktop bridge, so use `aceFake` there.
+  Object.assign(globalThis, { ["ace" in globalThis ? "aceFake" : "ace"]: { daemon, client } });
   return { client, daemon };
 }

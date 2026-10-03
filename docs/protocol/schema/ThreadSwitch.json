@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadSwitch.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "at": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "error": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "lossy": {
+      "type": "boolean"
+    },
+    "recommendation": {
+      "const": "delegate_task",
+      "type": "string"
+    },
+    "selection": {
+      "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"
+    },
+    "state": {
+      "enum": [
+        "queued",
+        "applied",
+        "failed"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "selection",
+    "state",
+    "lossy",
+    "at"
+  ],
+  "type": "object"
+}

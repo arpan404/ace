@@ -11,6 +11,7 @@ const Environment = z.object({
   ACE_LISTEN: z.enum(["local", "lan", "tailscale"]).default("local"),
   ACE_LOG_LEVEL: LogLevelSchema.default("info"),
   ACE_SCREEN_HELPER: z.string().min(1).optional(),
+  ACE_SCREEN_HELPER_MANIFEST: z.string().min(1).optional(),
   ACE_HOME: z.string().optional(),
   ACE_WORKSPACE_ROOT: z.string().optional(),
   ACE_RELAY_URL: z.url().optional(),
@@ -27,6 +28,8 @@ export interface Config {
   advertiseHost?: string;
   logLevel: LogLevel;
   screenHelper?: string;
+  /** The helper manifest when it does not sit beside the app (the desktop bundle). */
+  screenHelperManifest?: string;
 }
 export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const settings = Environment.parse(env);
@@ -34,6 +37,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const remotePort = settings.ACE_REMOTE_PORT ?? (port === 0 || port === 65535 ? 0 : port + 1);
   return {
     ...(settings.ACE_SCREEN_HELPER ? { screenHelper: resolve(settings.ACE_SCREEN_HELPER) } : {}),
+    ...(settings.ACE_SCREEN_HELPER_MANIFEST
+      ? { screenHelperManifest: resolve(settings.ACE_SCREEN_HELPER_MANIFEST) }
+      : {}),
     dataDir: resolve(settings.ACE_HOME ?? resolve(homedir(), ".ace")),
     ...(settings.ACE_WORKSPACE_ROOT ? { workspaceRoot: resolve(settings.ACE_WORKSPACE_ROOT) } : {}),
     ...(settings.ACE_RELAY_URL ? { relayUrl: settings.ACE_RELAY_URL } : {}),

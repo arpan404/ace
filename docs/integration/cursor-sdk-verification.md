@@ -74,6 +74,16 @@ and uncertain delivery without automatic resend. Parent-death, slow-consumer,
 heap failure and combined cancellation/admission races still need execution and
 live SDK evidence at merge; static review is not runtime proof.
 
+Merge integration guards, all need run at merge:
+
+- SDK portable forks create a fresh native identity, preserve the source and resume the recipient's pinned account/backend after restart.
+- Same-account SDK model switches close/resume the original checkpoint; account/provider switches refuse CLI migration and require a fresh portable handoff.
+- Old ACP Cursor resume and model changes stay pinned after SDK becomes the default; a new context fork selects SDK.
+- `handoffFrom` uses the shared citation/budget owner, grants frozen source history and excludes later source content.
+- Migration-10 SDK raw streams and backend identity survive the main history/transition migration and subsequent reopen.
+- Native SDK forks with opaque ACP/task IDs are refused before host admission.
+- Equal completed source messages retain separate citations in shared portable history.
+
 ## Mutation cases — not executed (tests run at merge)
 
 1. Accept a resolved SDK version other than 1.0.35: discovery version refusal.
@@ -146,6 +156,15 @@ live SDK evidence at merge; static review is not runtime proof.
 59. Keep a partial call's unknown kind after shell identity arrives: visible live shell output assertion.
 
 60. Treat an empty environment override as authenticated or silently fall back to the SDK store: logged-out environment-source assertion and host admission fence.
+
+61. Lose the SDK backend on portable fork creation: restart resumes the recipient's own pinned native ID.
+62. Send SDK checkpoints into CLI account migration: an actionable refusal preserves source continuation.
+63. Select the current SDK default for an old ACP model switch: ACP continuation retains its original native ID/model.
+64. Remove handoffFrom history grants or allow later history: scoped public MCP reads retain the frozen cutoff.
+65. Drop SDK migration-10 raw data or metadata: reopen preserves raw bytes, backend and execution metadata.
+66. Accept an opaque native SDK fork: public adapter admission rejects before discovery.
+67. Clear SDK native identity on a same-account model switch: private source history survives close/resume.
+68. Reclaim an old SDK checkpoint during provider switches: both directions require fresh context and preserve continuation.
 
 These are designed mutation cases, not evidence that executed mutations were killed.
 
@@ -246,6 +265,11 @@ rate-limit scenario is proposed.
   deletes only the selected SDK credential store and does not revoke a key or
   remove the environment override. No native ACP-to-SDK checkpoint conversion
   or cross-account checkpoint copying; bounded context handoff preserves source.
+  In-place `thread.switch` into/out of SDK or across SDK accounts is refused
+  before disposal/migration. Use a fresh portable fork or `thread.create` with
+  `handoffFrom` and the destination `instanceId`. Same-account model switches
+  keep the native checkpoint and backend. The merged main's `@ace/handoff`
+  owns portable budgets/citations and frozen source-history grants.
 
 Do not merge this branch without the orchestrator's instruction.
 

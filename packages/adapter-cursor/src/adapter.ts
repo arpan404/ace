@@ -45,6 +45,10 @@ export function createCursorAdapter(
         maxRetainedBytes: limits.maxPendingBytes,
       }),
     async openSession(context) {
+      if (context.fork)
+        throw new Error(
+          "Cursor SDK does not support native forks; use a fresh ace portable context handoff",
+        );
       if (
         context.resume &&
         (context.resume.backend !== "cursor-sdk" || context.resume.instanceId !== selected.id)

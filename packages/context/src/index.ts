@@ -1,4 +1,5 @@
 export { ContextError } from "./errors.ts";
+export { portableContext, type PortableSource } from "./handoff.ts";
 export { PathIndex } from "./path-index.ts";
 export { GitWorkspace, type WorkspaceFiles } from "./git-workspace.ts";
 export { resolveMentions, defaultMentionLimits, type MentionLimits } from "./mentions.ts";
@@ -27,4 +28,3 @@ export type { BlobLease } from "./blob-leases.ts";
 
 export type { CacheScheduler } from "./cache-scheduler.ts";
 export { deliverContext, type ContextDelivery, type ContextConsumer } from "./delivery.ts";
-export { portableContext, type PortableSource } from "./handoff.ts";

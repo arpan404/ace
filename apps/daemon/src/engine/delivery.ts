@@ -1,3 +1,4 @@
+import type { ThreadTransitions } from "./transitions.ts";
 import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -9,9 +10,11 @@ export async function executeIntent(
   repo: EngineRepository,
   registry: AdapterRegistry,
   sessions: Sessions,
+  transitions: ThreadTransitions,
 ): Promise<void> {
   const p = intent.command.payload;
-  if (p.type === "thread.create" || p.type === "thread.send") {
+  if (p.type === "thread.create" || p.type === "thread.send" || p.type === "thread.fork") {
+    if (p.type === "thread.fork") await transitions.freezeForkSource(p.threadId, actor.id);
     await sessions.open(actor);
     const capabilities =
       actor.effectiveCapabilities ??
@@ -20,10 +23,14 @@ export async function executeIntent(
     const session = actor.session;
     if (!session) throw new Error("Provider session exited before send");
     await session.send(
-      p.input,
+      [
+        ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
+        ...(p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input),
+      ],
       p.type === "thread.send" && p.delivery === "steer" && capabilities.steer ? "steer" : "queue",
       intent.command.id,
     );
+    transitions.delivered(actor.id);
     return;
   }
   if (!actor.session) throw new Error("Provider session is not live");

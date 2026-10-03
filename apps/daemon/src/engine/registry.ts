@@ -12,7 +12,8 @@ export class AdapterRegistry {
   register(adapter: ProviderAdapter & { close?(): Promise<void> }, cli: DiscoveryResult): void {
     const entry = { adapter, source: adapter, capabilities: adapter.capabilities(cli) };
     this.entries.set(adapter.provider, entry);
-    if (adapter.backend) this.backends.set(`${adapter.provider}:${adapter.backend}`, entry);
+    const backend = adapter.backend ?? (adapter.provider === "cursor" ? "acp" : undefined);
+    if (backend) this.backends.set(`${adapter.provider}:${backend}`, entry);
   }
   /** Keep an old backend available without selecting it for new threads. */
   registerFallback(

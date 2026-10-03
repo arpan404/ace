@@ -4,7 +4,8 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    ".": "./src/bundle.ts"
+    ".": "./src/bundle.ts",
+    "./node-runtime": "./src/node-runtime.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

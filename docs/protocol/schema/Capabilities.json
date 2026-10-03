@@ -47,6 +47,21 @@
       ],
       "type": "string"
     },
+    "forkPoints": {
+      "items": {
+        "enum": [
+          "turn",
+          "item",
+          "end"
+        ],
+        "type": "string"
+      },
+      "maxItems": 2,
+      "type": "array"
+    },
+    "forkSubagents": {
+      "type": "boolean"
+    },
     "imageInput": {
       "type": "boolean"
     },
@@ -60,6 +75,9 @@
       "type": "boolean"
     },
     "rewindFiles": {
+      "type": "boolean"
+    },
+    "sessionOptions": {
       "type": "boolean"
     },
     "steer": {

@@ -23,6 +23,21 @@
       "minLength": 1,
       "type": "string"
     },
+    "browser.backend": {
+      "enum": [
+        "auto",
+        "embedded",
+        "headless"
+      ],
+      "type": "string"
+    },
+    "browser.backendLoss": {
+      "enum": [
+        "pause",
+        "headless"
+      ],
+      "type": "string"
+    },
     "clients.keybindings": {
       "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema4"
     },
@@ -206,6 +221,8 @@
     "providers.planner.model",
     "providers.planner.tier",
     "providers.planner.reasoningEffort",
+    "browser.backend",
+    "browser.backendLoss",
     "approvals.policy",
     "notifications.enabled",
     "notifications.sound",

@@ -88,9 +88,33 @@ const migrations = [
    CREATE TABLE history_blob_chunks(blob_id TEXT NOT NULL REFERENCES history_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));`,
   `CREATE TABLE usage_deletions (seq INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, at INTEGER NOT NULL);`,
   `ALTER TABLE threads ADD COLUMN acp JSON;`,
-  `CREATE TABLE streamed_blobs(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,size INTEGER NOT NULL,sha256 TEXT,storage_id TEXT NOT NULL,chunks INTEGER NOT NULL DEFAULT 0);
-   CREATE TABLE streamed_blob_chunks(blob_id TEXT NOT NULL REFERENCES streamed_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));
-   CREATE INDEX streamed_blob_hash ON streamed_blobs(thread_id,sha256);`,
+  ensureThreadMetadataColumns,
+  `ALTER TABLE item_text_streams RENAME TO item_text_streams_old;
+   CREATE TABLE item_text_streams (
+     id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+     item_id TEXT NOT NULL, part INTEGER NOT NULL, size INTEGER NOT NULL
+   );
+   INSERT INTO item_text_streams SELECT * FROM item_text_streams_old;
+   CREATE TABLE item_source_chunks_next (
+     stream_id TEXT NOT NULL REFERENCES item_text_streams(id) ON DELETE CASCADE,
+     offset INTEGER NOT NULL, bytes BLOB NOT NULL, PRIMARY KEY(stream_id, offset)
+   );
+   INSERT INTO item_source_chunks_next SELECT * FROM item_source_chunks;
+   DROP TABLE item_source_chunks;
+   DROP TABLE item_text_streams_old;
+   ALTER TABLE item_source_chunks_next RENAME TO item_source_chunks;
+   CREATE INDEX item_text_streams_item ON item_text_streams(item_id, part);
+   CREATE TABLE item_text_targets (
+     item_id TEXT PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+     stream_id TEXT NOT NULL REFERENCES item_text_streams(id) ON DELETE CASCADE
+   );
+   INSERT INTO item_text_targets SELECT p.id, s.id FROM item_previews p JOIN item_text_streams s
+     ON s.id=CASE WHEN json_extract(p.item,'$.type')='message'
+       THEN json_extract(p.item,'$.parts[' || p.target || '].source.streamId')
+       ELSE json_extract(p.item,'$.source.streamId') END;`,
+  `CREATE TABLE IF NOT EXISTS streamed_blobs(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,size INTEGER NOT NULL,sha256 TEXT,storage_id TEXT NOT NULL,chunks INTEGER NOT NULL DEFAULT 0);
+   CREATE TABLE IF NOT EXISTS streamed_blob_chunks(blob_id TEXT NOT NULL REFERENCES streamed_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));
+   CREATE INDEX IF NOT EXISTS streamed_blob_hash ON streamed_blobs(thread_id,sha256);`,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");
@@ -104,7 +128,8 @@ export function migrate(db: DatabaseSync): void {
     for (let i = version; i < migrations.length; i++) {
       const sql = migrations[i];
       if (sql === undefined) throw new Error("Missing migration");
-      db.exec(sql);
+      if (typeof sql === "string") db.exec(sql);
+      else sql(db);
       db.prepare(
         "INSERT INTO schema_version VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version",
       ).run(i + 1);
@@ -120,9 +145,18 @@ export function migrate(db: DatabaseSync): void {
     if (!columns.has("acp")) db.exec("ALTER TABLE threads ADD COLUMN acp JSON");
     if (!columns.has("provider_metadata"))
       db.exec("ALTER TABLE threads ADD COLUMN provider_metadata JSON");
+    ensureThreadMetadataColumns(db);
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
+  }
+}
+
+/** Both branches used migration 9; accept either installed metadata column. */
+function ensureThreadMetadataColumns(db: DatabaseSync): void {
+  for (const name of ["acp", "transitions"]) {
+    if (!db.prepare("SELECT name FROM pragma_table_info('threads') WHERE name=?").get(name))
+      db.exec(`ALTER TABLE threads ADD COLUMN ${name} JSON`);
   }
 }

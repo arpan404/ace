@@ -6,7 +6,9 @@ export async function startScreen({ config, options, resources, services }: Serv
   const manager =
     options.screen ??
     (config.screenHelper
-      ? localScreenManager(config.screenHelper, join(config.dataDir, "screen-artifacts"))
+      ? localScreenManager(config.screenHelper, join(config.dataDir, "screen-artifacts"), {
+          manifest: config.screenHelperManifest,
+        })
       : undefined);
   if (manager) {
     resources.own(() => manager.close());

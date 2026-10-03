@@ -138,3 +138,10 @@ Behavior tests, non-gating delta/IPC/checkpoint benchmarks and synthetic process
 written but **not executed** under the owner's merge-only rule. No SDK model turn,
 login, recorder, fixture, benchmark or mutation was run. See
 [verification and pending recordings](../../docs/integration/cursor-sdk-verification.md).
+
+The merged engine thread transitions use `@ace/handoff` for bounded, cited
+portable context. A portable fork creates a fresh SDK agent and persists its
+backend/account before dispatch. Same-account model switches resume the original
+SDK checkpoint. Account or provider changes involving SDK require a fresh thread
+with `handoffFrom`; in-place switches refuse before disposal or CLI migration.
+Native SDK forks and ACP/task checkpoint conversion remain unsupported.

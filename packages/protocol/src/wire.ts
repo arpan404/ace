@@ -214,6 +214,7 @@ export type ClientMessage = z.infer<typeof ClientMessage>;
 export const CommandResult = z.object({
   commandId: CommandId,
   ok: z.boolean(),
+  forkThreadId: ThreadId.optional(),
   health: DiagnosticsHealth.optional(),
   error: z.string().optional(),
   review: ReviewData.optional(),

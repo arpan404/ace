@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserBackendRegister.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "capabilities": {
+      "$ref": "https://ace.local/protocol/v1/BrowserBackendCapabilities.json"
+    },
+    "credential": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "browser.backend.register",
+      "type": "string"
+    },
+    "version": {
+      "const": 1,
+      "type": "number"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "credential",
+    "version",
+    "capabilities"
+  ],
+  "type": "object"
+}

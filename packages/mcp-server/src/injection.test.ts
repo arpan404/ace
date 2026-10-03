@@ -90,3 +90,19 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
   });
   expect(result.developerInstructions).toContain("live status");
 });
+it("keeps OpenCode user configuration and other MCP servers while replacing ace's credential", () => {
+  const result = openCodeInjection(
+    connection,
+    `{
+    // Existing user preferences and servers stay in the provider's overlay.
+    "model": "local/model", "mcp": { "user": { "type": "local", "command": ["node", "tool.js"] }, "ace": { "url": "old" } },
+  }`,
+  );
+  expect(JSON.parse(result.env.OPENCODE_CONFIG_CONTENT)).toMatchObject({
+    model: "local/model",
+    mcp: {
+      user: { type: "local", command: ["node", "tool.js"] },
+      ace: { url: connection.url, oauth: false },
+    },
+  });
+});
