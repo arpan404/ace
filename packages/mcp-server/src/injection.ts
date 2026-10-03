@@ -87,3 +87,14 @@ export function acpInjection(
     developerInstructions: developerInstructions(provider),
   };
 }
+
+/** Cursor's public SDK HTTP MCP transport, never local.customTools. */
+export function cursorSdkInjection(input: AceMcpConnection) {
+  const { url, bearer } = connection.parse(input);
+  return {
+    mcpServers: {
+      ace: { type: "http" as const, url, headers: { Authorization: `Bearer ${bearer}` } },
+    },
+    developerInstructions: developerInstructions("cursor"),
+  };
+}

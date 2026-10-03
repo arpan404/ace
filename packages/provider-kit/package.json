@@ -5,6 +5,9 @@
   "type": "module",
   "exports": {
     "./process": "./src/process.ts",
+    "./payload": "./src/payload.ts",
+    "./sdk": "./src/sdk.ts",
+    "./ipc": "./src/ipc.ts",
     "./jsonrpc": "./src/jsonrpc.ts",
     "./sse": "./src/sse.ts",
     "./discovery": "./src/discovery/index.ts",

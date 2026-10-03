@@ -46,6 +46,12 @@ export type RawPayload = z.infer<typeof RawPayload>;
  * show, instead of checking provider names.
  */
 export const Capabilities = z.object({
+  /** Omitted by older backends. Clients must retain their existing control policy. */
+  approvals: z.enum(["interactive", "sandbox-only", "none"]).optional(),
+  steeringMode: z.enum(["native", "interrupt-restart", "queue"]).optional(),
+  forkMode: z.enum(["native", "context-handoff", "none"]).optional(),
+  childControls: z.enum(["native", "read-only"]).optional(),
+  childFidelity: z.enum(["full", "summary", "placeholder"]).optional(),
   /** Inject input into a running turn. When false, ace queues it client-side. */
   steer: z.boolean(),
   /** Interrupting a parent also stops its children. */

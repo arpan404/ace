@@ -34,6 +34,8 @@ export const EventPayload = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thread.created"), thread: Thread }),
   z.object({
     type: z.literal("thread.updated"),
+    backend: Thread.shape.backend,
+    capabilities: Thread.shape.capabilities,
     title: z.string().optional(),
     status: ThreadStatus.optional(),
     archivedAt: Timestamp.nullable().optional(),

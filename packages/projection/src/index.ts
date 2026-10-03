@@ -101,6 +101,9 @@ function advance(view: { seq: number }, event: DeliveryEvent): ApplyResult {
 export function updateThread(thread: Thread, event: Event): void {
   const payload = event.payload;
   if (payload.type === "thread.updated") {
+    if (payload.backend !== undefined) thread.backend = payload.backend;
+    if (payload.capabilities !== undefined)
+      thread.capabilities = structuredCopy(payload.capabilities);
     if (payload.title !== undefined) thread.title = payload.title;
     if (payload.status !== undefined) thread.status = structuredCopy(payload.status);
     if (payload.archivedAt === null) delete thread.archivedAt;

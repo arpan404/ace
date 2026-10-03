@@ -1,5 +1,11 @@
 import { expect, it } from "vitest";
-import { codexInjection, claudeInjection, openCodeInjection, acpInjection } from "./index.ts";
+import {
+  codexInjection,
+  claudeInjection,
+  openCodeInjection,
+  acpInjection,
+  cursorSdkInjection,
+} from "./index.ts";
 import { parse as parseToml } from "smol-toml";
 
 const connection = { url: "http://127.0.0.1:12345/mcp", bearer: "a".repeat(64) };
@@ -69,5 +75,18 @@ it("refuses to inject ace credentials into remote or decorated URLs", () => {
     expect(() => claudeInjection({ ...connection, url })).toThrow();
     expect(() => openCodeInjection({ ...connection, url })).toThrow();
     expect(() => acpInjection({ ...connection, url })).toThrow();
+    expect(() => cursorSdkInjection({ ...connection, url })).toThrow();
   }
+});
+
+it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () => {
+  const result = cursorSdkInjection(connection);
+  expect(result.mcpServers).toEqual({
+    ace: {
+      type: "http",
+      url: connection.url,
+      headers: { Authorization: `Bearer ${connection.bearer}` },
+    },
+  });
+  expect(result.developerInstructions).toContain("live status");
 });

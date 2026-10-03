@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AgentId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
 import { ImportedProvenance } from "./history.ts";
-import { ProviderKind } from "./provider.ts";
+import { ProviderKind, Capabilities } from "./provider.ts";
 
 /** What started a run. Agents can start runs without anyone asking. */
 export const RunTrigger = z.enum([
@@ -62,6 +62,15 @@ export const Thread = z.object({
   workspaceId: WorkspaceId,
   title: z.string(),
   provider: ProviderKind,
+  backend: z.enum(["acp", "cursor-sdk"]).optional(),
+  capabilities: Capabilities.optional(),
+  handoff: z
+    .object({
+      sourceThreadId: ThreadId,
+      truncated: z.boolean(),
+      bytes: z.number().int().nonnegative(),
+    })
+    .optional(),
   rootAgentId: AgentId.optional(),
   status: ThreadStatus,
   createdAt: Timestamp,
