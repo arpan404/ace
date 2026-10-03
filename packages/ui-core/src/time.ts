@@ -16,6 +16,12 @@ export function formatAge(at: number, now: number): string {
   return `${Math.round(days / 7)}w`;
 }
 
+/** "just now", "2m ago", "3h ago": an age in a sentence ("Started 2m ago"). */
+export function formatAgo(at: number, now: number): string {
+  const age = formatAge(at, now);
+  return age === "now" ? "just now" : `${age} ago`;
+}
+
 /** "38s", "4m 12s", "1h 2m": how long a turn or task has been going, to the second. */
 export function formatElapsed(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1000));

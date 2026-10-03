@@ -11,6 +11,7 @@ import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Suspense, lazy, useEffect, useMemo, useRef } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNotificationPrefs } from "./notification-prefs.ts";
+import { useDeckEvents } from "./escalations.ts";
 import { threadToasts, type ToastCause } from "./toast-rules.ts";
 import { useProjectName } from "@/lib/projects.ts";
 
@@ -50,6 +51,7 @@ function ThreadNotifier() {
     [ids],
   );
   const statuses = useSidebar(keys, readStatuses, arrayEqual);
+  const deck = useDeckEvents();
   const seenThreads = useRef<Map<string, ThreadStatus["state"]>>(undefined);
   const context = useRef({ prefs, pathname });
 
@@ -58,6 +60,21 @@ function ThreadNotifier() {
     const thread = sidebar?.thread(cause.threadId);
     if (!thread) return;
     const needsYou = cause.kind === "needs_you";
+    // A deck's own threads speak as the deck: its decision, opening the deck.
+    const owner = deck.threads.get(thread.id);
+    if (owner) {
+      if (context.current.pathname === `/deck/${owner.runId}`) return;
+      const decision = deck.events.find((event) => event.runId === owner.runId);
+      toast.add({
+        title: needsYou ? (decision?.title ?? `${owner.deck} needs you`) : `${thread.title} failed`,
+        description: `${projectName(owner.workspaceId)} · ${owner.deck}`,
+        actionProps: {
+          children: "Open deck",
+          onClick: () => void navigate({ to: "/deck/$runId", params: { runId: owner.runId } }),
+        },
+      });
+      return;
+    }
     toast.add({
       title: thread.title,
       description: `${projectName(thread.workspaceId)} · ${needsYou ? "needs you" : "failed"}`,

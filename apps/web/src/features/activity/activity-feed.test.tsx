@@ -35,8 +35,9 @@ test("the feed lists what needs you first, then CI, mentions, pull requests and 
   expect(index("PR #212 merged")).toBeGreaterThan(index("Checks failed on #74"));
   expect(index("Review pull requests on open")).toBeGreaterThan(0);
   expect(screen.getByRole("heading", { level: 1, name: "Activity" })).toBeTruthy();
-  expect(screen.getByText("4 need you")).toBeTruthy();
-  expect(within(tab(/Needs you/)).getByText("4")).toBeTruthy();
+  // Three thread requests, the relay deck's plan, and the mobile deck's escalation and question.
+  expect(screen.getByText("6 need you")).toBeTruthy();
+  expect(within(tab(/Needs you/)).getByText("6")).toBeTruthy();
 });
 
 test("tabs narrow the feed to mentions or to automation results", async () => {
@@ -77,7 +78,7 @@ test("an approval is answerable from its feed row without opening the card", asy
   await waitFor(() =>
     expect(within(feed).queryByText("Install @fontsource/noto-sans-jp?")).toBeNull(),
   );
-  expect(screen.getByText("3 need you")).toBeTruthy();
+  expect(screen.getByText("5 need you")).toBeTruthy();
 });
 
 test("selecting a feed row focuses its card in Needs you", async () => {
@@ -121,9 +122,27 @@ test("approving a deck's escalation clears it from Needs you", async () => {
 
   await waitFor(() => expect(screen.queryByRole("article", { name })).toBeNull());
   expect(await screen.findByText("Approve · the deck carries on")).toBeTruthy();
-  expect(screen.getByText("3 need you")).toBeTruthy();
+  expect(screen.getByText("5 need you")).toBeTruthy();
   // The deck has moved on: nothing about the decision is left to answer.
   expect(within(feed).queryByText(name)).toBeNull();
+});
+
+test("a deck worker's question is answered from Needs you, under its deck's name", async () => {
+  const { app, feed } = await openActivity();
+  const name = "Ship the precompiled bytecode in the APK, or build it on the first launch?";
+  const asking = await screen.findByRole("article", { name });
+  expect(within(asking).getByText(/Mobile cold start under 1s/)).toBeTruthy();
+  // Its feed row names the deck's card, and the deck's own threads aren't listed again.
+  expect(within(feed).getByText("Precompile Hermes bytecode needs your answer")).toBeTruthy();
+  expect(within(feed).queryByText("Deck needs your decision")).toBeNull();
+
+  await userEvent.click(within(asking).getByRole("button", { name: /Ship it in the APK/ }));
+
+  await waitFor(() => expect(screen.queryByRole("article", { name })).toBeNull());
+  expect(
+    app.daemon.resolution("mobile-cold-start.hermes-bytecode.thread", "ask.hermes-bytecode"),
+  ).toEqual({ kind: "question", answers: { choice: ["apk"] } });
+  expect(screen.getByText("5 need you")).toBeTruthy();
 });
 
 test("the project filter narrows both the feed and the cards", async () => {

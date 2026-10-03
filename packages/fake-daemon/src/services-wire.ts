@@ -67,6 +67,7 @@ export class FakeServicesWire {
       new FakeConductor({ clock: context.now, runs: [] }),
       context.now,
       () => settings.get("automations.enabled") === true,
+      context,
     );
   }
   seed(seed: ServicesSeed): void {
@@ -76,6 +77,9 @@ export class FakeServicesWire {
     // A seed describes the whole world; pull requests for threads this daemon lacks are skipped.
     for (const [threadId, status] of Object.entries(seed.pullRequests ?? {}))
       if (this.host.thread(threadId)) this.workspace.forge.seed(threadId, status);
+  }
+  failDeck(runId: string, code: string): void {
+    this.planning.failDeck(runId, code);
   }
   command(
     payload: CommandPayload,

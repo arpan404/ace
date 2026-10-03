@@ -7,6 +7,13 @@ import {
   type ServerMessage as Message,
   type ConductorCommandPayload,
 } from "@ace/protocol";
+import type { FakeServiceContext } from "./service-context.ts";
+import {
+  fakeDeckAnswer,
+  fakeDeckRoot,
+  fakeDelegations,
+  fakeProviderGates,
+} from "./conductor/delegations.ts";
 import type { FakeConductor } from "./conductor/fake-conductor.ts";
 import { runView } from "./conductor/run-view.ts";
 import type { FakeDeckRun } from "./conductor/types.ts";
@@ -17,29 +24,79 @@ export interface PlanningSeed {
   runs?: AutomationRun[];
 }
 export class FakePlanningWire {
+  private host: FakeServiceContext | undefined;
+  private gateTimes = new Map<string, number>();
   private conductor: FakeConductor;
   private now: () => number;
   private runs = new Map<string, AutomationRun>();
   private automations = new Map<string, Automation>();
   private enabled: () => boolean;
-  constructor(conductor: FakeConductor, now: () => number, enabled: () => boolean) {
+  constructor(
+    conductor: FakeConductor,
+    now: () => number,
+    enabled: () => boolean,
+    host?: FakeServiceContext,
+  ) {
     this.conductor = conductor;
+    this.host = host;
+    for (const run of conductor.runs())
+      if (run.gate) this.gateTimes.set(run.gate.id, run.updatedAt);
     this.now = now;
     this.enabled = enabled;
+    // As on the daemon: a deck gate answered on its root thread is the conductor's decision,
+    // and a worker's answered question lets its card carry on.
+    host?.onResolved?.((threadId, key, resolution) => {
+      const answer = fakeDeckAnswer(this.conductor.runs(), threadId, String(key));
+      if (!answer) return;
+      if ("cardId" in answer) this.conductor.answer(answer.runId, answer.cardId);
+      else
+        this.command({
+          type: "conductor.approve",
+          runId: answer.runId,
+          approval: {
+            gateId: answer.gateId,
+            decision:
+              resolution?.kind === "plan_review" && resolution.decision === "approve"
+                ? "approve"
+                : "reject",
+          },
+        });
+    });
+  }
+  failDeck(runId: string, code: string): void {
+    this.conductor.fail(runId, code);
   }
   command(payload: ConductorCommandPayload) {
-    return this.conductor.command(payload);
+    const result = this.conductor.command(payload);
+    this.view(payload.runId);
+    return result;
   }
   private view(id: string) {
     const run = this.conductor.runs().find((entry) => entry.id === id);
-    return run && runView(run);
+    if (!run) return undefined;
+    fakeDeckRoot(run, this.host);
+    return runView(run, {
+      delegations: fakeDelegations(run, this.host),
+      providerGates: fakeProviderGates(run, this.host),
+      ...(run.gate ? { gatedAt: this.gateTime(run.gate.id, run.updatedAt) } : {}),
+    });
   }
   /** Seed decks, automations and their past runs, as a daemon that has been running a while. */
   seed(seed: PlanningSeed): void {
-    if (seed.decks) this.conductor.load(seed.decks);
+    if (seed.decks) {
+      this.conductor.load(seed.decks);
+      for (const run of seed.decks) if (run.gate) this.gateTime(run.gate.id, run.updatedAt);
+    }
     for (const automation of seed.automations ?? [])
       this.automations.set(automation.id, Automation.parse(automation));
     for (const run of seed.runs ?? []) this.runs.set(run.id, run);
+  }
+  private gateTime(id: string, at: number) {
+    const saved = this.gateTimes.get(id);
+    if (saved !== undefined) return saved;
+    if (this.gateTimes.size >= 512) this.gateTimes.delete(this.gateTimes.keys().next().value ?? "");
+    this.gateTimes.set(id, at);
+    return at;
   }
   handle(
     message: ClientMessage,
