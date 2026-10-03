@@ -197,6 +197,18 @@ export class FakeDaemon implements Host {
         }
         return { commandId, ok: false, error: "not_found" };
       }
+      case "thread.interrupt": {
+        const host = this.threads.get(payload.threadId);
+        if (!host) return { commandId, ok: false, error: "not_found" };
+        const target = payload.agentId ?? host.view.thread.rootAgentId;
+        const keys = host.interruptKeys(target, payload.cascade);
+        if (!keys.length) return { commandId, ok: false, error: "not_found" };
+        this.apply(
+          host.id,
+          keys.map((agent) => ({ type: "turn.ended", agent, outcome: "interrupted" })),
+        );
+        return { commandId, ok: true };
+      }
       case "background_task.stop": {
         for (const host of this.threads.values()) {
           const key = host.taskKey(payload.taskId);

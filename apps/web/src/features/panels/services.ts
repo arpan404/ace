@@ -1,6 +1,6 @@
 import type { Client } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import { use } from "react";
+import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import type { ReviewDraft } from "./changes/drafts.ts";
 import { unavailablePreview, unavailableTerminals, type PreviewSource } from "./sources.ts";
 import { LocalStore } from "./store.ts";
@@ -32,23 +32,51 @@ async function load(): Promise<Pick<PanelServices, "terminals" | "preview">> {
 }
 
 const byClient = new WeakMap<Client, Promise<PanelServices>>();
+const ready = new WeakMap<Client, PanelServices>();
 
 /** The panel services bound to a client, created once and reused across threads and tabs. */
 export function panelServices(client: Client): Promise<PanelServices> {
   let services = byClient.get(client);
   if (!services) {
-    services = load().then((sources) => ({
-      ...sources,
-      drafts: new LocalStore<readonly ReviewDraft[]>([]),
-      diffPrefs: new LocalStore<DiffPrefs>({ mode: "unified", wrap: false }),
-      logCutoffs: new LocalStore<ReadonlyMap<string, number>>(new Map()),
-    }));
+    services = load().then((sources) => {
+      const value: PanelServices = {
+        ...sources,
+        drafts: new LocalStore<readonly ReviewDraft[]>([]),
+        diffPrefs: new LocalStore<DiffPrefs>({ mode: "unified", wrap: false }),
+        logCutoffs: new LocalStore<ReadonlyMap<string, number>>(new Map()),
+      };
+      ready.set(client, value);
+      return value;
+    });
     byClient.set(client, services);
   }
   return services;
 }
 
-/** Suspends until the services are ready; render under a Suspense boundary. */
+/** The services once loaded (undefined for the first render after start-up). */
+export function useLoadedServices(): PanelServices | undefined {
+  const client = useClient();
+  const subscribe = useCallback(
+    (changed: () => void) => {
+      let live = true;
+      void panelServices(client).then(() => {
+        if (live) changed();
+      });
+      return () => {
+        live = false;
+      };
+    },
+    [client],
+  );
+  const read = useCallback(() => ready.get(client), [client]);
+  return useSyncExternalStore(subscribe, read, read);
+}
+
+export const PanelServicesContext = createContext<PanelServices | undefined>(undefined);
+
+/** The services, inside a panel tab (thread-panels.tsx provides them once loaded). */
 export function usePanelServices(): PanelServices {
-  return use(panelServices(useClient()));
+  const services = useContext(PanelServicesContext);
+  if (!services) throw new Error("usePanelServices needs the thread panels' services provider");
+  return services;
 }

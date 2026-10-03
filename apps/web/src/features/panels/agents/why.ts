@@ -43,7 +43,7 @@ export function whyNotDone(input: WhyInput): { title: string; body: string } {
     const name =
       failed && failed.id !== input.rootAgentId ? (failed.name ?? "A subagent") : "The main agent";
     const reason = failed?.status.state === "failed" ? `: ${failed.status.error.message}` : "";
-    return { title: "Failed", body: sentence(`${name} failed${reason}`) };
+    return { title: "Failed", body: `${name} failed${reason}.` };
   }
 
   const open: string[] = [];
@@ -84,7 +84,7 @@ export function whyNotDone(input: WhyInput): { title: string; body: string } {
   const lost = input.tasks.filter((task) => task.status === "unknown" && !task.ambient);
   if (lost.length)
     open.push(
-      `ace lost track of ${plural(lost.length, "background task", "background tasks")}, which may still be running`,
+      `${plural(lost.length, "background task", "background tasks")} may still be running (ace lost track of ${lost.length === 1 ? "it" : "them"})`,
     );
   for (const agent of input.agents) {
     if (agent.status.state !== "blocked") continue;

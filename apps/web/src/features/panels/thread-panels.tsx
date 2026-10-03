@@ -1,5 +1,4 @@
 import { PlusIcon, TrashIcon } from "@phosphor-icons/react";
-import { Suspense, useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
@@ -11,20 +10,20 @@ import { ThreadDiffStat } from "./changes/diff-stat.tsx";
 import { useThreadLog } from "./logs/logs-tab.tsx";
 import { LogsTab } from "./logs/logs-tab.tsx";
 import { PreviewTab } from "./preview/preview-tab.tsx";
-import { usePanelServices } from "./services.ts";
+import { PanelServicesContext, useLoadedServices, usePanelServices } from "./services.ts";
 import { TerminalTab, useOpenTerminal } from "./terminal/terminal-tab.tsx";
 
-function Loading(props: { children: ReactNode }) {
+/** Provides the panel services to a tab, with a spinner for the moment they load. */
+function Loading(props: { children: ReactNode; quiet?: boolean }) {
+  const services = useLoadedServices();
+  if (!services)
+    return props.quiet ? null : (
+      <div className="grid h-full place-items-center">
+        <Spinner label="Loading" />
+      </div>
+    );
   return (
-    <Suspense
-      fallback={
-        <div className="grid h-full place-items-center">
-          <Spinner label="Loading" />
-        </div>
-      }
-    >
-      {props.children}
-    </Suspense>
+    <PanelServicesContext.Provider value={services}>{props.children}</PanelServicesContext.Provider>
   );
 }
 
@@ -91,9 +90,9 @@ export function threadPanels(threadId: string): {
         },
       ],
       actions: (
-        <Suspense>
+        <Loading quiet>
           <BottomActions threadId={threadId} />
-        </Suspense>
+        </Loading>
       ),
     },
   };
@@ -106,16 +105,16 @@ function BottomActions(props: { threadId: string }) {
   const opener = useOpenTerminal(props.threadId);
   const lines = useThreadLog(props.threadId);
   const sessions = services.terminals;
-  const selected = useSyncExternalStore(sessions.watchSelection, () =>
-    sessions.selection(props.threadId),
-  );
   const terminal = layout.bottom.tab !== "logs";
   const clear = () => {
     if (!terminal) {
       const last = lines.at(-1);
       if (last)
         services.logCutoffs.set((previous) => new Map(previous).set(props.threadId, last.at));
-    } else if (selected && !selected.startsWith("task:")) sessions.clear(selected);
+    } else {
+      const shown = sessions.shown(props.threadId);
+      if (shown && !shown.startsWith("task:")) sessions.clear(shown);
+    }
   };
   return (
     <>

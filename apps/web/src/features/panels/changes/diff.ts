@@ -81,14 +81,15 @@ function middle(a: string[], b: string[], oldBase: number, newBase: number, out:
       i++;
       j++;
     } else if (
-      j < m &&
-      (i >= n || (lengths[i * width + j + 1] ?? 0) >= (lengths[(i + 1) * width + j] ?? 0))
+      i < n &&
+      (j >= m || (lengths[(i + 1) * width + j] ?? 0) >= (lengths[i * width + j + 1] ?? 0))
     ) {
-      out.push({ kind: "add", new: newBase + j + 1, text: b[j] ?? "" });
-      j++;
-    } else {
+      // Removals before additions, as in a unified diff.
       out.push({ kind: "del", old: oldBase + i + 1, text: a[i] ?? "" });
       i++;
+    } else {
+      out.push({ kind: "add", new: newBase + j + 1, text: b[j] ?? "" });
+      j++;
     }
   }
 }

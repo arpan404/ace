@@ -81,10 +81,9 @@ export function TerminalTab(props: { threadId: string }) {
     ...list.map((info) => ({ id: info.id, label: info.name, live: false, closable: true })),
   ];
   const active = tabs.find((tab) => tab.id === selected) ?? tabs[0];
-  // Keep the remembered selection on a real tab, so Clear acts on the one showing.
-  useEffect(() => {
-    if (active && active.id !== selected) sessions.select(threadId, active.id);
-  }, [active, selected, sessions, threadId]);
+  // Remember which tab is showing (not chosen), so Clear acts on it.
+  const shown = active?.id;
+  useEffect(() => sessions.show(threadId, shown), [sessions, threadId, shown]);
   if (!tabs.length)
     return (
       <EmptyState
@@ -114,6 +113,7 @@ export function TerminalTab(props: { threadId: string }) {
             <button
               type="button"
               role="tab"
+              aria-label={tab.live ? `${tab.label}, running` : tab.label}
               aria-selected={tab.id === active?.id}
               onClick={() => sessions.select(threadId, tab.id)}
               className={cn(
@@ -124,10 +124,7 @@ export function TerminalTab(props: { threadId: string }) {
               )}
             >
               {tab.live && (
-                <>
-                  <span aria-hidden className="size-[5px] rounded-full bg-status-working" />
-                  <span className="sr-only">Running:</span>
-                </>
+                <span aria-hidden className="size-[5px] rounded-full bg-status-working" />
               )}
               {tab.label}
             </button>

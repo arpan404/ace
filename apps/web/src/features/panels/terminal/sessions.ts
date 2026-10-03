@@ -21,6 +21,7 @@ export class TerminalSessions {
   readonly source: TerminalSource;
   private attached = new Map<string, Attached>();
   private selected = new Map<string, string>();
+  private showing = new Map<string, string>();
   private selectionListeners = new Set<() => void>();
   private link: TerminalSource["link"];
   constructor(source: TerminalSource) {
@@ -66,6 +67,14 @@ export class TerminalSessions {
     entry?.detach?.();
     this.attached.delete(id);
     this.source.close(id);
+  }
+  /** The terminal tab a thread is showing right now, chosen or by default. */
+  shown(threadId: string): string | undefined {
+    return this.showing.get(threadId);
+  }
+  show(threadId: string, tab: string | undefined): void {
+    if (tab) this.showing.set(threadId, tab);
+    else this.showing.delete(threadId);
   }
   selection(threadId: string): string | undefined {
     return this.selected.get(threadId);
