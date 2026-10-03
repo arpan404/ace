@@ -71,7 +71,7 @@ export function AccountsPage() {
                       <small className="text-sm text-subtle-foreground">{first.version}</small>
                     )}
                   </div>
-                  <div className="mt-3 grid grid-cols-1 gap-3.5 md:grid-cols-2">
+                  <div className="mt-3 grid grid-cols-1 items-start gap-3.5 md:grid-cols-2">
                     {group.map((account) => (
                       <AccountCard
                         key={account.id}

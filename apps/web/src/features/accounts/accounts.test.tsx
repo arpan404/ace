@@ -21,10 +21,17 @@ test("each account shows its quota windows, and one with threads at its limit sa
     within(team).getByRole("meter", { name: "5-hour window" }).getAttribute("aria-valuenow"),
   ).toBe("100");
   expect(
-    await within(team).findByText(
-      /3 threads are stopped at the limit until the window resets at \d\d:\d\d/,
-    ),
+    await within(team).findByText(/3 threads are paused until the window resets at \d\d:\d\d/),
   ).toBeTruthy();
+});
+
+test("an account whose CLI reports no usage says so instead of showing an empty card", async () => {
+  const app = harness();
+  for (const scenario of teamAtLimit()) app.play(scenario).runThrough("limited");
+  await app.open("/more/accounts");
+  const opencode = await card("OpenCode Default");
+  expect(within(opencode).queryByRole("meter")).toBeNull();
+  expect(within(opencode).getByText("OpenCode doesn't report usage")).toBeTruthy();
 });
 
 test("Move threads moves the limited threads to the same provider's account with most headroom", async () => {
@@ -33,11 +40,11 @@ test("Move threads moves the limited threads to the same provider's account with
   await app.open("/more/accounts");
   const team = await card("Codex Team");
 
-  await userEvent.click(await within(team).findByRole("button", { name: "Move threads" }));
+  await userEvent.click(await within(team).findByRole("button", { name: "Move running threads" }));
 
   expect(await screen.findByText("Moved 3 threads to Codex · Personal")).toBeTruthy();
   await waitFor(() =>
-    expect(within(team).queryByRole("button", { name: "Move threads" })).toBeNull(),
+    expect(within(team).queryByRole("button", { name: "Move running threads" })).toBeNull(),
   );
   expect(await within(await card("Codex Personal")).findByText("3 running threads")).toBeTruthy();
   const list = app.daemon.snapshot({ kind: "threads" });

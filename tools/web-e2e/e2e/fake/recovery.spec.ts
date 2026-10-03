@@ -40,12 +40,12 @@ test("a limited thread moves to another account and carries on", async ({ page }
 test("Usage & accounts moves every thread stopped at an account's limit", async ({ page }) => {
   await page.goto("/more/accounts");
   const team = page.getByRole("article", { name: "Codex Team" });
-  await expect(team).toContainText("3 threads are stopped at the limit");
+  await expect(team).toContainText("3 threads are paused until the window resets");
 
-  await team.getByRole("button", { name: "Move threads" }).click();
+  await team.getByRole("button", { name: "Move running threads" }).click();
 
   await expect(page.getByText("Moved 3 threads to Codex · Personal")).toBeVisible();
-  await expect(team.getByRole("button", { name: "Move threads" })).toHaveCount(0);
+  await expect(team.getByRole("button", { name: "Move running threads" })).toHaveCount(0);
   const threads = page.getByRole("navigation", { name: "Threads" });
   await page.getByRole("link", { name: "Home" }).click();
   await expect(threads.getByRole("link", { name: /Split the CI matrix/ })).not.toContainText(

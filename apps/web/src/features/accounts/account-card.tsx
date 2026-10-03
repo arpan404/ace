@@ -57,8 +57,9 @@ export function UsageRing(props: { window: QuotaWindow; now: number }) {
             className={cn(tone, "transition-[stroke-dashoffset] duration-[600ms] ease-smooth")}
           />
         </svg>
+        {/* Three digits and a % crowd the ring: a full window reads "100", the % is in the value text. */}
         <span aria-hidden className="absolute text-[11px] font-medium tabular-nums">
-          {used}%
+          {used >= 100 ? "100" : `${used}%`}
         </span>
       </span>
       <span className="text-sm font-medium">
@@ -104,16 +105,24 @@ export function AccountCard(props: { account: Account; accounts: readonly Accoun
           </span>
         )}
       </div>
-      <div className="mt-3.5 flex flex-wrap gap-x-[26px] gap-y-3">
-        {account.windows.map((window) => (
-          <UsageRing key={window.id} window={window} now={now} />
-        ))}
-      </div>
+      {account.windows.length > 0 ? (
+        <div className="mt-3.5 flex flex-wrap gap-x-[26px] gap-y-3">
+          {account.windows.map((window) => (
+            <UsageRing key={window.id} window={window} now={now} />
+          ))}
+        </div>
+      ) : (
+        account.signedIn && (
+          <p className="mt-2 text-sm text-subtle-foreground">
+            {account.providerLabel} doesn't report usage
+          </p>
+        )
+      )}
       {waiting > 0 ? (
         <div className="mt-3.5 flex items-center gap-2.5 rounded-card bg-[color-mix(in_oklab,var(--status-failed)_9%,transparent)] px-3 py-2.5 text-sm leading-[1.45] text-muted-foreground">
           <span className="min-w-0 flex-1">
-            {waiting} {waiting === 1 ? "thread is" : "threads are"} stopped at the limit until the
-            window resets{resetsAt === undefined ? "" : ` at ${formatClock(resetsAt)}`}.
+            {waiting} {waiting === 1 ? "thread is" : "threads are"} paused until the window resets
+            {resetsAt === undefined ? "" : ` at ${formatClock(resetsAt)}`}.
           </span>
           <Button
             size="sm"
@@ -132,7 +141,7 @@ export function AccountCard(props: { account: Account; accounts: readonly Accoun
             }
           >
             <Icon icon={ArrowRightIcon} size={14} />
-            Move threads
+            Move running threads
           </Button>
         </div>
       ) : (
