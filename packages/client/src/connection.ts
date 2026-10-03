@@ -26,6 +26,7 @@ export class Connection {
   private active = false;
   private cancel: (() => void) | undefined;
   private heartbeat: (() => void) | undefined;
+  private healthy: (() => void) | undefined;
   private awaitingPong = false;
   private codec: WireCodec;
   /** Frames waiting, in order, for the service schemas a frame among them needs. */
@@ -77,6 +78,8 @@ export class Connection {
     this.cancel = undefined;
     this.heartbeat?.();
     this.heartbeat = undefined;
+    this.healthy?.();
+    this.healthy = undefined;
     const transport = this.transport;
     this.transport = undefined;
     try {
@@ -197,7 +200,11 @@ export class Connection {
         if (message.type !== "welcome") throw new ClientError("protocol");
         this.cancel?.();
         this.cancel = undefined;
-        this.attempt = 0;
+        // Backoff starts over only once this connection has stayed up for a while.
+        this.healthy = this.options.scheduler.set(this.limits.healthyMs, () => {
+          this.attempt = 0;
+          this.healthy = undefined;
+        });
         this.awaitingPong = false;
         this.state = "ready";
         this.tick();
