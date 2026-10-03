@@ -11,7 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
@@ -60,7 +59,6 @@ function Machines() {
             ...(machine.current ? [] : [lastSeen(machine.lastSeenAt, now)]),
           ].join(" · ")}
         >
-          <Dot tone={machine.online ? "done" : "idle"} />
           <span className="text-sm text-muted-foreground">
             {machine.online ? "Online" : "Offline"}
           </span>

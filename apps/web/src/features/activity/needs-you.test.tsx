@@ -14,19 +14,20 @@ function workbenchApp() {
   return app;
 }
 
-test("answering an approval in Activity resolves it and clears the rail's needs-you count", async () => {
+test("answering an approval in Activity resolves it and takes it off the rail's needs-you count", async () => {
   const app = harness();
   app.play(flakyCheckout()).runThrough("approval-requested");
   await app.open("/activity");
 
   const approval = await card(approvalTitle);
   const rail = screen.getByRole("navigation", { name: "Views" });
-  expect(within(rail).getByLabelText("1 need you")).toBeTruthy();
+  // The approval and the Deck escalation the Activity feed also holds.
+  expect(within(rail).getByLabelText("2 need you")).toBeTruthy();
 
   await userEvent.click(within(approval).getByRole("button", { name: "Approve" }));
 
   await waitFor(() => expect(screen.queryByRole("article", { name: approvalTitle })).toBeNull());
-  expect(within(rail).queryByLabelText(/need you/)).toBeNull();
+  expect(within(rail).getByLabelText("1 need you")).toBeTruthy();
   expect(await screen.findByText("Approved · the agent continues")).toBeTruthy();
 
   // The daemon's interaction.closed event, not the click, is what the store now holds.

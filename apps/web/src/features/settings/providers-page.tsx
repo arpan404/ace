@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
 import type { ProviderAccount, ProviderInstall } from "./data/backend.ts";
@@ -24,12 +23,6 @@ export function describeInstall(install: ProviderInstall): string {
   else parts.push(`${signedIn.length} account${signedIn.length === 1 ? "" : "s"}`);
   if (atLimit.length) parts.push(`${atLimit.length} at limit`);
   return parts.join(" · ");
-}
-
-function needsAttention(install: ProviderInstall): boolean {
-  return install.accounts.some(
-    (account) => account.availability === "exhausted" || account.auth === "logged_out",
-  );
 }
 
 /** Installed provider CLIs from discovery, their logins, and the models each one offers. */
@@ -88,7 +81,6 @@ function ProviderRow(props: { install: ProviderInstall }) {
   return (
     <>
       <SettingRow title={install.name} description={describeInstall(install)}>
-        {needsAttention(install) && <Dot tone="needs-you" label="Needs attention" />}
         {installed && (
           <Button
             size="sm"

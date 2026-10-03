@@ -15,6 +15,7 @@ import { Select } from "@/components/ui/select.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { settingKeys, type LogRetention, type UnresponsiveAfter } from "./data/setting-keys.ts";
 import { useSetting, useSettingsBackend } from "./data/use-settings.ts";
+import { DaemonHealth } from "./daemon-health.tsx";
 
 const unresponsiveOptions: { value: UnresponsiveAfter; label: string }[] = [
   { value: "2m", label: "2 minutes" },
@@ -27,7 +28,7 @@ const retentionOptions: { value: LogRetention; label: string }[] = [
   { value: "forever", label: "Forever" },
 ];
 
-/** Theme editor entry, health thresholds, log retention and a full reset. */
+/** Theme editor entry, health thresholds, log retention, daemon diagnostics and a full reset. */
 export function AdvancedSettings() {
   const [unresponsive, setUnresponsive] = useSetting(settingKeys.unresponsiveAfter);
   const [retention, setRetention] = useSetting(settingKeys.logRetention);
@@ -53,6 +54,7 @@ export function AdvancedSettings() {
           onValueChange={(value) => void setUnresponsive(value)}
         />
       </SettingRow>
+      <DaemonDiagnostics />
       <SettingRow title="Keep event logs">
         <Select
           label="Keep event logs"
@@ -104,5 +106,27 @@ function ResetAll() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Memory, sessions and queue depths: for debugging the daemon, so folded away until asked for. */
+function DaemonDiagnostics() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <SettingRow
+        title="Daemon diagnostics"
+        description="Memory, sessions and queue depths, refreshed every 15 seconds while shown."
+      >
+        <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
+          {open ? "Hide" : "Show"}
+        </Button>
+      </SettingRow>
+      {open && (
+        <div className="fx-rise-in pb-4">
+          <DaemonHealth />
+        </div>
+      )}
+    </>
   );
 }

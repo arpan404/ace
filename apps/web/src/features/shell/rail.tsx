@@ -5,14 +5,15 @@ import { Icon } from "@/components/icon.tsx";
 import { CountBadge } from "@/components/ui/dot.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
-import { useNeedsYouThreadIds } from "./use-threads.ts";
 import { activeView, railViews, type RailView } from "./views.ts";
 
-/** Slack-style rail of views: icon over label, Settings and the account at the foot. */
-export function Rail() {
+/**
+ * Slack-style rail of views: icon over label, Settings and the account at the foot. Counts come
+ * from the views that own them (Activity's needs-you total), composed in by the app layer.
+ */
+export function Rail(props: { badges?: Partial<Record<RailView["id"], number>> }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const current = activeView(pathname);
-  const needsYou = useNeedsYouThreadIds().length;
   return (
     <nav
       aria-label="Views"
@@ -24,7 +25,7 @@ export function Rail() {
             <RailItem
               view={view}
               active={current === view.id}
-              badge={view.id === "activity" ? needsYou : 0}
+              badge={props.badges?.[view.id] ?? 0}
             />
           </li>
         ))}
