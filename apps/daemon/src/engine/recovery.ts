@@ -108,7 +108,10 @@ export class Recovery {
       this.repo.apply(id, [{ type: "queue.changed", source: "engine", count }], this.clock.now());
   }
   capture(id: ThreadId): void {
-    const text = lostWork(this.repo.requireState(id));
+    const text = lostWork(
+      this.repo.requireState(id),
+      this.repo.pending.recoveryAcknowledgement(id) ? 1 : 0,
+    );
     if (!text) return;
     this.repo.queue.set(id, { continuation: text, trigger: "restart" }, this.clock.now());
     this.sync(id);

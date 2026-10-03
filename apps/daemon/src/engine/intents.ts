@@ -103,7 +103,7 @@ export class IntentStore {
   recoveryAcknowledgement(id: ThreadId): boolean {
     return Boolean(
       this.sql(
-        "SELECT 1 FROM intents i JOIN engine_state_records r ON r.thread_id=i.thread_id AND r.section='engineRecovery' AND r.key='root' AND i.id=CAST(r.value AS INTEGER) WHERE i.thread_id=? AND i.status<>'failed' AND (i.awaiting=1 OR i.acknowledged=1) LIMIT 1",
+        "SELECT 1 FROM intents i JOIN engine_state_records r ON r.thread_id=i.thread_id AND r.section='engineRecovery' AND r.key='root' AND i.id=CAST(r.value AS INTEGER) WHERE i.thread_id=? AND (i.acknowledged=1 OR (i.awaiting=1 AND i.status<>'failed')) LIMIT 1",
       ).get(id),
     );
   }
@@ -113,10 +113,13 @@ export class IntentStore {
     ).run(id);
   }
   recovering(id: ThreadId): boolean {
-    return Boolean(
-      this.sql(
-        `SELECT 1 FROM intents WHERE thread_id=? AND kind IN (${recoveryKinds}) AND status IN ('pending','running') LIMIT 1`,
-      ).get(id),
+    return (
+      this.recoveryAcknowledgement(id) ||
+      Boolean(
+        this.sql(
+          `SELECT 1 FROM intents WHERE thread_id=? AND kind IN (${recoveryKinds}) AND status IN ('pending','running') LIMIT 1`,
+        ).get(id),
+      )
     );
   }
   recovery(id: ThreadId): IntentHeader | undefined {

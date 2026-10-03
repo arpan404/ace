@@ -23,6 +23,8 @@ export class IntentDelivery {
   }
   async run(actor: ThreadActor, candidate: IntentHeader): Promise<void> {
     const send = ["thread.create", "thread.send"].includes(candidate.kind);
+    const continuation = ["thread.resume", "queue.resume", "thread.limit"].includes(candidate.kind);
+    const holdToken = this.dependencies.repo.queue.get(actor.id).holdToken;
     const intent = this.dependencies.repo.claim(candidate);
     if (!intent) return;
     if (send) this.dependencies.repo.queue.set(actor.id, {}, this.dependencies.clock.now());
@@ -56,7 +58,12 @@ export class IntentDelivery {
     } catch (error) {
       await actor.flush();
       const acknowledged = this.dependencies.repo.pending.acknowledged(intent.id);
-      if (send && error instanceof DeliveryDeferred && !acknowledged) {
+      if (continuation && acknowledged) {
+        // Admission transfers ownership even if the transport loses the reply.
+        // Keep the durable run correlation until the admitted run actually starts.
+        this.dependencies.repo.mark(intent, "done");
+        this.dependencies.recovery.release(actor.id, holdToken);
+      } else if (send && error instanceof DeliveryDeferred && !acknowledged) {
         this.dependencies.repo.queue.clearUncertain(intent.id);
         this.dependencies.repo.mark(intent, "queued");
         this.dependencies.repo.beginSend(intent, undefined);
@@ -128,6 +135,20 @@ export class IntentDelivery {
     });
   }
   expire(actor: ThreadActor): void {
+    if (this.dependencies.repo.pending.recoveryAcknowledgement(actor.id)) {
+      this.dependencies.recovery.capture(actor.id);
+      this.dependencies.repo.pending.finishContinuation(actor.id);
+      const queue = this.dependencies.repo.queue.get(actor.id);
+      this.dependencies.repo.queue.set(
+        actor.id,
+        {
+          paused: true,
+          reason: queue.limited ? "limit" : "restart",
+          holdToken: queue.holdToken + 1,
+        },
+        this.dependencies.clock.now(),
+      );
+    }
     for (const intent of this.dependencies.repo.pending.headers(actor.id))
       if (intent.awaiting) {
         if (intent.kind === "thread.send" || intent.kind === "thread.create")

@@ -96,3 +96,11 @@ acknowledge a different input. Send and native continuation pass the command ID
 through account binding. A persisted continuation-intent reference retains the
 restart/limit-resume trigger until the corresponding run begins, including when
 admission and the RPC reply precede that run.
+
+An admitted continuation remains provider-owned if its RPC reply fails. Receipt
+failure cannot erase its durable acknowledgement or run trigger. Another resume
+is refused, and both queued and steering follow-ups wait until that run starts.
+Its eventual start clears the continuation, so completion leaves no phantom work.
+Provider exit or daemon restart ends that ownership and captures a fresh restart
+notice for native continuation; it never replays the old admitted input. A newer
+pause or limit still wins through the existing hold-token fence.

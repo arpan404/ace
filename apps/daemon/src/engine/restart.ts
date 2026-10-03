@@ -40,6 +40,9 @@ export function recoverEngine(
           clock.now(),
         );
       recovery.capture(state.threadId);
+      // A stopped provider no longer owns an admitted continuation. Native history
+      // remains the source for a new restart continuation, never the old input.
+      repo.pending.finishContinuation(state.threadId);
       const live =
         !state.processExit &&
         (state.queueSources.provider > 0 ||

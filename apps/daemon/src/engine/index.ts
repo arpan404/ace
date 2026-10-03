@@ -298,6 +298,7 @@ export class Engine {
       return;
     }
     const queue = this.repo.queue.get(actor.id);
+    if (this.repo.pending.recoveryAcknowledgement(actor.id)) return;
     if (queue.paused || queue.limited) {
       this.releaseDormant(actor.id);
       actor.schedule();
@@ -329,6 +330,7 @@ export class Engine {
       Boolean(this.actors.get(intent.threadId)?.session) &&
       !this.repo.queue.get(intent.threadId).paused &&
       !this.repo.queue.get(intent.threadId).limited &&
+      !this.repo.pending.recovering(intent.threadId) &&
       this.registry.has(state.config.provider) &&
       (
         this.actors.get(intent.threadId)?.effectiveCapabilities ??

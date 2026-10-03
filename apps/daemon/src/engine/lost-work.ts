@@ -1,5 +1,5 @@
 import type { ThreadState } from "@ace/core";
-export function lostWork(state: ThreadState): string | undefined {
+export function lostWork(state: ThreadState, pendingNativeInputs = 0): string | undefined {
   const lines: string[] = [];
   for (const key of Object.keys(state.indexes.runningTasks)) {
     const task = state.tasks[key];
@@ -7,7 +7,7 @@ export function lostWork(state: ThreadState): string | undefined {
     if (lines.length < 64)
       lines.push(`${task.kind}: ${task.title.slice(0, 160)} [${task.id.slice(0, 128)}]`);
   }
-  let active = state.queueSources.provider > 0;
+  let active = state.queueSources.provider > 0 || pendingNativeInputs > 0;
   for (const record of Object.values(state.agents)) {
     active ||= record.activeRun !== undefined || record.wakeUntil !== undefined;
     if (
