@@ -1,3 +1,4 @@
+import { FakeByteRing } from "./byte-ring.ts";
 /**
  * The daemon terminal service as a client sees it, simulated in memory: PTY sessions per
  * thread, a bounded scrollback ring with absolute offsets, attach-from-offset replay (the
@@ -28,9 +29,7 @@ export interface OpenRequest {
 
 interface Session {
   info: TerminalInfo;
-  text: string;
-  /** Absolute offset of `text[0]`; older output has been dropped from the ring. */
-  start: number;
+  ring: FakeByteRing;
   line: string;
   listeners: Set<(event: TerminalEvent) => void>;
 }
@@ -86,7 +85,13 @@ export class FakeTerminals {
       rows: request.rows,
       exitCode: null,
     };
-    this.sessions.set(info.id, { info, text: "", start: 0, line: "", listeners: new Set() });
+    if (this.sessions.size >= 64) throw new Error("terminal_limit");
+    this.sessions.set(info.id, {
+      info,
+      ring: new FakeByteRing(this.capacity),
+      line: "",
+      listeners: new Set(),
+    });
     this.output(info.id, prompt(info.cwd));
     this.changed();
     return info;
@@ -95,16 +100,18 @@ export class FakeTerminals {
   attach(id: string, fromOffset: number, listener: (event: TerminalEvent) => void): () => void {
     const session = this.sessions.get(id);
     if (!session || this.state !== "connected") return () => {};
-    const end = session.start + session.text.length;
-    if (fromOffset < session.start)
-      listener({ type: "resync", oldestOffset: session.start, nextOffset: end });
-    const from = Math.max(fromOffset, session.start);
+    const end = session.ring.end;
+    if (fromOffset < session.ring.start) {
+      listener({ type: "resync", oldestOffset: session.ring.start, nextOffset: end });
+      return () => {};
+    }
+    const from = session.ring.align(Math.max(fromOffset, session.ring.start));
     if (from < end)
       listener({
         type: "data",
         offset: from,
         endOffset: end,
-        data: session.text.slice(from - session.start),
+        data: session.ring.read(from),
         truncatedBefore: from !== fromOffset,
       });
     if (session.info.exitCode !== null)
@@ -112,10 +119,36 @@ export class FakeTerminals {
     session.listeners.add(listener);
     return () => session.listeners.delete(listener);
   }
+  readEvent(id: string, fromOffset: number): TerminalEvent | undefined {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error("terminal_not_found");
+    if (fromOffset < session.ring.start)
+      return { type: "resync", oldestOffset: session.ring.start, nextOffset: session.ring.end };
+    if (fromOffset < session.ring.end) {
+      const offset = session.ring.align(fromOffset);
+      const data = session.ring.read(offset);
+      return {
+        type: "data",
+        offset,
+        endOffset: offset + new TextEncoder().encode(data).length,
+        data,
+        truncatedBefore: offset !== fromOffset,
+      };
+    }
+    if (session.info.exitCode !== null)
+      return { type: "exit", code: session.info.exitCode, nextOffset: session.ring.end };
+    return undefined;
+  }
+  offsets(id: string) {
+    const session = this.sessions.get(id);
+    if (!session) throw new Error("terminal_not_found");
+    return { oldestOffset: session.ring.start, nextOffset: session.ring.end };
+  }
   write(id: string, data: string): void {
     const session = this.sessions.get(id);
     if (!session || this.state !== "connected" || session.info.exitCode !== null) return;
-    this.received.push({ id, data });
+    if (this.received.length >= 256) this.received.shift();
+    this.received.push({ id, data: data.slice(-8192) });
     for (const char of data) this.key(session, char);
   }
   resize(id: string, cols: number, rows: number): void {
@@ -130,18 +163,15 @@ export class FakeTerminals {
   output(id: string, data: string): void {
     const session = this.sessions.get(id);
     if (!session) return;
-    const offset = session.start + session.text.length;
-    session.text += data;
-    const overflow = session.text.length - this.capacity;
-    if (overflow > 0) {
-      session.text = session.text.slice(overflow);
-      session.start += overflow;
-    }
+    const offset = session.ring.end;
+    const bytes = new TextEncoder().encode(data);
+    if (bytes.length > 65536) throw new Error("Terminal chunk exceeds limit");
+    session.ring.append(bytes);
     if (this.state !== "connected") return;
     const event: TerminalEvent = {
       type: "data",
       offset,
-      endOffset: offset + data.length,
+      endOffset: offset + bytes.length,
       data,
       truncatedBefore: false,
     };
@@ -176,6 +206,7 @@ export class FakeTerminals {
       session.line = "";
       this.output(id, `^C\r\n${prompt(session.info.cwd)}`);
     } else if (char >= " ") {
+      if (session.line.length >= 8192) return;
       session.line += char;
       this.output(id, char);
     }
@@ -184,7 +215,7 @@ export class FakeTerminals {
     const id = session.info.id;
     if (command === "exit") {
       session.info = { ...session.info, exitCode: 0 };
-      const end = session.start + session.text.length;
+      const end = session.ring.end;
       for (const listener of session.listeners)
         listener({ type: "exit", code: 0, nextOffset: end });
       this.changed();

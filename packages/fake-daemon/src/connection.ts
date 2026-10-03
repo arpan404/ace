@@ -23,6 +23,7 @@ export interface Host {
   page(threadId: string, before: number, limit: number): ItemsPage | undefined;
   command(command: Command): CommandResult;
   release(connection: Connection): void;
+  services(send: (message: ServerMessage) => void): import("./services-wire.ts").FakeWireSession;
 }
 /** The socket half the connection writes to. Delivery is asynchronous, like a real socket. */
 export interface Wire {
@@ -42,12 +43,15 @@ export function matches(scope: SubscriptionScope, event: DeliveryEvent): boolean
 export class Connection {
   private host: Host;
   private wire: Wire;
+  private service: import("./services-wire.ts").FakeWireSession;
+  private device = "fake";
   private ready = false;
   private closed = false;
   private subscriptions = new Map<string, Subscription>();
   constructor(host: Host, wire: Wire) {
     this.host = host;
     this.wire = wire;
+    this.service = host.services((message) => this.send(message));
   }
   receive(text: string): void {
     if (this.closed) return;
@@ -71,6 +75,7 @@ export class Connection {
         return;
       }
       this.ready = true;
+      this.device = message.deviceId;
       this.send({
         type: "welcome",
         hostId: this.host.hostId,
@@ -111,7 +116,7 @@ export class Connection {
         this.error("not_found", { requestId: message.requestId });
         return;
       default:
-        this.error("unsupported", {});
+        void this.service.handle(message, this.device);
     }
   }
   private subscribe(id: string, scope: SubscriptionScope, afterSeq: number | undefined): void {
@@ -159,6 +164,7 @@ export class Connection {
     if (this.closed) return;
     this.closed = true;
     this.subscriptions.clear();
+    this.service.close();
     this.host.release(this);
     this.wire.close(code);
   }

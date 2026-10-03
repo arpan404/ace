@@ -1,0 +1,217 @@
+import {
+  BrowserClientMessage,
+  ServerMessage,
+  type ClientMessage,
+  type ServerMessage as Message,
+  ConductorCommandPayload,
+  type CommandPayload,
+  type CommandResult,
+} from "@ace/protocol";
+import { FakeBrowser } from "./browser.ts";
+import { fakeBrowserSession } from "./browser-wire.ts";
+import { FakeTerminalStream } from "./terminal-stream.ts";
+import { fakeHealth } from "./health.ts";
+import { FakeCatalogWire } from "./catalog-wire.ts";
+import { FakeContextWire } from "./context-wire.ts";
+import { FakeWorkspaceWire } from "./workspace-wire.ts";
+import { FakeConductor } from "./conductor/fake-conductor.ts";
+import { FakePlanningWire } from "./planning-wire.ts";
+import { FakePluginsWire } from "./plugins-wire.ts";
+import type { FakeServiceContext } from "./service-context.ts";
+export interface FakeWireSession {
+  handle(message: ClientMessage, device: string): Promise<void>;
+  close(): void;
+}
+export class FakeServicesWire {
+  readonly browser = new FakeBrowser();
+  readonly context: FakeContextWire;
+  readonly workspace: FakeWorkspaceWire;
+  private catalogs: FakeCatalogWire;
+  private planning: FakePlanningWire;
+  private plugins = new FakePluginsWire();
+  private host: FakeServiceContext;
+  private owner = 0;
+  constructor(context: FakeServiceContext) {
+    this.host = context;
+    this.context = new FakeContextWire(context);
+    this.workspace = new FakeWorkspaceWire(context);
+    this.catalogs = new FakeCatalogWire(context);
+    this.planning = new FakePlanningWire(
+      new FakeConductor({ clock: context.now, runs: [] }),
+      context.now,
+      () => this.catalogs.automationsEnabled(),
+    );
+  }
+  organizationEntries(scope: import("@ace/protocol").SettingsScope) {
+    return this.catalogs.organizationEntries(scope);
+  }
+  command(payload: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
+    const conductor = ConductorCommandPayload.safeParse(payload);
+    if (conductor.success) return this.planning.command(conductor.data);
+    return this.workspace.command(payload);
+  }
+  session(send: (message: Message) => void): FakeWireSession {
+    const owner = `socket-${++this.owner}`;
+    const subscriptions = new Map<string, () => void>();
+    const terminalStreams = new Map<string, FakeTerminalStream>();
+    let closed = false;
+    const emit = (message: Message) => {
+      if (!closed) send(ServerMessage.parse(message));
+    };
+    const browser = fakeBrowserSession(this.browser, this.host, emit);
+    return {
+      close: () => {
+        closed = true;
+        browser.close();
+        this.catalogs.release(owner);
+        for (const stop of subscriptions.values()) stop();
+        subscriptions.clear();
+        terminalStreams.clear();
+      },
+      handle: async (message, device) => {
+        try {
+          const catalog = this.catalogs.handle(message, emit, owner);
+          if (catalog) {
+            emit(catalog);
+            return;
+          }
+          if (message.type === "context.request") {
+            emit(await this.context.handle(message, device));
+            return;
+          }
+          if (message.type === "workspace.request") {
+            emit(this.workspace.read(message));
+            return;
+          }
+          if (message.type === "diagnostics.health") {
+            emit({
+              type: "diagnostics.health.result",
+              requestId: message.requestId,
+              ok: true,
+              health: fakeHealth(this.host.now(), this.host.threads().length),
+            });
+            return;
+          }
+          if (message.type === "pluginRequest") {
+            emit(await this.plugins.handle(message));
+            return;
+          }
+          if (message.type === "conductor.request" || message.type.startsWith("automation.")) {
+            const result = this.planning.handle(message, emit, subscriptions);
+            if (result) emit(result);
+            return;
+          }
+          if (message.type === "preview.request") {
+            if (!this.host.thread(message.threadId)) throw new Error("thread_not_found");
+            const op = message.operation;
+            if (op.op === "forward")
+              this.browser.serve(message.threadId, {
+                port: op.port,
+                source: "listener",
+                origin: `http://127.0.0.1:${op.port}`,
+              });
+            if (op.op === "unforward") this.browser.unforward(message.threadId, op.port);
+            emit({
+              type: "preview.result",
+              requestId: message.requestId,
+              ok: true,
+              previews: [...this.browser.servers(message.threadId)],
+            });
+            return;
+          }
+          if (message.type === "terminal.credit") {
+            terminalStreams.get(message.subscriptionId)?.credit();
+            return;
+          }
+          if (message.type === "terminal.request") {
+            const op = message.operation;
+            const base = {
+              type: "terminal.result" as const,
+              requestId: message.requestId,
+              ok: true,
+            };
+            if (op.op === "unsubscribe") {
+              subscriptions.get(op.subscriptionId)?.();
+              subscriptions.delete(op.subscriptionId);
+              emit(base);
+              return;
+            }
+            if (!this.host.thread(op.threadId)) throw new Error("thread_not_found");
+            const terminals = this.workspace.terminals;
+            if (op.op === "list") {
+              emit({
+                ...base,
+                terminals: terminals
+                  .list(op.threadId)
+                  .map((entry) => this.workspace.descriptor(entry.id, op.threadId)),
+              });
+              return;
+            }
+            if (op.op === "open") {
+              const entry = await terminals.open({
+                threadId: op.threadId,
+                cwd: this.host.thread(op.threadId)?.thread.details?.worktree ?? "/fake",
+                name: op.name,
+                cols: op.cols,
+                rows: op.rows,
+              });
+              emit({ ...base, terminal: this.workspace.descriptor(entry.id, op.threadId) });
+              return;
+            }
+            this.workspace.descriptor(op.terminalId, op.threadId);
+            if (op.op === "write") terminals.write(op.terminalId, op.data);
+            if (op.op === "resize") terminals.resize(op.terminalId, op.cols, op.rows);
+            if (op.op === "close") terminals.close(op.terminalId);
+            if (op.op === "subscribe") {
+              if (subscriptions.size >= 8 || subscriptions.has(op.subscriptionId))
+                throw new Error("subscription_limit");
+              emit(base);
+              const stream = new FakeTerminalStream(
+                terminals,
+                op.terminalId,
+                op.fromOffset,
+                (event) =>
+                  emit({ type: "terminal.output", subscriptionId: op.subscriptionId, event }),
+                () => Boolean(this.host.thread(op.threadId)),
+                () => {
+                  subscriptions.delete(op.subscriptionId);
+                  terminalStreams.delete(op.subscriptionId);
+                },
+              );
+              terminalStreams.set(op.subscriptionId, stream);
+              subscriptions.set(op.subscriptionId, () => {
+                stream.stop();
+                terminalStreams.delete(op.subscriptionId);
+              });
+              stream.credit();
+              return;
+            }
+            emit(base);
+            return;
+          }
+          const browserMessage = BrowserClientMessage.safeParse(message);
+          if (browserMessage.success) {
+            await browser.handle(browserMessage.data);
+            return;
+          }
+
+          if ("requestId" in message)
+            emit({
+              type: "error",
+              requestId: message.requestId,
+              code: "unsupported",
+              message: "Service unavailable in this fixture",
+            });
+        } catch (error) {
+          if ("requestId" in message)
+            emit({
+              type: "error",
+              requestId: message.requestId,
+              code: "service_failed",
+              message: error instanceof Error ? error.message : "Service failed",
+            });
+        }
+      },
+    };
+  }
+}
