@@ -52,6 +52,13 @@ import {
   SettingsChanged,
   SettingsDiagnosticMessage,
 } from "./settings.ts";
+import {
+  SearchQueryRequest,
+  SearchStatusRequest,
+  SearchQueryResponse,
+  SearchStatusResponse,
+  SearchErrorResponse,
+} from "./search.ts";
 
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 // Zod records intentionally strip __proto__. Validate entries before rebuilding
@@ -131,6 +138,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   CommandsList,
   CommandsResolve,
   ...AccountsRequest.options,
+  SearchQueryRequest,
+  SearchStatusRequest,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -197,6 +206,9 @@ export const ServerMessage = z.discriminatedUnion("type", [
   CommandsListResult,
   CommandsResolveResult,
   ...AccountsResponse.options,
+  SearchQueryResponse,
+  SearchStatusResponse,
+  SearchErrorResponse,
   ModelsResult,
   NotificationMessage,
 

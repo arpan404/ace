@@ -156,7 +156,14 @@ export class PayloadStore {
   }
   persist(event: Event): void {
     const p = event.payload;
-    if (p.type === "item.created" || p.type === "item.updated") {
+    if (p.type === "item.deleted") {
+      this.db
+        .prepare("DELETE FROM items WHERE id = ? AND thread_id = ?")
+        .run(p.itemId, event.threadId);
+      this.db
+        .prepare("DELETE FROM output_streams WHERE item_id = ? AND thread_id = ?")
+        .run(p.itemId, event.threadId);
+    } else if (p.type === "item.created" || p.type === "item.updated") {
       this.items.upsert(event, p.item);
     } else if (p.type === "item.delta") {
       if (p.field !== "output") {

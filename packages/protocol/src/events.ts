@@ -81,6 +81,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     append: z.string(),
   }),
   z.object({ type: z.literal("item.updated"), item: Item }),
+  z.object({ type: z.literal("item.deleted"), itemId: ItemId }),
   z.object({ type: z.literal("interaction.opened"), interaction: Interaction }),
   z.object({
     type: z.literal("interaction.closed"),

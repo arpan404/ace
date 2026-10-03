@@ -20,6 +20,7 @@ export type { DaemonOptions } from "./services/options.ts";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 export { Store, type StoreOptions } from "./store.ts";
 export { readConfig } from "./config.ts";
+export type { SearchScheduler } from "./search-runtime.ts";
 export {
   createDevThread,
   stubHandler,

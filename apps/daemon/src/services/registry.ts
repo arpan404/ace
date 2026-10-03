@@ -1,3 +1,4 @@
+import { createSearchSession } from "./search.ts";
 import { createAccountsSession } from "./accounts.ts";
 import { createCommandsSession } from "./commands.ts";
 import { createFilesSession } from "./files.ts";
@@ -16,6 +17,7 @@ import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
+  createSearchSession,
   createAccountsSession,
   createCommandsSession,
   createFilesSession,

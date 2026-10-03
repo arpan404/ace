@@ -15,6 +15,7 @@ export * from "./settings.ts";
 export * from "./files.ts";
 export * from "./diagnostics.ts";
 export * from "./context.ts";
+export * from "./search.ts";
 export * from "./conductor.ts";
 export * from "./automations.ts";
 export * from "./models.ts";

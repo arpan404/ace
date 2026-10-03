@@ -1,5 +1,12 @@
 import { applyDelta } from "./delta.ts";
-export { applyDelta, outputDeltas, outputStreamId, summarizeOutput, utf8Slice } from "./delta.ts";
+export {
+  acceptsDelta,
+  applyDelta,
+  outputDeltas,
+  outputStreamId,
+  summarizeOutput,
+  utf8Slice,
+} from "./delta.ts";
 export { applyItemsPage, trackItem } from "./window.ts";
 import type {
   DeliveryEvent,
@@ -190,6 +197,10 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       put(view.items, p.item.id, structuredCopy(p.item));
       break;
     }
+    case "item.deleted":
+      delete view.items[p.itemId];
+      view.itemOrder = view.itemOrder.filter((id) => id !== p.itemId);
+      break;
     case "item.delta": {
       const item = get(view.items, p.itemId);
       if (item) applyDelta(item, p.field, p.append);

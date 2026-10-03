@@ -46,6 +46,7 @@
     "@ace/redaction": "workspace:*",
     "@ace/relay": "workspace:*",
     "@ace/review": "workspace:*",
+    "@ace/search": "workspace:*",
     "@ace/secure-channel": "workspace:*",
     "@ace/service": "workspace:*",
     "@ace/settings": "workspace:*",
