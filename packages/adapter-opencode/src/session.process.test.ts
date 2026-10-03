@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { object, array } from "./data.ts";
+import { object, array } from "./testing/v1/data.ts";
 import { setup } from "./testing/session-harness.ts";
 describe("OpenCode HTTP session", () => {
   it("targets the engine root even when its key matches a native child session", async () => {

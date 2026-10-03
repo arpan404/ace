@@ -13,4 +13,4 @@ export {
   type ModelCatalogApi,
 } from "./types.ts";
 export type { CatalogModel, ModelRoleSpec, ModelResolution, ModelListResult } from "@ace/protocol";
-export { OpenCodeParser } from "./open-code.ts";
+export { OpenCodeParser, normalizeOpenCodeV2 } from "./open-code.ts";

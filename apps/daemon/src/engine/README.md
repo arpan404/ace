@@ -133,3 +133,5 @@ needs durable effect receipts, child attachment, worktrees, account migration, a
 and forkable history. Installing a partial bridge here would launch invisible or unrecoverable
 lanes. Its public driver and existing injected daemon handler remain available; engine commands
 continue to decline conductor commands explicitly until those executors are supplied.
+
+Providers with durable prompt admission emit `input.admitted` before a turn starts. The optional third argument to `ProviderSession.send` supplies the engine command ID; returning it on the admission fact acknowledges exactly that input, including a late receipt recovered after an uncertain send. Uncorrelated admissions retain the oldest awaiting group fallback. The per-thread acknowledgement policy is persisted in the existing engine record store; subsequent run starts cannot acknowledge another input. Providers using turn-start acknowledgement keep their existing behavior. Admission is neither a new run nor terminal evidence.

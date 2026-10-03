@@ -1,30 +1,26 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ContentPart } from "@ace/protocol";
-/** Native IDs sort by a 48-bit time/counter prefix before their random suffix. */
 export function messageId(now: number, sequence: number, entropy: string): string {
-  const time = ((BigInt(now) << 12n) + BigInt(sequence % 4096)) & 0xffffffffffffn;
-  return `msg_${time.toString(16).padStart(12, "0")}${entropy}`;
+  const prefix = ((BigInt(now) << 12n) + BigInt(sequence % 4096)) & 0xffffffffffffn;
+  return `msg_${prefix.toString(16).padStart(12, "0")}${entropy}`;
 }
-export function promptBody(input: ContentPart[], cwd: string, id: string, model?: string) {
-  const slash = model?.indexOf("/") ?? -1;
-  if (model !== undefined && (slash < 1 || slash === model.length - 1))
+export function selectedModel(model?: string) {
+  if (model === undefined) return undefined;
+  const slash = model.indexOf("/");
+  if (slash < 1 || slash === model.length - 1)
     throw new Error("OpenCode model must be provider/model");
-  return {
-    messageID: id,
-    parts: input.map((part) =>
-      part.type === "text"
-        ? part
-        : part.type === "image"
-          ? { type: "file", mime: part.mimeType, url: part.url }
-          : {
-              type: "file",
-              mime: part.mimeType ?? "text/plain",
-              url: pathToFileURL(resolve(cwd, part.path)).href,
-            },
-    ),
-    ...(model === undefined
-      ? {}
-      : { model: { providerID: model.slice(0, slash), modelID: model.slice(slash + 1) } }),
-  };
+  return { providerID: model.slice(0, slash), id: model.slice(slash + 1) };
+}
+export function promptBody(input: ContentPart[], cwd: string, id: string) {
+  const text: string[] = [],
+    files: { uri: string }[] = [];
+  for (const part of input) {
+    if (part.type === "text") text.push(part.text);
+    else
+      files.push({
+        uri: part.type === "image" ? part.url : pathToFileURL(resolve(cwd, part.path)).href,
+      });
+  }
+  return { id, text: text.join("\n"), ...(files.length ? { files } : {}) };
 }
