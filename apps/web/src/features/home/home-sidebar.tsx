@@ -14,7 +14,7 @@ import { ProjectFilter } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { useHomeArrangement } from "./use-home-threads.ts";
 import { rememberThread } from "./last-thread.ts";
-import { useOrganizer, useOrganizerState } from "./use-organizer.ts";
+import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
 /**
  * Home's second sidebar: New thread, search, and every thread from every project and machine

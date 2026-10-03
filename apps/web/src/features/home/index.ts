@@ -2,5 +2,3 @@
 export { HomeEmptyScreen } from "./home-empty-screen.tsx";
 export { HomeSidebar } from "./home-sidebar.tsx";
 export { NewThreadPage } from "./new-thread/new-thread-page.tsx";
-export { useOrganizer, useOrganizerState } from "./use-organizer.ts";
-export { useThreadActions } from "./use-thread-actions.ts";

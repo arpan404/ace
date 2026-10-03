@@ -9,7 +9,7 @@ import { AutoSettleNote } from "./auto-settle-note.tsx";
 import { SettledRow } from "./settled-row.tsx";
 import { HomeMachine, useHomeMachine } from "./thread-details.ts";
 import { ThreadRow } from "./thread-row.tsx";
-import { useOrganizer, useOrganizerState } from "./use-organizer.ts";
+import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
 type Row =
   | { kind: "thread"; id: string }

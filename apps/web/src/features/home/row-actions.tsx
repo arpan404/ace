@@ -4,8 +4,7 @@ import { cn } from "@/lib/cn.ts";
 import type { ComponentProps, ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
-import { SnoozeItems } from "./snooze-items.tsx";
-import { useThreadActions } from "./use-thread-actions.ts";
+import { SnoozeItems, useThreadActions } from "@/features/organize/index.ts";
 
 /**
  * Settle (finished threads) and Snooze, or Unsettle on a settled row,, floating at the row's top right while the

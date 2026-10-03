@@ -10,7 +10,7 @@ import { threadPanels } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import { GitButton, OpenButton, RunButton } from "./header/header-actions.tsx";
-import { DeleteDialog, RenameDialog, ThreadMenuItems } from "./header/thread-menu.tsx";
+import { RenameDialog, ThreadMenuItems } from "./header/thread-menu.tsx";
 import type { ThreadRef } from "./sources/index.ts";
 import { ForkDialog, ForkOpener } from "./transitions/fork-dialog.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
@@ -25,7 +25,6 @@ export function ThreadView(props: { threadId: string }) {
   const error = useThreadError(props.threadId);
   const [renaming, setRenaming] = useState(false);
   const [forking, setForking] = useState<ForkPoint>();
-  const [deleting, setDeleting] = useState(false);
   const id = props.threadId;
   const projectName = useProjectName();
   const title = meta?.title;
@@ -39,12 +38,7 @@ export function ThreadView(props: { threadId: string }) {
       subtitle={meta && projectName(meta.workspaceId)}
       menu={
         thread && (
-          <ThreadMenuItems
-            thread={thread}
-            onRename={() => setRenaming(true)}
-            onFork={setForking}
-            onDelete={() => setDeleting(true)}
-          />
+          <ThreadMenuItems thread={thread} onRename={() => setRenaming(true)} onFork={setForking} />
         )
       }
       actions={
@@ -84,7 +78,6 @@ export function ThreadView(props: { threadId: string }) {
         </ForkOpener>
       )}
       {renaming && thread && <RenameDialog thread={thread} onClose={() => setRenaming(false)} />}
-      {deleting && thread && <DeleteDialog thread={thread} onClose={() => setDeleting(false)} />}
       {forking && thread && (
         <ForkDialog thread={thread} point={forking} onClose={() => setForking(undefined)} />
       )}

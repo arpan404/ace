@@ -120,12 +120,13 @@ test("a deleted thread leaves the list and stays gone after a reload", async ({ 
   await expect(page.getByRole("heading", { level: 1, name: deleteTitle })).toBeVisible();
 
   await page.getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: "Delete thread…" }).click();
-  const dialog = page.getByRole("dialog", { name: `Delete “${deleteTitle}”?` });
-  await dialog.getByRole("button", { name: "Delete thread" }).click();
+  await page.getByRole("menuitem", { name: "Delete thread" }).click();
 
-  await expect(page.getByRole("dialog", { name: `Deleted · ${deleteTitle}` })).toBeVisible();
+  // The same delete as Home's: gone at once, sent to the daemon once the Undo window closes.
+  const deleted = page.getByRole("dialog", { name: `Deleted · ${deleteTitle}` });
+  await expect(deleted).toBeVisible();
   await expect(threads(page).getByRole("link", { name: new RegExp(deleteTitle) })).toHaveCount(0);
+  await expect(deleted).toBeHidden({ timeout: 15_000 });
   await page.reload();
   await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
   await expect(

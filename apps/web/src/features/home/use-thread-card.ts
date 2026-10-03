@@ -4,7 +4,7 @@ import { threadCard, type ThreadCard } from "@ace/ui-core";
 import { useProjectName } from "@/lib/projects.ts";
 import { useNow } from "@/lib/time.ts";
 import { useCardDetails } from "./thread-details.ts";
-import { useOrganizer } from "./use-organizer.ts";
+import { useOrganizer } from "@/features/organize/index.ts";
 
 /**
  * One Home row's view model, live: its own list entry (so other threads' updates skip it), the

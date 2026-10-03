@@ -4,7 +4,7 @@ import type { ThreadListEntry } from "@ace/protocol";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { arrange, isSettled, isUnread, projectCounts } from "@ace/ui-core";
-import { useThreadActions, useOrganizer, useOrganizerState } from "@/features/home/index.ts";
+import { useThreadActions, useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 

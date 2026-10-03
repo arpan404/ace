@@ -3,7 +3,7 @@ import { Screen } from "@/features/shell/index.ts";
 import { Composer, useDraftScope, type Draft } from "@/features/thread/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjectChoices } from "@/lib/projects.ts";
-import { useOrganizerState } from "../use-organizer.ts";
+import { useOrganizerState } from "@/features/organize/index.ts";
 import { loadChoices, pickProject, resolve, saveChoices, type Choices } from "./choices.ts";
 import { ContextBar } from "./context-bar.tsx";
 import { ModelPicker } from "./model-picker.tsx";

@@ -174,7 +174,8 @@ test("renaming from the ⋯ menu changes the title", async () => {
   expect(
     await screen.findByRole("heading", { level: 1, name: "Cold-start replay cap" }),
   ).toBeTruthy();
-  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByRole("dialog", { name: "Rename thread" })).toBeNull();
+  expect(screen.getByText("Renamed · Cold-start replay cap")).toBeTruthy();
 });
 
 test("archiving from the ⋯ menu leaves the thread", async () => {
@@ -183,6 +184,52 @@ test("archiving from the ⋯ menu leaves the thread", async () => {
   await userEvent.click(await screen.findByRole("menuitem", { name: "Archive" }));
   expect(await screen.findByText("Archived · Replay cursor resets on every resume")).toBeTruthy();
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
+});
+
+test("deleting from the ⋯ menu leaves the thread with an Undo window, and Undo keeps it", async () => {
+  const app = await openThread();
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
+  const undo = await screen.findByRole("button", { name: "Undo" });
+  expect(screen.getByText("Deleted · Replay cursor resets on every resume")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
+  await userEvent.click(undo);
+  const view = app.daemon.snapshot({ kind: "threads" });
+  expect(view?.kind === "threads" && view.threads["thread-replay-cursor"]).toBeTruthy();
+});
+
+test("the ⋯ menu offers the same thread actions, in the same order, as the row's context menu", async () => {
+  await openThread();
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  const header = (await screen.findAllByRole("menuitem")).map((item) => item.textContent ?? "");
+  await userEvent.keyboard("{Escape}");
+  const row = within(screen.getByRole("navigation", { name: "Threads" })).getByRole("link", {
+    name: /Replay cursor resets/,
+  });
+  await userEvent.pointer({ keys: "[MouseRight]", target: row });
+  const menu = await screen.findByRole("menu", { name: /^Actions for/ });
+  const context = within(menu)
+    .getAllByRole("menuitem")
+    .map((item) => (item.textContent ?? "").replace(/(Shift\+N|R)$/, ""));
+  // The thread screen adds only the agent tree.
+  expect(header.filter((label) => !label.startsWith("Open agent tree"))).toEqual(context);
+  expect(context.slice(0, 4)).toEqual([
+    "New thread on main",
+    "Rename",
+    expect.stringMatching(/^Fork from the last turn…/),
+    "Copy link",
+  ]);
+});
+
+test("Fork says why it is unavailable before the first turn has finished", async () => {
+  const app = harness();
+  app.play(replayCursor()).runThrough("finding");
+  await app.open("/t/thread-replay-cursor");
+  await screen.findByRole("feed", { name: "Transcript" });
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  const fork = await screen.findByRole("menuitem", { name: /Fork from the last turn/ });
+  expect(fork.getAttribute("aria-disabled")).toBe("true");
+  expect(fork.textContent).toContain("Available after the first turn finishes");
 });
 
 test("snoozing from the ⋯ menu snoozes it on the daemon and confirms until when", async () => {

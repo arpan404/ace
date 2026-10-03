@@ -47,6 +47,19 @@ export interface ThreadRowFlags {
   snoozed: boolean;
 }
 
+/** How a person has organised a thread: what its menus offer (Mark read or unread, Unpin…). */
+export function threadRowFlags(
+  entry: ThreadListEntry,
+  input: { baseline: number; now: number; settled: boolean },
+): ThreadRowFlags {
+  return {
+    settled: input.settled,
+    unread: isUnread(entry, input.baseline),
+    pinned: entry.pinned === true,
+    snoozed: isSnoozed(entry, input.now),
+  };
+}
+
 /** Everything a Home card or settled row shows, already worded. */
 export interface ThreadCard {
   id: string;
@@ -87,8 +100,8 @@ export interface ThreadCardInput {
 /** The view model of one thread in the Home list. Pure: the caller passes the clock. */
 export function threadCard(input: ThreadCardInput): ThreadCard {
   const { entry, details, now } = input;
-  const snoozed = isSnoozed(entry, now);
-  const unread = isUnread(entry, input.baseline);
+  const flags = threadRowFlags(entry, input);
+  const { snoozed, unread } = flags;
   const needsYou = entry.status.state === "needs_you";
   const subagents = runningSubagents(entry.status);
   const { label, tone } = threadStatusLabel(entry.status);
@@ -97,12 +110,7 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
     title: entry.title,
     project: input.projectName ?? entry.workspaceId,
     age: formatAge(activityOf(entry), now),
-    flags: {
-      settled: input.settled,
-      unread,
-      pinned: entry.pinned === true,
-      snoozed,
-    },
+    flags,
     emphasis: needsYou || unread,
     announceUnread: unread && !needsYou,
     wake:

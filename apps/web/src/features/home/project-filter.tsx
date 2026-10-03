@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/menu.tsx";
 import { useProjectDirectory } from "@/lib/projects.ts";
 import { useProjects } from "./use-home-threads.ts";
-import { useOrganizer, useOrganizerState } from "./use-organizer.ts";
+import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
 const all = "\u0000all";
 

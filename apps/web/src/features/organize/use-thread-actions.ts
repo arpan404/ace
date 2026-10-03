@@ -1,5 +1,5 @@
 import { useClient } from "@ace/client-react";
-import type { CommandPayload, ThreadListEntry } from "@ace/protocol";
+import type { CommandPayload } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -11,17 +11,26 @@ import { useOrganizer } from "./use-organizer.ts";
 /** How long Undo stays on screen; a delete is sent to the daemon only after it. */
 export const undoWindowMs = 6_000;
 
+/** What an action needs of a thread: a Home list entry or the open thread's meta. */
+export interface ThreadTarget {
+  id: string;
+  title: string;
+  workspaceId: string;
+  snoozedUntil?: number | null | undefined;
+}
+
 export interface ThreadActions {
-  settle(entry: ThreadListEntry): void;
-  unsettle(entry: ThreadListEntry): void;
-  snooze(entry: ThreadListEntry, until: number, now: number): void;
-  wake(entry: ThreadListEntry): void;
-  setPinned(entry: ThreadListEntry, pinned: boolean): void;
-  setUnread(entry: ThreadListEntry, unread: boolean): void;
-  rename(entry: ThreadListEntry, title: string): void;
-  archive(entry: ThreadListEntry): void;
-  remove(entry: ThreadListEntry): void;
-  newThreadOnMain(entry: ThreadListEntry): void;
+  settle(entry: ThreadTarget): void;
+  unsettle(entry: ThreadTarget): void;
+  snooze(entry: ThreadTarget, until: number, now: number): void;
+  wake(entry: ThreadTarget): void;
+  setPinned(entry: ThreadTarget, pinned: boolean): void;
+  setUnread(entry: ThreadTarget, unread: boolean): void;
+  rename(entry: ThreadTarget, title: string): void;
+  archive(entry: ThreadTarget): void;
+  remove(entry: ThreadTarget): void;
+  newThreadOnMain(entry: ThreadTarget): void;
+  copyLink(entry: ThreadTarget): void;
 }
 
 type Organize = Extract<
@@ -44,7 +53,8 @@ type Organize = Extract<
  * Every list action as a daemon command (ADR 0057), so the organization follows the person to
  * every device. Each reports a refusal in a toast; the reversible ones offer Undo, which sends
  * the opposite command. Delete is permanent on the daemon, so it waits out the Undo window
- * first, with the thread hidden meanwhile.
+ * first, with the thread hidden meanwhile. The Home context menu and the thread's ⋯ menu both
+ * use these, so labels, toasts and Undo match wherever the person acts.
  */
 export function useThreadActions(): ThreadActions {
   const organizer = useOrganizer();
@@ -52,7 +62,7 @@ export function useThreadActions(): ThreadActions {
   const toast = useToast();
   const navigate = useNavigate();
   return useMemo(() => {
-    const id = (entry: ThreadListEntry) => ThreadId.parse(entry.id);
+    const id = (entry: ThreadTarget) => ThreadId.parse(entry.id);
     const send = (payload: Organize, failed: string) =>
       runCommand(client, payload).then(
         () => true,
@@ -165,6 +175,15 @@ export function useThreadActions(): ThreadActions {
       },
       newThreadOnMain: (entry) =>
         void navigate({ to: "/new", search: { project: entry.workspaceId, base: "main" } }),
+      copyLink: (entry) => {
+        const link = new URL(`/t/${entry.id}`, location.href).href;
+        const copied =
+          navigator.clipboard?.writeText(link) ?? Promise.reject(new Error("no clipboard"));
+        void copied.then(
+          () => toast.add({ title: "Link copied" }),
+          () => toast.add({ title: "Couldn't copy the link" }),
+        );
+      },
     };
   }, [organizer, client, toast, navigate]);
 }
