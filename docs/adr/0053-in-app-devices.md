@@ -1,4 +1,4 @@
-# 0050: Daemon-owned in-app devices
+# 0053: Daemon-owned in-app devices
 
 Date: 2026-10-02. Status: accepted.
 
@@ -22,8 +22,9 @@ completion facts or weaken the whole-tree status rules in ADR 0004.
 
 iOS inventory and boot reuse `Simulators`; capture and semantic actions use the
 approved Simulator window through `ScreenManager`. There is no private
-CoreSimulator API. Where installed, idb supplies gestures that the window helper
-cannot faithfully express. Unsupported operations return typed errors with a fix
+CoreSimulator API. Timed gestures extend the helper's existing pointer drag
+operation, preserving the same target-point coordinates as capture. Direct
+platform callers without a window binding can use detected idb. Unsupported operations return typed errors with a fix
 hint instead of pretending success.
 
 Android SDK discovery checks ANDROID_HOME, ANDROID_SDK_ROOT and the conventional
@@ -46,7 +47,16 @@ Device control messages are additive schema exports. Binary image packets use th
 screen protocol, with device state mapping device identity to stream session id.
 The same authenticated connection contract applies locally and over the encrypted
 relay. Logs have bounded chunks and tails, never an accumulating JSON transcript.
-Recordings use the file-transfer artifact registry and stream on download.
+Recordings reuse the bounded screen writer, then export frame payloads one at a
+time through the existing browser MP4 encoder. The file-transfer artifact
+registry publishes the result and streams downloads. No recording body travels
+in a JSON control message.
+
+The portable client and reusable DOM panel live in `@ace/devices` client/view
+exports. This branch contains daemon and relay applications, so actual
+web/Electron mounting and an Expo native renderer remain host integration work.
+The portable client carries the same contract over local and paired relay
+connections without replaying input after reconnect.
 
 ## Agent parity
 
