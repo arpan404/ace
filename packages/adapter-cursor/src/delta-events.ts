@@ -60,7 +60,10 @@ export function translateDelta(
           "warning",
         ),
       ];
-    return translateDelta(object(body.taskUpdate), child.key, namespace, context, depth + 1);
+    const facts = translateDelta(object(body.taskUpdate), child.key, namespace, context, depth + 1);
+    return facts.some((fact) => fact.type === "item.upsert" || fact.type === "item.delta")
+      ? [...context.children.observe(call, context.cwd), ...facts]
+      : facts;
   }
   if (["tool-call-started", "partial-tool-call", "tool-call-completed"].includes(type ?? ""))
     return context.tools.translate(

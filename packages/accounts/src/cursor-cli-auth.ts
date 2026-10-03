@@ -12,6 +12,13 @@ export interface CursorCliAuth {
   wait(signal: AbortSignal): Promise<void>;
   close(): Promise<void>;
 }
+function daemonAuthError(event: CursorAuthEvent, operation: string): Error {
+  return new Error(
+    event.type === "cursor.auth.error"
+      ? `Daemon SDK ${operation} failed: ${event.code}${event.reason ? ` (${event.reason})` : ""}`
+      : `Daemon SDK ${operation} unavailable: unexpected ${event.type}`,
+  );
+}
 /** The daemon owns login and host fences. The CLI only carries ephemeral safe events. */
 export function cursorDaemonDriver(auth: CursorCliAuth) {
   const status = async (instance: ProviderInstance, signal: AbortSignal) => {
@@ -19,7 +26,7 @@ export function cursorDaemonDriver(auth: CursorCliAuth) {
       { type: "cursor.auth.status", instanceId: instance.id },
       signal,
     );
-    if (event.type !== "cursor.auth.changed") throw new Error("Daemon SDK auth status unavailable");
+    if (event.type !== "cursor.auth.changed") throw daemonAuthError(event, "auth status");
     return event.auth;
   };
   return {
@@ -34,11 +41,11 @@ export function cursorDaemonDriver(auth: CursorCliAuth) {
       try {
         for (;;) {
           signal.throwIfAborted();
-          if (event.type !== "cursor.auth.login") throw new Error("Daemon SDK login unavailable");
+          if (event.type !== "cursor.auth.login") throw daemonAuthError(event, "login");
           loginId = event.loginId;
           if (event.state === "complete" && event.auth) return event.auth;
           if (event.state === "failed" || event.state === "cancelled")
-            throw new Error("SDK login failed");
+            throw new Error(`SDK login ${event.state}: ${event.error ?? event.state}`);
           if (event.url && event.url !== lastUrl) {
             url(event.url);
             lastUrl = event.url;
@@ -46,12 +53,12 @@ export function cursorDaemonDriver(auth: CursorCliAuth) {
           await auth.wait(signal);
           event = await auth.request({ type: "cursor.auth.poll", loginId }, signal);
         }
-      } catch {
+      } catch (error) {
         if (loginId)
           await auth
             .request({ type: "cursor.auth.cancel", loginId }, new AbortController().signal)
             .catch(() => {});
-        throw new Error("Daemon SDK browser login failed");
+        throw error;
       }
     },
   };

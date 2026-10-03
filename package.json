@@ -16,6 +16,7 @@
     "test": "vitest run",
     "check": "bun run fmt:check && bun run docs:protocol --check && bun run lint && bun run check:size && bun run check:deps && bun run typecheck && bun run test && bun run check:perf",
     "record": "bun run --filter @ace/recorder record",
+    "record:cursor-sdk": "node tools/recorder/src/record-cursor-sdk.ts",
     "check:size": "node scripts/check-file-size.ts",
     "check:deps": "depcruise apps/web/src packages/client/src packages/client-worker/src packages/client-react/src packages/fake-daemon/src packages/ui-core/src --config .dependency-cruiser.cjs --output-type err",
     "check:perf": "bun run --filter @ace/web-perf check",

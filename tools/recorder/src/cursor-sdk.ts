@@ -12,16 +12,17 @@ import { selectHandoff, renderHandoff } from "@ace/handoff";
 import type { ProviderAdapter, ProviderSession, SessionContext } from "@ace/engine-api";
 import { ThreadId, type ContentPart } from "@ace/protocol";
 import { cursorSdkCapture } from "./providers/cursor-sdk.ts";
-import { cursorSdkPlan, CursorSdkApproval } from "./cursor-sdk-plan.ts";
+import { cursorSdkPlan, CursorSdkApproval, CursorSdkRecordingPolicy } from "./cursor-sdk-plan.ts";
 import { CursorSdkEvidence } from "./cursor-sdk-evidence.ts";
 import { createWorkspace } from "./workspace.ts";
 
 export { cursorSdkCapture, CursorSdkCaptureHeader } from "./providers/cursor-sdk.ts";
-export { cursorSdkPlan, CursorSdkApproval } from "./cursor-sdk-plan.ts";
+export { cursorSdkPlan, CursorSdkApproval, CursorSdkRecordingPolicy } from "./cursor-sdk-plan.ts";
 export { cursorSdkScenarios, cursorSdkRecordingPlan } from "./cursor-sdk-scenarios.ts";
 
 const Request = z.strictObject({
   approval: CursorSdkApproval,
+  recordingPolicy: CursorSdkRecordingPolicy.default("scenario-policy"),
   path: z.string().max(4096).refine(isAbsolute),
   instance: CursorInstance,
   freshFixtureInstance: z.literal(true),
@@ -45,7 +46,7 @@ export interface CursorRecordingDependencies {
 export async function recordCursorSdkScenario(input: unknown, deps: CursorRecordingDependencies) {
   // Parse authorization/setup before creating files, workers or disposable workspaces.
   const request = Request.parse(input),
-    plan = cursorSdkPlan(request.approval);
+    plan = cursorSdkPlan(request.approval, request.recordingPolicy);
   deps.signal.throwIfAborted();
   if (plan.requiresMcp && !deps.sdk?.mcp)
     throw new Error(
@@ -73,6 +74,9 @@ export async function recordCursorSdkScenario(input: unknown, deps: CursorRecord
     failure: unknown;
   let resumed = false,
     forked = false;
+  const recordingStarted = deps.now();
+  let recordingSeq = 0,
+    recordingTime = 0;
   const notify = () => {
     const previous = changed;
     changed = Promise.withResolvers<void>();
@@ -116,8 +120,15 @@ export async function recordCursorSdkScenario(input: unknown, deps: CursorRecord
       },
       async onFrame(frame) {
         try {
-          const admitted = active.accept(frame);
-          await recording().frame(admitted, threadId);
+          // Session clocks/sequence numbers restart on resume and portable fork.
+          // Keep one monotonic recording clock while retaining source coordinates.
+          recordingTime = Math.max(recordingTime, deps.now() - recordingStarted);
+          const admitted = active.accept({
+            ...frame,
+            seq: ++recordingSeq,
+            t: recordingTime,
+          });
+          await recording().frame(admitted, threadId, { seq: frame.seq, t: frame.t });
         } catch (error) {
           failure ??= error;
           // SDK requests must fail their ACK. Session-local notes have no ACK
@@ -155,6 +166,7 @@ export async function recordCursorSdkScenario(input: unknown, deps: CursorRecord
         sdkVersion: "1.0.35",
         model: "composer-2.5",
         scenario: plan.id,
+        recordingPolicy: plan.recordingPolicy,
         sandbox: plan.policy === "restricted",
         instanceId: request.instance.id,
         autoReview: plan.policy === "restricted",
@@ -285,6 +297,8 @@ export async function recordCursorSdkScenario(input: unknown, deps: CursorRecord
     deps.signal.removeEventListener("abort", aborted);
     const observations = {
       scenario: plan.id,
+      recordingPolicy: plan.recordingPolicy,
+      runtimePolicy: plan.policy,
       model: "composer-2.5",
       sdkVersion: "1.0.35",
       outcome: failure ? "incomplete" : "observed",

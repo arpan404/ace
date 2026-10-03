@@ -1,8 +1,74 @@
 # Cursor SDK recordings
 
-No scenario here authorizes a recording. All fifteen SDK scenarios remain **to
-record after owner approval**, using SDK **1.0.35** and **composer-2.5**. Existing
+The scenario catalog does not authorize a recording. Recording requires explicit
+owner approval, using SDK **1.0.35** and **composer-2.5**. Existing
 Cursor ACP recordings and the generic recorder CLI remain unchanged.
+
+## Approved batch driver
+
+The owner-approved 2026-10-03 batch is invoked with:
+
+```sh
+bun run record:cursor-sdk --owner-approved-2026-10-03
+```
+
+`src/record-cursor-sdk.ts` requires the isolated `cursor-fixture` SDK store at
+`~/.ace-fixtures/cursor-sdk`, already signed in through the daemon. It rejects a
+launch-environment API-key override. It runs eligible scenarios sequentially,
+with injected clock/IDs/environment and a three-minute abort cap per scenario.
+
+Before a provider opens, it reserves `recording-report.json` with exclusive
+creation. Each attempt is recorded durably before launch, including incomplete
+attempts. Re-running the batch in that directory fails, even after interruption.
+Neither a failed attempt nor an abort authorizes another try.
+
+### Owner-approved behavioural full-access continuation
+
+The owner separately approved the twelve previously skipped behavioural scenarios
+on 2026-10-03 with sandbox off, in disposable temporary workspaces only:
+
+```sh
+ACE_HOME="$HOME/.ace-fixtures/ace-home" bun run record:cursor-sdk \
+  --owner-approved-behavioural-2026-10-03 --recording-policy=full-access
+```
+
+The public recorder request names this option `recordingPolicy: "full-access"`.
+It explicitly changes the scenario's runtime policy. Each new capture header and
+analysis row records that name, plus `sandbox: false` and `autoReview: false` in
+the header. These recordings provide behavioural evidence under full access;
+they provide no restricted-mode or Auto-review evidence. Omitting the option
+retains the catalog's original policy. MCP scenarios refuse this override.
+
+The continuation requires the original `full-access` result to be complete and
+all twelve selected scenarios to have been skipped, with no existing captures.
+It reserves `full-access-approval.json` exclusively, then updates the same attempt
+report before each launch. `initialScenarios` preserves the original outcomes.
+It never selects `full-access`, `restricted-mcp` or `mcp-image`, and cannot resume
+or retry an admitted continuation. Failures remain incomplete and execution
+moves to the next scenario. The three-minute cap is unchanged.
+
+New captures use one monotonic `seq`/`t` across session reopen and portable fork.
+Each frame retains `sourceSeq`/`sourceTimeMs`, its `threadId`, and the unchanged
+SDK boundary offset. This prevents restarted session clocks from making a
+multi-session recording unreadable or changing its native provenance.
+
+The executable reaches only the explicit SDK fixture instance, never the normal
+Cursor CLI. A supporting fixture daemon must use an injected, fixture-pinned
+adapter registry, with ambient provider discovery disabled before startup. Do
+not use general doctor/status commands to check this fixture.
+
+SDK 1.0.35 exposes `autoReview` as a request option whose documented behavior
+depends on the backend classifier feature. Its public API does not expose an
+account/backend capability query. The executable therefore skips restricted
+scenarios until that availability is independently verified. It does not force
+development feature gates or treat the option itself as evidence. The reusable
+batch function accepts verified setup through the existing recorder dependency
+contract. MCP scenarios also require a real storage/tools-owner lease factory;
+no static bearer or SDK custom tool substitutes for that owner.
+
+The report records complete, incomplete and skipped outcomes, elapsed milliseconds
+and reasons. A complete recording remains an observation for owner review,
+rather than an automatic conformance verdict.
 
 `@ace/recorder/cursor-sdk` exports `recordCursorSdkScenario`, `cursorSdkPlan`,
 `cursorSdkRecordingPlan` and the bounded capture sink. The scenario driver is
@@ -69,5 +135,17 @@ Offline public-API guards substitute only the SDK/provider service and catalog;
 they retain real disposable repositories, file streams, translator and core.
 They cover authorization refusal, fail-closed setup, selected home, redaction,
 checkpoint continuation, fresh portable identity and unresolved background work.
-They have **not been executed (tests run at merge)**. Neither the recorder nor
-any Cursor prompt was run during implementation.
+The initial fixture task passed 20 scoped files / 85 tests. The full-access
+continuation passed 24 scoped files / 151 tests, including Cursor replays,
+recorder/sink/admission tests, merged Cursor/OpenCode redaction, OpenCode fixture
+replays, and CLI auth regressions. It completed eleven new scenarios, left
+checkpoint resume incomplete, and kept both MCP scenarios skipped. The original
+full-access capture was not recorded again. See the committed batch report and
+`fixtures/cursor-sdk/1.0.35/composer-2.5/ANALYSIS.md` for times and evidence limits.
+The full merge gate was not run locally; the owner's test exception covered these
+specific tests. The offline privacy scanner also checks replayed items after
+streamed text has been reassembled:
+
+```sh
+node tools/recorder/src/scan-cursor-sdk-fixtures.ts
+```

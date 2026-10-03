@@ -3,6 +3,36 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it } from "vitest";
 import { CursorAuthService, openRegistry, createInstance, runAccountsCommand } from "./index.ts";
+import { cursorDaemonDriver } from "./cursor-cli-auth.ts";
+
+it.each(["status", "login"] as const)(
+  "SDK %s surfaces the daemon's error code and safe reason",
+  async (operation) => {
+    const driver = cursorDaemonDriver({
+      request: async () => ({
+        type: "cursor.auth.error",
+        requestId: "failure",
+        code: "unavailable",
+        reason: "sdk_unavailable",
+      }),
+      wait: async () => {},
+      close: async () => {},
+    });
+    const instance = createInstance({
+      id: "fixture",
+      provider: "cursor",
+      homeDir: "/tmp/sdk-fixture",
+      label: "Fixture",
+    });
+    await expect(
+      operation === "status"
+        ? driver.status(instance, new AbortController().signal)
+        : driver.login(instance, new AbortController().signal, () => {}),
+    ).rejects.toThrow(
+      `Daemon SDK ${operation === "status" ? "auth status" : "login"} failed: unavailable (sdk_unavailable)`,
+    );
+  },
+);
 
 it("a fresh SDK account added through the CLI obtains its browser challenge from the daemon auth flow", async () => {
   const root = await mkdtemp(join(tmpdir(), "cursor-cli-login-"));

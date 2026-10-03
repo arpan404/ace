@@ -1,7 +1,10 @@
 import { homedir, hostname, userInfo } from "node:os";
 import { createRedactor as sharedRedactor, type RedactionContext } from "@ace/redaction";
 export type { RedactionContext } from "@ace/redaction";
-export function createRedactor(ctx: RedactionContext): (line: string) => string {
+export function createRedactor(
+  ctx: RedactionContext,
+  literalTextFields: readonly string[] = [],
+): (line: string) => string {
   return sharedRedactor(
     {
       home: homedir(),
@@ -9,6 +12,6 @@ export function createRedactor(ctx: RedactionContext): (line: string) => string 
       username: userInfo().username,
       ...ctx,
     },
-    ["text", "delta"],
+    ["text", "delta", ...literalTextFields],
   );
 }

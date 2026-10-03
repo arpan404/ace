@@ -1,0 +1,31 @@
+{
+  "checkpoints": [
+    {
+      "t": 2815,
+      "thread": "working",
+      "agentStates": {
+        "root": "working"
+      }
+    },
+    {
+      "t": 19914,
+      "thread": "done",
+      "agentStates": {
+        "root": "idle"
+      }
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 1,
+    "agentStates": {
+      "root": "idle"
+    },
+    "items": {
+      "tool_call": 7
+    },
+    "interactions": {
+      "pending": 0
+    }
+  }
+}
