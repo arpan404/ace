@@ -5,9 +5,11 @@
  */
 export * from "./agents.ts";
 export * from "./arrange.ts";
+export * from "./content-hash.ts";
 export * from "./deck.ts";
 export * from "./diff.ts";
 export * from "./file-changes.ts";
+export * from "./lru.ts";
 export * from "./organizer.ts";
 export * from "./providers.ts";
 export * from "./snooze.ts";
