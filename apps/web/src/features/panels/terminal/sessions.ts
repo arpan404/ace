@@ -74,16 +74,22 @@ export class TerminalSessions {
     this.reset(entry);
     this.redraw(entry);
   }
-  async open(threadId: string, cwd: string): Promise<TerminalInfo> {
-    const info = await this.source.open({ threadId, cwd, cols: 100, rows: 24 });
+  /** Opens a terminal in the thread's checkout and shows it. */
+  async open(threadId: string): Promise<TerminalInfo> {
+    const info = await this.source.open(threadId, 100, 24);
     this.select(threadId, info.id);
     return info;
   }
-  close(id: string): void {
+  /** Shows a terminal started elsewhere (a script run), once the thread's list has it. */
+  async reveal(threadId: string, id: string): Promise<void> {
+    await this.source.refresh(threadId);
+    this.select(threadId, id);
+  }
+  close(id: string): Promise<void> {
     const entry = this.attached.get(id);
     entry?.detach?.();
     this.attached.delete(id);
-    this.source.close(id);
+    return this.source.close(id);
   }
   /** The terminal tab a thread is showing right now, chosen or by default. */
   shown(threadId: string): string | undefined {

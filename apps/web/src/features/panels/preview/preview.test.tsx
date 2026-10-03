@@ -1,9 +1,8 @@
-import { FakeBrowser, coldStartReplay, failingSubagent } from "@ace/fake-daemon";
+import { coldStartReplay, failingSubagent, seedPanels } from "@ace/fake-daemon";
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { panelServices } from "../services.ts";
 
 async function openPreview(
   scenario = coldStartReplay(),
@@ -14,14 +13,13 @@ async function openPreview(
   const script = app.play(scenario);
   if (through) script.runThrough(through);
   else script.step();
+  seedPanels(app.daemon);
   await app.open(path);
   await screen.findByRole("heading", { level: 1, name: scenario.thread.title });
   await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
-  const browser = (await panelServices(app.client)).preview;
-  if (!(browser instanceof FakeBrowser)) throw new Error("expected the fake browser service");
-  return { app, panel, browser, script };
+  return { app, panel, browser: app.daemon.browser, script };
 }
 
 test("the preview names the agent of this thread whose browser call is running", async () => {
@@ -76,11 +74,13 @@ test("taking control pauses the agent, forwards clicks and keys, and hands back"
   fireEvent.mouseUp(page, { clientX: 10, clientY: 20 });
   page.focus();
   await userEvent.keyboard("a");
-  expect(browser.inputs.map(({ input }) => input.kind + ":" + input.event)).toEqual([
-    "mouse:mousePressed",
-    "mouse:mouseReleased",
-    "key:keyDown",
-  ]);
+  await waitFor(() =>
+    expect(browser.inputs.map(({ input }) => input.kind + ":" + input.event)).toEqual([
+      "mouse:mousePressed",
+      "mouse:mouseReleased",
+      "key:keyDown",
+    ]),
+  );
 
   // Typing by the agent is ignored while you hold control.
   const held = within(panel).getByRole("img").getAttribute("src");
@@ -113,21 +113,37 @@ test("Open full view shows the live page large, with the same control", async ()
   expect(browser.view("thread-cold-start")?.controller).toBe("human");
 });
 
-test("a thread with only a dev server previews it; one with neither says so", async () => {
+test("a thread with neither a browser nor a dev server says so, and previews a server once found", async () => {
   const { panel, browser } = await openPreview(failingSubagent(), "/t/thread-settings");
   expect(await within(panel).findByText("Nothing to preview")).toBeTruthy();
 
-  act(() =>
-    browser.serve("thread-settings", {
-      port: 3000,
-      origin: "http://localhost:3000",
-      name: "api",
-      source: "listener",
-    }),
-  );
+  browser.serve("thread-settings", {
+    port: 3000,
+    origin: "http://localhost:3000",
+    name: "api",
+    source: "listener",
+  });
+  // Coming back to the tab reads the dev servers again.
+  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
   const frame = await within(panel).findByTitle("Preview of http://localhost:3000");
   expect(frame.getAttribute("src")).toBe("http://localhost:3000");
   expect(within(panel).getByRole("link", { name: "Open in browser" }).getAttribute("href")).toBe(
     "http://localhost:3000",
   );
+});
+
+test("Open a browser starts one for the thread and shows its page live", async () => {
+  const { panel, browser } = await openPreview(failingSubagent(), "/t/thread-settings");
+  await userEvent.click(await within(panel).findByRole("button", { name: "Open a browser" }));
+  expect(await within(panel).findByRole("img", { name: "Live view of about:blank" })).toBeTruthy();
+  expect(browser.view("thread-settings")?.closed).toBe(false);
+});
+
+test("leaving the preview while holding control hands the browser back to the agent", async () => {
+  const { panel, browser } = await openPreview();
+  await userEvent.click(await within(panel).findByRole("button", { name: /Take control/ }));
+  await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("human"));
+  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("agent"));
 });

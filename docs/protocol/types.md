@@ -13552,6 +13552,7 @@ Example:
 | ahead | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | behind | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | baseBranch | no | string | {"maxLength":1024} |
+| repository | no | [ForgeRepository.json](schema/ForgeRepository.json) |  |
 | linkedPr | no | union | {"anyOf":[{"type":"object","properties":{"number":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"state":{"type":"string","enum":["open","closed","merged"]},"url":{"type":"string","format":"ace-whatwg-url","x-ace-url-maxLength":4096,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."}},"required":["number","state"]},{"type":"null"}]} |
 | machine | no | object | {"properties":{"host":{"type":"string","minLength":1,"maxLength":256},"name":{"type":"string","maxLength":256}},"required":["host","name"]} |
 | diff | no | object | {"properties":{"files":{"type":"integer","minimum":0,"maximum":9007199254740991},"additions":{"type":"integer","minimum":0,"maximum":9007199254740991},"deletions":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["files","additions","deletions"]} |
@@ -13560,14 +13561,9 @@ Example:
 
 ```json
 {
-  "diff": {
-    "additions": 3,
-    "deletions": 6,
-    "files": 1
-  },
-  "machine": {
-    "host": "example",
-    "name": "example"
+  "linkedPr": {
+    "number": 2,
+    "state": "open"
   }
 }
 ```
@@ -13601,12 +13597,12 @@ Example:
 ```json
 {
   "lossy": true,
-  "mode": "portable",
+  "mode": "native",
   "parentAgentId": "example",
   "parentThreadId": "example",
   "point": {
-    "itemId": "example",
-    "type": "item"
+    "runId": "example",
+    "type": "turn"
   }
 }
 ```
@@ -13650,54 +13646,57 @@ Example:
 
 ```json
 {
-  "archivedAt": 6,
-  "autoSettleAt": 1,
-  "createdAt": 2,
-  "effectiveCapabilities": {
-    "backgroundTaskControl": true,
-    "backgroundVisibility": "partial",
-    "fork": true,
-    "imageInput": false,
-    "interruptCascades": true,
-    "launchOptions": [],
-    "planMode": true,
-    "resume": false,
-    "rewindFiles": true,
-    "sessionOptions": false,
-    "steer": false,
-    "subagentTranscripts": true,
-    "tokenUsage": true
+  "acpSupport": {
+    "capabilities": {
+      "imageInput": false,
+      "planMode": true,
+      "resume": true
+    },
+    "coverage": "generic",
+    "mcp": "http",
+    "modeSelection": true,
+    "modelSelection": false,
+    "raw": {
+      "json": "example",
+      "truncated": true
+    },
+    "visibility": "limited"
+  },
+  "activityAt": 1,
+  "createdAt": 6,
+  "details": {
+    "branch": null,
+    "diff": {
+      "additions": 0,
+      "deletions": 4,
+      "files": 6
+    },
+    "head": null,
+    "machine": {
+      "host": "example",
+      "name": "example"
+    },
+    "workspace": {
+      "id": "example",
+      "name": "example",
+      "path": "example"
+    },
+    "worktree": "example"
   },
   "execution": {
     "model": "example",
     "provider": "pi"
   },
   "id": "example",
-  "instanceId": "example",
-  "lineage": {
-    "lossy": false,
-    "mode": "portable",
-    "parentAgentId": "example",
-    "parentThreadId": "example",
-    "point": {
-      "itemId": "example",
-      "type": "item"
-    }
-  },
-  "live": {
-    "account": "example",
-    "model": "example",
-    "provider": "antigravity",
-    "subagentCount": 7
-  },
-  "provider": "acp",
-  "readAt": 8,
+  "installationId": "example",
+  "provider": "codex",
   "status": {
-    "state": "failed"
+    "state": "limited",
+    "until": 6
   },
   "title": "example",
   "unread": false,
-  "updatedAt": 4,
+  "updatedAt": 2,
   "workspaceId": "example"
 }
 ```
@@ -14890,10 +14889,9 @@ Example:
   "requestId": "example",
   "result": {
     "details": {
-      "diff": {
-        "additions": 6,
-        "deletions": 0,
-        "files": 9
+      "machine": {
+        "host": "example",
+        "name": "example"
       },
       "mode": "worktree",
       "workspace": {
@@ -14928,7 +14926,7 @@ Example:
   "id": "example",
   "op": "example",
   "path": "example",
-  "version": null
+  "version": "example"
 }
 ```
 
@@ -14950,7 +14948,7 @@ Example:
     "id": "example",
     "op": "example",
     "path": "example",
-    "version": null
+    "version": "example"
   },
   "type": "workspace.files_changed",
   "workspaceId": "example"

@@ -11,14 +11,14 @@ import { Select } from "@/components/ui/select.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { PageTitle, Screen } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
-import { fileStatus, formatAge } from "@ace/ui-core";
+import { fileStatus, formatAge, writtenText } from "@ace/ui-core";
 import { Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/menu.tsx";
 import { useFileStat } from "@/lib/diffs/use-file-diffs.ts";
 import {
   uploadsThread,
   useChangedFiles,
-  useDownloadFile,
   useUploadFile,
+  useUploadsAvailable,
   type ChangedFile,
 } from "./files-source.ts";
 
@@ -44,11 +44,12 @@ const allProjects = "\u0000all";
 const statusWords = { added: "added", deleted: "deleted", moved: "renamed", modified: "modified" };
 
 /**
- * Files the agents changed in every thread, with download and upload. The project picker
+ * Files the agents changed in every thread, with download of what an agent created. The project picker
  * narrows the list; the text filter narrows it further by path.
  */
 export function FilesPage() {
   const files = useChangedFiles();
+  const uploads = useUploadsAvailable();
   const [filter, setFilter] = useState("");
   const [project, setProject] = useState(allProjects);
   const text = filter.trim().toLowerCase();
@@ -74,10 +75,12 @@ export function FilesPage() {
               onValueChange={setProject}
               className="h-[26px] min-w-32 text-[12px]"
             />
-            <UploadButton
-              projects={projects}
-              project={project === allProjects ? undefined : project}
-            />
+            {uploads && (
+              <UploadButton
+                projects={projects}
+                project={project === allProjects ? undefined : project}
+              />
+            )}
           </div>
         )
       }
@@ -143,9 +146,9 @@ function ThreadFiles(props: { files: readonly ChangedFile[] }) {
 function FileRow(props: { file: ChangedFile }) {
   const { file } = props;
   const now = useNow();
-  const download = useDownloadFile();
   const toast = useToast();
   const status = fileStatus(file.changes);
+  const written = writtenText(file);
   // Counted from the same diff the thread's Changes tab shows (off the main thread).
   const stat = useFileStat(file);
   return (
@@ -165,16 +168,13 @@ function FileRow(props: { file: ChangedFile }) {
         icon={DownloadSimpleIcon}
         label={`Download ${file.path}`}
         size="sm"
-        disabled={status === "deleted"}
-        onClick={() =>
-          download.mutate(file, {
-            onSuccess: (result) => {
-              saveAs(result.name, result.text);
-              toast.add({ title: `Downloaded ${result.name}` });
-            },
-            onError: (error) => toast.add({ title: error.message }),
-          })
-        }
+        disabled={written === undefined}
+        onClick={() => {
+          if (written === undefined) return;
+          const name = file.path.split("/").at(-1) ?? file.path;
+          saveAs(name, written);
+          toast.add({ title: `Downloaded ${name}` });
+        }}
       />
     </li>
   );

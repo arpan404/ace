@@ -1,6 +1,7 @@
 import type { Fact } from "@ace/core";
 import type { Scenario, Step } from "../scenario.ts";
 import { endTurn, message, output, rootAgent, subagent, tool, toolDone, turn } from "./facts.ts";
+import { checkout } from "./checkouts.ts";
 
 /*
  * The approved design's hero thread, "Dedupe thread events after reconnect", as it looks a few
@@ -142,6 +143,14 @@ export function dedupeReconnect(id = "thread-dedupe"): Scenario {
       workspaceId: "ace",
       title: "Dedupe thread events after reconnect",
       provider: "claude",
+      details: checkout({
+        workspaceId: "ace",
+        branch: "fix/replay-dedupe",
+        path: "/Users/dev/.ace/worktrees/ace-replay-dedupe",
+        head: "e07b3d",
+        ahead: 2,
+        pr: { number: 214, state: "open" },
+      }),
     },
     steps: [
       {

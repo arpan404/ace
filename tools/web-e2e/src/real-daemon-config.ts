@@ -12,3 +12,7 @@ export const screensTitle = "Screens on a real daemon";
 /** The worker spec's own thread, so its sends never change another spec's reply count. */
 export const workerTitle = "Shared worker on a real daemon";
 export const scriptedReply = "Hello from the scripted provider.";
+/** The workspace spec's thread: runs a project script, opens a terminal and commits. */
+export const workspaceTitle = "Workspace actions on a real daemon";
+/** What the project's `greet` script prints when the Run button starts it. */
+export const scriptOutput = "ace e2e script ran";

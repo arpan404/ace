@@ -1,6 +1,7 @@
 import type { Fact } from "@ace/core";
 import type { Scenario } from "../scenario.ts";
 import { message, output, rootAgent, subagent, tool, toolDone, turn } from "./facts.ts";
+import { checkout } from "./checkouts.ts";
 
 const replayDiff = `@@ -38,9 +38,12 @@ export function replayFrom(thread: Thread, cursor: ReplayCursor) {
 -  const start = thread.lastCheckpointSeq;
@@ -89,6 +90,14 @@ export function replayCursor(id = "thread-replay-cursor"): Scenario {
       workspaceId: "relay",
       title: "Replay cursor resets on every resume",
       provider: "claude",
+      details: checkout({
+        workspaceId: "relay",
+        branch: "fix/replay-cursor",
+        path: "/Users/dev/relay",
+        mode: "local",
+        head: "3c9e1f",
+        diff: { files: 2, additions: 41, deletions: 9 },
+      }),
     },
     steps: [
       {

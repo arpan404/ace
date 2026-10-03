@@ -7,6 +7,8 @@ export interface FakeSkill {
   source: "repo" | "user" | "plugin";
   /** Where it was loaded from, e.g. "repo · .claude/skills". */
   location: string;
+  /** The file that defines it, on the daemon's machine. */
+  sourcePath?: string | undefined;
   usage: string;
   availability: string;
   enabled: boolean;
@@ -26,6 +28,7 @@ export function skillCatalog(): FakeSkill[] {
       description: "Review a diff against repo standards and the spec",
       source: "repo",
       location: "repo · .claude/skills",
+      sourcePath: "/Users/dev/ace/.claude/skills/code-review/SKILL.md",
       usage: "12 threads this week",
       availability: everyProvider,
       enabled: true,
@@ -39,6 +42,7 @@ export function skillCatalog(): FakeSkill[] {
       description: "Red, green, refactor with integration tests",
       source: "repo",
       location: "repo · .claude/skills",
+      sourcePath: "/Users/dev/ace/.claude/skills/tdd/SKILL.md",
       usage: "5 threads",
       availability: everyProvider,
       enabled: true,
@@ -52,6 +56,7 @@ export function skillCatalog(): FakeSkill[] {
       description: "Diagnosis loop for hard bugs and regressions",
       source: "user",
       location: "user · ~/.claude/skills",
+      sourcePath: "/Users/dev/.claude/skills/diagnosing-bugs/SKILL.md",
       usage: "3 threads",
       availability: everyProvider,
       enabled: true,
@@ -65,6 +70,7 @@ export function skillCatalog(): FakeSkill[] {
       description: "Draft notes from merged PRs since the last tag",
       source: "user",
       location: "user · ~/.claude/skills",
+      sourcePath: "/Users/dev/.claude/skills/release-notes/SKILL.md",
       usage: "1 thread",
       availability: "Claude Code only.",
       enabled: false,
@@ -78,6 +84,7 @@ export function skillCatalog(): FakeSkill[] {
       description: "PRs, checks and review comments",
       source: "plugin",
       location: "Codex plugin · github@1.4.2",
+      sourcePath: "/Users/dev/.ace/plugins/github/plugin.json",
       usage: "Connected",
       availability: "Codex and Claude Code.",
       enabled: true,
@@ -91,6 +98,7 @@ export function skillCatalog(): FakeSkill[] {
       description: "Pull issues and stack traces into a thread",
       source: "plugin",
       location: "ACP plugin · sentry@0.9.0",
+      sourcePath: "/Users/dev/.ace/plugins/sentry/plugin.json",
       usage: "Connected",
       availability: "Every provider through MCP.",
       enabled: true,
@@ -104,6 +112,7 @@ export function skillCatalog(): FakeSkill[] {
       description: "Summarise what moved in the last 24h",
       source: "repo",
       location: "repo prompt · .ace/commands/standup.md",
+      sourcePath: "/Users/dev/ace/.ace/commands/standup.md",
       usage: "Daily",
       availability: "Every provider, as a prompt.",
       enabled: true,
@@ -117,6 +126,7 @@ export function skillCatalog(): FakeSkill[] {
       description: "Write the PR description from the diff",
       source: "repo",
       location: "repo prompt · .ace/commands/pr-desc.md",
+      sourcePath: "/Users/dev/ace/.ace/commands/pr-desc.md",
       usage: "8 uses",
       availability: "Every provider, as a prompt.",
       enabled: true,
