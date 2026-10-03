@@ -68,3 +68,32 @@ test("forge failures produce durable error receipts and a later command can use 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("a thread's details name the forge repository behind its origin remote", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ace-forge-details-"));
+  await execute("git", ["init", "-q", "-b", "main", root]);
+  await execute("git", ["-C", root, "remote", "add", "origin", "git@github.com:test/project.git"]);
+  const store = new Store(join(root, "events.sqlite"));
+  const workspaceId = store.createWorkspace(root, "Project");
+  const thread = Thread.parse({
+    id: "details-thread",
+    workspaceId,
+    provider: "codex",
+    title: "Details",
+    status: { state: "new" },
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  store.appendEvents(thread.id, [{ type: "thread.created", thread }]);
+  const runtime = new WorkspaceRuntime(store, root, () => 1000);
+  try {
+    const repository = { forge: "github", host: "github.com", owner: "test", name: "project" };
+    expect((await runtime.details(thread.id)).repository).toEqual(repository);
+    // Published to the thread, where clients read it for forge.pr.create.
+    expect(store.getThread(thread.id)?.details?.repository).toEqual(repository);
+  } finally {
+    await runtime.close();
+    await store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
