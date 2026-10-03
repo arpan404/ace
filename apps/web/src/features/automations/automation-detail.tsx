@@ -153,26 +153,32 @@ function useAutomationControls(automation: Automation | undefined) {
   const { setEnabled, remove, runNow, save } = useAutomationActions();
   const toast = useToast();
   const navigate = useNavigate();
+  const failed = (error: unknown) =>
+    toast.add({ title: error instanceof Error ? error.message : "The daemon didn't answer." });
   return {
     toggle(enabled: boolean) {
       if (!automation) return;
-      void setEnabled(automation, enabled).then(() =>
-        toast.add({ title: `${enabled ? "Resumed" : "Paused"} · ${automation.title}` }),
+      setEnabled(automation, enabled).then(
+        () => toast.add({ title: `${enabled ? "Resumed" : "Paused"} · ${automation.title}` }),
+        failed,
       );
     },
     runNow() {
       if (!automation) return;
-      void runNow(automation.id).then(() => toast.add({ title: `Started · ${automation.title}` }));
+      runNow(automation.id).then(
+        () => toast.add({ title: `Started · ${automation.title}` }),
+        failed,
+      );
     },
     remove() {
       if (!automation) return;
-      void remove(automation.id).then(() => {
+      remove(automation.id).then(() => {
         void navigate({ to: "/automations" });
         toast.add({
           title: `Deleted · ${automation.title}`,
-          actionProps: { children: "Undo", onClick: () => void save(automation) },
+          actionProps: { children: "Undo", onClick: () => void save(automation).catch(failed) },
         });
-      });
+      }, failed);
     },
   };
 }

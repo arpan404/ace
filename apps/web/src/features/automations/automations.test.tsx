@@ -1,4 +1,4 @@
-import { workbench } from "@ace/fake-daemon";
+import { workbench, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -6,15 +6,26 @@ import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
 
+/** The design's daemon: its threads, then the automations and recent runs it holds. */
 async function open(path: string) {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  app.daemon.seedServices(workbenchServices(Date.now(), "UTC"));
   await app.open(path);
   const aside = await screen.findByRole("complementary", { name: "Automations" });
   const sidebar = within(await within(aside).findByRole("region", { name: "Schedules" }));
   await sidebar.findByText("Nightly dependency audit");
   return { app, sidebar };
 }
+
+/** Turn the daemon's automation service on, as Settings › Automations does. */
+const enableAutomations = (app: ReturnType<typeof harness>) =>
+  app.client.request({
+    type: "settings.set",
+    key: "automations.enabled",
+    value: true,
+    layer: { kind: "global" },
+  });
 
 const heading = (name: string | RegExp) => screen.findByRole("heading", { level: 2, name });
 const field = (name: string) => screen.getByRole("textbox", { name });
@@ -96,17 +107,32 @@ test("pausing stops the schedule and resuming from the menu restarts it", async 
   expect(screen.getByRole("switch", { name: "Enabled" }).getAttribute("aria-checked")).toBe("true");
 });
 
-test("Run now starts a run that reports its result in the list, the feed and a toast", async () => {
-  await open("/automations/auto-dependency-audit");
+test("Run now starts a run on the daemon and lists it as running", async () => {
+  const { app } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
+  await enableAutomations(app);
 
   await userEvent.click(screen.getAllByRole("button", { name: "Run now" })[0] ?? document.body);
 
   const runs = within(screen.getByRole("list", { name: "Recent runs" }));
   expect(await runs.findByText("Running…")).toBeTruthy();
-  expect(await runs.findByText("No new advisories", {}, { timeout: 4000 })).toBeTruthy();
   const toasts = within(screen.getByRole("region", { name: "Notifications" }));
-  expect(await toasts.findByText("Nightly dependency audit finished")).toBeTruthy();
+  expect(await toasts.findByText("Started · Nightly dependency audit")).toBeTruthy();
+});
+
+test("Run now while automations are off says how to turn them on", async () => {
+  await open("/automations/auto-dependency-audit");
+  await heading("Nightly dependency audit");
+
+  await userEvent.click(screen.getAllByRole("button", { name: "Run now" })[0] ?? document.body);
+
+  const toasts = within(screen.getByRole("region", { name: "Notifications" }));
+  expect(
+    await toasts.findByText("Automations are turned off. Turn them on in Settings to run one."),
+  ).toBeTruthy();
+  expect(
+    within(screen.getByRole("list", { name: "Recent runs" })).queryByText("Running…"),
+  ).toBeNull();
 });
 
 test("a new automation is validated, read back in words and opened once created", async () => {
