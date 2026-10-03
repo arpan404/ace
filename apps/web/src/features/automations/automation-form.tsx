@@ -7,13 +7,14 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { AutomationForm } from "./automation-values.ts";
-import { missedRunLabels, providerLabels } from "./labels.ts";
+import { providerNames } from "@/components/ui/provider-glyph.tsx";
+import { missedRunLabels } from "./labels.ts";
 import { Row, visible } from "./form-row.tsx";
 import { ScheduleFields } from "./schedule-fields.tsx";
 import { useAutomationForm } from "./use-automation-form.ts";
 import { githubEventLabels } from "./schedule.ts";
 
-const providers = ProviderKind.options.map((value) => ({ value, label: providerLabels[value] }));
+const providers = ProviderKind.options.map((value) => ({ value, label: providerNames[value] }));
 const triggers = [
   { value: "schedule", label: "On a schedule" },
   { value: "github", label: "On a GitHub event" },

@@ -2,7 +2,7 @@ import type { UsageRow, UsageTotals } from "@ace/protocol";
 import { useMemo, useState } from "react";
 import { DataTable, type DataColumns } from "@/components/data-table.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
-import { providerName } from "@/components/ui/provider-mark.tsx";
+import { providerNames } from "@/components/ui/provider-glyph.tsx";
 import { useNow } from "@/lib/time.ts";
 import { ProviderKind } from "@ace/protocol";
 import { useUsage } from "./accounts-source.ts";
@@ -32,7 +32,7 @@ const columns: DataColumns<ModelRow> = [
 
 const providerLabel = (id: string | null | undefined) => {
   const parsed = ProviderKind.safeParse(id);
-  return parsed.success ? providerName(parsed.data) : (id ?? "Unknown");
+  return parsed.success ? providerNames[parsed.data] : (id ?? "Unknown");
 };
 
 const dayLabel = new Intl.DateTimeFormat(undefined, {

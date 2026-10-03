@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn.ts";
 import { useDeferredValue, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { ProviderMark } from "@/components/ui/provider-mark.tsx";
+import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Screen } from "@/features/shell/screen.tsx";
 import { formatAge, useNow } from "@/lib/time.ts";

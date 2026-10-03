@@ -1,6 +1,7 @@
 import type { ProviderKind } from "@ace/protocol";
 import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
+import { Tip } from "./tooltip.tsx";
 
 /** The provider's product name, as people know it. */
 export const providerNames: Record<ProviderKind, string> = {
@@ -89,5 +90,19 @@ export function ProviderGlyph(props: {
     >
       {marks[props.provider]}
     </svg>
+  );
+}
+
+/** The glyph with the provider's name as its label and tooltip, for places without text. */
+export function ProviderMark(props: { provider: ProviderKind; className?: string }) {
+  const name = providerNames[props.provider];
+  return (
+    <Tip label={name}>
+      <ProviderGlyph
+        provider={props.provider}
+        label={name}
+        className={cn("text-muted-foreground", props.className)}
+      />
+    </Tip>
   );
 }

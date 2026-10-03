@@ -1,3 +1,4 @@
+import { providerNames } from "@/components/ui/provider-glyph.tsx";
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import {
   arrayEqual,
@@ -12,7 +13,7 @@ import {
   useThreadMeta,
   type AgentTreeNode,
 } from "@ace/client-react";
-import type { Agent, BackgroundTask, ProviderKind } from "@ace/protocol";
+import type { Agent, BackgroundTask } from "@ace/protocol";
 import { CheckIcon, ClockIcon, RobotIcon, TerminalIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useMemo } from "react";
@@ -25,14 +26,6 @@ import { useNow } from "@/lib/time.ts";
 import { describeActivity, formatDuration, glyphOf, isRunning, taskState } from "./describe.ts";
 import { whyNotDone } from "./why.ts";
 
-const providerNames: Record<ProviderKind, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  opencode: "OpenCode",
-  cursor: "Cursor",
-  antigravity: "Antigravity",
-  acp: "ACP agent",
-};
 const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-subtle-foreground";
 
 /**

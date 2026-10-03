@@ -1,19 +1,11 @@
-import type { Automation, AutomationRun, ProviderKind } from "@ace/protocol";
-
-export const providerLabels: Record<ProviderKind, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  opencode: "OpenCode",
-  cursor: "Cursor",
-  antigravity: "Antigravity",
-  acp: "ACP agent",
-};
+import { providerNames } from "@/components/ui/provider-glyph.tsx";
+import type { Automation, AutomationRun } from "@ace/protocol";
 
 /** "Claude Code · sonnet-4.6, in a fresh worktree". */
 export function runsOn(automation: Automation): string {
   const model = automation.model ? ` · ${automation.model}` : "";
   const where = automation.worktree ? "in a fresh worktree" : "in the project checkout";
-  return `${providerLabels[automation.provider]}${model}, ${where}`;
+  return `${providerNames[automation.provider]}${model}, ${where}`;
 }
 
 export const missedRunLabels: Record<Automation["missedRun"], string> = {

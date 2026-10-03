@@ -20,14 +20,7 @@ export interface ModelSource {
   choices(): Promise<readonly ModelChoice[]>;
 }
 
-export const providerNames: Record<ProviderKind, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  opencode: "OpenCode",
-  cursor: "Cursor",
-  antigravity: "Antigravity",
-  acp: "ACP agent",
-};
+export { providerNames } from "@/components/ui/provider-glyph.tsx";
 
 const catalog: readonly ModelChoice[] = [
   {
