@@ -1,4 +1,4 @@
-# 0043: Consume the official ACP registry for local agents
+# 0044: Consume the official ACP registry for local agents
 
 Date: 2026-10-02. Status: Proposed.
 

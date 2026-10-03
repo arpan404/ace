@@ -10,7 +10,7 @@ Researched 2026-10-01/02 for the ace rewrite. This file compares the five priori
 | Cursor      | [cursor.md](cursor.md)           | `cursor-agent` 2026.09.26-dd393fe; ACP schema v1.24.1                     |
 | Antigravity | [antigravity.md](antigravity.md) | `agy_acp_server` 1.2.1 (ACP registry); not installed locally              |
 
-The [ACP registry research](acp-registry.md) extends this inventory to registry and custom ACP agents, compares the published SDK 1.7.0 with the supervised adapter, and records initialize-only Gemini 0.43.0 and Qwen 0.0.14 probes. It distinguishes current upstream releases from installed versions and proposes [ADR 0043](../../adr/0043-acp-agent-registry.md).
+The [ACP registry research](acp-registry.md) extends this inventory to registry and custom ACP agents, compares the published SDK 1.7.0 with the supervised adapter, and records initialize-only Gemini 0.43.0 and Qwen 0.0.14 probes. It distinguishes current upstream releases from installed versions and proposes [ADR 0044](../../adr/0044-acp-agent-registry.md).
 
 No live agent sessions were run. Several key behaviours are marked **[unverified]** in the provider files and need recorded fixtures (see [Next step](#next-step-live-fixture-spike)).
 
