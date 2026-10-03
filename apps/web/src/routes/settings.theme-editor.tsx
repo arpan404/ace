@@ -13,7 +13,7 @@ export const Route = createFileRoute("/settings/theme-editor")({
       page="Theme editor"
       lede="Edit the live theme. Presets are read-only: the first change forks a copy you own. Accent is set under Appearance and never changes status colours."
     >
-      <EmptyState icon={SwatchesIcon} title="Theme editor" className="h-auto" />
+      <EmptyState icon={SwatchesIcon} title="No custom themes yet" className="h-auto" />
     </SettingsBody>
   ),
 });

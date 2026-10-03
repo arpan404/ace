@@ -25,12 +25,12 @@ export function memoryKeyValue(): KeyValueStorage & { data: Map<string, string> 
 }
 
 /** A @ace/client wired to a FakeDaemon speaking the wire protocol in memory. */
-export function fakeClient(daemon: FakeDaemon): Client {
+export function fakeClient(daemon: FakeDaemon, token = daemon.token): Client {
   let ids = 0;
   const client = new Client({
     deviceId: DeviceId.parse("test-device"),
     transport: () => fakeTransport(daemon),
-    credential: async () => daemon.token,
+    credential: async () => token,
     storage: memoryStorage(),
     scheduler: {
       set(delayMs, callback) {
@@ -47,7 +47,13 @@ export function fakeClient(daemon: FakeDaemon): Client {
 }
 
 /** The real app, a real @ace/client and a FakeDaemon speaking the wire protocol in memory. */
-export function harness(options: { snapshotItems?: number; storage?: KeyValueStorage } = {}) {
+export function harness(
+  options: {
+    snapshotItems?: number;
+    storage?: KeyValueStorage;
+    matchMedia?: (query: string) => MediaQueryList;
+  } = {},
+) {
   let now = 1_000;
   const daemon = new FakeDaemon({
     clock: () => (now += 1),
@@ -63,7 +69,9 @@ export function harness(options: { snapshotItems?: number; storage?: KeyValueSto
     async open(path: string) {
       await client.start();
       return render(
-        <AppFrame environment={{ storage, root: document.documentElement }}>
+        <AppFrame
+          environment={{ storage, root: document.documentElement, matchMedia: options.matchMedia }}
+        >
           <App
             client={client}
             queryClient={createQueryClient()}
