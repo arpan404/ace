@@ -102,36 +102,78 @@ test("interrupting or closing a slow scripted turn cancels its delayed completio
   expect(f.exits).toEqual([true]);
 });
 
-test("closing during initial frame delivery never registers a delayed turn callback", async () => {
+test("closing during initial delivery frees timer capacity for another session and emits no later facts or exits", async () => {
   const entered = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  const scheduled: (() => void)[] = [];
+  let now = 1000;
+  // Model a bounded timer resource. A leaked closed turn prevents a new public send.
+  const timers = new Set<{ at: number; callback(): void | Promise<void> }>();
   const adapter = createTurnProvider({
     provider: "codex",
     reply: "done",
     config: ScriptedTurnConfig.parse({ delayMs: 500 }),
-    now: () => 1,
-    schedule(_delay, callback) {
-      scheduled.push(callback);
-      return () => {};
+    now: () => now,
+    schedule(delay, callback) {
+      if (timers.size) throw new Error("Timer capacity exhausted");
+      const timer = { at: now + delay, callback };
+      timers.add(timer);
+      return () => {
+        timers.delete(timer);
+      };
     },
   });
-  const session = await adapter.openSession({
-    threadId: ThreadId.parse("closing"),
+  const firstFacts: Fact[] = [],
+    secondFacts: Fact[] = [],
+    exits: boolean[] = [];
+  const firstId = ThreadId.parse("closing");
+  const firstTranslator = adapter.createTranslator({ threadId: firstId, rootKey: "root" });
+  const first = await adapter.openSession({
+    threadId: firstId,
     cwd: "/fixture",
     signal: new AbortController().signal,
-    async onFrame() {
+    async onFrame(frame) {
+      firstFacts.push(...firstTranslator.translate(frame, now));
       entered.resolve();
       await release.promise;
     },
-    onExit() {},
+    onExit(exit) {
+      exits.push(exit.deliberate);
+    },
   });
-  const send = session.send([{ type: "text", text: "close" }], "queue");
+  const send = first.send([{ type: "text", text: "close" }], "queue");
   await entered.promise;
-  const close = session.close("shutdown");
+  const close = first.close("shutdown");
   release.resolve();
   await Promise.all([close, send]);
-  expect(scheduled).toEqual([]);
+  const before = firstFacts.slice();
+  const secondId = ThreadId.parse("replacement");
+  const secondTranslator = adapter.createTranslator({ threadId: secondId, rootKey: "root" });
+  const second = await adapter.openSession({
+    threadId: secondId,
+    cwd: "/fixture",
+    signal: new AbortController().signal,
+    onFrame(frame) {
+      secondFacts.push(...secondTranslator.translate(frame, now));
+    },
+    onExit() {},
+  });
+  try {
+    await second.send([{ type: "text", text: "replacement" }], "queue");
+    expect(secondFacts.some((fact) => fact.type === "turn.ended")).toBe(false);
+    now += 500;
+    for (const timer of timers)
+      if (timer.at <= now) {
+        timers.delete(timer);
+        await timer.callback();
+      }
+    expect(secondFacts).toContainEqual(
+      expect.objectContaining({ type: "turn.ended", outcome: "completed" }),
+    );
+    expect(firstFacts).toEqual(before);
+    expect(exits).toEqual([true]);
+  } finally {
+    await second.close("shutdown");
+  }
 });
 
 test("the e2e hold and limit markers still expose working turns to queue and stop controls", async () => {

@@ -9,8 +9,9 @@ import { z } from "zod";
 import { afterEach, expect, it } from "vitest";
 import { AgentId, DeviceId, ServerMessage, FilesServerMessage } from "@ace/protocol";
 import { decodeFileFrame } from "@ace/files";
+import { workspaceRuntime } from "@ace/workspace";
 import { startRelay, connectClientViaRelay } from "@ace/relay";
-import { startDaemon, createDevThread } from "./index.ts";
+import { startDaemon, createDevThread, type DaemonOptions } from "./index.ts";
 import { message, shell } from "./payload-test-support.ts";
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -52,12 +53,13 @@ class Client {
     await ended;
   }
 }
-async function setup(relayUrl?: string) {
+async function setup(relayUrl?: string, files?: DaemonOptions["files"]) {
   const home = await mkdtemp(join(tmpdir(), "ace-daemon-files-review-"));
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   const root = join(home, "workspace");
   await mkdir(root);
   const daemon = await startDaemon({
+    ...(files ? { files } : {}),
     config: {
       dataDir: join(home, "data"),
       workspaceRoot: root,
@@ -300,7 +302,27 @@ it("exports a redacted diagnostics support bundle for a read-only remote client"
 });
 
 it("legacy and scoped routes share upload recovery, trash and artifact catalogs for a canonical workspace", async () => {
-  const f = await setup();
+  const runtime = workspaceRuntime();
+  const filesystem = runtime.filesystem;
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let hold = false;
+  runtime.filesystem = {
+    ...filesystem,
+    async lstat(path) {
+      if (hold && path.endsWith("/cas")) {
+        hold = false;
+        entered.resolve();
+        await release.promise;
+      }
+      return filesystem.lstat(path);
+    },
+  };
+  const f = await setup(undefined, { workspaceRuntime: runtime });
+  // Always unblock I/O before daemon cleanup, including assertion failures.
+  cleanup.push(async () => {
+    release.resolve();
+  });
   const workspace = f.daemon.store.createWorkspace(f.root, "Workspace");
   const thread = createDevThread(f.daemon.store, workspace);
   const client = await f.connect();
@@ -352,20 +374,34 @@ it("legacy and scoped routes share upload recovery, trash and artifact catalogs 
   const before = z
     .object({ version: z.string() })
     .parse(await files.request("owner", { op: "stat", path: "cas" }));
+  hold = true;
   client.send({
     type: "files.request",
     requestId: "cas",
     threadId: thread.id,
     operation: { op: "write", path: "cas", expected: before.version, text: "scoped" },
   });
+  // The scoped mutation is already at filesystem I/O when the legacy request is admitted.
+  await entered.promise;
   const legacy = files
     .request("owner", { op: "write", path: "cas", expected: before.version, text: "legacy" })
     .then(
-      () => true,
-      () => false,
+      () => ({ ok: true }),
+      (error: unknown) => ({ ok: false, error }),
     );
+  try {
+    // A non-mutating read settles while the first write still holds the mutation queue.
+    expect(await files.request("owner", { op: "stat", path: "cas" })).toMatchObject({
+      version: before.version,
+    });
+    expect(await readFile(join(f.root, "cas"), "utf8")).toBe("before");
+  } finally {
+    release.resolve();
+  }
   const scoped = FilesServerMessage.parse(await fileReply(client));
-  expect(Number(await legacy) + Number(scoped.type === "files.result")).toBe(1);
+  expect(scoped).toMatchObject({ type: "files.result", requestId: "cas" });
+  expect(await legacy).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+  expect(await readFile(join(f.root, "cas"), "utf8")).toBe("scoped");
 });
 
 async function fileReply(client: Client): Promise<import("@ace/protocol").FilesServerMessage> {
