@@ -6,6 +6,7 @@ import { systemClock } from "../engine/actor.ts";
 import type { NativeConductorExecutor } from "./executor.ts";
 import type { LaneBinding } from "./journal.ts";
 import { parseLaneArtifact } from "./artifacts.ts";
+import { readArtifactText } from "./artifact-text.ts";
 
 /** Engine events drive facts. One timer owns deadlines and retries, never client polling. */
 export class DeckObserver {
@@ -41,7 +42,8 @@ export class DeckObserver {
       if (state) this.executor.restoreGates(state);
       if (!state || state.phase === "paused" || state.phase === "cancelling") continue;
       for (const binding of this.executor.journal.current(state)) {
-        if (!state.lanes[binding.lane]?.live) continue;
+        if (!state.lanes[binding.lane]?.live || state.lanes[binding.lane]?.status === "migrating")
+          continue;
         const threads = [
           binding.thread,
           ...this.executor.delegations.journal
@@ -163,47 +165,50 @@ export class DeckObserver {
       const thread = this.context.store.getThread(binding.thread);
       if (!thread) continue;
       if (!lane.artifact && thread.status.state === "done" && !lane.retiring) {
-        const page = this.context.store.readItemPage(
-          thread.id,
-          this.context.store.headSeq() + 1,
-          100,
-          1_048_576,
-        );
-        const message = page.items.findLast(
-          (item) => item.type === "message" && item.role === "assistant" && item.complete,
-        );
-        if (message?.type === "message") {
-          const text = message.parts
-            .flatMap((part) => (part.type === "text" ? [part.text] : []))
-            .join("");
-          let artifact = parseLaneArtifact(text, lane.role);
-          if (artifact) {
-            if (artifact.kind === "completion") {
-              const head = await this.executor.worktrees.git.resolveCommit({
-                worktree: binding.path,
-                ref: "HEAD",
-              });
-              if (
-                head !== artifact.completion.revision ||
-                artifact.completion.branch !== binding.branch
-              )
-                artifact = undefined;
-            }
-            if (artifact && this.context.store.getThread(thread.id)?.status.state === "done") {
-              try {
-                this.runtime.fact(run, `artifact.${binding.request}.${binding.generation}`, {
-                  type: "artifact",
-                  laneId: lane.id,
-                  generation: lane.generation,
-                  artifact,
+        try {
+          const page = this.context.store.readItemPage(
+            thread.id,
+            this.context.store.headSeq() + 1,
+            100,
+            1_048_576,
+          );
+          const message = page.items.findLast(
+            (item) => item.type === "message" && item.role === "assistant" && item.complete,
+          );
+          if (message?.type === "message") {
+            const text = readArtifactText(this.context.store, message);
+            let artifact = text === undefined ? undefined : parseLaneArtifact(text, lane.role);
+            if (artifact) {
+              if (artifact.kind === "completion") {
+                const head = await this.executor.worktrees.git.resolveCommit({
+                  worktree: binding.path,
+                  ref: "HEAD",
                 });
-              } catch (error) {
-                // Invalid review revision/evidence or plan ownership stays in the transcript.
-                // Still observe done so the missing-artifact deadline can escalate it.
-                this.context.log.log("warn", "Deck artifact requires correction", error);
+                if (
+                  head !== artifact.completion.revision ||
+                  artifact.completion.branch !== binding.branch
+                )
+                  artifact = undefined;
+              }
+              if (artifact && this.context.store.getThread(thread.id)?.status.state === "done") {
+                try {
+                  this.runtime.fact(run, `artifact.${binding.request}.${binding.generation}`, {
+                    type: "artifact",
+                    laneId: lane.id,
+                    generation: lane.generation,
+                    artifact,
+                  });
+                } catch (error) {
+                  // Invalid review revision/evidence or plan ownership stays in the transcript.
+                  // Still observe done so the missing-artifact deadline can escalate it.
+                  this.context.log.log("warn", "Deck artifact requires correction", error);
+                }
               }
             }
           }
+        } catch (error) {
+          // Lost streams/worktrees invalidate only the artifact, never status or deadlines.
+          this.context.log.log("warn", "Deck artifact unavailable", error);
         }
       }
       state = this.runtime.state(run);
