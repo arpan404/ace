@@ -1,0 +1,517 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "op": {
+          "const": "enable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "enabled"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "states",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "approve",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId",
+        "threadId",
+        "allowed"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "boot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "shutdown",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "install",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "appId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "open_app",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId",
+        "appId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "open_url",
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId",
+        "url"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "configure",
+          "type": "string"
+        },
+        "settings": {
+          "$ref": "https://ace.local/protocol/v1/DeviceSettings.json"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId",
+        "settings"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "fps": {
+          "default": 10,
+          "maximum": 30,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "stop",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "subscribe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "unsubscribe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "controller": {
+          "enum": [
+            "none",
+            "human",
+            "agent"
+          ],
+          "type": "string"
+        },
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "controller",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId",
+        "controller"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "input": {
+          "$ref": "https://ace.local/protocol/v1/DeviceInput.json"
+        },
+        "op": {
+          "const": "input",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "screenshot",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "maxDepth": {
+          "default": 8,
+          "maximum": 16,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxNodes": {
+          "default": 128,
+          "maximum": 512,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "ui.tree",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "limit": {
+          "default": 16,
+          "maximum": 64,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "ui.find",
+          "type": "string"
+        },
+        "query": {
+          "$ref": "https://ace.local/protocol/v1/ScreenUIQuery.json"
+        }
+      },
+      "required": [
+        "query",
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "$ref": "https://ace.local/protocol/v1/ScreenUIAction.json"
+        },
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "ui.act",
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "https://ace.local/protocol/v1/ScreenUIRef.json"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "properties": {
+                "dx": {
+                  "default": 0,
+                  "maximum": 1000,
+                  "minimum": -1000,
+                  "type": "integer"
+                },
+                "dy": {
+                  "default": 0,
+                  "maximum": 1000,
+                  "minimum": -1000,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "required": [
+        "ref",
+        "action",
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "logs.start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "logs.stop",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "limit": {
+          "default": 100,
+          "maximum": 256,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "logs",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "record.start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "op": {
+          "const": "record.stop",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "deviceId"
+      ],
+      "type": "object"
+    }
+  ]
+}

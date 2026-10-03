@@ -1,3 +1,4 @@
+import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import {
   createClaudeAdapter,
   type ClaudeOptions,
@@ -39,14 +40,7 @@ export function daemonClaudeAdapter(
               sessionId: context.id(),
               threadId: ctx.threadId,
               agentId,
-              capabilities: [
-                "agents",
-                "notify",
-                "thread_control",
-                "automations",
-                "projects",
-                "browser",
-              ],
+              capabilities: daemonMcpCapabilities(context.services),
             },
             ctx.signal,
           );
@@ -73,7 +67,7 @@ export function daemonClaudeAdapter(
       let unbind: (() => void) | undefined;
       const end = () => {
         unbind?.();
-        lease.end();
+        lease?.end();
       };
       try {
         const adapter = createClaudeAdapter({
@@ -109,7 +103,11 @@ export function daemonClaudeAdapter(
           enable: (name) => safe(() => controls.enable(name)),
           disable: (name) => safe(() => controls.disable(name)),
         };
-        unbind = mcp.providers.bind(ctx.threadId, boundControls, lease.principal.signal);
+        unbind = mcp.providers.bind(
+          ctx.threadId,
+          boundControls,
+          lease?.principal.signal ?? ctx.signal,
+        );
         return {
           ...opened,
           mcp: boundControls,

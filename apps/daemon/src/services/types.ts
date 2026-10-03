@@ -1,3 +1,4 @@
+import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { AccountService, AccountRegistry } from "@ace/accounts";
 import type { CommandLibrary } from "@ace/commands";
@@ -32,6 +33,7 @@ export interface Services {
   transitions?: import("../engine/transitions.ts").TransitionIO;
   pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
+  devices?: DevicesService;
   accounts?: AccountService;
   accountRegistry?: AccountRegistry;
   commands?: CommandLibrary;

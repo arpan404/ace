@@ -1,3 +1,4 @@
+import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
 import { PiControlRequest, PiControlResult } from "./pi.ts";
 import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
 import { FilesClientMessage, FilesServerMessage } from "./files.ts";
@@ -33,6 +34,7 @@ import {
   UsageSessionTotalsMessage,
 } from "./usage.ts";
 import { AccountsRequest, AccountsResponse } from "./accounts.ts";
+import { DeviceClientMessage, DeviceServerMessage } from "./devices.ts";
 import { ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
 import {
   ModelsListRequest,
@@ -171,6 +173,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   SearchQueryRequest,
   SearchStatusRequest,
   ScreenClientMessage,
+  DeviceClientMessage,
+  ...BrowserClientMessage.options,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -182,6 +186,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("hello"),
+      channel: z.enum(["files", "devices", "browser", "screen"]).optional(),
       protocolVersion: z.literal(1),
       deviceId: DeviceId,
       token: z.string().optional(),
@@ -251,6 +256,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   SearchStatusResponse,
   SearchErrorResponse,
   ...ScreenServerMessage.options,
+  ...DeviceServerMessage.options,
+  ...BrowserServerMessage.options,
   ModelsResult,
   NotificationMessage,
   z.object({

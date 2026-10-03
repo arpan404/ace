@@ -1,3 +1,4 @@
+import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import {
   createPiAdapter,
   piProfile,
@@ -40,14 +41,7 @@ export async function startPi(context: ServiceContext): Promise<void> {
               threadId: ctx.threadId,
               agentId: AgentId.parse(root),
               sessionId: context.id(),
-              capabilities: [
-                "agents",
-                "notify",
-                "thread_control",
-                "automations",
-                "projects",
-                "browser",
-              ],
+              capabilities: daemonMcpCapabilities(context.services),
             },
             lifetime,
           );

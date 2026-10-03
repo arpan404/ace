@@ -1,3 +1,4 @@
+import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { AgentId } from "@ace/protocol";
 import { withDaemonMcp } from "./provider-mcp.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
@@ -25,10 +26,12 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     ));
   if (!engineOptions.registry) resources.own(() => registry.close());
   context.signal.throwIfAborted();
+  const capabilities = daemonMcpCapabilities(services);
   const acp =
     services.agentRegistry && services.models && services.mcp
       ? acpEngineOptions({
           registry,
+          capabilities,
           agents: services.agentRegistry,
           models: services.models,
           mcp: services.mcp,
@@ -70,14 +73,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
             sessionId: context.id(),
             threadId,
             agentId: AgentId.parse(agentId),
-            capabilities: [
-              "agents",
-              "thread_control",
-              "notify",
-              "automations",
-              "projects",
-              "browser",
-            ],
+            capabilities: daemonMcpCapabilities(context.services),
           },
           lifetime,
         );

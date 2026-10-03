@@ -238,6 +238,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
       get settings() {
         return requireService(services.settings, "settings");
       },
+      get devices() {
+        return services.devices;
+      },
       engine: services.engine,
       agentControl: services.agentControl,
       accounts: services.accounts,

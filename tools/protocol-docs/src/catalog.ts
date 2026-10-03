@@ -1,4 +1,5 @@
 import * as agentControl from "@ace/protocol/agent-control";
+import * as appDevices from "@ace/protocol/devices";
 import * as transitions from "@ace/protocol/thread-transitions";
 import * as handoffRead from "@ace/protocol/handoff-read";
 import * as plugins from "@ace/protocol/plugins";
@@ -27,6 +28,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./history", history],
   ["./accounts", accounts],
   ["./agent-control", agentControl],
+  ["./devices", appDevices],
   ["./thread-transitions", transitions],
   ["./handoff-read", handoffRead],
   ["./pi", pi],

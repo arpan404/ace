@@ -11,7 +11,8 @@
     "automations",
     "projects",
     "forge",
-    "screen"
+    "screen",
+    "devices"
   ],
   "type": "string"
 }

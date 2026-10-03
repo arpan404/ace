@@ -1,3 +1,4 @@
+import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { AccountService } from "@ace/accounts";
 import type { CommandService } from "@ace/commands";
@@ -32,6 +33,7 @@ export interface ServerOptions {
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
   pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
+  devices?: DevicesService;
   accounts?: AccountService;
   commands?: CommandService;
   files?: FilesService;

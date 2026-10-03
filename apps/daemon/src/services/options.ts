@@ -1,3 +1,4 @@
+import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { DaemonCommandIntegration } from "./commands.ts";
 import type { Config } from "../config.ts";
@@ -28,6 +29,7 @@ export type DaemonOptions = {
   claude?: DaemonClaudeOptions;
   pi?: import("./pi.ts").PiDaemonOptions;
   screen?: ScreenManager;
+  devices?: DevicesService;
   commands?: DaemonCommandIntegration;
   config?: Config;
   /** Explicit owner-approved local bindings. Remote clients cannot send paths/argv. */

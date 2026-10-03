@@ -539,6 +539,243 @@ Example:
 }
 ```
 
+### devices.request
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"devices.request"` |  |
+| requestId | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| operation | yes | [DeviceOperation.json](schema/DeviceOperation.json) |  |
+
+Example:
+
+```json
+{
+  "operation": {
+    "deviceId": "ios:CAACc3dF13B1d173d6b4B-Ac-fFd9bafC2a-",
+    "op": "record.stop"
+  },
+  "requestId": "p38vzc-8",
+  "type": "devices.request"
+}
+```
+
+### browser.open
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.open"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| options | yes | [BrowserOpen.json](schema/BrowserOpen.json) |  |
+
+Example:
+
+```json
+{
+  "options": {
+    "profile": "persistent",
+    "threadId": "example",
+    "workspaceId": "example"
+  },
+  "requestId": "example",
+  "type": "browser.open"
+}
+```
+
+### browser.close
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.close"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.close"
+}
+```
+
+### browser.execute
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.execute"` |  |
+| command | yes | [BrowserCommand.json](schema/BrowserCommand.json) |  |
+
+Example:
+
+```json
+{
+  "command": {
+    "action": "click",
+    "ref": "example"
+  },
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.execute"
+}
+```
+
+### browser.subscribe
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.subscribe"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.subscribe"
+}
+```
+
+### browser.unsubscribe
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.unsubscribe"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.unsubscribe"
+}
+```
+
+### browser.ack
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.ack"` |  |
+| sequence | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "sequence": 2,
+  "threadId": "example",
+  "type": "browser.ack"
+}
+```
+
+### browser.takeover
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.takeover"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.takeover"
+}
+```
+
+### browser.handback
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.handback"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.handback"
+}
+```
+
+### browser.input
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.input"` |  |
+| input | yes | [BrowserInput.json](schema/BrowserInput.json) |  |
+
+Example:
+
+```json
+{
+  "input": {
+    "event": "mouseMoved",
+    "kind": "mouse",
+    "x": 9,
+    "y": 1
+  },
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.input"
+}
+```
+
+### browser.recording.start
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.recording.start"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.recording.start"
+}
+```
+
+### browser.recording.stop
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.recording.stop"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.recording.stop"
+}
+```
+
 ### models.list
 
 | Field | Required | Type | Constraints |
@@ -551,11 +788,6 @@ Example:
 
 ```json
 {
-  "options": {
-    "acpAgentId": "example",
-    "instance": "example",
-    "provider": "opencode"
-  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -573,6 +805,10 @@ Example:
 
 ```json
 {
+  "filter": {
+    "instanceId": "example",
+    "provider": "acp"
+  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -592,10 +828,12 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "model": "example",
-    "preferenceOrder": [],
-    "provider": "opencode",
-    "role": "example"
+    "installationId": "example",
+    "instance": "example",
+    "instanceId": "example",
+    "role": "example",
+    "selection": "default",
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -631,8 +869,9 @@ Example:
 ```json
 {
   "device": {
-    "channel": "websocket",
-    "platform": "web"
+    "channel": "apns",
+    "platform": "phone",
+    "token": "E5d987600DEE1eDeA490dc63aD4BE02B9ebcCfFD877b07BCEF85f1da801B0ED3"
   },
   "type": "notification.register"
 }
@@ -649,7 +888,9 @@ Example:
 
 ```json
 {
-  "preferences": {},
+  "preferences": {
+    "includePreview": false
+  },
   "type": "notification.preferences"
 }
 ```
@@ -668,7 +909,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 1
+  "until": 7
 }
 ```
 
@@ -679,6 +920,7 @@ Semantic rule: Exactly one of token and ticket is required.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"hello"` |  |
+| channel | no | ["files","devices","browser","screen"] |  |
 | protocolVersion | yes | `1` |  |
 | deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |
 | token | no | string |  |
@@ -690,7 +932,7 @@ Example:
 {
   "deviceId": "example",
   "protocolVersion": 1,
-  "ticket": "example",
+  "token": "example",
   "type": "hello"
 }
 ```
@@ -708,10 +950,8 @@ Example:
 
 ```json
 {
-  "afterSeq": 9,
   "scope": {
-    "kind": "thread",
-    "threadId": "example"
+    "kind": "threads"
   },
   "subscriptionId": "example",
   "type": "subscribe"
@@ -749,7 +989,9 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "type": "diagnostics.health"
+      "commentId": "example",
+      "sessionId": "example",
+      "type": "review.applySuggestion"
     }
   },
   "type": "command"
@@ -770,8 +1012,8 @@ Example:
 
 ```json
 {
-  "limit": 10,
-  "offset": 1,
+  "limit": 4,
+  "offset": 4,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -792,8 +1034,8 @@ Example:
 
 ```json
 {
-  "before": 3,
-  "limit": 5,
+  "before": 4,
+  "limit": 6,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"

@@ -27,7 +27,7 @@ export function createOpenCodeAdapter(
           {
             ...ctx,
             onExit: (exit) => {
-              lease.release();
+              void lease.release().catch(() => {});
               ctx.onExit(exit);
             },
           },
@@ -42,10 +42,16 @@ export function createOpenCodeAdapter(
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
           stopTask: (task) => session.stopTask(task),
-          close: (reason) => session.close(reason),
+          async close(reason) {
+            try {
+              await session.close(reason);
+            } finally {
+              await lease.release();
+            }
+          },
         };
       } catch (error) {
-        lease.release();
+        await lease.release();
         await lease.server.release();
         throw error;
       }

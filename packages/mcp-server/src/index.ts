@@ -21,12 +21,13 @@ export {
   type AutomationAdapter,
 } from "./toolkits.ts";
 export {
+  AceMcpConnectionSchema,
+  redactMcpCredential,
   codexInjection,
   claudeInjection,
   openCodeInjection,
   acpInjection,
   developerInstructions,
-  AceMcpConnectionSchema,
   type AceMcpConnection,
 } from "./injection.ts";
 export {

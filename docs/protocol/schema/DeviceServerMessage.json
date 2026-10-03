@@ -1,0 +1,83 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceServerMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "data": {},
+        "error": {
+          "$ref": "https://ace.local/protocol/v1/DeviceFailure.json"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "type": {
+          "const": "devices.result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "ok"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "$ref": "https://ace.local/protocol/v1/DeviceState.json"
+        },
+        "type": {
+          "const": "devices.state",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "dropped": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lines": {
+          "items": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "sequence": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "devices.logs",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "deviceId",
+        "sequence",
+        "lines",
+        "dropped"
+      ],
+      "type": "object"
+    }
+  ]
+}

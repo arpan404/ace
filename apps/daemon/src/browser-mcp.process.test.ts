@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { z } from "zod";
 import { Agent, Capabilities } from "@ace/protocol";
 import type { ProviderAdapter, SessionContext } from "@ace/engine-api";
 import { withDaemonMcp } from "./services/provider-mcp.ts";
@@ -83,4 +84,37 @@ it("browser MCP capability filtering denies ungranted callers", async () => {
   expect(result.result.isError).toBe(true);
   expect(() => f.browser.state(f.thread.id)).toThrow("not open");
   lease.end();
+});
+
+it("browser MCP lazily opens a selected backend and returns its screenshot inline", async () => {
+  const f = await setup("codex");
+  const lease = f.mcp.openSession(
+    {
+      sessionId: "screenshot",
+      threadId: f.thread.id,
+      agentId: Agent.parse(f.store.getMcpAgent(f.thread.id, "root")).id,
+      capabilities: ["browser"],
+    },
+    new AbortController().signal,
+  );
+  try {
+    const response = await invoke(
+      { url: f.mcp.url, bearer: lease.bearer },
+      "ace_browser_screenshot",
+      {},
+    );
+    const result = z
+      .object({
+        result: z.object({
+          content: z.array(z.object({ type: z.string(), mimeType: z.string(), data: z.string() })),
+        }),
+      })
+      .parse(await response.json());
+    expect(result.result.content).toEqual([
+      { type: "image", mimeType: "image/jpeg", data: "AA==" },
+    ]);
+    expect(f.browser.state(f.thread.id)).toMatchObject({ backend: "headless", status: "ready" });
+  } finally {
+    lease.end();
+  }
 });

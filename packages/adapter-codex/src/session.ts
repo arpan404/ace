@@ -1,4 +1,4 @@
-import { codexInjection } from "@ace/mcp-server";
+import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
 import { CodexSelectionOptions } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { isInteractiveRequest } from "./interactions.ts";
@@ -38,12 +38,10 @@ export async function openCodexSession(
     throw new Error(
       `Codex ${cli.version ?? "unknown version"} is unsupported; need 0.159.1 or newer.`,
     );
-  const injection = ctx.aceMcp
-    ? codexInjection({ url: ctx.aceMcp.url, bearer: ctx.aceMcp.bearer })
-    : undefined;
+  const injection = ctx.aceMcp ? codexInjection(ctx.aceMcp) : undefined;
   const proc = io.spawn({
     command: cli.path,
-    args: ["app-server", ...(injection?.args ?? [])],
+    args: [...(injection?.args ?? []), "app-server"],
     cwd: ctx.cwd,
     env: { ...(ctx.env ?? options.discovery?.env), ...injection?.env },
     name: "ace-codex",
@@ -74,11 +72,7 @@ export async function openCodexSession(
   const recovering = new Set<string>();
   let unknownRecoveries = 0;
   const emit = (dir: "send" | "recv" | "stderr" | "note", data: unknown, channel = "stdio") => {
-    const encoded = JSON.stringify(data);
-    const bearer = ctx.aceMcp?.bearer;
-    const payload = new ProviderPayload(
-      bearer && encoded.includes(bearer) ? encoded.replaceAll(bearer, "[REDACTED]") : encoded,
-    );
+    const payload = new ProviderPayload(redactMcpCredential(JSON.stringify(data), ctx.aceMcp));
     ctx.onFrame({
       seq: sequence++,
       t: Math.round(io.now() - started),

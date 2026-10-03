@@ -29,12 +29,42 @@ extension Capture {
         case "pointer.move": action.kind = "move"
         case "pointer.drag":
             guard let endX = input.toX, let endY = input.toY, endX.isFinite, endY.isFinite, endX >= 0, endY >= 0, (target?.kind == "window" || (endX < bounds.width && endY < bounds.height)) else { throw HelperError("Drag endpoint outside target", code: "bounds") }
+            let duration = input.durationMs ?? 0
+            guard duration >= 0, duration <= 10_000, input.durationMs == nil || duration > 0 else { throw HelperError("Invalid gesture duration", code: "bounds") }
+            let gestureTarget = target
+            let startX = action.x ?? 0, startY = action.y ?? 0
+            let destinationX = target?.kind == "window" ? endX : (endX + bounds.minX - frame.minX) * sx
+            let destinationY = target?.kind == "window" ? endY : (endY + bounds.minY - frame.minY) * sy
+            // Check both endpoints before pressing. inject rechecks the live
+            // target, permissions and bounds for every step of the gesture.
+            if let gestureTarget, gestureTarget.kind == "window" {
+                guard let window = try await content().windows.first(where: { $0.windowID == gestureTarget.windowId && $0.owningApplication?.bundleIdentifier == gestureTarget.bundleId }) else { throw HelperError("Gesture target is gone", code: "target_gone") }
+                let current = try currentWindowBounds(window)
+                guard endX < current.width, endY < current.height else { throw HelperError("Drag endpoint outside target", code: "bounds") }
+            }
+            try Task.checkCancellation()
             action.kind = "down"; try await inject(action)
-            let origin = action
+            var release = action; release.kind = "up"
             do {
-                action.kind = "drag"; action.x = target?.kind == "window" ? endX : (endX + bounds.minX - frame.minX) * sx; action.y = target?.kind == "window" ? endY : (endY + bounds.minY - frame.minY) * sy; try await inject(action)
-            } catch { var release = origin; release.kind = "up"; try? await inject(release); throw error }
-            action.kind = "up"
+                let steps = duration == 0 ? 1 : min(120, max(1, (duration + 15) / 16))
+                for step in 1...steps {
+                    if duration > 0 { try await Task.sleep(nanoseconds: UInt64(duration) * 1_000_000 / UInt64(steps)) }
+                    try Task.checkCancellation()
+                    guard target == gestureTarget else { throw HelperError("Capture target changed during gesture", code: "target_gone") }
+                    let fraction = Double(step) / Double(steps)
+                    action.kind = "drag"; action.x = startX + (destinationX - startX) * fraction; action.y = startY + (destinationY - startY) * fraction
+                    try await inject(action)
+                    release.x = action.x; release.y = action.y
+                }
+                guard target == gestureTarget else { throw HelperError("Capture target changed during gesture", code: "target_gone") }
+                try await inject(release)
+            } catch {
+                // A cancelled Task's flag remains set; release itself has no
+                // cancellation check and still uses the approved target path.
+                if target == gestureTarget { try? await inject(release) }
+                throw error
+            }
+            return
         case "text.type": action.kind = "type"; action.text = input.text
         case "scroll": action.kind = "scroll"; if target?.kind != "window" { action.x = x ?? (bounds.midX - frame.minX) * sx; action.y = y ?? (bounds.midY - frame.minY) * sy }; action.deltaX = input.dx; action.deltaY = input.dy
         case "key.press":

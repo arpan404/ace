@@ -10,6 +10,8 @@ import {
   PairingResponse,
   type EventPayload,
 } from "@ace/protocol";
+import { z } from "zod";
+import { ScreenManager } from "@ace/screen";
 import { afterEach, expect, it } from "vitest";
 import { startDaemon, readConfig, createDevThread, Store } from "./index.ts";
 import { accessRequest, redeemPairing } from "./client-access.ts";
@@ -329,4 +331,71 @@ it("rejects MCP intents at capacity atomically and admits work after acknowledge
   store.enqueueMcpIntent("replacement", intent, [], 3);
   expect(() => store.enqueueMcpIntent("overflow-again", intent, [], 4)).toThrow("capacity");
   expect(store.readMcpIntents(1)[0]?.id).toBe("pending-1");
+});
+
+it("the daemon advertises unique scoped tools from every real registered toolkit", async () => {
+  const directory = home();
+  let id = 0;
+  const screen = new ScreenManager({
+    command: process.execPath,
+    nextId: () => `catalog-${++id}`,
+    platform: "darwin",
+    recordingDirectory: directory,
+    publishArtifact: async () => {},
+  });
+  const daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: directory, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
+    screen,
+  });
+  cleanups.push(() => daemon.close());
+  const { scope } = seed(daemon.store);
+  const lease = daemon.mcp.openSession(
+    { ...scope, capabilities: ["agents", "notify", "browser", "screen", "devices"] },
+    new AbortController().signal,
+  );
+  const response = await fetch(daemon.mcp.url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${lease.bearer}`,
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      "MCP-Protocol-Version": "2026-07-28",
+      "Mcp-Method": "tools/list",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: {
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { name: "composition", version: "1" },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    }),
+  });
+  expect(response.ok).toBe(true);
+  const result = z
+    .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
+    .parse(await response.json());
+  const names = result.result.tools.map((tool) => tool.name);
+  expect(new Set(names).size).toBe(names.length);
+  expect(names).toEqual(
+    expect.arrayContaining([
+      "ace_thread_info",
+      "ace_read_handoff",
+      "ace_read_handoff_chunk",
+      "ace_browser_open",
+      "ace_browser_close",
+      "ace_browser_snapshot",
+      "ace_browser_screenshot",
+      "screen_screenshot",
+      "screen_ui_tree",
+      "device_screenshot",
+      "device_ui_tree",
+      "device_tap",
+    ]),
+  );
+  lease.end();
 });

@@ -1,7 +1,8 @@
+import { daemonMcpCapabilities } from "./services/mcp-capabilities.ts";
 import { createAcpAdapter, genericQuirks } from "@ace/adapter-acp";
 import { digest, type AgentRegistry } from "@ace/agent-registry";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
-import { AcpIdentity } from "@ace/protocol";
+import { AcpIdentity, type McpCapability } from "@ace/protocol";
 import { acpInjection, acpStdioInjection } from "@ace/mcp-server";
 import type { EngineOptions, AdapterRegistry } from "./engine/index.ts";
 import type { Services } from "./services/types.ts";
@@ -19,6 +20,7 @@ export function acpEngineOptions(input: {
   accounts?: Services["accounts"];
   accountRegistry?: Services["accountRegistry"];
   userHome?: string;
+  capabilities?: McpCapability[];
   report(error: unknown): void;
 }): Pick<EngineOptions, "sessionContext"> {
   input.registry.register(
@@ -73,14 +75,7 @@ export function acpEngineOptions(input: {
           sessionId: `${threadId}:${identity.installationId}`,
           threadId,
           agentId: root,
-          capabilities: [
-            "notify",
-            "agents",
-            "thread_control",
-            "automations",
-            "projects",
-            "browser",
-          ],
+          capabilities: input.capabilities ?? daemonMcpCapabilities({}),
         },
         signal,
       );

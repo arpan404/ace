@@ -23,9 +23,9 @@ export type ServerConsumer = {
   exited(deliberate: boolean, message?: string): void;
 };
 export type ServerOptions = {
-  /** Ephemeral scoped MCP credentials must be redacted from observed server frames. */
-  redactSecrets?: readonly string[];
   discovery?: DiscoveryOptions;
+  /** Session-scoped credentials to remove before emitting provider evidence. */
+  secrets?: readonly string[];
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   runtime?: Partial<Runtime>;
@@ -69,7 +69,13 @@ export class OpenCodeServer {
     return sanitize(value, this.secrets);
   }
   constructor(options: ServerOptions = {}) {
-    this.options = options;
+    this.options = {
+      ...options,
+      secrets: z
+        .array(z.string().min(1).max(4096))
+        .max(32)
+        .parse(options.secrets ?? []),
+    };
     this.runtime = runtime(options.runtime);
   }
   subscribe(consumer: ServerConsumer): () => void {
@@ -145,7 +151,7 @@ export class OpenCodeServer {
         expected = this.options.attach.version;
         this.base = loopback(this.options.attach.url);
         this.authorization = this.options.attach.authorization;
-        this.secrets = [this.authorization, ...(this.options.redactSecrets ?? [])];
+        this.secrets = [...(this.options.secrets ?? []), this.authorization];
       } else {
         const cli = (
           await this.runtime.discover({ ...this.options.discovery, signal: this.controller.signal })
@@ -157,10 +163,10 @@ export class OpenCodeServer {
         const password = this.runtime.entropy(32);
         this.authorization = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
         this.secrets = [
+          ...(this.options.secrets ?? []),
           password,
           this.authorization,
           this.authorization.slice(6),
-          ...(this.options.redactSecrets ?? []),
         ];
         this.controller.signal.throwIfAborted();
         const proc = this.runtime.spawn({

@@ -378,6 +378,152 @@
       "type": "object"
     },
     {
+      "properties": {
+        "data": {},
+        "error": {
+          "$ref": "https://ace.local/protocol/v1/DeviceFailure.json"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "type": {
+          "const": "devices.result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "ok"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "$ref": "https://ace.local/protocol/v1/DeviceState.json"
+        },
+        "type": {
+          "const": "devices.state",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+        },
+        "dropped": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lines": {
+          "items": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "sequence": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "devices.logs",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "deviceId",
+        "sequence",
+        "lines",
+        "dropped"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserBackendLost.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserDownloadProgress.json"
+    },
+    {
+      "properties": {
+        "error": {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "result": {},
+        "type": {
+          "const": "browser.result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "ok"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "$ref": "https://ace.local/protocol/v1/BrowserState.json"
+        },
+        "type": {
+          "const": "browser.state",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "frame": {
+          "$ref": "https://ace.local/protocol/v1/BrowserFrame.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.frame",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "frame"
+      ],
+      "type": "object"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ModelsResult.json"
     },
     {

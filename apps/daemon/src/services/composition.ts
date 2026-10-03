@@ -1,3 +1,4 @@
+import { startDevices } from "./devices.ts";
 import { startThreadTransitions } from "./thread-transitions.ts";
 import { startAgentRegistry } from "./agent-registry.ts";
 import { startScreen } from "./screen.ts";
@@ -26,12 +27,19 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "accounts", phase: "core", requires: [], after: [], start: startAccounts },
   { name: "commands", phase: "core", requires: ["accounts"], after: [], start: startCommands },
   { name: "files", phase: "core", requires: [], after: [], start: startFiles },
+  { name: "devices", phase: "core", requires: [], after: ["screen", "files"], start: startDevices },
   { name: "relay", phase: "core", requires: ["files"], after: [], start: startRelayKeys },
   { name: "plugins", phase: "core", requires: [], after: [], start: startPlugins },
   { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
   { name: "browser", phase: "core", requires: [], after: ["settings"], start: startBrowser },
   { name: "models", phase: "core", requires: [], after: [], start: startModels },
-  { name: "mcp", phase: "core", requires: [], after: ["screen", "browser"], start: startMcp },
+  {
+    name: "mcp",
+    phase: "core",
+    requires: [],
+    after: ["screen", "browser", "devices"],
+    start: startMcp,
+  },
   {
     name: "transitions",
     phase: "core",
