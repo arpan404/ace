@@ -6,14 +6,26 @@ export const CursorSdkApproval = z.strictObject({
   scenario: CursorSdkScenario,
   approved: z.literal(true),
 });
-export function cursorSdkPlan(approval: unknown) {
+export const CursorSdkRecordingPolicy = z.enum(["scenario-policy", "full-access"]);
+export function cursorSdkPlan(
+  approval: unknown,
+  recordingPolicy: z.infer<typeof CursorSdkRecordingPolicy> = "scenario-policy",
+) {
   const { scenario } = CursorSdkApproval.parse(approval);
+  CursorSdkRecordingPolicy.parse(recordingPolicy);
   const spec = cursorSdkScenarios.find((value) => value.id === scenario);
   if (!spec) throw new Error("Unknown approved SDK scenario");
+  const requiresMcp = scenario === "restricted-mcp" || scenario === "mcp-image";
+  if (requiresMcp && recordingPolicy === "full-access")
+    throw new Error("The behavioural full-access override does not authorize MCP scenarios");
   return {
     ...spec,
-    policy: scenario === "full-access" ? ("full-access" as const) : ("restricted" as const),
-    requiresMcp: scenario === "restricted-mcp" || scenario === "mcp-image",
+    recordingPolicy,
+    policy:
+      recordingPolicy === "full-access" || scenario === "full-access"
+        ? ("full-access" as const)
+        : ("restricted" as const),
+    requiresMcp,
     workflow:
       scenario === "interrupt-work"
         ? ("interrupt" as const)

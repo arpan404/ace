@@ -4,7 +4,11 @@ import { boundedJson, RpcWriter } from "@ace/provider-kit/ipc";
 import { createRedactor } from "../redact.ts";
 import type { Frame } from "@ace/engine-api";
 import { z } from "zod";
-import { CursorSdkApproval, CursorSdkScenario } from "../cursor-sdk-plan.ts";
+import {
+  CursorSdkApproval,
+  CursorSdkScenario,
+  CursorSdkRecordingPolicy,
+} from "../cursor-sdk-plan.ts";
 import { CursorEnvelopeSchema } from "@ace/adapter-cursor";
 import type { RedactionContext } from "@ace/redaction";
 import { ProviderPayload } from "@ace/provider-kit/payload";
@@ -16,6 +20,8 @@ export const CursorSdkCaptureHeader = z.strictObject({
   sdkVersion: z.literal("1.0.35"),
   model: z.literal("composer-2.5"),
   scenario: CursorSdkScenario,
+  // Optional only for pre-option captures, which already declare sandbox/autoReview.
+  recordingPolicy: CursorSdkRecordingPolicy.optional(),
   sandbox: z.boolean(),
   autoReview: z.boolean(),
   checkpointExpected: z.boolean(),
@@ -35,6 +41,8 @@ export function cursorSdkCapture(
   const permitted = CursorSdkApproval.parse(approval);
   header = CursorSdkCaptureHeader.parse(header);
   if (permitted.scenario !== header.scenario) throw new Error("Owner scenario approval required");
+  if (header.recordingPolicy === "full-access" && (header.sandbox || header.autoReview))
+    throw new Error("A full-access recording must declare sandbox and Auto-review off");
   const output = createWriteStream(path, { flags: "wx", mode: 0o600 });
   const scrub = createRedactor({ ...context, workspace: header.workspace }, ["text"]);
   const writer = new RpcWriter(output, 1_048_576);
@@ -72,7 +80,7 @@ export function cursorSdkCapture(
   };
   void write(header);
   return {
-    frame(frame: Frame, threadId?: string) {
+    frame(frame: Frame, threadId?: string, source?: { seq: number; t: number }) {
       if (frame.channel !== "sdk")
         throw new Error("SDK recordings must not contain ACP/auth frames");
       const payload =
@@ -86,6 +94,7 @@ export function cursorSdkCapture(
       return write({
         captureSeq: ++captureSeq,
         ...(threadId ? { threadId: z.string().max(512).parse(threadId) } : {}),
+        ...(source ? { sourceSeq: source.seq, sourceTimeMs: source.t } : {}),
         seq: frame.seq,
         t: frame.t,
         dir: frame.dir,

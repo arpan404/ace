@@ -22,6 +22,41 @@ creation. Each attempt is recorded durably before launch, including incomplete
 attempts. Re-running the batch in that directory fails, even after interruption.
 Neither a failed attempt nor an abort authorizes another try.
 
+### Owner-approved behavioural full-access continuation
+
+The owner separately approved the twelve previously skipped behavioural scenarios
+on 2026-10-03 with sandbox off, in disposable temporary workspaces only:
+
+```sh
+ACE_HOME="$HOME/.ace-fixtures/ace-home" bun run record:cursor-sdk \
+  --owner-approved-behavioural-2026-10-03 --recording-policy=full-access
+```
+
+The public recorder request names this option `recordingPolicy: "full-access"`.
+It explicitly changes the scenario's runtime policy. Each new capture header and
+analysis row records that name, plus `sandbox: false` and `autoReview: false` in
+the header. These recordings provide behavioural evidence under full access;
+they provide no restricted-mode or Auto-review evidence. Omitting the option
+retains the catalog's original policy. MCP scenarios refuse this override.
+
+The continuation requires the original `full-access` result to be complete and
+all twelve selected scenarios to have been skipped, with no existing captures.
+It reserves `full-access-approval.json` exclusively, then updates the same attempt
+report before each launch. `initialScenarios` preserves the original outcomes.
+It never selects `full-access`, `restricted-mcp` or `mcp-image`, and cannot resume
+or retry an admitted continuation. Failures remain incomplete and execution
+moves to the next scenario. The three-minute cap is unchanged.
+
+New captures use one monotonic `seq`/`t` across session reopen and portable fork.
+Each frame retains `sourceSeq`/`sourceTimeMs`, its `threadId`, and the unchanged
+SDK boundary offset. This prevents restarted session clocks from making a
+multi-session recording unreadable or changing its native provenance.
+
+The executable reaches only the explicit SDK fixture instance, never the normal
+Cursor CLI. A supporting fixture daemon must use an injected, fixture-pinned
+adapter registry, with ambient provider discovery disabled before startup. Do
+not use general doctor/status commands to check this fixture.
+
 SDK 1.0.35 exposes `autoReview` as a request option whose documented behavior
 depends on the backend classifier feature. Its public API does not expose an
 account/backend capability query. The executable therefore skips restricted
