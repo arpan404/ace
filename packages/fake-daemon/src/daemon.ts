@@ -1,6 +1,7 @@
 import {
   resolvePermissionMode,
   limitPermissionMode,
+  permissionAuthority,
   isPermissionOption,
   permissionResolutionError,
 } from "@ace/core";
@@ -179,13 +180,22 @@ export class FakeDaemon implements Host {
   private at(agoMs: number): number {
     return Math.max(0, this.options.clock() - agoMs);
   }
+  private permissionAuthority(id: string): PermissionMode {
+    return permissionAuthority(id, (key) => {
+      const host = this.threads.get(key);
+      return host
+        ? {
+            effective: host.view.thread.permission?.effective ?? "auto-review",
+            parent: host.permissionParent ?? null,
+          }
+        : undefined;
+    });
+  }
   createThread(init: ThreadInit, agoMs = 0): void {
     if (this.threads.has(init.id)) throw new Error(`Thread ${init.id} already exists`);
     const now = this.at(agoMs);
     const parentId = init.parentThreadId ?? init.lineage?.parentThreadId;
-    const parent = parentId
-      ? this.threads.get(parentId)?.view.thread.permission?.effective
-      : undefined;
+    const parent = parentId ? this.permissionAuthority(parentId) : undefined;
     const thread = {
       id: ThreadId.parse(init.id),
       workspaceId: WorkspaceId.parse(init.workspaceId),
@@ -236,7 +246,7 @@ export class FakeDaemon implements Host {
         ["new", "done", "failed", "limited"].includes(host.state.status.state)
       ) {
         const parent = host.permissionParent
-          ? this.threads.get(host.permissionParent)?.view.thread.permission?.effective
+          ? this.permissionAuthority(host.permissionParent)
           : undefined;
         const mode = resolvePermissionMode({
           override: host.view.thread.permission?.override ?? null,
@@ -674,7 +684,7 @@ export class FakeDaemon implements Host {
         const host = this.threads.get(payload.threadId);
         if (!host) return { commandId, ok: false, error: "thread_not_found" };
         const parent = host.permissionParent
-          ? this.threads.get(host.permissionParent)?.view.thread.permission?.effective
+          ? this.permissionAuthority(host.permissionParent)
           : undefined;
         if (
           payload.permissionMode &&

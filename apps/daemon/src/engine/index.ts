@@ -301,7 +301,7 @@ export class Engine {
           return { commandId: command.id, ok: false, error: "permission_parent_not_found" };
         if (requested || scope.parentThreadId) {
           const ceiling = scope.parentThreadId
-            ? this.repo.permissions.effective(scope.parentThreadId)
+            ? this.repo.permissions.authority(scope.parentThreadId)
             : undefined;
           if (requested && ceiling && resolveChildMode(requested, ceiling) !== requested)
             return { commandId: command.id, ok: false, error: "permission_exceeds_parent" };

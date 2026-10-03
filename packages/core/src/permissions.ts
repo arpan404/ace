@@ -16,6 +16,22 @@ const rank: Record<PermissionMode, number> = {
 export function limitPermissionMode(mode: PermissionMode, parent?: PermissionMode): PermissionMode {
   return parent && rank[parent] < rank[mode] ? parent : mode;
 }
+/** Bounded ancestry walk over injected records; idle parents may hold an older turn policy. */
+export function permissionAuthority(
+  id: string,
+  read: (id: string) => { effective: PermissionMode; parent: string | null } | undefined,
+): PermissionMode {
+  let ceiling: PermissionMode = "full-access";
+  let cursor: string | null = id;
+  for (let depth = 0; cursor !== null; depth++) {
+    if (depth > 64) throw new Error("Permission ancestry cycle or depth exceeded");
+    const record = read(cursor);
+    if (!record) throw new Error("Permission parent not found");
+    ceiling = limitPermissionMode(ceiling, record.effective);
+    cursor = record.parent;
+  }
+  return ceiling;
+}
 export function resolvePermissionMode(input: {
   override?: PermissionMode | null;
   setting?: PermissionMode;

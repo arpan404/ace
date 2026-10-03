@@ -9,6 +9,7 @@ export { isActionableInteraction } from "./human.ts";
 export { readyForChildResults } from "./external.ts";
 export {
   limitPermissionMode,
+  permissionAuthority,
   resolvePermissionMode,
   supportsPermissionMode,
   reviewPermission,

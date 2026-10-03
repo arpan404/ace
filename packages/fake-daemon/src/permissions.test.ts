@@ -217,6 +217,55 @@ test("a dangerous request is denied through cancellation when the provider has n
   }
 });
 
+test("a fake descendant resolves the complete ancestry when an idle parent's parent tightens", async () => {
+  const f = await fixture();
+  try {
+    for (const [id, parent] of [
+      ["ancestor", undefined],
+      ["middle", "ancestor"],
+      ["descendant", "middle"],
+    ] as const) {
+      f.daemon.createThread({
+        id,
+        ...(parent ? { parentThreadId: parent } : {}),
+        workspaceId: "workspace",
+        title: id,
+        provider: "codex",
+        permissionMode: "full-access",
+      });
+      f.daemon.apply(id, [
+        { type: "turn.started", agent: "root", trigger: "user" },
+        { type: "turn.ended", agent: "root", outcome: "completed" },
+      ]);
+    }
+    await f.permissions.setThread("ancestor", "read-only");
+    f.daemon.apply("ancestor", [
+      { type: "turn.started", agent: "root", trigger: "user" },
+      { type: "turn.ended", agent: "root", outcome: "completed" },
+    ]);
+    expect(await f.permissions.setThread("descendant", "full-access")).toMatchObject({
+      ok: false,
+      error: "permission_exceeds_parent",
+    });
+    f.daemon.apply("descendant", [{ type: "turn.started", agent: "root", trigger: "user" }]);
+    expect(
+      f.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("descendant") }),
+    ).toMatchObject({ thread: { permission: { effective: "read-only" } } });
+    f.daemon.createThread({
+      id: "inherited",
+      parentThreadId: "middle",
+      workspaceId: "workspace",
+      title: "Inherited",
+      provider: "codex",
+    });
+    expect(
+      f.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse("inherited") }),
+    ).toMatchObject({ thread: { permission: { effective: "read-only" } } });
+  } finally {
+    await f.client.close();
+  }
+});
+
 test("fake broad reads stay pending for human review", async () => {
   const f = await fixture();
   try {

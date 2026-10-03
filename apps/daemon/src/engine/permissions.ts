@@ -11,6 +11,7 @@ import {
 } from "@ace/protocol";
 import {
   limitPermissionMode,
+  permissionAuthority,
   resolvePermissionMode,
   reviewPermission,
   permissionDecisionOption,
@@ -63,6 +64,9 @@ export class Permissions {
   effective(id: ThreadId): PermissionMode {
     return this.read(id).effective;
   }
+  authority(id: ThreadId): PermissionMode {
+    return permissionAuthority(id, (key) => this.read(ThreadIdSchema.parse(key)));
+  }
   state(id: ThreadId): PermissionState {
     const record = this.read(id);
     return {
@@ -82,7 +86,7 @@ export class Permissions {
     }
     this.ensure(child);
     const record = this.read(child);
-    const ceiling = this.effective(parent);
+    const ceiling = this.authority(parent);
     const effective = this.repo.state(child)?.hasRun
       ? limitPermissionMode(record.effective, ceiling)
       : resolvePermissionMode({ override: record.override, setting: ceiling, parent: ceiling });
@@ -100,7 +104,7 @@ export class Permissions {
   }
   private ceiling(id: ThreadId): PermissionMode | undefined {
     const parent = this.read(id).parent;
-    return parent ? this.effective(ThreadIdSchema.parse(parent)) : undefined;
+    return parent ? this.authority(ThreadIdSchema.parse(parent)) : undefined;
   }
   set(
     id: ThreadId,
