@@ -31,27 +31,28 @@ Status: static review only. All tests, benchmarks and mutation cases below are *
 
 Each case is designed to be killed by the named behavior test. No mutation was applied or executed under the owner policy.
 
-| Mutation                                                             | Expected failing behavior                                        |
-| -------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Drop unknown distribution/entry fields during decoding               | raw preservation in `decode.test.ts`                             |
-| Accept a future registry schema major or ignore entry byte bounds    | rejected refresh in `decode.test.ts`                             |
-| Erase the last valid snapshot before a failed refresh                | offline/stale catalog in `catalog.process.test.ts`               |
-| Treat custom-source IDs as official profile IDs                      | source-qualified identity in `catalog.process.test.ts`           |
-| Remove binary SHA-256 comparison                                     | no publication after mismatch in `install.process.test.ts`       |
-| Skip the catalog digest check on install intent                      | new consent after changed version in `install.process.test.ts`   |
-| Keep a cancelled private installation directory                      | cleanup/prior artifact preservation in `install.process.test.ts` |
-| Remove executable fingerprint validation                             | replacement rejection in `install.process.test.ts`               |
-| Allow bridge environment to override the selected native CLI         | user-binary guarantee in `install.process.test.ts`               |
-| Follow archive symlinks or omit traversal containment                | archive escape rejection in `archive.process.test.ts`            |
-| Hard-code `configId: "model"`                                        | actual selector ID in `negotiation.process.test.ts`              |
-| Ignore dependent config-option replacements                          | removed-choice rejection in `negotiation.process.test.ts`        |
-| Restore unconditional session/load or ignore old-Qwen profile limits | negotiated resume/restrictions in `negotiation.process.test.ts`  |
-| Remove lease redaction or cleanup on start failure                   | raw secrecy/lease revocation in `negotiation.process.test.ts`    |
-| Dispose stdout observation when rejecting requests after a flood     | final fault-shutdown fact in `negotiation.process.test.ts`       |
-| Remove incoming request admission cap                                | owned-process flood termination in `negotiation.process.test.ts` |
-| Restore generic empty-session discovery                              | no process/session metadata refresh in `models/registry.test.ts` |
-| Key ACP models only by login revision                                | agent/installation separation in `models/registry.test.ts`       |
-| Remove install admin/operate authorization                           | authenticated wire scope test                                    |
+| Mutation                                                             | Expected failing behavior                                              |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Drop unknown distribution/entry fields during decoding               | raw preservation in `decode.test.ts`                                   |
+| Accept a future registry schema major or ignore entry byte bounds    | rejected refresh in `decode.test.ts`                                   |
+| Erase the last valid snapshot before a failed refresh                | offline/stale catalog in `catalog.process.test.ts`                     |
+| Treat custom-source IDs as official profile IDs                      | source-qualified identity in `catalog.process.test.ts`                 |
+| Remove binary SHA-256 comparison                                     | no publication after mismatch in `install.process.test.ts`             |
+| Skip the catalog digest check on install intent                      | new consent after changed version in `install.process.test.ts`         |
+| Keep a cancelled private installation directory                      | cleanup/prior artifact preservation in `install.process.test.ts`       |
+| Remove executable fingerprint validation                             | replacement rejection in `install.process.test.ts`                     |
+| Allow bridge environment to override the selected native CLI         | user-binary guarantee in `install.process.test.ts`                     |
+| Follow archive symlinks or omit traversal containment                | archive escape rejection in `archive.process.test.ts`                  |
+| Hard-code `configId: "model"`                                        | actual selector ID in `negotiation.process.test.ts`                    |
+| Ignore dependent config-option replacements                          | removed-choice rejection in `negotiation.process.test.ts`              |
+| Restore unconditional session/load or ignore old-Qwen profile limits | negotiated resume/restrictions in `negotiation.process.test.ts`        |
+| Remove lease redaction or cleanup on start failure                   | raw secrecy/lease revocation in `negotiation.process.test.ts`          |
+| Dispose stdout observation when rejecting requests after a flood     | final fault-shutdown fact in `negotiation.process.test.ts`             |
+| Remove incoming request admission cap                                | owned-process flood termination in `negotiation.process.test.ts`       |
+| Restore generic empty-session discovery                              | no process/session metadata refresh in `models/registry.test.ts`       |
+| Key ACP models only by login revision                                | agent/installation separation in `models/registry.test.ts`             |
+| Remove install admin/operate authorization                           | authenticated wire plan/intent scope tests                             |
+| Break stdio bearer forwarding or caller scope                        | scoped tool result and revoked lease in `stdio-bridge.process.test.ts` |
 
 ## Performance evidence deferred
 
