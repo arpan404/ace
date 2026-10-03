@@ -24,12 +24,14 @@ export async function validatePrivateDirectory(root: string): Promise<void> {
 export async function checkCheckpointBudget(
   root: string,
   maxBytes: number,
-): Promise<{ bytes: number; files: number }> {
+): Promise<{ bytes: number; files: number; sizes: Map<string, number>; paths: Set<string> }> {
   await validatePrivateDirectory(root);
   await mkdir(root, { recursive: true, mode: 0o700 });
   const rootStat = await lstat(root);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink())
     throw new Error("Unsafe SDK checkpoint directory");
+  const sizes = new Map<string, number>();
+  const paths = new Set<string>();
   let bytes = 0;
   let files = 0;
   const pending = [{ path: root, depth: 0 }];
@@ -42,6 +44,7 @@ export async function checkCheckpointBudget(
       if (++entries > 128 || directory.depth > 6)
         throw new Error("SDK checkpoint inventory exceeds budget; use explicit context handoff");
       const path = join(directory.path, entry.name);
+      paths.add(path);
       const stat = await lstat(path);
       if (stat.isSymbolicLink()) throw new Error("Unsafe SDK checkpoint entry");
       if (stat.isDirectory()) {
@@ -50,6 +53,7 @@ export async function checkCheckpointBudget(
       }
       if (!stat.isFile()) throw new Error("Unsafe SDK checkpoint entry");
       files++;
+      sizes.set(path, stat.size);
       bytes += stat.size;
       if (bytes > maxBytes)
         throw new Error(
@@ -57,5 +61,5 @@ export async function checkCheckpointBudget(
         );
     }
   }
-  return { bytes, files };
+  return { bytes, files, sizes, paths };
 }

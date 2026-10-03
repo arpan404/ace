@@ -1,4 +1,6 @@
 import { constants } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
+import type { CheckpointQuota } from "./checkpoint-quota.ts";
 import { open, lstat } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
@@ -9,6 +11,8 @@ import { Envelope, type CursorEnvelope } from "./contracts.ts";
 /** Redacted callbacks are committed before IPC. This cursor is NOT an SDK ObserveRun offset. */
 export class CursorJournal {
   private path: string;
+  private file: FileHandle | undefined;
+  private quota: CheckpointQuota | undefined;
   private offset = 0;
   private bytes = 0;
   private maxBytes: number;
@@ -32,8 +36,10 @@ export class CursorJournal {
       maxIdentities?: number;
       maxPendingBytes?: number;
       maxCallbacks?: number;
+      quota?: CheckpointQuota;
     } = {},
   ) {
+    this.quota = options.quota;
     this.now = options.now ?? Date.now;
     this.identities = options.maxIdentities ?? 2048;
     this.pendingLimit = options.maxPendingBytes ?? 2097152;
@@ -73,6 +79,10 @@ export class CursorJournal {
       // A torn final write is never silently truncated or interpreted as delivered.
       if (this.bytes !== stat.size || after > this.offset)
         throw new Error("SDK recovery cursor conflicts with its journal");
+      this.file = await open(
+        this.path,
+        constants.O_APPEND | constants.O_WRONLY | constants.O_NOFOLLOW,
+      );
       this.ready = true;
     } catch (error) {
       this.failed = true;
@@ -91,6 +101,12 @@ export class CursorJournal {
     if (!this.observeOffsets.has(frame.runId) && this.observeOffsets.size >= this.identities)
       throw new Error("SDK observe identity budget exceeded");
     this.observeOffsets.set(frame.runId, frame.observeOffset);
+  }
+  async close(): Promise<void> {
+    this.ready = false;
+    await this.tail;
+    await this.file?.close();
+    this.file = undefined;
   }
   async append(frame: CursorEnvelope): Promise<CursorEnvelope> {
     const prepared = boundedJson(frame, this.maxFrameBytes - 128);
@@ -111,17 +127,13 @@ export class CursorJournal {
       const size = Buffer.byteLength(encoded);
       if (this.bytes + size > this.maxBytes)
         throw new Error("SDK boundary journal exceeds recovery budget; use context handoff");
-      const file = await open(
-        this.path,
-        constants.O_APPEND | constants.O_CREAT | constants.O_WRONLY | constants.O_NOFOLLOW,
-        0o600,
-      );
-      try {
-        await file.writeFile(encoded);
-        await file.sync();
-      } finally {
-        await file.close();
-      }
+      const write = async () => {
+        if (!this.file) throw new Error("SDK journal closed");
+        await this.file.writeFile(encoded);
+        await this.file.sync();
+      };
+      if (this.quota) await this.quota.journal(size, write);
+      else await write();
       this.rememberObserve(committed);
       this.offset++;
       this.bytes += size;

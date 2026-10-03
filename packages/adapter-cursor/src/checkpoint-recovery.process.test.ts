@@ -76,6 +76,7 @@ it("replays only boundary commits missing from ace and keeps SDK observe offsets
     const b = await journal.append(envelope("delta", { type: "text-delta", text: "same" }));
     expect(a.boundaryOffset).toBe(1);
     expect(b.boundaryOffset).toBe(2);
+    await journal.close();
     const recovered: CursorEnvelope[] = [];
     const next = new CursorJournal(root, 65536, 4096);
     await next.recover(1, async (frame) => {
@@ -84,6 +85,7 @@ it("replays only boundary commits missing from ace and keeps SDK observe offsets
     expect(recovered).toEqual([{ ...b, replayed: true }]);
     expect(recovered[0]?.observeOffset).toBeUndefined();
     expect((await next.append(envelope("result", { status: "finished" }))).boundaryOffset).toBe(3);
+    await next.close();
     await expect(new CursorJournal(root, 65536, 4096).recover(4, async () => {})).rejects.toThrow(
       "conflicts",
     );
@@ -226,30 +228,80 @@ it("refuses conflicting or incomplete native checkpoint formats without overwrit
   }
 });
 
-it("uses only native observe provenance to skip durable events after callback replay", async () => {
+it("recovery skips committed native observations without treating later Send callbacks as observe positions", async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-observe-cursor-")));
+  const journal = new CursorJournal(root, 65536, 4096);
+  const recovered = new CursorJournal(root, 65536, 4096);
   try {
-    const journal = new CursorJournal(root, 65536, 4096);
+    const store = new JsonlLocalAgentStore(root);
+    await store.agents.create({
+      agent: { agentId: "agent", cwd: root, status: "idle", createdAt: 1, updatedAt: 1 },
+    });
+    await store.runs.create({
+      run: {
+        agentId: "agent",
+        runId: "run",
+        turnNumber: 1,
+        status: "finished",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    });
+    const first = await store.runEvents.append({
+      runId: "run",
+      eventType: "first",
+      payload: { text: "already observed" },
+    });
+    const second = await store.runEvents.append({
+      runId: "run",
+      eventType: "second",
+      payload: { text: "unobserved" },
+    });
     await journal.recover(0, async () => {});
     await journal.append({
-      ...envelope("delta", { type: "text-delta", text: "one" }),
+      ...envelope("observe", { eventSeq: first.seq }),
       runId: "run",
+      observeOffset: first.offset,
     });
-    expect(journal.afterObserve("run")).toBeUndefined();
-    await journal.append({
-      ...envelope("observe", { eventSeq: 1 }),
-      runId: "run",
-      observeOffset: "native-exclusive-offset",
-    });
-    await journal.append({
-      ...envelope("delta", { type: "text-delta", text: "two" }),
-      runId: "run",
-    });
-    const recovered = new CursorJournal(root, 65536, 4096);
+    for (const text of ["send callback one", "send callback two"])
+      await journal.append({ ...envelope("delta", { type: "text-delta", text }), runId: "run" });
+    await journal.close();
     await recovered.recover(3, async () => {});
-    expect(recovered.afterObserve("run")).toBe("native-exclusive-offset");
-    expect((await recovered.append(envelope("close", {}))).boundaryOffset).toBe(4);
+    const observed: unknown[] = [];
+    await recoverCursorCheckpoint(
+      {
+        Agent: {
+          async cancelRun() {
+            throw new Error("Completed run must not be cancelled");
+          },
+        },
+      },
+      store,
+      {
+        cwd: root,
+        threadId: "ace-thread",
+        generation: "new-host",
+        nativeSessionId: "agent",
+        afterFrameOffset: 3,
+        policy: "full-access",
+        autoReviewAvailable: false,
+        limits: CursorLimitsSchema.parse({ historyPageSize: 1 }),
+      },
+      async (kind, body, runId, offset) => {
+        if (kind === "observe") observed.push({ body, runId, offset });
+      },
+      (runId) => recovered.afterObserve(runId),
+    );
+    expect(observed).toEqual([
+      {
+        body: { eventType: "second", eventSeq: second.seq, payload: { text: "unobserved" } },
+        runId: "run",
+        offset: second.offset,
+      },
+    ]);
   } finally {
+    await journal.close();
+    await recovered.close();
     await rm(root, { recursive: true, force: true });
   }
 });

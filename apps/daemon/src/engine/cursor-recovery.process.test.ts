@@ -112,7 +112,9 @@ it("recovers a killed daemon's committed deltas once and resumes the pinned chec
             async interrupt() {},
             async resolve() {},
             async stopTask() {},
-            async close() {},
+            async close() {
+              await journal.close();
+            },
           };
         },
       },
