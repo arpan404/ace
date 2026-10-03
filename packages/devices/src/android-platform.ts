@@ -23,6 +23,11 @@ export class AndroidPlatform {
   private readonly emulators = new Map<string, SupervisedProcess>();
   private readonly serialNames = new Map<string, string>();
   private readonly inventory = new Map<string, Device>();
+  private readonly transportWatchers = new Set<{
+    id: string;
+    serial: string;
+    fail(error: DeviceError): void;
+  }>();
   private readonly pendingBoots = new Set<string>();
   private readonly ports = new Set<number>();
   private closed = false;
@@ -68,6 +73,11 @@ export class AndroidPlatform {
     const result = [...devices.values()].map((device) => DeviceSchema.parse(device));
     this.inventory.clear();
     for (const device of result) this.inventory.set(device.id, device);
+    for (const watcher of this.transportWatchers) {
+      const device = this.inventory.get(watcher.id);
+      if (device?.state !== "booted" || device.serial !== watcher.serial)
+        watcher.fail(this.identityError());
+    }
     return result;
   }
   async current(input: Device): Promise<Device> {
@@ -110,6 +120,61 @@ export class AndroidPlatform {
     const { adb } = await this.resolve();
     authorize?.();
     return this.run(adb, ["-s", serial, ...args], maxBytes);
+  }
+  private identityError() {
+    return new DeviceError(
+      "not_found",
+      "Android capture transport changed identity",
+      "Refresh the device list and start capture again.",
+    );
+  }
+  private async verifyTransport(adb: string, device: Device, serial: string) {
+    const name = avdName((await this.run(adb, ["-s", serial, "emu", "avd", "name"], 4096)).stdout);
+    if (name !== nativeId(device)) throw this.identityError();
+  }
+  async captureTransport(device: Device, expectedSerial?: string) {
+    const serial = await this.serial(device);
+    if (expectedSerial && serial !== expectedSerial) throw this.identityError();
+    const { adb } = await this.resolve();
+    // Dimensions and screenrecord must use this exact transport, never a second inventory lookup.
+    await this.verifyTransport(adb, device, serial);
+    const result = await this.run(adb, ["-s", serial, ...adbShell(["wm", "size"])], 4096);
+    await this.verifyTransport(adb, device, serial);
+    return { adb, serial, ...androidDimensions(result.stdout) };
+  }
+  watchCaptureTransport(device: Device, serial: string, fail: (error: DeviceError) => void) {
+    if (this.transportWatchers.size >= 4)
+      throw new DeviceError(
+        "limit",
+        "Capture identity watcher limit",
+        "Stop another device stream.",
+      );
+    const watcher = { id: device.id, serial, fail };
+    this.transportWatchers.add(watcher);
+    const current = this.inventory.get(device.id);
+    if (current?.state !== "booted" || current.serial !== serial) fail(this.identityError());
+    return () => {
+      this.transportWatchers.delete(watcher);
+    };
+  }
+  async uiDump(device: Device): Promise<string> {
+    const serial = await this.serial(device);
+    const { adb } = await this.resolve();
+    const path = "/data/local/tmp/ace-ui.xml";
+    const run = (args: readonly string[], maxBytes: number) =>
+      this.run(adb, ["-s", serial, ...args], maxBytes);
+    try {
+      await this.verifyTransport(adb, device, serial);
+      await run(adbShell(["uiautomator", "dump", path]), 8192);
+      await this.verifyTransport(adb, device, serial);
+      const result = await run(["exec-out", "cat", path], 1024 * 1024);
+      await this.verifyTransport(adb, device, serial);
+      return result.stdout;
+    } finally {
+      // Never delete a similarly named file on a replacement emulator.
+      await this.verifyTransport(adb, device, serial);
+      await run(adbShell(["rm", "-f", path]), 4096);
+    }
   }
   async captureDimensions(device: Device): Promise<{ width: number; height: number }> {
     const { stdout } = await this.adb(device, adbShell(["wm", "size"]), 4096);
@@ -237,6 +302,7 @@ export class AndroidPlatform {
     this.emulators.clear();
     this.serialNames.clear();
     this.inventory.clear();
+    this.transportWatchers.clear();
     this.ports.clear();
   }
 }

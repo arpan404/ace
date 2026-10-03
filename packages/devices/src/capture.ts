@@ -21,7 +21,13 @@ export async function startCapture(options: {
   env: NodeJS.ProcessEnv;
   publish(frame: Frame): void;
   failure(error: unknown): void;
+  signal?: AbortSignal;
 }): Promise<DeviceCapture> {
+  const checkAbort = () => {
+    if (options.signal?.aborted)
+      throw new DOMException("Device capture startup cancelled", "AbortError");
+  };
+  checkAbort();
   if (options.device.platform === "ios") {
     const screen = options.screen;
     if (!screen)
@@ -31,11 +37,21 @@ export async function startCapture(options: {
         "Configure ACE_SCREEN_HELPER and grant Screen Recording and Accessibility permissions.",
       );
     screen.requireApproval("com.apple.iphonesimulator");
+    const selected = await options.platform.simulatorCaptureDevice(options.device);
+    checkAbort();
     const inventory = await screen.targets();
+    const confirmed = await options.platform.simulatorCaptureDevice(selected);
+    checkAbort();
+    if (confirmed.name !== selected.name)
+      throw new DeviceError(
+        "busy",
+        "Simulator changed while selecting its window",
+        "Refresh the device list and start capture again.",
+      );
     const windows = inventory.windows.filter(
       (window) => window.bundleId === "com.apple.iphonesimulator",
     );
-    const name = options.device.name;
+    const name = selected.name;
     const exact = windows.filter(
       (window) =>
         window.title === name ||
@@ -68,6 +84,7 @@ export async function startCapture(options: {
       }
     };
     try {
+      checkAbort();
       unwatch = screen.watch((next) => {
         if (
           next.sessionId === state.sessionId &&
@@ -96,9 +113,11 @@ export async function startCapture(options: {
       "Android emulator is not booted",
       "Boot the emulator and wait for adb to report device state.",
     );
-  const { adb } = await options.platform.resolveAndroid();
-  let dimensions = await options.platform.captureDimensions(options.device);
+  let transport = await options.platform.captureTransport(options.device);
+  checkAbort();
+  const serial = transport.serial;
   const ffmpeg = await findExecutable("ffmpeg", options.env);
+  checkAbort();
   const { runtime } = options;
   let stopped = false;
   let sequence = 0;
@@ -110,6 +129,7 @@ export async function startCapture(options: {
   };
   let cycle: Cycle | undefined;
   let restarting: Promise<void> | undefined;
+  let unwatch: (() => void) | undefined;
   let restartCancel: (() => void) | undefined;
   const cancelRestart = () => {
     restartCancel?.();
@@ -118,21 +138,33 @@ export async function startCapture(options: {
   const endCycle = async (current: Cycle | undefined, intent: "restart" | "stop") => {
     if (!current) return;
     current.intent = intent;
-    await Promise.all([current.input.stop({ graceMs: 0 }), current.output.stop({ graceMs: 0 })]);
+    const results = await Promise.allSettled([
+      current.input.stop({ graceMs: 0 }),
+      current.output.stop({ graceMs: 0 }),
+    ]);
     await current.done;
+    const failures = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    if (failures.length) throw new AggregateError(failures, "Device capture cleanup failed");
   };
   const stop = async () => {
     stopped = true;
     cancelRestart();
+    unwatch?.();
+    options.signal?.removeEventListener("abort", abort);
     await endCycle(cycle, "stop");
     await restarting;
   };
   const run = async (): Promise<void> => {
+    transport = await options.platform.captureTransport(options.device, serial);
+    if (stopped) return;
+    checkAbort();
     const input = runtime.spawn({
-      command: adb,
+      command: transport.adb,
       args: [
         "-s",
-        options.device.serial ?? "",
+        transport.serial,
         "exec-out",
         "screenrecord",
         "--output-format=h264",
@@ -145,6 +177,7 @@ export async function startCapture(options: {
     });
     let output: RawSupervisedProcess;
     try {
+      checkAbort();
       output = runtime.spawn({
         command: ffmpeg,
         args: [
@@ -193,9 +226,9 @@ export async function startCapture(options: {
         bytes: payload.length,
         scale:
           width /
-          (width > height === dimensions.width > dimensions.height
-            ? dimensions.width
-            : dimensions.height),
+          (width > height === transport.width > transport.height
+            ? transport.width
+            : transport.height),
       };
       const packet = framePacket(header, payload);
       options.publish({ header, payload: packet.subarray(packet.length - header.bytes), packet });
@@ -229,6 +262,8 @@ export async function startCapture(options: {
       stopped = true;
       current.intent = "stop";
       cancelRestart();
+      unwatch?.();
+      options.signal?.removeEventListener("abort", abort);
       options.failure(error);
       void Promise.all([input.stop({ graceMs: 0 }), output.stop({ graceMs: 0 })]);
     }
@@ -260,7 +295,23 @@ export async function startCapture(options: {
       }
     })();
   };
-  await run();
+  function abort() {
+    void stop().catch(options.failure);
+  }
+  options.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    await run();
+    checkAbort();
+    unwatch = options.platform.watchCaptureTransport(options.device, serial, (error) => {
+      if (stopped) return;
+      options.failure(error);
+      void stop().catch(options.failure);
+    });
+    if (stopped) unwatch();
+  } catch (error) {
+    await stop();
+    throw error;
+  }
   const restart = (): Promise<void> => {
     if (stopped)
       return Promise.reject(
@@ -271,12 +322,14 @@ export async function startCapture(options: {
     restarting = (async () => {
       await endCycle(cycle, "restart");
       if (stopped) return;
-      dimensions = await options.platform.captureDimensions(options.device);
       if (!stopped) await run();
     })()
       .catch((error: unknown) => {
         if (!stopped) {
           stopped = true;
+          unwatch?.();
+          options.signal?.removeEventListener("abort", abort);
+          cancelRestart();
           options.failure(error);
         }
         throw error;

@@ -160,9 +160,8 @@ it("a Simulator lease revoked during a permission read prevents native input dis
     },
   );
   const rejected = expect(pending).rejects.toThrow("Controller lease expired");
-  while (!(await screen.targets()).windows[0]?.title.includes("heldPermission:true")) {
-    /* Requests synchronize with the fake permission boundary. */
-  }
+  const held = await screen.targets();
+  expect(held.windows[0]?.title).toContain("heldPermission:true");
   authorized = false;
   await screen.targets();
   await rejected;

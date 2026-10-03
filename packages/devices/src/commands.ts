@@ -1,5 +1,11 @@
 import { z } from "zod";
-import type { AppDevice as Device, DeviceInput } from "@ace/protocol/devices";
+import {
+  AppDevice as DeviceSchema,
+  type AppDevice as Device,
+  type DeviceInput,
+} from "@ace/protocol/devices";
+import type { ScreenInput } from "@ace/protocol";
+import type { Simulator } from "@ace/screen";
 import { DeviceError } from "./sdk.ts";
 
 const AVD = z
@@ -117,4 +123,63 @@ export function androidDimensions(output: string): { width: number; height: numb
     .tuple([z.coerce.number().int().min(1).max(32768), z.coerce.number().int().min(1).max(32768)])
     .parse(value.split("x"));
   return { width, height };
+}
+
+export function simulatorInput(input: DeviceInput): ScreenInput {
+  let mapped: ScreenInput;
+  if (input.kind === "swipe" || input.kind === "longPress")
+    mapped = {
+      kind: "pointer.drag",
+      x: input.x,
+      y: input.y,
+      toX: input.kind === "swipe" ? input.toX : input.x,
+      toY: input.kind === "swipe" ? input.toY : input.y,
+      durationMs: input.durationMs,
+      button: "left",
+    };
+  else if (input.kind === "tap")
+    mapped = { kind: "pointer.click", x: input.x, y: input.y, button: "left" };
+  else if (input.kind === "type") mapped = { kind: "text.type", text: input.text };
+  else if (input.key === "home")
+    mapped = { kind: "key.press", key: "h", modifiers: ["command", "shift"] };
+  else if (input.key === "rotate")
+    mapped = { kind: "key.press", key: "right", modifiers: ["command"] };
+  else if (input.key === "enter") mapped = { kind: "key.press", key: "Return", modifiers: [] };
+  else
+    throw new DeviceError(
+      "not_supported",
+      "This hardware key is not supported by iOS Simulator",
+      "Use the Simulator Device menu or the app's navigation.",
+    );
+  return mapped;
+}
+
+export function simulatorIdentity(input: Device, inventory: readonly Simulator[]): Device {
+  const device = DeviceSchema.parse(input);
+  const selected = inventory.find((candidate) => candidate.udid === nativeId(device));
+  if (!selected || selected.state !== "Booted")
+    throw new DeviceError(
+      "not_booted",
+      "Selected Simulator is not booted",
+      "Boot this Simulator before starting capture.",
+    );
+  if (
+    inventory.some(
+      (candidate) =>
+        candidate.udid !== selected.udid &&
+        candidate.state === "Booted" &&
+        candidate.name === selected.name,
+    )
+  )
+    throw new DeviceError(
+      "busy",
+      "Booted Simulators have ambiguous display names",
+      "Rename one Simulator or shut down the duplicate before starting capture.",
+    );
+  return DeviceSchema.parse({
+    ...device,
+    name: selected.name,
+    state: "booted",
+    runtime: selected.runtime,
+  });
 }

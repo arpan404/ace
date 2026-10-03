@@ -27,7 +27,9 @@ async function fixture(platform = "linux") {
     const serial = 'emulator-5554';
     const connection = fs.readFileSync(process.env.DEVICE_STATE,'utf8');
     if (args[0] === 'devices') { console.log('List of devices attached\\n' + (connection==='shutdown' ? '' : serial+' '+(connection==='booted'?'device':connection)+' product:sdk model:pixel')); }
-    else if (args.includes('wait-for-device')) { fs.writeFileSync(process.env.DEVICE_STATE,'booted'); }
+    else if (args.includes('wait-for-device')) { fs.writeFileSync(process.env.DEVICE_STATE,'attached'); }
+    else if (args.some(arg=>arg.includes('sys.boot_completed'))) { fs.writeFileSync(process.env.DEVICE_STATE,'booted'); }
+    else if(args.includes('install') && connection!=='booted') { process.exit(2); }
     else if (args.includes('avd')) console.log('Pixel_API_35\\nOK');
     else if (args.includes('kill')) fs.writeFileSync(process.env.DEVICE_STATE,'shutdown');
     else if (args.includes('cat')) console.log(fs.readFileSync(process.env.DEVICE_TREE,'utf8'));
@@ -43,7 +45,7 @@ async function fixture(platform = "linux") {
     "emulator",
     `${record}
     if (args.includes('-list-avds')) console.log('Pixel_API_35');
-    else { fs.writeFileSync(process.env.DEVICE_STATE,'booted'); process.stdin.resume(); }
+    else { process.stdin.resume(); }
   `,
   );
   await nodeBinary(
@@ -94,6 +96,8 @@ it("discovers an SDK outside PATH and keeps an AVD identity through boot and shu
   const f = await fixture();
   expect(await f.manager.list()).toEqual([android()]);
   await f.manager.boot(android());
+  await f.manager.install(android(), join(f.home, "Ready.apk"));
+  expect(await readFile(f.state, "utf8")).toBe("booted");
   expect(await f.manager.list()).toEqual([
     { ...android(), state: "booted", serial: "emulator-5554" },
   ]);
@@ -197,6 +201,9 @@ it("rejects adb text it cannot reproduce instead of changing it", async () => {
   await expect(f.manager.input(android(), { kind: "type", text: "مرحبا" })).rejects.toMatchObject({
     code: "not_supported",
   });
+  expect((await f.commands()).filter((entry) => JSON.stringify(entry).includes("input"))).toEqual(
+    [],
+  );
 });
 it("refreshes Android semantic targets and refuses a stale node after its identity changes", async () => {
   const f = await fixture();
@@ -209,10 +216,14 @@ it("refreshes Android semantic targets and refuses a stale node after its identi
     tool: "adb",
     args: ["-s", "emulator-5554", "shell", "'input' 'tap' '60' '50'"],
   });
+  await writeFile(f.journal, "");
   await writeFile(f.tree, (await readFile(f.tree, "utf8")).replaceAll("Launch", "Delete"));
   await expect(f.manager.uiAct(android(), { ref, action: "press" })).rejects.toMatchObject({
     code: "stale_ref",
   });
+  expect((await f.commands()).filter((entry) => JSON.stringify(entry).includes("input"))).toEqual(
+    [],
+  );
 });
 it("bounds Android trees and finds matching descendants without losing truncation", async () => {
   const f = await fixture();
@@ -507,3 +518,70 @@ for (const operation of ["install", "openApp", "boot"] as const) {
     });
   });
 }
+
+it("concurrent Android UI reads retain their own snapshot and remove temporary guest files", async () => {
+  const f = await fixture();
+  await writeFile(f.state, "booted");
+  let guestSnapshot = "";
+  let dumps = 0;
+  const reading = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    async probe(command, args, options) {
+      const line = args.join(" ");
+      if (line.includes("'uiautomator' 'dump'")) {
+        guestSnapshot = `<hierarchy><node text="Snapshot ${++dumps}" class="android.widget.Button" clickable="true" enabled="true" bounds="[0,0][10,10]" /></hierarchy>`;
+        if (dumps === 1) {
+          reading.resolve();
+          await resume.promise;
+        }
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      if (args.includes("cat")) return { code: 0, stdout: guestSnapshot, stderr: "" };
+      if (line.includes("'rm' '-f'")) {
+        guestSnapshot = "";
+        return { code: 0, stdout: "", stderr: "" };
+      }
+      const { probeOutput } = await import("@ace/provider-kit/process");
+      return probeOutput(command, args, options);
+    },
+  });
+  onTestFinished(() => manager.close());
+  const first = manager.uiTree(android(), {});
+  await reading.promise;
+  const second = manager.uiTree(android(), {});
+  resume.resolve();
+  const trees = await Promise.all([first, second]);
+  expect(trees.map((tree) => tree.nodes[0]?.name)).toEqual(["Snapshot 1", "Snapshot 2"]);
+  expect(guestSnapshot).toBe("");
+});
+
+it("Android UI read queues reject excess work without retaining extra native operations", async () => {
+  const f = await fixture();
+  await writeFile(f.state, "booted");
+  const reading = Promise.withResolvers<void>();
+  const resume = Promise.withResolvers<void>();
+  const manager = new DevicePlatform({
+    platform: "linux",
+    home: f.home,
+    env: f.env,
+    async probe(command, args, options) {
+      if (args.join(" ").includes("'uiautomator' 'dump'")) {
+        reading.resolve();
+        await resume.promise;
+      }
+      const { probeOutput } = await import("@ace/provider-kit/process");
+      return probeOutput(command, args, options);
+    },
+  });
+  onTestFinished(() => manager.close());
+  const pending = Array.from({ length: 32 }, () => manager.uiTree(android(), {}));
+  await reading.promise;
+  await expect(manager.uiTree(android(), {})).rejects.toMatchObject({ code: "busy" });
+  resume.resolve();
+  expect(await Promise.all(pending)).toHaveLength(32);
+  expect((await manager.uiTree(android(), {})).nodes[0]?.name).toBe("Launch");
+});

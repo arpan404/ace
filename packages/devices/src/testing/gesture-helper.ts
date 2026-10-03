@@ -13,6 +13,26 @@ let captured = "none";
 let permissions = 0;
 let heldPermission: { id: string; version: number } | undefined;
 let observedPermission = false;
+let heldTargets: { id: string; version: number } | undefined;
+function targetsReply(request: { id: string; version: number }) {
+  console.log(
+    JSON.stringify({
+      version: request.version,
+      id: request.id,
+      ok: true,
+      data: {
+        windows: [
+          {
+            windowId: 1,
+            bundleId: "com.apple.iphonesimulator",
+            title: `Simulator;heldPermission:${Boolean(heldPermission)}`,
+          },
+        ],
+        displays: [],
+      },
+    }),
+  );
+}
 for await (const line of createInterface({ input: process.stdin })) {
   const request = ScreenHelperRequest.parse(JSON.parse(line));
   let data: unknown;
@@ -33,6 +53,11 @@ for await (const line of createInterface({ input: process.stdin })) {
       permissions++;
       if (permissions > 1 && process.env["HOLD_PERMISSION"] === "1") {
         heldPermission = request;
+        if (heldTargets) {
+          observedPermission = true;
+          targetsReply(heldTargets);
+          heldTargets = undefined;
+        }
         continue;
       }
       data = { screenRecording: true, accessibility: true };
@@ -51,6 +76,11 @@ for await (const line of createInterface({ input: process.stdin })) {
       }
       break;
     case "targets":
+      if (process.env["HOLD_PERMISSION"] === "1" && permissions <= 1) {
+        // This public request is a barrier: it replies only after the input's permission read arrives.
+        heldTargets = request;
+        continue;
+      }
       if (heldPermission && observedPermission) {
         console.log(
           JSON.stringify({

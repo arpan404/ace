@@ -11,10 +11,9 @@ import {
   DeviceSettings as Settings,
   type DeviceSettings,
 } from "@ace/protocol/devices";
-import { ScreenUIActOptions, ScreenUIFindOptions, type ScreenInput } from "@ace/protocol";
 import { DeviceError, resolveXcode, type SDKOptions } from "./sdk.ts";
-import { adbShell, androidInput, nativeId } from "./commands.ts";
-import { androidTree, androidFind, androidTarget } from "./android-ui.ts";
+import { adbShell, androidInput, simulatorInput, simulatorIdentity, nativeId } from "./commands.ts";
+import { AndroidOperations } from "./android-operations.ts";
 import { AndroidPlatform } from "./android-platform.ts";
 
 export type PlatformOptions = SDKOptions & {
@@ -40,6 +39,7 @@ export class DevicePlatform {
   private readonly android: AndroidPlatform;
   private active = 0;
   private readonly controller = new AbortController();
+  private readonly androidUI: AndroidOperations;
   private missingSDKs: DeviceError[] = [];
   diagnostics(): { code: string; message: string; hint: string }[] {
     return this.missingSDKs.map(({ code, message, hint }) => ({ code, message, hint }));
@@ -52,6 +52,9 @@ export class DevicePlatform {
       (command, args, maxBytes, timeoutMs, signal) =>
         this.run(command, args, maxBytes, timeoutMs, signal),
       options.spawn ?? spawnSupervised,
+    );
+    this.androidUI = new AndroidOperations(this.android, (device, input, authorize) =>
+      this.input(device, input, undefined, authorize),
     );
     this.simulators = this.iosSimulators();
   }
@@ -72,6 +75,15 @@ export class DevicePlatform {
   }
   resolveAndroid() {
     return this.android.resolve();
+  }
+  async simulatorCaptureDevice(input: Device): Promise<Device> {
+    return simulatorIdentity(input, await this.simulators.list());
+  }
+  captureTransport(device: Device, expectedSerial?: string) {
+    return this.android.captureTransport(device, expectedSerial);
+  }
+  watchCaptureTransport(device: Device, serial: string, fail: (error: DeviceError) => void) {
+    return this.android.watchCaptureTransport(device, serial, fail);
   }
   captureDimensions(device: Device): Promise<{ width: number; height: number }> {
     if (device.platform !== "android")
@@ -345,31 +357,7 @@ export class DevicePlatform {
         "Simulator window control is required",
         "Start the approved Simulator view and take control.",
       );
-    let mapped: ScreenInput;
-    if (input.kind === "swipe" || input.kind === "longPress")
-      mapped = {
-        kind: "pointer.drag",
-        x: input.x,
-        y: input.y,
-        toX: input.kind === "swipe" ? input.toX : input.x,
-        toY: input.kind === "swipe" ? input.toY : input.y,
-        durationMs: input.durationMs,
-        button: "left",
-      };
-    else if (input.kind === "tap")
-      mapped = { kind: "pointer.click", x: input.x, y: input.y, button: "left" };
-    else if (input.kind === "type") mapped = { kind: "text.type", text: input.text };
-    else if (input.key === "home")
-      mapped = { kind: "key.press", key: "h", modifiers: ["command", "shift"] };
-    else if (input.key === "rotate")
-      mapped = { kind: "key.press", key: "right", modifiers: ["command"] };
-    else if (input.key === "enter") mapped = { kind: "key.press", key: "Return", modifiers: [] };
-    else
-      throw new DeviceError(
-        "not_supported",
-        "This hardware key is not supported by iOS Simulator",
-        "Use the Simulator Device menu or the app's navigation.",
-      );
+    const mapped = simulatorInput(input);
     authorize?.();
     await this.options.screen.input(
       binding.sessionId,
@@ -379,73 +367,14 @@ export class DevicePlatform {
       authorize,
     );
   }
-  async uiTree(device: Device, options: unknown) {
-    if (device.platform !== "android")
-      throw new DeviceError(
-        "not_supported",
-        "Simulator tree uses the approved screen session",
-        "Use the device service's Simulator tree operation.",
-      );
-    const path = "/data/local/tmp/ace-ui.xml";
-    await this.android.adb(device, adbShell(["uiautomator", "dump", path]), 8192);
-    const result = await this.android.adb(device, ["exec-out", "cat", path], 1024 * 1024);
-    return androidTree(result.stdout, options);
+  uiTree(device: Device, options: unknown) {
+    return this.androidUI.tree(device, options);
   }
-  async uiFind(device: Device, options: unknown) {
-    ScreenUIFindOptions.parse(options);
-    return androidFind(await this.uiTree(device, { maxNodes: 512, maxDepth: 16 }), options);
+  uiFind(device: Device, options: unknown) {
+    return this.androidUI.find(device, options);
   }
-  async uiAct(device: Device, raw: unknown, authorize?: () => void) {
-    const action = ScreenUIActOptions.parse(raw);
-    const node = androidTarget(
-      await this.uiTree(device, { maxNodes: 512, maxDepth: 16 }),
-      action.ref,
-    );
-    if (
-      !node.actions.includes(action.action) ||
-      node.states.includes("disabled") ||
-      !node.bounds.w ||
-      !node.bounds.h
-    )
-      throw new DeviceError(
-        "not_supported",
-        "Android UI target does not support this action",
-        "Read supported actions from the current tree.",
-      );
-    if (
-      action.action === "select" &&
-      typeof action.value === "boolean" &&
-      (node.states.includes("checked") || node.states.includes("selected")) === action.value
-    )
-      return { fallback: false, method: "already_selected" };
-    const centre = {
-      x: Math.floor(node.bounds.x + node.bounds.w / 2),
-      y: Math.floor(node.bounds.y + node.bounds.h / 2),
-    };
-    if (action.action === "scroll") {
-      const scroll = z
-        .object({
-          dx: z.number().int().min(-1000).max(1000).default(0),
-          dy: z.number().int().min(-1000).max(1000).default(0),
-        })
-        .parse(action.value ?? {});
-      if (scroll.dx === 0 && scroll.dy === 0) return { fallback: false, method: "no_scroll" };
-      const toX = Math.max(
-        node.bounds.x,
-        Math.min(node.bounds.x + node.bounds.w - 1, centre.x - scroll.dx),
-      );
-      const toY = Math.max(
-        node.bounds.y,
-        Math.min(node.bounds.y + node.bounds.h - 1, centre.y - scroll.dy),
-      );
-      await this.input(
-        device,
-        { kind: "swipe", ...centre, toX, toY, durationMs: 300 },
-        undefined,
-        authorize,
-      );
-    } else await this.input(device, { kind: "tap", ...centre }, undefined, authorize);
-    return { fallback: true, method: "adb.shell.input", boundsCentre: centre };
+  uiAct(device: Device, options: unknown, authorize?: () => void) {
+    return this.androidUI.act(device, options, authorize);
   }
   async logs(device: Device): Promise<{ command: string; args: string[] }> {
     if (device.platform === "ios") {

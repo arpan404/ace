@@ -20,7 +20,7 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
-async function fixture(mode = "stream") {
+async function fixture(mode = "stream", initialSerial = "emulator-5554") {
   const root = await mkdtemp(join(tmpdir(), "ace-device-capture-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const scripts = {
@@ -40,7 +40,7 @@ process.stdin.on("data",chunk=>{
     if(byte===3) process.stdout.write(image);
   }
 });
-process.stdin.on("end",()=>process.exit(0));`,
+process.stdin.on("end",()=>process.exit(process.env.MODE==="endfailure"?7:0));`,
   };
   for (const [relative, script] of Object.entries(scripts)) {
     const path = join(root, relative);
@@ -49,29 +49,40 @@ process.stdin.on("end",()=>process.exit(0));`,
     await chmod(path, 0o700);
   }
   let guest = "640x1280";
+  let serial = initialSerial;
+  let oldName = "Pixel";
+  const probes: string[][] = [];
   const env = { PATH: root, ANDROID_HOME: root, MODE: mode, WIDTH: "320", HEIGHT: "640" };
   const platform = new DevicePlatform({
     platform: "linux",
     home: root,
     env,
     async probe(_command, args) {
+      probes.push([...args]);
       const command = args.join(" ");
+      if (mode === "dimensionmove" && command.includes("'wm' 'size'")) {
+        serial = "emulator-5556";
+        oldName = "OtherAVD";
+      }
       const stdout =
         command === "-list-avds"
           ? "Pixel"
           : command === "devices -l"
-            ? "List of devices attached\nemulator-5554 device"
+            ? `List of devices attached\n${serial} device`
             : command.endsWith("emu avd name")
-              ? "Pixel\nOK"
+              ? `${args[1] === serial ? "Pixel" : oldName}\nOK`
               : `Physical size: ${guest}`;
       return { stdout, stderr: "", code: 0 };
     },
   });
+  cleanup.push(() => platform.close());
+  const captureSerials: string[] = [];
   const processes: RawSupervisedProcess[] = [];
   const inputs: RawSupervisedProcess[] = [];
   const outputs: RawSupervisedProcess[] = [];
   const prefix = deferred<void>();
   const timer = deferred<void>();
+  const spawned = new Map<number, ReturnType<typeof deferred<void>>>();
   const timers = new Set<() => void>();
   const runtime: DeviceRuntime = {
     now: () => 1234,
@@ -90,8 +101,11 @@ process.stdin.on("end",()=>process.exit(0));`,
     spawn(options) {
       const child = spawnRawSupervised(options);
       processes.push(child);
-      if (options.name === "device-h264") inputs.push(child);
-      else {
+      if (options.name === "device-h264") {
+        captureSerials.push(options.args?.[1] ?? "");
+        inputs.push(child);
+        spawned.get(inputs.length)?.resolve();
+      } else {
         outputs.push(child);
         child.stderr.on("data", () => prefix.resolve());
       }
@@ -126,7 +140,6 @@ process.stdin.on("end",()=>process.exit(0));`,
     },
   });
   cleanup.push(() => capture.stop());
-  cleanup.push(() => platform.close());
   function input() {
     const child = inputs.at(-1);
     if (!child) throw new Error("No capture process");
@@ -134,6 +147,7 @@ process.stdin.on("end",()=>process.exit(0));`,
   }
   return {
     capture,
+    captureSerials,
     processes,
     inputs,
     outputs,
@@ -151,6 +165,18 @@ process.stdin.on("end",()=>process.exit(0));`,
     },
     end() {
       input().stdin.write("end\n");
+    },
+    platform,
+    probes,
+    moveTransport(next: string) {
+      serial = next;
+      oldName = "OtherAVD";
+    },
+    waitForCycle(number: number) {
+      if (inputs.length >= number) return Promise.resolve();
+      const ready = spawned.get(number) ?? deferred<void>();
+      spawned.set(number, ready);
+      return ready.promise;
     },
     rotate() {
       guest = "800x400";
@@ -245,6 +271,7 @@ it("the finite native screenrecord boundary restarts capture without resetting f
   const restart = [...f.timers][0];
   if (!restart) throw new Error("Missing native-boundary restart");
   restart();
+  await f.waitForCycle(2);
   f.send(3);
   expect((await f.frame()).header).toMatchObject({ sessionId: "shared-capture", sequence: 1 });
   await f.capture.stop();
@@ -257,10 +284,50 @@ const simulatorTarget = {
   bundleId: "com.apple.iphonesimulator",
   windowId: 42,
 } as const;
-async function simulator() {
+async function simulator(duplicate = false) {
   const root = await mkdtemp(join(tmpdir(), "ace-simulator-capture-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
-  const platform = new DevicePlatform({ platform: "linux", home: root, env: {} });
+  for (const name of ["xcode-select", "xcrun", "open"]) {
+    const path = join(root, name);
+    await writeFile(path, `#!${process.execPath}\n`);
+    await chmod(path, 0o700);
+  }
+  const platform = new DevicePlatform({
+    platform: "darwin",
+    home: root,
+    env: { PATH: root },
+    async probe(_command, args) {
+      return {
+        code: 0,
+        stderr: "",
+        stdout:
+          args[0] === "-p"
+            ? "/Applications/Xcode.app/Contents/Developer"
+            : JSON.stringify({
+                devices: {
+                  iOS: [
+                    {
+                      udid: "11111111-1111-4111-8111-111111111111",
+                      name: "iPhone",
+                      state: "Booted",
+                      isAvailable: true,
+                    },
+                    ...(duplicate
+                      ? [
+                          {
+                            udid: "22222222-2222-4222-8222-222222222222",
+                            name: "iPhone",
+                            state: "Booted",
+                            isAvailable: true,
+                          },
+                        ]
+                      : []),
+                  ],
+                },
+              }),
+      };
+    },
+  });
   cleanup.push(() => platform.close());
   let id = 0;
   const screen = new ScreenManager({
@@ -278,7 +345,7 @@ async function simulator() {
   const start = (publish: (frame: Frame) => void = noop) =>
     startCapture({
       device: {
-        id: "ios:11111111-1111-1111-1111-111111111111",
+        id: "ios:11111111-1111-4111-8111-111111111111",
         name: "iPhone",
         platform: "ios",
         state: "booted",
@@ -347,4 +414,70 @@ it("iOS device capture forwards the native session and original image packet wit
   expect(frame.payload.toString()).toBe("simulator-native-image");
   await capture.stop();
   expect(f.screen.states()).toEqual([]);
+});
+
+it("identically named booted Simulators cannot capture or control the only visible other window", async () => {
+  const f = await simulator(true);
+  await expect(f.start()).rejects.toMatchObject({
+    code: "busy",
+    hint: expect.stringContaining("Rename"),
+  });
+  expect(f.screen.states()).toEqual([]);
+  // A rejection must leave native capture capacity available.
+  const direct = await f.screen.start(simulatorTarget);
+  expect(f.screen.state(direct.sessionId).lifecycle).toBe("live");
+  await f.screen.stop(direct.sessionId);
+});
+
+it("capture dimensions and pixels use the same newly resolved Android transport", async () => {
+  const f = await fixture("stream", "emulator-5556");
+  f.send(3);
+  const frame = await f.frame();
+  expect(frame.header.scale).toBe(0.5);
+  expect(f.captureSerials).toEqual(["emulator-5556"]);
+  expect(f.probes).toContainEqual(["-s", "emulator-5556", "shell", "'wm' 'size'"]);
+});
+
+it("a transport moving between native cycles fails without starting capture on another AVD", async () => {
+  const f = await fixture();
+  f.send(3);
+  await f.frame();
+  f.moveTransport("emulator-5556");
+  f.end();
+  await f.timer.promise;
+  const restart = [...f.timers][0];
+  if (!restart) throw new Error("Missing boundary restart");
+  restart();
+  await expect(f.failed.promise).resolves.toMatchObject({ code: "not_found" });
+  await Promise.all(f.processes.map((child) => child.exited));
+  expect(f.inputs).toHaveLength(1);
+  expect(f.failures).toHaveLength(1);
+});
+
+it("an inventory identity replacement stops an ongoing stream before another frame can be forwarded", async () => {
+  const f = await fixture();
+  f.send(3);
+  await f.frame();
+  f.moveTransport("emulator-5556");
+  await f.platform.list();
+  await expect(f.failed.promise).resolves.toMatchObject({ code: "not_found" });
+  await Promise.all(f.processes.map((child) => child.exited));
+  expect(f.failures).toHaveLength(1);
+  expect(f.inputs).toHaveLength(1);
+});
+
+it("a decoder failure after screenrecord finishes terminates capture without scheduling another cycle", async () => {
+  const f = await fixture("endfailure");
+  f.send(3);
+  expect((await f.frame()).header.sequence).toBe(0);
+  f.end();
+  await expect(f.failed.promise).resolves.toMatchObject({ code: "command_failed" });
+  await Promise.all(f.processes.map((child) => child.exited));
+  expect(f.failures).toHaveLength(1);
+  expect(f.timers.size).toBe(0);
+  expect(f.inputs).toHaveLength(1);
+});
+
+it("an Android transport changing during dimension lookup cannot start a capture process", async () => {
+  await expect(fixture("dimensionmove")).rejects.toMatchObject({ code: "not_found" });
 });
