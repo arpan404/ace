@@ -22,3 +22,16 @@ export type { Sidebar, SidebarReader } from "./sidebar.ts";
 export { ticketCredential } from "./credentials.ts";
 export type { Credential } from "./credentials.ts";
 export { retryDelay } from "./lifecycle.ts";
+export { oppositeFollowUpBehavior } from "./follow-up.ts";
+
+export { DeviceClient, DeviceClientError } from "@ace/devices/client";
+export type {
+  DeviceClientSnapshot,
+  DeviceLogBatch,
+  DeviceTransport,
+  DeviceClientOptions,
+} from "@ace/devices/client";
+export { deviceTransport, authenticatedChannel } from "./device-transport.ts";
+export type { AuthenticatedChannelOptions, DeviceConnectionTarget } from "./device-transport.ts";
+export { downloadArtifact } from "@ace/files/client";
+export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";

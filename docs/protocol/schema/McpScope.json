@@ -9,7 +9,7 @@
       "items": {
         "$ref": "https://ace.local/protocol/v1/McpCapability.json"
       },
-      "maxItems": 7,
+      "maxItems": 11,
       "type": "array"
     },
     "sessionId": {

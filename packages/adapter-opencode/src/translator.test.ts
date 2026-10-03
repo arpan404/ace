@@ -116,8 +116,20 @@ describe("OpenCode translation", () => {
     h.tick(3100);
     expect(h.view.thread.status.state).toBe("done");
   });
+  it("keeps a usage limit through its retry deadline and generic busy activity", () => {
+    const h = setup();
+    h.user();
+    h.status("busy");
+    h.event("session.status", {
+      sessionID: "ses_root",
+      status: { type: "retry", message: "429 too many requests", next: 20, attempt: 2 },
+    });
+    h.tick(21);
+    expect(h.view.thread.status).toEqual({ state: "limited", until: 20 });
+    h.status("busy");
+    expect(h.view.thread.status).toEqual({ state: "limited", until: 20 });
+  });
   for (const [message, on] of [
-    ["429 too many requests", "rate_limit"],
     ["ECONNRESET socket closed", "network"],
     ["backend overloaded", "upstream"],
   ]) {

@@ -70,14 +70,15 @@ async function main(args: string[]): Promise<void> {
   if (command === "start") {
     if (args.length > 1) throw new Error("Usage: ace start");
     const development = process.env.ACE_DEV === "1";
-    const { startDaemon } = await import("./index.ts");
-    const daemon = await startDaemon({
+    const { startDaemon, runDaemonProcess } = await import("./index.ts");
+    const daemon = await runDaemonProcess(startDaemon, {
       config: config,
       handler: development ? stubHandler({ development }) : undefined,
       toolkits: [],
       modelInstances: readModelInstances(),
       history: { instances: readHistoryInstances() },
     });
+    if (!daemon) return;
     try {
       if (development && daemon.store.listThreads().length === 0)
         createDevThread(daemon.store, daemon.store.createWorkspace(process.cwd(), "Development"));
@@ -90,17 +91,6 @@ async function main(args: string[]): Promise<void> {
       process.stdout.write(
         `Remote: ${daemon.remoteUrl}\nPublic-key SHA-256: ${daemon.fingerprint}\n`,
       );
-    let stopping = false;
-    const stop = () => {
-      if (stopping) return;
-      stopping = true;
-      void daemon.close().catch((error: unknown) => {
-        console.error(error);
-        process.exitCode = 1;
-      });
-    };
-    process.once("SIGINT", stop);
-    process.once("SIGTERM", stop);
     return;
   }
   if (command === "service") {

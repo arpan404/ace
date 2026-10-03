@@ -36,6 +36,7 @@ it.each<PiPermissionMode>(["unrestricted", "read_only"])(
     cleanups.push(() => log.close());
     let connection: AceMcpConnection | undefined;
     const context: ServiceContext = {
+      signal: new AbortController().signal,
       config: readConfig({ ACE_HOME: f.home }),
       store: f.store,
       now: () => 0,

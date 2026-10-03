@@ -1,3 +1,4 @@
+import { warmup } from "./warmup.ts";
 import { createDaemonUsage, loadUsageSettings } from "../usage.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startUsage(context: ServiceContext): Promise<void> {
@@ -12,6 +13,7 @@ export async function startUsage(context: ServiceContext): Promise<void> {
   resources.own(() => usage.close());
   services.usage = usage;
   await usage.start();
+  void warmup(context, "usage", () => usage.catchUp());
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";

@@ -91,6 +91,8 @@ export type AgentOrigin = z.infer<typeof AgentOrigin>;
 export const Agent = z.object({
   id: AgentId,
   threadId: ThreadId,
+  /** Independent ace child thread; this agent is its summary in the parent tree. */
+  childThreadId: ThreadId.optional(),
   parentId: AgentId.nullable(),
   origin: AgentOrigin,
   lineage: ThreadLineage.optional(),

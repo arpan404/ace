@@ -26,6 +26,11 @@
       "minimum": 1,
       "type": "integer"
     },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
     "type": {
       "const": "history.list",
       "type": "string"

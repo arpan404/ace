@@ -79,6 +79,45 @@ const server = createServer(async (req, res) => {
     res.end(JSON.stringify(data));
   };
   const empty = () => res.writeHead(204).end();
+  if (path === "/test/mcp") {
+    const config = JSON.parse(process.env.OPENCODE_CONFIG_CONTENT ?? "{}");
+    const ace = config.mcp?.ace;
+    if (!ace) {
+      json({ missing: true });
+      return;
+    }
+    const response = await fetch(ace.url, {
+      method: "POST",
+      headers: {
+        ...ace.headers,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": "ace_scope",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "ace_scope",
+          arguments: {},
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": { name: "synthetic-opencode", version: "1" },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+    json({
+      names: Object.keys(config.mcp),
+      status: response.status,
+      response: response.ok ? await response.json() : null,
+    });
+    return;
+  }
   requests.push({ method: req.method, path, query: Object.fromEntries(url.searchParams), body });
   if (path === "/api/info") {
     if (process.env.ACE_TEST_HTML === "1") {

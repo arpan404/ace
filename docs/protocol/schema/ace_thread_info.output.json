@@ -142,6 +142,17 @@
             "interruptCascades": {
               "type": "boolean"
             },
+            "launchOptions": {
+              "items": {
+                "enum": [
+                  "effort",
+                  "serviceTier"
+                ],
+                "type": "string"
+              },
+              "maxItems": 2,
+              "type": "array"
+            },
             "planMode": {
               "type": "boolean"
             },
@@ -477,6 +488,24 @@
               "required": [
                 "state",
                 "on"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "limited",
+                  "type": "string"
+                },
+                "until": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "state"
               ],
               "type": "object"
             },

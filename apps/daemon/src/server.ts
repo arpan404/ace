@@ -1,3 +1,4 @@
+import type { HistoryScanStatus } from "@ace/protocol/history";
 import { startTransports } from "./services/transports.ts";
 import { createSocketRegistry, parseSocketMessage } from "./services/registry.ts";
 import type { SocketMessage } from "./services/socket.ts";
@@ -46,6 +47,8 @@ export async function startServer(options: ServerOptions): Promise<{
   maintenance: MaintenanceGate;
   url: string;
   notify(device: DeviceId, notification: Notification): boolean;
+  notificationDevices(): readonly DeviceId[];
+  broadcastHistoryScan(scan: HistoryScanStatus): void;
   preview?: DaemonPreview;
   httpUrl: string;
   diagnosticsQueues(): { socketInput: number; healthRequests: number };
@@ -82,6 +85,10 @@ export async function startServer(options: ServerOptions): Promise<{
       : undefined;
   let preview: DaemonPreview | undefined;
   const maintenance = new MaintenanceGate(() => options.store.updateBlockers());
+  let ready = options.ready === undefined;
+  void options.ready?.then(() => {
+    ready = true;
+  });
   if (options.maintenance) maintenance.enter();
   const local = httpServer(
     previewHttp(
@@ -93,6 +100,8 @@ export async function startServer(options: ServerOptions): Promise<{
         options.pairingAddress,
         maintenance,
         options.version,
+        options.serviceStatus,
+        () => ready,
       ),
     ),
   );
@@ -108,6 +117,8 @@ export async function startServer(options: ServerOptions): Promise<{
             options.pairingAddress,
             undefined,
             options.version,
+            options.serviceStatus,
+            () => ready,
           ),
         ),
       )
@@ -301,6 +312,9 @@ export async function startServer(options: ServerOptions): Promise<{
           revocable: message.ticket !== undefined,
         });
         try {
+          // HTTP discovery is available while listener features initialize. A
+          // welcome promises the socket can use the published service registry.
+          await options.ready;
           if (authorize("read")) await options.notifications?.connectDevice(actor.id);
         } catch {
           fail("device_unavailable", "Device unavailable", true);
@@ -532,6 +546,18 @@ export async function startServer(options: ServerOptions): Promise<{
           fingerprint: options.remote.identity.fingerprint,
         }
       : {}),
+    broadcastHistoryScan(scan) {
+      for (const [socket, actor] of authenticated) {
+        const current = actor.revocable ? options.store.devices.get(actor.id) : actor;
+        if (
+          socket.readyState === WebSocket.OPEN &&
+          current?.revokedAt === null &&
+          allows(current, "read")
+        )
+          receivers.get(actor.id)?.get(socket)?.({ type: "history.scan.updated", scan });
+      }
+    },
+    notificationDevices: () => [...receivers.keys()],
     notify(device, notification) {
       let delivered = false;
       for (const [socket, send] of receivers.get(device) ?? []) {

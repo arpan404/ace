@@ -40,6 +40,7 @@ export function createThreadView(thread: Thread, seq = 0): ThreadView {
     interactions: {},
     backgroundTasks: {},
     usage: {},
+    contextMeters: {},
     usageSnapshots: {},
   };
 }
@@ -241,8 +242,20 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       }
       break;
     }
+    case "context.sampled":
+      break;
+    case "queue.updated": {
+      const { type: _type, ...queue } = p;
+      view.queue = queue;
+      break;
+    }
+    case "context_meter.updated":
+      view.contextMeters ??= {};
+      put(view.contextMeters, p.meter.agentId, structuredCopy(p.meter));
+      break;
     case "input.admitted":
       // Queue ownership is reconciled by the host; admission creates no transcript/run.
+
       break;
     case "usage.updated":
       if (p.usageScope === "provider_session" || p.usageScope === "model_session")

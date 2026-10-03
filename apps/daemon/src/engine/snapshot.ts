@@ -39,6 +39,7 @@ const root = z.object({
 });
 const record = z.object({
   agent: Agent,
+  externalStatus: ThreadStatus.optional(),
   activity: AgentActivity,
   lastSignalAt: Timestamp,
   activeRun: RunId.optional(),
@@ -54,6 +55,7 @@ const record = z.object({
   wakeUntil: Timestamp.optional(),
   parentKey: z.string().optional(),
   spawnedByKey: z.string().optional(),
+  limited: z.object({ until: Timestamp.optional(), message: z.string().optional() }).optional(),
   retry: z
     .object({
       on: z.enum(["rate_limit", "network", "upstream"]),

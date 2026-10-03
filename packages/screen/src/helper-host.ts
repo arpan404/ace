@@ -1,3 +1,4 @@
+import { ScreenStopError } from "./stop-error.ts";
 import { Helper, type HelperOptions } from "./helper.ts";
 /** One process owns a host. Concurrent inspections share its bounded request map. */
 export class HelperHost {
@@ -47,8 +48,12 @@ export class HelperHost {
     try {
       await helper.request({ op: "stop" });
     } catch (error) {
-      await this.close();
-      throw error;
+      try {
+        await this.close();
+      } catch (terminationError) {
+        throw new ScreenStopError([error, terminationError], false);
+      }
+      throw new ScreenStopError([error], true);
     }
   }
   close(): Promise<void> {

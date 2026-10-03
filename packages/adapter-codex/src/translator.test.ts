@@ -230,7 +230,7 @@ test("a completed plan opens review and keeps the thread from finishing", () => 
     markdown: "# Proposal",
   });
 });
-test("provider failure text makes a nominally completed turn fail", () => {
+test("provider usage-limit text retains a limit after nominal turn completion", () => {
   const h = setup();
   h.start();
   h.item(
@@ -238,7 +238,8 @@ test("provider failure text makes a nominally completed turn fail", () => {
     true,
   );
   h.end();
-  expect(h.state.status.state).toBe("failed");
+  expect(h.state.status).toEqual({ state: "limited" });
+  expect(Object.values(h.state.runs)).toContainEqual(expect.objectContaining({ state: "failed" }));
 });
 test("ordinary prose mentioning an error does not make the turn fail", () => {
   const h = setup();
@@ -254,7 +255,7 @@ test("ordinary prose mentioning an error does not make the turn fail", () => {
   h.end();
   expect(h.state.status.state).toBe("done");
 });
-test("retry blocks until provider activity resumes", () => {
+test("generic provider activity cannot clear a usage limit", () => {
   const h = setup();
   h.start();
   h.recv("error", {
@@ -262,8 +263,10 @@ test("retry blocks until provider activity resumes", () => {
     willRetry: true,
     error: { codexErrorInfo: "rateLimitExceeded", message: "busy" },
   });
-  expect(h.state.status).toEqual({ state: "waiting", on: "rate_limit" });
+  expect(h.state.status).toEqual({ state: "limited" });
   h.item({ type: "agentMessage", id: "message", text: "retry worked" }, true);
+  expect(h.state.status).toEqual({ state: "limited" });
+  h.feedFact({ type: "limit.cleared", agent: "root" }, 100);
   expect(h.state.status.state).toBe("working");
 });
 test("unknown items, frames and malformed data survive as raw payloads", () => {

@@ -167,6 +167,7 @@ export class ThreadTransitions {
     }
     try {
       this.repo.store.atomic((db) => {
+        if (crossProvider) this.repo.resetAdmission(actor.id);
         this.repo.transitions.remember(actor.id, selection);
         const currentState = this.repo.requireState(actor.id);
         currentState.config.provider = selection.provider;
@@ -221,6 +222,12 @@ export class ThreadTransitions {
             ...(selection.model ? { model: selection.model } : {}),
           },
         ]);
+        if (crossProvider || crossAccount)
+          actor.apply(
+            Object.entries(currentState.agents)
+              .filter(([, record]) => record.limited)
+              .map(([agent]) => ({ type: "limit.cleared" as const, agent })),
+          );
       });
     } catch (error) {
       this.repo.evict(actor.id);

@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { Agent, Item, Thread, ThreadId, WorkspaceId } from "@ace/protocol";
-import { HistoryListRequest, HistoryProvider, HistorySession } from "@ace/protocol/history";
+import {
+  HistoryListRequest,
+  HistoryProvider,
+  HistorySession,
+  HistoryScanStats,
+} from "@ace/protocol/history";
 import { isAbsolute } from "node:path";
 
 export const ProviderHome = z.object({
@@ -30,11 +35,7 @@ export const ImportInit = z.object({
   at: z.number().int().nonnegative(),
 });
 export type ImportInit = z.infer<typeof ImportInit>;
-export const ScanResult = z.object({
-  files: z.number(),
-  reads: z.number(),
-  bytes: z.number(),
-  skipped: z.number(),
+export const ScanResult = HistoryScanStats.extend({
   unsupported: z.array(z.object({ instanceId: z.string(), reason: z.string() })).max(256),
 });
 export const Packet = z.discriminatedUnion("type", [

@@ -110,7 +110,7 @@ Tests run in separate unit and process projects with bounded concurrency. See
 inventory, shared fixtures and validation record. The owner requires tests to
 run only at merge; development verification uses the permitted static checks.
 
-The daemon prints its URL and token-file path. Remote access is off by default. See [remote access](docs/daemon/remote-access.md) for LAN/Tailscale pairing, device scopes and the `ace` CLI. See [store and sync](docs/daemon/store-and-sync.md) for configuration, the development creator, the command port, and replay behavior.
+The daemon prints its URL and token-file path. See [startup and degraded services](docs/daemon/startup.md) for readiness and service diagnostics. Remote access is off by default. See [remote access](docs/daemon/remote-access.md) for LAN/Tailscale pairing, device scopes and the `ace` CLI. See [store and sync](docs/daemon/store-and-sync.md) for configuration, the development creator, the command port, and replay behavior.
 
 Local generic ACP launch and registry wire APIs are described in [agent registry](packages/agent-registry/README.md). Arbitrary agents retain unknown authentication and limited visibility; compatibility profiles are source-based until separately approved recordings establish behavior.
 

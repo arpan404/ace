@@ -1,3 +1,4 @@
+import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { AccountService, AccountRegistry } from "@ace/accounts";
 import type { CommandLibrary } from "@ace/commands";
@@ -24,9 +25,15 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  agentControl?: {
+    previews: import("../agent-control/owners.ts").AgentPreviews;
+    delegations: import("../agent-control/delegations.ts").DelegationService;
+    port: import("@ace/mcp-server").AgentControlPort;
+  };
   transitions?: import("../engine/transitions.ts").TransitionIO;
   pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
+  devices?: DevicesService;
   accounts?: AccountService;
   accountRegistry?: AccountRegistry;
   commands?: CommandLibrary;
@@ -53,6 +60,8 @@ export interface Services {
   usage: ReturnType<typeof createDaemonUsage>;
 }
 export interface ServiceContext {
+  signal: AbortSignal;
+  readiness?(read: () => { state: "starting" | "ready" | "degraded"; error?: string }): void;
   config: Config;
   options: DaemonOptions;
   store: Store;

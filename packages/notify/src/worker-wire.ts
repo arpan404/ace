@@ -53,6 +53,7 @@ export const ToWorker = z.discriminatedUnion("type", [
   }),
 ]);
 export const FromWorker = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("ready") }),
   z.object({ type: z.literal("result"), id: seq, ok: z.boolean(), value: seq.optional() }),
   z.object({
     type: z.literal("delivery"),

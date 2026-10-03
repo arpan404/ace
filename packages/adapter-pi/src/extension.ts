@@ -1,27 +1,17 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { z } from "zod";
+import { AceMcpConnectionSchema } from "@ace/mcp-server";
 import { obj, str } from "./native.ts";
 import type { PiExtensionApi } from "./extension-api.ts";
-const Connection = z.object({
-  url: z.url().refine((s) => {
-    const u = new URL(s);
-    return (
-      u.protocol === "http:" &&
-      u.hostname === "127.0.0.1" &&
-      u.pathname === "/mcp" &&
-      !u.username &&
-      !u.password &&
-      !u.search &&
-      !u.hash
-    );
-  }),
-  bearer: z.string().regex(/^[a-f0-9]{64}$/),
-});
+const ToolName = z
+  .string()
+  .max(128)
+  .regex(/^(?:ace_|screen_|device_)[a-z0-9_]+$/);
 const Tools = z.object({
   tools: z
     .array(
       z.object({
-        name: z.string().regex(/^ace_[a-z0-9_]+$/),
+        name: ToolName,
         description: z.string().max(16384).optional(),
         inputSchema: z.record(z.string(), z.unknown()),
       }),
@@ -99,7 +89,7 @@ export default async function aceExtension(
     },
   });
   if (!env.ACE_PI_MCP_URL) return;
-  const connection = Connection.parse({
+  const connection = AceMcpConnectionSchema.parse({
     url: env.ACE_PI_MCP_URL,
     bearer: env.ACE_PI_MCP_BEARER,
   });
@@ -109,7 +99,7 @@ export default async function aceExtension(
   );
   let calls = 0;
   pi.on("tool_result", (event) => {
-    if (!event.toolName.startsWith("ace_")) return;
+    if (!ToolName.safeParse(event.toolName).success) return;
     const result = obj(obj(event.details).aceMcp);
     return typeof result.isError === "boolean" ? { isError: result.isError } : undefined;
   });

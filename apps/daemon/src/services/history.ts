@@ -4,14 +4,29 @@ export async function startHistory(context: ServiceContext): Promise<void> {
   const { config, options, store, resources, services } = context;
 
   if (!options.history) return;
-  const history = await openDaemonHistory(config.dataDir, store, options.history);
+  const history = await openDaemonHistory(config.dataDir, store, {
+    ...options.history,
+    signal: context.signal,
+  });
   resources.own(() => history.close());
   services.history = history;
+  context.readiness?.(() => {
+    const scan = history.scanStatus();
+    return {
+      state:
+        scan.state === "scanning" ? "starting" : scan.state === "failed" ? "degraded" : "ready",
+      ...(scan.error ? { error: `Service history: ${scan.error}` } : {}),
+    };
+  });
+  context.onListen.push((server) => {
+    resources.own(history.subscribeScan((scan) => server.broadcastHistoryScan(scan)));
+    server.broadcastHistoryScan(history.scanStatus());
+  });
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";
 export function createHistorySession(context: SocketContext): SocketService {
-  const { options, authorize, canReadThread, send, fail } = context;
+  const { options, authorize, canReadThread, send, fail, tasks, connected } = context;
   const historyLifetime = new AbortController();
   return {
     close() {
@@ -23,9 +38,15 @@ export function createHistorySession(context: SocketContext): SocketService {
         case "history.list":
         case "history.import":
         case "history.continue": {
-          const scope = message.type === "history.list" ? "read" : "operate";
+          const scope =
+            message.type === "history.list" ||
+            (message.type === "history.scan" && message.action === "status")
+              ? "read"
+              : "operate";
+          const correlation =
+            "requestId" in message && message.requestId ? { requestId: message.requestId } : {};
           if (!authorize(scope)) {
-            fail("forbidden", `${scope} scope required`);
+            fail("forbidden", `${scope} scope required`, false, correlation);
             return true;
           }
           if (message.type === "history.continue" && !canReadThread(message.threadId)) {
@@ -33,14 +54,24 @@ export function createHistorySession(context: SocketContext): SocketService {
             return true;
           }
           if (!options.history) {
-            fail("history_unavailable", "History is not configured");
+            fail("history_unavailable", "History is not configured", false, correlation);
             return true;
           }
-          try {
-            send(await options.history.handle(message, historyLifetime.signal));
-          } catch {
-            fail("history_rejected", "History operation rejected");
+          if (tasks.size >= 8) {
+            fail("history_busy", "Too many history requests", false, correlation);
+            return true;
           }
+          const task = options.history
+            .handle(message, historyLifetime.signal)
+            .then((result) => {
+              if (connected() && authorize(scope)) send(result);
+            })
+            .catch(() => {
+              if (connected())
+                fail("history_rejected", "History operation rejected", false, correlation);
+            })
+            .finally(() => tasks.delete(task));
+          tasks.add(task);
           return true;
         }
       }

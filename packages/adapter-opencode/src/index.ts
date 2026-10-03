@@ -1,4 +1,3 @@
-import { openCodeInjection } from "@ace/mcp-server";
 import type { Key } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
 import type { SessionContext, ProviderAdapter } from "@ace/engine-api";
@@ -21,11 +20,6 @@ export function createOpenCodeAdapter(
     capabilities,
     createTranslator: (init: { threadId: ThreadId; rootKey: Key }) => new OpenCodeTranslator(init),
     async openSession(ctx: SessionContext) {
-      if (ctx.aceMcp) {
-        const env = { ...options.discovery?.env, ...ctx.env };
-        const ace = openCodeInjection(ctx.aceMcp, env.OPENCODE_CONFIG_CONTENT);
-        ctx = { ...ctx, env: { ...env, ...ace.env } };
-      }
       const lease = await pool.acquire(ctx);
       try {
         pool.assertOpen();
@@ -33,7 +27,7 @@ export function createOpenCodeAdapter(
           {
             ...ctx,
             onExit: (exit) => {
-              lease.release();
+              void lease.release().catch(() => {});
               ctx.onExit(exit);
             },
           },
@@ -48,10 +42,16 @@ export function createOpenCodeAdapter(
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
           stopTask: (task) => session.stopTask(task),
-          close: (reason) => session.close(reason),
+          async close(reason) {
+            try {
+              await session.close(reason);
+            } finally {
+              await lease.release();
+            }
+          },
         };
       } catch (error) {
-        lease.release();
+        await lease.release();
         await lease.server.release();
         throw error;
       }

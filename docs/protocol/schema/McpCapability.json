@@ -7,8 +7,12 @@
     "terminal",
     "notify",
     "agents",
+    "thread_control",
+    "automations",
+    "projects",
     "forge",
-    "screen"
+    "screen",
+    "devices"
   ],
   "type": "string"
 }

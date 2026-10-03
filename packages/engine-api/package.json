@@ -12,6 +12,7 @@
   "dependencies": {
     "@ace/agent-registry": "workspace:*",
     "@ace/core": "workspace:*",
+    "@ace/mcp-server": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*"
   }

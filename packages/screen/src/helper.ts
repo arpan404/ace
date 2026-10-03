@@ -283,12 +283,20 @@ export class Helper {
       return Promise.reject(new HelperCommandError("bounds", "Helper command exceeds limit"));
     if (this.pending.has(request.id)) return Promise.reject(new Error("Duplicate request id"));
     return new Promise((resolve, reject) => {
+      const dragDuration =
+        request.op === "input" && request.input.kind === "pointer.drag"
+          ? request.input.durationMs
+          : request.op === "pointer.drag"
+            ? request.durationMs
+            : undefined;
       const cancel = (this.options.scheduler ?? nodeScheduler).schedule(
         () => this.fail(new Error("Helper command timed out")),
         this.options.timeoutMs ??
-          (request.op === "start" && this.capabilities?.platform === "linux-wayland"
-            ? 130_000
-            : 10_000),
+          (dragDuration !== undefined
+            ? dragDuration + 5_000
+            : request.op === "start" && this.capabilities?.platform === "linux-wayland"
+              ? 130_000
+              : 10_000),
       );
       this.pending.set(request.id, { resolve, reject, cancel });
       this.proc.stdin.write(line, (error) => {

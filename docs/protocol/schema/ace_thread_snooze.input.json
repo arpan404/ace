@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_thread_snooze.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "until": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "threadId",
+    "until"
+  ],
+  "type": "object"
+}

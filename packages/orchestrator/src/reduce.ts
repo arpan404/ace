@@ -184,7 +184,9 @@ export function apply(state: OrchestrationState, input: unknown, ctx: Context): 
           phase(
             m,
             lane,
-            ["needs_you", "waiting", "unresponsive"].includes(status) ? "waiting" : "working",
+            ["needs_you", "waiting", "limited", "unresponsive"].includes(status)
+              ? "waiting"
+              : "working",
           );
         }
       }

@@ -1,3 +1,4 @@
+import { claudeInjection, redactMcpCredential } from "@ace/mcp-server";
 import { ClaudeSelectionOptions } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { randomUUID } from "node:crypto";
@@ -72,7 +73,7 @@ export async function openSession(
   let q: Query;
   const processId = randomUUID();
   const frame = (dir: Frame["dir"], channel: string, data: unknown) => {
-    const payload = new ProviderPayload(JSON.stringify(data));
+    const payload = new ProviderPayload(redactMcpCredential(JSON.stringify(data), ctx.aceMcp));
     ctx.onFrame({
       seq: sequence++,
       t: Math.round(performance.now() - started),
@@ -113,9 +114,20 @@ export async function openSession(
     process_id: processId,
     cwd: ctx.cwd,
   });
+  const injection = ctx.aceMcp ? claudeInjection(ctx.aceMcp) : undefined;
   q = query({
     prompt: input,
     options: {
+      ...configuration,
+      ...(injection
+        ? {
+            systemPrompt: {
+              type: "preset",
+              preset: "claude_code",
+              append: injection.developerInstructions,
+            },
+          }
+        : {}),
       cwd: ctx.cwd,
       ...(ctx.model ? { model: ctx.model } : {}),
       ...(ctx.fork
@@ -130,9 +142,8 @@ export async function openSession(
           : { sessionId }),
       ...(selectedOptions.effort ? { effort: selectedOptions.effort } : {}),
       pathToClaudeCodeExecutable: executable,
-      ...configuration,
       ...(selectedOptions.permissionMode ? { permissionMode: selectedOptions.permissionMode } : {}),
-      mcpServers: nativeMcpServers(options.mcpServers ?? {}),
+      mcpServers: nativeMcpServers({ ...options.mcpServers, ...injection?.mcpServers }),
       includePartialMessages: true,
       forwardSubagentText: true,
       perTaskStopAffordance: true,

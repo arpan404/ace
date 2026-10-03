@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/AppDevice.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/AppDeviceId.json"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "platform": {
+      "enum": [
+        "ios",
+        "android"
+      ],
+      "type": "string"
+    },
+    "runtime": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "serial": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "booted",
+        "shutdown",
+        "offline",
+        "unauthorized"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "platform",
+    "name",
+    "state"
+  ],
+  "type": "object"
+}

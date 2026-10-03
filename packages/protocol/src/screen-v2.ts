@@ -180,6 +180,7 @@ export const ScreenInput = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("pointer.drag"),
+    durationMs: z.number().int().min(1).max(10000).optional(),
     ...point,
     toX: z.number().finite().nonnegative(),
     toY: z.number().finite().nonnegative(),
@@ -265,6 +266,7 @@ export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
   }),
   Envelope.extend({
     op: z.literal("pointer.drag"),
+    durationMs: z.number().int().min(1).max(10000).optional(),
     x: z.number().finite().nonnegative(),
     y: z.number().finite().nonnegative(),
     toX: z.number().finite().nonnegative(),

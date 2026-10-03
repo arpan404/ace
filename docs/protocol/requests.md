@@ -10,6 +10,28 @@ Authenticate with `hello` and the negotiated protocolVersion before subscribing 
 
 [JSON Schema](schema/ClientMessage.json), input validation.
 
+### queue.get
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"queue.get"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| after | no | [CommandId.json](schema/CommandId.json) |  |
+| expectedRevision | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| limit | no | integer | {"minimum":1,"maximum":32} |
+
+Example:
+
+```json
+{
+  "after": "example",
+  "requestId": "example",
+  "threadId": "example",
+  "type": "queue.get"
+}
+```
+
 ### pi.control
 
 | Field | Required | Type | Constraints |
@@ -24,8 +46,7 @@ Example:
 ```json
 {
   "operation": {
-    "entryId": "example",
-    "kind": "rollback"
+    "kind": "profile"
   },
   "requestId": "example",
   "threadId": "example",
@@ -33,7 +54,7 @@ Example:
 }
 ```
 
-### Variant 2
+### Variant 3
 
 Type: union. See JSON Schema for constraints.
 
@@ -43,7 +64,7 @@ Example:
 {
   "acpAgentId": "example",
   "requestId": "example",
-  "runtime": "binary",
+  "runtime": "uv",
   "type": "registry.install-plan"
 }
 ```
@@ -61,12 +82,10 @@ Example:
 ```json
 {
   "operation": {
-    "limit": 9,
-    "op": "mention.complete",
-    "query": "example",
-    "threadId": "example"
+    "op": "upload.status",
+    "uploadId": "5T8RqJj"
   },
-  "requestId": "5_OgThR",
+  "requestId": "NMt",
   "type": "context.request"
 }
 ```
@@ -86,9 +105,7 @@ Example:
 {
   "key": "providers.reviewer.tier",
   "requestId": "example",
-  "scope": {
-    "threadId": "example"
-  },
+  "scope": {},
   "type": "settings.get"
 }
 ```
@@ -109,12 +126,12 @@ Example:
 {
   "key": "example",
   "layer": {
-    "kind": "thread",
-    "threadId": "example"
+    "kind": "workspace",
+    "workspaceId": "example"
   },
   "requestId": "example",
   "type": "settings.set",
-  "value": "example"
+  "value": null
 }
 ```
 
@@ -133,11 +150,11 @@ Example:
 ```json
 {
   "keys": [
-    "approvals.policy"
+    "plugins.preferences"
   ],
   "requestId": "example",
   "scope": {
-    "threadId": "example"
+    "workspaceId": "example"
   },
   "subscriptionId": "example",
   "type": "settings.subscribe"
@@ -149,6 +166,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"history.list"` |  |
+| requestId | no | string | {"minLength":1,"maxLength":256} |
 | cwd | yes | string |  |
 | limit | no | integer | {"default":50,"minimum":1,"maximum":200} |
 | before | no | object | {"properties":{"lastActivity":{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},"id":{"type":"string"}},"required":["lastActivity","id"]} |
@@ -159,9 +177,10 @@ Example:
 {
   "before": {
     "id": "example",
-    "lastActivity": 3
+    "lastActivity": 5
   },
   "cwd": "example",
+  "requestId": "example",
   "type": "history.list"
 }
 ```
@@ -189,6 +208,8 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"history.scan"` |  |
+| requestId | no | string | {"minLength":1,"maxLength":256} |
+| action | no | ["start","status"] |  |
 
 Example:
 
@@ -212,14 +233,15 @@ Example:
 
 ```json
 {
+  "delivery": "steer",
   "input": [],
-  "mode": "fork",
+  "mode": "resume",
   "threadId": "example",
   "type": "history.continue"
 }
 ```
 
-### Variant 11
+### Variant 12
 
 Type: union. See JSON Schema for constraints.
 
@@ -227,10 +249,9 @@ Example:
 
 ```json
 {
-  "name": "example",
   "requestId": "example",
   "threadId": "example",
-  "type": "mcp.disable"
+  "type": "mcp.status"
 }
 ```
 
@@ -309,11 +330,8 @@ Example:
 ```json
 {
   "operation": {
-    "destination": "example",
-    "destinationExpected": null,
-    "expected": null,
-    "op": "rename",
-    "path": "example"
+    "limit": 8,
+    "op": "trash.list"
   },
   "requestId": "example",
   "type": "files.request"
@@ -332,8 +350,8 @@ Example:
 
 ```json
 {
-  "channel": 5,
-  "credits": 5,
+  "channel": 1,
+  "credits": 7,
   "type": "files.credit"
 }
 ```
@@ -349,7 +367,7 @@ Example:
 
 ```json
 {
-  "channel": 2,
+  "channel": 7,
   "type": "files.cancel"
 }
 ```
@@ -368,7 +386,7 @@ Example:
 
 ```json
 {
-  "limit": 9,
+  "query": "example",
   "requestId": "example",
   "threadId": "example",
   "type": "commands.list"
@@ -390,7 +408,6 @@ Example:
 
 ```json
 {
-  "arguments": {},
   "commandId": "example",
   "requestId": "example",
   "threadId": "example",
@@ -449,7 +466,7 @@ Example:
 {
   "from": "example",
   "nativeSessionId": "example",
-  "provider": "cursor",
+  "provider": "opencode",
   "requestId": "example",
   "to": "example",
   "type": "accounts.migrate"
@@ -473,8 +490,9 @@ Example:
 
 ```json
 {
-  "mode": "substring",
+  "limit": 3,
   "requestId": "example",
+  "scope": "items",
   "text": "example",
   "type": "search.query"
 }
@@ -509,12 +527,252 @@ Example:
 ```json
 {
   "operation": {
-    "maxNodes": 6,
-    "op": "ui.tree",
-    "sessionId": "47OHbkVqsmudAvm4GtT7MZC1S_Ov"
+    "op": "ui.find",
+    "query": {
+      "name": "example",
+      "text": "example"
+    },
+    "sessionId": "Cjh5joX1SXQqYm_z"
   },
-  "requestId": "Io71v3WVGFxYqk-jqNII1hvjDKGVFHCzVv",
+  "requestId": "Ua1sMcUbVJ",
   "type": "screen.request"
+}
+```
+
+### devices.request
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"devices.request"` |  |
+| requestId | yes | [ScreenId.json](schema/ScreenId.json) |  |
+| operation | yes | [DeviceOperation.json](schema/DeviceOperation.json) |  |
+
+Example:
+
+```json
+{
+  "operation": {
+    "deviceId": "ios:CAACc3dF13B1d173d6b4B-Ac-fFd9bafC2a-",
+    "op": "record.stop"
+  },
+  "requestId": "p38vzc-8",
+  "type": "devices.request"
+}
+```
+
+### browser.open
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.open"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| options | yes | [BrowserOpen.json](schema/BrowserOpen.json) |  |
+
+Example:
+
+```json
+{
+  "options": {
+    "profile": "persistent",
+    "threadId": "example",
+    "workspaceId": "example"
+  },
+  "requestId": "example",
+  "type": "browser.open"
+}
+```
+
+### browser.close
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.close"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.close"
+}
+```
+
+### browser.execute
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.execute"` |  |
+| command | yes | [BrowserCommand.json](schema/BrowserCommand.json) |  |
+
+Example:
+
+```json
+{
+  "command": {
+    "action": "click",
+    "ref": "example"
+  },
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.execute"
+}
+```
+
+### browser.subscribe
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.subscribe"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.subscribe"
+}
+```
+
+### browser.unsubscribe
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.unsubscribe"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.unsubscribe"
+}
+```
+
+### browser.ack
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.ack"` |  |
+| sequence | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "sequence": 2,
+  "threadId": "example",
+  "type": "browser.ack"
+}
+```
+
+### browser.takeover
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.takeover"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.takeover"
+}
+```
+
+### browser.handback
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.handback"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.handback"
+}
+```
+
+### browser.input
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.input"` |  |
+| input | yes | [BrowserInput.json](schema/BrowserInput.json) |  |
+
+Example:
+
+```json
+{
+  "input": {
+    "event": "mouseMoved",
+    "kind": "mouse",
+    "x": 9,
+    "y": 1
+  },
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.input"
+}
+```
+
+### browser.recording.start
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.recording.start"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.recording.start"
+}
+```
+
+### browser.recording.stop
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":256} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| type | yes | `"browser.recording.stop"` |  |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "threadId": "example",
+  "type": "browser.recording.stop"
 }
 ```
 
@@ -548,7 +806,8 @@ Example:
 ```json
 {
   "filter": {
-    "provider": "opencode"
+    "instanceId": "example",
+    "provider": "acp"
   },
   "requestId": "example",
   "type": "models.refresh"
@@ -569,11 +828,12 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "acpAgentId": "example",
-    "model": "example",
-    "provider": "antigravity",
+    "installationId": "example",
+    "instance": "example",
+    "instanceId": "example",
     "role": "example",
-    "selection": "strongest"
+    "selection": "default",
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -609,8 +869,9 @@ Example:
 ```json
 {
   "device": {
-    "channel": "websocket",
-    "platform": "desktop"
+    "channel": "apns",
+    "platform": "phone",
+    "token": "E5d987600DEE1eDeA490dc63aD4BE02B9ebcCfFD877b07BCEF85f1da801B0ED3"
   },
   "type": "notification.register"
 }
@@ -627,7 +888,9 @@ Example:
 
 ```json
 {
-  "preferences": {},
+  "preferences": {
+    "includePreview": false
+  },
   "type": "notification.preferences"
 }
 ```
@@ -646,7 +909,7 @@ Example:
 {
   "threadId": "example",
   "type": "notification.snooze",
-  "until": 6
+  "until": 7
 }
 ```
 
@@ -657,6 +920,7 @@ Semantic rule: Exactly one of token and ticket is required.
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"hello"` |  |
+| channel | no | ["files","devices","browser","screen"] |  |
 | protocolVersion | yes | `1` |  |
 | deviceId | yes | [DeviceId.json](schema/DeviceId.json) |  |
 | token | no | string |  |
@@ -725,8 +989,9 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "runId": "JUzemey.I.KkZc2Tk57NIDsv-sn6jVa2sNcUbWKXBWhUpDjh6jpX2TXRqZn.Ahp",
-      "type": "conductor.cancel"
+      "commentId": "example",
+      "sessionId": "example",
+      "type": "review.applySuggestion"
     }
   },
   "type": "command"
@@ -747,8 +1012,8 @@ Example:
 
 ```json
 {
-  "limit": 10,
-  "offset": 8,
+  "limit": 4,
+  "offset": 4,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -770,7 +1035,7 @@ Example:
 ```json
 {
   "before": 4,
-  "limit": 5,
+  "limit": 6,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"

@@ -3,6 +3,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "$ref": "https://ace.local/protocol/v1/QueueGet.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/PiControlRequest.json"
     },
     {
@@ -196,6 +199,265 @@
       "$ref": "https://ace.local/protocol/v1/ScreenClientMessage.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/DeviceClientMessage.json"
+    },
+    {
+      "properties": {
+        "options": {
+          "$ref": "https://ace.local/protocol/v1/BrowserOpen.json"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "browser.open",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "options"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.close",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "command": {
+          "$ref": "https://ace.local/protocol/v1/BrowserCommand.json"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.execute",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "command"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.subscribe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.unsubscribe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sequence": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.ack",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "sequence"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.takeover",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.handback",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "input": {
+          "$ref": "https://ace.local/protocol/v1/BrowserInput.json"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.input",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.recording.start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.recording.stop",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "threadId",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ModelsListRequest.json"
     },
     {
@@ -218,6 +480,15 @@
     },
     {
       "properties": {
+        "channel": {
+          "enum": [
+            "files",
+            "devices",
+            "browser",
+            "screen"
+          ],
+          "type": "string"
+        },
         "deviceId": {
           "$ref": "https://ace.local/protocol/v1/DeviceId.json"
         },
