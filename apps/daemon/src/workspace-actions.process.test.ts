@@ -42,6 +42,8 @@ test("workspace reads expose declared scripts and installed editors and receipts
       scripts: expect.arrayContaining([
         { id: "package.json:dev", name: "dev", source: "package.json", command: "npm run 'dev'" },
         { id: "Procfile:web", name: "web", source: "Procfile", command: "echo web" },
+        { id: "Makefile:test", name: "test", source: "Makefile", command: "make 'test'" },
+        { id: "justfile:serve", name: "serve", source: "justfile", command: "just 'serve'" },
       ]),
     });
     await writeFile(join(root, "code"), "#!/bin/sh\nexit 0\n");

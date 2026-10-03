@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto";
+import { WorkspaceRoots, type WorkspaceGit } from "./workspace-roots.ts";
 import { hostname, homedir } from "node:os";
 import { join } from "node:path";
-import { mkdir } from "node:fs/promises";
 import { GitService, type GitOptions } from "@ace/git";
 import { TerminalManager, type Terminal, type TerminalManagerOptions } from "@ace/terminal";
 import {
@@ -15,6 +14,7 @@ import {
   type WorkspaceActionResult,
 } from "@ace/protocol";
 import { listScripts, installedEditors, shellQuote } from "./workspace-scripts.ts";
+import { createCommandRunner, type CommandRunner } from "@ace/forge";
 import { WorkspaceForge } from "./workspace-forge.ts";
 import { RunCheckpoints } from "./run-checkpoints.ts";
 import { listClientRuns } from "./run-client-storage.ts";
@@ -23,6 +23,8 @@ import type { Store } from "./store.ts";
 
 export interface WorkspaceRuntimeOptions {
   git?: GitOptions;
+  forgeRunner?: (cwd: string) => CommandRunner;
+  gitService?: WorkspaceGit;
   terminal?: TerminalManagerOptions;
   editorPath?: string;
   editorApplications?: readonly string[];
@@ -30,17 +32,18 @@ export interface WorkspaceRuntimeOptions {
   machine?: { host: string; name: string };
 }
 export class WorkspaceRuntime {
-  readonly git: GitService;
+  readonly git: WorkspaceGit;
   readonly forge: WorkspaceForge;
   readonly commands: AsyncCommands;
   readonly checkpoints: RunCheckpoints;
   readonly machine: { host: string; name: string };
   private store: Store;
-  private directory: string;
+  private roots: WorkspaceRoots;
   private now: () => number;
   private options: WorkspaceRuntimeOptions;
   private manager: TerminalManager;
   private terminals = new Map<string, { threadId: ThreadId; terminal: Terminal }>();
+  private ownedTerminals = new Map<ThreadId, number>();
   private pendingOpens = 0;
   private nextTerminal = 0;
   constructor(
@@ -50,101 +53,37 @@ export class WorkspaceRuntime {
     options: WorkspaceRuntimeOptions = {},
   ) {
     this.store = store;
-    this.directory = directory;
     this.now = now;
     this.options = options;
     this.machine = options.machine ?? { host: hostname(), name: hostname() };
-    this.git = new GitService(options.git);
-    this.forge = new WorkspaceForge(store, this.git, now);
+    this.git = options.gitService ?? new GitService(options.git);
+    this.roots = new WorkspaceRoots(store, this.git, directory, now, this.machine);
+    this.forge = new WorkspaceForge(
+      store,
+      this.git,
+      now,
+      options.forgeRunner ?? ((cwd) => createCommandRunner({ cwd })),
+    );
     this.commands = new AsyncCommands(store);
     this.checkpoints = new RunCheckpoints(store, this.git, (id) => this.root(id), now);
     this.manager = new TerminalManager({ scrollbackBytes: 262144, ...options.terminal });
   }
   root(id: ThreadId): string {
-    const thread = this.store.getThread(id);
-    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
-    const root = thread.details?.worktree ?? this.store.getWorkspacePath(thread.workspaceId);
-    if (!root) throw new Error("workspace_not_found");
-    return root;
+    return this.roots.root(id);
   }
-  async prepare(id: ThreadId): Promise<string> {
-    const thread = this.store.getThread(id);
-    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
-    const root = this.store.getWorkspacePath(thread.workspaceId);
-    if (!root) throw new Error("workspace_not_found");
-    if (thread.details?.mode !== "worktree") return root;
-    const key = createHash("sha256").update(id).digest("hex");
-    const path = join(this.directory, "worktrees", key);
-    const branch = `ace/${key.slice(0, 24)}`;
-    const existing = (await this.git.listWorktrees(root)).find(
-      (tree) => tree.path === path && tree.branch === branch,
-    );
-    if (!existing) {
-      await mkdir(join(this.directory, "worktrees"), { recursive: true, mode: 0o700 });
-      await this.git.createWorktree({
-        repo: root,
-        path,
-        baseRef: thread.details?.baseBranch ?? "HEAD",
-        branch,
-      });
-    }
-    this.store.appendEvents(
-      id,
-      [
-        {
-          type: "thread.client.updated",
-          changes: {
-            details: { ...thread.details, worktree: path, branch, machine: this.machine },
-          },
-        },
-      ],
-      this.now(),
-    );
-    return path;
+  prepare(id: ThreadId): Promise<string> {
+    return this.roots.prepare(id);
   }
-  async details(id: ThreadId): Promise<ThreadDetails> {
-    const root = this.root(id);
-    const info = await this.git.repositoryInfo(root);
-    const diff = info.head
-      ? await this.git.diff({
-          worktree: root,
-          from: { kind: "commit", ref: info.head },
-          to: { kind: "working-tree" },
-          maxPatchBytes: 1,
-        })
-      : undefined;
-    const thread = this.store.getThread(id);
-    if (!thread || thread.deletedAt !== undefined) throw new Error("thread_not_found");
-    const details: ThreadDetails = {
-      ...thread.details,
-      worktree: root,
-      branch: info.branch,
-      head: info.head,
-      ahead: info.ahead,
-      behind: info.behind,
-      machine: this.machine,
-      ...(diff
-        ? {
-            diff: {
-              files: diff.entries.length,
-              additions: diff.entries.reduce((n, file) => n + file.additions, 0),
-              deletions: diff.entries.reduce((n, file) => n + file.deletions, 0),
-            },
-          }
-        : {}),
-    };
-    if (JSON.stringify(thread.details) !== JSON.stringify(details))
-      this.store.appendEvents(
-        id,
-        [{ type: "thread.client.updated", changes: { details } }],
-        this.now(),
-      );
-    return details;
+  details(id: ThreadId): Promise<ThreadDetails> {
+    return this.roots.details(id);
   }
   listTerminals(id: ThreadId) {
     return [...this.terminals]
       .filter(([, entry]) => entry.threadId === id)
       .map(([key]) => this.describe(key, id));
+  }
+  hasOwnedWork(id: ThreadId): boolean {
+    return (this.ownedTerminals.get(id) ?? 0) > 0;
   }
   terminal(id: string, threadId: ThreadId): Terminal {
     this.root(threadId);
@@ -171,6 +110,7 @@ export class WorkspaceRuntime {
       const terminal = this.manager.openTerminal({ cwd: this.root(threadId), name, cols, rows });
       const id = `terminal-${++this.nextTerminal}`;
       this.terminals.set(id, { threadId, terminal });
+      this.ownedTerminals.set(threadId, (this.ownedTerminals.get(threadId) ?? 0) + 1);
       return id;
     } finally {
       this.pendingOpens--;
@@ -179,7 +119,10 @@ export class WorkspaceRuntime {
   async closeTerminal(id: string, threadId: ThreadId): Promise<void> {
     const terminal = this.terminal(id, threadId);
     await this.manager.release(terminal);
-    this.terminals.delete(id);
+    if (!this.terminals.delete(id)) return;
+    const remaining = (this.ownedTerminals.get(threadId) ?? 1) - 1;
+    if (remaining > 0) this.ownedTerminals.set(threadId, remaining);
+    else this.ownedTerminals.delete(threadId);
   }
   async read(request: WorkspaceActionRequest): Promise<WorkspaceActionResult> {
     const op = request.operation;
@@ -281,10 +224,12 @@ export class WorkspaceRuntime {
   }
   async close(): Promise<void> {
     this.forge.close();
+    await this.roots.close();
     await this.commands.drained();
     await this.checkpoints.close();
     await this.manager.closeAll();
     this.terminals.clear();
+    this.ownedTerminals.clear();
     await this.git.close();
   }
 }

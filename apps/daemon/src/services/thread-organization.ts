@@ -18,6 +18,11 @@ export function createThreadOrganizationSession({
       types: organizationCommands,
       scope: () => "operate",
       accept(command, device) {
+        const receipt = options.store.commandReceipt(command.id, device);
+        if (receipt) {
+          send({ type: "commandResult", ...receipt });
+          return;
+        }
         if (
           !("threadId" in command.payload) ||
           !canReadThread(ThreadId.parse(command.payload.threadId))
@@ -26,7 +31,12 @@ export function createThreadOrganizationSession({
           return;
         }
         const result = options.store.recordCommand(command.id, device, () =>
-          organizeThread(options.store, command, (options.now ?? Date.now)()),
+          organizeThread(
+            options.store,
+            command,
+            (options.now ?? Date.now)(),
+            (id) => options.workspaceActions?.hasOwnedWork(id) ?? false,
+          ),
         );
         send({ type: "commandResult", ...result });
       },

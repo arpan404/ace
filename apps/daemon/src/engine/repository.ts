@@ -290,12 +290,14 @@ export class EngineRepository {
     model?: string;
     nativeSessionId?: string;
     instanceId?: string;
+    workspaceReady: boolean;
   } {
     return this.store.atomic((db) => {
       const row = db.prepare("SELECT * FROM engine_sessions WHERE thread_id = ?").get(id);
       if (!row) throw new Error("Missing engine session metadata");
       return {
         cwd: String(row.cwd),
+        workspaceReady: this.store.executionWorkspace(id).ready,
         ...(typeof row.instance_id === "string" ? { instanceId: row.instance_id } : {}),
         ...(row.model === null ? {} : { model: String(row.model) }),
         ...(row.native_session_id === null
@@ -303,6 +305,12 @@ export class EngineRepository {
           : { nativeSessionId: String(row.native_session_id) }),
       };
     });
+  }
+  createUnpreparedSession(id: ThreadId, cwd: string, model?: string): void {
+    this.createSession(id, cwd, model);
+    this.store.atomic((db) =>
+      db.prepare("UPDATE engine_sessions SET workspace_ready=0 WHERE thread_id=?").run(id),
+    );
   }
   createSession(id: ThreadId, cwd: string, model?: string, instanceId?: string): void {
     this.store.atomic((db) =>

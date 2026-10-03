@@ -2,7 +2,7 @@ import {
   GitHubForge,
   ForgeStore,
   repositoryFromRemote,
-  createCommandRunner,
+  type CommandRunner,
   type Forge,
 } from "@ace/forge";
 import { ForgeCommand, type ForgePrStatus, type CommandResult, ThreadId } from "@ace/protocol";
@@ -11,15 +11,22 @@ import type { Store } from "./store.ts";
 
 export class WorkspaceForge {
   private store: Store;
-  private git: GitService;
+  private git: Pick<GitService, "repositoryInfo">;
   private now: () => number;
+  private runner: (cwd: string) => CommandRunner;
   private links: ForgeStore;
   private backends = new Map<string, Forge>();
   private lifetime = new AbortController();
-  constructor(store: Store, git: GitService, now: () => number) {
+  constructor(
+    store: Store,
+    git: Pick<GitService, "repositoryInfo">,
+    now: () => number,
+    runner: (cwd: string) => CommandRunner,
+  ) {
     this.store = store;
     this.git = git;
     this.now = now;
+    this.runner = runner;
     this.links = store.atomic((db) => new ForgeStore(db));
   }
   private async backend(cwd: string): Promise<Forge> {
@@ -27,12 +34,12 @@ export class WorkspaceForge {
     const remote = (info.remotes.find((entry) => entry.name === "origin") ?? info.remotes[0])
       ?.fetchUrls[0];
     const repository = repositoryFromRemote(remote);
-    const key = JSON.stringify(repository);
+    const key = JSON.stringify({ repository, cwd });
     let backend = this.backends.get(key);
     if (!backend)
       backend = new GitHubForge({
         repository,
-        runner: createCommandRunner({ cwd }),
+        runner: this.runner(cwd),
         now: this.now,
       });
     this.backends.delete(key);

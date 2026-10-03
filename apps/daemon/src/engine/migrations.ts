@@ -1,3 +1,4 @@
+import { migrateWorkspaceReadiness } from "./workspace-migration.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { engineSchemaVersion, requireEngineVersion } from "./schema-version.ts";
 
@@ -12,6 +13,12 @@ export function migrateEngine(db: DatabaseSync): void {
     const columns = db.prepare("PRAGMA table_info(engine_sessions)").all();
     if (!columns.some((column) => column.name === "instance_id"))
       db.exec("ALTER TABLE engine_sessions ADD COLUMN instance_id TEXT");
+    if (!columns.some((column) => column.name === "workspace_ready")) {
+      db.exec(
+        "ALTER TABLE engine_sessions ADD COLUMN workspace_ready INTEGER NOT NULL DEFAULT 1 CHECK(workspace_ready IN (0,1))",
+      );
+      migrateWorkspaceReadiness(db);
+    }
     return;
   }
   const legacy = db
@@ -27,7 +34,8 @@ export function migrateEngine(db: DatabaseSync): void {
   );
   CREATE TABLE engine_sessions (
     thread_id TEXT PRIMARY KEY REFERENCES threads(id), cwd TEXT NOT NULL,
-    model TEXT, native_session_id TEXT, instance_id TEXT
+    model TEXT, native_session_id TEXT, instance_id TEXT,
+    workspace_ready INTEGER NOT NULL DEFAULT 1 CHECK(workspace_ready IN (0,1))
   );
   CREATE TABLE intents (
     id INTEGER PRIMARY KEY AUTOINCREMENT, command_id TEXT NOT NULL UNIQUE,

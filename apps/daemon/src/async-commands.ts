@@ -4,7 +4,10 @@ import type { Store } from "./store.ts";
 /** Reserve before I/O, share concurrent retries, and never repeat an uncertain external effect. */
 export class AsyncCommands {
   private store: Store;
-  private flights = new Map<string, Promise<CommandResult>>();
+  private flights = new Map<
+    string,
+    { deviceId: Command["deviceId"]; promise: Promise<CommandResult> }
+  >();
   constructor(store: Store) {
     this.store = store;
   }
@@ -13,7 +16,10 @@ export class AsyncCommands {
     effect: () => Promise<Omit<CommandResult, "commandId">>,
   ): Promise<CommandResult> {
     const existing = this.flights.get(command.id);
-    if (existing) return existing;
+    if (existing)
+      return existing.deviceId === command.deviceId
+        ? existing.promise
+        : Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
     if (this.flights.size >= 16)
       return Promise.resolve({ commandId: command.id, ok: false, error: "action_busy" });
     let reserved = false;
@@ -32,10 +38,10 @@ export class AsyncCommands {
       .finally(() => {
         this.flights.delete(command.id);
       });
-    this.flights.set(command.id, flight);
+    this.flights.set(command.id, { deviceId: command.deviceId, promise: flight });
     return flight;
   }
   async drained(): Promise<void> {
-    await Promise.allSettled(this.flights.values());
+    await Promise.allSettled([...this.flights.values()].map((flight) => flight.promise));
   }
 }

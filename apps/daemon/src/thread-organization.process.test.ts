@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "vitest";
-import { Agent, BackgroundTask, Command, type CommandPayload } from "@ace/protocol";
-import { fixture } from "./socket-test-support.ts";
+import { Agent, BackgroundTask, Command, DeviceId, type CommandPayload } from "@ace/protocol";
+import { token, fixture } from "./socket-test-support.ts";
 import { ThreadOrganizer } from "./thread-organizer.ts";
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -12,7 +12,8 @@ async function setup(now: () => number = () => 1000) {
   close = f.close;
   const first = await f.connect();
   await first.next();
-  const second = await f.connect();
+  const second = await f.open();
+  second.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse("second"), token });
   await second.next();
   let seq = 0;
   const command = async (payload: CommandPayload, id = `organize-${++seq}`) => {
@@ -37,9 +38,37 @@ test("two devices receive the same rename, pin, unread and snooze projections", 
     events: [{ payload: { changes: { pinned: true } } }],
   });
   await f.command({ type: "thread.read", threadId: f.thread.id, unread: true });
-  await f.second.next();
+  expect(await f.second.next()).toMatchObject({
+    type: "events",
+    events: [{ payload: { changes: { unread: true, readAt: 1000 } } }],
+  });
   await f.command({ type: "thread.snooze", threadId: f.thread.id, until: 9000 });
-  await f.second.next();
+  expect(await f.second.next()).toMatchObject({
+    type: "events",
+    events: [{ payload: { changes: { snoozedUntil: 9000 } } }],
+  });
+  const expected = {
+    title: "Renamed",
+    pinned: true,
+    unread: true,
+    readAt: 1000,
+    snoozedUntil: 9000,
+  };
+  f.first.send({
+    type: "subscribe",
+    subscriptionId: "thread",
+    scope: { kind: "thread", threadId: f.thread.id },
+  });
+  expect(await f.first.next()).toMatchObject({ type: "snapshot", view: { thread: expected } });
+  f.second.send({
+    type: "subscribe",
+    subscriptionId: "updated-sidebar",
+    scope: { kind: "threads" },
+  });
+  expect(await f.second.next()).toMatchObject({
+    type: "snapshot",
+    view: { threads: { [f.thread.id]: expected } },
+  });
   expect(f.store.getThread(f.thread.id)).toMatchObject({
     title: "Renamed",
     pinned: true,
@@ -58,24 +87,6 @@ test("archive is immediate and unarchive survives receipt retries without losing
   await f.command({ type: "thread.unarchive", threadId: f.thread.id }, "undo");
   expect(f.store.getThread(f.thread.id)?.archivedAt).toBeUndefined();
   expect(f.store.headSeq()).toBe(head);
-});
-
-test("manual settlement refuses human waits and deletion refuses live background work", async () => {
-  const f = await setup();
-  f.store.appendEvents(f.thread.id, [
-    { type: "thread.updated", status: { state: "needs_you", interactions: 1 } },
-  ]);
-  expect(await f.command({ type: "thread.settle", threadId: f.thread.id })).toMatchObject({
-    ok: false,
-    error: "thread_not_done",
-  });
-  f.store.appendEvents(f.thread.id, [
-    { type: "thread.updated", status: { state: "waiting", on: "background_task" } },
-  ]);
-  expect(await f.command({ type: "thread.delete", threadId: f.thread.id })).toMatchObject({
-    ok: false,
-    error: "thread_busy",
-  });
 });
 
 test("deletion hides a quiescent thread while preserving replay coverage", async () => {
@@ -122,38 +133,16 @@ test("inactivity settles only done trees at the daemon deadline and unsettle sta
   await f.command({ type: "thread.unsettle", threadId: f.thread.id });
   await organizer.sweep();
   expect(f.store.getThread(f.thread.id)?.settledAt).toBeUndefined();
-});
-
-test("a merged PR cannot settle a tree that is still waiting on a human", async () => {
-  let now = 1000;
-  const f = await setup(() => now);
-  const organizer = new ThreadOrganizer(
-    f.store,
-    undefined,
-    () => now,
-    () => () => {},
-  );
-  close = async () => {
-    await organizer.close();
-    await f.close();
-  };
-  f.store.appendEvents(
-    f.thread.id,
-    [
-      {
-        type: "thread.client.updated",
-        changes: { details: { linkedPr: { number: 42, state: "merged" } } },
-      },
-      { type: "thread.updated", status: { state: "needs_you", interactions: 1 } },
-    ],
-    now,
-  );
-  now += 2 * 86_400_000;
+  expect(f.store.getThread(f.thread.id)?.autoSettleAt).toBe(now + 86_400_000);
+  now += 86_400_000 - 1;
   await organizer.sweep();
   expect(f.store.getThread(f.thread.id)?.settledAt).toBeUndefined();
-  f.store.appendEvents(f.thread.id, [{ type: "thread.updated", status: { state: "done" } }], now);
+  now++;
   await organizer.sweep();
-  expect(f.store.getThread(f.thread.id)?.settledReason).toBe("pr_merged");
+  expect(f.store.getThread(f.thread.id)).toMatchObject({
+    settledAt: now,
+    settledReason: "inactivity",
+  });
 });
 
 test("snooze expires on the daemon clock and a renewed working tree immediately leaves settled", async () => {

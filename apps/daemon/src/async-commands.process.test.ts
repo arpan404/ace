@@ -33,6 +33,9 @@ test("concurrent command retries share one external effect and a completed recei
     const first = commands.run(command, effect);
     await started;
     const second = commands.run(command, effect);
+    expect(
+      await commands.run(Command.parse({ ...command, deviceId: "stranger" }), effect),
+    ).toMatchObject({ ok: false, error: "forbidden" });
     release();
     expect(await first).toMatchObject({ ok: true });
     expect(await second).toMatchObject({ ok: true });

@@ -10,13 +10,18 @@ import type { Store } from "./store.ts";
 /** Git snapshots bracket root turns plus their children. A new turn waits for the prior capture. */
 export class RunCheckpoints {
   private store: Store;
-  private git: GitService;
+  private git: Pick<GitService, "createCheckpoint">;
   private root: (id: Id) => string;
   private now: () => number;
   private flights = new Map<Id, Promise<void>>();
   private unsubscribe: () => void;
   private closing = false;
-  constructor(store: Store, git: GitService, root: (id: Id) => string, now: () => number) {
+  constructor(
+    store: Store,
+    git: Pick<GitService, "createCheckpoint">,
+    root: (id: Id) => string,
+    now: () => number,
+  ) {
     this.store = store;
     this.git = git;
     this.root = root;

@@ -35,14 +35,14 @@ export class Sessions {
       let metadata = this.dependencies.repo.session(actor.id);
       const entity = this.dependencies.repo.store.getThread(actor.id);
       if (entity?.deletedAt !== undefined) throw new Error("Thread deleted");
-      if (entity?.details?.mode === "worktree" && !metadata.nativeSessionId) {
+      if (!metadata.workspaceReady) {
         if (!this.dependencies.prepareWorkspace)
           throw new Error("Worktree preparation unavailable");
         const cwd = await this.dependencies.prepareWorkspace(actor.id);
-        this.dependencies.repo.store.atomic((db) =>
-          db.prepare("UPDATE engine_sessions SET cwd=? WHERE thread_id=?").run(cwd, actor.id),
-        );
+        this.dependencies.repo.store.completeWorkspacePreparation(actor.id, metadata.cwd, cwd);
         metadata = this.dependencies.repo.session(actor.id);
+        if (!metadata.workspaceReady || metadata.cwd !== cwd)
+          throw new Error("Workspace root changed while preparing");
       }
       const transition = this.dependencies.repo.transitions.get(actor.id);
       if (state.config.provider !== "acp" && metadata.nativeSessionId && !capabilities.resume)

@@ -1,4 +1,5 @@
 import { migrateRunClient, prepareRunClient } from "./run-client-storage.ts";
+import { executionWorkspace } from "./workspace-root.ts";
 import {
   migrateThreadClient,
   seedThreadClient,
@@ -20,7 +21,7 @@ import {
   CommandResult,
   Event,
   Thread,
-  type DeviceId,
+  DeviceId,
   type CommandId,
   type EventPayload,
   type RawPayload,
@@ -66,6 +67,7 @@ export class Store {
   private readonly nextId: () => string;
   private readonly now: () => number;
   private readonly mcp: McpData;
+  private engineSessionsKnown = false;
   private statements = new Map<string, StatementSync>();
   private transactionEvents: Event[] | undefined;
   private depth = 0;
@@ -323,6 +325,32 @@ export class Store {
     const row = this.statement("SELECT path,name FROM workspaces WHERE id=?").get(id);
     return row ? { path: String(row.path), name: String(row.name) } : undefined;
   }
+  executionWorkspace(id: ThreadId) {
+    const thread = this.getThread(id);
+    if (!thread) throw new Error("thread_not_found");
+    if (!this.engineSessionsKnown)
+      this.engineSessionsKnown = Boolean(
+        this.statement(
+          "SELECT 1 FROM sqlite_master WHERE type='table' AND name='engine_sessions'",
+        ).get(),
+      );
+    const session = this.engineSessionsKnown
+      ? this.statement("SELECT * FROM engine_sessions WHERE thread_id=?").get(id)
+      : undefined;
+    return executionWorkspace(
+      thread,
+      session,
+      session === undefined ? this.getWorkspacePath(thread.workspaceId) : undefined,
+    );
+  }
+  completeWorkspacePreparation(id: ThreadId, expectedPath: string, path: string): boolean {
+    const thread = this.getThread(id);
+    if (!thread || thread.deletedAt !== undefined) return false;
+    const result = this.statement(
+      "UPDATE engine_sessions SET cwd=?,workspace_ready=1 WHERE thread_id=? AND cwd=? AND workspace_ready=0",
+    ).run(path, id, expectedPath);
+    return result.changes === 1;
+  }
   importedSource(sourceId: string): Thread | undefined {
     const row = this.statement(
       "SELECT * FROM threads WHERE json_extract(imported,'$.sourceId')=?",
@@ -556,9 +584,13 @@ export class Store {
   recordCommand(commandId: CommandId, deviceId: DeviceId, run: () => CommandResult): CommandResult {
     return this.transaction(() => {
       const receipt = this.statement(
-        "SELECT result FROM command_receipts WHERE command_id = ?",
+        "SELECT result,device_id FROM command_receipts WHERE command_id = ?",
       ).get(commandId);
-      if (receipt) return CommandResult.parse(JSON.parse(String(receipt.result)));
+      if (receipt) {
+        if (DeviceId.parse(receipt.device_id) !== deviceId)
+          return { commandId, ok: false, error: "forbidden" };
+        return CommandResult.parse(JSON.parse(String(receipt.result)));
+      }
       const result = CommandResult.parse(run());
       if (result.commandId !== commandId) throw new Error("Command result id mismatch");
       this.statement("INSERT INTO command_receipts VALUES (?, ?, ?, ?)").run(
@@ -569,6 +601,12 @@ export class Store {
       );
       return result;
     });
+  }
+  commandReceipt(commandId: CommandId, deviceId: DeviceId): CommandResult | undefined {
+    const row = this.statement(
+      "SELECT result FROM command_receipts WHERE command_id=? AND device_id=?",
+    ).get(commandId, deviceId);
+    return row ? CommandResult.parse(JSON.parse(String(row.result))) : undefined;
   }
   completeAsyncCommand(id: CommandId, input: CommandResult): CommandResult {
     const result = CommandResult.parse(input);
