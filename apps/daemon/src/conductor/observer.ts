@@ -4,6 +4,7 @@ import type { ServiceContext } from "../services/types.ts";
 import type { ConductorRuntime } from "../conductor-runtime.ts";
 import { systemClock } from "../engine/actor.ts";
 import type { NativeConductorExecutor } from "./executor.ts";
+import type { LaneBinding } from "./journal.ts";
 import { parseLaneArtifact } from "./artifacts.ts";
 
 /** Engine events drive facts. One timer owns deadlines and retries, never client polling. */
@@ -16,6 +17,7 @@ export class DeckObserver {
   private tasks = new Set<Promise<void>>();
   private running = new Set<string>();
   private pending = new Map<string, boolean>();
+  private owners = new Map<ThreadId, LaneBinding>();
   private activity = new Map<ThreadId, number>();
   private started = false;
   private closed = false;
@@ -98,8 +100,8 @@ export class DeckObserver {
     const runs = new Set<string>();
     for (const event of events) {
       if (event.payload.type === "item.delta") {
-        if (this.activity.size < 128 || this.activity.has(event.threadId))
-          this.activity.set(event.threadId, event.at);
+        const owner = this.owner(event.threadId);
+        if (owner) this.noteActivity(owner.thread, event.at);
         continue;
       }
       if (
@@ -114,18 +116,38 @@ export class DeckObserver {
         ].includes(event.payload.type)
       )
         continue;
-      let thread: ThreadId | undefined = event.threadId;
-      for (let depth = 0; thread && depth < 9; depth++) {
-        const row = this.executor.journal.forThread(thread);
-        if (row) {
-          runs.add(row.run);
-          this.activity.set(row.thread, event.at);
-          break;
-        }
-        thread = this.executor.delegations.journal.get(thread)?.parentId;
+      const owner = this.owner(event.threadId);
+      if (owner) {
+        runs.add(owner.run);
+        this.noteActivity(owner.thread, event.at);
       }
     }
     for (const run of runs) this.changed(run);
+  }
+  private noteActivity(thread: ThreadId, at: number) {
+    if (this.activity.size >= 128 && !this.activity.has(thread)) {
+      const first = this.activity.keys().next().value;
+      if (first) this.activity.delete(first);
+    }
+    this.activity.set(thread, at);
+  }
+  private owner(threadId: ThreadId): LaneBinding | undefined {
+    const known = this.owners.get(threadId);
+    if (known) return known;
+    let thread: ThreadId | undefined = threadId;
+    for (let depth = 0; thread && depth < 9; depth++) {
+      const binding = this.executor.journal.forThread(thread);
+      if (binding) {
+        if (this.owners.size >= 128) {
+          const first = this.owners.keys().next().value;
+          if (first) this.owners.delete(first);
+        }
+        this.owners.set(threadId, binding);
+        return binding;
+      }
+      thread = this.executor.delegations.journal.get(thread)?.parentId;
+    }
+    return undefined;
   }
   private async reconcile(run: string, publish: boolean) {
     let state = this.runtime.state(run);
@@ -169,7 +191,7 @@ export class DeckObserver {
             }
             if (artifact && this.context.store.getThread(thread.id)?.status.state === "done") {
               try {
-                this.runtime.fact(run, `artifact.${binding.request}`, {
+                this.runtime.fact(run, `artifact.${binding.request}.${binding.generation}`, {
                   type: "artifact",
                   laneId: lane.id,
                   generation: lane.generation,
@@ -248,6 +270,7 @@ export class DeckObserver {
     this.cancelTimer?.();
     this.pending.clear();
     this.activity.clear();
+    this.owners.clear();
   }
   async close() {
     this.stopAdmission();

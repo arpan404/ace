@@ -82,8 +82,8 @@ test("a provider question appears in needsUser and answering its real interactio
   await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
 });
 
-test("cancel stops a lane and its delegate_task subtree before publishing cancelled", async () => {
-  const h = await deckFixture({ hold: true });
+test("cancel stops a lane and its streaming delegate_task subtree before publishing cancelled", async () => {
+  const h = await deckFixture({ hold: true, stallAfterMs: 1500 });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
   await expect
@@ -112,6 +112,12 @@ test("cancel stops a lane and its delegate_task subtree before publishing cancel
   await h.daemon.engine?.flush();
   expect(h.daemon.store.getThread(ThreadId.parse(lane.threadId))?.status.state).not.toBe("done");
   expect((await h.read()).phase).toBe("running");
+  await h.beginStream(child.childId);
+  for (let index = 0; index < 10; index++) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await h.stream(child.childId, " still working");
+  }
+  expect((await h.read()).needsUser).toEqual([]);
   expect(await h.commands({ type: "conductor.cancel", runId: h.runId })).toMatchObject({
     ok: true,
   });

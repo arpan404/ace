@@ -324,6 +324,32 @@ export async function deckFixture(
     commands,
     startRun,
     finish,
+    async stream(threadId: ThreadId, text: string) {
+      const ctx = contexts.get(threadId);
+      if (!ctx) throw new Error("No scripted session");
+      await output(ctx, {
+        type: "item.delta",
+        agent: "root",
+        item: "live-child",
+        field: "text",
+        append: text,
+      });
+    },
+    async beginStream(threadId: ThreadId) {
+      const ctx = contexts.get(threadId);
+      if (!ctx) throw new Error("No scripted session");
+      await output(ctx, {
+        type: "item.upsert",
+        agent: "root",
+        item: "live-child",
+        draft: {
+          type: "message",
+          role: "assistant",
+          complete: false,
+          parts: [{ type: "text", text: "Live" }],
+        },
+      });
+    },
     release: () => {
       hold = false;
     },

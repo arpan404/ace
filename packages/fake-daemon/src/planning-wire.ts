@@ -50,7 +50,7 @@ export class FakePlanningWire {
     fakeDeckRoot(run, this.host);
     return runView(run, {
       delegations: fakeDelegations(run, this.host),
-      gatedAt: run.gate ? this.gateTime(run.gate.id, run.updatedAt) : undefined,
+      ...(run.gate ? { gatedAt: this.gateTime(run.gate.id, run.updatedAt) } : {}),
     });
   }
   /** Seed decks, automations and their past runs, as a daemon that has been running a while. */

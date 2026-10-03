@@ -129,13 +129,14 @@ export function runView(
       : lanes(
           run,
           work.filter((card) => card.state !== "merged"),
-        ).map((lane) => ({
-          ...lane,
-          agentId:
-            execution.delegations?.find((entry) => entry.laneId === lane.id)?.agentId ??
-            lane.agentId,
-          status: run.phase === "paused" ? "waiting" : lane.status,
-        })),
+        ).map((lane) =>
+          Object.assign({}, lane, {
+            agentId:
+              execution.delegations?.find((entry) => entry.laneId === lane.id)?.agentId ??
+              lane.agentId,
+            status: run.phase === "paused" ? "waiting" : lane.status,
+          }),
+        ),
     dag: work.map((card) => ({
       id: card.id,
       title: card.title,
