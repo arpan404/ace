@@ -2,6 +2,7 @@ import type { Fact, Key } from "@ace/core";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { ProviderPayload } from "@ace/provider-kit/payload";
 import type {
+  AgentLaunchOptions,
   Capabilities,
   ContentPart,
   InteractionResolution,
@@ -51,6 +52,9 @@ export interface SessionContext {
   /** Persist this assignment with the native session ID; resume must reuse the same instance. */
   instanceId?: string;
   model?: string;
+  options?: AgentLaunchOptions;
+  /** Ephemeral ace capability, revoked with this session. Never persisted. */
+  aceMcp?: { url: string; bearer: string };
   resume?: { nativeSessionId: string };
   /** Every sent and received frame goes to the engine for translation and persistence. */
   onFrame(frame: Frame): void;

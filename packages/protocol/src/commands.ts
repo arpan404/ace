@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { AgentLaunchOptions, ThreadPrepareCommand } from "./agent-control.ts";
+import { RunTrigger } from "./thread.ts";
 import { DiagnosticsHealthCommand } from "./diagnostics.ts";
 import { MessageContext } from "./context.ts";
 import { ConductorCommandPayload } from "./conductor.ts";
@@ -23,6 +25,7 @@ import {
 } from "./orchestration-execution.ts";
 
 export const CommandPayload = z.discriminatedUnion("type", [
+  ThreadPrepareCommand,
   DiagnosticsHealthCommand,
   ...ConductorCommandPayload.options,
   ...ReviewCommands,
@@ -33,6 +36,10 @@ export const CommandPayload = z.discriminatedUnion("type", [
     type: z.literal("thread.create"),
     workspaceId: WorkspaceId,
     provider: ProviderKind,
+    threadId: ThreadId.optional(),
+    accountId: z.string().min(1).max(128).optional(),
+    options: AgentLaunchOptions.optional(),
+    trigger: RunTrigger.optional(),
     model: z.string().optional(),
     title: z.string().optional(),
     input: z.array(ContentPart).min(1),
@@ -40,6 +47,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("thread.send"),
+    trigger: RunTrigger.optional(),
     threadId: ThreadId,
     input: z.array(ContentPart).min(1),
     context: MessageContext.optional(),

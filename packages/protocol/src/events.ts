@@ -44,6 +44,7 @@ export const EventPayload = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("agent.updated"),
     agentId: AgentId,
+    childThreadId: ThreadId.optional(),
     /** Placeholder agents are completed and re-parented after native linkage arrives. */
     parentId: AgentId.nullable().optional(),
     origin: AgentOrigin.optional(),

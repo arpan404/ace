@@ -5,3 +5,5 @@ export { apply } from "./reduce.ts";
 export { deriveAgentStatus, deriveThreadStatus, isSettled } from "./status.ts";
 export { nextDeadline } from "./deadlines.ts";
 export { isActionableInteraction } from "./human.ts";
+
+export { readyForChildResults } from "./external.ts";

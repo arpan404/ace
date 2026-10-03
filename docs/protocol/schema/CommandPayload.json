@@ -3,6 +3,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "$ref": "https://ace.local/protocol/v1/ThreadPrepareCommand.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/DiagnosticsHealthCommand.json"
     },
     {
@@ -380,6 +383,11 @@
     },
     {
       "properties": {
+        "accountId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
         "context": {
           "$ref": "https://ace.local/protocol/v1/MessageContext.json"
         },
@@ -393,11 +401,20 @@
         "model": {
           "type": "string"
         },
+        "options": {
+          "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
+        },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
         },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
         "title": {
           "type": "string"
+        },
+        "trigger": {
+          "$ref": "https://ace.local/protocol/v1/RunTrigger.json"
         },
         "type": {
           "const": "thread.create",
@@ -436,6 +453,9 @@
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "trigger": {
+          "$ref": "https://ace.local/protocol/v1/RunTrigger.json"
         },
         "type": {
           "const": "thread.send",

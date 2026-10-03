@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentSelection.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "accountId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "options": {
+      "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    }
+  },
+  "required": [
+    "provider"
+  ],
+  "type": "object"
+}

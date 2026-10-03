@@ -501,6 +501,9 @@
         "review": {
           "$ref": "https://ace.local/protocol/v1/ReviewData.json"
         },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
         "type": {
           "const": "commandResult",
           "type": "string"

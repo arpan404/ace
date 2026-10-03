@@ -6,6 +6,9 @@
       "default": false,
       "type": "boolean"
     },
+    "childThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
     "createdAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },

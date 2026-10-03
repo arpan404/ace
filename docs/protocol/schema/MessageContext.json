@@ -18,6 +18,13 @@
       "maxItems": 64,
       "type": "array"
     },
+    "items": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ThreadRefContextItem.json"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "mentions": {
       "default": [],
       "items": {

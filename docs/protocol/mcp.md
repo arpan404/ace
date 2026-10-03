@@ -37,24 +37,15 @@ Example:
 ```json
 {
   "thread": {
-    "archivedAt": 0,
-    "createdAt": 7,
+    "archivedAt": 2,
+    "createdAt": 0,
     "id": "example",
-    "imported": {
-      "importedAt": 6,
-      "instanceId": "example",
-      "native": {
-        "provider": "claude"
-      },
-      "sourceId": "example"
-    },
-    "provider": "codex",
-    "rootAgentId": "example",
+    "provider": "claude",
     "status": {
       "state": "failed"
     },
     "title": "example",
-    "updatedAt": 7,
+    "updatedAt": 4,
     "workspaceId": "example"
   }
 }
@@ -78,7 +69,9 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{}
+{
+  "limit": 10
+}
 ```
 
 ## ace_list_agents.output
@@ -87,7 +80,7 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| agents | yes | array | {"maxItems":100,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"threadId":{"type":"string","minLength":1},"parentId":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"origin":{"type":"string","enum":["root","provider_subagent","ace"]},"native":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp"]},"nativeId":{"type":"string"},"path":{"type":"string"},"aliases":{"type":"array","items":{"type":"string"}}},"required":["provider"],"additionalProperties":false},"fidelity":{"type":"string","enum":["full","summary","placeholder"]},"spawnedBy":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"name":{"type":"string"},"role":{"type":"string"},"model":{"type":"string"},"cwd":{"type":"string"},"status":{"oneOf":[{"type":"object","properties":{"state":{"type":"string","const":"starting"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"working"},"activity":{"type":"string","enum":["thinking","responding","tool","compacting","retrying","starting_turn"]},"itemId":{"type":"string","minLength":1},"detail":{"type":"string"}},"required":["state","activity"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"blocked"},"on":{"type":"string","enum":["human","subagents","background_task","rate_limit","network","upstream"]},"refs":{"default":[],"type":"array","items":{"type":"string"}},"until":{"type":"integer","minimum":0,"maximum":9007199254740991},"attempt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"message":{"type":"string"}},"required":["state","on","refs"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"idle"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"interrupted"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"failed"},"error":{"type":"object","properties":{"kind":{"type":"string","enum":["provider","auth","quota","network","process_exit","unknown"]},"message":{"type":"string"}},"required":["kind","message"],"additionalProperties":false}},"required":["state","error"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"unresponsive"},"lastSignalAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["state","lastSignalAt"],"additionalProperties":false}]},"background":{"default":false,"type":"boolean"},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"endedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threadId","parentId","origin","native","fidelity","cwd","status","background","createdAt"],"additionalProperties":false}} |
+| agents | yes | array | {"maxItems":100,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1},"threadId":{"type":"string","minLength":1},"childThreadId":{"type":"string","minLength":1},"parentId":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"origin":{"type":"string","enum":["root","provider_subagent","ace"]},"native":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp"]},"nativeId":{"type":"string"},"path":{"type":"string"},"aliases":{"type":"array","items":{"type":"string"}}},"required":["provider"],"additionalProperties":false},"fidelity":{"type":"string","enum":["full","summary","placeholder"]},"spawnedBy":{"anyOf":[{"type":"string","minLength":1},{"type":"null"}]},"name":{"type":"string"},"role":{"type":"string"},"model":{"type":"string"},"cwd":{"type":"string"},"status":{"oneOf":[{"type":"object","properties":{"state":{"type":"string","const":"starting"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"working"},"activity":{"type":"string","enum":["thinking","responding","tool","compacting","retrying","starting_turn"]},"itemId":{"type":"string","minLength":1},"detail":{"type":"string"}},"required":["state","activity"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"blocked"},"on":{"type":"string","enum":["human","subagents","background_task","rate_limit","network","upstream"]},"refs":{"default":[],"type":"array","items":{"type":"string"}},"until":{"type":"integer","minimum":0,"maximum":9007199254740991},"attempt":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991},"message":{"type":"string"}},"required":["state","on","refs"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"idle"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"interrupted"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"failed"},"error":{"type":"object","properties":{"kind":{"type":"string","enum":["provider","auth","quota","network","process_exit","unknown"]},"message":{"type":"string"}},"required":["kind","message"],"additionalProperties":false}},"required":["state","error"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"unresponsive"},"lastSignalAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["state","lastSignalAt"],"additionalProperties":false}]},"background":{"default":false,"type":"boolean"},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"endedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["id","threadId","parentId","origin","native","fidelity","cwd","status","background","createdAt"],"additionalProperties":false}} |
 | nextCursor | yes | union | {"anyOf":[{"type":"string","maxLength":256},{"type":"null"}]} |
 
 Example:
@@ -95,7 +88,7 @@ Example:
 ```json
 {
   "agents": [],
-  "nextCursor": null
+  "nextCursor": "example"
 }
 ```
 
@@ -118,6 +111,7 @@ Example:
 
 ```json
 {
+  "level": "error",
   "text": "example"
 }
 ```
@@ -179,5 +173,1113 @@ Example:
 {
   "accepted": true,
   "intentId": "example"
+}
+```
+
+## delegate_task
+
+Delegate to an independent child thread on a chosen local provider, model and account. Set wait to observe its result or continue working. Completion results wake the parent in a batched turn. Request IDs make retries safe.
+
+Required capability: agents. Timeout: 300000 ms.
+
+## delegate_task.input
+
+[JSON Schema](schema/delegate_task.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| task | yes | string | {"minLength":1,"maxLength":16384} |
+| role | yes | string | {"minLength":1,"maxLength":1024} |
+| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| model | no | string | {"minLength":1,"maxLength":256} |
+| accountId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| options | no | [AgentLaunchOptions.json](schema/AgentLaunchOptions.json) |  |
+| wait | no | boolean | {"default":false} |
+| estimatedLoad | no | number | {"default":0,"minimum":0,"maximum":100} |
+
+Example:
+
+```json
+{
+  "accountId": "kdCry_",
+  "provider": "acp",
+  "requestId": "m",
+  "role": "example",
+  "task": "example"
+}
+```
+
+## delegate_task.output
+
+[JSON Schema](schema/delegate_task.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": false
+}
+```
+
+## ace_thread_create
+
+thread.create: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_create.input
+
+[JSON Schema](schema/ace_thread_create.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| title | yes | string | {"minLength":1,"maxLength":256} |
+| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| model | no | string | {"minLength":1,"maxLength":256} |
+| accountId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| options | no | [AgentLaunchOptions.json](schema/AgentLaunchOptions.json) |  |
+
+Example:
+
+```json
+{
+  "options": {
+    "effort": "medium"
+  },
+  "provider": "antigravity",
+  "requestId": "fw98XYwXk",
+  "title": "example"
+}
+```
+
+## ace_thread_create.output
+
+[JSON Schema](schema/ace_thread_create.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "forbidden",
+  "data": null,
+  "ok": false
+}
+```
+
+## ace_thread_launch
+
+thread.launch: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_launch.input
+
+[JSON Schema](schema/ace_thread_launch.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| text | yes | string | {"minLength":1,"maxLength":16384} |
+
+Example:
+
+```json
+{
+  "requestId": "16m",
+  "text": "example",
+  "threadId": "example"
+}
+```
+
+## ace_thread_launch.output
+
+[JSON Schema](schema/ace_thread_launch.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": false
+}
+```
+
+## ace_thread_message
+
+thread.message: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_message.input
+
+[JSON Schema](schema/ace_thread_message.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| text | yes | string | {"minLength":1,"maxLength":16384} |
+| delivery | no | ["queue","steer"] | {"default":"queue"} |
+
+Example:
+
+```json
+{
+  "requestId": "E4l8Ep",
+  "text": "example",
+  "threadId": "example"
+}
+```
+
+## ace_thread_message.output
+
+[JSON Schema](schema/ace_thread_message.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "ok": true
+}
+```
+
+## ace_thread_wait
+
+thread.wait: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 300000 ms.
+
+## ace_thread_wait.input
+
+[JSON Schema](schema/ace_thread_wait.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example"
+}
+```
+
+## ace_thread_wait.output
+
+[JSON Schema](schema/ace_thread_wait.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "forbidden",
+  "ok": true
+}
+```
+
+## ace_thread_read
+
+Read thread metadata and a byte-budgeted transcript page. Use itemsBefore as the next before cursor. For truncated parts with source.streamId, use ace_thread_read_output to page retained bytes.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_read.input
+
+[JSON Schema](schema/ace_thread_read.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| before | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| limit | no | integer | {"default":20,"minimum":1,"maximum":50} |
+
+Example:
+
+```json
+{
+  "before": 4,
+  "threadId": "example"
+}
+```
+
+## ace_thread_read.output
+
+[JSON Schema](schema/ace_thread_read.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "unsupported",
+  "ok": true
+}
+```
+
+## ace_thread_read_output
+
+Read a bounded byte range from a transcript/output source returned by ace_thread_read. Offsets and limits are bytes; the result contains base64 bytes and nextOffset. Decode using the source encoding. The stream must belong to the requested authorized thread.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_read_output.input
+
+[JSON Schema](schema/ace_thread_read_output.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| streamId | yes | string | {"minLength":1,"maxLength":256} |
+| offset | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| limit | no | integer | {"default":8192,"minimum":1,"maximum":16384} |
+
+Example:
+
+```json
+{
+  "offset": 2,
+  "streamId": "example",
+  "threadId": "example"
+}
+```
+
+## ace_thread_read_output.output
+
+[JSON Schema](schema/ace_thread_read_output.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## ace_thread_search
+
+thread.search: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_search.input
+
+[JSON Schema](schema/ace_thread_search.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| query | yes | string | {"minLength":1,"maxLength":256} |
+| cursor | no | string | {"maxLength":2048} |
+| limit | no | integer | {"default":20,"minimum":1,"maximum":50} |
+
+Example:
+
+```json
+{
+  "cursor": "example",
+  "limit": 9,
+  "query": "example",
+  "threadId": "example"
+}
+```
+
+## ace_thread_search.output
+
+[JSON Schema](schema/ace_thread_search.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "ok": true
+}
+```
+
+## ace_thread_interrupt
+
+thread.interrupt: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_interrupt.input
+
+[JSON Schema](schema/ace_thread_interrupt.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+
+Example:
+
+```json
+{
+  "requestId": "z.5",
+  "threadId": "example"
+}
+```
+
+## ace_thread_interrupt.output
+
+[JSON Schema](schema/ace_thread_interrupt.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## ace_thread_fork
+
+thread.fork: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_fork.input
+
+[JSON Schema](schema/ace_thread_fork.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| runId | no | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+
+Example:
+
+```json
+{
+  "requestId": "7UWRk",
+  "threadId": "example"
+}
+```
+
+## ace_thread_fork.output
+
+[JSON Schema](schema/ace_thread_fork.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "invalid",
+  "ok": true
+}
+```
+
+## ace_thread_merge
+
+thread.merge: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_merge.input
+
+[JSON Schema](schema/ace_thread_merge.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+
+Example:
+
+```json
+{
+  "requestId": "IFFo0",
+  "threadId": "example"
+}
+```
+
+## ace_thread_merge.output
+
+[JSON Schema](schema/ace_thread_merge.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "forbidden",
+  "data": null,
+  "ok": false
+}
+```
+
+## ace_queue_edit
+
+queue.edit: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_queue_edit.input
+
+[JSON Schema](schema/ace_queue_edit.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| entryId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| text | yes | string | {"minLength":1,"maxLength":16384} |
+
+Example:
+
+```json
+{
+  "entryId": "060",
+  "requestId": "U71.",
+  "text": "example",
+  "threadId": "example"
+}
+```
+
+## ace_queue_edit.output
+
+[JSON Schema](schema/ace_queue_edit.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## ace_queue_reorder
+
+queue.reorder: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_queue_reorder.input
+
+[JSON Schema](schema/ace_queue_reorder.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| entryIds | yes | array | {"minItems":1,"maxItems":64,"items":{"type":"string","minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"}} |
+
+Example:
+
+```json
+{
+  "entryIds": [
+    "l8Bfh"
+  ],
+  "requestId": "-vnOvF",
+  "threadId": "example"
+}
+```
+
+## ace_queue_reorder.output
+
+[JSON Schema](schema/ace_queue_reorder.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "not_found",
+  "ok": false
+}
+```
+
+## ace_question_answer
+
+question.answer: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_question_answer.input
+
+[JSON Schema](schema/ace_question_answer.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| interactionId | yes | [InteractionId.json](schema/InteractionId.json) |  |
+| answer | yes | object | {"properties":{"kind":{"type":"string","const":"question"},"answers":{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{"type":"array","items":{"type":"string"}}},"dismissed":{"type":"boolean"}},"required":["kind","answers"]} |
+
+Example:
+
+```json
+{
+  "answer": {
+    "answers": {},
+    "kind": "question"
+  },
+  "interactionId": "example",
+  "requestId": "TgeqcP80T",
+  "threadId": "example"
+}
+```
+
+## ace_question_answer.output
+
+[JSON Schema](schema/ace_question_answer.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": false
+}
+```
+
+## ace_thread_rename
+
+thread.rename: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_rename.input
+
+[JSON Schema](schema/ace_thread_rename.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| title | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "threadId": "example",
+  "title": "example"
+}
+```
+
+## ace_thread_rename.output
+
+[JSON Schema](schema/ace_thread_rename.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "ok": true
+}
+```
+
+## ace_thread_regenerate_title
+
+thread.regenerate_title: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_regenerate_title.input
+
+[JSON Schema](schema/ace_thread_regenerate_title.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example"
+}
+```
+
+## ace_thread_regenerate_title.output
+
+[JSON Schema](schema/ace_thread_regenerate_title.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "invalid",
+  "ok": true
+}
+```
+
+## ace_thread_link_pr
+
+thread.link_pr: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_link_pr.input
+
+[JSON Schema](schema/ace_thread_link_pr.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| url | yes | string | {"format":"ace-whatwg-url","x-ace-url-maxLength":2048,"x-ace-constraint":"Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."} |
+
+Example:
+
+```json
+{
+  "threadId": "example",
+  "url": "https://example.invalid/"
+}
+```
+
+## ace_thread_link_pr.output
+
+[JSON Schema](schema/ace_thread_link_pr.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## ace_thread_settle
+
+thread.settle: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_settle.input
+
+[JSON Schema](schema/ace_thread_settle.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example"
+}
+```
+
+## ace_thread_settle.output
+
+[JSON Schema](schema/ace_thread_settle.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## ace_thread_snooze
+
+thread.snooze: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_snooze.input
+
+[JSON Schema](schema/ace_thread_snooze.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| until | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/Timestamp.json"},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "threadId": "example",
+  "until": null
+}
+```
+
+## ace_thread_snooze.output
+
+[JSON Schema](schema/ace_thread_snooze.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": false
+}
+```
+
+## ace_automation_manage
+
+automation.manage: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: automations. Timeout: 10000 ms.
+
+## ace_automation_manage.input
+
+[JSON Schema](schema/ace_automation_manage.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| request | yes | [AutomationRequest.json](schema/AutomationRequest.json) |  |
+
+Example:
+
+```json
+{
+  "request": {
+    "id": "example",
+    "requestId": "example",
+    "type": "automation.run",
+    "variables": {}
+  }
+}
+```
+
+## ace_automation_manage.output
+
+[JSON Schema](schema/ace_automation_manage.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "ok": true
+}
+```
+
+## ace_project_read
+
+project.read: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: projects. Timeout: 10000 ms.
+
+## ace_project_read.input
+
+[JSON Schema](schema/ace_project_read.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+
+Example:
+
+```json
+{
+  "workspaceId": "example"
+}
+```
+
+## ace_project_read.output
+
+[JSON Schema](schema/ace_project_read.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "code": "unsupported",
+  "ok": false
+}
+```
+
+## ace_project_rename
+
+project.rename: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: projects. Timeout: 10000 ms.
+
+## ace_project_rename.input
+
+[JSON Schema](schema/ace_project_rename.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| name | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "name": "example",
+  "workspaceId": "example"
+}
+```
+
+## ace_project_rename.output
+
+[JSON Schema](schema/ace_project_rename.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## ace_thread_handoff
+
+thread.handoff: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_thread_handoff.input
+
+[JSON Schema](schema/ace_thread_handoff.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+| branch | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "branch": "example",
+  "requestId": "5CHMDOQ6Q_",
+  "threadId": "example"
+}
+```
+
+## ace_thread_handoff.output
+
+[JSON Schema](schema/ace_thread_handoff.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "ok": true
+}
+```
+
+## ace_preview_list
+
+preview.list: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_preview_list.input
+
+[JSON Schema](schema/ace_preview_list.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+
+Example:
+
+```json
+{
+  "threadId": "example"
+}
+```
+
+## ace_preview_list.output
+
+[JSON Schema](schema/ace_preview_list.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "ok": true
+}
+```
+
+## ace_preview_close
+
+preview.close: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+
+Required capability: thread_control. Timeout: 10000 ms.
+
+## ace_preview_close.input
+
+[JSON Schema](schema/ace_preview_close.input.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| previewId | yes | string | {"minLength":1,"maxLength":128,"pattern":"^[a-zA-Z0-9_.-]+$"} |
+
+Example:
+
+```json
+{
+  "previewId": "hCBwD7REfqh",
+  "threadId": "example"
+}
+```
+
+## ace_preview_close.output
+
+[JSON Schema](schema/ace_preview_close.output.json), output validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| ok | yes | boolean |  |
+| code | no | ["unsupported","forbidden","not_found","limit","not_ready","invalid","unavailable"] |  |
+| data | no | any JSON value |  |
+
+Example:
+
+```json
+{
+  "data": null,
+  "ok": false
 }
 ```

@@ -45,7 +45,7 @@ Example:
   "instance": "example",
   "isDefault": false,
   "nativeModelId": "example",
-  "provider": "acp",
+  "provider": "claude",
   "raw": {
     "json": "example",
     "truncated": false
@@ -69,7 +69,7 @@ Example:
 
 ```json
 {
-  "provider": "codex"
+  "provider": "claude"
 }
 ```
 
@@ -90,10 +90,8 @@ Example:
 
 ```json
 {
-  "error": "discovery_failed",
   "instance": "example",
   "provider": "claude",
-  "refreshedAt": 3,
   "refreshing": false,
   "stale": false
 }
@@ -114,8 +112,9 @@ Example:
 
 ```json
 {
-  "offset": 6,
-  "provider": "cursor"
+  "instance": "example",
+  "offset": 0,
+  "provider": "claude"
 }
 ```
 
@@ -134,7 +133,8 @@ Example:
 ```json
 {
   "instances": [],
-  "models": []
+  "models": [],
+  "nextOffset": 9
 }
 ```
 
@@ -157,18 +157,16 @@ Example:
 
 ```json
 {
-  "effort": "example",
   "model": {
     "deprecated": true,
     "displayName": "example",
-    "hidden": false,
+    "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
     "isDefault": true,
     "nativeModelId": "example",
-    "nativeProviderId": "example",
-    "provider": "antigravity",
+    "provider": "claude",
     "raw": {
       "json": "example",
       "truncated": true
@@ -179,7 +177,7 @@ Example:
   },
   "ok": true,
   "reason": "example",
-  "stale": false
+  "stale": true
 }
 ```
 
@@ -220,8 +218,9 @@ Example:
 ```json
 {
   "effort": "example",
-  "preferenceOrder": [],
-  "role": "example"
+  "model": "example",
+  "role": "example",
+  "tier": "example"
 }
 ```
 
@@ -239,6 +238,10 @@ Example:
 
 ```json
 {
+  "options": {
+    "instance": "example",
+    "limit": 7
+  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -258,7 +261,6 @@ Example:
 
 ```json
 {
-  "filter": {},
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -281,9 +283,9 @@ Example:
   "requestId": "example",
   "roleSpec": {
     "effort": "example",
-    "instance": "example",
-    "model": "example",
-    "role": "example"
+    "preferenceOrder": [],
+    "role": "example",
+    "selection": "default"
   },
   "type": "models.resolve"
 }
@@ -328,7 +330,6 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example",
-  "speed": "fast"
+  "name": "example"
 }
 ```

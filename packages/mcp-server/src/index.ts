@@ -44,3 +44,9 @@ export {
 
 export type { ContentToolDefinition } from "./content-tools.ts";
 export { builtinToolCatalog } from "./catalog.ts";
+
+export {
+  agentControlToolkit,
+  agentControlToolCatalog,
+  type AgentControlPort,
+} from "./agent-control.ts";

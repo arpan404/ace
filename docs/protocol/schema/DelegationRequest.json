@@ -1,0 +1,57 @@
+{
+  "$id": "https://ace.local/protocol/v1/DelegationRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "accountId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "estimatedLoad": {
+      "default": 0,
+      "maximum": 100,
+      "minimum": 0,
+      "type": "number"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "options": {
+      "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "role": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "task": {
+      "maxLength": 16384,
+      "minLength": 1,
+      "type": "string"
+    },
+    "wait": {
+      "default": false,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "requestId",
+    "task",
+    "role",
+    "provider"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,65 @@
+{
+  "$id": "https://ace.local/protocol/v1/DelegationRecord.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "childId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "createdAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "depth": {
+      "maximum": 8,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "generation": {
+      "default": 0,
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "outcome": {
+      "$ref": "https://ace.local/protocol/v1/DelegationOutcome.json"
+    },
+    "parentAgentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "parentId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "phase": {
+      "enum": [
+        "created",
+        "running",
+        "cancelling",
+        "settled"
+      ],
+      "type": "string"
+    },
+    "request": {
+      "$ref": "https://ace.local/protocol/v1/DelegationRequest.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "rootId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "childId",
+    "parentId",
+    "parentAgentId",
+    "rootId",
+    "requestId",
+    "request",
+    "depth",
+    "createdAt",
+    "phase"
+  ],
+  "type": "object"
+}

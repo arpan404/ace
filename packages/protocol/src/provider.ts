@@ -51,6 +51,11 @@ export type RawPayload = z.infer<typeof RawPayload>;
 export const Capabilities = z.object({
   /** Inject input into a running turn. When false, ace queues it client-side. */
   steer: z.boolean(),
+  /** Implemented launch selectors, empty when absent. */
+  launchOptions: z
+    .array(z.enum(["effort", "serviceTier"]))
+    .max(2)
+    .optional(),
   /** Interrupting a parent also stops its children. */
   interruptCascades: z.boolean(),
   resume: z.boolean(),

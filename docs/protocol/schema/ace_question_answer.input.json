@@ -1,0 +1,54 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_question_answer.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "answer": {
+      "properties": {
+        "answers": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "dismissed": {
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "question",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "answers"
+      ],
+      "type": "object"
+    },
+    "interactionId": {
+      "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "requestId",
+    "interactionId",
+    "answer"
+  ],
+  "type": "object"
+}

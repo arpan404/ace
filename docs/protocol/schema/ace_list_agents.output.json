@@ -11,6 +11,10 @@
             "default": false,
             "type": "boolean"
           },
+          "childThreadId": {
+            "minLength": 1,
+            "type": "string"
+          },
           "createdAt": {
             "maximum": 9007199254740991,
             "minimum": 0,
