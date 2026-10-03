@@ -1,6 +1,18 @@
 # Agent control verification
 
-Earlier fix rounds used static verification only. The subsequent main-merge round used the owner's explicit merge-conflict exception: 113 unique tests passed in 19 selected files touching the conflicted engine, service composition, native sessions and MCP interfaces. No full suite, mutation runs, benchmarks, CI, real-provider prompts or recorder sessions were used. Coverage outside those selected files and performance measurements still **need run at merge**.
+Earlier fix rounds used static verification only. The #69 main-merge round used the owner's explicit merge-conflict exception: 113 unique tests passed in 19 selected files touching the conflicted engine, service composition, native sessions and MCP interfaces. No full suite, mutation runs, benchmarks, CI, real-provider prompts or recorder sessions were used. Coverage outside those selected files and performance measurements still **need run at merge**.
+
+## Merge-conflict verification after #74
+
+Merged main `41df1b1d` without rebasing. Resolved capability lists as a union of browser, agent control, automations, projects and notifications. Daemon MCP composition retains both toolkits and the legacy delegation callback. The engine's scoped lease passes through main's provider wrapper without replacement, preserving lifetime revocation and native live execution configuration. Generic ACP keeps its negotiated lease; Claude and Pi retain their existing lease ownership.
+
+Codex keeps main's subcommand-first launch order and redaction, with URL/bearer projection for strict injection schemas. OpenCode uses main's canonical bounded JSONC configuration merge instead of a duplicate local parser, and main's weak lease identities isolate native processes without retaining expired lease objects. Lifetime fields are projected before strict parsing; native transport and MCP credential redaction both remain enabled.
+
+Under the explicit merge-conflict exception, **58 unique tests passed in 12 selected files**: daemon `browser-provider-mcp`, `provider-mcp-lease`, `browser-mcp`, `browser-pi-mcp`, `claude-registration`; agent-control `pi-mcp`, `owners`, `acp`; Codex `session`, `fork-selection`; OpenCode `v2-scoped-mcp` (all `.process.test.ts`); and MCP `injection.test.ts`. The first run passed 55 and found three test expectation/fixture mismatches. After aligning the redaction marker, issued Pi scope and native settings/turn contracts, those three files passed all 12 tests. No other files were rerun.
+
+New public regressions observe the combined authorized tool list, native browser access with an inherited engine lease, model/effort/tier changes in native settings and turn traffic, shutdown revocation, user JSONC preservation and account-peer lease isolation. The synthetic Codex CLI rejects options before the `app-server` subcommand. These checks use synthetic providers and browser backends; no installed provider or real browser binary was launched.
+
+Took main's lockfile, installed combined dependencies and regenerated 486 protocol reference artifacts. Static checks passed: formatting, lint, typecheck, file-size and diff checks. Full `bun run check`, full suite, CI, benchmarks and mutation runs were not executed. Performance numbers still **need run at merge**.
 
 ## Merge-conflict verification after #69
 
@@ -142,3 +154,14 @@ All mutation applications are **not executed (tests run at merge)**.
 - Ignore disconnected external children in whole-tree status: unresponsive parent test.
 
 - Retain a queued cancelled fork's source guard: queued whole-session fork interruption test.
+
+## Additional designed mutations for browser integration
+
+All mutation applications are **not executed (tests run at merge)**.
+
+- Remove browser or agent-control authority from native leases: combined native tool discovery and browser access.
+- Replace an inherited engine lease in the provider wrapper: inherited-lease browser access and close revocation.
+- Drop native configure forwarding: observed model settings and updated effort/tier on the next turn.
+- Move Codex injection options before the subcommand: synthetic native CLI startup/browser proof.
+- Pass lifetime fields into strict OpenCode schemas: scoped native MCP thread-authority test.
+- Replace canonical JSONC injection with JSON-only parsing: user configuration preservation with comments/trailing commas.

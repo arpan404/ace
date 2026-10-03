@@ -1,0 +1,15 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserBackendClientMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserBackendRegister.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserBackendResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserBackendEvent.json"
+    }
+  ]
+}

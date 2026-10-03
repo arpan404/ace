@@ -218,6 +218,43 @@ test("native session MCP leases delegate across providers and deny a child's att
   try {
     const parentConnection = f.h.contexts.get(f.caller.threadId)?.aceMcp;
     if (!parentConnection) throw new Error("MCP connection missing");
+    const listing = await fetch(parentConnection.url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${parentConnection.bearer}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "tools/list",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: {
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": { name: "test", version: "1" },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+    expect(listing.status).toBe(200);
+    const tools = z
+      .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
+      .parse(await listing.json())
+      .result.tools.map((tool) => tool.name);
+    expect(tools).toEqual(
+      expect.arrayContaining([
+        "ace_browser_open",
+        "delegate_task",
+        "ace_thread_read",
+        "ace_automation_manage",
+        "ace_project_read",
+      ]),
+    );
+
     const accepted = await mcpCall(parentConnection, "delegate_task", {
       requestId: "mcp-child",
       provider: "claude",

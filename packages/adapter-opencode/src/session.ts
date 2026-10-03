@@ -162,7 +162,11 @@ export class OpenCodeSession implements ProviderSession {
   private emit = (dir: Frame["dir"], channel: string, data: unknown): void => {
     if (this.closed && !(channel === "lifecycle" && object(data).type === "exited")) return;
     const t = Math.round(this.server.runtime.monotonic() - this.started);
-    const payload = new ProviderPayload(JSON.stringify(this.server.redact(data)));
+    const encoded = JSON.stringify(this.server.redact(data));
+    const bearer = this.ctx.aceMcp?.bearer;
+    const payload = new ProviderPayload(
+      bearer && encoded.includes(bearer) ? encoded.replaceAll(bearer, "[REDACTED]") : encoded,
+    );
     const frame: Frame = { seq: this.sequence++, t, dir, channel, data: payload.data, payload };
     this.prompts.observe(dir, channel, data);
     if (

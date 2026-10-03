@@ -11,6 +11,7 @@ type Entry = { server: OpenCodeServer; env: NodeJS.ProcessEnv | undefined; users
 export class ServerPool {
   private entries = new Map<string, Entry>();
   private anonymous = new WeakMap<NodeJS.ProcessEnv, string>();
+  private mcp = new WeakMap<NonNullable<SessionContext["aceMcp"]>, string>();
   private serial = 0;
   private closed = false;
   constructor(privateOptions: ServerOptions) {
@@ -22,7 +23,9 @@ export class ServerPool {
   }
   async acquire(ctx: SessionContext): Promise<{ server: OpenCodeServer; release(): void }> {
     if (this.closed) throw new Error("OpenCode adapter is closed");
-    const connection = ctx.aceMcp ? AceMcpConnectionSchema.parse(ctx.aceMcp) : undefined;
+    const connection = ctx.aceMcp
+      ? AceMcpConnectionSchema.parse({ url: ctx.aceMcp.url, bearer: ctx.aceMcp.bearer })
+      : undefined;
     const env = connection
       ? Environment.parse(
           mcpEnvironment(
@@ -37,12 +40,16 @@ export class ServerPool {
       ctx.instanceId === undefined
         ? "default"
         : `account:${z.string().min(1).max(512).parse(ctx.instanceId)}`;
-    if (ctx.instanceId === undefined && ctx.env) {
+    // MCP credentials are scoped to one engine session. Never reuse another thread's overlay,
+    // even within the same account. Weak identities do not retain expired lease objects.
+    if (ctx.aceMcp) {
+      const identity = this.mcp.get(ctx.aceMcp) ?? `mcp:${++this.serial}`;
+      this.mcp.set(ctx.aceMcp, identity);
+      key = `${key}:${identity}`;
+    } else if (ctx.instanceId === undefined && ctx.env) {
       key = this.anonymous.get(ctx.env) ?? `anonymous:${++this.serial}`;
       this.anonymous.set(ctx.env, key);
     }
-    // A process-wide MCP config must never share one thread's authority with another.
-    if (connection) key = `${key}:lease:${connection.bearer}`;
     const secrets = connection ? [connection.bearer] : [];
     let entry = this.entries.get(key);
     if (entry && !sameEnvironment(entry.env, env))

@@ -43,12 +43,17 @@ test("OpenCode v2 native processes preserve user MCP servers and isolate thread 
         cwd: "/account",
         instanceId: "same-account",
         env: {
-          OPENCODE_CONFIG_CONTENT: JSON.stringify({
-            mcp: { user: { type: "remote", url: "https://example.invalid" } },
-          }),
+          OPENCODE_CONFIG_CONTENT: `{ // user configuration
+            "mcp": { "user": { "type": "remote", "url": "https://example.invalid" }, },
+          }`,
         },
         signal: new AbortController().signal,
-        aceMcp: { url: mcp.url, bearer: lease.bearer },
+        aceMcp: {
+          url: mcp.url,
+          bearer: lease.bearer,
+          signal: lease.principal.signal,
+          end: lease.end,
+        },
         onFrame() {},
         onExit() {},
       });

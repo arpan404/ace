@@ -83,7 +83,7 @@ Example:
 
 ```json
 {
-  "key": "providers.planner.tier",
+  "key": "providers.planner.reasoningEffort",
   "requestId": "example",
   "scope": {},
   "type": "settings.get"

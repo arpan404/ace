@@ -28,7 +28,7 @@ test("Pi native registration retains the engine's scoped agent-control lease and
             sessionId: "engine-pi",
             threadId,
             agentId: AgentId.parse(agentId),
-            capabilities: ["agents", "thread_control"],
+            capabilities: ["agents", "thread_control", "browser"],
           },
           lifetime,
         );
@@ -104,6 +104,7 @@ test("Pi native registration retains the engine's scoped agent-control lease and
     const listed = z
       .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })) }) })
       .parse(await response.json());
+    expect(listed.result.tools.map((tool) => tool.name)).toContain("ace_browser_open");
     expect(listed.result.tools.map((tool) => tool.name)).toContain("delegate_task");
     expect(listed.result.tools.map((tool) => tool.name)).toContain("ace_question_answer");
     await daemon.engine.close();

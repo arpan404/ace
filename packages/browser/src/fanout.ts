@@ -60,6 +60,13 @@ export class FrameFanout {
     for (const viewer of this.viewers.values()) if (viewer.latest) return true;
     return false;
   }
+  invalidate(): void {
+    this.latest = undefined;
+    for (const viewer of this.viewers.values()) {
+      viewer.latest = undefined;
+      viewer.inflight = undefined;
+    }
+  }
   clear(): void {
     this.viewers.clear();
     this.latest = undefined;

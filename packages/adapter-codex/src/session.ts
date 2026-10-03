@@ -43,7 +43,7 @@ export async function openCodexSession(
     : undefined;
   const proc = io.spawn({
     command: cli.path,
-    args: [...(injection?.args ?? []), "app-server"],
+    args: ["app-server", ...(injection?.args ?? [])],
     cwd: ctx.cwd,
     env: { ...(ctx.env ?? options.discovery?.env), ...injection?.env },
     name: "ace-codex",
@@ -74,10 +74,10 @@ export async function openCodexSession(
   const recovering = new Set<string>();
   let unknownRecoveries = 0;
   const emit = (dir: "send" | "recv" | "stderr" | "note", data: unknown, channel = "stdio") => {
+    const encoded = JSON.stringify(data);
+    const bearer = ctx.aceMcp?.bearer;
     const payload = new ProviderPayload(
-      ctx.aceMcp
-        ? JSON.stringify(data).replaceAll(ctx.aceMcp.bearer, "[ace credential redacted]")
-        : JSON.stringify(data),
+      bearer && encoded.includes(bearer) ? encoded.replaceAll(bearer, "[REDACTED]") : encoded,
     );
     ctx.onFrame({
       seq: sequence++,

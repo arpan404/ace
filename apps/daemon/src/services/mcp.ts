@@ -1,4 +1,5 @@
 import { agentControlToolkit } from "@ace/mcp-server";
+import { browserToolkit } from "../browser-toolkit.ts";
 import { screenToolkit } from "@ace/screen";
 import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
@@ -18,6 +19,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
         },
       }),
       ...(options.toolkits ?? []),
+      ...(services.browser ? [browserToolkit(services.browser, store)] : []),
       ...(services.screen ? [screenToolkit(services.screen)] : []),
     ],
     async (intent, signal) => {

@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserBackendCapabilities.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cdp": {
+      "const": true,
+      "type": "boolean"
+    },
+    "controllerLease": {
+      "const": true,
+      "type": "boolean"
+    },
+    "downloads": {
+      "const": true,
+      "type": "boolean"
+    },
+    "permissions": {
+      "const": true,
+      "type": "boolean"
+    },
+    "targets": {
+      "const": true,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "cdp",
+    "targets",
+    "permissions",
+    "downloads",
+    "controllerLease"
+  ],
+  "type": "object"
+}
