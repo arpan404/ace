@@ -46,11 +46,11 @@ test("search finds a message across threads and Enter opens its thread", async (
   await expect(page.getByRole("heading", { level: 1, name: seededTitle })).toBeVisible();
 });
 
-test("a notification setting is stored by the daemon and read back by a new session", async ({
+test("a daemon setting is stored by the daemon and read back by a new session", async ({
   page,
 }) => {
-  await connect(page, "/settings/notifications");
-  const toggle = page.getByRole("switch", { name: "Thread done" });
+  await connect(page, "/settings/general");
+  const toggle = page.getByRole("switch", { name: "Settle when the PR merges" });
   await expect(toggle).toBeVisible();
   const before = await toggle.getAttribute("aria-checked");
   const after = before === "true" ? "false" : "true";
@@ -58,8 +58,8 @@ test("a notification setting is stored by the daemon and read back by a new sess
   await expect(toggle).toHaveAttribute("aria-checked", after);
 
   // A fresh page is a fresh client: the value can only come from the daemon.
-  await connect(page, "/settings/notifications");
-  await expect(page.getByRole("switch", { name: "Thread done" })).toHaveAttribute(
+  await connect(page, "/settings/general");
+  await expect(page.getByRole("switch", { name: "Settle when the PR merges" })).toHaveAttribute(
     "aria-checked",
     after,
   );

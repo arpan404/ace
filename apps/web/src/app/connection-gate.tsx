@@ -8,10 +8,10 @@ import {
   forgetToken,
   loadTarget,
   saveTarget,
-  targetFromFragment,
   type ConnectionStores,
   type DaemonTarget,
 } from "@/boot/connection-settings.ts";
+import { handoffFromFragment, type Handoff } from "@/boot/fragment-handoff.ts";
 
 /**
  * Owns the daemon client. Without a usable target it shows the connection screen; with one it
@@ -30,13 +30,29 @@ export function ConnectionGate(props: {
   children(client: ClientApi): ReactNode;
 }) {
   const { stores, defaultUrl, createClient, fragment, onFragmentRead } = props;
-  const [state, setState] = useState(() => {
-    const handed =
-      props.handed ?? (fragment ? targetFromFragment(fragment, defaultUrl) : undefined);
-    if (handed) saveTarget(stores, handed, false);
+  const [state, setState] = useState<{
+    target: DaemonTarget | undefined;
+    url: string;
+    remembered: boolean;
+    pending?: Extract<Handoff, { kind: "confirm" }> | undefined;
+  }>(() => {
+    // The desktop bridge is trusted; a link is taken only as far as `handoffFromFragment` allows.
+    const handoff: Handoff = props.handed
+      ? { kind: "accept", target: props.handed }
+      : fragment
+        ? handoffFromFragment(stores, fragment, defaultUrl)
+        : { kind: "none" };
+    if (handoff.kind === "accept") saveTarget(stores, handoff.target, false);
     const stored = loadTarget(stores, defaultUrl);
-    return { target: stored.target, url: stored.url, remembered: stored.remembered };
+    return {
+      target: stored.target,
+      url: stored.url,
+      remembered: stored.remembered,
+      pending: handoff.kind === "confirm" ? handoff : undefined,
+    };
   });
+  // Nothing connects while a link waits for an answer.
+  const active = state.pending ? undefined : state.target;
   useEffect(() => {
     if (fragment) onFragmentRead?.();
   }, [fragment, onFragmentRead]);
@@ -49,7 +65,7 @@ export function ConnectionGate(props: {
   useEffect(() => {
     // The client is an external resource with a start/close lifecycle. Creating it here (not
     // in render) keeps StrictMode's mount-unmount-mount from starting a closed client.
-    if (!state.target) {
+    if (!active) {
       // oxlint-disable-next-line react-compiler/set-state-in-effect
       setClient(undefined);
       return;
@@ -67,7 +83,7 @@ export function ConnectionGate(props: {
         /* The client reports a fatal state; the shell shows it. */
       });
     };
-    const created = createClient(state.target);
+    const created = createClient(active);
     // The in-page client loads on demand; a worker-backed one is ready at once.
     if (created instanceof Promise)
       created.then(adopt, (error: unknown) => {
@@ -84,7 +100,7 @@ export function ConnectionGate(props: {
       removeEventListener("offline", offline);
       if (current) void current.close();
     };
-  }, [state.target, createClient]);
+  }, [active, createClient]);
 
   const connect = useCallback(
     (target: DaemonTarget, remember: boolean) => {
@@ -97,6 +113,17 @@ export function ConnectionGate(props: {
     forgetToken(stores);
     setState((previous) => ({ target: undefined, url: previous.url, remembered: false }));
   }, [stores]);
+  const pending = state.pending;
+  const handoff = useMemo(
+    () =>
+      pending && {
+        url: pending.target.url,
+        reason: pending.reason,
+        accept: () => connect(pending.target, false),
+        decline: () => setState((previous) => ({ ...previous, pending: undefined })),
+      },
+    [pending, connect],
+  );
   const connection = useMemo<DaemonConnection>(
     () => ({
       mode: "daemon",
@@ -104,15 +131,16 @@ export function ConnectionGate(props: {
       remembered: state.remembered,
       connect,
       disconnect,
-      endpoint: state.target && { kind: "daemon", target: state.target, deviceId: deviceId() },
+      endpoint: active && { kind: "daemon", target: active, deviceId: deviceId() },
+      handoff,
     }),
-    [state.url, state.remembered, state.target, connect, disconnect],
+    [state.url, state.remembered, active, connect, disconnect, handoff],
   );
 
   if (failure) throw failure.error;
   return (
     <DaemonConnectionContext.Provider value={connection}>
-      {!state.target ? (
+      {!active ? (
         <ConnectionScreen />
       ) : client ? (
         <Fragment key={client.key}>{props.children(client.client)}</Fragment>

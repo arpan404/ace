@@ -23,6 +23,16 @@ export interface DaemonConnection {
   disconnect(): void;
   /** Absent only before a daemon is chosen. */
   endpoint?: DaemonEndpoint | undefined;
+  /** A `#token=` link waiting for the person to agree before anything is saved. */
+  handoff?: PendingHandoff | undefined;
+}
+
+export interface PendingHandoff {
+  url: string;
+  /** `elsewhere`: not a daemon on this computer; otherwise it would replace a remembered token. */
+  reason: "elsewhere" | "replaces-remembered";
+  accept(): void;
+  decline(): void;
 }
 
 export const fallback: DaemonConnection = {
