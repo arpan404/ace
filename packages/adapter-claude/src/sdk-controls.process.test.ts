@@ -272,6 +272,7 @@ test("excess live task admission ends the provider visibly rather than evicting 
       deliberate: false,
       message: expect.stringContaining("live task capacity reached"),
     });
+    expect(h.frames.some((frame) => object(frame.data)["task_id"] === "live-512")).toBe(true);
     await expect(h.session.send([{ type: "text", text: "later" }], "queue")).rejects.toThrow(
       "closed",
     );

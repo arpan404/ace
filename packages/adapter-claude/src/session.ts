@@ -178,8 +178,8 @@ export async function openSession(
     try {
       for await (const message of q) {
         const data = object(message);
-        taskIndex.observe(data);
         frame("recv", "sdk", message);
+        taskIndex.observe(data);
         if (data["type"] === "rate_limit_event") {
           const observation = ClaudeRateLimitObservation.safeParse(data["rate_limit_info"]);
           if (observation.success) {
