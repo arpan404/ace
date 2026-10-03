@@ -248,6 +248,71 @@ describe("daemon supervisor", () => {
     expect(supervisor.current().state).toBe("stopped");
   });
 
+  it("restarting its own running daemon replaces it with exactly one child it still owns", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+
+    await supervisor.restart();
+    // Well past the first crash-restart delay: an intentional stop must not schedule one.
+    await m.advance(5_000);
+    expect(m.children).toHaveLength(2);
+    expect(m.children[0]?.alive).toBe(false);
+    m.state.answering = true;
+    await m.advance(300);
+    expect(supervisor.current()).toMatchObject({ state: "running", source: "app" });
+
+    await supervisor.stop();
+    expect(m.children.every((child) => !child.alive)).toBe(true);
+  });
+
+  it("quitting in the middle of a restart leaves no daemon running", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports, { stopGraceMs: 1_000 });
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    m.state.healthy = false; // ignores SIGTERM, so the restart is still stopping it
+
+    const restarting = supervisor.restart();
+    const quitting = supervisor.stop();
+    await m.advance(1_000);
+    await Promise.all([restarting, quitting]);
+    await m.advance(60_000);
+    expect(m.children).toHaveLength(1);
+    expect(m.children.every((child) => !child.alive)).toBe(true);
+    expect(supervisor.current().state).toBe("stopped");
+  });
+
+  it("quitting while a crash restart is pending starts nothing", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    m.state.answering = true;
+    await m.advance(300);
+    m.children[0]?.die(1);
+    expect(supervisor.current().state).toBe("restarting");
+
+    await supervisor.stop();
+    await m.advance(60_000);
+    expect(m.children).toHaveLength(1);
+    expect(supervisor.current().state).toBe("stopped");
+  });
+
+  it("quitting while its daemon is still starting stops that daemon", async () => {
+    const m = machine();
+    const supervisor = new DaemonSupervisor(m.ports);
+    await supervisor.start();
+    expect(m.children).toHaveLength(1);
+
+    await supervisor.stop();
+    await m.advance(200_000);
+    expect(m.children).toHaveLength(1);
+    expect(m.children[0]?.alive).toBe(false);
+  });
+
   it("drains before an update and reopens admission when work is still running", async () => {
     const m = machine();
     const supervisor = new DaemonSupervisor(m.ports);
