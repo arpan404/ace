@@ -1,6 +1,6 @@
 import type { ForkPoint } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
-import { createContext, use, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -14,10 +14,6 @@ import { Textarea } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { failureMessage } from "@/lib/daemon-command.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
-
-/** Opens the fork dialog at a point; provided by the thread screen, used by its answers. */
-export const ForkOpener = createContext<((point: ForkPoint) => void) | undefined>(undefined);
-export const useForkOpener = () => use(ForkOpener);
 
 /**
  * Fork from a finished turn: a new thread with the history up to there, starting with the

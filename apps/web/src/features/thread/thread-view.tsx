@@ -1,6 +1,6 @@
 import { useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
@@ -10,9 +10,17 @@ import { threadPanels } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import { GitButton, OpenButton, RunButton } from "./header/header-actions.tsx";
-import { RenameDialog, ThreadMenuItems } from "./header/thread-menu.tsx";
+import { ThreadMenuItems } from "./header/thread-menu.tsx";
 import type { ThreadRef } from "./sources/index.ts";
-import { ForkDialog, ForkOpener } from "./transitions/fork-dialog.tsx";
+import { ForkOpener } from "./transitions/fork-opener.ts";
+
+// Loaded on first open, off the route's first paint.
+const RenameDialog = lazy(() =>
+  import("./header/rename-dialog.tsx").then((m) => ({ default: m.RenameDialog })),
+);
+const ForkDialog = lazy(() =>
+  import("./transitions/fork-dialog.tsx").then((m) => ({ default: m.ForkDialog })),
+);
 import { Transcript } from "./transcript/transcript.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 
@@ -77,10 +85,12 @@ export function ThreadView(props: { threadId: string }) {
           </div>
         </ForkOpener>
       )}
-      {renaming && thread && <RenameDialog thread={thread} onClose={() => setRenaming(false)} />}
-      {forking && thread && (
-        <ForkDialog thread={thread} point={forking} onClose={() => setForking(undefined)} />
-      )}
+      <Suspense fallback={null}>
+        {renaming && thread && <RenameDialog thread={thread} onClose={() => setRenaming(false)} />}
+        {forking && thread && (
+          <ForkDialog thread={thread} point={forking} onClose={() => setForking(undefined)} />
+        )}
+      </Suspense>
     </Screen>
   );
 }

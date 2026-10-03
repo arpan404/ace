@@ -80,28 +80,29 @@ test("picking another provider's model asks first, then switches after the runni
   expect(await screen.findByRole("button", { name: /^Model: GPT-5 Codex/ })).toBeTruthy();
 });
 
-test("deleting from the ⋯ menu asks first, then the thread is gone from the daemon", async () => {
+test("deleting from the ⋯ menu leaves the thread, and the daemon deletes it once Undo has passed", async () => {
   const { app } = await openRouter();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread…" }));
-  const dialog = await screen.findByRole("dialog", { name: /^Delete “Document the router”/ });
-  await userEvent.click(within(dialog).getByRole("button", { name: "Delete thread" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
-  expect(thread(app, "thread-router")).toBeUndefined();
-});
+  expect(screen.getByText("Deleted · Document the router")).toBeTruthy();
+  await waitFor(() => expect(thread(app, "thread-router")).toBeUndefined(), { timeout: 9_000 });
+}, 15_000);
 
-test("a thread with work running can't be deleted, and the dialog says why", async () => {
+test("a thread with work running can't be deleted, and says why", async () => {
   const app = harness();
   app.play(replayCursor()).runThrough("finding");
   await app.open("/t/thread-replay-cursor");
   await screen.findByRole("feed", { name: "Transcript" });
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread…" }));
-  const dialog = await screen.findByRole("dialog", { name: /^Delete/ });
-  await userEvent.click(within(dialog).getByRole("button", { name: "Delete thread" }));
-  expect(await within(dialog).findByRole("alert")).toBeTruthy();
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Delete thread" }));
+  expect(
+    await screen.findByText("Stop its agents and close its terminals first.", undefined, {
+      timeout: 9_000,
+    }),
+  ).toBeTruthy();
   expect(thread(app, "thread-replay-cursor")).toBeDefined();
-});
+}, 15_000);
 
 test("pinning from the ⋯ menu pins the thread on the daemon", async () => {
   const { app } = await openRouter();

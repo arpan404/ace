@@ -15,7 +15,7 @@ import {
 import { useClient } from "@ace/client-react";
 import { nextGitStep, prBlocker, type GitStep } from "@ace/ui-core";
 import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { launchEditor } from "@/boot/editor-launch.ts";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
@@ -28,7 +28,10 @@ import { useLayout } from "@/lib/layout.tsx";
 import { useCheckoutState, useGitActions, type GitChange } from "../lib/use-git.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import type { Script } from "../sources/workspace-source.ts";
-import { GitDialog, type GitDialogKind } from "./git-dialog.tsx";
+import type { GitDialogKind } from "./git-dialog.tsx";
+
+// Loaded on first open: the thread route's first paint doesn't need the commit or PR form.
+const GitDialog = lazy(() => import("./git-dialog.tsx").then((m) => ({ default: m.GitDialog })));
 
 const failure = (error: unknown) =>
   error instanceof Error ? error.message : "The daemon couldn't do that.";
@@ -309,14 +312,16 @@ export function GitButton(props: { thread: ThreadRef }) {
         }
       />
       {dialog && (
-        <GitDialog
-          kind={dialog}
-          title={props.thread.title}
-          checkout={checkout}
-          pending={pending}
-          onSubmit={submit}
-          onClose={() => setDialog(undefined)}
-        />
+        <Suspense fallback={null}>
+          <GitDialog
+            kind={dialog}
+            title={props.thread.title}
+            checkout={checkout}
+            pending={pending}
+            onSubmit={submit}
+            onClose={() => setDialog(undefined)}
+          />
+        </Suspense>
       )}
     </>
   );

@@ -6,7 +6,7 @@ import { formatClock } from "@ace/ui-core";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Prose } from "../markdown/prose.tsx";
 import { forkPointOf } from "../transitions/fork-point.ts";
-import { useForkOpener } from "../transitions/fork-dialog.tsx";
+import { useForkOpener } from "../transitions/fork-opener.ts";
 
 /** The person's message: a right-aligned bubble; its time shows on hover, keeping the column quiet. */
 export function UserMessage(props: { threadId: string; itemId: string }) {
