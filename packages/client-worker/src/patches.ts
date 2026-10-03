@@ -12,7 +12,10 @@ export interface Patch {
   k: string;
   /** The key's value now; absent when the entity is gone. */
   v?: unknown;
-  /** Text appended to the last text part of the message the mirror already holds. */
+  /**
+   * Text appended to what the mirror already holds: the last text part of a message, or the
+   * text of a reasoning or notice item.
+   */
   append?: string | undefined;
   /** Item keys only: the item holds a prefix of its full text (ThreadReader.truncated). */
   cut?: boolean | undefined;
@@ -93,6 +96,8 @@ type Message = Extract<Item, { type: "message" }>;
  * builds the next message; anything else is sent whole.
  */
 export function appendedText(previous: Item | undefined, next: Item | undefined) {
+  if (previous && next && previous.type === next.type && hasText(previous) && hasText(next))
+    return appendedField(previous, next);
   if (previous?.type !== "message" || next?.type !== "message") return undefined;
   for (const field of Object.keys(next) as (keyof Message)[])
     if (field !== "parts" && !Object.is(previous[field], next[field])) return undefined;
@@ -107,6 +112,19 @@ export function appendedText(previous: Item | undefined, next: Item | undefined)
   if (old?.type !== "text" || now?.type !== "text" || old.source !== now.source) return undefined;
   if (now.text.length <= old.text.length || !now.text.startsWith(old.text)) return undefined;
   return now.text.slice(old.text.length);
+}
+
+type TextItem = Extract<Item, { type: "reasoning" | "notice" }>;
+/** Reasoning and notices stream into one `text` field. */
+export function hasText(item: Item): item is TextItem {
+  return item.type === "reasoning" || item.type === "notice";
+}
+function appendedField(previous: TextItem, next: TextItem): string | undefined {
+  for (const field of Object.keys(next) as (keyof TextItem)[])
+    if (field !== "text" && !Object.is(previous[field], next[field])) return undefined;
+  if (next.text.length <= previous.text.length || !next.text.startsWith(previous.text))
+    return undefined;
+  return next.text.slice(previous.text.length);
 }
 
 /**
