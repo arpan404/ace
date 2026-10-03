@@ -21,6 +21,7 @@ import { HostId, DeviceId, type ServerMessage, type Notification } from "@ace/pr
 import type { PluginServerMessage } from "@ace/protocol/plugins";
 import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
+import { PreAuthAdmission } from "./socket-admission.ts";
 import { subscribe } from "./subscription.ts";
 const bind = (listener: Server, host: string, port: number) =>
   new Promise<number>((resolve, reject) => {
@@ -125,22 +126,35 @@ export async function startServer(options: ServerOptions): Promise<{
       listener.headersTimeout = 10_000;
     }
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+  const preAuth = new PreAuthAdmission(options.preAuth ?? {}, runtime.delay);
+  const refuse = (socket: import("node:stream").Duplex, status: string) =>
+    socket.end(
+      `HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
+      () => socket.destroy(),
+    );
   const attach = (listener: Server, isLocal: boolean) =>
     listener.on("upgrade", (request, socket, head) => {
       if (request.url !== "/") {
         socket.destroy();
         return;
       }
-      if (cleanups.size >= 256) {
-        socket.end(
-          "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
-          () => socket.destroy(),
-        );
+      // Browsers always send Origin, so a page the user merely visits cannot reach the
+      // loopback socket. Native clients send none.
+      const origin = request.headers.origin;
+      if (isLocal && origin !== undefined && !access.allowedOrigins.has(origin)) {
+        refuse(socket, "403 Forbidden");
         return;
       }
-      wss.handleUpgrade(request, socket, head, (websocket) =>
-        wss.emit("connection", websocket, isLocal),
-      );
+      const kind = isLocal ? "local" : "remote";
+      const address = request.socket.remoteAddress ?? "unknown";
+      if (cleanups.size >= 256 || !preAuth.admits(kind, address)) {
+        refuse(socket, "503 Service Unavailable");
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (websocket) => {
+        preAuth.track(websocket, kind, address);
+        wss.emit("connection", websocket, isLocal);
+      });
     });
   attach(local, true);
   if (remote) attach(remote, false);
@@ -302,6 +316,7 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         }
         device = actor.id;
+        preAuth.authenticated(socket);
         authenticated.set(socket, {
           ...actor,
           scopes: [...actor.scopes],
