@@ -37,8 +37,11 @@ export function bootFake(): { client: Client; daemon: FakeDaemon; seen: SeenSeed
   // Live threads keep moving while the app is open; they started a few minutes ago.
   new ScenarioPlayer(daemon, flakyCheckout(), { agoMs: 3 * minute }).autoplay(timer);
   new ScenarioPlayer(daemon, replayCursor(), { agoMs: 4 * minute }).autoplay(timer);
-  // The thread the right and bottom panels are designed around (features/panels).
-  new ScenarioPlayer(daemon, coldStartReplay(), { agoMs: 8 * minute }).autoplay(timer);
+  // The thread the right and bottom panels are designed around (features/panels): its first
+  // turns already happened, the subagents report back live.
+  const coldStart = new ScenarioPlayer(daemon, coldStartReplay());
+  coldStart.runThrough("relay-output");
+  coldStart.autoplay(timer);
   new ScenarioPlayer(daemon, failingSubagent(), { agoMs: 12 * minute }).autoplay(timer, 0.5);
   const client = createBrowserClient({
     deviceId: "web-fake-device",
