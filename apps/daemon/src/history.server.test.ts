@@ -41,6 +41,7 @@ test("authenticated history import publishes a daemon thread with windowed canon
       instances: [{ id: "account", provider: "claude", homeDir: home }],
     },
   });
+  await daemon.history?.startScan();
   cleanup.unshift(daemon.close);
   const client = new Client(daemon.url);
   cleanup.unshift(() => client.close());
@@ -204,6 +205,7 @@ test("native continuation uses the registered home-bound adapter and persists it
     },
   });
   store = daemon.store;
+  await daemon.history?.startScan();
   cleanup.unshift(daemon.close);
   const client = new Client(daemon.url);
   cleanup.unshift(() => client.close());
