@@ -33,8 +33,6 @@ export type { FakeSkill } from "./catalog/skills.ts";
 export { accountList, defaultSchedulingPolicy, moveThreads } from "./catalog/accounts.ts";
 export type { FakeAccount, FakeQuotaWindow, FakeSchedulingPolicy } from "./catalog/accounts.ts";
 export { usageReport } from "./catalog/usage.ts";
-export { changedFiles } from "./catalog/files.ts";
-export type { FakeChangedFile } from "./catalog/files.ts";
 export { searchThreads } from "./catalog/search.ts";
 export type { FakeSearchHit, FakeSearchKind } from "./catalog/search.ts";
 export { settingsFixture } from "./scenarios/settings.ts";

@@ -17,6 +17,8 @@ async function openTerminal(through = "turn-2") {
 }
 const tab = (panel: HTMLElement, name: string | RegExp) =>
   within(within(panel).getByRole("tablist", { name: "Terminals" })).getByRole("tab", { name });
+/** About 20 KB of build output, so a few of them overflow the daemon's 64 KiB ring. */
+const block = (n: number) => `${`chunk ${n} `.padEnd(20_000, ".")}\r\n`;
 const output = (panel: HTMLElement, name: string) => within(panel).getByRole("log", { name });
 
 test("the agent's background dev server streams into its own tab", async () => {
@@ -135,7 +137,6 @@ test("a terminal that fell further behind than the daemon keeps starts again fro
   if (!tests) throw new Error("expected the tests terminal");
 
   // While the socket is down, the build prints more than the daemon's scrollback ring holds.
-  const block = (n: number) => `${`chunk ${n} `.padEnd(20_000, ".")}\r\n`;
   act(() => {
     app.daemon.disconnectAll();
     for (let n = 1; n <= 5; n++) terminals.output(tests.id, block(n));

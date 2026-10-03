@@ -21,8 +21,8 @@ const minute = 60_000;
 
 /**
  * Every thread `dev:fake` shows: the Home list from the design, two days of history, and the live
- * threads the panels and tests are designed around. The fake boot plays it; catalogs that stand
- * in for missing protocol (changed files) derive from the same threads, so screens agree.
+ * threads the panels and tests are designed around. The fake boot plays it, and every screen
+ * reads these threads over the wire, so screens agree.
  */
 export function devWorld(): WorldThread[] {
   return [

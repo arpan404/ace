@@ -118,7 +118,7 @@ Wired on the wire in every mode: accounts and usage (`accounts.list`, `usage.ser
 thread's checkout (`workspace.request` reads; `workspace.script.run`, `workspace.editor.open`,
 `git.commit`, `git.push` and `forge.pr.create` commands), terminals (`terminal.request`,
 credit-paced `terminal.output`), the browser relay (`browser.*`, ACKed frames), dev servers
-(`preview.request`) and shell output (`output.read`). In
+(`preview.request`), shell output (`output.read`) and More › Files (each thread's `items.page`). In
 fake mode `@ace/fake-daemon` serves the same messages from its catalogs
 (`packages/fake-daemon/src/services/`), so a feature has one code path.
 
@@ -129,7 +129,7 @@ Today: thread organization (rename, fork,
 settle, snooze, pin, delete, unqueue), card details, New thread's branches and pre-thread
 mentions, account details and the run-out policy, settings keys outside the protocol schema,
 machines, devices and pairing, ACP agents added by command, automations, the Activity feed,
-Deck runs, skills and plugins, and changed files and transfers. When the backend lands, wiring a feature changes only its adapter.
+Deck runs, skills and plugins, and file uploads. When the backend lands, wiring a feature changes only its adapter.
 
 ## Fake-daemon scenarios
 
