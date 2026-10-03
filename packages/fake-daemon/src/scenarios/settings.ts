@@ -172,37 +172,7 @@ export function settingsFixture(now: number): SettingsFixture {
         accounts: [],
       },
     ],
-    models: [
-      model("claude", "claude-personal", "claude-opus-4-1", "Opus 4.1", {
-        isDefault: true,
-        contextWindow: 200_000,
-        efforts: ["low", "medium", "high"],
-      }),
-      model("claude", "claude-personal", "claude-sonnet-4-5", "Sonnet 4.5", {
-        contextWindow: 1_000_000,
-        efforts: ["low", "medium", "high"],
-      }),
-      model("claude", "claude-personal", "claude-haiku-4-5", "Haiku 4.5", {
-        contextWindow: 200_000,
-      }),
-      model("codex", "codex-personal", "gpt-5-codex", "GPT-5 Codex", {
-        isDefault: true,
-        contextWindow: 400_000,
-        efforts: ["minimal", "low", "medium", "high"],
-      }),
-      model("codex", "codex-personal", "gpt-5", "GPT-5", {
-        contextWindow: 400_000,
-        efforts: ["minimal", "low", "medium", "high"],
-      }),
-      model("opencode", "opencode", "anthropic/claude-sonnet-4-5", "Sonnet 4.5 (OpenCode)", {
-        isDefault: true,
-      }),
-      model("cursor", "cursor", "auto", "Auto", { isDefault: true }),
-      model("acp", "gemini-google", "gemini-2.5-pro", "Gemini 2.5 Pro", {
-        isDefault: true,
-        contextWindow: 1_000_000,
-      }),
-    ],
+    models: modelCatalog(),
     machines: [
       {
         id: "studio-mac",
@@ -243,15 +213,55 @@ export function settingsFixture(now: number): SettingsFixture {
         revokedAt: null,
       }),
     ],
-    values: {
-      "providers.default": "claude",
-      "notifications.enabled": true,
-      "notifications.sound": true,
-      "notifications.onCompletion": true,
-      "notifications.onApproval": true,
-      "notifications.suppressWhenActive": true,
-      "remote.enabled": true,
-      "remote.transport": "tailscale",
-    },
+    values: settingsValues(),
+  };
+}
+
+/** The models discovery found on this machine's signed-in accounts (`models.list`). */
+export function modelCatalog(): CatalogModel[] {
+  return [
+    model("claude", "claude-personal", "claude-opus-4-1", "Opus 4.1", {
+      isDefault: true,
+      contextWindow: 200_000,
+      efforts: ["low", "medium", "high"],
+    }),
+    model("claude", "claude-personal", "claude-sonnet-4-5", "Sonnet 4.5", {
+      contextWindow: 1_000_000,
+      efforts: ["low", "medium", "high"],
+    }),
+    model("claude", "claude-personal", "claude-haiku-4-5", "Haiku 4.5", {
+      contextWindow: 200_000,
+    }),
+    model("codex", "codex-personal", "gpt-5-codex", "GPT-5 Codex", {
+      isDefault: true,
+      contextWindow: 400_000,
+      efforts: ["minimal", "low", "medium", "high"],
+    }),
+    model("codex", "codex-personal", "gpt-5", "GPT-5", {
+      contextWindow: 400_000,
+      efforts: ["minimal", "low", "medium", "high"],
+    }),
+    model("opencode", "opencode", "anthropic/claude-sonnet-4-5", "Sonnet 4.5 (OpenCode)", {
+      isDefault: true,
+    }),
+    model("cursor", "cursor", "auto", "Auto", { isDefault: true }),
+    model("acp", "gemini-google", "gemini-2.5-pro", "Gemini 2.5 Pro", {
+      isDefault: true,
+      contextWindow: 1_000_000,
+    }),
+  ];
+}
+
+/** What the daemon's settings file holds on the global layer. */
+export function settingsValues(): Partial<SettingsValues> & Record<string, unknown> {
+  return {
+    "providers.default": "claude",
+    "notifications.enabled": true,
+    "notifications.sound": true,
+    "notifications.onCompletion": true,
+    "notifications.onApproval": true,
+    "notifications.suppressWhenActive": true,
+    "remote.enabled": true,
+    "remote.transport": "tailscale",
   };
 }

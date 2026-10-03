@@ -12,7 +12,7 @@ import { UsageSection } from "./usage-section.tsx";
 function byProvider(accounts: readonly Account[]) {
   const groups = new Map<string, Account[]>();
   for (const account of accounts) {
-    const key = `${account.providerLabel}\u0000${account.cliVersion}`;
+    const key = `${account.providerLabel}\u0000${account.version ?? ""}`;
     groups.set(key, [...(groups.get(key) ?? []), account]);
   }
   return [...groups.values()];
@@ -64,7 +64,9 @@ export function AccountsPage() {
                 <section key={first.providerLabel} aria-label={first.providerLabel}>
                   <div className="mt-[30px] flex items-baseline gap-2">
                     <h2 className="text-md font-medium">{first.providerLabel}</h2>
-                    <small className="text-sm text-subtle-foreground">{first.cliVersion}</small>
+                    {first.version && (
+                      <small className="text-sm text-subtle-foreground">{first.version}</small>
+                    )}
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-3.5 md:grid-cols-2">
                     {group.map((account) => (

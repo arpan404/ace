@@ -8,7 +8,7 @@ import type {
   ServerMessage,
 } from "@ace/protocol";
 import { usageReport } from "../catalog/usage.ts";
-import { settingsFixture } from "../scenarios/settings.ts";
+import { modelCatalog, settingsValues } from "../scenarios/settings.ts";
 import { accountSummaries } from "./accounts.ts";
 import { commandCatalog, listCommands } from "./commands.ts";
 import { FakeContext } from "./context.ts";
@@ -39,11 +39,10 @@ export class FakeServices {
   constructor(host: ServiceHost) {
     this.host = host;
     const now = host.clock();
-    const fixture = settingsFixture(now);
     this.accounts = accountSummaries(now);
-    this.models = fixture.models;
+    this.models = modelCatalog();
     this.commands = commandCatalog();
-    this.settings = new FakeSettings(fixture.values);
+    this.settings = new FakeSettings(settingsValues());
     this.context = new FakeContext((threadId) => host.thread(threadId)?.workspaceId);
   }
   /** Answers one service message. False when it isn't a service this fake serves. */
