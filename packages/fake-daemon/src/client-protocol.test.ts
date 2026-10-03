@@ -572,3 +572,73 @@ test("a workspace's scripts can be replaced, down to none", async () => {
     await f.client.close();
   }
 });
+
+test("Deck watches push stable gate times, real fake-thread links and terminal delegation records", async () => {
+  const f = await fixture();
+  const { ConductorClient } = await import("@ace/client");
+  const { ConductorSpec } = await import("@ace/protocol");
+  const model = { provider: "codex", model: "scripted", tier: "normal", cost: 0, quota: 1 };
+  const spec = ConductorSpec.parse({
+    rootAgentId: "root",
+    workspaceId: "workspace",
+    goal: "A fake Deck",
+    repositoryRules: "",
+    constraints: {
+      providers: ["codex"],
+      models: ["scripted"],
+      accounts: ["local.codex"],
+      budget: 10,
+      maxParallel: 1,
+      deadline: null,
+      stallAfterMs: 1000,
+    },
+    policies: {
+      planApproval: "required",
+      merge: "ask",
+      maxFixRounds: 1,
+      roles: { planner: [model], worker: [model], reviewer: [model], integrator: [model] },
+    },
+  });
+  let next = 0;
+  const decks = new ConductorClient(f.client, () => `deck-watch-${++next}`);
+  let watch: ReturnType<InstanceType<typeof ConductorClient>["watch"]> | undefined;
+  try {
+    expect(await f.client.command({ type: "conductor.start", runId: "deck", spec })).toMatchObject({
+      ok: true,
+    });
+    watch = decks.watch("deck");
+    await expect.poll(() => watch?.run.getSnapshot()?.needsUser.length).toBe(1);
+    const gated = watch.run.getSnapshot();
+    const gate = gated?.needsUser[0];
+    if (!gate) throw new Error("Gate missing");
+    expect(gated?.startedAt).toBe(1000);
+    expect(gate.gatedAt).toBe(1000);
+    expect(
+      await f.client.command({
+        type: "conductor.approve",
+        runId: "deck",
+        approval: { gateId: gate.id, decision: "approve" },
+      }),
+    ).toMatchObject({ ok: true });
+    await expect.poll(() => watch?.run.getSnapshot()?.delegations.length).toBe(2);
+    const worker = watch.run.getSnapshot()?.delegations[0];
+    if (!worker) throw new Error("Delegation missing");
+    expect(
+      f.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(worker.threadId) }),
+    ).toMatchObject({ thread: { rootAgentId: worker.agentId, status: { state: "working" } } });
+    expect(
+      f.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(worker.parentThreadId) }),
+    ).toMatchObject({ thread: { status: { state: "working" } } });
+    expect(await f.client.command({ type: "conductor.cancel", runId: "deck" })).toMatchObject({
+      ok: true,
+    });
+    await expect.poll(() => watch?.run.getSnapshot()?.phase).toBe("cancelled");
+    expect(watch.run.getSnapshot()?.delegations[0]?.phase).toBe("settled");
+    expect(watch.run.getSnapshot()?.lanes).toEqual([]);
+    expect(watch.run.getSnapshot()?.startedAt).toBe(gated?.startedAt);
+    expect((await decks.get("deck")).needsUser).toEqual([]);
+  } finally {
+    watch?.close();
+    await f.client.close();
+  }
+});

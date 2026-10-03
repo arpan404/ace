@@ -72,7 +72,10 @@ function lanes(run: FakeDeckRun, cards: readonly FakeDeckCard[]) {
 }
 
 /** One fake run as `conductor.result` and `conductor.changed` carry it. */
-export function runView(run: FakeDeckRun): ConductorRunView {
+export function runView(
+  run: FakeDeckRun,
+  execution: { delegations?: ConductorRunView["delegations"]; gatedAt?: number } = {},
+): ConductorRunView {
   const work = run.cards.filter((card) => card.kind === "work");
   const ids = new Set(work.map((card) => card.id));
   const escalated = work.find((card) => card.state === "escalated");
@@ -80,6 +83,9 @@ export function runView(run: FakeDeckRun): ConductorRunView {
   const goal = run.goal.startsWith(run.title) ? run.goal : `${run.title}. ${run.goal}`;
   return ConductorRunView.parse({
     id: run.id,
+    startedAt: run.createdAt,
+    updatedAt: run.updatedAt,
+    delegations: execution.delegations ?? [],
     workspaceId: run.workspaceId,
     goal,
     phase: phase(run),
@@ -114,10 +120,22 @@ export function runView(run: FakeDeckRun): ConductorRunView {
             lane: null,
             generation: run.gate.revision,
             message: run.gate.body.slice(0, 2048),
+            gatedAt: execution.gatedAt ?? run.updatedAt,
           },
         ]
       : [],
-    lanes: lanes(run, work),
+    lanes: ["cancelled", "merged"].includes(run.phase)
+      ? []
+      : lanes(
+          run,
+          work.filter((card) => card.state !== "merged"),
+        ).map((lane) => ({
+          ...lane,
+          agentId:
+            execution.delegations?.find((entry) => entry.laneId === lane.id)?.agentId ??
+            lane.agentId,
+          status: run.phase === "paused" ? "waiting" : lane.status,
+        })),
     dag: work.map((card) => ({
       id: card.id,
       title: card.title,

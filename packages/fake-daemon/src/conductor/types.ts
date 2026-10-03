@@ -1,8 +1,7 @@
 import type { ProviderKind } from "@ace/protocol";
 
 /*
- * The run view the fake conductor serves. The daemon does not publish a conductor run view
- * on the wire yet, so this is the fake's own shape; the web adapter maps it to its model.
+ * Seed and scenario state. FakePlanningWire maps it to the canonical ConductorRunView.
  */
 
 export type FakeCardState =

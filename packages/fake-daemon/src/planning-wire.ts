@@ -7,6 +7,8 @@ import {
   type ServerMessage as Message,
   type ConductorCommandPayload,
 } from "@ace/protocol";
+import type { FakeServiceContext } from "./service-context.ts";
+import { fakeDeckRoot, fakeDelegations } from "./conductor/delegations.ts";
 import type { FakeConductor } from "./conductor/fake-conductor.ts";
 import { runView } from "./conductor/run-view.ts";
 import type { FakeDeckRun } from "./conductor/types.ts";
@@ -17,29 +19,56 @@ export interface PlanningSeed {
   runs?: AutomationRun[];
 }
 export class FakePlanningWire {
+  private host: FakeServiceContext | undefined;
+  private gateTimes = new Map<string, number>();
   private conductor: FakeConductor;
   private now: () => number;
   private runs = new Map<string, AutomationRun>();
   private automations = new Map<string, Automation>();
   private enabled: () => boolean;
-  constructor(conductor: FakeConductor, now: () => number, enabled: () => boolean) {
+  constructor(
+    conductor: FakeConductor,
+    now: () => number,
+    enabled: () => boolean,
+    host?: FakeServiceContext,
+  ) {
     this.conductor = conductor;
+    this.host = host;
+    for (const run of conductor.runs())
+      if (run.gate) this.gateTimes.set(run.gate.id, run.updatedAt);
     this.now = now;
     this.enabled = enabled;
   }
   command(payload: ConductorCommandPayload) {
-    return this.conductor.command(payload);
+    const result = this.conductor.command(payload);
+    this.view(payload.runId);
+    return result;
   }
   private view(id: string) {
     const run = this.conductor.runs().find((entry) => entry.id === id);
-    return run && runView(run);
+    if (!run) return undefined;
+    fakeDeckRoot(run, this.host);
+    return runView(run, {
+      delegations: fakeDelegations(run, this.host),
+      gatedAt: run.gate ? this.gateTime(run.gate.id, run.updatedAt) : undefined,
+    });
   }
   /** Seed decks, automations and their past runs, as a daemon that has been running a while. */
   seed(seed: PlanningSeed): void {
-    if (seed.decks) this.conductor.load(seed.decks);
+    if (seed.decks) {
+      this.conductor.load(seed.decks);
+      for (const run of seed.decks) if (run.gate) this.gateTime(run.gate.id, run.updatedAt);
+    }
     for (const automation of seed.automations ?? [])
       this.automations.set(automation.id, Automation.parse(automation));
     for (const run of seed.runs ?? []) this.runs.set(run.id, run);
+  }
+  private gateTime(id: string, at: number) {
+    const saved = this.gateTimes.get(id);
+    if (saved !== undefined) return saved;
+    if (this.gateTimes.size >= 512) this.gateTimes.delete(this.gateTimes.keys().next().value ?? "");
+    this.gateTimes.set(id, at);
+    return at;
   }
   handle(
     message: ClientMessage,

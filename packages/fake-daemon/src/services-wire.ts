@@ -63,6 +63,7 @@ export class FakeServicesWire {
       new FakeConductor({ clock: context.now, runs: [] }),
       context.now,
       () => settings.get("automations.enabled") === true,
+      context,
     );
   }
   seed(seed: ServicesSeed): void {

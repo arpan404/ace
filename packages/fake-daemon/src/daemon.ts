@@ -114,6 +114,8 @@ export class FakeDaemon implements Host {
     this.servicesWire = new FakeServicesWire(
       {
         now: options.clock,
+        createThread: (input) => this.createThread(input),
+        apply: (id, facts) => this.apply(id, facts),
         thread: (id) => {
           const host = this.threads.get(id);
           return host?.view.thread.deletedAt === undefined ? host?.view : undefined;
