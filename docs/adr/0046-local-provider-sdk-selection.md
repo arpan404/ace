@@ -1,4 +1,4 @@
-# 0043: Choose official provider SDKs by capability and local CLI ownership
+# 0046: Choose official provider SDKs by capability and local CLI ownership
 
 Date: 2026-10-02. Status: **Proposed**.
 

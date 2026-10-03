@@ -293,7 +293,7 @@ Native newer Qwen ACP is itself rich. Its `SubAgentTracker` forwards child text/
 
 ## Implementation sequence
 
-The proposed decision is [ADR 0043](../../adr/0043-local-provider-sdk-selection.md).
+The proposed decision is [ADR 0046](../../adr/0046-local-provider-sdk-selection.md).
 The [self-contained worker brief](sdk-implementation-brief.md) is also delivered
 to `/tmp/ace-orch/impl-sdk-brief.md`.
 Complete Claude's existing SDK integration first, then Codex control/service

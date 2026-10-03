@@ -24,7 +24,7 @@ may have moved. Work from the orchestrator-assigned implementation worktree and
 branch based on the current integration train. Read its `AGENTS.md`, `README.md`,
 ADRs 0002/0003/0004/0007, the provider adapter READMEs and relevant service owners.
 Read the research branch `docs/sdk-audit` if its docs are not merged yet, notably
-`docs/research/providers/sdk-audit.md` and proposed ADR 0043. This brief proposes
+`docs/research/providers/sdk-audit.md` and proposed ADR 0046. This brief proposes
 implementation; it does not turn the proposed ADR into an accepted decision.
 
 At audit time the installed versions were Claude 2.1.286, Codex 0.159.1,
