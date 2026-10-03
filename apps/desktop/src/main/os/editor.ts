@@ -2,7 +2,8 @@ import { execFile } from "node:child_process";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { shell } from "electron";
 import type { OpenInEditor } from "../../shared/contract.ts";
-import { defaultOpenAction } from "./open-policy.ts";
+import { defaultOpenAction, type PathKind } from "./open-policy.ts";
+import { isPackageFolder } from "./package-folder.ts";
 
 /** Editor URL handlers, so no editor CLI needs to be on PATH. */
 function editorUrl(request: OpenInEditor): string | undefined {
@@ -35,7 +36,10 @@ export async function openInEditor(request: OpenInEditor): Promise<boolean> {
   }
   // Judge (and open) what the path resolves to, so a symlink cannot disguise an app.
   const target = realpathSync(request.path);
-  if (defaultOpenAction(target, statSync(target).isDirectory(), process.platform) === "reveal") {
+  const kind: PathKind = statSync(target).isDirectory()
+    ? { type: "directory", package: isPackageFolder(target, process.platform) }
+    : { type: "file" };
+  if (defaultOpenAction(target, kind, process.platform) === "reveal") {
     shell.showItemInFolder(target);
     return true;
   }
