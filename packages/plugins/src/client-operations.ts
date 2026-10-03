@@ -1,5 +1,5 @@
-import { constants } from "node:fs";
-import { inlineSource, inlinePage } from "./inline-source.ts";
+import { readSourcePage, sourcePage } from "./source-page.ts";
+import { inlineSource } from "./inline-source.ts";
 import { cp, open, writeFile, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { PluginAvailability, PluginName, PluginReview } from "@ace/protocol/plugins";
@@ -9,7 +9,7 @@ import { importPlugin } from "./import.ts";
 import { reviewPlugin, validateComponents } from "./review.ts";
 import { jsonSize, reviewBytes } from "./review-pages.ts";
 import type { Registry } from "./registry.ts";
-import type { PluginSnapshot } from "./types.ts";
+import type { PluginSnapshot, PackageFile } from "./types.ts";
 /** Client catalog and review preparation share the manager's registry and immutable snapshots. */
 export class PluginClientOperations {
   private registry: Registry;
@@ -21,6 +21,13 @@ export class PluginClientOperations {
     "enabled" | "providers"
   >[] = [];
   private snapshots: () => Promise<PluginSnapshot[]>;
+  private sourceSnapshots: PluginSnapshot[] | undefined;
+  private sourceIndex = new Map<
+    string,
+    { snapshot: PluginSnapshot; files: Map<string, PackageFile> }
+  >();
+  private inlinePages = new Map<string, { path: string; hash: string; bytes: Buffer }>();
+  private inlineBytes = 0;
   constructor(
     registry: Registry,
     root: string,
@@ -100,55 +107,67 @@ export class PluginClientOperations {
     };
   }
   async source(name: string, path: string, offset: number, limit: number) {
-    const snapshot = (await this.snapshots()).find(
-      (entry) => entry.install.name === PluginName.parse(name),
-    );
-    if (!snapshot) throw new Error("Plugin not installed");
+    const snapshots = await this.snapshots();
+    if (this.sourceSnapshots !== snapshots) {
+      this.inlinePages.clear();
+      this.inlineBytes = 0;
+      this.sourceSnapshots = snapshots;
+      this.sourceIndex.clear();
+      for (const snapshot of snapshots)
+        this.sourceIndex.set(snapshot.install.name, {
+          snapshot,
+          files: new Map(snapshot.files.map((file) => [file.path, file])),
+        });
+    }
+    const indexed = this.sourceIndex.get(PluginName.parse(name));
+    if (!indexed) throw new Error("Plugin not installed");
+    const { snapshot, files } = indexed;
     const relative = normalizePath(path);
-    const virtual = inlineSource(snapshot.text, relative);
+    const key = `${name}/${relative}`;
+    let virtual = this.inlinePages.get(key);
+    if (!virtual) {
+      const source = inlineSource(snapshot.text, relative);
+      if (source) {
+        const bytes = Buffer.from(source.text);
+        virtual = { path: source.path, hash: source.hash, bytes };
+        // FIFO eviction bounds encoded data independently of the snapshot text cache.
+        while (
+          this.inlinePages.size >= limits.files ||
+          this.inlineBytes + bytes.length > limits.total
+        ) {
+          const oldest = this.inlinePages.keys().next().value;
+          if (oldest === undefined) throw new Error("Source cache limit");
+          this.inlineBytes -= this.inlinePages.get(oldest)?.bytes.length ?? 0;
+          this.inlinePages.delete(oldest);
+        }
+        this.inlinePages.set(key, virtual);
+        this.inlineBytes += bytes.length;
+      }
+    }
     if (virtual)
       return {
         path: join(snapshot.root, virtual.path),
         hash: virtual.hash,
-        ...inlinePage(virtual.text, offset, limit),
+        ...sourcePage(
+          virtual.bytes.subarray(offset, offset + Math.max(4, limit) + 1),
+          virtual.bytes.length,
+          offset,
+          limit,
+        ),
         readonly: true as const,
         virtual: true,
         manifestPath: virtual.path,
       };
-    const file = snapshot.files.find((entry) => entry.path === relative);
+    const file = files.get(relative);
     if (!file || offset > file.bytes) throw new Error("Source unavailable");
-    await assertNoSymlinks(join(snapshot.root, relative));
-    const handle = await open(
-      join(snapshot.root, relative),
-      constants.O_RDONLY | constants.O_NOFOLLOW,
-    );
-    try {
-      const bytes = Buffer.alloc(Math.min(Math.max(4, limit), file.bytes - offset));
-      const read = await handle.read(bytes, 0, bytes.length, offset);
-      // Byte cursors always end on a UTF-8 boundary. At least one code point fits.
-      let end = read.bytesRead;
-      if (offset + end < file.bytes) {
-        const next = Buffer.alloc(1);
-        await handle.read(next, 0, 1, offset + end);
-        if ((next[0] ?? 0) >= 0x80 && (next[0] ?? 0) < 0xc0) {
-          while (end > 0 && (bytes[end - 1] ?? 0) >= 0x80 && (bytes[end - 1] ?? 0) < 0xc0) end--;
-          if (end > 0) end--;
-        }
-      }
-      const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, end));
-      return {
-        path: join(snapshot.root, relative),
-        hash: file.hash,
-        bytes: file.bytes,
-        offset,
-        nextOffset: offset + end,
-        text,
-        readonly: true as const,
-      };
-    } finally {
-      await handle.close();
-    }
+    return {
+      path: join(snapshot.root, relative),
+      hash: file.hash,
+      ...(await readSourcePage(join(snapshot.root, relative), file, offset, limit)),
+      readonly: true as const,
+    };
   }
+
   async edit(request: {
     name: string;
     path: string;

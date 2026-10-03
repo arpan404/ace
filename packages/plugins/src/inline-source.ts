@@ -48,18 +48,3 @@ export function inlineSource(files: Record<string, string>, path: string) {
       ) + "\n",
   };
 }
-
-/** A byte page always contains complete UTF-8 code points, including small requested pages. */
-export function inlinePage(text: string, offset: number, limit: number) {
-  const bytes = Buffer.from(text);
-  if (offset > bytes.length || (offset < bytes.length && ((bytes[offset] ?? 0) & 0xc0) === 0x80))
-    throw new Error("Source unavailable");
-  let end = Math.min(bytes.length, offset + Math.max(4, limit));
-  while (end < bytes.length && ((bytes[end] ?? 0) & 0xc0) === 0x80) end--;
-  return {
-    bytes: bytes.length,
-    offset,
-    nextOffset: end,
-    text: new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(offset, end)),
-  };
-}

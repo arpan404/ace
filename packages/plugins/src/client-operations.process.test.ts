@@ -212,7 +212,7 @@ test("warm catalog pages survive unavailable package files while execution still
 });
 
 import { createHash } from "node:crypto";
-import { readFile, rename, mkdir, writeFile, symlink } from "node:fs/promises";
+import { readFile, rename, mkdir, writeFile, symlink, truncate, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 test("cached catalog metadata cannot authorize source reads through a replaced parent symlink", async () => {
@@ -230,6 +230,123 @@ test("cached catalog metadata cannot authorize source reads through a replaced p
     await expect(f.manager.source("sample", "skills/review/SKILL.md", 0, 65536)).rejects.toThrow(
       "Symlink forbidden",
     );
+  } finally {
+    await f.close();
+  }
+});
+
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
+
+for (const change of ["truncated", "same-length replacement"] as const)
+  test(`warmed source rejects ${change} instead of returning stale pagination or an accepted hash`, async () => {
+    const f = await fixture();
+    try {
+      const install = await f.manager.accept(await f.prepare());
+      const service = new PluginService(f.manager);
+      await service.handle({ type: "plugins.catalog", offset: 0, limit: 50 });
+      const path = "skills/review/SKILL.md";
+      const physical = join(f.managerRoot, "versions", install.hash, path);
+      const original = await readFile(physical);
+      const offset = change === "truncated" ? 4 : 0;
+      if (change === "truncated") await truncate(physical, offset);
+      else await writeFile(physical, Buffer.alloc(original.length, "x"));
+      await expect(
+        service.handle({ type: "plugins.source", name: "sample", path, offset, limit: 4 }),
+      ).rejects.toThrow("Integrity mismatch");
+      await writeFile(physical, original);
+      const recovered = await service.handle({
+        type: "plugins.source",
+        name: "sample",
+        path,
+        offset: 0,
+        limit: 65536,
+      });
+      expect(recovered).toMatchObject({
+        text: original.toString(),
+        bytes: original.length,
+        nextOffset: original.length,
+      });
+    } finally {
+      await f.close();
+    }
+  });
+
+test("warmed source refuses a FIFO even when a writer supplies the original accepted bytes", async () => {
+  const f = await fixture();
+  try {
+    const install = await f.manager.accept(await f.prepare());
+    const service = new PluginService(f.manager);
+    await service.handle({ type: "plugins.catalog", offset: 0, limit: 50 });
+    const path = "skills/review/SKILL.md";
+    const physical = join(f.managerRoot, "versions", install.hash, path);
+    const original = await readFile(physical, "utf8");
+    await unlink(physical);
+    await promisify(execFile)("mkfifo", [physical]);
+    // The old blocking reader can complete too: it must still refuse non-regular input.
+    // A process owns the writer so cleanup can interrupt its blocking open without a timer.
+    const writer = spawn(
+      process.execPath,
+      [
+        "-e",
+        "require('node:fs').writeFileSync(process.argv[1], process.argv[2])",
+        physical,
+        original,
+      ],
+      { stdio: "ignore" },
+    );
+    const closed = new Promise<void>((resolve, reject) => {
+      writer.once("exit", () => resolve());
+      writer.once("error", reject);
+    });
+    try {
+      await expect(
+        service.handle({ type: "plugins.source", name: "sample", path, offset: 0, limit: 65536 }),
+      ).rejects.toThrow("Special file forbidden");
+    } finally {
+      if (writer.exitCode === null) writer.kill();
+      await closed;
+    }
+  } finally {
+    await f.close();
+  }
+});
+
+test("physical UTF-8 source pages advance and reconstruct the accepted content", async () => {
+  const f = await fixture();
+  try {
+    const text = "---\nname: review\ndescription: UTF-8 pages\n---\n雪🙂 says 雪!";
+    await writeFile(join(f.repo, "plugins/sample/skills/review/SKILL.md"), text);
+    await (await import("./test-support.ts")).git(f.repo, ["commit", "-am", "UTF-8 source"]);
+    await f.manager.accept(await f.prepare());
+    const service = new PluginService(f.manager);
+    let offset = 0,
+      result = "";
+    for (;;) {
+      const page = await service.handle({
+        type: "plugins.source",
+        name: "sample",
+        path: "skills/review/SKILL.md",
+        offset,
+        limit: 4,
+      });
+      if (page.type !== "plugins.source") throw new Error("Expected source");
+      expect(page.hash).toBe(createHash("sha256").update(text).digest("hex"));
+      expect(page.nextOffset).toBeGreaterThan(offset);
+      result += page.text;
+      offset = page.nextOffset;
+      if (offset === page.bytes) break;
+    }
+    expect(result).toBe(text);
+    await expect(
+      service.handle({
+        type: "plugins.source",
+        name: "sample",
+        path: "skills/review/SKILL.md",
+        offset: Buffer.byteLength(text.slice(0, text.indexOf("雪"))) + 1,
+        limit: 4,
+      }),
+    ).rejects.toThrow("Source unavailable");
   } finally {
     await f.close();
   }
