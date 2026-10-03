@@ -52,12 +52,25 @@ export function claudeInjection(input: AceMcpConnection) {
     developerInstructions: developerInstructions("claude"),
   };
 }
-export function openCodeInjection(input: AceMcpConnection) {
+export function openCodeInjection(input: AceMcpConnection, configContent?: string) {
   const { url, bearer } = AceMcpConnectionSchema.parse(input);
+  const config =
+    configContent === undefined
+      ? {}
+      : z
+          .record(z.string().max(256), z.unknown())
+          .parse(JSON.parse(z.string().max(32768).parse(configContent)));
+  const servers = z
+    .record(z.string().min(1).max(256), z.unknown())
+    .refine((value) => Object.keys(value).length < 64)
+    .parse(config["mcp"] ?? {});
+  if (Object.hasOwn(servers, "ace")) throw new Error("OpenCode MCP server name collision: ace");
   return {
     env: {
       OPENCODE_CONFIG_CONTENT: JSON.stringify({
+        ...config,
         mcp: {
+          ...servers,
           ace: {
             type: "remote",
             url,

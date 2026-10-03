@@ -27,7 +27,7 @@ if (args.includes("--version")) {
       : provider === "codex"
         ? "codex-cli 0.159.1"
         : provider === "opencode"
-          ? "1.18.33"
+          ? "opencode v2.0.22"
           : "2026.09.26-test",
   );
   process.exit(0);
@@ -238,30 +238,88 @@ if (provider === "opencode") {
   const config = z
     .object({ mcp: z.object({ ace: HttpServer }) })
     .parse(JSON.parse(process.env["OPENCODE_CONFIG_CONTENT"] ?? "null")).mcp.ace;
+  const operations = [
+    "server.info",
+    "event.subscribe",
+    "session.create",
+    "session.get",
+    "session.list",
+    "session.active",
+    "session.prompt",
+    "session.interrupt",
+    "session.message.list",
+    "session.permission.list",
+    "session.permission.reply",
+    "session.form.list",
+    "session.form.reply",
+    "session.form.cancel",
+    "session.inbox.list",
+    "shell.list",
+    "shell.get",
+    "shell.remove",
+    "model.list",
+  ];
+  if (!args.includes("--stdio") || !process.env["OPENCODE_PASSWORD"])
+    throw new Error("Missing v2 owned server options");
+  const streams = new Set<import("node:http").ServerResponse>();
   const server = createServer(async (req, res) => {
-    if (req.url?.startsWith("/global/event")) {
+    if (
+      req.headers.authorization !==
+      `Basic ${Buffer.from(`opencode:${process.env["OPENCODE_PASSWORD"]}`).toString("base64")}`
+    ) {
+      res.writeHead(401).end();
+      return;
+    }
+    const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+    if (path === "/api/event") {
       res.writeHead(200, { "Content-Type": "text/event-stream" });
-      res.write(`data: ${JSON.stringify({ payload: { type: "server.connected" } })}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({ id: "connected", type: "server.connected", data: {} })}\n\n`,
+      );
+      streams.add(res);
+      res.on("close", () => streams.delete(res));
       return;
     }
     let result: unknown;
-    if (req.url?.startsWith("/mcp"))
+    if (path === "/api/info") result = { version: "2.0.22", pid: process.pid };
+    else if (path === "/openapi.json")
       result = {
-        ace: {
-          status: "connected",
-          mcpProof: await proof(config.url, config.headers.Authorization),
-          echoedAuthorization: config.headers.Authorization,
-        },
+        openapi: "3.1.0",
+        paths: Object.fromEntries(
+          operations.map((operationId, i) => [`/api/${i}`, { get: { operationId } }]),
+        ),
       };
-    else if (req.url?.startsWith("/session"))
-      result = { id: "native", projectID: "project", directory: "test" };
-    else result = {};
+    else if (path === "/api/session" && req.method === "POST") {
+      let body = "";
+      for await (const chunk of req) {
+        body += String(chunk);
+        if (Buffer.byteLength(body) > 65536) throw new Error("Fake request exceeds bound");
+      }
+      const input = z
+        .object({ location: z.object({ directory: z.string() }) })
+        .parse(JSON.parse(body));
+      result = {
+        id: "native",
+        projectID: "project",
+        location: input.location,
+        mcpProof: await proof(config.url, config.headers.Authorization),
+        echoedAuthorization: config.headers.Authorization,
+        echoedBearerRaw: config.headers.Authorization.slice(7),
+      };
+    } else if (path.endsWith("/interrupt")) result = { interrupted: true };
+    else throw new Error(`Unexpected fake OpenCode route: ${path}`);
     res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(result));
   });
-  const port = Number(args[args.indexOf("--port") + 1]);
-  server.listen(port, "127.0.0.1", () =>
-    console.log(`opencode server listening on http://127.0.0.1:${port}`),
-  );
+  server.listen(0, "127.0.0.1", () => {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Missing fake address");
+    console.log(JSON.stringify({ url: `http://127.0.0.1:${address.port}` }));
+  });
+  process.stdin.resume();
+  process.stdin.on("end", () => {
+    for (const stream of streams) stream.end();
+    server.close();
+  });
 } else {
   for await (const line of createInterface({ input: process.stdin })) {
     const message = Message.parse(JSON.parse(line));

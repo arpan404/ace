@@ -71,3 +71,23 @@ it("refuses to inject ace credentials into remote or decorated URLs", () => {
     expect(() => acpInjection({ ...connection, url })).toThrow();
   }
 });
+
+it("OpenCode injection preserves configured servers and unknown native settings", () => {
+  const config = {
+    theme: "user-theme",
+    mcp: { notes: { type: "remote", url: "http://127.0.0.1:23456/mcp" } },
+  };
+  const result = openCodeInjection(connection, JSON.stringify(config));
+  expect(JSON.parse(result.env.OPENCODE_CONFIG_CONTENT)).toMatchObject(config);
+  expect(JSON.parse(result.env.OPENCODE_CONFIG_CONTENT).mcp.ace.headers.Authorization).toBe(
+    `Bearer ${connection.bearer}`,
+  );
+});
+it("OpenCode injection refuses an ace server collision instead of replacing user authority", () => {
+  expect(() =>
+    openCodeInjection(
+      connection,
+      JSON.stringify({ mcp: { ace: { url: "http://127.0.0.1:23456/mcp" } } }),
+    ),
+  ).toThrow("OpenCode MCP server name collision: ace");
+});
