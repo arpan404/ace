@@ -107,7 +107,11 @@ it("snapshots only the last 200 items, keeps all work entities and pages older h
   expect(view.itemOrder).toEqual(Array.from({ length: 200 }, (_, i) => `item-${i + 50}`));
   expect(view.itemsBefore).toBe(created[50]?.seq);
   expect(view.agents.root).toEqual(agent);
-  expect(view.runs.run).toEqual(run);
+  expect(view.runs.run).toEqual({
+    ...run,
+    ordinal: 1,
+    checkpoints: { state: "unavailable", error: "no_turn_boundary" },
+  });
   expect(view.interactions.question).toEqual(interaction);
   expect(view.backgroundTasks.task).toEqual(task);
   c.send({
