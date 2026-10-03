@@ -4,6 +4,7 @@ import type {
   AgentStatus,
   BackgroundTask,
   Interaction,
+  InteractionId,
   Item,
   Run,
   RunId,
@@ -32,6 +33,8 @@ export interface IdSource {
 export interface ApplyContext {
   now: number;
   ids: IdSource;
+  /** Native answer RPCs currently owned by the engine; never persisted in core state. */
+  resolvingInteractions?: ReadonlySet<InteractionId>;
 }
 
 export interface AgentRecord {

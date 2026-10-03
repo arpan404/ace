@@ -1,3 +1,11 @@
+import { Command as CommandSchema, type PermissionMode, type CommandResult } from "@ace/protocol";
+import { commandContext } from "../commands.ts";
+import {
+  supportsPermissionMode,
+  isPermissionOption,
+  limitPermissionMode as resolveChildMode,
+} from "@ace/core";
+import type { PermissionSettings } from "./permissions.ts";
 import { z } from "zod";
 import { changeEngineWorkspace } from "./workspace-change.ts";
 import { ProviderKind, ThreadId } from "@ace/protocol";
@@ -23,6 +31,7 @@ export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
+  permissionSettings?: PermissionSettings;
   selectInstance?: (
     provider: string,
     backend?: import("@ace/engine-api").ProviderBackend,
@@ -53,6 +62,7 @@ export interface EngineOptions {
 export class Engine {
   readonly handler: CommandHandler;
   private limits: EngineLimits;
+  private nextThreadId: () => string;
   private repo: EngineRepository;
   private registry: AdapterRegistry;
   private clock: EngineClock;
@@ -81,6 +91,7 @@ export class Engine {
   ) => import("@ace/protocol").CommandResult;
   constructor(store: Store, options: EngineOptions = {}) {
     this.limits = engineLimits(options.limits);
+    this.nextThreadId = options.threadId ?? randomUUID;
     this.repo = new EngineRepository(
       store,
       options.ids,
@@ -101,6 +112,7 @@ export class Engine {
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
       repo: this.repo,
+      ...(options.permissionSettings ? { permissionSettings: options.permissionSettings } : {}),
       ...(options.prepareWorkspace ? { prepareWorkspace: options.prepareWorkspace } : {}),
       registry: this.registry,
       clock: this.clock,
@@ -160,6 +172,7 @@ export class Engine {
     });
     this.meters = new ContextMeters(store, options.recovery?.contextWindow);
     this.repo.observe = (state, facts, events, at) => {
+      this.repo.permissions.observe(state, events, at, () => this.wake(state.threadId));
       if (facts.some((fact) => fact.type === "process.started"))
         this.meters.invalidate(state.threadId, at);
       if (
@@ -193,17 +206,19 @@ export class Engine {
     );
     this.handler = {
       handle: (command, context) =>
-        this.closing
-          ? { commandId: command.id, ok: false, error: "daemon_shutting_down" }
-          : !this.readyState
-            ? { commandId: command.id, ok: false, error: "engine_starting" }
-            : store.atomic(
-                () =>
-                  this.hostInteractionHandler?.(command) ??
-                  (this.commandPolicy
-                    ? this.commandPolicy(command, () => handler.handle(command, context))
-                    : handler.handle(command, context)),
-              ),
+        permissionOptions(command)
+          ? { commandId: command.id, ok: false, error: "provider_permission_options_forbidden" }
+          : this.closing
+            ? { commandId: command.id, ok: false, error: "daemon_shutting_down" }
+            : !this.readyState
+              ? { commandId: command.id, ok: false, error: "engine_starting" }
+              : store.atomic(
+                  () =>
+                    this.hostInteractionHandler?.(command) ??
+                    (this.commandPolicy
+                      ? this.commandPolicy(command, () => handler.handle(command, context))
+                      : handler.handle(command, context)),
+                ),
     };
     const recover = () =>
       recoverEngine(
@@ -262,8 +277,60 @@ export class Engine {
     const { installed, auth } = this.registry.get(provider).discovery;
     return { installed, auth };
   }
-  capabilities(provider: ProviderKind) {
-    return this.registry.get(provider).capabilities;
+  capabilities(provider: ProviderKind, backend?: import("@ace/engine-api").ProviderBackend) {
+    return structuredClone(this.registry.get(provider, backend).capabilities);
+  }
+  /** Trusted spawn boundary for Deck and delegation. Receipt identity is caller-owned. */
+  spawn(
+    command: Command,
+    scope: { permissionMode?: PermissionMode; parentThreadId?: ThreadId } = {},
+  ): CommandResult {
+    const p = command.payload;
+    if (p.type !== "thread.create" && p.type !== "thread.prepare")
+      throw new Error("Spawn requires thread.create or thread.prepare");
+    const id = p.threadId ?? ThreadId.parse(this.nextThreadId());
+    const requested = scope.permissionMode ?? p.permissionMode;
+    return this.repo.store.recordCommand(command.id, command.deviceId, () =>
+      this.repo.store.atomic(() => {
+        if (this.repo.store.getThread(id))
+          return { commandId: command.id, ok: false, error: "thread_exists" };
+        if (permissionOptions(command))
+          return {
+            commandId: command.id,
+            ok: false,
+            error: "provider_permission_options_forbidden",
+          };
+        if (scope.parentThreadId && !this.repo.state(scope.parentThreadId))
+          return { commandId: command.id, ok: false, error: "permission_parent_not_found" };
+        if (requested || scope.parentThreadId) {
+          const ceiling = scope.parentThreadId
+            ? this.repo.permissions.authority(scope.parentThreadId)
+            : undefined;
+          if (requested && ceiling && resolveChildMode(requested, ceiling) !== requested)
+            return { commandId: command.id, ok: false, error: "permission_exceeds_parent" };
+          const selected = requested ?? ceiling;
+          if (
+            selected &&
+            !supportsPermissionMode(
+              this.registry.get(p.provider).capabilities.permissions,
+              selected,
+            )
+          )
+            return { commandId: command.id, ok: false, error: "permission_mode_unsupported" };
+        }
+        const payload = { ...p, threadId: id, ...(requested ? { permissionMode: requested } : {}) };
+        const result = this.handler.handle(
+          CommandSchema.parse({ ...command, payload }),
+          commandContext(this.repo.store),
+        );
+        if (result.ok && scope.parentThreadId)
+          this.repo.permissions.parent(id, scope.parentThreadId, this.clock.now());
+        return result;
+      }),
+    );
+  }
+  permissionMode(id: ThreadId): PermissionMode {
+    return this.repo.permissions.effective(id);
   }
   /** Host-owned summary attachment. Child transcript and native session stay independent. */
   attachChild(
@@ -273,6 +340,7 @@ export class Engine {
     role: string,
     background: boolean,
   ): void {
+    this.repo.permissions.parent(child.id, parentId, this.clock.now());
     const state = this.repo.requireState(parentId);
     const parent = state.indexes.agentKeysById[parentAgentId];
     if (!parent) throw new Error("Unknown parent agent");
@@ -663,4 +731,11 @@ export class Engine {
     })();
     return this.closePromise;
   }
+}
+
+function permissionOptions(command: Command): boolean {
+  const p = command.payload;
+  const options =
+    "selection" in p && p.selection ? p.selection.options : "options" in p ? p.options : undefined;
+  return Object.keys(options ?? {}).some((key) => isPermissionOption(key));
 }

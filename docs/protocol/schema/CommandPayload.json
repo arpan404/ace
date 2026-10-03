@@ -7,6 +7,33 @@
     },
     {
       "properties": {
+        "permissionMode": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.permission.set",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "permissionMode"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "context": {
           "$ref": "https://ace.local/protocol/v1/MessageContext.json"
         },
@@ -1212,6 +1239,9 @@
         },
         "options": {
           "$ref": "https://ace.local/protocol/v1/ThreadCreateOptions.json"
+        },
+        "permissionMode": {
+          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
         },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

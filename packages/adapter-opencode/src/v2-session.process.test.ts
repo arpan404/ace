@@ -19,7 +19,7 @@ it("the installed boundary serves JSON readiness under a stdin lease and secrets
   expect(create?.body).toMatchObject({
     location: { directory: "/one" },
     model: { providerID: "opencode-go", id: "muse-spark-1.3-contributor" },
-    permissions: [],
+    permissions: [{ action: "*", resource: "*", effect: "ask" }],
   });
   expect(h.projection.view.thread.status).toEqual({ state: "waiting", on: "queue" });
   expect(JSON.stringify(h.frames)).not.toContain("ephemeral-test-secret");

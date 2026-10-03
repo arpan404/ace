@@ -187,7 +187,22 @@ export async function executeIntent(
       ([, item]) => item.id === p.interactionId,
     );
     if (!entry || entry[1].state !== "pending") throw new Error("Interaction is no longer pending");
-    await actor.session.resolve(entry[0], p.resolution);
+    try {
+      await actor.session.resolve(entry[0], p.resolution);
+    } catch (error) {
+      await actor.flush();
+      const current = repo.requireState(actor.id);
+      const interaction = current.interactions[entry[0]];
+      const owner = interaction ? current.indexes.agentKeysById[interaction.agentId] : undefined;
+      if (
+        interaction?.id === p.interactionId &&
+        interaction.state === "pending" &&
+        owner &&
+        !current.agents[owner]?.activeRun
+      )
+        actor.apply([{ type: "interaction.closed", interaction: entry[0], state: "cancelled" }]);
+      throw error;
+    }
     await actor.flush();
     if (repo.requireState(actor.id).interactions[entry[0]]?.id !== p.interactionId) return;
     actor.apply([

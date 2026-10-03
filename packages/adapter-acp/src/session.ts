@@ -254,6 +254,10 @@ class AcpSession implements ProviderSession {
     this.routing.bindRoot(this.nativeSessionId);
     if (!this.nativeSessionId) throw new Error("ACP server did not return a session id");
     this.configuration.setup(session, mcpTransport);
+    if (this.ctx.permissionMode !== "full-access") {
+      const restricted = this.configuration.restrictedMode();
+      if (restricted) await this.setMode(restricted);
+    }
     if (this.ctx.model) await this.setModel(this.ctx.model);
   }
   async select(kind: "model" | "mode", value: string): Promise<void> {

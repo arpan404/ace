@@ -1,0 +1,40 @@
+{
+  "$id": "https://ace.local/protocol/v1/PermissionReview.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "decision": {
+      "enum": [
+        "approve",
+        "deny",
+        "escalate"
+      ],
+      "type": "string"
+    },
+    "interactionId": {
+      "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+    },
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+    },
+    "reason": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "type": "string"
+    },
+    "reviewer": {
+      "const": "ace-risk-policy",
+      "type": "string"
+    },
+    "target": {
+      "$ref": "https://ace.local/protocol/v1/ApprovalTarget.json"
+    }
+  },
+  "required": [
+    "interactionId",
+    "mode",
+    "decision",
+    "reason",
+    "reviewer"
+  ],
+  "type": "object"
+}

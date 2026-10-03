@@ -16,6 +16,7 @@ const write = (data: unknown) => console.log(JSON.stringify(data));
 const lines = createInterface({ input: process.stdin });
 let id = 0;
 let childText = false;
+let preToolCallback: string | undefined;
 let elicitationWaiting = false;
 const configIndex = process.argv.indexOf("--mcp-config");
 let mcp: Record<string, unknown> =
@@ -36,7 +37,12 @@ for await (const line of lines) {
   const data = object(JSON.parse(line) as unknown);
   if (data["type"] === "control_request") {
     const request = object(data["request"]);
-    if (request["subtype"] === "initialize") childText = request["forwardSubagentText"] === true;
+    if (request["subtype"] === "initialize") {
+      childText = request["forwardSubagentText"] === true;
+      const matcher = object(list(object(request["hooks"])["PreToolUse"])[0]);
+      const callback = list(matcher["hookCallbackIds"])[0];
+      preToolCallback = typeof callback === "string" ? callback : undefined;
+    }
     write({
       type: "system",
       subtype: "fake_control",
@@ -120,6 +126,26 @@ for await (const line of lines) {
     const text = parts.map((p) => object(p)["text"] ?? "image").join(" ");
     write({ type: "system", subtype: "init", session_id: session, cwd: process.cwd() });
     write({ type: "system", subtype: "fake_input", input: data });
+    if (text === "permission-gate" && preToolCallback) {
+      write({
+        type: "control_request",
+        request_id: `hook-${++id}`,
+        request: {
+          subtype: "hook_callback",
+          callback_id: preToolCallback,
+          input: {
+            hook_event_name: "PreToolUse",
+            session_id: session,
+            cwd: process.cwd(),
+            transcript_path: "synthetic",
+            tool_name: "Read",
+            tool_input: { file_path: ".env" },
+            tool_use_id: "tool-protected",
+          },
+        },
+      });
+      continue;
+    }
     if (text === "crash") process.exit(3);
     if (text === "task-churn") {
       for (let n = 0; n < 2000; n++) {

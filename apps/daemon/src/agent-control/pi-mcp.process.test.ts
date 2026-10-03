@@ -73,6 +73,7 @@ test("Pi native registration retains the engine's scoped agent-control lease and
       type: "thread.create",
       workspaceId,
       provider: "pi",
+      permissionMode: "full-access",
       input: [{ type: "text", text: "synthetic" }],
     });
     expect(created.ok).toBe(true);

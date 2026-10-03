@@ -43,6 +43,9 @@
         "suppressAlwaysAllowRule": {
           "type": "boolean"
         },
+        "target": {
+          "$ref": "https://ace.local/protocol/v1/ApprovalTarget.json"
+        },
         "title": {
           "type": "string"
         }

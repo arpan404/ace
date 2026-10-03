@@ -1,4 +1,4 @@
-import type { AgentId, EventPayload } from "@ace/protocol";
+import type { AgentId, EventPayload, InteractionId } from "@ace/protocol";
 import type { ApplyContext, ThreadState } from "./state.ts";
 import type { Fact } from "./facts.ts";
 import { emit } from "./emit.ts";
@@ -28,6 +28,7 @@ export function cancelOpenWork(
   agentId: AgentId,
   now: number,
   events: EventPayload[],
+  resolvingInteractions?: ReadonlySet<InteractionId>,
 ): void {
   const backgroundItems = new Set(
     runningTaskKeys(state).flatMap((key) => {
@@ -46,6 +47,9 @@ export function cancelOpenWork(
     const interaction = state.interactions[key]!;
     if (interaction.agentId !== agentId || !interaction.blocking || interaction.state !== "pending")
       continue;
+    // Turn completion can precede the native answer ACK. Keep engine-owned answers
+    // pending until delivery completes; interruption and process exit still cancel them.
+    if (resolvingInteractions?.has(interaction.id)) continue;
     interaction.state = "cancelled";
     interaction.closedAt = now;
     refreshInteractionIndex(state, key);

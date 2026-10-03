@@ -1,4 +1,5 @@
 import { portableContext } from "@ace/context";
+import { permissionResolutionError } from "@ace/core";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { isSend, maxMessageBytes } from "./queue-store.ts";
 import type { Recovery } from "./recovery.ts";
@@ -54,6 +55,17 @@ export function engineHandler(
       );
       if (transition) return transition;
       const p = command.payload;
+      if (p.type === "thread.permission.set") {
+        const state = repo.state(p.threadId);
+        if (!state) return { commandId: command.id, ok: false, error: "thread_not_found" };
+        return (
+          repo.permissions.accept(
+            command,
+            registry.get(state.config.provider, repo.backend(p.threadId)).capabilities,
+            now(),
+          ) ?? { commandId: command.id, ok: false, error: "not_implemented" }
+        );
+      }
       let deliveryCommand = command;
       if (
         "threadId" in p &&
@@ -107,6 +119,8 @@ export function engineHandler(
           if (repo.store.workspaceReservations.reserved(cwd))
             return fail("workspace_change_in_progress");
           const entry = registry.get(p.provider);
+          if (p.permissionMode && !entry.capabilities.permissions?.modes.includes(p.permissionMode))
+            return fail("permission_mode_unsupported");
           const accountId = p.accountId ?? ("account" in p ? p.account : undefined);
           if (p.type === "thread.create" && p.instanceId && accountId && p.instanceId !== accountId)
             return fail("conflicting_account_selection");
@@ -168,6 +182,7 @@ export function engineHandler(
           if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
           createEngineThread(repo, {
             id: threadId,
+            ...(p.permissionMode ? { permissionMode: p.permissionMode } : {}),
             workspaceId: p.workspaceId,
             title: p.title ?? "New thread",
             ...(acpIdentity ? { acpIdentity } : {}),
@@ -268,6 +283,12 @@ export function engineHandler(
                 return fail("already_resolved");
               if (!validResolution(interaction.request, p.resolution))
                 return fail("invalid_resolution");
+              const permissionError = permissionResolutionError(
+                repo.permissions.effective(state.threadId),
+                interaction.request,
+                p.resolution,
+              );
+              if (permissionError) return fail(permissionError);
               threadId = state.threadId;
               resolutionId = interaction.id;
               break;
