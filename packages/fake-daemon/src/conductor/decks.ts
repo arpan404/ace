@@ -23,6 +23,7 @@ function card(
 ): FakeDeckCard {
   return {
     id,
+    kind: id === "merge" ? "merge" : "work",
     title,
     dependencies,
     state,
@@ -209,13 +210,12 @@ function relayStreams(now: number): FakeDeckRun {
   };
 }
 
-function mobileColdStart(now: number): FakeDeckRun {
-  const createdAt = now - 48 * minute;
-  const lane = (
-    account: string,
-    provider: FakeLane["worker"]["provider"],
-    detail: string,
-  ): FakeLane => ({
+function coldStartLane(
+  account: string,
+  provider: FakeLane["worker"]["provider"],
+  detail: string,
+): FakeLane {
+  return {
     worker: { account, provider, detail },
     reviewer: {
       account: "Claude Code · work",
@@ -224,7 +224,11 @@ function mobileColdStart(now: number): FakeDeckRun {
     },
     threadId: null,
     rounds: [{ label: "Round 1", verdict: "Working", detail: "", findings: [] }],
-  });
+  };
+}
+
+function mobileColdStart(now: number): FakeDeckRun {
+  const createdAt = now - 48 * minute;
   return {
     id: "mobile-cold-start",
     title: "Mobile cold start under 1s",
@@ -241,15 +245,19 @@ function mobileColdStart(now: number): FakeDeckRun {
       }),
       card("lazy-fonts", "Lazy-load fonts and icons", ["trace"], "working", {
         round: 1,
-        lane: lane("Claude Code · personal", "claude", "Sonnet 4.6, worktree lanes/lazy-fonts"),
+        lane: coldStartLane(
+          "Claude Code · personal",
+          "claude",
+          "Sonnet 4.6, worktree lanes/lazy-fonts",
+        ),
       }),
       card("hermes-bytecode", "Precompile Hermes bytecode", ["trace"], "working", {
         round: 1,
-        lane: lane("Codex · personal", "codex", "GPT-5.3 Codex, worktree lanes/hermes"),
+        lane: coldStartLane("Codex · personal", "codex", "GPT-5.3 Codex, worktree lanes/hermes"),
       }),
       card("defer-sync", "Defer the first relay sync", ["trace"], "working", {
         round: 1,
-        lane: lane("OpenCode · personal", "opencode", "Worktree lanes/defer-sync"),
+        lane: coldStartLane("OpenCode · personal", "opencode", "Worktree lanes/defer-sync"),
       }),
       card("merge", "Merge to main", ["lazy-fonts", "hermes-bytecode", "defer-sync"], "merge", {
         note: "Merges once every card passes review and you approve the merge.",

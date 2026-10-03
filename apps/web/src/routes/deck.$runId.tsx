@@ -1,20 +1,29 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { CardsIcon } from "@phosphor-icons/react";
-import { EmptyState } from "@/components/ui/empty.tsx";
-import { Screen } from "@/features/shell/screen.tsx";
+import { z } from "zod";
+import { DeckRunPage } from "@/features/deck/deck-run-page.tsx";
 
-/** One deck. TODO(deck slice): status line, gate, card graph and lane detail. */
-export const Route = createFileRoute("/deck/$runId")({ component: DeckRun });
+const Search = z.object({
+  tab: z.enum(["plan", "lanes", "log"]).optional().catch(undefined),
+  card: z.string().max(128).optional().catch(undefined),
+});
+
+/** One deck: status line, gate, card graph and lane detail. */
+export const Route = createFileRoute("/deck/$runId")({
+  validateSearch: (search) => Search.parse(search),
+  component: DeckRun,
+});
 
 function DeckRun() {
   const { runId } = Route.useParams();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
   return (
-    <Screen title="Deck" subtitle={runId}>
-      <EmptyState
-        icon={CardsIcon}
-        title="Loading deck"
-        description="The plan and its cards appear here."
-      />
-    </Screen>
+    <DeckRunPage
+      key={runId}
+      runId={runId}
+      tab={search.tab ?? "plan"}
+      card={search.card}
+      onNavigate={(next) => void navigate({ search: (prev) => ({ ...prev, ...next }) })}
+    />
   );
 }

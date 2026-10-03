@@ -110,6 +110,7 @@ function approve(run: FakeDeckRun, gate: FakeGate, now: number): FakeDeckRun {
     if (change.kind === "added") {
       const added: FakeDeckCard = {
         id: change.cardId,
+        kind: "work",
         title: change.title,
         dependencies: change.dependencies ?? [],
         state: "planned",
@@ -117,10 +118,10 @@ function approve(run: FakeDeckRun, gate: FakeGate, now: number): FakeDeckRun {
         lane: null,
         note: change.detail,
       };
-      const mergeAt = cards.findIndex((c) => c.state === "merge");
+      const mergeAt = cards.findIndex((c) => c.kind === "merge");
       cards = mergeAt < 0 ? [...cards, added] : cards.toSpliced(mergeAt, 0, added);
       cards = cards.map((c) =>
-        c.state === "merge" ? { ...c, dependencies: [...c.dependencies, added.id] } : c,
+        c.kind === "merge" ? { ...c, dependencies: [...c.dependencies, added.id] } : c,
       );
     } else if (change.kind === "removed") {
       cards = cards.filter((c) => c.id !== change.cardId);
@@ -164,22 +165,26 @@ function titleOf(goal: string): string {
   return first.length > 60 ? `${first.slice(0, 57).trimEnd()}…` : first;
 }
 
-/** A first plan for a new goal: map, build, test, document, merge. */
-function draft(id: string, spec: ConductorSpec, now: number): FakeDeckRun {
-  const planned = (
-    cardId: string,
-    title: string,
-    dependencies: string[],
-    note: string,
-  ): FakeDeckCard => ({
+function planned(
+  cardId: string,
+  title: string,
+  dependencies: string[],
+  note: string,
+): FakeDeckCard {
+  return {
     id: cardId,
+    kind: cardId === "merge" ? "merge" : "work",
     title,
     dependencies,
     state: cardId === "merge" ? "merge" : "planned",
     round: 0,
     lane: null,
     note,
-  });
+  };
+}
+
+/** A first plan for a new goal: map, build, test, document, merge. */
+function draft(id: string, spec: ConductorSpec, now: number): FakeDeckRun {
   const cards = [
     planned("map", "Map the current behaviour", [], "Reads the code paths the goal touches."),
     planned("change", "Make the change", ["map"], "Implements the goal behind the existing API."),

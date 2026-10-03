@@ -24,7 +24,7 @@ test("approving the plan revision moves the escalated card and deals the split c
   const states = Object.fromEntries(run.cards.map((c) => [c.title, c.state]));
   expect(states["Mobile cold-start replay"]).toBe("working");
   expect(states["Simulator replay test"]).toBe("planned");
-  expect(run.cards.find((c) => c.state === "merge")?.dependencies).toContain(
+  expect(run.cards.find((c) => c.kind === "merge")?.dependencies).toContain(
     "simulator-replay-test",
   );
 });

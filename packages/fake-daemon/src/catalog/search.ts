@@ -154,7 +154,7 @@ export function searchThreads(
       for (let at = windowLower.indexOf(term); at >= 0; at = windowLower.indexOf(term, at + 1))
         highlights.push({ start: prefix.length + at, end: prefix.length + at + term.length });
     }
-    highlights.sort((a, b) => a.start - b.start);
+
     hits.push({
       threadId: entry.threadId,
       threadTitle: entry.threadTitle,
@@ -164,11 +164,11 @@ export function searchThreads(
       createdAt: now - entry.ageMinutes * 60_000,
       snippet: {
         text: prefix + window + (end < entry.text.length ? "…" : ""),
-        highlights: merge(highlights),
+        highlights: merge(highlights.toSorted((a, b) => a.start - b.start)),
       },
     });
   }
-  return hits.sort((a, b) => b.createdAt - a.createdAt);
+  return hits.toSorted((a, b) => b.createdAt - a.createdAt);
 }
 
 /** Overlapping highlights (terms inside terms) merge into one range. */

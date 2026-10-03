@@ -39,6 +39,8 @@ export interface FakeLane {
 }
 export interface FakeDeckCard {
   id: string;
+  /** The final card that merges the deck's branch. */
+  kind: "work" | "merge";
   title: string;
   dependencies: string[];
   state: FakeCardState;
