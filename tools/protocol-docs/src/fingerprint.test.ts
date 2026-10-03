@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it } from "vitest";
@@ -52,22 +52,16 @@ it("source changes, schema changes and toolkit metadata invalidate the generated
     "packages/mcp-server/src/catalog.ts",
   ];
   try {
+    // This case varies fingerprint inputs, using the real public export manifest.
+    const protocolManifest = await readFile(
+      new URL("../../../packages/protocol/package.json", import.meta.url),
+      "utf8",
+    );
     for (const name of sources) {
       await mkdir(dirname(join(root, name)), { recursive: true });
       await writeFile(
         join(root, name),
-        name === "packages/protocol/package.json"
-          ? JSON.stringify({
-              exports: {
-                ".": "./src/index.ts",
-                "./forge": "./src/forge.ts",
-                "./plugins": "./src/plugins.ts",
-                "./preview": "./src/preview.ts",
-                "./history": "./src/history.ts",
-                "./accounts": "./src/accounts.ts",
-              },
-            })
-          : "source\n",
+        name === "packages/protocol/package.json" ? protocolManifest : "source\n",
       );
     }
     const snapshot = convertSchemas([{ name: "Example", schema: z.string() }]);

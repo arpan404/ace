@@ -180,7 +180,7 @@ Example:
     "instance": "example",
     "isDefault": true,
     "nativeModelId": "example",
-    "provider": "acp",
+    "provider": "pi",
     "raw": {
       "json": "example",
       "truncated": false

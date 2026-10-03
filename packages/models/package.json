@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ace/adapter-claude": "workspace:*",
+    "@ace/adapter-opencode": "workspace:*",
     "@ace/agent-registry": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",

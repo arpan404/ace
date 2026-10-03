@@ -4,7 +4,8 @@ import type { ThreadId } from "@ace/protocol";
 import type { SessionContext, ProviderAdapter } from "@ace/engine-api";
 import { capabilities } from "./capabilities.ts";
 export { capabilities } from "./capabilities.ts";
-import { OpenCodeServer, type ServerOptions } from "./server.ts";
+import { type ServerOptions } from "./server.ts";
+import { ServerPool } from "./server-pool.ts";
 import { OpenCodeSession } from "./session.ts";
 import { OpenCodeTranslator } from "./translator.ts";
 export { OpenCodeTranslator } from "./translator.ts";
@@ -14,7 +15,7 @@ export { OpenCodeServer } from "./server.ts";
 export function createOpenCodeAdapter(
   options: ServerOptions = {},
 ): ProviderAdapter & { close(): Promise<void> } {
-  const server = new OpenCodeServer(options);
+  const pool = new ServerPool(options);
   return {
     provider: "opencode" as const,
     capabilities,
@@ -25,44 +26,43 @@ export function createOpenCodeAdapter(
         const ace = openCodeInjection(ctx.aceMcp, env.OPENCODE_CONFIG_CONTENT);
         ctx = { ...ctx, env: { ...env, ...ace.env } };
       }
-      if (!ctx.env) return OpenCodeSession.open(ctx, server);
-      const isolated = new OpenCodeServer({
-        ...options,
-        discovery: { ...options.discovery, env: ctx.env },
-      });
-      const onAbort = () => {
-        void isolated.close();
-      };
-      ctx.signal.addEventListener("abort", onAbort, { once: true });
+      const lease = await pool.acquire(ctx);
       try {
-        const session = await OpenCodeSession.open(ctx, isolated);
+        pool.assertOpen();
+        const session = await OpenCodeSession.open(
+          {
+            ...ctx,
+            onExit: (exit) => {
+              lease.release();
+              ctx.onExit(exit);
+            },
+          },
+          lease.server,
+        );
         return {
-          ...session,
+          ...(ctx.instanceId === undefined ? {} : { instanceId: ctx.instanceId }),
           get nativeSessionId() {
             return session.nativeSessionId;
           },
-          send: (input, delivery) => session.send(input, delivery),
+          send: (input, delivery, commandId) => session.send(input, delivery, commandId),
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
           stopTask: (task) => session.stopTask(task),
-          async close(reason) {
-            try {
-              await session.close(reason);
-            } finally {
-              ctx.signal.removeEventListener("abort", onAbort);
-              await isolated.close();
-            }
-          },
+          close: (reason) => session.close(reason),
         };
       } catch (error) {
-        ctx.signal.removeEventListener("abort", onAbort);
-        await isolated.close();
+        lease.release();
+        await lease.server.release();
         throw error;
       }
     },
-    close: () => server.close(),
+    close: () => pool.close(),
   };
 }
 export const opencodeAdapter = createOpenCodeAdapter();
 
 export const adapter = opencodeAdapter;
+
+export { discoverOpenCodeModels } from "./metadata.ts";
+
+export { SessionOwnership } from "./ownership.ts";

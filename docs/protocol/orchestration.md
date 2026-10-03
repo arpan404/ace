@@ -357,7 +357,7 @@ Example:
   "prompt": "example",
   "spec": {
     "model": "example",
-    "provider": "antigravity"
+    "provider": "acp"
   },
   "type": "start"
 }
@@ -724,7 +724,7 @@ Example:
   "requestId": "hrBnrc",
   "spec": {
     "model": "example",
-    "provider": "cursor"
+    "provider": "antigravity"
   },
   "type": "spawn"
 }
@@ -1060,7 +1060,7 @@ Example:
       "lanes": [
         {
           "model": "example",
-          "provider": "opencode"
+          "provider": "cursor"
         }
       ]
     },
@@ -1120,7 +1120,7 @@ Example:
   "lanes": [
     {
       "model": "example",
-      "provider": "acp"
+      "provider": "pi"
     }
   ]
 }

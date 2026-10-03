@@ -2,15 +2,17 @@
 import { createInterface } from "node:readline";
 import { createServer } from "node:http";
 import { z } from "zod";
+import { registerAcePiExtension, type PiExtensionApi } from "@ace/adapter-pi";
+import { join } from "node:path";
 import { browserProof } from "./browser-mcp-client.ts";
 
 const mode = z
-  .enum(["codex", "opencode", "cursor", "antigravity", "acp"])
+  .enum(["codex", "opencode", "cursor", "antigravity", "acp", "pi"])
   .parse(process.env.ACE_TEST_BROWSER_PROVIDER);
 const args = process.argv.slice(2);
 if (args.includes("--version")) {
   console.log(
-    mode === "cursor" ? "2026.09.26-offline" : mode === "opencode" ? "1.18.33" : "0.159.1",
+    mode === "cursor" ? "2026.09.26-offline" : mode === "opencode" ? "2.0.22" : "0.159.1",
   );
   process.exit(0);
 }
@@ -83,30 +85,129 @@ if (mode === "opencode") {
     void (async () => {
       if (
         request.headers.authorization !==
-        `Basic ${Buffer.from(`opencode:${process.env.OPENCODE_SERVER_PASSWORD}`).toString("base64")}`
+        `Basic ${Buffer.from(`opencode:${process.env.OPENCODE_PASSWORD}`).toString("base64")}`
       ) {
         response.writeHead(401).end();
         return;
       }
+      let text = "";
+      for await (const chunk of request) {
+        text += chunk.toString();
+        if (text.length > 1024 * 1024) throw new Error("Synthetic request too large");
+      }
+      const body = z.record(z.string(), z.unknown()).parse(text ? JSON.parse(text) : {});
       const path = new URL(request.url ?? "/", "http://localhost").pathname;
-      if (path === "/global/event") {
+      if (path === "/api/info") {
+        reply({ version: "2.0.22", pid: process.pid });
+        return;
+      }
+      if (path === "/openapi.json") {
+        const operations = [
+          "server.info",
+          "event.subscribe",
+          "session.create",
+          "session.get",
+          "session.list",
+          "session.active",
+          "session.prompt",
+          "session.interrupt",
+          "session.message.list",
+          "session.permission.list",
+          "session.permission.reply",
+          "session.form.list",
+          "session.form.reply",
+          "session.form.cancel",
+          "session.inbox.list",
+          "shell.list",
+          "shell.get",
+          "shell.remove",
+          "model.list",
+        ];
+        reply({
+          openapi: "3.1.0",
+          paths: Object.fromEntries(
+            operations.map((operationId, index) => [`/api/${index}`, { get: { operationId } }]),
+          ),
+        });
+        return;
+      }
+      if (path === "/api/event") {
         response.writeHead(200, { "content-type": "text/event-stream" });
         response.write(
-          `data: ${JSON.stringify({ payload: { type: "server.connected", properties: {} } })}\n\n`,
+          `data: ${JSON.stringify({ id: "connected", type: "server.connected", data: {} })}\n\n`,
         );
         return;
       }
-      if (path === "/session" && request.method === "POST") {
+      if (path === "/api/session" && request.method === "POST") {
         const mcpProof = await browserProof(configuration.mcp.ace, "http");
-        reply({ id: "native", projectID: "test", mcpProof, preservedModel: configuration.model });
-      } else if (path === "/mcp") reply({ ace: { status: "connected" } });
-      else if (path === "/session/native/abort") reply(true);
-      else reply([]);
+        reply({
+          data: {
+            id: "native",
+            projectID: "test",
+            location: body.location,
+            mcpProof,
+            preservedModel: configuration.model,
+            echoedSecret: configuration.mcp.ace.headers.Authorization?.slice(7),
+            transportDebug: process.env.OPENCODE_PASSWORD,
+          },
+        });
+      } else if (path === "/api/session/native/prompt") {
+        reply({ data: { id: body.id, sessionID: "native" } });
+      } else if (path === "/api/session/native/interrupt") reply({ interrupted: true });
+      else reply({ data: [] });
     })().catch(() => response.writeHead(500).end("Synthetic MCP setup failed"));
   });
-  server.listen(Number(args[args.indexOf("--port") + 1]), "127.0.0.1", () =>
-    console.log("opencode server listening on loopback"),
-  );
+  server.listen(0, "127.0.0.1", () => {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Synthetic address missing");
+    console.log(JSON.stringify({ url: `http://127.0.0.1:${address.port}` }));
+  });
+} else if (mode === "pi") {
+  const tools = new Map<string, Parameters<PiExtensionApi["registerTool"]>[0]>();
+  await registerAcePiExtension({
+    registerCommand() {},
+    appendEntry() {},
+    on() {},
+    registerTool(tool) {
+      tools.set(tool.name, tool);
+    },
+  });
+  const browser = tools.get("ace_browser_open");
+  const mcpProof = browser
+    ? {
+        tools: [...tools.keys()],
+        opened: await browser.execute(
+          "synthetic-proof",
+          { url: process.env.ACE_TEST_BROWSER_URL },
+          undefined,
+        ),
+      }
+    : undefined;
+  for await (const line of createInterface({ input: process.stdin })) {
+    const command = z.object({ type: z.string(), id: z.string() }).parse(JSON.parse(line));
+    const extension = args[args.indexOf("-e") + 1];
+    const data =
+      command.type === "get_commands"
+        ? {
+            commands: [
+              {
+                name: "ace-rollback",
+                source: "extension",
+                sourceInfo: { path: extension },
+              },
+            ],
+          }
+        : {
+            sessionId: "native",
+            sessionFile: join(process.cwd(), "synthetic-pi.jsonl"),
+            isStreaming: false,
+            isCompacting: false,
+            pendingMessageCount: 0,
+            mcpProof,
+            tools: [...tools.keys()],
+          };
+    write({ type: "response", command: command.type, id: command.id, success: true, data });
+  }
 } else {
   for await (const line of createInterface({ input: process.stdin })) {
     const message = Rpc.parse(JSON.parse(line));

@@ -7,7 +7,8 @@ export function withDaemonMcp(
   context: Pick<ServiceContext, "services" | "store" | "id">,
   adapter: ProviderAdapter,
 ): ProviderAdapter {
-  if (adapter.provider === "claude") return adapter; // Claude's SDK controls own its existing lease.
+  // Claude SDK controls and Pi's extension own their MCP lease and lifetime.
+  if (adapter.provider === "claude" || adapter.provider === "pi") return adapter;
   return {
     ...adapter,
     async openSession(ctx) {
@@ -65,7 +66,7 @@ export function withDaemonMcp(
           ...(session.setMode
             ? { setMode: (mode: string) => session.setMode?.(mode) ?? Promise.resolve() }
             : {}),
-          send: (input, delivery) => session.send(input, delivery),
+          send: (input, delivery, commandId) => session.send(input, delivery, commandId),
           interrupt: (target) => session.interrupt(target),
           resolve: (key, answer) => session.resolve(key, answer),
           stopTask: (key) => session.stopTask(key),

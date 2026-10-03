@@ -250,7 +250,7 @@ Example:
 {
   "cost": 6,
   "model": "PgCUuRfXDULnR2DeSBk3ibi-rTpi45drgI_gzGEf0CUNp3",
-  "provider": "cursor",
+  "provider": "antigravity",
   "quota": 6,
   "tier": "normal"
 }

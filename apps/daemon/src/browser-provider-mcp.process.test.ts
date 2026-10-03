@@ -26,7 +26,7 @@ const envelope = z.object({
     .passthrough(),
 });
 const openCodeResponse = z.object({
-  body: z.object({ mcpProof: proof, preservedModel: z.string() }).passthrough(),
+  body: z.object({ data: z.object({ mcpProof: proof, preservedModel: z.string() }).passthrough() }),
 });
 const cases = [
   { provider: "codex", http: true, resume: false },
@@ -65,7 +65,7 @@ it.each(cases)(
     const installed: DiscoveryResult = {
       installed: true,
       path: cli,
-      version: "1.18.33",
+      version: "2.0.22",
       auth: "unknown",
       loginHint: "synthetic",
     };
@@ -153,7 +153,7 @@ it.each(cases)(
             (value) => value !== undefined,
           )
         : httpReply.success
-          ? [httpReply.data.body.mcpProof]
+          ? [httpReply.data.body.data.mcpProof]
           : [];
     });
     expect(observed).toContainEqual(
@@ -165,15 +165,101 @@ it.each(cases)(
         ]),
       }),
     );
-    if (provider === "opencode")
+    if (provider === "opencode") {
+      await session.send([{ type: "text", text: "synthetic input" }], "queue", "browser-command");
       expect(
         frames.some(
           (frame) =>
-            openCodeResponse.safeParse(frame.data).data?.body.preservedModel === "retained-model",
+            frame.channel === "input.sending" &&
+            z.object({ commandId: z.literal("browser-command") }).safeParse(frame.data).success,
         ),
       ).toBe(true);
+      expect(
+        frames.some(
+          (frame) =>
+            openCodeResponse.safeParse(frame.data).data?.body.data.preservedModel ===
+            "retained-model",
+        ),
+      ).toBe(true);
+      const created = frames.find(
+        (frame) => frame.channel === "http" && openCodeResponse.safeParse(frame.data).success,
+      );
+      expect(
+        z
+          .object({
+            body: z.object({
+              data: z.object({
+                echoedSecret: z.literal("[REDACTED]"),
+                transportDebug: z.literal("[redacted]"),
+              }),
+            }),
+          })
+          .parse(created?.data),
+      ).toBeDefined();
+    }
     if (connection) expect(JSON.stringify(frames)).not.toContain(connection.bearer);
     await session.close("shutdown");
     if (connection) expect((await invoke(connection, "ace_browser_open", {})).status).toBe(401);
   },
 );
+
+it("OpenCode threads in the same account use their own browser MCP scope and retain peer access after close", async () => {
+  const first = await setup("opencode"),
+    second = await setup("opencode");
+  const cli = join(first.home, "fake-opencode.mjs");
+  await writeFile(
+    cli,
+    `#!${process.execPath}\nimport ${JSON.stringify(new URL("./testing/browser-mcp-cli.ts", import.meta.url).href)};\n`,
+    { mode: 0o700 },
+  );
+  const absent: DiscoveryResult = { installed: false, auth: "unknown", loginHint: "synthetic" };
+  const owner = createOpenCodeAdapter({
+    runtime: {
+      discover: async () => ({
+        claude: absent,
+        codex: absent,
+        cursor: absent,
+        opencode: {
+          installed: true,
+          path: cli,
+          version: "2.0.22",
+          auth: "unknown",
+          loginHint: "synthetic",
+        },
+      }),
+    },
+  });
+  cleanups.push(() => owner.close());
+  const sessions = [];
+  const exits = Promise.withResolvers<void>();
+  for (const [index, f] of [first, second].entries()) {
+    const adapter = withDaemonMcp(
+      { store: f.store, services: { mcp: f.mcp }, id: () => `scope-${index}` },
+      owner,
+    );
+    const session = await adapter.openSession({
+      instanceId: "shared-account",
+      threadId: f.thread.id,
+      cwd: f.home,
+      env: {
+        ACE_TEST_BROWSER_PROVIDER: "opencode",
+        ACE_TEST_BROWSER_URL: `http://localhost:3000/scope-${index}`,
+        OPENCODE_CONFIG_CONTENT:
+          '{"model":"retained-model","mcp":{"user":{"type":"local","command":["user-mcp"]}}}',
+      },
+      signal: new AbortController().signal,
+      onFrame() {},
+      onExit: () => exits.resolve(),
+    });
+    sessions.push(session);
+    cleanups.push(() => session.close("shutdown"));
+    expect(session.instanceId).toBe("shared-account");
+    expect(f.browser.state(f.thread.id)?.url).toBe(`http://localhost:3000/scope-${index}`);
+  }
+  expect(first.browser.state(first.thread.id)?.url).toBe("http://localhost:3000/scope-0");
+  await sessions[0]?.close("shutdown");
+  await exits.promise;
+  // The peer's transport and browser remain usable when the first lease ends.
+  await sessions[1]?.send([{ type: "text", text: "peer survives" }], "queue", "peer-command");
+  expect(second.browser.state(second.thread.id)?.url).toBe("http://localhost:3000/scope-1");
+});

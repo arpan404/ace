@@ -1,4 +1,4 @@
-import { discoverProviders } from "@ace/provider-kit/discovery";
+import { discoverProviders, discoverPi } from "@ace/provider-kit/discovery";
 import type { ProviderAdapter } from "@ace/engine-api";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import { AdapterRegistry } from "./registry.ts";
@@ -7,6 +7,7 @@ import { AdapterRegistry } from "./registry.ts";
 export async function discoverAdapters(
   discover: typeof discoverProviders = discoverProviders,
   claudeAdapter?: (cli: DiscoveryResult) => ProviderAdapter,
+  additional?: (registry: AdapterRegistry) => Promise<void>,
 ): Promise<AdapterRegistry> {
   const registry = new AdapterRegistry();
   const { claude, codex, opencode, cursor } = await discover();
@@ -37,6 +38,14 @@ export async function discoverAdapters(
       createAcpAdapter(cursorQuirks, cursor.path ? { command: cursor.path } : {}),
       cursor,
     );
+  }
+  if (additional) await additional(registry);
+  else {
+    const pi = await discoverPi();
+    if (pi.installed) {
+      const { createPiAdapter, piProfile } = await import("@ace/adapter-pi");
+      if (piProfile(pi).supported) registry.register(createPiAdapter({ cli: pi }), pi);
+    }
   }
   return registry;
 }

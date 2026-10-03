@@ -15,6 +15,7 @@
     "@ace/mcp-server": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
+    "@opencode/client": "2.0.22",
     "zod": "^4.4.3"
   },
   "devDependencies": {

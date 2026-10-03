@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { sanitize } from "./redaction.ts";
 import type { RawPayload } from "@ace/protocol";
 export type Data = Record<string, unknown>;
 const DataSchema = z.record(z.string(), z.unknown());
@@ -16,12 +17,7 @@ export function array(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 export function raw(type: string, data: unknown, name?: string): RawPayload[] {
-  let evidence: unknown;
-  try {
-    evidence = structuredClone(data);
-  } catch {
-    evidence = { unserializable: true };
-  }
+  const evidence = sanitize(data);
   return [{ type, data: evidence, ...(name === undefined ? {} : { name }) }];
 }
 export function retryReason(message: string): "rate_limit" | "network" | "upstream" {
