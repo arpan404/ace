@@ -1,9 +1,11 @@
-// TODO(client-gaps): feat/client-protocol-gaps. Fake mode only; a real daemon reports
-// this feature unavailable.
+// TODO(client-gaps): files transfers. Fake mode only; a real daemon reports this feature
+// unavailable. Downloads and uploads ride `files.request`'s binary channels, which `ClientApi`
+// can't carry (only `downloadArtifact` over a separate authenticated socket exists in
+// @ace/client), and the daemon starts its files service only with ACE_WORKSPACE_ROOT. The
+// cross-thread changed-files list needs a daemon read of each thread's changed paths; thread
+// details carry only counts.
 /*
- * Files changed across threads, plus downloads and uploads. The list needs per-thread workspace
- * details, and transfers need files.request's binary channels, which @ace/client can't carry
- * yet; both use the fake backend in fake mode.
+ * Files changed across threads, plus downloads and uploads, from the fake backend in fake mode.
  */
 import type { FileChange } from "@ace/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

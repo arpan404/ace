@@ -114,19 +114,22 @@ and reads again after a reconnect. Live state still comes only from `@ace/client
 
 Wired on the wire in every mode: accounts and usage (`accounts.list`, `usage.series`), search
 (`search.query`), models (`models.list`, `models.refresh`), settings (`settings.subscribe` /
-`settings.set`), slash commands (`commands.list`), mentions and uploads (`context.request`). In
+`settings.set`), slash commands (`commands.list`), mentions and uploads (`context.request`), the
+thread's checkout (`workspace.request` reads; `workspace.script.run`, `workspace.editor.open`,
+`git.commit`, `git.push` and `forge.pr.create` commands), terminals (`terminal.request`,
+credit-paced `terminal.output`), the browser relay (`browser.*`, ACKed frames), dev servers
+(`preview.request`) and shell output (`output.read`). In
 fake mode `@ace/fake-daemon` serves the same messages from its catalogs
 (`packages/fake-daemon/src/services/`), so a feature has one code path.
 
 What `main` cannot carry yet sits behind one adapter per feature marked
 `// TODO(client-gaps): feat/client-protocol-gaps`. In fake mode it serves the fake daemon's
 stand-in; against a real daemon it reports the feature empty or unavailable, never fixture data.
-Today: workspace and forge actions, scripts and editors, thread organization (rename, fork,
+Today: thread organization (rename, fork,
 settle, snooze, pin, delete, unqueue), card details, New thread's branches and pre-thread
 mentions, account details and the run-out policy, settings keys outside the protocol schema,
 machines, devices and pairing, ACP agents added by command, automations, the Activity feed,
-Deck runs, skills and plugins, changed files and transfers, and the terminal, browser and
-preview panels. When the backend lands, wiring a feature changes only its adapter.
+Deck runs, skills and plugins, and changed files and transfers. When the backend lands, wiring a feature changes only its adapter.
 
 ## Fake-daemon scenarios
 
