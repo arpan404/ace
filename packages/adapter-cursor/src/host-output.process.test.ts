@@ -64,7 +64,9 @@ it("the SDK host admits large normal tool results through blobs and output chunk
           },
         },
       ])
-        await options?.onDelta?.({ update: sdk.InteractionUpdateSchema.parse(update) });
+        await options?.onDelta?.({
+          update: sdk.InteractionUpdateSchema.parse({ ...update, modelCallId: "model-call" }),
+        });
       return run;
     },
   };

@@ -191,7 +191,9 @@ it("closes a text-only child message at task completion before the root turn end
     callId: "task",
     toolCall: { type: "task", result: { status: "success", value: { isBackground: false } } },
   });
-  expect(r.state.items[message.id]).toMatchObject({ complete: true });
+  expect(
+    r.events.findLast((event) => event.type === "item.updated" && event.item.id === message.id),
+  ).toMatchObject({ type: "item.updated", item: { id: message.id, complete: true } });
   expect(r.state.agents.root?.activeRun).toBeDefined();
   expect(deriveThreadStatus(r.state).state).not.toBe("done");
 });

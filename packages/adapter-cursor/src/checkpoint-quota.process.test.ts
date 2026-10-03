@@ -28,9 +28,9 @@ it("rejects aggregate growth before committing it and keeps the old checkpoint r
       }),
     ).rejects.toThrow("aggregate");
     expect(await readFile(join(root, "checkpoints.ndjson"))).toEqual(prior);
-    expect(await base.checkpoints.get({ agentId: "agent", blobId: "original" })).toEqual(
-      new Uint8Array([1, 2]),
-    );
+    expect(
+      new Uint8Array((await base.checkpoints.get({ agentId: "agent", blobId: "original" })) ?? []),
+    ).toEqual(new Uint8Array([1, 2]));
     expect(await base.checkpoints.get({ agentId: "agent", blobId: "overshoot" })).toBeNull();
     expect(outcome).toBe("checkpoint budget failed");
   } finally {
@@ -55,9 +55,9 @@ it("serializes concurrent aggregate reservations so only the admitted checkpoint
       ),
     );
     expect(outcomes.map((o) => o.status)).toEqual(["fulfilled", "rejected"]);
-    expect(await base.checkpoints.get({ agentId: "agent", blobId: "first" })).toEqual(
-      new Uint8Array(6000),
-    );
+    expect(
+      new Uint8Array((await base.checkpoints.get({ agentId: "agent", blobId: "first" })) ?? []),
+    ).toEqual(new Uint8Array(6000));
     expect(await base.checkpoints.get({ agentId: "agent", blobId: "second" })).toBeNull();
     expect(36000 + (await lstat(join(root, "checkpoints.ndjson"))).size).toBeLessThanOrEqual(65536);
   } finally {

@@ -177,7 +177,14 @@ for (const [code, kind] of [
     const r = replay();
     r.frame("error", { code, retryable: true, message: "Safe provider failure" });
     expect(Object.values(r.state.runs)[0]).toMatchObject({ state: "failed" });
-    expect(r.state.agents.root?.agent.status).toMatchObject({ state: "failed", error: { kind } });
+    expect(r.state.agents.root?.lastError).toMatchObject({ kind });
+    expect(r.state.agents.root?.retry).toBeUndefined();
+    expect(r.state.agents.root?.agent.status).toMatchObject(
+      kind === "quota"
+        ? { state: "blocked", on: "rate_limit" }
+        : { state: "failed", error: { kind } },
+    );
+    if (kind === "quota") expect(deriveThreadStatus(r.state)).toEqual({ state: "limited" });
   });
 }
 

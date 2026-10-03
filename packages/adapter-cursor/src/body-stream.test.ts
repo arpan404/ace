@@ -151,7 +151,9 @@ it.each(["text-delta", "thinking-delta"])(
       callId: "task",
       toolCall: { type: "task", result: { status: "success", value: { isBackground: false } } },
     });
-    expect(r.state.items[message.id]).toMatchObject({ complete: true });
+    expect(
+      r.events.findLast((event) => event.type === "item.updated" && event.item.id === message.id),
+    ).toMatchObject({ type: "item.updated", item: { id: message.id, complete: true } });
     r.frame("result", { status: "finished" });
     expect(
       Object.values(r.state.items).filter(
