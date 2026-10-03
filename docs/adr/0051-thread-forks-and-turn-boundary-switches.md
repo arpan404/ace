@@ -1,4 +1,4 @@
-# 0050: Thread forks, context merges and turn-boundary switches
+# 0051: Thread forks, context merges and turn-boundary switches
 
 Date: 2026-10-02. Status: accepted.
 
@@ -11,7 +11,9 @@ provider loses its private working state; changing its model must preserve it.
 
 The [Orchestrator V2 release notes](https://github.com/pingdotgg/t3code/releases/tag/v0.0.46-nightly.20261003.2610)
 were read only as a feature inventory. No competitor source was read.
-Number 0050 is above the highest ADR on origin/main and in open PRs at selection.
+The ADR was the first deliverable. It was initially numbered 0050, then moved
+to 0051 after the parallel Pi PR reserved 0050. Number 0051 is above the highest
+ADR on origin/main and in open PRs at final selection.
 
 ## Decision
 
