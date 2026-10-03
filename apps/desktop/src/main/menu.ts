@@ -30,6 +30,8 @@ export const shortcuts: readonly Shortcut[] = [
 export function applicationMenu(options: {
   platform: NodeJS.Platform;
   appName: string;
+  /** Developer tools are for development builds only. */
+  developer: boolean;
   trigger(command: MenuCommand, accelerator: string): void;
   checkForUpdates(): void;
 }): MenuItemConstructorOptions[] {
@@ -92,7 +94,7 @@ export function applicationMenu(options: {
         { role: "zoomOut" },
         { type: "separator" },
         { role: "togglefullscreen" },
-        { role: "toggleDevTools" },
+        ...(options.developer ? [{ role: "toggleDevTools" } as const] : []),
       ],
     },
     { label: "Go", submenu: [item("back"), item("forward")] },

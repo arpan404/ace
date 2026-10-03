@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
-import { BrowserWindow, nativeTheme, screen, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, nativeTheme, screen, shell, systemPreferences } from "electron";
 import type { WindowState } from "../../shared/contract.ts";
 import { isAppUrl, isExternalUrl } from "../csp.ts";
 import { restoreBounds, SavedWindow } from "./bounds.ts";
@@ -76,9 +76,13 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
     if (translucent) void contents.insertCSS(translucentCss);
     if (process.platform === "darwin") void contents.insertCSS(macTitleBarCss);
   });
-  // Retry while the dev server starts; packaged builds load from disk and never fail here.
+  // Retry while the dev server starts. Packaged builds load from disk; if that ever fails,
+  // a few retries are enough and an endless reload loop would only burn CPU.
+  let retries = app.isPackaged ? 3 : Number.POSITIVE_INFINITY;
   contents.on("did-fail-load", (_event, code, _description, url, isMainFrame) => {
-    if (isMainFrame && code !== -3) setTimeout(() => void window.loadURL(url).catch(() => {}), 500);
+    if (!isMainFrame || code === -3 || retries <= 0) return;
+    retries--;
+    setTimeout(() => void window.loadURL(url).catch(() => {}), 500);
   });
   window.once("ready-to-show", () => window.show());
 

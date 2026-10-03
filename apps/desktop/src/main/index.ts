@@ -245,6 +245,7 @@ function main(): void {
         applicationMenu({
           platform: process.platform,
           appName: app.name,
+          developer: !app.isPackaged,
           trigger: (command, accelerator) => {
             emit(contents(), "menu.command", command);
             const key = acceleratorToKey(accelerator, process.platform);
