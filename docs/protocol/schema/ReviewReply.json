@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewReply.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "commentId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "commentId",
+    "text"
+  ],
+  "type": "object"
+}

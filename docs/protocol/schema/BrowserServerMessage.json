@@ -1,0 +1,69 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserServerMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "error": {
+          "maxLength": 2048,
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "result": {},
+        "type": {
+          "const": "browser.result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "ok"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
+          "$ref": "https://ace.local/protocol/v1/BrowserState.json"
+        },
+        "type": {
+          "const": "browser.state",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "frame": {
+          "$ref": "https://ace.local/protocol/v1/BrowserFrame.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "browser.frame",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "frame"
+      ],
+      "type": "object"
+    }
+  ]
+}

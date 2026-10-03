@@ -1,0 +1,42 @@
+{
+  "$id": "https://ace.local/protocol/v1/HistoryContinueRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "delivery": {
+      "default": "queue",
+      "enum": [
+        "steer",
+        "queue"
+      ],
+      "type": "string"
+    },
+    "input": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ContentPart.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "mode": {
+      "enum": [
+        "resume",
+        "fork"
+      ],
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "history.continue",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "threadId",
+    "mode",
+    "input"
+  ],
+  "type": "object"
+}

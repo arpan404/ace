@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationPickCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "laneId": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    },
+    "merge": {
+      "default": false,
+      "type": "boolean"
+    },
+    "orchestrationId": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    },
+    "type": {
+      "const": "orchestration.pick",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "orchestrationId",
+    "laneId"
+  ],
+  "type": "object"
+}

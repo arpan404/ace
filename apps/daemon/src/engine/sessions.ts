@@ -35,6 +35,7 @@ export class Sessions {
         threadId: actor.id,
         rootKey,
         cwd: metadata.cwd,
+        ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
         ...(metadata.model === undefined ? {} : { model: metadata.model }),
         ...(metadata.nativeSessionId === undefined
           ? {}
@@ -62,7 +63,7 @@ export class Sessions {
         throw new Error("Provider session closed while opening");
       }
       actor.session = session;
-      this.dependencies.repo.nativeSession(actor.id, session.nativeSessionId);
+      this.dependencies.repo.nativeSession(actor.id, session.nativeSessionId, session.instanceId);
       this.dependencies.wake(actor.id);
     } catch (error) {
       await actor.flush();

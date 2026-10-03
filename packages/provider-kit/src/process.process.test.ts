@@ -11,6 +11,7 @@ import {
   probeOutput,
   spawnSupervised,
   spawnRawSupervised,
+  spawnTextSupervised,
   type SupervisedProcess,
 } from "./process.ts";
 
@@ -371,3 +372,37 @@ it("newline-free probe output is stopped by its byte budget before a line can ac
   await expect(result).rejects.toThrow("Probe output exceeded limit");
   expect(await exited).toMatchObject({ reason: "output-limit" });
 });
+
+it.each(["stdout", "stderr"] as const)(
+  "text supervision rejects oversized newline-free %s before exposing an unbounded buffer",
+  async (stream) => {
+    let overflow: Error | undefined;
+    let received = 0;
+    const proc = spawnTextSupervised({
+      command: process.execPath,
+      args: [
+        "-e",
+        `process.${stream}.write(Buffer.alloc(8 * 1024 * 1024, 120)); process.stdin.resume();`,
+      ],
+      env: {},
+      name: "bounded-raw-child",
+      maxLineBytes: 64 * 1024,
+      onOutputLimit: (error) => {
+        overflow = error;
+      },
+    });
+    proc[stream].on("data", (bytes: Buffer) => {
+      received += bytes.length;
+    });
+    proc.stdout.resume();
+    proc.stderr.resume();
+    try {
+      expect((await proc.exited).signal).not.toBeNull();
+      expect(overflow?.message).toContain("line limit");
+      expect(received).toBeLessThanOrEqual(64 * 1024);
+      expect(proc.signal.aborted).toBe(true);
+    } finally {
+      await proc.stop({ graceMs: 0 });
+    }
+  },
+);

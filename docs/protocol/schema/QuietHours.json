@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/QuietHours.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "endMinute": {
+      "maximum": 1439,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "startMinute": {
+      "maximum": 1439,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "timeZone": {
+      "maxLength": 100,
+      "minLength": 1,
+      "type": "string",
+      "x-ace-constraint": "Must be an IANA time zone accepted by Intl.DateTimeFormat."
+    }
+  },
+  "required": [
+    "timeZone",
+    "startMinute",
+    "endMinute"
+  ],
+  "type": "object"
+}

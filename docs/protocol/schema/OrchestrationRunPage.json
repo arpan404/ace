@@ -1,0 +1,20 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationRunPage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "before": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    },
+    "runs": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/OrchestrationRunSummary.json"
+      },
+      "maxItems": 128,
+      "type": "array"
+    }
+  },
+  "required": [
+    "runs"
+  ],
+  "type": "object"
+}

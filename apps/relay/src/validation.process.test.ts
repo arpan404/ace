@@ -88,3 +88,26 @@ it("an injected handshake deadline closes a silent peer without a real-time slee
   clock.advance(25);
   expect(await silent.closed).toBe(1006);
 });
+it("rejects a peer that mixes binary and JSON fragments in one logical message", async () => {
+  const { client, connection, transport } = await fakeHost();
+  const receiving = expect(client.receiveFrame()).rejects.toThrow("Mixed fragment kinds");
+  const first = new Uint8Array(65519).fill(32);
+  first[0] = 2;
+  first.set(new TextEncoder().encode('{"type":"pong"'), 1);
+  await connection.send(transport.send.encrypt(first));
+  await connection.send(transport.send.encrypt(new Uint8Array([1, 125])));
+  await receiving;
+  expect(await client.closed).toBeInstanceOf(Error);
+});
+it("rejects an authenticated binary logical message larger than one file frame", async () => {
+  const { client, connection, transport } = await fakeHost();
+  const receiving = expect(client.receiveFrame()).rejects.toThrow("Binary message too large");
+  const first = new Uint8Array(65519);
+  first[0] = 2;
+  const last = new Uint8Array(36);
+  last[0] = 3;
+  await connection.send(transport.send.encrypt(first));
+  await connection.send(transport.send.encrypt(last));
+  await receiving;
+  expect(await client.closed).toBeInstanceOf(Error);
+});

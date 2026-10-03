@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/ResolvedMention.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "path": {
+      "type": "string"
+    },
+    "text": {
+      "type": "string"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "path",
+    "text",
+    "truncated"
+  ],
+  "type": "object"
+}

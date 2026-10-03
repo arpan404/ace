@@ -1,0 +1,70 @@
+{
+  "$id": "https://ace.local/protocol/v1/FilesClientMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "operation": {
+          "$ref": "https://ace.local/protocol/v1/FileOperation.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "files.request",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "operation"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "credits": {
+          "maximum": 8,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "type": {
+          "const": "files.credit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "channel",
+        "credits"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "type": {
+          "const": "files.cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "channel"
+      ],
+      "type": "object"
+    }
+  ]
+}

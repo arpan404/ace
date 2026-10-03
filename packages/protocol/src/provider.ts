@@ -36,7 +36,10 @@ export const RawPayload = z.union([
     name: z.string().optional(),
     blobRef: z.string().min(1),
     size: z.number().int().nonnegative(),
-    preview: z.string().refine((text) => new TextEncoder().encode(text).length <= 2048),
+    preview: z
+      .string()
+      .refine((text) => new TextEncoder().encode(text).length <= 2048)
+      .meta({ "x-ace-constraint": "UTF-8 encoding must be at most 2048 bytes." }),
   }),
 ]);
 export type RawPayload = z.infer<typeof RawPayload>;

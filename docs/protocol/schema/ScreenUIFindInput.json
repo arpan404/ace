@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenUIFindInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "limit": {
+      "default": 16,
+      "maximum": 64,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "query": {
+      "$ref": "https://ace.local/protocol/v1/ScreenUIQuery.json"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "type": "object"
+}

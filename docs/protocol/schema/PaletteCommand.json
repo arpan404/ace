@@ -1,0 +1,71 @@
+{
+  "$id": "https://ace.local/protocol/v1/PaletteCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "argumentHint": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "arguments": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/PromptArgument.json"
+      },
+      "maxProperties": 64,
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/PaletteName.json"
+      },
+      "type": "object",
+      "x-ace-constraint": "At most 64 arguments."
+    },
+    "description": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/PaletteName.json"
+    },
+    "namespace": {
+      "enum": [
+        "ace",
+        "provider",
+        "prompt"
+      ],
+      "type": "string"
+    },
+    "provider": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        {
+          "const": "any",
+          "type": "string"
+        }
+      ]
+    },
+    "scope": {
+      "enum": [
+        "builtin",
+        "user",
+        "workspace",
+        "runtime"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "description",
+    "namespace",
+    "provider",
+    "arguments",
+    "scope"
+  ],
+  "type": "object"
+}

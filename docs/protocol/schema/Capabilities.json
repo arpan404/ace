@@ -1,0 +1,58 @@
+{
+  "$id": "https://ace.local/protocol/v1/Capabilities.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "backgroundTaskControl": {
+      "type": "boolean"
+    },
+    "backgroundVisibility": {
+      "enum": [
+        "full",
+        "partial",
+        "none"
+      ],
+      "type": "string"
+    },
+    "fork": {
+      "type": "boolean"
+    },
+    "imageInput": {
+      "type": "boolean"
+    },
+    "interruptCascades": {
+      "type": "boolean"
+    },
+    "planMode": {
+      "type": "boolean"
+    },
+    "resume": {
+      "type": "boolean"
+    },
+    "rewindFiles": {
+      "type": "boolean"
+    },
+    "steer": {
+      "type": "boolean"
+    },
+    "subagentTranscripts": {
+      "type": "boolean"
+    },
+    "tokenUsage": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "steer",
+    "interruptCascades",
+    "resume",
+    "fork",
+    "subagentTranscripts",
+    "backgroundTaskControl",
+    "backgroundVisibility",
+    "planMode",
+    "tokenUsage",
+    "imageInput",
+    "rewindFiles"
+  ],
+  "type": "object"
+}

@@ -12,7 +12,10 @@ export const DiagnosticsHealth = z.object({
   openHandles: count,
   sqlite: z.object({ pageBytes: count.nullable(), walBytes: count.nullable() }),
   activeSessions: count.nullable(),
-  queues: z.record(z.string().max(128), count).refine((value) => Object.keys(value).length <= 64),
+  queues: z
+    .record(z.string().max(128), count)
+    .refine((value) => Object.keys(value).length <= 64)
+    .meta({ maxProperties: 64, "x-ace-constraint": "At most 64 queue entries." }),
   logs: z.object({ dropped: count, failed: count, queued: count }),
 });
 export type DiagnosticsHealth = z.infer<typeof DiagnosticsHealth>;

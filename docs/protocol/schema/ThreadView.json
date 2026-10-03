@@ -1,0 +1,136 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadView.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agentChildren": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+    },
+    "agents": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/Agent.json"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+    },
+    "backgroundTasks": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/BackgroundTask.json"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+    },
+    "interactions": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/Interaction.json"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+    },
+    "itemOrder": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "itemSeqs": {
+      "additionalProperties": {
+        "exclusiveMinimum": 0,
+        "maximum": 9007199254740991,
+        "type": "integer"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+    },
+    "items": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/Item.json"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+    },
+    "itemsBefore": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "kind": {
+      "const": "thread",
+      "type": "string"
+    },
+    "runs": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/Run.json"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "thread": {
+      "$ref": "https://ace.local/protocol/v1/Thread.json"
+    },
+    "usage": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/UsageUpdated.json"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+    }
+  },
+  "required": [
+    "kind",
+    "seq",
+    "thread",
+    "agents",
+    "agentChildren",
+    "runs",
+    "items",
+    "itemOrder",
+    "interactions",
+    "backgroundTasks",
+    "usage"
+  ],
+  "type": "object"
+}

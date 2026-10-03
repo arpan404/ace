@@ -1,0 +1,287 @@
+{
+  "$id": "https://ace.local/protocol/v1/ToolDetail.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "const": "shell",
+          "type": "string"
+        },
+        "output": {
+          "$ref": "https://ace.local/protocol/v1/OutputSummary.json"
+        }
+      },
+      "required": [
+        "kind",
+        "command"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "file.read",
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "range": {
+          "properties": {
+            "end": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            "start": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "start",
+            "end"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "changes": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/FileChange.json"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "file.edit",
+            "file.write",
+            "file.delete",
+            "file.move"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "changes"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "search",
+          "type": "string"
+        },
+        "matches": {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "query"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "web.search",
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "query"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "web.fetch",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "url"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "arguments": {},
+        "kind": {
+          "const": "mcp",
+          "type": "string"
+        },
+        "server": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "server",
+        "tool"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentType": {
+          "type": "string"
+        },
+        "childAgentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "description": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "agent.spawn",
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "agent.message",
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "targetAgentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "todo",
+          "type": "string"
+        },
+        "todos": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/TodoEntry.json"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "todos"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "plan",
+          "type": "string"
+        },
+        "markdown": {
+          "type": "string"
+        },
+        "todos": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/TodoEntry.json"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "ask_user",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "enum": [
+            "browser",
+            "image",
+            "notebook",
+            "custom"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    }
+  ]
+}

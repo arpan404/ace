@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/PreviewDescriptor.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "name": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "origin": {
+      "format": "ace-whatwg-url",
+      "type": "string",
+      "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code."
+    },
+    "port": {
+      "$ref": "https://ace.local/protocol/v1/PreviewPort.json"
+    },
+    "source": {
+      "enum": [
+        "listener",
+        "terminal",
+        "launch"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "port",
+    "source"
+  ],
+  "type": "object"
+}

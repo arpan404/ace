@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/PromptArgument.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "default": {
+      "$ref": "https://ace.local/protocol/v1/PromptValue.json"
+    },
+    "required": {
+      "default": false,
+      "type": "boolean"
+    },
+    "type": {
+      "enum": [
+        "string",
+        "number",
+        "boolean"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "type": "object",
+  "x-ace-constraint": "An argument default must have the declared type."
+}

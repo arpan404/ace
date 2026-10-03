@@ -1,0 +1,81 @@
+{
+  "$id": "https://ace.local/protocol/v1/UsageQuery.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    {
+      "from": "2026-10-01",
+      "to": "2026-10-02"
+    }
+  ],
+  "properties": {
+    "agentTree": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "equivalentApiCost": {
+      "default": false,
+      "type": "boolean"
+    },
+    "filters": {
+      "additionalProperties": {
+        "items": {
+          "maxLength": 8192,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 50,
+        "minItems": 1,
+        "type": "array"
+      },
+      "default": {},
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/UsageDimension.json"
+      },
+      "type": "object"
+    },
+    "from": {
+      "format": "date",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+      "type": "string"
+    },
+    "groupBy": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/UsageDimension.json"
+      },
+      "maxItems": 7,
+      "type": "array"
+    },
+    "limit": {
+      "default": 100,
+      "maximum": 1000,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "orderBy": {
+      "default": "tokens",
+      "enum": [
+        "tokens",
+        "cost"
+      ],
+      "type": "string"
+    },
+    "quotaAccount": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "to": {
+      "format": "date",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "from",
+    "to"
+  ],
+  "type": "object",
+  "x-ace-constraint": "to >= from, their difference is <= 365 days, and groupBy entries are unique."
+}

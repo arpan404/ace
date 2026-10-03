@@ -1,0 +1,43 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadListEntry.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "archivedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "createdAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "imported": {
+      "$ref": "https://ace.local/protocol/v1/ImportedProvenance.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+    },
+    "title": {
+      "type": "string"
+    },
+    "updatedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "id",
+    "workspaceId",
+    "title",
+    "provider",
+    "status",
+    "createdAt",
+    "updatedAt"
+  ],
+  "type": "object"
+}

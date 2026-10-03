@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+export { lineReader } from "./line-reader.ts";
 import { createInterface, type Interface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { byteLimit } from "./byte-limit.ts";
@@ -38,6 +39,7 @@ export type SpawnOptions = {
   killGroupOnExit?: boolean;
   /** UTF-8 bytes per stdout/stderr line, checked before framing. Defaults to 16 MiB. */
   maxLineBytes?: number;
+  onOutputLimit?: (error: Error) => void;
   /** Optional aggregate raw stdout/stderr budget, primarily for probes. */
   maxOutputBytes?: number;
 };
@@ -70,6 +72,11 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
     outputLimited = true;
     controller.abort(error);
     if (pid !== undefined) killGroup(pid, "SIGKILL");
+    try {
+      options.onOutputLimit?.(error);
+    } catch {
+      /* Observation cannot delay process termination. */
+    }
   };
   const gateOutput = (input: Readable): Readable => {
     if (maxLineBytes === undefined && maxOutputBytes === undefined) return input;
@@ -153,15 +160,19 @@ function spawnOwned(options: SpawnOptions, maxLineBytes: number | undefined): Ra
   return handle;
 }
 
-/** Raw bytes share the aggregate budget without imposing line framing on binary data. */
+/** Binary bytes share the aggregate budget without imposing line framing. */
 export function spawnRawSupervised(options: SpawnOptions): RawSupervisedProcess {
   return spawnOwned(options, undefined);
 }
 
-/** Line-oriented facade over the same process-group owner. */
+/** Bounded text bytes for callers that own their decoding/framing. */
+export function spawnTextSupervised(options: SpawnOptions): RawSupervisedProcess {
+  return spawnOwned(options, byteLimit(options.maxLineBytes ?? 16 * 1024 * 1024, "maxLineBytes"));
+}
+
+/** Line-oriented facade over the same bounded text-stream owner. */
 export function spawnSupervised(options: SpawnOptions): SupervisedProcess {
-  const maxLineBytes = byteLimit(options.maxLineBytes ?? 16 * 1024 * 1024, "maxLineBytes");
-  const raw = spawnOwned(options, maxLineBytes);
+  const raw = spawnTextSupervised(options);
   return {
     ...raw,
     stdout: createInterface({ input: raw.stdout, crlfDelay: Infinity }),
@@ -241,3 +252,4 @@ export async function probe(command: string, args: readonly string[]): Promise<s
   if (output.code !== 0) throw new Error("Probe exited unsuccessfully");
   return output.stdout;
 }
+export { spawnInteractive, type InteractiveProcess } from "./process-interactive.ts";

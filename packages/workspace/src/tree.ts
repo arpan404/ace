@@ -13,22 +13,24 @@ export async function* tree(
     depth: number;
     includeIgnored: boolean;
     signal?: AbortSignal;
+    exclude?: (path: string) => boolean;
   },
 ): AsyncGenerator<Entry> {
   let visited = 0;
+  const excluded = options.exclude ?? internal;
   async function* descend(dir: string, depth: number): AsyncGenerator<Entry> {
     aborted(options.signal);
     const actualDir = relative(safe.root, await safe.resolve(dir))
       .split(sep)
       .join("/");
-    if (internal(actualDir)) return;
+    if (excluded(actualDir)) return;
     const entries = await safe.entries(dir);
     for (let start = 0; start < entries.length; start += 256) {
       aborted(options.signal);
       const paths = entries
         .slice(start, start + 256)
         .map((entry) => (dir ? `${dir}/${entry.name}` : entry.name))
-        .filter((path) => !internal(path) && validRelativePath(path));
+        .filter((path) => !excluded(path) && validRelativePath(path));
       const actualPath = (path: string) =>
         actualDir
           ? `${actualDir}/${path.slice(dir ? dir.length + 1 : 0)}`

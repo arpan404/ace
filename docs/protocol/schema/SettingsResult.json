@@ -1,0 +1,40 @@
+{
+  "$id": "https://ace.local/protocol/v1/SettingsResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "diagnostics": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SettingsDiagnostic.json"
+      },
+      "maxItems": 3,
+      "type": "array"
+    },
+    "entries": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SettingsEntry.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "settings.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "ok",
+    "entries",
+    "diagnostics"
+  ],
+  "type": "object"
+}

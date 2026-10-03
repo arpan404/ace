@@ -1,0 +1,93 @@
+{
+  "$id": "https://ace.local/protocol/v1/HistorySession.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "countAccuracy": {
+      "enum": [
+        "exact",
+        "sampled"
+      ],
+      "type": "string"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "id": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "lastActivity": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "messageCount": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "model": {
+      "type": "string"
+    },
+    "nativeId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "parentNativeId": {
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/HistoryProvider.json"
+    },
+    "support": {
+      "oneOf": [
+        {
+          "properties": {
+            "status": {
+              "const": "supported",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "status": {
+              "const": "unsupported",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "instanceId",
+    "provider",
+    "nativeId",
+    "cwd",
+    "title",
+    "lastActivity",
+    "messageCount",
+    "countAccuracy",
+    "support"
+  ],
+  "type": "object"
+}

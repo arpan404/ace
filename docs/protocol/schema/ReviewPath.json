@@ -1,0 +1,8 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewPath.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maxLength": 1024,
+  "minLength": 1,
+  "type": "string",
+  "x-ace-constraint": "Repository-relative path without control characters, backslashes, drive prefixes, empty, dot or parent segments."
+}

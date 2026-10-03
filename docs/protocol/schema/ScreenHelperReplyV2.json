@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenHelperReplyV2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "data": {},
+    "error": {
+      "$ref": "https://ace.local/protocol/v1/ScreenError.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "version": {
+      "const": 2,
+      "type": "number"
+    }
+  },
+  "required": [
+    "version",
+    "id",
+    "ok"
+  ],
+  "type": "object"
+}

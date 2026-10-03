@@ -1,3 +1,9 @@
+import { createScreenSession } from "./screen.ts";
+import { Simulators } from "@ace/screen";
+import { createSearchSession } from "./search.ts";
+import { createAccountsSession } from "./accounts.ts";
+import { createCommandsSession } from "./commands.ts";
+import { createFilesSession } from "./files.ts";
 import { ClientMessage, BrowserClientMessage } from "@ace/protocol";
 import { PluginClientMessage } from "@ace/protocol/plugins";
 import { createNotificationsSession } from "./notifications.ts";
@@ -13,6 +19,10 @@ import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
+  createSearchSession,
+  createAccountsSession,
+  createCommandsSession,
+  createFilesSession,
   createNotificationsSession,
   createPluginsSession,
   createBrowserSession,
@@ -25,8 +35,12 @@ export const socketServiceFactories = [
   createEngineSession,
   createDiagnosticsSession,
 ];
-export function createServiceSessions(context: SocketContext) {
-  return socketServiceFactories.map((factory) => factory(context));
+export function createSocketRegistry() {
+  const simulators = new Simulators(process.platform);
+  return (context: SocketContext) => [
+    ...socketServiceFactories.map((factory) => factory(context)),
+    createScreenSession(context, simulators),
+  ];
 }
 export function parseSocketMessage(input: unknown): SocketMessage {
   for (const schema of [ClientMessage, PluginClientMessage, BrowserClientMessage]) {

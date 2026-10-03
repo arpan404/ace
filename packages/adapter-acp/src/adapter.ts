@@ -28,6 +28,7 @@ export function createAcpAdapter(
         quirks,
       ),
     async openSession(ctx) {
+      const env = ctx.env ?? options.env;
       const command = options.command ?? quirks.command;
       if (!command) throw new Error("A generic ACP adapter requires a user-installed command");
       const path =
@@ -35,18 +36,15 @@ export function createAcpAdapter(
           ? (
               await discoverProviders({
                 overrides: { cursor: command },
-                ...(options.env ? { env: options.env } : {}),
+                ...(env ? { env } : {}),
               })
             ).cursor.path
-          : await findExecutable(
-              command,
-              options.env ? { ...process.env, ...options.env } : process.env,
-            );
+          : await findExecutable(command, env ? { ...process.env, ...env } : process.env);
       if (!path) throw new Error(`Installed ACP CLI not found: ${command}`);
       return openAcpSession(ctx, quirks, {
         command: path,
         args: options.args ?? quirks.args,
-        ...(options.env ? { env: options.env } : {}),
+        ...(env ? { env } : {}),
       });
     },
   };

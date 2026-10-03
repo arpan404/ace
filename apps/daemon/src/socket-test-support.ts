@@ -82,7 +82,7 @@ export async function fixture(
     async close() {
       for (const client of clients) await client.close();
       await server.close();
-      store.close();
+      await store.close();
       rmSync(home, { recursive: true, force: true });
     },
   };

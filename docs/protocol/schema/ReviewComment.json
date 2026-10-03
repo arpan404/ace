@@ -1,0 +1,43 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewComment.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "anchor": {
+      "$ref": "https://ace.local/protocol/v1/ReviewAnchor.json"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "originalAnchor": {
+      "$ref": "https://ace.local/protocol/v1/ReviewAnchor.json"
+    },
+    "resolved": {
+      "type": "boolean"
+    },
+    "sessionId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "suggestion": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "sessionId",
+    "anchor",
+    "originalAnchor",
+    "text",
+    "resolved"
+  ],
+  "type": "object"
+}

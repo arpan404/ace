@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationTemplate.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "budget": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationBudget.json"
+    },
+    "checks": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationChecks.json"
+    },
+    "kind": {
+      "enum": [
+        "fanout",
+        "pipeline",
+        "race",
+        "coordinator"
+      ],
+      "type": "string"
+    },
+    "lanes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/LaneSpec.json"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "kind",
+    "lanes",
+    "checks",
+    "budget"
+  ],
+  "type": "object",
+  "x-ace-constraint": "lanes.length must be <= budget.maxLanes; a coordinator must have exactly one lane."
+}

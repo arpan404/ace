@@ -1,0 +1,85 @@
+{
+  "$id": "https://ace.local/protocol/v1/CommandPlan.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "native",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {},
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "text": {
+          "maxLength": 65536,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "provider",
+        "text",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "prompt",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "text": {
+          "maxLength": 65536,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "provider",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "$ref": "https://ace.local/protocol/v1/PaletteName.json"
+        },
+        "arguments": {
+          "$ref": "https://ace.local/protocol/v1/PromptArguments.json"
+        },
+        "kind": {
+          "const": "ace",
+          "type": "string"
+        },
+        "positional": {
+          "items": {
+            "maxLength": 16384,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "action",
+        "arguments",
+        "positional"
+      ],
+      "type": "object"
+    }
+  ]
+}

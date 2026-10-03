@@ -1,3 +1,4 @@
+import { ProviderPayload } from "@ace/provider-kit/payload";
 import { randomUUID } from "node:crypto";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
 import { findExecutable } from "@ace/provider-kit/discovery";
@@ -35,7 +36,7 @@ export async function openSession(
   options: ClaudeOptions = {},
 ): Promise<ProviderSession> {
   ctx.signal.throwIfAborted();
-  const env = { ...process.env, ...options.env };
+  const env = { ...process.env, ...options.env, ...ctx.env };
   const executable = await findExecutable(options.executable ?? "claude", env);
   if (!executable) throw new Error("Claude CLI is not installed");
   const versionProbe = await probeOutput(executable, ["--version"], { env });
@@ -65,14 +66,17 @@ export async function openSession(
   let closePromise: Promise<void> | undefined;
   let q: Query;
   const processId = randomUUID();
-  const frame = (dir: Frame["dir"], channel: string, data: unknown) =>
+  const frame = (dir: Frame["dir"], channel: string, data: unknown) => {
+    const payload = new ProviderPayload(JSON.stringify(data));
     ctx.onFrame({
       seq: sequence++,
       t: Math.round(performance.now() - started),
       dir,
       channel,
-      data,
+      data: payload.data,
+      payload,
     });
+  };
   const end = (deliberate: boolean, message?: string) => {
     if (exited) return;
     exited = true;

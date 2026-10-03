@@ -58,7 +58,8 @@ export const QuietHours = z.object({
       } catch {
         return false;
       }
-    }),
+    })
+    .meta({ "x-ace-constraint": "Must be an IANA time zone accepted by Intl.DateTimeFormat." }),
   startMinute: z.number().int().min(0).max(1439),
   endMinute: z.number().int().min(0).max(1439),
 });

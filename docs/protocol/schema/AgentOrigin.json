@@ -1,0 +1,10 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentOrigin.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "root",
+    "provider_subagent",
+    "ace"
+  ],
+  "type": "string"
+}

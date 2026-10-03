@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeReviewThread.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "comments": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeComment.json"
+      },
+      "maxItems": 2000,
+      "type": "array"
+    },
+    "file": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "line": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "outdated": {
+      "type": "boolean"
+    },
+    "resolved": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "resolved",
+    "outdated",
+    "file",
+    "line",
+    "comments"
+  ],
+  "type": "object"
+}

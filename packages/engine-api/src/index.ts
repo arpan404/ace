@@ -1,5 +1,6 @@
 import type { Fact, Key } from "@ace/core";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
+import type { ProviderPayload } from "@ace/provider-kit/payload";
 import type {
   Capabilities,
   ContentPart,
@@ -19,6 +20,8 @@ export type Frame = {
   /** Transport-specific channel, such as stdio, sse, http or sdk. */
   channel: string;
   data: unknown;
+  /** Immutable decoded value admitted from bounded encoded bytes; data must be payload.data. */
+  payload?: ProviderPayload;
 };
 
 export interface ProviderAdapter {
@@ -43,6 +46,10 @@ export interface SessionContext {
   rootKey?: Key;
   threadId: ThreadId;
   cwd: string;
+  /** Instance-specific environment; adapters must pass it to every owned provider process. */
+  env?: NodeJS.ProcessEnv;
+  /** Persist this assignment with the native session ID; resume must reuse the same instance. */
+  instanceId?: string;
   model?: string;
   resume?: { nativeSessionId: string };
   /** Every sent and received frame goes to the engine for translation and persistence. */
@@ -52,6 +59,7 @@ export interface SessionContext {
 }
 
 export interface ProviderSession {
+  readonly instanceId?: string;
   readonly nativeSessionId: string;
   send(input: ContentPart[], delivery: "steer" | "queue"): Promise<void>;
   interrupt(target: { agent?: Key; cascade: boolean }): Promise<void>;

@@ -1,0 +1,67 @@
+{
+  "$id": "https://ace.local/protocol/v1/AccountQuota.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "auth": {
+      "enum": [
+        "logged_in",
+        "logged_out",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "blockers": {
+      "default": {},
+      "properties": {
+        "limitError": {
+          "$ref": "https://ace.local/protocol/v1/QuotaWindow.json"
+        },
+        "overflow": {
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "observedAt": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "usage": {
+      "properties": {
+        "costUsd": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "inputTokens": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "outputTokens": {
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "windows": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/QuotaWindow.json"
+      },
+      "maxProperties": 32,
+      "propertyNames": {
+        "maxLength": 128,
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "At most 32 quota windows."
+    }
+  },
+  "required": [
+    "auth",
+    "observedAt",
+    "windows",
+    "usage"
+  ],
+  "type": "object"
+}

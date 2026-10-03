@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenUIActResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "boundsCentre": {
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    "fallback": {
+      "type": "boolean"
+    },
+    "method": {
+      "maxLength": 64,
+      "type": "string"
+    }
+  },
+  "required": [
+    "fallback"
+  ],
+  "type": "object"
+}

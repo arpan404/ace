@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/FileChange.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "diff": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "add",
+        "update",
+        "delete",
+        "move"
+      ],
+      "type": "string"
+    },
+    "movePath": {
+      "type": "string"
+    },
+    "newText": {
+      "type": "string"
+    },
+    "oldText": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "path": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "kind"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,122 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginExecution.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "event": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "kind": {
+          "const": "hook",
+          "type": "string"
+        },
+        "matcher": {
+          "maxLength": 8192,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "event",
+        "command"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "maxLength": 8192,
+            "type": "string"
+          },
+          "maxItems": 128,
+          "type": "array"
+        },
+        "command": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "cwd": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "env": {
+          "additionalProperties": {
+            "maxLength": 8192,
+            "type": "string"
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "stdio",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/PluginName.json"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "command",
+        "args",
+        "env"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "headers": {
+          "additionalProperties": {
+            "maxLength": 8192,
+            "type": "string"
+          },
+          "propertyNames": {
+            "maxLength": 128,
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "remote",
+          "type": "string"
+        },
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/PluginName.json"
+        },
+        "type": {
+          "enum": [
+            "http",
+            "sse"
+          ],
+          "type": "string"
+        },
+        "url": {
+          "maxLength": 8192,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "type",
+        "url",
+        "headers"
+      ],
+      "type": "object"
+    }
+  ]
+}

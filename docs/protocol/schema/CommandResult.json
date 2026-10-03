@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/CommandResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "commandId": {
+      "$ref": "https://ace.local/protocol/v1/CommandId.json"
+    },
+    "error": {
+      "type": "string"
+    },
+    "health": {
+      "$ref": "https://ace.local/protocol/v1/DiagnosticsHealth.json"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "review": {
+      "$ref": "https://ace.local/protocol/v1/ReviewData.json"
+    }
+  },
+  "required": [
+    "commandId",
+    "ok"
+  ],
+  "type": "object"
+}

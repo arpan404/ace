@@ -1,0 +1,51 @@
+{
+  "$id": "https://ace.local/protocol/v1/UsageMetadata.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "accountId": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "billingMode": {
+      "enum": [
+        "api",
+        "subscription",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "cacheWrite1hTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "cacheWriteTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "counterKey": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "counterMode": {
+      "enum": [
+        "cumulative",
+        "incremental"
+      ],
+      "type": "string"
+    },
+    "model": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "reasoningTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}

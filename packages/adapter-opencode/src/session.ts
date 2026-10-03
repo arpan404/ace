@@ -1,3 +1,4 @@
+import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
@@ -157,16 +158,21 @@ export class OpenCodeSession implements ProviderSession {
   }
   private emit = (dir: Frame["dir"], channel: string, data: unknown): void => {
     const t = Math.round(this.server.runtime.monotonic() - this.startedAt);
+    const clockPayload = new ProviderPayload(
+      JSON.stringify({ wallTime: this.server.runtime.wallTime() }),
+    );
     const clock: Frame = {
       seq: this.sequence++,
       t,
       dir: "note",
       channel: "clock",
-      data: { wallTime: this.server.runtime.wallTime() },
+      data: clockPayload.data,
+      payload: clockPayload,
     };
     this.translator.translate(clock, t);
     this.ctx.onFrame(clock);
-    const frame: Frame = { seq: this.sequence++, t, dir, channel, data };
+    const payload = new ProviderPayload(JSON.stringify(data));
+    const frame: Frame = { seq: this.sequence++, t, dir, channel, data: payload.data, payload };
     this.translator.translate(frame, t);
     this.ctx.onFrame(frame);
   };

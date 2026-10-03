@@ -8,7 +8,8 @@
     "./plugins": "./src/plugins.ts",
     "./preview": "./src/preview.ts",
     "./history": "./src/history.ts",
-    "./forge": "./src/forge.ts"
+    "./forge": "./src/forge.ts",
+    "./accounts": "./src/accounts.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

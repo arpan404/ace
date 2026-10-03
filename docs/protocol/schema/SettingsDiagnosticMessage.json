@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/SettingsDiagnosticMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "diagnostic": {
+      "$ref": "https://ace.local/protocol/v1/SettingsDiagnostic.json"
+    },
+    "subscriptionId": {
+      "type": "string"
+    },
+    "type": {
+      "const": "settings.diagnostic",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "subscriptionId",
+    "diagnostic"
+  ],
+  "type": "object"
+}

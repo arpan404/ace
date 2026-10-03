@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/CommandResolution.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "ok": {
+          "const": true,
+          "type": "boolean"
+        },
+        "plan": {
+          "$ref": "https://ace.local/protocol/v1/CommandPlan.json"
+        }
+      },
+      "required": [
+        "ok",
+        "plan"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "argument": {
+          "type": "string"
+        },
+        "error": {
+          "enum": [
+            "not_found",
+            "unsupported_provider",
+            "unsupported_command",
+            "missing_argument",
+            "invalid_argument",
+            "limit_exceeded"
+          ],
+          "type": "string"
+        },
+        "ok": {
+          "const": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ok",
+        "error"
+      ],
+      "type": "object"
+    }
+  ]
+}

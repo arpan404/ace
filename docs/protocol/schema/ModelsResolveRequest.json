@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/ModelsResolveRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "roleSpec": {
+      "$ref": "https://ace.local/protocol/v1/ModelRoleSpec.json"
+    },
+    "type": {
+      "const": "models.resolve",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "roleSpec"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,43 @@
+{
+  "$id": "https://ace.local/protocol/v1/SearchStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "generation": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "headSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "indexWrites": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "indexedSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "pending": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "ready": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "indexedSeq",
+    "headSeq",
+    "pending",
+    "indexWrites",
+    "generation",
+    "ready"
+  ],
+  "type": "object"
+}

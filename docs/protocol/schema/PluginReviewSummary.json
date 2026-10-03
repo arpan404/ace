@@ -1,0 +1,44 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginReviewSummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "commit": {
+      "$ref": "https://ace.local/protocol/v1/PluginCommit.json"
+    },
+    "executionCount": {
+      "maximum": 512,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "hash": {
+      "$ref": "https://ace.local/protocol/v1/PluginHash.json"
+    },
+    "id": {
+      "pattern": "^[a-zA-Z0-9-]{1,80}$",
+      "type": "string"
+    },
+    "name": {
+      "$ref": "https://ace.local/protocol/v1/PluginName.json"
+    },
+    "unsupportedCount": {
+      "maximum": 512,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "version": {
+      "maxLength": 128,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "version",
+    "commit",
+    "hash",
+    "executionCount",
+    "unsupportedCount"
+  ],
+  "type": "object"
+}
