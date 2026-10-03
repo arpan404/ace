@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-scheme="dark" data-accent="blue" data-density="comfortable">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>ace</title>
+    <style>
+      /* First visit only: the default Dark background until the theme stylesheet loads. */
+      html {
+        background: #0a0a0a;
+        color-scheme: dark;
+      }
+    </style>
+    <script>
+      // Replay the theme the app last applied (src/theme/theme-provider.tsx) before first paint.
+      try {
+        const boot = JSON.parse(localStorage.getItem("ace.boot-theme") || "null");
+        if (boot && typeof boot.css === "string") {
+          const root = document.documentElement;
+          const sheet = document.createElement("style");
+          sheet.id = "ace-themes";
+          sheet.textContent = boot.css;
+          document.head.append(sheet);
+          for (const [name, value] of Object.entries(boot.attributes || {}))
+            root.setAttribute(name, String(value));
+          for (const [name, value] of Object.entries(boot.style || {}))
+            root.style.setProperty(name, String(value));
+          if (boot.system) {
+            const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+            root.setAttribute("data-theme", dark ? "dark" : "light");
+            root.setAttribute("data-scheme", dark ? "dark" : "light");
+          }
+          root.style.background = "var(--wall)";
+        }
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
