@@ -219,7 +219,8 @@
                     "opencode",
                     "cursor",
                     "antigravity",
-                    "acp"
+                    "acp",
+                    "pi"
                   ],
                   "type": "string"
                 }
@@ -259,7 +260,8 @@
             "opencode",
             "cursor",
             "antigravity",
-            "acp"
+            "acp",
+            "pi"
           ],
           "type": "string"
         },

@@ -51,3 +51,4 @@ export { ScreenAgentScope, ScreenUITree, ScreenUIBounds } from "./screen-ui.ts";
 
 export * from "./queue.ts";
 export * from "./context-meter.ts";
+export * from "./pi.ts";

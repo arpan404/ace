@@ -654,7 +654,7 @@ Example:
       "lanes": [
         {
           "model": "example",
-          "provider": "codex"
+          "provider": "opencode"
         }
       ]
     },

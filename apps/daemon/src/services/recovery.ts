@@ -169,7 +169,7 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
     if (!context.services.context || !("threadId" in p))
       throw new Error("Context requires an existing thread");
     const projectionProvider =
-      provider === "cursor" || provider === "antigravity" ? "acp" : provider;
+      provider === "cursor" || provider === "antigravity" || provider === "pi" ? "acp" : provider;
     const prepared = await context.services.context.compose(
       command.deviceId,
       p.threadId,
@@ -181,7 +181,8 @@ export function prepareQueuedInput(context: Pick<ServiceContext, "services">): P
           : [],
         documents: [],
         embeddedContext: false,
-        maxInlineBytes: 4 * 1024 * 1024,
+        // Pi consumes generic text and inline images, with a smaller native frame budget.
+        maxInlineBytes: provider === "pi" ? 128 * 1024 : 4 * 1024 * 1024,
       },
     );
     try {

@@ -11,7 +11,8 @@
     "./forge": "./src/forge.ts",
     "./queue": "./src/queue.ts",
     "./context-meter": "./src/context-meter.ts",
-    "./accounts": "./src/accounts.ts"
+    "./accounts": "./src/accounts.ts",
+    "./pi": "./src/pi.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

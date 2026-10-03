@@ -30,6 +30,7 @@ import type { Store } from "./store.ts";
 export interface ServerOptions {
   engine?: import("./engine/index.ts").Engine;
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
+  pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
   accounts?: AccountService;
   commands?: CommandService;

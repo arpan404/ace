@@ -1,6 +1,7 @@
 import * as plugins from "@ace/protocol/plugins";
 import * as preview from "@ace/protocol/preview";
 import * as history from "@ace/protocol/history";
+import * as pi from "@ace/protocol/pi";
 import * as accounts from "@ace/protocol/accounts";
 import * as queue from "@ace/protocol/queue";
 import * as contextMeter from "@ace/protocol/context-meter";
@@ -22,6 +23,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./preview", preview],
   ["./history", history],
   ["./accounts", accounts],
+  ["./pi", pi],
 ]);
 
 export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] } {

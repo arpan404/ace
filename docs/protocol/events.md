@@ -138,7 +138,7 @@ Example:
     "native": {
       "installationId": "example",
       "instanceId": "example",
-      "provider": "cursor"
+      "provider": "antigravity"
     },
     "origin": "provider_subagent",
     "parentId": null,

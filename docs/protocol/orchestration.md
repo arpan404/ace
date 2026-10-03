@@ -133,7 +133,7 @@ Example:
     "lanes": [
       {
         "model": "example",
-        "provider": "antigravity"
+        "provider": "acp"
       }
     ]
   },
@@ -269,7 +269,7 @@ Example:
     "lanes": [
       {
         "model": "example",
-        "provider": "acp"
+        "provider": "pi"
       }
     ]
   },
@@ -1036,7 +1036,7 @@ Example:
       "lanes": [
         {
           "model": "example",
-          "provider": "antigravity"
+          "provider": "acp"
         }
       ]
     },
@@ -1095,7 +1095,7 @@ Example:
   "lanes": [
     {
       "model": "example",
-      "provider": "opencode"
+      "provider": "cursor"
     }
   ]
 }

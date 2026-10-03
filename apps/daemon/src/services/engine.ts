@@ -1,5 +1,6 @@
 import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
+import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
 import { Engine } from "../engine/index.ts";
@@ -15,8 +16,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const engineOptions = options.engine ?? {};
   const registry =
     engineOptions.registry ??
-    (await discoverAdapters(engineOptions.adapterDiscovery, (cli) =>
-      daemonClaudeAdapter(context, cli),
+    (await discoverAdapters(
+      engineOptions.adapterDiscovery,
+      (cli) => daemonClaudeAdapter(context, cli),
+      (adapters) => registerPi(context, adapters),
     ));
   if (!engineOptions.registry) resources.own(() => registry.close());
   const acp =
