@@ -425,8 +425,8 @@
       "sha256": "a5faf5a0456afa98ebf60bb00d417bb39cdb3ee2dad5b2349d07e524441f97dd"
     },
     "schema/DaemonHealth.json": {
-      "bytes": 332,
-      "sha256": "717d0246dfb1d3e29687e9c8aae1671b7040fd75a83c01eaf9650c5aed047108"
+      "bytes": 399,
+      "sha256": "beab9c8434f689c59c609153f1309d36479e6132e41fef7afab0d6180756af8f"
     },
     "schema/DelegationOutcome.json": {
       "bytes": 842,
@@ -2041,10 +2041,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 339209,
-      "sha256": "bef6c2331a6f195b3cca1004efadb5dcc523ea706b72f2306353bc36afd302b2"
+      "bytes": 341911,
+      "sha256": "5523cfa32e77560ec9e0640610b2260809a50084c7394e7bce973dd9cf136c83"
     }
   },
-  "input": "34b71325d3be5e3ac2fe6275e1da8918d04502c80aab817d4c0e3fdfa4d4a033",
+  "input": "92c979ab138e46085580b7fbd2559d2aa314c18851cf571e1aa62324aa447a6c",
   "version": 1
 }

@@ -45,6 +45,8 @@ export interface ServerOptions {
   maintenance?: boolean;
   version?: string;
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
+  /** Socket welcomes follow finite listener setup; HTTP discovery remains immediate. */
+  ready?: Promise<void>;
   models?: ModelCatalogApi;
   agentRegistry?: Pick<import("@ace/agent-registry").AgentRegistry, "handle">;
   port: number;

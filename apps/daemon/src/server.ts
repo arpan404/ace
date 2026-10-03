@@ -85,6 +85,10 @@ export async function startServer(options: ServerOptions): Promise<{
       : undefined;
   let preview: DaemonPreview | undefined;
   const maintenance = new MaintenanceGate(() => options.store.updateBlockers());
+  let ready = options.ready === undefined;
+  void options.ready?.then(() => {
+    ready = true;
+  });
   if (options.maintenance) maintenance.enter();
   const local = httpServer(
     previewHttp(
@@ -97,6 +101,7 @@ export async function startServer(options: ServerOptions): Promise<{
         maintenance,
         options.version,
         options.serviceStatus,
+        () => ready,
       ),
     ),
   );
@@ -113,6 +118,7 @@ export async function startServer(options: ServerOptions): Promise<{
             undefined,
             options.version,
             options.serviceStatus,
+            () => ready,
           ),
         ),
       )
@@ -306,6 +312,9 @@ export async function startServer(options: ServerOptions): Promise<{
           revocable: message.ticket !== undefined,
         });
         try {
+          // HTTP discovery is available while listener features initialize. A
+          // welcome promises the socket can use the published service registry.
+          await options.ready;
           if (authorize("read")) await options.notifications?.connectDevice(actor.id);
         } catch {
           fail("device_unavailable", "Device unavailable", true);

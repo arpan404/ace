@@ -16,6 +16,7 @@ afterEach(async () => {
 });
 const Status = z.object({
   running: z.literal(true),
+  ready: z.boolean(),
   services: z.array(
     z.object({
       name: z.string(),
@@ -138,6 +139,7 @@ it("a source daemon with a fresh empty home reaches ready, publishes its endpoin
   `;
   const daemon = await launch(source);
   const status = daemon.status;
+  expect(status.ready).toBe(true);
   expect(status.services.find((service) => service.name === "notifications")).toEqual({
     name: "notifications",
     state: "ready",
@@ -177,6 +179,7 @@ it("a notification worker that never replies is named as degraded while the daem
   const daemon = await launch(source, async (origin, token) => {
     // Endpoint publication and core HTTP readiness precede the optional service's deadline.
     const status = Status.parse(await accessRequest(origin, "/v1/status", { token }));
+    expect(status.ready).toBe(false);
     expect(status.services.find((service) => service.name === "notifications")?.state).toBe(
       "starting",
     );

@@ -152,10 +152,13 @@ export async function startDaemon(options: DaemonOptions = {}) {
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
     const remote = await remoteListener(config);
+    const socketReady = Promise.withResolvers<void>();
+    resources.onShutdown(() => socketReady.resolve());
     const serverOptions: ServerOptions = {
       ...services,
       handler,
       serviceStatus: startup.status,
+      ready: socketReady.promise,
       ...(remote ? { remote } : {}),
       maintenance: process.env.ACE_MAINTENANCE === "1",
       version: process.env.ACE_VERSION ?? "development",
@@ -206,6 +209,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
     await startup.listening(server);
     lifetime.signal.throwIfAborted();
     initialized = true;
+    queueMicrotask(() => socketReady.resolve());
     return {
       ...(server.relayHostId && services.relay
         ? {

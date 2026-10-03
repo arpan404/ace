@@ -54,6 +54,9 @@ export function createDaemonNotifications(
   let closed = false;
   const ready = async () => {
     await service.cursor();
+    // Revocation is durable authority, independent of whether delivery has a job.
+    for (const device of store.devices.list())
+      if (device.revokedAt !== null) await service.revoke(device.id);
     while (!(await attached.recover())) {
       if (closed || signal?.aborted) throw new Error("Notification recovery aborted");
       await setImmediate();

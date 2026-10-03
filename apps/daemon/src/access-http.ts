@@ -27,6 +27,7 @@ export function accessHttp(
   maintenance?: MaintenanceGate,
   version = "development",
   serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[],
+  ready: () => boolean = () => true,
 ) {
   return (request: IncomingMessage, response: ServerResponse) => {
     void (async () => {
@@ -52,6 +53,7 @@ export function accessHttp(
         if (path === "/v1/status" && request.method === "GET")
           result = {
             running: true,
+            ready: ready(),
             version,
             remote: pairing() ?? null,
             ...(serviceStatus ? { services: serviceStatus() } : {}),
