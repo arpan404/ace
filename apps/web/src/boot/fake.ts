@@ -5,6 +5,7 @@ import {
   fakeTransport,
   flakyCheckout,
   longHistory,
+  workbench,
 } from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
 import { createBrowserClient, memoryStorage } from "./client.ts";
@@ -20,6 +21,7 @@ const timer = {
 export function bootFake(): { client: Client; daemon: FakeDaemon } {
   const daemon = new FakeDaemon({ clock: () => Date.now(), snapshotItems: 40 });
   new ScenarioPlayer(daemon, longHistory(120)).runUntilBlocked();
+  for (const scenario of workbench()) new ScenarioPlayer(daemon, scenario).runUntilBlocked();
   const checkout = new ScenarioPlayer(daemon, flakyCheckout());
   const settings = new ScenarioPlayer(daemon, failingSubagent());
   checkout.autoplay(timer);
