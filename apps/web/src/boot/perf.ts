@@ -1,9 +1,15 @@
 import type { ClientApi } from "@ace/client";
 import { RemoteClient } from "@ace/client-worker";
 
-/** `vite --mode perf`: the app against the perf worker's endless agent (?rate=events/s). */
+/**
+ * `vite --mode perf`: the app against the perf worker's endless agent (`?rate=` events/s,
+ * `?history=` items of older history to page back through).
+ */
 export function bootPerf(): { client: ClientApi; threadId: string } {
-  const rate = Number(new URLSearchParams(location.search).get("rate") ?? 5_000);
+  const search = new URLSearchParams(location.search);
+  const rate = Number(search.get("rate") ?? 5_000);
+  // Items of made-up history below the live stream (`?history=1000000` for a 1M-item thread).
+  const history = Number(search.get("history") ?? 0);
   const worker = new Worker(new URL("./perf-worker.ts", import.meta.url), {
     type: "module",
     name: "ace-perf-client",
@@ -18,7 +24,7 @@ export function bootPerf(): { client: ClientApi; threadId: string } {
   Object.assign(globalThis, { acePerf: stats });
   const client = new RemoteClient(
     worker,
-    { rate },
+    { rate, history },
     {
       scheduler: {
         set(delayMs, callback) {

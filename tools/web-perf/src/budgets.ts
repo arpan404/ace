@@ -29,6 +29,18 @@ export const budgets = {
     /** Retained heap growth from warm-up to the end, after full GCs. */
     growthMb: 12,
   },
+  memory: {
+    /** Minutes of streaming in the memory run (MEMORY_MINUTES overrides). */
+    minutes: 2,
+    /** From navigation until the transcript shows and the composer is there. */
+    readyMs: 5_000,
+    /** DOM nodes, live and detached, at any point: the transcript is virtualized. */
+    domNodes: 20_000,
+    /** Retained page heap growth while streaming, or while paging back through history. */
+    pageGrowthMb: 10,
+    /** Retained client worker heap growth while streaming. */
+    workerGrowthMb: 10,
+  },
   browser: {
     /** Fake-daemon events per second streamed while interacting. */
     eventsPerSecond: 5_000,

@@ -35,6 +35,7 @@ import {
   turn,
 } from "./scenarios/facts.ts";
 import { ThreadHost } from "./thread-host.ts";
+import { historyPage as syntheticPage } from "./soak-history.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 
 /*
@@ -54,6 +55,8 @@ export interface SoakOptions {
   windowItems?: number;
   /** Each exchange also asks for an approval and runs a background task, then ends both. */
   interactive?: boolean;
+  /** Items of history made on demand below the live stream (a thread of this many items). */
+  history?: number;
 }
 
 const answer =
@@ -150,6 +153,8 @@ export class SoakDaemon implements Host {
       updatedAt: now,
     };
     this.view = createThreadView(thread);
+    // The made-up past owns creation sequences 1..history; the live stream starts above it.
+    this.seq = options.history ?? 0;
     const host = new ThreadHost(thread);
     const setup: EventPayload[] = [
       { type: "thread.created", thread },
@@ -207,16 +212,44 @@ export class SoakDaemon implements Host {
   snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined {
     if (scope.kind === "threads") return { ...structuredClone(this.list), seq: this.seq };
     if (scope.threadId !== this.threadId) return undefined;
-    return windowSnapshot(this.view, this.creation, this.options.windowItems ?? 200, this.seq);
+    const view = windowSnapshot(
+      this.view,
+      this.creation,
+      this.options.windowItems ?? 200,
+      this.seq,
+    );
+    if (this.options.history && view.itemsBefore === null)
+      view.itemsBefore = this.oldestLive() ?? this.seq + 1;
+    return view;
   }
   /** Soak clients never resume from an old cursor; a replay asks for a snapshot instead. */
   replay(): DeliveryEvent[] {
     return [];
   }
   page(threadId: string, before: number, limit: number): ItemsPage | undefined {
-    return threadId === this.threadId
-      ? historyPage(this.view, this.creation, before, limit, this.seq)
-      : undefined;
+    if (threadId !== this.threadId) return undefined;
+    const live = historyPage(this.view, this.creation, before, limit, this.seq);
+    const size = this.options.history;
+    if (!size) return live;
+    if (live.items.length) {
+      // The live window's oldest item sits right above the made-up past.
+      if (live.itemsBefore === null) live.itemsBefore = this.oldestLive() ?? null;
+      return live;
+    }
+    return syntheticPage({
+      threadId,
+      agentId: this.view.thread.rootAgentId ?? "root",
+      size,
+      before,
+      limit,
+      seq: this.seq,
+      at: this.options.clock(),
+    });
+  }
+  /** Creation sequence of the oldest live item the daemon still keeps. */
+  private oldestLive(): number | undefined {
+    const first = this.view.itemOrder[0];
+    return first === undefined ? undefined : this.creation.get(first);
   }
   command(command: Command): CommandResult {
     return { commandId: command.id, ok: false, error: "unsupported_by_soak_daemon" };

@@ -4,11 +4,12 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "check": "node src/bundle.ts && node --expose-gc src/soak.ts && node src/browser.ts",
+    "check": "node src/bundle.ts && node --expose-gc src/soak.ts && node src/browser.ts && node src/memory.ts",
     "check:static": "node src/bundle.ts && node --expose-gc src/soak.ts",
     "soak": "node --expose-gc src/soak.ts",
     "bundle": "node src/bundle.ts",
     "browser": "node src/browser.ts",
+    "memory": "node src/memory.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
