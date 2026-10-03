@@ -191,3 +191,28 @@ test("clients can preview simulated guarantees before creating a thread and unkn
     await f.client.close();
   }
 });
+
+test("a dangerous request is denied through cancellation when the provider has no deny option", async () => {
+  const f = await fixture();
+  try {
+    const created = await f.client.command({
+      type: "thread.create",
+      workspaceId: WorkspaceId.parse("workspace"),
+      provider: "codex",
+      input: [{ type: "text", text: "task" }],
+    });
+    if (!created.threadId) throw new Error("Missing thread");
+    const fact = approval("rm -rf build");
+    if (fact.type !== "interaction.opened" || fact.request.kind !== "approval")
+      throw new Error("Missing approval");
+    fact.request.options = [{ id: "cancel", label: "Cancel", kind: "cancel" }];
+    f.daemon.apply(created.threadId, [fact]);
+    const snapshot = f.daemon.snapshot({ kind: "thread", threadId: created.threadId });
+    if (!snapshot || snapshot.kind !== "thread") throw new Error("Missing thread snapshot");
+    const interaction = Object.values(snapshot.interactions)[0];
+    expect(interaction?.review?.decision).toBe("deny");
+    expect(interaction?.resolution).toMatchObject({ kind: "approval", optionId: "cancel" });
+  } finally {
+    await f.client.close();
+  }
+});

@@ -1,4 +1,9 @@
-import { reviewPermission, containsSecretReference, type PathRisk } from "@ace/core";
+import {
+  reviewPermission,
+  permissionDecisionOption,
+  containsSecretReference,
+  type PathRisk,
+} from "@ace/core";
 import type { Capabilities, EventPayload, PermissionReview } from "@ace/protocol";
 import type { ThreadHost } from "./thread-host.ts";
 
@@ -70,9 +75,7 @@ export function fakeReviewEvents(
       ...(target ? { target } : {}),
       paths: fakePaths(host, target?.paths ?? [], target?.cwd),
     });
-    const option = request.options.find((choice) =>
-      decision.decision === "approve" ? choice.kind === "allow_once" : choice.kind === "deny",
-    );
+    const option = permissionDecisionOption(request, decision.decision);
     if (decision.decision !== "escalate" && !option)
       decision = {
         decision: "escalate",

@@ -20,39 +20,40 @@ No tests, provider prompts, probes, benchmarks, mutation runs, recorder sessions
 
 Every case is **not executed (tests run at merge)**.
 
-| Mutation                                               | Behavior test designed to kill it                          |
-| ------------------------------------------------------ | ---------------------------------------------------------- |
-| Change the shipped default to ask or full-access       | Unset settings and engine default test                     |
-| Treat absent legacy never as full access               | Default and legacy migration tests                         |
-| Drop scoped settings precedence                        | Workspace/thread settings test                             |
-| Ignore a new default when legacy policy conflicts      | Legacy conflict test                                       |
-| Approve every shell request                            | Dangerous and uncertain engine/fake cases                  |
-| Deny or escalate every action                          | Low-risk pwd approval with provider answer                 |
-| Drop the review reason                                 | Engine interaction resolution and client reader assertions |
-| Resolve an uncertain interaction                       | Uncertain needs_you and pending-state cases                |
-| Approve outside-workspace destruction                  | Outside path and symlink escalation cases                  |
-| Approve credential access                              | .env escalation case                                       |
-| Accept a human permanent grant under auto-review       | Native grant refusal test                                  |
-| Accept a protected mutation after read-only escalation | Protected read-only write test                             |
-| Use a permanent native grant                           | One-shot provider resolution assertion                     |
-| Change effective mode during an active turn            | Next-turn mode test                                        |
-| Allow full-access child under auto-review parent       | Child spawn and later-mode refusal test                    |
-| Drop explicit full-access selection                    | Next-turn full-access and adapter transport assertions     |
-| Omit Codex sandbox/approval parameters at turn start   | Codex scripted app-server policy test                      |
-| Permit ambient Claude grants                           | Claude isolated sources and restricted callback behavior   |
-| Omit OpenCode wildcard ask rule                        | OpenCode scripted server request test                      |
-| Start Pi unrestricted for auto-review                  | Pi scripted write availability tests for all modes         |
-| Refuse ACP without complete permission coverage        | ACP scripted launch with and without selectors             |
-| Downgrade Cursor restricted policy to full access      | Cursor scripted SDK admission with unknown classifier      |
-| Drop review snapshot materialization                   | Engine snapshot and @ace/client reader tests               |
-| Refuse default auto-review for any registered provider | Each provider's engine launch and capability preview case  |
-| Claim protected-read coverage for Codex/Cursor/Pi      | Per-provider guarantee response and thread snapshot cases  |
-| Enable Codex network or native auto_review             | Scripted thread/turn transport policy assertions           |
-| Auto-approve a network escalation attached to pwd      | Codex network escalation needs_you case                    |
-| Drop ACP exact raw input or use its display title      | ACP scripted request target and native engine review cases |
-| Skip a provider's surfaced approval                    | Codex/Claude/OpenCode/ACP translated request engine cases  |
-| Open a native session to preview guarantees            | Capability request before creation, zero open contexts     |
-| Report an unknown guarantee as complete coverage       | Client preview and missing metadata reader case            |
+| Mutation                                                            | Behavior test designed to kill it                          |
+| ------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Change the shipped default to ask or full-access                    | Unset settings and engine default test                     |
+| Treat absent legacy never as full access                            | Default and legacy migration tests                         |
+| Drop scoped settings precedence                                     | Workspace/thread settings test                             |
+| Ignore a new default when legacy policy conflicts                   | Legacy conflict test                                       |
+| Approve every shell request                                         | Dangerous and uncertain engine/fake cases                  |
+| Deny or escalate every action                                       | Low-risk pwd approval with provider answer                 |
+| Drop the review reason                                              | Engine interaction resolution and client reader assertions |
+| Resolve an uncertain interaction                                    | Uncertain needs_you and pending-state cases                |
+| Approve outside-workspace destruction                               | Outside path and symlink escalation cases                  |
+| Approve credential access                                           | .env escalation case                                       |
+| Accept a human permanent grant under auto-review                    | Native grant refusal test                                  |
+| Accept a protected mutation after read-only escalation              | Protected read-only write test                             |
+| Escalate a destructive action when native cancellation is available | Codex native cancellation and fake durable deny cases      |
+| Use a permanent native grant                                        | One-shot provider resolution assertion                     |
+| Change effective mode during an active turn                         | Next-turn mode test                                        |
+| Allow full-access child under auto-review parent                    | Child spawn and later-mode refusal test                    |
+| Drop explicit full-access selection                                 | Next-turn full-access and adapter transport assertions     |
+| Omit Codex sandbox/approval parameters at turn start                | Codex scripted app-server policy test                      |
+| Permit ambient Claude grants                                        | Claude isolated sources and restricted callback behavior   |
+| Omit OpenCode wildcard ask rule                                     | OpenCode scripted server request test                      |
+| Start Pi unrestricted for auto-review                               | Pi scripted write availability tests for all modes         |
+| Refuse ACP without complete permission coverage                     | ACP scripted launch with and without selectors             |
+| Downgrade Cursor restricted policy to full access                   | Cursor scripted SDK admission with unknown classifier      |
+| Drop review snapshot materialization                                | Engine snapshot and @ace/client reader tests               |
+| Refuse default auto-review for any registered provider              | Each provider's engine launch and capability preview case  |
+| Claim protected-read coverage for Codex/Cursor/Pi                   | Per-provider guarantee response and thread snapshot cases  |
+| Enable Codex network or native auto_review                          | Scripted thread/turn transport policy assertions           |
+| Auto-approve a network escalation attached to pwd                   | Codex network escalation needs_you case                    |
+| Drop ACP exact raw input or use its display title                   | ACP scripted request target and native engine review cases |
+| Skip a provider's surfaced approval                                 | Codex/Claude/OpenCode/ACP translated request engine cases  |
+| Open a native session to preview guarantees                         | Capability request before creation, zero open contexts     |
+| Report an unknown guarantee as complete coverage                    | Client preview and missing metadata reader case            |
 
 ## Integration follow-up
 

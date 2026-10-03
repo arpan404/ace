@@ -13,6 +13,7 @@ import {
   limitPermissionMode,
   resolvePermissionMode,
   reviewPermission,
+  permissionDecisionOption,
   supportsPermissionMode,
   type ThreadState,
 } from "@ace/core";
@@ -173,14 +174,7 @@ export class Permissions {
         ...(target ? { target } : {}),
         paths: permissionPaths(this.repo.session(state.threadId).cwd, target),
       });
-      const option =
-        interaction.request.kind === "approval"
-          ? interaction.request.options.find((choice) =>
-              decision.decision === "approve"
-                ? choice.kind === "allow_once"
-                : choice.kind === "deny",
-            )
-          : undefined;
+      const option = permissionDecisionOption(interaction.request, decision.decision);
       if (decision.decision !== "escalate" && !option)
         decision = {
           decision: "escalate",

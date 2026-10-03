@@ -138,7 +138,7 @@ function nativeApproval(
                 additionalPermissions: { network: { enabled: true } },
               }
             : {}),
-          availableDecisions: ["accept", "decline", "cancel"],
+          availableDecisions: ["accept", "cancel"],
         },
       },
       "stdio",
@@ -242,6 +242,8 @@ for (const { adapter, version } of reviewers) {
         const id = await h.create();
         const interaction = Object.values(h.store.snapshotThread(id)?.interactions ?? {})[0];
         expect(interaction?.review?.decision).toBe(decision);
+        if (adapter.provider === "codex" && decision === "deny")
+          expect(interaction?.resolution).toMatchObject({ kind: "approval", optionId: "cancel" });
         expect(interaction?.review?.reason.length).toBeGreaterThan(0);
         expect(h.store.getThread(id)?.status.state).toBe(
           decision === "escalate" ? "needs_you" : "done",

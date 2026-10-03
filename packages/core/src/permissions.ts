@@ -4,6 +4,7 @@ import type {
   PermissionCapabilities,
   InteractionRequest,
   InteractionResolution,
+  ApprovalOption,
 } from "@ace/protocol";
 
 const rank: Record<PermissionMode, number> = {
@@ -31,6 +32,18 @@ export function supportsPermissionMode(
 export interface RiskDecision {
   decision: "approve" | "deny" | "escalate";
   reason: string;
+}
+/** Cancellation rejects the current action when a provider offers no one-shot deny. */
+export function permissionDecisionOption(
+  request: InteractionRequest,
+  decision: RiskDecision["decision"],
+): ApprovalOption | undefined {
+  if (request.kind !== "approval" || decision === "escalate") return undefined;
+  if (decision === "approve") return request.options.find((choice) => choice.kind === "allow_once");
+  return (
+    request.options.find((choice) => choice.kind === "deny") ??
+    request.options.find((choice) => choice.kind === "cancel")
+  );
 }
 /** Boundary resolves symlinks and existing ancestors. Unknown paths can never earn approval. */
 export type PathRisk = "workspace" | "outside" | "secret" | "unknown";

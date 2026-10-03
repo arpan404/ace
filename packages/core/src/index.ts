@@ -12,6 +12,7 @@ export {
   resolvePermissionMode,
   supportsPermissionMode,
   reviewPermission,
+  permissionDecisionOption,
   containsSecretReference,
   isPermissionOption,
   permissionResolutionError,
