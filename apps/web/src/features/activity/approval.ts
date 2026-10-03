@@ -1,0 +1,79 @@
+import type { ApprovalOption, Question } from "@ace/protocol";
+
+/** The buttons an approval card shows, picked from whatever options the provider offered. */
+export interface ApprovalChoices {
+  approve: ApprovalOption | undefined;
+  /** Wider grant offered as the "Always allow …" checkbox; replaces `approve` when ticked. */
+  always: ApprovalOption | undefined;
+  deny: ApprovalOption | undefined;
+}
+
+const first = (options: readonly ApprovalOption[], kinds: readonly ApprovalOption["kind"][]) => {
+  for (const kind of kinds) {
+    const option = options.find((candidate) => candidate.kind === kind);
+    if (option) return option;
+  }
+  return undefined;
+};
+
+export function approvalChoices(options: readonly ApprovalOption[]): ApprovalChoices {
+  const approve = first(options, ["allow_once", "allow_session", "allow_always"]);
+  const wider = first(options, ["allow_always", "allow_session"]);
+  return {
+    approve,
+    always: wider && wider !== approve ? wider : undefined,
+    deny: first(options, ["deny", "cancel", "deny_always"]),
+  };
+}
+
+/** Label for the "always" checkbox: the provider's own words, phrased as a grant. */
+export function alwaysLabel(option: ApprovalOption): string {
+  return /^always/i.test(option.label)
+    ? option.label
+    : option.kind === "allow_session"
+      ? `Allow for the rest of this session`
+      : `Always allow (${option.label})`;
+}
+
+export type RiskLevel = "high" | "medium";
+
+const high: readonly RegExp[] = [
+  /\bgit\s+push\b.*(--force\b|--force-with-lease\b|\s-f\b)/,
+  /\bgit\s+reset\s+--hard\b/,
+  /\bgit\s+clean\s+-[a-z]*f/,
+  /\brm\s+-[a-z]*r[a-z]*f|\brm\s+-[a-z]*f[a-z]*r/,
+  /\bsudo\b/,
+  /\bdrop\s+(table|database)\b/i,
+  /\bcurl\b[^|]*\|\s*(ba|z)?sh\b/,
+  /\bchmod\s+-R\b/,
+];
+const medium: readonly RegExp[] = [
+  /\b(npm|pnpm|yarn|bun)\s+(add|install|i)\b/,
+  /\b(pip|pip3|brew|cargo|gem)\s+(install|add)\b/,
+  /\bgit\s+push\b/,
+  /\b(curl|wget)\b/,
+  /\bdocker\s+(run|rm|system\s+prune)\b/,
+];
+
+/**
+ * How careful to be with a shell command, from its text alone. Only commands that rewrite
+ * history, delete recursively, escalate privileges or reach the network get a level; the
+ * rest show their description without a risk word.
+ */
+export function commandRisk(command: string): RiskLevel | undefined {
+  if (high.some((pattern) => pattern.test(command))) return "high";
+  if (medium.some((pattern) => pattern.test(command))) return "medium";
+  return undefined;
+}
+
+const recommended = /\s*\(recommended\)\s*$/i;
+
+/** Claude marks its suggested answer with "(Recommended)"; show it as a quiet tag instead. */
+export function questionOptions(question: Question) {
+  return question.options.map((option) => ({
+    id: option.id,
+    label: option.label.replace(recommended, ""),
+    description: option.description,
+    recommended: recommended.test(option.label),
+  }));
+}

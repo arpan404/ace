@@ -1,0 +1,20 @@
+{
+  "name": "@ace/web-e2e",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "e2e": "playwright test --project=fake --project=real-daemon",
+    "screens": "playwright test --project=screens",
+    "daemon": "node src/real-daemon.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ace/adapter-testkit": "workspace:*",
+    "@ace/core": "workspace:*",
+    "@ace/daemon": "workspace:*",
+    "@ace/engine-api": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "@playwright/test": "1.63.0"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@ace/client-react",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ace/client": "workspace:*",
+    "@ace/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@ace/fake-daemon": "workspace:*",
+    "@testing-library/react": "^16.3.3",
+    "@types/react": "^19.3.0",
+    "jsdom": "^30.1.1",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0"
+  }
+}

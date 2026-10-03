@@ -15,11 +15,13 @@ export class InputStream implements AsyncIterable<SDKUserMessage> {
   #closed = false;
   push(message: SDKUserMessage): void {
     if (this.#closed) throw new Error("Claude session is closed");
+    if (this.#queue.length >= 256) throw new Error("Claude input capacity reached");
     this.#queue.push(message);
     this.#wake?.();
   }
   close(): void {
     this.#closed = true;
+    this.#queue.length = 0;
     this.#wake?.();
   }
   async *[Symbol.asyncIterator](): AsyncGenerator<SDKUserMessage> {
@@ -83,11 +85,9 @@ export function permissionResult(
   if (resolution.kind !== "approval")
     throw new Error("Interaction kind does not match a tool permission");
   if (resolution.optionId === "allow_once") return { behavior: "allow", updatedInput: input };
-  if (resolution.optionId.startsWith("allow_session:")) {
-    const index = Number(resolution.optionId.slice("allow_session:".length));
-    const suggestion = Number.isInteger(index) ? suggestions[index] : undefined;
-    if (!suggestion) throw new Error("Unknown Claude permission suggestion");
-    return { behavior: "allow", updatedInput: input, updatedPermissions: [suggestion] };
+  if (resolution.optionId === "allow_updates") {
+    if (!suggestions.length) throw new Error("Unknown Claude permission suggestion");
+    return { behavior: "allow", updatedInput: input, updatedPermissions: suggestions };
   }
   if (resolution.optionId !== "deny") throw new Error("Unknown Claude approval option");
   return { behavior: "deny", message: resolution.message ?? "Permission denied." };

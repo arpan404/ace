@@ -274,6 +274,10 @@ for await (const line of createInterface({ input: process.stdin })) {
     respond({});
     end(str(p["threadId"]), "interrupted");
   } else if (method === "thread/backgroundTerminals/list") {
+    if (process.env["ACE_FAKE_RESUME"] === "terminal-loop") {
+      respond({ data: [], nextCursor: "loop" });
+      continue;
+    }
     const entries = terminals.get(str(p["threadId"])) ?? [];
     // Require pagination before the matching terminal is returned.
     respond(

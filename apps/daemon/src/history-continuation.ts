@@ -75,7 +75,13 @@ export class HistoryContinuation {
         persisted?.native.nativeId ?? thread.imported.native.nativeId ?? source.nativeId;
       // Fork the conversation represented by this thread, including prior continuations.
       // The history service still validates instance/source support and the returned ID.
-      const nativeFork = port.fork?.bind(port);
+      const nativeAdapterFork = adapter.forkSession?.bind(adapter);
+      const nativeFork =
+        port.fork?.bind(port) ??
+        (nativeAdapterFork
+          ? (input: { instanceId: string; nativeSessionId: string }) =>
+              nativeAdapterFork({ nativeSessionId: input.nativeSessionId, signal })
+          : undefined);
       const ctx = await this.history.continuation(
         source.id,
         request.mode,
@@ -84,6 +90,8 @@ export class HistoryContinuation {
           : undefined,
       );
       signal.throwIfAborted();
+      if (request.mode === "fork" && ctx.resume.nativeSessionId === currentNativeId)
+        throw new Error("Native history fork reused source identity");
       const resume = request.mode === "resume" ? { nativeSessionId: currentNativeId } : ctx.resume;
       let exited = false;
       const session = await adapter.openSession({
@@ -112,7 +120,15 @@ export class HistoryContinuation {
             {
               type: "agent.updated",
               agentId: thread.rootAgentId,
-              native: { provider: source.provider, nativeId: session.nativeSessionId },
+              native: {
+                provider: source.provider,
+                nativeId: session.nativeSessionId,
+                ...(request.mode === "fork"
+                  ? { forkedFromNativeId: currentNativeId }
+                  : persisted?.native.forkedFromNativeId
+                    ? { forkedFromNativeId: persisted.native.forkedFromNativeId }
+                    : {}),
+              },
             },
           ]);
       } catch (error) {

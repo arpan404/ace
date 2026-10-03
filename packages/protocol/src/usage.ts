@@ -1,10 +1,28 @@
 import { z } from "zod";
+import { ThreadId } from "./ids.ts";
 
 const id = z.string().min(1).max(512);
 const tokens = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const dollars = z.number().nonnegative();
 const adjustment = z.number();
-export const UsageMetadata = z.object({
+/** Scope/key validity survives schema extensions at every usage boundary. */
+export const UsageCounter = z
+  .object({
+    usageScope: z.enum(["agent", "provider_session", "model_session"]).optional(),
+    counterKey: id.optional(),
+  })
+  .refine(
+    (usage) =>
+      usage.usageScope === undefined ||
+      usage.usageScope === "agent" ||
+      usage.counterKey !== undefined,
+    { message: "Inclusive usage snapshots require a counter key", path: ["counterKey"] },
+  )
+  .meta({
+    "x-ace-constraint":
+      "If usageScope is provider_session or model_session, counterKey is required.",
+  });
+export const UsageMetadata = UsageCounter.safeExtend({
   reasoningTokens: tokens.optional(),
   cacheWriteTokens: tokens.optional(),
   cacheWrite1hTokens: tokens.optional(),
@@ -12,8 +30,7 @@ export const UsageMetadata = z.object({
   accountId: id.optional(),
   billingMode: z.enum(["api", "subscription", "unknown"]).optional(),
   counterMode: z.enum(["cumulative", "incremental"]).optional(),
-  counterKey: id.optional(),
-});
+}).meta(UsageCounter.meta() ?? {});
 export type UsageMetadata = z.infer<typeof UsageMetadata>;
 export const UsageDimension = z.enum([
   "day",
@@ -110,4 +127,33 @@ export const UsageMessage = z.object({
   requestId: id,
   kind: z.enum(["summary", "series"]),
   result: UsageResult,
+});
+
+export const UsageSessionTotal = z.object({
+  counterKey: id,
+  scope: z.enum(["provider_session", "model_session"]),
+  model: z.string().max(8192),
+  at: z.number().int().nonnegative(),
+  inputTokens: tokens,
+  outputTokens: tokens,
+  cachedInputTokens: tokens,
+  cacheWriteTokens: tokens,
+  cacheWrite1hTokens: tokens.default(0),
+  costUsd: dollars,
+});
+export const UsageSessionTotalPage = z.array(UsageSessionTotal).max(100);
+export const UsageSessionTotalsQuery = z.object({
+  thread: ThreadId.max(8192),
+  limit: z.number().int().min(1).max(100).default(100),
+});
+export type UsageSessionTotalsQuery = z.infer<typeof UsageSessionTotalsQuery>;
+export const UsageSessionTotals = z.object({
+  type: z.literal("usage.session_totals"),
+  requestId: id,
+  query: UsageSessionTotalsQuery,
+});
+export const UsageSessionTotalsMessage = z.object({
+  type: z.literal("usage.session_totals.result"),
+  requestId: id,
+  totals: UsageSessionTotalPage,
 });

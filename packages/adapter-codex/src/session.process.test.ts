@@ -228,3 +228,18 @@ test("an unknown thread without a spawn item is adopted from thread-read metadat
     await h.dispose();
   }
 });
+
+test("a repeated native terminal cursor rejects cascade visibly instead of hanging Stop", async () => {
+  const h = await sessionHarness(false, "terminal-loop");
+  try {
+    await expect(h.session.interrupt({ cascade: true })).rejects.toThrow("completely interrupt");
+    // Listing failure is observable; it must never report that terminals were all stopped.
+    expect(
+      h.frames.some(
+        (f) => f.dir === "send" && obj(f.data)["method"] === "thread/backgroundTerminals/terminate",
+      ),
+    ).toBe(false);
+  } finally {
+    await h.dispose();
+  }
+});

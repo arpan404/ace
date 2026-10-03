@@ -4,28 +4,28 @@ import { randomUUID } from "node:crypto";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import { probeOutput, type SupervisedProcess } from "@ace/provider-kit/process";
-import { InteractionResolution } from "@ace/protocol";
-import {
-  query,
-  type PermissionResult,
-  type PermissionUpdate,
-  type Query,
-} from "@anthropic-ai/claude-agent-sdk";
+import type { InteractionResolution } from "@ace/protocol";
+import { query, type Query } from "@anthropic-ai/claude-agent-sdk";
 import { capabilities } from "./capabilities.ts";
-import { InputStream, content, permissionResult } from "./input.ts";
-import { list, object, string } from "./native.ts";
-import { requestFor } from "./interactions.ts";
+import { SessionTasks } from "./session-tasks.ts";
+import { InputStream, content } from "./input.ts";
+import { object, string } from "./native.ts";
+import { PendingInteractions } from "./pending-interactions.ts";
+import {
+  codingConfiguration,
+  configurationOptions,
+  type ClaudeConfiguration,
+} from "./configuration.ts";
+import { ClaudeRateLimitObservation } from "./rate-limits.ts";
+import { nativeMcpServers, mcpControls, type ClaudeMcpServers } from "./mcp-controls.ts";
 import { spawnSdkProcess } from "./sdk-process.ts";
 export interface ClaudeOptions {
   executable?: string;
   env?: NodeJS.ProcessEnv;
-}
-interface Pending {
-  kind: string;
-  input: Record<string, unknown>;
-  suggestions: PermissionUpdate[];
-  resolution?: InteractionResolution;
-  finish(result: PermissionResult, cancelled?: boolean): void;
+  configuration?: ClaudeConfiguration;
+  mcpServers?: ClaudeMcpServers;
+  /** Accounts owner receives stable event metadata. This adapter never polls usage or changes auth. */
+  onRateLimit?(observation: ClaudeRateLimitObservation): void;
 }
 function nativeKey(key: string, kind: string): string {
   return key.includes(`:${kind}:`)
@@ -55,14 +55,14 @@ export async function openSession(
   ctx.signal.throwIfAborted();
   const sessionId = ctx.resume?.nativeSessionId ?? randomUUID();
   const input = new InputStream();
-  const pending = new Map<string, Pending>();
-  const cancelledRequests = new Set<string>();
-  const toolParents = new Map<string, string>();
-  const tasks = new Map<string, { spawn: string; parent: string; live: boolean }>();
+
+  const taskIndex = new SessionTasks();
+  const tasks = taskIndex.live;
   let sequence = 0;
   const started = performance.now();
   let closed = false;
   let exited = false;
+  let failureMessage: string | undefined;
   let ownedProcess: SupervisedProcess | undefined;
   let closePromise: Promise<void> | undefined;
   let q: Query;
@@ -78,11 +78,11 @@ export async function openSession(
       payload,
     });
   };
+  const pending = new PendingInteractions(frame);
   const end = (deliberate: boolean, message?: string) => {
     if (exited) return;
     exited = true;
-    for (const request of pending.values())
-      request.finish({ behavior: "deny", message: "Claude session ended." }, true);
+    pending.expire();
     input.close();
     ctx.signal.removeEventListener("abort", abort);
     // Engine owns process.exited facts through onExit. Avoid sending a duplicate lifecycle frame.
@@ -94,8 +94,7 @@ export async function openSession(
   const close = (): Promise<void> => {
     closePromise ??= (async () => {
       closed = true;
-      for (const request of pending.values())
-        request.finish({ behavior: "deny", message: "Claude session closed." }, true);
+      pending.expire();
       input.close();
       q.close();
       if (ownedProcess) await ownedProcess.stop();
@@ -128,12 +127,34 @@ export async function openSession(
       ...(ctx.model ? { model: ctx.model } : {}),
       ...(ctx.resume ? { resume: sessionId } : { sessionId }),
       pathToClaudeCodeExecutable: executable,
-      permissionMode: "default",
-      settingSources: [],
+      ...configurationOptions(options.configuration ?? codingConfiguration),
+      mcpServers: nativeMcpServers(options.mcpServers ?? {}),
       includePartialMessages: true,
       forwardSubagentText: true,
       perTaskStopAffordance: true,
       includeHookEvents: true,
+      hooks: {
+        SubagentStart: [
+          {
+            hooks: [
+              async (data) => {
+                frame("recv", "observational_hook", data);
+                return {};
+              },
+            ],
+          },
+        ],
+        SubagentStop: [
+          {
+            hooks: [
+              async (data) => {
+                frame("recv", "observational_hook", data);
+                return {};
+              },
+            ],
+          },
+        ],
+      },
       env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: "ace/0.0.0" },
       spawnClaudeCodeProcess: (spawn) =>
         spawnSdkProcess(spawn, {
@@ -142,90 +163,62 @@ export async function openSession(
             const cancel = object(data)["type"] === "control_cancel_request";
             if (dir === "recv" && cancel) {
               const id = string(object(data)["request_id"]);
-              cancelledRequests.add(id);
-              pending
-                .get(id)
-                ?.finish({ behavior: "deny", message: "Claude cancelled the request." }, true);
+              pending.cancel(id);
             }
             frame(dir, cancel ? "sdk" : "wire", data);
           },
           onProcess: (handle) => {
             ownedProcess = handle;
+            if (handle.signal.aborted) pending.expire();
+            else handle.signal.addEventListener("abort", () => pending.expire(), { once: true });
             void handle.exited.then((exit) =>
-              end(closed, `Claude process exited: ${exit.code ?? exit.signal ?? exit.reason}`),
+              end(
+                closed,
+                failureMessage ??
+                  `Claude process exited: ${exit.code ?? exit.signal ?? exit.reason}`,
+              ),
             );
           },
         }),
       canUseTool: (toolName, toolInput, toolOptions) =>
-        new Promise<PermissionResult>((resolve) => {
-          const { signal, ...meta } = toolOptions;
-          const id = toolOptions.requestId;
-          const cancelled = () =>
-            pending
-              .get(id)
-              ?.finish({ behavior: "deny", message: "Claude cancelled the request." }, true);
-          pending.set(id, {
-            kind: requestFor(toolName, toolInput, meta).kind,
-            input: toolInput,
-            suggestions: toolOptions.suggestions ?? [],
-            finish(result, cancel = false) {
-              const pendingResolution = pending.get(id)?.resolution;
-              if (!pending.delete(id)) return;
-              signal.removeEventListener("abort", cancelled);
-              frame(
-                cancel ? "recv" : "send",
-                cancel ? "sdk" : "can_use_tool",
-                cancel
-                  ? { type: "control_cancel_request", request_id: id }
-                  : {
-                      requestId: id,
-                      result,
-                      ...(pendingResolution ? { resolution: pendingResolution } : {}),
-                    },
-              );
-              resolve(result);
-            },
-          });
-          frame("recv", "can_use_tool", { toolName, input: toolInput, options: meta });
-          if (signal.aborted || closed || exited || cancelledRequests.delete(id)) cancelled();
-          else signal.addEventListener("abort", cancelled, { once: true });
-        }),
+        pending.permission(toolName, toolInput, toolOptions),
+      onElicitation: (request, meta) => pending.elicitation(request, meta),
+      // No product renderer currently answers a native user-dialog kind.
+      onUserDialog: async (request) => {
+        frame("recv", "user_dialog", request);
+        return { behavior: "cancelled" };
+      },
     },
   });
   const pump = (async () => {
     try {
       for await (const message of q) {
-        const data = object(message);
-        if (data["type"] === "assistant")
-          for (const value of list(object(data["message"])["content"])) {
-            const block = object(value);
-            if (block["type"] === "tool_use")
-              toolParents.set(string(block["id"]), string(data["parent_tool_use_id"]));
+        try {
+          const data = object(message);
+          frame("recv", "sdk", message);
+          taskIndex.observe(data);
+          if (data["type"] === "rate_limit_event") {
+            const observation = ClaudeRateLimitObservation.safeParse(data["rate_limit_info"]);
+            if (observation.success) {
+              try {
+                options.onRateLimit?.(observation.data);
+              } catch {
+                frame("note", "accounts", { type: "rate_limit_observation_failed" });
+              }
+            }
           }
-        if (data["type"] === "system" && data["subtype"] === "task_started") {
-          const id = string(data["task_id"]);
-          const spawn = string(data["tool_use_id"]);
-          tasks.set(id, { spawn, parent: toolParents.get(spawn) ?? "", live: true });
+        } catch (error) {
+          // for-await calls the SDK iterator's return before the outer catch.
+          // Save the cause before that cleanup can report native process exit.
+          failureMessage = String(error);
+          throw error;
         }
-        if (
-          data["type"] === "system" &&
-          (data["subtype"] === "task_updated" || data["subtype"] === "task_notification")
-        ) {
-          const task = tasks.get(string(data["task_id"]));
-          if (
-            task &&
-            ["completed", "failed", "killed", "stopped"].includes(
-              string(data["status"], string(object(data["patch"])["status"])),
-            )
-          )
-            task.live = false;
-        }
-        frame("recv", "sdk", message);
       }
       end(closed);
     } catch (error) {
+      failureMessage = String(error);
       if (ownedProcess) await ownedProcess.stop();
-      end(closed, String(error));
+      end(closed, failureMessage);
     }
   })();
   ctx.signal.addEventListener("abort", abort, { once: true });
@@ -241,6 +234,7 @@ export async function openSession(
   };
   return {
     nativeSessionId: sessionId,
+    mcp: mcpControls(q, ensureOpen),
     async send(parts, delivery) {
       ensureOpen();
       if (delivery === "steer")
@@ -253,12 +247,14 @@ export async function openSession(
         message: { role: "user" as const, content: content(parts) },
         priority: "next" as const,
       };
-      frame("send", "sdk", message);
       input.push(message);
+      frame("send", "sdk", message);
     },
     async interrupt(target) {
       ensureOpen();
+      const failures: unknown[] = [];
       let targetId: string | undefined;
+      let targetSpawn = "";
       if (target.agent && target.agent !== (ctx.rootKey ?? "root") && target.agent !== sessionId) {
         const spawn = nativeKey(target.agent, "child");
         targetId = [...tasks].find(
@@ -266,40 +262,41 @@ export async function openSession(
             id === target.agent || id === spawn.replace(/^native:/, "") || task.spawn === spawn,
         )?.[0];
         if (!targetId) throw new Error("Unknown Claude child agent");
-        await q.stopTask(targetId);
-      } else await q.interrupt();
-      if (target.cascade) {
-        const spawns = new Set<string>();
-        if (targetId) spawns.add(tasks.get(targetId)?.spawn ?? "");
-        let changed = true;
-        while (changed) {
-          changed = false;
-          for (const task of tasks.values())
-            if (spawns.has(toolParents.get(task.spawn) ?? task.parent) && !spawns.has(task.spawn)) {
-              spawns.add(task.spawn);
-              changed = true;
-            }
+        targetSpawn = tasks.get(targetId)?.spawn ?? "";
+        try {
+          await q.stopTask(targetId);
+        } catch (error) {
+          failures.push(error);
         }
-        for (const [id, task] of tasks)
-          if (
-            task.live &&
-            id !== targetId &&
-            (!targetId || spawns.has(toolParents.get(task.spawn) ?? task.parent))
-          )
-            await q.stopTask(id);
+      } else {
+        try {
+          const receipt = await q.interrupt();
+          if (receipt) frame("note", "interrupt_receipt", receipt);
+        } catch (error) {
+          failures.push(error);
+        }
       }
+      if (target.cascade) {
+        const cascade = targetId
+          ? taskIndex.cascade(targetSpawn)
+          : { ids: [...tasks].filter(([, task]) => task.live).map(([id]) => id), uncertain: false };
+        if (cascade.uncertain)
+          failures.push(new Error("Claude cascade ancestry is no longer fully correlated"));
+        for (const id of cascade.ids)
+          if (id !== targetId)
+            try {
+              await q.stopTask(id);
+            } catch (error) {
+              failures.push(error);
+            }
+      }
+      if (failures.length)
+        throw new AggregateError(failures, "Claude interrupt could not stop every requested task");
     },
     async resolve(key, resolution: InteractionResolution) {
       ensureOpen();
       const id = nativeKey(key, "interaction");
-      const request = pending.get(id);
-      if (!request) throw new Error("Claude interaction is no longer pending");
-      if (request.kind !== resolution.kind)
-        throw new Error("Claude interaction resolution kind does not match");
-      const parsed = InteractionResolution.parse(resolution);
-      request.resolution = parsed;
-      const result = permissionResult(parsed, request.input, request.suggestions);
-      request.finish(result);
+      pending.resolve(id, resolution);
       if (resolution.kind === "plan_review" && resolution.decision === "approve")
         await q.setPermissionMode("default");
     },

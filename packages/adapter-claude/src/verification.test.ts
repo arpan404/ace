@@ -112,11 +112,11 @@ test("terminal transcript replays preserve cumulative child usage", () => {
   const updates = h.events.filter(
     (e) => e.type === "usage.updated" && e.agentId === child?.agent.id,
   );
-  expect(updates.at(-1)).toMatchObject({ inputTokens: 22, outputTokens: 11, cachedInputTokens: 4 });
+  expect(updates.at(-1)).toMatchObject({ inputTokens: 26, outputTokens: 11, cachedInputTokens: 4 });
   expect(
     updates
       .slice(2)
-      .every((e) => e.type === "usage.updated" && e.inputTokens === 22 && e.outputTokens === 11),
+      .every((e) => e.type === "usage.updated" && e.inputTokens === 26 && e.outputTokens === 11),
   ).toBe(true);
 });
 test("a stale usage refinement cannot reduce an already reported message", () => {

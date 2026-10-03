@@ -1,4 +1,6 @@
 import { bindMcpSession } from "./mcp-session.ts";
+import { acpEngineOptions } from "../acp-engine.ts";
+import { daemonClaudeAdapter } from "./claude.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
@@ -12,8 +14,25 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   }
   const engineOptions = options.engine ?? {};
   const registry =
-    engineOptions.registry ?? (await discoverAdapters(engineOptions.adapterDiscovery));
+    engineOptions.registry ??
+    (await discoverAdapters(engineOptions.adapterDiscovery, (cli) =>
+      daemonClaudeAdapter(context, cli),
+    ));
   if (!engineOptions.registry) resources.own(() => registry.close());
+  const acp =
+    services.agentRegistry && services.models && services.mcp
+      ? acpEngineOptions({
+          registry,
+          agents: services.agentRegistry,
+          models: services.models,
+          mcp: services.mcp,
+          store,
+          options,
+          accounts: services.accounts,
+          accountRegistry: services.accountRegistry,
+          report: (error) => log.log("error", "ACP metadata failure", error),
+        })
+      : {};
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
   registry.bindSessions((adapter) => {
@@ -51,6 +70,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     };
   });
   const engine = new Engine(store, {
+    ...acp,
     ...engineOptions,
     registry,
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
@@ -70,6 +90,8 @@ export function createEngineSession({ options, send }: SocketContext): SocketSer
         "thread.send",
         "thread.interrupt",
         "thread.archive",
+        "thread.model.set",
+        "thread.mode.set",
         "interaction.resolve",
         "background_task.stop",
       ],
