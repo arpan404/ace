@@ -1,5 +1,7 @@
-import type { Icon as PhosphorIcon, IconWeight } from "@phosphor-icons/react";
+import type { Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
+// The build keeps only these weights in each icon (icon-weights.ts); others would draw nothing.
+import type { UsedIconWeight } from "../../icon-weights.ts";
 
 export type IconGlyph = PhosphorIcon;
 
@@ -13,7 +15,7 @@ export function Icon(props: {
   size?: 12 | 13 | 14 | 16 | 20 | 36 | 40;
   active?: boolean | undefined;
   empty?: boolean | undefined;
-  weight?: IconWeight | undefined;
+  weight?: UsedIconWeight | undefined;
   label?: string | undefined;
   className?: string | undefined;
 }) {

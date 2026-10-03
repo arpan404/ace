@@ -18,6 +18,7 @@ export const defaults: SettingsValues = {
   "providers.planner.reasoningEffort": "default",
   "browser.backend": "auto",
   "browser.backendLoss": "pause",
+  "permissions.defaultMode": "auto-review",
   "approvals.policy": "ask",
   "notifications.enabled": true,
   "notifications.sound": false,

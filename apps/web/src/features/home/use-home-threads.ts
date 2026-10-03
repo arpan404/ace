@@ -1,12 +1,11 @@
 import type { SidebarReader } from "@ace/client";
-import { arrayEqual, useSidebar, useSidebarIds, type SidebarKey } from "@ace/client-react";
+import { arrayEqual, useSidebar, type SidebarKey } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import { useNow } from "@/lib/time.ts";
 import { arrange, projectCounts, type Arrangement, type ProjectCount } from "@ace/ui-core";
 import { useOrganizerState } from "@/features/organize/index.ts";
 
-const none: readonly string[] = [];
 const empty: Arrangement = { active: [], settled: [] };
 const noProjects: ProjectCount[] = [];
 
@@ -17,12 +16,10 @@ const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
   });
 
 /** Keys for every entry, so a selection over the whole list sees each status change. */
-function useEveryEntryKey(): SidebarKey[] {
-  const ids = useSidebarIds() ?? none;
-  return useMemo<SidebarKey[]>(
-    () => ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)],
-    [ids],
-  );
+// `threads` changes with any entry, so one key covers the whole list at any size.
+const everyEntry: readonly SidebarKey[] = ["ids", "threads"];
+function useEveryEntryKey(): readonly SidebarKey[] {
+  return everyEntry;
 }
 
 const arrangementEqual = (a: Arrangement, b: Arrangement) =>

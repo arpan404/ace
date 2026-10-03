@@ -1,9 +1,5 @@
-import { chromium } from "@playwright/test";
-import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { budgets } from "./budgets.ts";
+import { open, withPerfApp } from "./perf-app.ts";
 
 /*
  * Main-thread budgets in a real browser (ADR 0056): the production build in `--mode perf`,
@@ -12,8 +8,6 @@ import { budgets } from "./budgets.ts";
  * from first paint; interaction latency is input to next paint per interaction.
  */
 
-const web = new URL("../../../apps/web/", import.meta.url).pathname;
-const out = mkdtempSync(join(tmpdir(), "ace-web-perf-"));
 const port = 5_197;
 const seconds = Number(process.env.PERF_SECONDS ?? 12);
 const rate = budgets.browser.eventsPerSecond;
@@ -36,42 +30,12 @@ const observe = () => {
   }).observe({ type: "event", durationThreshold: 16, buffered: true } as PerformanceObserverInit);
 };
 
-let server: ReturnType<typeof spawn> | undefined;
 let failed = false;
-try {
-  execFileSync("bunx", ["vite", "build", "--mode", "perf", "--outDir", out, "--emptyOutDir"], {
-    cwd: web,
-    stdio: ["ignore", "ignore", "inherit"],
-  });
-  server = spawn(
-    "bunx",
-    [
-      "vite",
-      "preview",
-      "--outDir",
-      out,
-      "--port",
-      String(port),
-      "--strictPort",
-      "--host",
-      "127.0.0.1",
-    ],
-    { cwd: web, stdio: "ignore" },
-  );
-  const browser = await chromium.launch();
-  try {
+await withPerfApp(port, async ({ browser, origin }) => {
+  {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
     await page.addInitScript(observe);
-    const url = `http://127.0.0.1:${port}/t/thread-soak?rate=${rate}`;
-    for (let attempt = 0; ; attempt++) {
-      try {
-        await page.goto(url);
-        break;
-      } catch (error) {
-        if (attempt > 40) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 250));
-      }
-    }
+    await open(page, `${origin}/t/thread-soak?rate=${rate}`);
     await page.getByRole("feed", { name: "Transcript" }).waitFor({ timeout: 30_000 });
     const composer = page.locator("textarea").first();
     await composer.waitFor();
@@ -158,13 +122,8 @@ try {
       if (!ok) failed = true;
     }
     process.stdout.write(`  typed ${typed} characters while streaming\n`);
-  } finally {
-    await browser.close();
   }
-} finally {
-  server?.kill();
-  rmSync(out, { recursive: true, force: true });
-}
+});
 if (failed) {
   process.stderr.write("browser performance budgets exceeded\n");
   process.exit(1);

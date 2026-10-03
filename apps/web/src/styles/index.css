@@ -3,6 +3,9 @@
 @import "./tokens.css";
 @import "./motion.css";
 
+/* Generated merge tables hold Tailwind class names as data, not markup. */
+@source not "../lib/cn-tables.gen.ts";
+
 @custom-variant dark (&:where([data-scheme="dark"], [data-scheme="dark"] *));
 @custom-variant compact (&:where([data-density="compact"], [data-density="compact"] *));
 

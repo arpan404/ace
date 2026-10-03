@@ -10,6 +10,8 @@ export class Notifications {
   private keys = new Map<string, Set<() => void>>();
   private taps = new Set<ChangeTap>();
   private count = 0;
+  /** Bumped by every emit; an unsubscribed selection reads again only after one. */
+  private version = 0;
   private limit: number;
   constructor(limit: number) {
     this.limit = limit;
@@ -20,15 +22,24 @@ export class Notifications {
     equal: (a: T, b: T) => boolean = Object.is,
   ): Selection<T> {
     let value = read();
+    let readAt = this.version;
+    let subscribers = 0;
+    // React reads a snapshot on every render. A subscribed selection is brought up to date by
+    // its keys as they change, so a render with nothing new costs nothing; an unsubscribed one
+    // reads again only if the store changed since.
+    const current = () => {
+      if (subscribers > 0 || readAt === this.version) return value;
+      readAt = this.version;
+      const next = read();
+      if (!equal(value, next)) value = next;
+      return value;
+    };
     return {
-      getSnapshot: () => {
-        const next = read();
-        if (!equal(value, next)) value = next;
-        return value;
-      },
+      getSnapshot: current,
       subscribe: (listener) => {
         if (this.count + keys.length > this.limit) throw new ClientError("limit");
-        let previous = read();
+        let previous = current();
+        subscribers++;
         const update = () => {
           const next = read();
           if (!equal(previous, next)) {
@@ -50,6 +61,9 @@ export class Notifications {
         return () => {
           if (stopped) return;
           stopped = true;
+          // Current as of now: the keys kept it so until this moment.
+          subscribers--;
+          readAt = this.version;
           for (const key of keys) {
             const set = this.keys.get(key);
             set?.delete(update);
@@ -66,6 +80,7 @@ export class Notifications {
     return () => this.taps.delete(listener);
   }
   emit(keys: Iterable<string>): void {
+    this.version++;
     const changed: ReadonlySet<string> = keys instanceof Set ? keys : new Set(keys);
     if (this.taps.size) this.announce(changed);
     const updates = new Set<() => void>();
@@ -74,6 +89,7 @@ export class Notifications {
     run(updates);
   }
   emitAll(): void {
+    this.version++;
     this.announce("all");
     const updates = new Set<() => void>();
     for (const set of this.keys.values()) for (const listener of set) updates.add(listener);

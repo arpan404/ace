@@ -11,6 +11,25 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
     cli.installed && !!parts && (major > 0 || minor > 159 || (minor === 159 && patch >= 1));
   return {
     steer: supported,
+    permissions: {
+      modes: supported ? ["read-only", "ask", "auto-review", "full-access"] : [],
+      nativeAutoReview: true,
+      toolGate: supported,
+      guarantees: supported
+        ? [
+            {
+              mode: "auto-review",
+              level: "sandbox",
+              gates: { writes: true, network: true, protectedReads: false, shell: true },
+              limitations: [
+                "Workspace writes and sandbox-allowed commands do not request approval.",
+                "Secret-file reads inside the workspace aren't gated.",
+                "Only surfaced approvals receive ace decisions; native auto_review is disabled.",
+              ],
+            },
+          ]
+        : [],
+    },
     launchOptions: supported ? ["effort", "serviceTier"] : [],
     interruptCascades: false,
     resume: supported,

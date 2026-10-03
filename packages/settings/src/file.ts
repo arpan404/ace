@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { SettingsKey, type SettingsDiagnostic, type SettingsProvenance } from "@ace/protocol";
 import { decode, assign, emptyText, SettingsError, type DecodedDocument } from "./document.ts";
 import type { FileIO, Scheduler } from "./io.ts";
+import { legacyPermissionMode } from "./legacy-permissions.ts";
 
 export function freeze<T>(value: T): T {
   if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
@@ -160,7 +161,9 @@ export class SettingsFile {
         await this.validate?.();
         const raw = (await this.io.read(this.path)) ?? emptyText;
         const source = raw === this.prepared.text ? this.prepared : decode(raw);
-        const result = assign(source, key, value);
+        let result = assign(source, key, value);
+        if (key === "approvals.policy")
+          result = assign(result, "permissions.defaultMode", legacyPermissionMode(value));
         const text = result.text;
         if (source.migrated || text !== source.text)
           await this.io.write(this.path, text, this.validate);

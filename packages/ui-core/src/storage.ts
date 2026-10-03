@@ -1,5 +1,3 @@
-import type { z } from "zod";
-
 /** The subset of Web Storage the app uses; injected so tests and Electron can swap it. */
 export interface KeyValueStorage {
   getItem(key: string): string | null;
@@ -7,11 +5,16 @@ export interface KeyValueStorage {
   removeItem?(key: string): void;
 }
 
+/** A schema that parses like Zod's (classic or `zod/mini`), returning a result instead of throwing. */
+export interface SafeParser<T> {
+  safeParse(data: unknown): { success: true; data: T } | { success: false };
+}
+
 /** Storage is outside the process boundary, so every read is parsed and falls back on error. */
 export function readJson<T>(
   storage: KeyValueStorage | undefined,
   key: string,
-  schema: z.ZodType<T>,
+  schema: SafeParser<T>,
   fallback: T,
 ): T {
   try {

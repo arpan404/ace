@@ -14,18 +14,18 @@ import type {
   PreviewSource,
   ScreenFrame,
 } from "../sources.ts";
+import { schedule as defaultSchedule, type Schedule } from "../schedule.ts";
+import { documentVisibility, type PageVisibility } from "@/lib/page-visibility.ts";
+import { decodeFrame, type FrameDecoder } from "./frames.ts";
 
 /** How often a watched thread without a browser asks again, and re-reads its dev servers. */
 const retryMs = 5_000;
 /** The daemon gives up on a Chromium download after 10 minutes; wait a little longer. */
 const openTimeoutMs = 660_000;
+/** Threads no view shows whose last browser state and frame are kept, so coming back is instant. */
+const keptThreads = 8;
 /** BrowserCommand `resize` bounds. */
 const clamp = (value: number) => Math.min(4096, Math.max(100, Math.round(value)));
-
-/** The daemon sends base64 JPEG screencast frames; the fake sends ready-made data URLs. */
-export function frameSource(data: string): string {
-  return data.startsWith("data:") ? data : `data:image/jpeg;base64,${data}`;
-}
 
 const view = (state: BrowserState): BrowserView => ({
   threadId: state.threadId,
@@ -51,36 +51,59 @@ const wireInput = (input: ForwardedInput): BrowserInput =>
 interface Watch {
   count: number;
   subscribed: boolean;
-  timer: ReturnType<typeof setTimeout> | undefined;
+  /** Cancels the next poll. */
+  cancel: (() => void) | undefined;
+  /** The newest frame received; an older one still decoding is dropped when it lands. */
+  latest: number | undefined;
+  /** A frame drawn while the page was hidden: ACKed once it is shown. */
+  owed: number | undefined;
+}
+
+interface Shown extends ScreenFrame {
+  release(): void;
+}
+
+export interface PreviewOptions {
+  schedule?: Schedule;
+  visibility?: PageVisibility;
+  decode?: FrameDecoder;
 }
 
 /**
  * The thread's browser through the daemon's browser relay (ADR 0055) and its dev servers through
- * the preview gateway. Frames are ACKed one at a time, so the daemon never sends a viewer more
- * than it has drawn. Taking control is a lease on this connection; leaving the view (or losing
- * the connection) hands it back.
+ * the preview gateway. Frames are ACKed one at a time once decoded, so the daemon never sends a
+ * viewer more than it can draw; while the page is hidden nothing is ACKed or polled, so the
+ * stream pauses until it is shown. Taking control is a lease on this connection; leaving the
+ * view (or losing the connection) hands it back.
  */
-export function daemonPreview(
-  client: ClientApi,
-  timers: {
-    set(ms: number, callback: () => void): ReturnType<typeof setTimeout>;
-    clear(timer: ReturnType<typeof setTimeout> | undefined): void;
-  } = { set: (ms, callback) => setTimeout(callback, ms), clear: (timer) => clearTimeout(timer) },
-): PreviewSource {
-  const listeners = new Set<() => void>();
+export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): PreviewSource {
+  const later = options.schedule ?? defaultSchedule;
+  const visibility = options.visibility ?? documentVisibility;
+  const decode = options.decode ?? decodeFrame;
+  const listeners = new Map<() => void, string | undefined>();
   const views = new Map<string, BrowserView>();
-  const frames = new Map<string, ScreenFrame>();
+  const frames = new Map<string, Shown>();
   const servers = new Map<string, readonly PreviewServer[]>();
   const watches = new Map<string, Watch>();
+  /** Threads no view shows any more, oldest first; their state goes past `keptThreads`. */
+  const unwatched = new Set<string>();
   /** Threads whose browser this client took control of. */
   const held = new Set<string>();
   let version = 0;
   let requests = 0;
   let download: BrowserDownload | undefined;
   let gateway = true;
-  const changed = () => {
+  /** A change to one thread (or, without one, to every thread: the download, the gateway). */
+  const changed = (threadId?: string) => {
     version++;
-    for (const listener of listeners) listener();
+    for (const [listener, scope] of listeners)
+      if (scope === undefined || threadId === undefined || scope === threadId) listener();
+  };
+  const release = (threadId: string) => {
+    frames.get(threadId)?.release();
+    frames.delete(threadId);
+    views.delete(threadId);
+    servers.delete(threadId);
   };
   const requestId = () => `browser-${++requests}`;
   const call = async (
@@ -106,13 +129,15 @@ export function daemonPreview(
       changed();
     }
     if (!reply.ok) throw new Error(reply.error ?? "preview_failed");
+    if (!watches.has(threadId) && !unwatched.has(threadId)) return;
     servers.set(threadId, reply.previews ?? []);
-    changed();
+    changed(threadId);
   };
   const readServers = (threadId: string) => previews(threadId, { op: "list" });
+  /** Reads the dev servers and retries the browser, every few seconds while the page shows. */
   const poll = (threadId: string) => {
     const watch = watches.get(threadId);
-    if (!watch || client.state !== "ready") return;
+    if (!watch || client.state !== "ready" || !visibility.visible()) return;
     void readServers(threadId).catch(() => {});
     if (!watch.subscribed)
       call("browser.subscribe", threadId).then(
@@ -122,7 +147,29 @@ export function daemonPreview(
         },
         () => {},
       );
-    watch.timer = timers.set(retryMs, () => poll(threadId));
+    watch.cancel = later(() => poll(threadId), retryMs);
+  };
+  const ack = (threadId: string, sequence: number) => {
+    try {
+      client.send({
+        type: "browser.ack",
+        requestId: requestId(),
+        threadId: ThreadId.parse(threadId),
+        sequence,
+      });
+    } catch {
+      // Offline: the subscription ended with the connection.
+    }
+  };
+  /** Show a decoded frame, then ask for the next one (later, if the page is hidden). */
+  const show = (threadId: string, sequence: number, frame: Shown) => {
+    const watch = watches.get(threadId);
+    if (!watch || watch.latest !== sequence) return frame.release();
+    frames.get(threadId)?.release();
+    frames.set(threadId, frame);
+    changed(threadId);
+    if (visibility.visible()) ack(threadId, sequence);
+    else watch.owed = sequence;
   };
   const receive = (message: ServerMessage) => {
     if (message.type === "browser.download.progress") {
@@ -141,28 +188,28 @@ export function daemonPreview(
       if (!watches.has(state.threadId)) return;
       views.set(state.threadId, view(state));
       if (state.controller !== "human") held.delete(state.threadId);
-      changed();
+      changed(state.threadId);
       return;
     }
-    if (message.type !== "browser.frame" || !watches.has(message.threadId)) return;
-    const frame = message.frame;
-    frames.set(message.threadId, {
-      sequence: frame.sequence,
-      src: frameSource(frame.data),
-      width: frame.width,
-      height: frame.height,
-    });
-    changed();
-    try {
-      client.send({
-        type: "browser.ack",
-        requestId: requestId(),
-        threadId: message.threadId,
-        sequence: frame.sequence,
-      });
-    } catch {
-      // Offline: the subscription ended with the connection.
-    }
+    if (message.type !== "browser.frame") return;
+    const { threadId, frame } = message;
+    const watch = watches.get(threadId);
+    if (!watch) return;
+    watch.latest = frame.sequence;
+    void decode(frame.data).then(
+      (decoded) =>
+        show(threadId, frame.sequence, {
+          sequence: frame.sequence,
+          src: decoded.src,
+          width: frame.width,
+          height: frame.height,
+          release: decoded.release,
+        }),
+      // A frame that cannot be decoded is skipped; the next one may.
+      () => {
+        if (watches.get(threadId)?.latest === frame.sequence) ack(threadId, frame.sequence);
+      },
+    );
   };
   try {
     client.onMessage(receive);
@@ -171,9 +218,19 @@ export function daemonPreview(
       for (const [threadId, watch] of watches) {
         // The daemon dropped this connection's subscriptions and control leases.
         watch.subscribed = false;
+        watch.owed = undefined;
         held.delete(threadId);
-        timers.clear(watch.timer);
+        watch.cancel?.();
         if (ready) poll(threadId);
+      }
+    });
+    visibility.watch(() => {
+      if (!visibility.visible()) return;
+      for (const [threadId, watch] of watches) {
+        if (watch.owed !== undefined) ack(threadId, watch.owed);
+        watch.owed = undefined;
+        watch.cancel?.();
+        poll(threadId);
       }
     });
   } catch {
@@ -183,23 +240,36 @@ export function daemonPreview(
     get version() {
       return version;
     },
-    subscribe(listener) {
-      listeners.add(listener);
+    subscribe(listener, threadId) {
+      listeners.set(listener, threadId);
       return () => listeners.delete(listener);
     },
     watch(threadId) {
       let watch = watches.get(threadId);
       if (watch) watch.count++;
       else {
-        watch = { count: 1, subscribed: false, timer: undefined };
+        watch = {
+          count: 1,
+          subscribed: false,
+          cancel: undefined,
+          latest: undefined,
+          owed: undefined,
+        };
         watches.set(threadId, watch);
+        unwatched.delete(threadId);
         poll(threadId);
       }
       const current = watch;
       return () => {
         if (--current.count > 0) return;
         watches.delete(threadId);
-        timers.clear(current.timer);
+        current.cancel?.();
+        unwatched.add(threadId);
+        for (const oldest of unwatched) {
+          if (unwatched.size <= keptThreads) break;
+          unwatched.delete(oldest);
+          release(oldest);
+        }
         if (client.state !== "ready") return;
         if (held.delete(threadId)) void call("browser.handback", threadId).catch(() => {});
         if (current.subscribed) void call("browser.unsubscribe", threadId).catch(() => {});
@@ -232,7 +302,7 @@ export function daemonPreview(
       if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
       const watch = watches.get(threadId);
       if (watch) {
-        timers.clear(watch.timer);
+        watch.cancel?.();
         poll(threadId);
       }
     },

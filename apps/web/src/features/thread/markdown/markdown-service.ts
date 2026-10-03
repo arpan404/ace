@@ -23,7 +23,11 @@ const docs = new LruCache<string, MarkdownDoc>({
   weigh: (doc) => doc.blocks.reduce((sum, block) => sum + block.token.raw.length * 3, 64),
 });
 /** Blocks by key, so an unchanged block keeps one object and its rendered elements. */
-const blocks = new LruCache<string, MarkdownBlock>({ maxEntries: 4_000 });
+const blocks = new LruCache<string, MarkdownBlock>({
+  maxEntries: 4_000,
+  maxWeight: 16 * 1024 * 1024,
+  weigh: (block) => block.token.raw.length * 3 + 64,
+});
 
 const worker = offThread<{ text: string; hash: string }, MarkdownDoc>({
   spawn: () =>
@@ -36,15 +40,22 @@ const worker = offThread<{ text: string; hash: string }, MarkdownDoc>({
   decode: (output) => output as MarkdownDoc,
 });
 
-function intern(doc: MarkdownDoc): MarkdownDoc {
-  const shared = doc.blocks.map((block) => {
+/**
+ * Shares blocks seen before, so they keep their rendered elements. A document already
+ * superseded by newer text (a message still streaming) is shown but not cached, and its last
+ * block, the one still growing, is not kept: otherwise every frame of a long answer would push
+ * finished messages and blocks out of the caches.
+ */
+function intern(doc: MarkdownDoc, settled: boolean): MarkdownDoc {
+  const last = doc.blocks.length - 1;
+  const shared = doc.blocks.map((block, index) => {
     const known = blocks.get(block.key);
     if (known) return known;
-    blocks.set(block.key, block);
+    if (settled || index < last) blocks.set(block.key, block);
     return block;
   });
   const interned = { hash: doc.hash, blocks: shared };
-  docs.set(doc.hash, interned);
+  if (settled) docs.set(doc.hash, interned);
   return interned;
 }
 
@@ -75,7 +86,7 @@ function pump(slot: Slot): void {
   void worker.run({ text, hash }).then(
     (doc) => {
       slot.busy = false;
-      show(slot, intern(doc));
+      show(slot, intern(doc, slot.wanted === undefined));
       pump(slot);
     },
     () => {
@@ -110,6 +121,6 @@ export const markdownService = {
     const ready = docs.get(hash);
     if (ready) return ready;
     if (worker.parallel) return slots.get(slotId)?.shown;
-    return intern(markdownDoc(text, hash));
+    return intern(markdownDoc(text, hash), true);
   },
 };

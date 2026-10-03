@@ -69,8 +69,18 @@ export class AcpConfiguration {
     );
     this.#ctx.onCapabilities?.(this.capabilities, this.support);
   }
+  restrictedMode(): string | undefined {
+    const modes = this.selectors.mode?.values ?? [];
+    return ["read-only", "read_only", "plan"].find((mode) => modes.includes(mode));
+  }
   async select(kind: "model" | "mode", value: string, sessionId: string): Promise<void> {
     const request = selectorRequest(this.selectors, kind, value, sessionId);
+    if (
+      kind === "mode" &&
+      this.#ctx.permissionMode !== "full-access" &&
+      value !== this.restrictedMode()
+    )
+      throw new Error("ACP restricted permission mode cannot be widened by a native selector");
     const result = await this.#rpc.request(request.method, request.params, {
       signal: this.#ctx.signal,
     });

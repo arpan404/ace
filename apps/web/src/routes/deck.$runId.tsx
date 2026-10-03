@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { z } from "zod";
+// Route search schemas load with the route tree on first paint: zod/mini keeps classic Zod out.
+import * as z from "zod/mini";
 import { DeckRunPage } from "@/features/deck/index.ts";
 
 const Search = z.object({
-  tab: z.enum(["plan", "lanes"]).optional().catch(undefined),
-  card: z.string().max(128).optional().catch(undefined),
+  tab: z.catch(z.optional(z.enum(["plan", "lanes"])), undefined),
+  card: z.catch(z.optional(z.string().check(z.maxLength(128))), undefined),
 });
 
 /** One deck: status line, gate, card graph and lane detail. */

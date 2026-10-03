@@ -144,13 +144,37 @@ export async function openSession(
           : { sessionId }),
       ...(selectedOptions.effort ? { effort: selectedOptions.effort } : {}),
       pathToClaudeCodeExecutable: executable,
-      ...(selectedOptions.permissionMode ? { permissionMode: selectedOptions.permissionMode } : {}),
+      ...(ctx.permissionMode
+        ? {
+            permissionMode: ctx.permissionMode === "full-access" ? "bypassPermissions" : "default",
+            allowDangerouslySkipPermissions: ctx.permissionMode === "full-access",
+            settingSources: [],
+          }
+        : {}),
       mcpServers: nativeMcpServers({ ...options.mcpServers, ...injection?.mcpServers }),
       includePartialMessages: true,
       forwardSubagentText: true,
       perTaskStopAffordance: true,
       includeHookEvents: true,
       hooks: {
+        ...(ctx.permissionMode && ctx.permissionMode !== "full-access"
+          ? {
+              PreToolUse: [
+                {
+                  hooks: [
+                    async () => ({
+                      hookSpecificOutput: {
+                        hookEventName: "PreToolUse" as const,
+                        permissionDecision: "ask" as const,
+                        permissionDecisionReason:
+                          "ace permission policy reviews this exact tool call",
+                      },
+                    }),
+                  ],
+                },
+              ],
+            }
+          : {}),
         SubagentStart: [
           {
             hooks: [
@@ -259,7 +283,11 @@ export async function openSession(
       ensureOpen();
       await q.setModel(selection.model);
       await q.setPermissionMode(
-        executionOptions.permissionMode ?? configuration.permissionMode ?? "default",
+        ctx.permissionMode
+          ? ctx.permissionMode === "full-access"
+            ? "bypassPermissions"
+            : "default"
+          : (configuration.permissionMode ?? "default"),
       );
       await q.applyFlagSettings({ effortLevel: executionOptions.effort ?? null });
     },

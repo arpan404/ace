@@ -9,10 +9,23 @@ import { FileChangesInput, decodeFileDiff } from "./diff-schema.ts";
  * by content key so a reload or another tab does not diff the same content again. Stored
  * diffs are decoded here, not in the page.
  */
+/** About what a diff takes to store: its text as UTF-16, plus each row's numbers and kind. */
+function diffBytes(diff: FileDiff): number {
+  let bytes = 256;
+  for (const row of diff.rows) {
+    bytes += 48;
+    if (row.kind !== "fold") bytes += row.text.length * 2;
+    else for (const line of row.lines ?? []) bytes += 48 + line.text.length * 2;
+  }
+  return bytes;
+}
+
 const stored = idbCache<FileDiff>({
   name: "ace-diffs",
   maxEntries: 2_000,
+  maxBytes: 128 * 1024 * 1024,
   decode: decodeFileDiff,
+  weigh: diffBytes,
   now: () => Date.now(),
 });
 const Input = z.object({ key: z.string(), file: FileChangesInput });

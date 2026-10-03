@@ -1,8 +1,10 @@
+import { LongRows } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
 import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
@@ -46,47 +48,65 @@ const tones: Record<NonNullable<Style["tone"]>, string> = {
   cyan: "text-status-unresponsive",
 };
 
+/** Above this many rows a screen mounts only the rows near the viewport. */
+const virtualAbove = 400;
+/** 12px at 1.6 line height. */
+const rowHeight = 19.2;
+const rowKey = (row: Row) => String(row.id);
+
+function ScreenRow(props: { row: Row }) {
+  return (
+    <div className="min-h-[1.6em] break-all">
+      {props.row.segments.map((segment, index) => (
+        <span
+          // Segments have no identity of their own; their order within a row is it.
+          // oxlint-disable-next-line react/no-array-index-key
+          key={index}
+          className={cn(
+            segment.style.bold && "font-medium text-foreground",
+            segment.style.dim && "text-subtle-foreground",
+            segment.style.tone && tones[segment.style.tone],
+          )}
+        >
+          {segment.text}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** The rows of a screen, monospace, following output to the bottom unless scrolled up. */
 export function ScreenRows(props: { rows: readonly Row[]; label: string; className?: string }) {
-  const end = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const rows = props.rows;
-  useEffect(() => {
-    if (stick.current && rows.length) end.current?.scrollIntoView?.({ block: "end" });
+  useLayoutEffect(() => {
+    const element = box.current;
+    // Scroll this box only (never its ancestors), once per redraw.
+    if (stick.current && element && rows.length) element.scrollTop = element.scrollHeight;
   }, [rows]);
   return (
     <div
+      ref={box}
       role="log"
       aria-label={props.label}
       aria-live="off"
       onScroll={(event) => {
-        const box = event.currentTarget;
-        stick.current = box.scrollHeight - box.scrollTop - box.clientHeight < 24;
+        const element = event.currentTarget;
+        stick.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
       }}
       className={cn(
         "min-h-0 flex-1 overflow-auto px-4 pt-2 pb-4 font-mono text-[12px] leading-[1.6] whitespace-pre-wrap text-muted-foreground",
         props.className,
       )}
     >
-      {props.rows.map((row) => (
-        <div key={row.id} className="min-h-[1.6em] break-all">
-          {row.segments.map((segment, index) => (
-            <span
-              // Segments have no identity of their own; their order within a row is it.
-              // oxlint-disable-next-line react/no-array-index-key
-              key={index}
-              className={cn(
-                segment.style.bold && "font-medium text-foreground",
-                segment.style.dim && "text-subtle-foreground",
-                segment.style.tone && tones[segment.style.tone],
-              )}
-            >
-              {segment.text}
-            </span>
-          ))}
-        </div>
-      ))}
-      <div ref={end} />
+      <LongRows
+        items={rows}
+        virtualAbove={virtualAbove}
+        rowKey={rowKey}
+        estimate={rowHeight}
+        render={(row) => <ScreenRow row={row} />}
+      />
     </div>
   );
 }

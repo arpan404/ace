@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { ServerMessage, ClientMessage } from "@ace/protocol";
+import type { ServerMessage, ClientMessage } from "@ace/protocol";
 import { ClientError } from "./types.ts";
 
 type Correlated<T = z.input<typeof ClientMessage>> = T extends unknown
@@ -16,7 +16,9 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 // queue storage, removal, context leases and recovery remain with that owner.
 export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "queue.get"
   ? Extract<Reply, { type: "queue.result" }>
-  : ExistingServiceResponse<Q>;
+  : Q["type"] extends "permissions.capabilities"
+    ? Replies<"permissions.capabilities.result">
+    : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends "machines.request"
   ? Replies<"machines.result">
@@ -86,6 +88,7 @@ type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends "mach
                                                             : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
+  "permissions.capabilities": ["permissions.capabilities.result"],
   "machines.request": ["machines.result"],
   "pi.control": ["pi.result"],
   "history.list": ["history.list"],
@@ -144,12 +147,14 @@ function isServiceResponse<Q extends ServiceRequest>(
               : []);
   return "requestId" in response && response.requestId === id && types.includes(response.type);
 }
+/** `schema` is the full `ServerMessage`, which the client loads with the service families. */
 export function decodeServiceResponse<Q extends ServiceRequest>(
+  schema: { parse(value: unknown): ServerMessage },
   query: Q,
   id: string,
   value: unknown,
 ): ServiceResponse<Q> {
-  const response = ServerMessage.parse(value);
+  const response = schema.parse(value);
   if (!isServiceResponse(query, id, response))
     throw new ClientError("protocol", "Unexpected service response");
   return response;

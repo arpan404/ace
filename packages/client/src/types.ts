@@ -44,6 +44,11 @@ export interface Limits {
   heartbeatMs: number;
   retryBaseMs: number;
   retryCapMs: number;
+  /**
+   * How long a connection must stay up before reconnect backoff starts over. A daemon that
+   * accepts and then drops at once keeps backing off instead of being retried at the base delay.
+   */
+  healthyMs: number;
 }
 export const defaultLimits: Limits = {
   intents: 256,
@@ -60,6 +65,7 @@ export const defaultLimits: Limits = {
   heartbeatMs: 15000,
   retryBaseMs: 250,
   retryCapMs: 30000,
+  healthyMs: 30000,
 };
 export { ClientError } from "./errors.ts";
 export interface RequestOptions {

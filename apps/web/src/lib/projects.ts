@@ -1,5 +1,5 @@
 import type { ClientApi, SidebarReader } from "@ace/client";
-import { useSidebar, useSidebarIds, type SidebarKey } from "@ace/client-react";
+import { useSidebarAll } from "@ace/client-react";
 import { useCallback, useEffect, useMemo } from "react";
 import { useDaemonQuery } from "./daemon-query.ts";
 
@@ -42,12 +42,7 @@ const sameList = (a: readonly string[], b: readonly string[]) =>
 
 /** Ids of the projects that have threads on this daemon, sorted. Live from the thread list. */
 export function useThreadProjects(): readonly string[] {
-  const ids = useSidebarIds() ?? none;
-  const keys = useMemo<SidebarKey[]>(
-    () => ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)],
-    [ids],
-  );
-  return useSidebar(keys, readThreadProjects, sameList) ?? none;
+  return useSidebarAll(readThreadProjects, sameList) ?? none;
 }
 
 const projectsQuery = { queryKey: ["projects"], staleTime: 60_000, read: readProjects };

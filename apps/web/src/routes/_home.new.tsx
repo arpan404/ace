@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { z } from "zod";
+// Route search schemas load with the route tree on first paint: zod/mini keeps classic Zod out.
+import * as z from "zod/mini";
 import { NewThreadPage } from "@/features/home/index.ts";
 
 /** `/new?project=ace&base=main`: both optional; the page falls back to remembered choices. */
 const NewThreadSearch = z.object({
-  project: z.string().min(1).optional().catch(undefined),
-  base: z.string().min(1).optional().catch(undefined),
+  project: z.catch(z.optional(z.string().check(z.minLength(1))), undefined),
+  base: z.catch(z.optional(z.string().check(z.minLength(1))), undefined),
 });
 
 /** ⌘N. The thread is created when the first message is sent. */

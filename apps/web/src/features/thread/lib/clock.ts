@@ -1,20 +1,9 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useSeconds } from "@/lib/time.ts";
 
 /**
  * Wall-clock time, re-rendering every second while `live`, for "Working for 12s" and
- * background task ages. Without `live` there is no timer; it reads the time when rendered.
+ * background task ages. One shared timer for every live row, paused while the page is hidden.
  */
 export function useTicker(live: boolean): number {
-  const subscribe = useCallback(
-    (changed: () => void) => {
-      if (!live) return () => {};
-      const timer = setInterval(changed, 1000);
-      return () => clearInterval(timer);
-    },
-    [live],
-  );
-  return useSyncExternalStore(subscribe, wholeSecond, wholeSecond);
+  return useSeconds(live);
 }
-
-// Stable within a second, so React sees the same snapshot until the tick.
-const wholeSecond = () => Math.floor(Date.now() / 1000) * 1000;

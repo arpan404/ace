@@ -1,3 +1,4 @@
+import { ApprovalTarget } from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import { decisions, obj, questions, raw, str, type Obj } from "./native.ts";
 import { toolDraft } from "./item.ts";
@@ -37,6 +38,19 @@ export function openRequest(
       : {
           kind: "approval" as const,
           title: str(p["command"], method),
+          target: (() => {
+            const parsed = ApprovalTarget.safeParse({
+              tool:
+                p["networkApprovalContext"] || p["additionalPermissions"]
+                  ? "codex-permissions-escalation"
+                  : method,
+              command: p["command"],
+              cwd: p["cwd"],
+              access: typeof p["command"] === "string" ? "execute" : "unknown",
+              input: p,
+            });
+            return parsed.success ? parsed.data : undefined;
+          })(),
           options:
             method === "item/permissions/requestApproval"
               ? decisions(["accept", "decline", "cancel"])

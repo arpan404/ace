@@ -1,12 +1,10 @@
 import type { SidebarReader } from "@ace/client";
-import { useSidebar, useSidebarIds, type SidebarKey } from "@ace/client-react";
+import { useSidebarAll } from "@ace/client-react";
 import { useCallback, useMemo } from "react";
 import { useThreadIdsWhere } from "@/features/shell/index.ts";
 import { inProject, useActivityState } from "./activity-state.tsx";
 import { useDeckEvents } from "./escalations.ts";
 import type { FeedEvent } from "./feed-events.ts";
-
-const none: readonly string[] = [];
 
 /**
  * A stable set of the threads decks own, so selectors keep their identity while the decks'
@@ -46,13 +44,8 @@ export function useNeedsYou(): { threadIds: readonly string[]; escalations: Feed
 
 /** Every open request across threads (the daemon's per-thread counts) plus Deck decisions. */
 export function useNeedsYouCount(): number {
-  const ids = useSidebarIds() ?? none;
   const deck = useDeckEvents();
   const owned = useOwned(deck.threads);
-  const keys = useMemo<SidebarKey[]>(
-    () => ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)],
-    [ids],
-  );
   const pendingTotal = useCallback(
     (reader: SidebarReader) =>
       reader.ids.reduce((sum, id) => {
@@ -61,6 +54,6 @@ export function useNeedsYouCount(): number {
       }, 0),
     [owned],
   );
-  const pending = useSidebar(keys, pendingTotal) ?? 0;
+  const pending = useSidebarAll(pendingTotal) ?? 0;
   return pending + deck.events.length;
 }

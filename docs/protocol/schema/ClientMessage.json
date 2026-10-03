@@ -157,6 +157,9 @@
       "$ref": "https://ace.local/protocol/v1/DiagnosticsHealthRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/PermissionCapabilitiesRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ContextRequest.json"
     },
     {

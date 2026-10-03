@@ -8,8 +8,9 @@ import { budgets } from "./budgets.ts";
 /*
  * The month-long run, accelerated: an endless agent streams three million events (30 days of
  * an event every 0.86 s) through the real client, the worker host and a tab's mirrors, with a
- * UI-like set of selections following the transcript. After warm-up the retained heap must stay
- * flat; any per-event leak shows as growth. Run with `node --expose-gc`.
+ * UI-like set of selections following the transcript; every other tenth of the run the tab is
+ * hidden and catches up when shown. After warm-up the retained heap must stay flat; any
+ * per-event leak shows as growth. Run with `node --expose-gc`.
  */
 
 const gc = globalThis.gc;
@@ -45,7 +46,26 @@ const host = new ClientHost({
 });
 const { port1, port2 } = new MessageChannel();
 host.attach(port1);
-const tab = new RemoteClient(port2, {}, { scheduler: timers });
+// Every other step the tab is hidden while the agent streams, as a backgrounded window is.
+const page = { hidden: false, changed: () => {} };
+const tab = new RemoteClient(
+  port2,
+  {},
+  {
+    scheduler: timers,
+    visibility: {
+      visible: () => !page.hidden,
+      watch(changed) {
+        page.changed = changed;
+        return () => {};
+      },
+    },
+  },
+);
+const hide = (hidden: boolean) => {
+  page.hidden = hidden;
+  page.changed();
+};
 await tab.start();
 const thread = tab.thread(daemon.threadId);
 const sidebar = tab.threads();
@@ -71,7 +91,8 @@ async function drain() {
   for (let n = 0; n < 4; n++) await tick();
   await new Promise((resolve) => setTimeout(resolve, 2));
 }
-async function run(count: number) {
+async function run(count: number, hidden = false) {
+  hide(hidden);
   const chunk = 5_000;
   for (let sent = 0; sent < count; sent += chunk) {
     for (let n = 0; n < chunk; n += 500) {
@@ -79,9 +100,10 @@ async function run(count: number) {
       await tick();
     }
     await drain();
-    follow();
+    if (!hidden) follow();
   }
-  // The tab must catch up; a store error or a stall fails the run.
+  hide(false);
+  // The tab must catch up, also after a hidden stretch; a store error or a stall fails the run.
   for (let waits = 0; thread.store.cursor !== daemon.head; waits++) {
     if (thread.store.error || waits > 2_000) {
       process.stderr.write(
@@ -103,8 +125,8 @@ await run(50_000);
 const baseline = heap();
 const samples: { events: number; heapMb: number }[] = [];
 const step = Math.max(10_000, Math.round(events / 10));
-for (let done = 0; done < events; done += step) {
-  await run(Math.min(step, events - done));
+for (let done = 0, n = 0; done < events; done += step, n++) {
+  await run(Math.min(step, events - done), n % 2 === 1);
   samples.push({ events: daemon.events, heapMb: heap() });
   process.stdout.write(
     `  ${daemon.events.toLocaleString().padStart(11)} events  ${samples.at(-1)?.heapMb.toFixed(1)} MB heap\n`,

@@ -40,6 +40,11 @@ export function createScriptedAdapter(script: AdapterScript): ScriptedAdapter {
     ...(step.exit ? { exit: structuredClone(step.exit) } : {}),
   }));
   const capabilities = structuredClone(script.capabilities);
+  capabilities.permissions ??= {
+    modes: ["read-only", "ask", "auto-review", "full-access"],
+    nativeAutoReview: false,
+    toolGate: true,
+  };
   const commands: ScriptedCommand[] = [];
   const sessions: ScriptedSession[] = [];
   return {

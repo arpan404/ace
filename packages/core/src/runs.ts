@@ -127,5 +127,11 @@ export function endTurn(
   } else {
     delete record.lastError;
   }
-  cancelOpenWork(state, record.agent.id, ctx.now, events);
+  cancelOpenWork(
+    state,
+    record.agent.id,
+    ctx.now,
+    events,
+    fact.outcome === "interrupted" ? undefined : ctx.resolvingInteractions,
+  );
 }

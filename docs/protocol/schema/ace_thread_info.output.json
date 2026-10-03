@@ -196,6 +196,103 @@
               "maxItems": 2,
               "type": "array"
             },
+            "permissions": {
+              "additionalProperties": false,
+              "properties": {
+                "guarantees": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "gates": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "network": {
+                            "type": "boolean"
+                          },
+                          "protectedReads": {
+                            "type": "boolean"
+                          },
+                          "shell": {
+                            "type": "boolean"
+                          },
+                          "writes": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "writes",
+                          "network",
+                          "protectedReads",
+                          "shell"
+                        ],
+                        "type": "object"
+                      },
+                      "level": {
+                        "enum": [
+                          "tool-gate",
+                          "sandbox",
+                          "tool-selection",
+                          "permission-requests"
+                        ],
+                        "type": "string"
+                      },
+                      "limitations": {
+                        "items": {
+                          "maxLength": 2048,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 32,
+                        "type": "array"
+                      },
+                      "mode": {
+                        "enum": [
+                          "read-only",
+                          "ask",
+                          "auto-review",
+                          "full-access"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "level",
+                      "gates",
+                      "limitations"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 4,
+                  "type": "array"
+                },
+                "modes": {
+                  "items": {
+                    "enum": [
+                      "read-only",
+                      "ask",
+                      "auto-review",
+                      "full-access"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 4,
+                  "type": "array"
+                },
+                "nativeAutoReview": {
+                  "type": "boolean"
+                },
+                "toolGate": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "modes",
+                "nativeAutoReview",
+                "toolGate"
+              ],
+              "type": "object"
+            },
             "planMode": {
               "type": "boolean"
             },
@@ -606,6 +703,103 @@
               "maxItems": 2,
               "type": "array"
             },
+            "permissions": {
+              "additionalProperties": false,
+              "properties": {
+                "guarantees": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "gates": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "network": {
+                            "type": "boolean"
+                          },
+                          "protectedReads": {
+                            "type": "boolean"
+                          },
+                          "shell": {
+                            "type": "boolean"
+                          },
+                          "writes": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "writes",
+                          "network",
+                          "protectedReads",
+                          "shell"
+                        ],
+                        "type": "object"
+                      },
+                      "level": {
+                        "enum": [
+                          "tool-gate",
+                          "sandbox",
+                          "tool-selection",
+                          "permission-requests"
+                        ],
+                        "type": "string"
+                      },
+                      "limitations": {
+                        "items": {
+                          "maxLength": 2048,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 32,
+                        "type": "array"
+                      },
+                      "mode": {
+                        "enum": [
+                          "read-only",
+                          "ask",
+                          "auto-review",
+                          "full-access"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "level",
+                      "gates",
+                      "limitations"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 4,
+                  "type": "array"
+                },
+                "modes": {
+                  "items": {
+                    "enum": [
+                      "read-only",
+                      "ask",
+                      "auto-review",
+                      "full-access"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 4,
+                  "type": "array"
+                },
+                "nativeAutoReview": {
+                  "type": "boolean"
+                },
+                "toolGate": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "modes",
+                "nativeAutoReview",
+                "toolGate"
+              ],
+              "type": "object"
+            },
             "planMode": {
               "type": "boolean"
             },
@@ -987,6 +1181,45 @@
               "type": "integer"
             }
           },
+          "type": "object"
+        },
+        "permission": {
+          "additionalProperties": false,
+          "properties": {
+            "effective": {
+              "enum": [
+                "read-only",
+                "ask",
+                "auto-review",
+                "full-access"
+              ],
+              "type": "string"
+            },
+            "override": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "read-only",
+                    "ask",
+                    "auto-review",
+                    "full-access"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "pending": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "override",
+            "effective",
+            "pending"
+          ],
           "type": "object"
         },
         "pinned": {

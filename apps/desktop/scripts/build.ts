@@ -8,7 +8,15 @@ import { build } from "esbuild";
 import { z } from "zod";
 import { bundleDaemon } from "@ace/release";
 import { stageNodeRuntime } from "@ace/release/node-runtime";
-import { desktop, dist, electronBundles, releasePublicKey, repo, targetArch } from "./common.ts";
+import {
+  desktop,
+  dist,
+  electronBundles,
+  mainEntry,
+  releasePublicKey,
+  repo,
+  targetArch,
+} from "./common.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
 /**
@@ -59,7 +67,7 @@ await writeFile(
       description: manifest.description,
       license: manifest.license,
       author: "ace",
-      main: "main.cjs",
+      main: mainEntry,
     },
     null,
     2,

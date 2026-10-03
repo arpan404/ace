@@ -46,7 +46,11 @@ export interface ThreadReader {
   truncated(id: string): boolean;
 }
 /** Change keys of the thread list. */
-export type SidebarKey = "error" | "ids" | `thread:${string}`;
+/**
+ * `threads` changes with any entry or with membership: one key for views over the whole list,
+ * instead of one per thread (a host with thousands of threads would exhaust the listener cap).
+ */
+export type SidebarKey = "error" | "ids" | "threads" | `thread:${string}`;
 export interface SidebarReader {
   readonly error: ClientError | undefined;
   /** The first snapshot has arrived, so an empty `ids` means no threads rather than not yet. */

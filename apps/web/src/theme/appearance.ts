@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { accentNames, defaultThemeId } from "./presets.ts";
 
@@ -8,18 +8,18 @@ export const Density = z.enum(["comfortable", "compact"]);
 export type Density = z.infer<typeof Density>;
 export const TranscriptSize = z.enum(["small", "default", "large"]);
 export type TranscriptSize = z.infer<typeof TranscriptSize>;
-export const HexColor = z.string().regex(/^#[0-9a-f]{6}$/i);
+export const HexColor = z.string().check(z.regex(/^#[0-9a-f]{6}$/i));
 
 /** Local, per-device appearance. Daemon settings live in the daemon, not here. */
 export const Appearance = z.object({
   /** "system", a preset id or a custom theme id. */
-  theme: z.string().min(1).catch(defaultThemeId),
-  accent: AccentChoice.catch("blue"),
-  customAccent: HexColor.catch("#7AA2F7"),
+  theme: z.catch(z.string().check(z.minLength(1)), defaultThemeId),
+  accent: z.catch(AccentChoice, "blue"),
+  customAccent: z.catch(HexColor, "#7AA2F7"),
   /** 0 = solid, 1 = the most wallpaper shows through. */
-  glass: z.number().min(0).max(1).catch(1),
-  density: Density.catch("comfortable"),
-  transcriptSize: TranscriptSize.catch("default"),
+  glass: z.catch(z.number().check(z.gte(0), z.lte(1)), 1),
+  density: z.catch(Density, "comfortable"),
+  transcriptSize: z.catch(TranscriptSize, "default"),
 });
 export type Appearance = z.infer<typeof Appearance>;
 

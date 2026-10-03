@@ -68,8 +68,13 @@ export interface BrowserDownload {
 }
 
 export interface PreviewSource {
+  /** Bumps on every change, to any thread. */
   readonly version: number;
-  subscribe(listener: () => void): () => void;
+  /**
+   * Every change, or with `threadId` only that thread's (its browser, frame and dev servers)
+   * plus those that concern every thread (the Chromium download, the preview gateway).
+   */
+  subscribe(listener: () => void, threadId?: string): () => void;
   /**
    * Follow a thread's browser and dev servers while a view shows them: subscribes to frames
    * (retrying until a browser opens) and reads the dev servers. Call the result to stop; a

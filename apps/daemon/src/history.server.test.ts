@@ -124,6 +124,8 @@ test("native continuation uses the registered home-bound adapter and persists it
     provider: "claude",
     capabilities: () =>
       Capabilities.parse({
+        // This scripted history provider accepts the explicit engine auto-review contract.
+        permissions: { modes: ["auto-review"], nativeAutoReview: false, toolGate: false },
         steer: false,
         interruptCascades: false,
         resume: true,

@@ -6,7 +6,8 @@
     "coverage",
     "fixtures",
     ".recordings",
-    "**/routeTree.gen.ts"
+    "**/routeTree.gen.ts",
+    "**/*.gen.ts"
   ],
   "plugins": ["eslint", "typescript", "unicorn", "oxc", "import", "react"],
   "categories": {

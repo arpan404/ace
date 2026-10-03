@@ -1,5 +1,5 @@
 import type { SidebarReader } from "@ace/client";
-import { arrayEqual, useSidebar, useSidebarIds, type SidebarKey } from "@ace/client-react";
+import { arrayEqual, useSidebarAll } from "@ace/client-react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -8,7 +8,6 @@ import { useThreadActions, useOrganizer, useOrganizerState } from "@/features/or
 import { useNow } from "@/lib/time.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
-const none: readonly string[] = [];
 const noEntries: ThreadListEntry[] = [];
 const entriesOf = (reader: SidebarReader): ThreadListEntry[] =>
   reader.ids.flatMap((id) => {
@@ -28,12 +27,7 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
   const actions = useThreadActions();
   const now = useNow();
   const current = useParams({ strict: false }).threadId;
-  const ids = useSidebarIds() ?? none;
-  const keys = useMemo<SidebarKey[]>(
-    () => ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)],
-    [ids],
-  );
-  const entries = useSidebar(keys, entriesOf, arrayEqual) ?? noEntries;
+  const entries = useSidebarAll(entriesOf, arrayEqual) ?? noEntries;
 
   return useMemo(() => {
     const byId = new Map<string, ThreadListEntry>(entries.map((entry) => [entry.id, entry]));

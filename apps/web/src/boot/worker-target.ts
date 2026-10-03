@@ -1,11 +1,11 @@
-import { z } from "zod";
+import * as z from "zod/mini";
 import { DaemonTarget } from "./connection-settings.ts";
 
 /** What a tab hands the client worker: the daemon to reach and this device's identity. */
-export const WorkerTarget = DaemonTarget.extend({
-  deviceId: z.string().min(1),
+export const WorkerTarget = z.extend(DaemonTarget, {
+  deviceId: z.string().check(z.minLength(1)),
   /** The outbox an older build kept in localStorage, to carry over once. */
-  seed: z.string().nullable(),
+  seed: z.nullable(z.string()),
 });
 export type WorkerTarget = z.infer<typeof WorkerTarget>;
 

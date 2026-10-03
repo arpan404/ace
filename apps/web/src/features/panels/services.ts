@@ -2,6 +2,7 @@ import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import type { ReviewDraft } from "./changes/drafts.ts";
+import type { ClearedLines } from "./logs/cleared.ts";
 import type { PreviewSource } from "./sources.ts";
 import { LocalStore } from "./store.ts";
 import type { TerminalSessions } from "./terminal/sessions.ts";
@@ -21,7 +22,7 @@ export interface PanelServices {
    * Per thread: the log lines Clear hid, by key. Keys rather than a time, because backdated or
    * replayed events can arrive stamped earlier than lines already shown.
    */
-  logCleared: LocalStore<ReadonlyMap<string, ReadonlySet<string>>>;
+  logCleared: LocalStore<ClearedLines>;
 }
 
 async function load(client: ClientApi): Promise<Pick<PanelServices, "terminals" | "preview">> {
@@ -40,7 +41,7 @@ export function panelServices(client: ClientApi): Promise<PanelServices> {
         ...sources,
         drafts: new LocalStore<readonly ReviewDraft[]>([]),
         diffPrefs: new LocalStore<DiffPrefs>({ mode: "unified", wrap: false }),
-        logCleared: new LocalStore<ReadonlyMap<string, ReadonlySet<string>>>(new Map()),
+        logCleared: new LocalStore<ClearedLines>(new Map()),
       };
       ready.set(client, value);
       return value;

@@ -5,7 +5,7 @@ import {
   type SidebarExport,
   type ThreadExport,
 } from "@ace/client";
-import { ClientMessage, type Item, type ServerMessage } from "@ace/protocol";
+import type { Item, ServerMessage } from "@ace/protocol";
 import { sidebarPatches, threadPatches, type Patch } from "./patches.ts";
 import { callArgs, iterateArgs, objectInput, sendArgs } from "./calls.ts";
 import type { TabChannels } from "./tab-channels.ts";
@@ -29,7 +29,23 @@ export interface HostOptions {
   lingerMs?: number;
   /** A tab silent this long is gone (it pings meanwhile); its leases are released. */
   silenceMs?: number;
+  /**
+   * The same for a hidden tab. Browsers throttle a hidden page's timers (Chrome to one wake a
+   * minute after five minutes) or freeze it, so its pings slow down or stop while it lives.
+   */
+  hiddenSilenceMs?: number;
+  /**
+   * Calls `gone` once the tab holding the named lock has closed or crashed (Web Locks in a
+   * browser). A tab that names its lock is never dropped for silence; the lock tells.
+   */
+  lockReleased?(name: string, gone: () => void): () => void;
 }
+
+/**
+ * A hidden tab's changed keys are kept until it shows again. Past this many it gets one copy of
+ * the whole store instead, so a tab hidden through a month of streaming holds a bounded backlog.
+ */
+const backlogKeys = 1_024;
 
 interface Entry {
   key: string;
@@ -159,9 +175,10 @@ export class ClientHost {
     const silence = this.options.silenceMs ?? 30_000;
     this.sweep = this.options.scheduler.set(silence / 2, () => {
       this.sweep = undefined;
-      const cutoff = this.options.now() - silence;
+      const now = this.options.now();
+      const hiddenSilence = this.options.hiddenSilenceMs ?? 10 * 60_000;
       // Deleting the current entry while iterating a Set is safe.
-      for (const tab of this.tabs) if (tab.lastSeen < cutoff) tab.drop();
+      for (const tab of this.tabs) if (tab.silentSince(now, silence, hiddenSilence)) tab.drop();
       if (this.tabs.size) this.scheduleSweep();
     });
   }
@@ -185,6 +202,7 @@ class Tab {
   private stopMessages: (() => void) | undefined;
   private visible = true;
   private dropped = false;
+  private stopLock: (() => void) | undefined;
   private flushing: (() => void) | undefined;
   private listener = (event: { data: unknown }) => this.receive(event.data);
   constructor(host: ClientHost, port: PortLike, options: HostOptions) {
@@ -206,6 +224,11 @@ class Tab {
       this.drop();
     }
   }
+  /** Whether this tab has been silent too long to be alive; a tab with a lock never is. */
+  silentSince(now: number, silence: number, hiddenSilence: number): boolean {
+    if (this.stopLock) return false;
+    return this.lastSeen < now - (this.visible ? silence : hiddenSilence);
+  }
   connection(): void {
     const client = this.entry?.client;
     if (!client) return;
@@ -223,6 +246,7 @@ class Tab {
     const message = parsed.data;
     if (message.t === "connect") return this.connect(message.config);
     if (message.t === "ping") return;
+    if (message.t === "alive") return this.alive(message.lock);
     if (message.t === "bye") return this.drop();
     if (message.t === "watchMessages") {
       this.wantsMessages = true;
@@ -273,6 +297,12 @@ class Tab {
         this.intents.delete(message.id);
         return;
     }
+  }
+  private alive(lock: string): void {
+    const watch = this.options.lockReleased;
+    if (!watch || this.dropped) return;
+    this.stopLock?.();
+    this.stopLock = watch(lock, () => this.drop());
   }
   private connect(config: unknown): void {
     let entry: Entry;
@@ -345,6 +375,12 @@ class Tab {
     if (keys === "all" || held.dirty === "all") held.dirty = "all";
     else if (held.dirty) for (const key of keys) held.dirty.add(key);
     else held.dirty = new Set(keys);
+    if (held.dirty !== "all" && held.dirty.size > backlogKeys) {
+      // The next flush sends a whole copy and records what it sent afresh; until then, hold
+      // neither the keys nor the items the store has since evicted.
+      held.dirty = "all";
+      held.sent.clear();
+    }
     this.schedule();
   }
   private schedule(): void {
@@ -448,8 +484,8 @@ class Tab {
     // Only channel controls are decoded here; `sendArgs` decodes every control it passes on.
     const type = objectInput(value).type;
     if (typeof type === "string" && channelControls.has(type)) {
-      const control = ClientMessage.safeParse(value);
-      if (control.success && !this.channels?.admits(control.data)) return;
+      const control = client.decodeOneWay(value);
+      if (control && !this.channels?.admits(control)) return;
     }
     sendArgs(client, value);
   }
@@ -504,6 +540,8 @@ class Tab {
   drop(): void {
     if (this.dropped) return;
     this.dropped = true;
+    this.stopLock?.();
+    this.stopLock = undefined;
     this.detach();
     this.port.removeEventListener("message", this.listener);
     this.port.close?.();

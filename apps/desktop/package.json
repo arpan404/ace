@@ -11,7 +11,8 @@
     "build": "node scripts/build.ts",
     "package": "node scripts/package.ts",
     "rebuild-native": "node scripts/rebuild-native.ts",
-    "e2e": "vitest run --config vitest.e2e.config.ts"
+    "e2e": "vitest run --config vitest.e2e.config.ts",
+    "measure:memory": "node scripts/measure-memory.ts"
   },
   "dependencies": {
     "@ace/client": "workspace:*",

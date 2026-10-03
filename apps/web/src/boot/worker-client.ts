@@ -1,6 +1,7 @@
 import type { ClientApi } from "@ace/client";
 import { RemoteClient, type PortLike } from "@ace/client-worker";
 import type { DaemonTarget } from "./connection-settings.ts";
+import { tabLiveness } from "./web-locks.ts";
 import { outboxKey, type WorkerTarget } from "./worker-target.ts";
 
 /**
@@ -13,7 +14,9 @@ export function createWorkerClient(target: DaemonTarget, deviceId: string): Clie
   if (!port) return undefined;
   const key = outboxKey({ url: target.url, deviceId });
   const config: WorkerTarget = { ...target, deviceId, seed: readLegacy(key) };
+  const liveness = tabLiveness();
   return new RemoteClient(port, config, {
+    ...(liveness ? { liveness } : {}),
     scheduler: {
       set(delayMs, callback) {
         const timer = setTimeout(callback, delayMs);

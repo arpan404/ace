@@ -1,12 +1,14 @@
 import type { ThreadReader } from "@ace/client";
 import { useInteractions, useThread, useThreadMeta } from "@ace/client-react";
-import { useCallback } from "react";
+import { Suspense, useCallback } from "react";
 import type { ThreadStatus } from "@ace/protocol";
 import { HourglassMediumIcon } from "@phosphor-icons/react";
 import { agentName, formatClock, limitHoldShown } from "@ace/ui-core";
 import { Icon } from "@/components/icon.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { InteractionCard } from "../interactions/interaction-card.tsx";
+import { DeferredInteractionCard } from "../deferred.ts";
+
+const InteractionCard = DeferredInteractionCard.Component;
 
 function list(names: readonly string[]): string {
   if (names.length <= 1) return names[0] ?? "";
@@ -109,9 +111,13 @@ export function LiveFooter(props: { threadId: string; quiet?: boolean }) {
   if (!pending.length && !line) return null;
   return (
     <div className="flex flex-col gap-3 pb-2">
-      {pending.map((id) => (
-        <InteractionCard key={id} threadId={props.threadId} interactionId={id} />
-      ))}
+      {pending.length > 0 && (
+        <Suspense fallback={null}>
+          {pending.map((id) => (
+            <InteractionCard key={id} threadId={props.threadId} interactionId={id} />
+          ))}
+        </Suspense>
+      )}
       {line && (
         <p
           role="status"

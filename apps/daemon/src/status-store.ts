@@ -36,6 +36,8 @@ function target(p: EventPayload): { collection: Collection; id: string } | undef
       return { collection: "runs", id: p.runId };
     case "interaction.opened":
       return { collection: "interactions", id: p.interaction.id };
+    case "permission.reviewed":
+      return { collection: "interactions", id: p.review.interactionId };
     case "interaction.closed":
       return { collection: "interactions", id: p.interactionId };
     case "background_task.started":

@@ -2,8 +2,8 @@
  * Threads per account, from the live thread list (`live.account`, else the execution selection),
  * and moving an exhausted account's limited threads with `thread.limit` / `migrate_now`.
  */
-import type { SidebarKey, SidebarReader } from "@ace/client";
-import { useClient, useSidebar, useSidebarIds } from "@ace/client-react";
+import type { SidebarReader } from "@ace/client";
+import { useClient, useSidebarAll } from "@ace/client-react";
 import {
   accountThread,
   accountThreadCounts,
@@ -14,8 +14,7 @@ import {
 } from "@ace/ui-core";
 import { ThreadId } from "@ace/protocol";
 import { useMutation } from "@tanstack/react-query";
-
-const noIds: readonly string[] = [];
+import { useMemo } from "react";
 
 function sameThreads(a: readonly AccountThread[], b: readonly AccountThread[]): boolean {
   return (
@@ -32,23 +31,23 @@ function sameThreads(a: readonly AccountThread[], b: readonly AccountThread[]): 
   );
 }
 
+const readAccountThreads = (reader: SidebarReader) =>
+  reader.loaded
+    ? reader.ids.flatMap((id) => {
+        const entry = reader.thread(id);
+        const counted = entry && accountThread(entry);
+        return counted ? [counted] : [];
+      })
+    : undefined;
+const sameAccountThreads = (
+  a: readonly AccountThread[] | undefined,
+  b: readonly AccountThread[] | undefined,
+) => a === b || (a !== undefined && b !== undefined && sameThreads(a, b));
+
 /** Running and limited threads per account id, live; undefined until the list has loaded. */
 export function useAccountThreads(): ReadonlyMap<string, AccountThreadCounts> | undefined {
-  const ids = useSidebarIds() ?? noIds;
-  const keys: SidebarKey[] = ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)];
-  const threads = useSidebar(
-    keys,
-    (reader: SidebarReader) =>
-      reader.loaded
-        ? reader.ids.flatMap((id) => {
-            const entry = reader.thread(id);
-            const counted = entry && accountThread(entry);
-            return counted ? [counted] : [];
-          })
-        : undefined,
-    (a, b) => a === b || (a !== undefined && b !== undefined && sameThreads(a, b)),
-  );
-  return threads && accountThreadCounts(threads);
+  const threads = useSidebarAll(readAccountThreads, sameAccountThreads);
+  return useMemo(() => threads && accountThreadCounts(threads), [threads]);
 }
 
 export interface MoveResult {

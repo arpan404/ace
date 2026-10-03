@@ -1,10 +1,5 @@
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
-import {
-  HistoryScanStatus,
-  HistoryScanResponse,
-  HistoryListRequest,
-  HistoryListResponse,
-} from "@ace/protocol/history";
+import type { HistoryScanStatus, HistoryListRequest } from "@ace/protocol/history";
 import {
   decodeServiceResponse,
   type ServiceRequest,
@@ -13,17 +8,15 @@ import {
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
-  CursorAuthRequest,
-  CursorAuthEvent,
-  QueueResult,
-  SettingsResult,
+  CoreClientMessage,
+  CoreServerMessage,
   TextSource,
-  RegistryRequest,
-  RegistryResult,
   CommandResult,
-  ClientMessage,
-  ServerMessage,
   ItemsPage,
+  type CursorAuthEvent,
+  type CursorAuthRequest,
+  type RegistryResult,
+  type ServerMessage,
   type CommandPayload,
   type SettingsKey,
   type SettingsScope,
@@ -31,6 +24,7 @@ import {
 } from "@ace/protocol";
 import type { ClientApi, RegistryQuery } from "./api.ts";
 import { Connection } from "./connection.ts";
+import { WireCodec, type ServiceWire } from "./wire-codec.ts";
 import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
 import { Notifications, type Selection } from "./observable.ts";
@@ -53,6 +47,8 @@ export type CursorAuthQuery = WithoutRequestId<CursorAuthRequest>;
 export class Client implements ClientApi {
   private options: ClientOptions;
   private connection: Connection;
+  /** Core frames decode at once; the service schemas load with `start()`. */
+  private codec = new WireCodec();
   private requests: Requests;
   private subscriptions: Subscriptions;
   private sidebar: Sidebar;
@@ -73,6 +69,7 @@ export class Client implements ClientApi {
     this.requests = new Requests(options.scheduler, limits.requests, limits.requestMs);
     this.connection = new Connection(
       options,
+      this.codec,
       limits,
       (message) => {
         for (const listener of this.serviceListeners) {
@@ -198,6 +195,8 @@ export class Client implements ClientApi {
     return this.notifications.select([`intent:${id}`], () => this.intents.get(id));
   }
   async start(): Promise<void> {
+    // Usually loaded before the socket's welcome; a service frame that beats it waits for it.
+    void this.codec.load().catch(() => {});
     try {
       await this.intents.initialize();
       if (!this.closed) this.connection.start();
@@ -259,13 +258,21 @@ export class Client implements ClientApi {
   ): Promise<ServiceResponse<Q>> {
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
     const id = options.requestId ?? this.options.id();
-    const parsed = ClientMessage.safeParse({ ...input, requestId: id });
+    return this.service().then((wire) => this.sendRequest(wire, input, id, options));
+  }
+  private sendRequest<Q extends ServiceRequest>(
+    wire: ServiceWire,
+    input: Q,
+    id: string,
+    options: RequestOptions,
+  ): Promise<ServiceResponse<Q>> {
+    const parsed = wire.ClientMessage.safeParse({ ...input, requestId: id });
     if (!parsed.success) return Promise.reject(new ClientError("protocol", "Invalid request"));
     let sent = false;
     return this.requests
       .wait(
         id,
-        (value) => decodeServiceResponse(input, id, value),
+        (value) => decodeServiceResponse(wire.ServerMessage, input, id, value),
         options,
         () => {
           sent = this.connection.send(parsed.data);
@@ -290,19 +297,36 @@ export class Client implements ClientApi {
   }
   /** One-way service controls, such as browser frame ACKs or terminal credits. */
   send(message: OneWayMessage): void {
-    const parsed = ClientMessage.safeParse(message);
-    if (!parsed.success || !isOneWayMessage(parsed.data))
-      throw new ClientError("protocol", "Invalid one-way message");
-    if (this.state !== "ready" || this.closed || !this.connection.send(parsed.data))
+    const control = this.decodeOneWay(message);
+    if (control === null) throw new ClientError("protocol", "Invalid one-way message");
+    if (this.state !== "ready" || this.closed || !control || !this.connection.send(control))
       throw new ClientError("offline");
   }
-  registry(input: RegistryQuery, options: RequestOptions = {}): Promise<RegistryResult> {
+  /**
+   * A one-way control checked against the full schema: null when it is not one, undefined
+   * while the service schemas are still loading (it is then dropped, as offline).
+   */
+  decodeOneWay(value: unknown): OneWayMessage | null | undefined {
+    const wire = this.codec.loaded;
+    if (!wire) return undefined;
+    const parsed = wire.ClientMessage.safeParse(value);
+    return parsed.success && isOneWayMessage(parsed.data) ? parsed.data : null;
+  }
+  /** The service schemas, once they have loaded; offline if the client stopped meanwhile. */
+  private async service(): Promise<ServiceWire> {
+    const wire = await this.codec.load();
+    if (this.state !== "ready" || this.closed) throw new ClientError("offline");
+    return wire;
+  }
+  async registry(input: RegistryQuery, options: RequestOptions = {}): Promise<RegistryResult> {
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
-    const request = RegistryRequest.parse({ ...input, requestId: this.options.id() });
+    const requestId = this.options.id();
+    const wire = await this.service();
+    const request = wire.RegistryRequest.parse({ ...input, requestId });
     return this.requests.wait(
       request.requestId,
       (value) => {
-        const response = RegistryResult.parse(value);
+        const response = wire.RegistryResult.parse(value);
         if (response.requestId !== request.requestId) throw new ClientError("protocol");
         return response;
       },
@@ -313,13 +337,15 @@ export class Client implements ClientApi {
     );
   }
   /** Ephemeral auth requests never enter the persistent intent outbox. */
-  cursorAuth(input: CursorAuthQuery, options: RequestOptions = {}): Promise<CursorAuthEvent> {
+  async cursorAuth(input: CursorAuthQuery, options: RequestOptions = {}): Promise<CursorAuthEvent> {
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
-    const request = CursorAuthRequest.parse({ ...input, requestId: this.options.id() });
+    const requestId = this.options.id();
+    const wire = await this.service();
+    const request = wire.CursorAuthRequest.parse({ ...input, requestId });
     return this.requests.wait(
       request.requestId,
       (value) => {
-        const event = CursorAuthEvent.parse(value);
+        const event = wire.CursorAuthEvent.parse(value);
         if (event.requestId !== request.requestId) throw new ClientError("protocol");
         return event;
       },
@@ -335,14 +361,14 @@ export class Client implements ClientApi {
   scanHistory(options: RequestOptions = {}) {
     return this.historyRequest(
       { type: "history.scan", action: "start" },
-      HistoryScanResponse.parse,
+      (wire) => wire.HistoryScanResponse.parse,
       options,
     );
   }
   historyScanStatus(options: RequestOptions = {}) {
     return this.historyRequest(
       { type: "history.scan", action: "status" },
-      HistoryScanResponse.parse,
+      (wire) => wire.HistoryScanResponse.parse,
       options,
     );
   }
@@ -352,21 +378,22 @@ export class Client implements ClientApi {
   ) {
     return this.historyRequest(
       { type: "history.list", ...input },
-      HistoryListResponse.parse,
+      (wire) => wire.HistoryListResponse.parse,
       options,
     );
   }
-  private historyRequest<T>(
+  private async historyRequest<T>(
     input:
       | import("zod").input<typeof HistoryListRequest>
       | { type: "history.scan"; action: "start" | "status" },
-    decode: (value: unknown) => T,
+    decoder: (wire: ServiceWire) => (value: unknown) => T,
     options: RequestOptions,
   ): Promise<T> {
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
     const requestId = this.options.id();
-    const request = ClientMessage.parse({ ...input, requestId });
-    return this.requests.wait(requestId, decode, options, () => {
+    const wire = await this.service();
+    const request = wire.ClientMessage.parse({ ...input, requestId });
+    return this.requests.wait(requestId, decoder(wire), options, () => {
       if (!this.connection.send(request)) throw new ClientError("offline");
     });
   }
@@ -379,16 +406,32 @@ export class Client implements ClientApi {
           expectedRevision?: number;
           limit?: number;
         }
-      | { type: "items.page"; threadId: string; before: number; limit: number }
       | { type: "settings.get"; key: SettingsKey; scope: SettingsScope }
-      | { type: "settings.set"; key: string; value: unknown; layer: SettingsLayer }
+      | { type: "settings.set"; key: string; value: unknown; layer: SettingsLayer },
+    decoder: (wire: ServiceWire) => (value: unknown) => T,
+    options: RequestOptions,
+  ): Promise<T> {
+    if (this.state !== "ready" || this.closed) throw new ClientError("offline");
+    const id = this.options.id();
+    const wire = await this.service();
+    const decode = decoder(wire);
+    const parsed = wire.ClientMessage.safeParse({ ...payload, requestId: id });
+    if (!parsed.success) throw new ClientError("protocol", "Invalid read parameters");
+    return this.requests.wait(id, decode, options, () => {
+      if (!this.connection.send(parsed.data)) throw new ClientError("offline");
+    });
+  }
+  /** A read of the core stream (item pages, output): no service schemas to wait for. */
+  private async readCore<T>(
+    payload:
+      | { type: "items.page"; threadId: string; before: number; limit: number }
       | { type: "output.read"; streamId: string; offset: number; limit: number },
     decode: (value: unknown) => T,
     options: RequestOptions,
   ): Promise<T> {
     if (this.state !== "ready" || this.closed) throw new ClientError("offline");
     const id = this.options.id();
-    const parsed = ClientMessage.safeParse({ ...payload, requestId: id });
+    const parsed = CoreClientMessage.safeParse({ ...payload, requestId: id });
     if (!parsed.success) throw new ClientError("protocol", "Invalid read parameters");
     return this.requests.wait(id, decode, options, () => {
       if (!this.connection.send(parsed.data)) throw new ClientError("offline");
@@ -398,10 +441,18 @@ export class Client implements ClientApi {
     return this.queuePage({ threadId }, options);
   }
   settingsGet(key: SettingsKey, scope: SettingsScope = {}, options: RequestOptions = {}) {
-    return this.read({ type: "settings.get", key, scope }, SettingsResult.parse, options);
+    return this.read(
+      { type: "settings.get", key, scope },
+      (wire) => wire.SettingsResult.parse,
+      options,
+    );
   }
   settingsSet(key: string, value: unknown, layer: SettingsLayer, options: RequestOptions = {}) {
-    return this.read({ type: "settings.set", key, value, layer }, SettingsResult.parse, options);
+    return this.read(
+      { type: "settings.set", key, value, layer },
+      (wire) => wire.SettingsResult.parse,
+      options,
+    );
   }
   queuePage(
     payload: { threadId: string; after?: string; expectedRevision?: number; limit?: number },
@@ -409,7 +460,7 @@ export class Client implements ClientApi {
   ) {
     return this.read(
       { type: "queue.get", ...payload },
-      (value) => QueueResult.parse(value).queue,
+      (wire) => (value) => wire.QueueResult.parse(value).queue,
       options,
     );
   }
@@ -433,7 +484,7 @@ export class Client implements ClientApi {
     payload: { threadId: string; before?: number | undefined; limit: number },
     options: RequestOptions = {},
   ) {
-    return this.read(
+    return this.readCore(
       { type: "items.page", ...payload, before: payload.before ?? Number.MAX_SAFE_INTEGER },
       (value) => {
         const page = ItemsPage.parse(value);
@@ -454,10 +505,10 @@ export class Client implements ClientApi {
     payload: { streamId: string; offset: number; limit: number },
     options: RequestOptions = {},
   ) {
-    return this.read(
+    return this.readCore(
       { type: "output.read", ...payload },
       (value) => {
-        const result = ServerMessage.parse(value);
+        const result = CoreServerMessage.parse(value);
         if (
           result.type !== "output.data" ||
           result.streamId !== payload.streamId ||

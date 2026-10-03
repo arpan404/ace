@@ -61,7 +61,6 @@ export class DelegationService {
       this.journal,
       this.policy,
       () => !this.closed && deps.admitsWork?.() !== false,
-      (id, payload) => this.command(id, payload),
     );
     deps.engine.bindCommandPolicy(
       delegationCommandPolicy({
