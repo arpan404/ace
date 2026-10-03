@@ -1,5 +1,5 @@
 import { apply, createThreadState, nextDeadline, type Fact } from "@ace/core";
-import { ThreadId, type Item, type EventPayload } from "@ace/protocol";
+import { ThreadId, AgentItem, type EventPayload } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
 import { createTranslator } from "./index.ts";
 export function harness() {
@@ -24,7 +24,7 @@ export function harness() {
     time = now;
     fold(translator.tick(now), now);
   }
-  const items = (): Item[] => Object.values(state.items);
+  const items = (): AgentItem[] => Object.values(state.items).map((item) => AgentItem.parse(item));
   return {
     state,
     events,

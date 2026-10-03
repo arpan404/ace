@@ -1,0 +1,24 @@
+{
+  "name": "@ace/service",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ace/protocol": "workspace:*",
+    "tar": "7.5.7",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/plist": "3.0.5",
+    "plist": "3.1.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

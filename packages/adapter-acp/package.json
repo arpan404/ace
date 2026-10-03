@@ -1,0 +1,22 @@
+{
+  "name": "@ace/adapter-acp",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ace/core": "workspace:*",
+    "@ace/engine-api": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@ace/adapter-testkit": "workspace:*"
+  }
+}

@@ -6,7 +6,7 @@ import {
   type Interaction,
 } from "@ace/protocol";
 import type { Fact } from "./facts.ts";
-import type { ApplyContext, ThreadState } from "./state.ts";
+import { dictionary, type ApplyContext, type ThreadState } from "./state.ts";
 import { emit, get, put } from "./emit.ts";
 import { ensureAgent, linkAgent } from "./tree.ts";
 import { upsertItem } from "./items.ts";
@@ -91,6 +91,8 @@ export function startBackground(
   ctx: ApplyContext,
   events: EventPayload[],
 ): void {
+  if (fact.kind === "shell" && fact.item !== undefined && get(state.items, fact.item)?.complete)
+    return;
   const previous = get(state.tasks, fact.task);
   if (previous?.status === "running") return;
   if (previous) put(state.taskHistory, previous.id, structuredClone(previous));
@@ -140,6 +142,7 @@ export function startBackground(
     ...(child ? { childAgentId: child.agent.id } : {}),
     ...(fact.outputPath === undefined ? {} : { outputPath: fact.outputPath }),
   };
+  if (state.uncertainTasks) delete state.uncertainTasks[fact.task];
   put(state.tasks, fact.task, task);
   refreshTaskIndex(state, fact.task);
   emit(events, { type: "background_task.started", task });
@@ -168,7 +171,13 @@ export function endBackground(
   events: EventPayload[],
 ): void {
   const task = get(state.tasks, fact.task);
-  if (!task || task.status !== "running") return;
+  if (
+    !task ||
+    (task.status !== "running" && !(state.uncertainTasks && get(state.uncertainTasks, fact.task)))
+  )
+    return;
+  if (fact.uncertain) put((state.uncertainTasks ??= dictionary<true>()), fact.task, true);
+  else if (state.uncertainTasks) delete state.uncertainTasks[fact.task];
   task.status = fact.status;
   task.endedAt = ctx.now;
   refreshTaskIndex(state, fact.task);

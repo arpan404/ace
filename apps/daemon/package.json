@@ -8,7 +8,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./client-access": "./src/client-access.ts"
+    "./client-access": "./src/client-access.ts",
+    "./cli": "./src/cli.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -16,22 +17,39 @@
     "bench:payloads": "node --expose-gc bench/payloads.ts",
     "bench:mcp": "node bench/mcp.ts",
     "bench:remote": "node --expose-gc src/remote.bench.ts",
+    "bench:context": "node bench/context.ts",
     "bench:notifications": "node bench/notifications.ts"
   },
   "dependencies": {
+    "@ace/adapter-acp": "workspace:*",
+    "@ace/adapter-claude": "workspace:*",
+    "@ace/adapter-codex": "workspace:*",
+    "@ace/adapter-opencode": "workspace:*",
+    "@ace/browser": "workspace:*",
+    "@ace/context": "workspace:*",
+    "@ace/core": "workspace:*",
     "@ace/diagnostics": "workspace:*",
+    "@ace/engine-api": "workspace:*",
+    "@ace/history-import": "workspace:*",
     "@ace/mcp-server": "workspace:*",
     "@ace/models": "workspace:*",
     "@ace/notify": "workspace:*",
+    "@ace/plugins": "workspace:*",
+    "@ace/preview": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "@ace/redaction": "workspace:*",
+    "@ace/review": "workspace:*",
+    "@ace/service": "workspace:*",
+    "@ace/settings": "workspace:*",
+    "@ace/usage": "workspace:*",
     "qrcode-generator": "2.0.4",
     "ws": "^8.18.3",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@ace/adapter-testkit": "workspace:*",
     "@types/ws": "^8.18.1",
     "jsqr": "1.4.0"
   }

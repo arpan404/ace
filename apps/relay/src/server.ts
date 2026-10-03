@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import type { Socket } from "node:net";
 import { randomBytes, randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { hostId } from "@ace/secure-channel";
@@ -10,7 +11,7 @@ import { LimitsSchema, HostControlMessage } from "./config.ts";
 import type { Limits } from "./config.ts";
 import { systemClock } from "./clock.ts";
 import type { Clock } from "./clock.ts";
-import { IpBudget } from "./limits.ts";
+import { IpBudget, type PeerBudget } from "./limits.ts";
 import { Throttle } from "./throttle.ts";
 import { RelayRoutes } from "./routes.ts";
 import type { RouteAction } from "./routes.ts";
@@ -57,6 +58,7 @@ export async function startRelay(options: RelayOptions = {}) {
     options.onThrottle?.();
   });
   const connections = new Map<string, Connection>();
+  const sockets = new Map<Socket, PeerBudget>();
   const createTicket = options.createTicket ?? (() => randomBytes(32).toString("hex"));
   const createId = options.createConnectionId ?? randomUUID;
   const http = createServer((_req, res) => {
@@ -137,27 +139,50 @@ export async function startRelay(options: RelayOptions = {}) {
       await apply(routing.join(id, url.searchParams.get("ticket") ?? "", clock.now()));
     else connection.socket.close(1008, "Unknown endpoint");
   }
-  http.on("upgrade", (request, socket, head) => {
-    const ip = request.socket.remoteAddress ?? "";
+  function releaseSocket(socket: Socket): void {
+    const peerBudget = sockets.get(socket);
+    if (!peerBudget) return;
+    sockets.delete(socket);
+    peerBudget.release(clock.now());
+  }
+  http.on("connection", (socket) => {
+    const ip = socket.remoteAddress;
     if (!ip) {
       socket.destroy();
       return;
     }
     const peerBudget = budget.forPeer(ip);
-    if (wss.clients.size >= limits.maxConnections || !peerBudget.acquire(clock.now())) {
-      socket.end("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n");
+    if (sockets.size >= limits.maxConnections || !peerBudget.acquire(clock.now())) {
+      socket.end("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n", () =>
+        socket.destroy(),
+      );
       return;
     }
-    let upgraded = false;
-    socket.once("close", () => {
-      if (!upgraded) peerBudget.release(clock.now());
+    sockets.set(socket, peerBudget);
+    socket.once("end", () => {
+      socket.destroy();
+      releaseSocket(socket);
     });
+    socket.once("close", () => releaseSocket(socket));
+  });
+  http.on("upgrade", (request, socket, head) => {
+    let url: URL;
+    try {
+      url = new URL(request.url ?? "/", "http://relay");
+    } catch {
+      socket.end("HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n", () => socket.destroy());
+      return;
+    }
+    const admittedBudget = sockets.get(request.socket);
+    if (!admittedBudget) {
+      socket.destroy();
+      return;
+    }
+    const peerBudget = admittedBudget;
     wss.handleUpgrade(request, socket, head, (ws) => {
-      upgraded = true;
       const id = z.string().min(1).parse(createId());
       if (connections.has(id)) {
         ws.terminate();
-        peerBudget.release(clock.now());
         return;
       }
       const abort = new AbortController();
@@ -200,15 +225,13 @@ export async function startRelay(options: RelayOptions = {}) {
       ws.on("ping", (data) => acceptControl(data, () => ws.pong(data)));
       ws.on("pong", (data) => acceptControl(data, () => {}));
       ws.once("close", () => {
+        releaseSocket(request.socket);
         abort.abort();
         connection.control?.destroy();
         connections.delete(id);
-        peerBudget.release(clock.now());
         void apply(routing.close(id)).catch(() => {});
       });
-      void route(id, new URL(request.url ?? "/", "http://relay"), connection).catch(() =>
-        ws.terminate(),
-      );
+      void route(id, url, connection).catch(() => ws.terminate());
     });
   });
   function sweep(): void {
@@ -251,6 +274,7 @@ export async function startRelay(options: RelayOptions = {}) {
       cancelSweep();
       throttle.close();
       for (const connection of connections.values()) connection.socket.terminate();
+      for (const socket of sockets.keys()) socket.destroy();
       closing = Promise.all([
         new Promise<void>((resolve) => wss.close(() => resolve())),
         new Promise<void>((resolve, reject) =>

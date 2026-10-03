@@ -4,7 +4,7 @@ import { lookup, type AgentRecord, type ThreadState } from "./state.ts";
 import { emit } from "./emit.ts";
 import { isActionableInteraction } from "./human.ts";
 import { liveToolKeys, pendingInteractionKeys, runningTaskKeys } from "./indexes.ts";
-import { isLiveTool, statusInputs, suppressesActiveSilence } from "./status-inputs.ts";
+import { statusInputs, suppressesActiveSilence } from "./status-inputs.ts";
 export { isLiveTool } from "./status-inputs.ts";
 
 export function isSettled(status: AgentStatus): boolean {
@@ -43,7 +43,10 @@ function completionRelevance(
   state: ThreadState,
   statusOf: (key: Key) => AgentStatus,
   waitingOwners: Set<string> = new Set([
-    ...liveToolKeys(state).map((key) => lookup(state.items, key)!.agentId),
+    ...liveToolKeys(state).flatMap((key) => {
+      const item = lookup(state.items, key);
+      return item?.type === "tool_call" ? [item.agentId] : [];
+    }),
     ...pendingInteractionKeys(state).map((key) => lookup(state.interactions, key)!.agentId),
     ...runningTaskKeys(state)
       .map((key) => lookup(state.tasks, key)!)
@@ -63,6 +66,7 @@ function completionRelevance(
     if (
       key === state.rootKey ||
       status.state !== "unresponsive" ||
+      record.disconnectedAt !== undefined ||
       record.activeRun ||
       record.lastRun ||
       record.retry ||
@@ -124,6 +128,7 @@ function statusResolver(state: ThreadState, now: number) {
     children,
     lastSubtreeSignal,
     waitingOwners,
+    waitsByAgent,
   } = statusInputs(state);
   const resolved = new Map<Key, AgentStatus>();
   const visiting = new Set<Key>();
@@ -177,6 +182,8 @@ function statusResolver(state: ThreadState, now: number) {
     if (blocking.length > 0) {
       return { state: "blocked", on: "human", refs: blocking.map((interaction) => interaction.id) };
     }
+    if (record.disconnectedAt !== undefined)
+      return { state: "unresponsive", lastSignalAt: record.disconnectedAt };
     if (record.retry) return { state: "blocked", refs: [], ...record.retry };
 
     const liveChildren = Object.keys(lookup(children, agent.id) ?? {}).filter(holdsCompletion);
@@ -192,6 +199,20 @@ function statusResolver(state: ThreadState, now: number) {
     ];
 
     if (record.activeRun) {
+      const waits = waitsByAgent.get(agent.id) ?? [];
+      if (waits.length > 0)
+        return {
+          state: "blocked",
+          on: "subagents",
+          refs: liveChildren
+            .filter((child) =>
+              waits.some((wait) => wait.targets.length === 0 || wait.targets.includes(child)),
+            )
+            .flatMap((child) => {
+              const childAgent = lookup(state.agents, child)?.agent;
+              return childAgent ? [childAgent.id] : [];
+            }),
+        };
       const tools = toolsByAgent.get(agent.id) ?? [];
       const foreground = tools.flatMap((item) => {
         if (item.call.detail.kind !== "agent.spawn" || !item.call.detail.childAgentId) return [];
@@ -242,14 +263,8 @@ function statusResolver(state: ThreadState, now: number) {
     if (!record.lastRun) {
       if (key === state.rootKey && !state.hasRun && agent.fidelity !== "placeholder")
         return { state: "starting" };
-      const spawn =
-        record.spawnedByKey === undefined ? undefined : lookup(state.items, record.spawnedByKey);
-      if (
-        (spawn?.type === "tool_call" && !isLiveTool(spawn)) ||
-        now - lastSubtreeSignal(key) > state.config.silenceMs
-      ) {
+      if (now - lastSubtreeSignal(key) > state.config.silenceMs)
         return { state: "unresponsive", lastSignalAt: lastSubtreeSignal(key) };
-      }
       return { state: "starting" };
     }
     if (backgroundRefs.length > 0) {
@@ -299,10 +314,16 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
       return { state: "waiting", on: reason };
     }
   }
+  if (runningTaskKeys(state).some((key) => lookup(state.tasks, key)?.ambient === false))
+    return { state: "waiting", on: "background_task" };
   if (
-    statuses.some((status) => status.state === "blocked" && status.on === "background_task") ||
-    runningTaskKeys(state).some((key) => !lookup(state.tasks, key)!.ambient)
-  ) {
+    records.some(
+      (record) =>
+        record.disconnectedAt !== undefined && record.agent.status.state === "unresponsive",
+    )
+  )
+    return { state: "unresponsive" };
+  if (statuses.some((status) => status.state === "blocked" && status.on === "background_task")) {
     return { state: "waiting", on: "background_task" };
   }
   if (state.queueCount > 0) return { state: "waiting", on: "queue" };

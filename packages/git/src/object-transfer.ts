@@ -12,6 +12,9 @@ export async function transferObjects(
   commit: string,
 ): Promise<void> {
   const channel = new PassThrough();
+  // The channel owner also handles late errors after either CLI has detached
+  // its listeners. Active calls report failures through their own promises.
+  channel.on("error", () => {});
   const stop = (error: unknown) => {
     channel.destroy(error instanceof Error ? error : new Error(String(error)));
     throw error;

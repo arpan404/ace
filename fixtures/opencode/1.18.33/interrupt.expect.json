@@ -1,0 +1,32 @@
+{
+  "checkpoints": [
+    {
+      "t": 16649,
+      "thread": "working"
+    },
+    {
+      "t": 16661,
+      "thread": "waiting",
+      "on": "background_task"
+    },
+    {
+      "t": 16669,
+      "thread": "done"
+    },
+    {
+      "t": 16725,
+      "thread": "done"
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 1,
+    "interactions": {
+      "resolved": 1,
+      "pending": 0
+    },
+    "agentStates": {
+      "root": "interrupted"
+    }
+  }
+}

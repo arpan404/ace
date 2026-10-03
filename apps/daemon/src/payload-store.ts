@@ -39,6 +39,8 @@ const LegacyShellPayload = z.object({
 /** Event writes run inside Store's transaction. Startup conversion owns its transaction. */
 export class PayloadStore {
   private readonly db: DatabaseSync;
+  private readonly reads = new Map<string, StatementSync>();
+  private outputInsert: StatementSync | undefined;
   private readonly items: ItemStore;
   private readonly nextBlobId: () => string;
   private readonly statement: (sql: string) => StatementSync;
@@ -47,14 +49,15 @@ export class PayloadStore {
     nextBlobId: () => string,
     statement: (sql: string) => StatementSync,
   ) {
+    this.statement = statement;
     this.db = db;
     this.items = new ItemStore(db, statement);
     this.nextBlobId = nextBlobId;
-    this.statement = statement;
   }
   /** Upgrade existing event logs once, preserving event ids and host sequences. */
   initialize(): void {
     this.items.initialize();
+    this.items.initializePreviews();
     if (this.statement("SELECT id FROM payload_migration WHERE id = 1").get()) return;
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -83,7 +86,6 @@ export class PayloadStore {
             this.statement("SELECT size FROM output_streams WHERE id = ?").get(streamId)?.size,
           );
           const bytes = Buffer.from(output).subarray(size);
-          // Bound new legacy chunks; range reads also support older unsplit BLOBs.
           for (let offset = 0; offset < bytes.length; offset += 64 * 1024) {
             this.statement("INSERT INTO output_chunks VALUES (?, ?, ?)").run(
               streamId,
@@ -117,36 +119,39 @@ export class PayloadStore {
       throw error;
     }
   }
+  capRaw(raw: RawPayload[], threadId: ThreadId): RawPayload[] {
+    return raw.map((value) => {
+      if (!("data" in value)) return value;
+      const serialized = JSON.stringify(value.data);
+      if (serialized === undefined) return value;
+      const bytes = Buffer.from(serialized);
+      if (bytes.length <= 64 * 1024) return value;
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const existing = this.statement(
+        "SELECT id FROM blobs WHERE thread_id = ? AND sha256 = ?",
+      ).get(threadId, sha256);
+      const id = String(existing?.id ?? this.nextBlobId());
+      if (!existing)
+        this.statement("INSERT INTO blobs VALUES (?, ?, ?, ?)").run(id, sha256, bytes, threadId);
+      return {
+        type: value.type,
+        ...(value.name === undefined ? {} : { name: value.name }),
+        blobRef: id,
+        size: bytes.length,
+        preview: utf8Slice(serialized, 2048),
+      };
+    });
+  }
   cap(payload: EventPayload, threadId: ThreadId): EventPayload {
     const copy = structuredClone(payload);
-    const capRaw = (raw: RawPayload[]): RawPayload[] =>
-      raw.map((value) => {
-        if (!("data" in value)) return value;
-        const serialized = JSON.stringify(value.data);
-        if (serialized === undefined) return value;
-        const bytes = Buffer.from(serialized);
-        if (bytes.length <= 64 * 1024) return value;
-        const sha256 = createHash("sha256").update(bytes).digest("hex");
-        const existing = this.statement(
-          "SELECT id FROM blobs WHERE thread_id = ? AND sha256 = ?",
-        ).get(threadId, sha256);
-        const id = String(existing?.id ?? this.nextBlobId());
-        if (!existing)
-          this.statement("INSERT INTO blobs VALUES (?, ?, ?, ?)").run(id, sha256, bytes, threadId);
-        return {
-          type: value.type,
-          ...(value.name === undefined ? {} : { name: value.name }),
-          blobRef: id,
-          size: bytes.length,
-          preview: utf8Slice(serialized, 2048),
-        };
-      });
     if (copy.type === "item.created" || copy.type === "item.updated") {
-      if (copy.item.type === "tool_call") copy.item.call.raw = capRaw(copy.item.call.raw);
-      else if ("raw" in copy.item) copy.item.raw = capRaw(copy.item.raw);
+      if (copy.item.type === "tool_call")
+        copy.item.call.raw = this.capRaw(copy.item.call.raw, threadId);
+      else if ("raw" in copy.item) copy.item.raw = this.capRaw(copy.item.raw, threadId);
     } else if (copy.type === "interaction.opened")
-      copy.interaction.raw = capRaw(copy.interaction.raw);
-    else if (copy.type === "background_task.started") copy.task.raw = capRaw(copy.task.raw);
+      copy.interaction.raw = this.capRaw(copy.interaction.raw, threadId);
+    else if (copy.type === "background_task.started")
+      copy.task.raw = this.capRaw(copy.task.raw, threadId);
     return copy;
   }
   persist(event: Event): void {
@@ -175,15 +180,9 @@ export class PayloadStore {
         const stream = this.statement("SELECT * FROM output_streams WHERE id = ?").get(streamId);
         if (stream?.thread_id !== event.threadId || stream.item_id !== item.id)
           throw new Error("Stream outside item scope");
-        const bytes = Buffer.from(p.append);
-        if (bytes.length)
-          this.statement("INSERT INTO output_chunks VALUES (?, ?, ?)").run(
-            streamId,
-            Number(stream.size),
-            bytes,
-          );
+        const bytes = this.writeOutput(streamId, Number(stream.size), p.append);
         this.statement("UPDATE output_streams SET size = size + ? WHERE id = ?").run(
-          bytes.length,
+          bytes,
           streamId,
         );
       }
@@ -196,9 +195,38 @@ export class PayloadStore {
       );
     }
   }
+  private writeOutput(streamId: string, offset: number, text: string): number {
+    const insert = (this.outputInsert ??= this.statement(
+      "INSERT INTO output_chunks VALUES (?, ?, ?)",
+    ));
+    const initial = offset;
+    for (let start = 0; start < text.length;) {
+      let end = Math.min(text.length, start + 16384);
+      const high = text.charCodeAt(end - 1);
+      const low = text.charCodeAt(end);
+      if (end < text.length && high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff)
+        end--;
+      // At most 64 KiB, with no full-append Buffer allocation or split code point.
+      const bytes = Buffer.from(text.slice(start, end));
+      insert.run(streamId, offset, bytes);
+      offset += bytes.length;
+      start = end;
+    }
+    return offset - initial;
+  }
   streamThread(streamId: string): ThreadId | undefined {
-    const row = this.statement("SELECT thread_id FROM output_streams WHERE id = ?").get(streamId);
+    const row = this.statement(
+      "SELECT thread_id FROM output_streams WHERE id = ? UNION ALL SELECT thread_id FROM item_text_streams WHERE id = ? LIMIT 1",
+    ).get(streamId, streamId);
     return row ? ThreadId.parse(row.thread_id) : undefined;
+  }
+  private readStatement(sql: string): StatementSync {
+    let statement = this.reads.get(sql);
+    if (!statement) {
+      statement = this.statement(sql);
+      this.reads.set(sql, statement);
+    }
+    return statement;
   }
   readOutput(streamId: string, offset: number, limit: number) {
     if (
@@ -209,18 +237,22 @@ export class PayloadStore {
       limit > 256 * 1024
     )
       throw new Error("Invalid output range");
-    const stream = this.statement("SELECT size FROM output_streams WHERE id = ?").get(streamId);
+    const output = this.readStatement("SELECT size FROM output_streams WHERE id = ?").get(streamId);
+    const stream =
+      output ?? this.readStatement("SELECT size FROM item_text_streams WHERE id = ?").get(streamId);
+    // Table names are daemon constants, never interpolated from wire input.
+    const table = output ? "output_chunks" : "item_source_chunks";
     if (!stream) throw new Error("Unknown output stream");
     const size = Number(stream.size);
     if (offset >= size) return { bytes: "", nextOffset: offset, eof: true };
     const end = Math.min(size, offset + limit);
     // Seek the predecessor using the primary key, then read only the intersecting range.
-    const predecessor = this.statement(
-      "SELECT offset FROM output_chunks WHERE stream_id = ? AND offset <= ? ORDER BY offset DESC LIMIT 1",
+    const predecessor = this.readStatement(
+      `SELECT offset FROM ${table} WHERE stream_id = ? AND offset <= ? ORDER BY offset DESC LIMIT 1`,
     ).get(streamId, offset);
     const start = predecessor ? Number(predecessor.offset) : offset;
-    const chunks = this.statement(
-      "SELECT offset, substr(bytes, max(0, ? - offset) + 1, ? - max(offset, ?)) AS bytes FROM output_chunks WHERE stream_id = ? AND offset >= ? AND offset < ? ORDER BY offset",
+    const chunks = this.readStatement(
+      `SELECT offset, substr(bytes, MAX(0, ? - offset) + 1, MIN(length(bytes), ? - offset) - MAX(0, ? - offset)) AS bytes FROM ${table} WHERE stream_id = ? AND offset >= ? AND offset < ? ORDER BY offset`,
     ).all(offset, end, offset, streamId, start, end);
     const bytes = Buffer.concat(
       chunks.map((row) => {
@@ -233,6 +265,9 @@ export class PayloadStore {
       nextOffset: offset + bytes.length,
       eof: offset + bytes.length >= size,
     };
+  }
+  wirePage(threadId: ThreadId, before: number, limit: number, byteLimit: number) {
+    return this.items.wirePage(threadId, before, limit, byteLimit);
   }
   page(threadId: ThreadId, before: number, limit: number, byteLimit?: number) {
     return this.items.page(threadId, before, limit, byteLimit);

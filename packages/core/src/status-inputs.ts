@@ -44,7 +44,17 @@ export function statusInputs(state: ThreadState) {
       return item && isLiveTool(item) ? [item] : [];
     }),
   );
+  const waitsByAgent = byAgent(
+    liveToolKeys(state).flatMap((key) => {
+      const targets = lookup(state.itemLinks, key)?.waitingFor;
+      const item = lookup(state.items, key);
+      return targets !== undefined && item && item.type === "tool_call"
+        ? [{ agentId: item.agentId, targets }]
+        : [];
+    }),
+  );
   return {
+    waitsByAgent,
     lastTransportSignalAt: transportSignalAt(state),
     byId: state.indexes.agentKeysById,
     interactionsByAgent,

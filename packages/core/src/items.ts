@@ -89,7 +89,10 @@ export function upsertItem(
   }
   if (item.type === "tool_call" && item.call.detail.kind === "agent.spawn") {
     const child = get(state.itemLinks, key)?.childAgent;
-    if (child !== undefined)
+    const childRecord = child === undefined ? undefined : get(state.agents, child);
+    const explicitSpawn = detail?.kind === "agent.spawn" && detail.childAgent !== undefined;
+    // A refresh of a historical spawning item cannot undo an authoritative reparenting.
+    if (child !== undefined && (!previous || explicitSpawn || childRecord?.parentKey === agentKey))
       linkAgent(
         state,
         {
@@ -160,7 +163,7 @@ function appendDelta(
   text: string,
   events: EventPayload[],
 ): void {
-  if (!applyDelta(item, field, text))
+  if (item.type === "artifact" || !applyDelta(item, field, text))
     throw new Error(`delta ${field} does not apply to ${item.type}`);
   for (const append of field === "output" ? outputDeltas(text) : [text])
     events.push({ type: "item.delta", itemId: item.id, agentId: item.agentId, field, append });

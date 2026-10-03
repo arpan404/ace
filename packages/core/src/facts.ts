@@ -1,4 +1,5 @@
 import type {
+  UsageMetadata,
   AgentActivity,
   AgentFidelity,
   AgentOrigin,
@@ -97,8 +98,12 @@ export type Fact =
       trigger?: RunTrigger;
       error?: AgentError;
     }
+  /** A live native wait tool blocks on targets, or all live children when targets is empty. */
+  | { type: "subagents.waiting"; agent: Key; item: Key; targets: Key[] }
   | { type: "activity"; agent: Key; activity: AgentActivity; detail?: string }
   | { type: "item.upsert"; agent: Key; item: Key; draft: ItemDraft }
+  /** Idempotent snapshot reconciliation: preserve completion, first raw input and output prefixes. */
+  | { type: "item.reconciled"; agent: Key; item: Key; draft: ItemDraft }
   | {
       type: "item.delta";
       agent: Key;
@@ -139,6 +144,8 @@ export type Fact =
       type: "background.ended";
       task: Key;
       status: "completed" | "failed" | "stopped" | "unknown";
+      /** Unknown execution still holds completion until explicit terminal evidence. */
+      uncertain?: boolean;
     }
   | {
       type: "retry";
@@ -148,9 +155,11 @@ export type Fact =
       until?: number;
       message?: string;
     }
+  | { type: "agent.disconnected"; agent: Key }
+  | { type: "agent.reconnected"; agent: Key }
   | { type: "retry.cleared"; agent: Key }
   | { type: "wake.expected"; agent: Key; until: number }
-  | {
+  | ({
       type: "usage";
       agent: Key;
       inputTokens: number;
@@ -158,7 +167,7 @@ export type Fact =
       cachedInputTokens?: number;
       contextWindow?: number;
       costUsd?: number;
-    }
+    } & UsageMetadata)
   | { type: "signal"; agent?: Key }
   | { type: "process.started" }
   | { type: "process.exited"; deliberate: boolean; message?: string }

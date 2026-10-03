@@ -47,6 +47,7 @@ export interface AgentRecord {
   activity: AgentActivity;
   detail?: string;
   lastSignalAt: number;
+  disconnectedAt?: number;
   retry?: Omit<Extract<Fact, { type: "retry" }>, "type" | "agent">;
   wakeUntil?: number;
   parentKey?: Key;
@@ -76,13 +77,15 @@ export interface ThreadState {
   items: Record<Key, Item>;
   interactions: Record<Key, Interaction>;
   tasks: Record<Key, BackgroundTask>;
+  /** Optional for snapshots created before uncertain execution was represented. */
+  uncertainTasks?: Record<Key, true>;
   interactionHistory: Record<string, Interaction>;
   taskHistory: Record<string, BackgroundTask>;
   indexes: LiveIndexes;
   outcomeOrder: number;
   /** Rejected facts wait for a real fact to establish their root owner. */
   pendingNotices: { createdAt: number; text: string; raw: RawPayload[] }[];
-  itemLinks: Record<Key, { childAgent?: Key; targetAgent?: Key }>;
+  itemLinks: Record<Key, { childAgent?: Key; targetAgent?: Key; waitingFor?: Key[] }>;
   queueCount: number;
   queueSources: { engine: number; provider: number };
   hasRun: boolean;
@@ -117,6 +120,7 @@ export function createThreadState(init: {
     items: dictionary(),
     interactions: dictionary(),
     tasks: dictionary(),
+    uncertainTasks: dictionary(),
     interactionHistory: dictionary(),
     taskHistory: dictionary(),
     indexes: {

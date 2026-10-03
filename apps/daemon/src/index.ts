@@ -1,103 +1,57 @@
 import { homedir } from "node:os";
-import { createRedactor } from "@ace/redaction";
-import {
-  logFields,
-  createFileSink,
-  createLogger,
-  createHealthMonitor,
-  type HealthOptions,
-} from "@ace/diagnostics";
-import type { ModelCatalog, InstanceInput } from "@ace/models";
-import { openDaemonModels } from "./models.ts";
+import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync } from "node:fs";
-import type { NotificationWorker, NotificationChannels } from "@ace/notify";
-import type { Toolkit } from "@ace/mcp-server";
 import { join } from "node:path";
-import { remoteListener } from "./network.ts";
-import { startDaemonMcp } from "./mcp.ts";
-import { loadNotificationChannels } from "./notification-config.ts";
-import { createDaemonNotifications, type DaemonNotifications } from "./notifications.ts";
-import { type CommandHandler, stubHandler } from "./commands.ts";
-import { type Config, readConfig } from "./config.ts";
+import { createRedactor } from "@ace/redaction";
+import { logFields, createFileSink, createLogger, createHealthMonitor } from "@ace/diagnostics";
+import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
+import { remoteListener } from "./network.ts";
 import { startServer } from "./server.ts";
 import { Store } from "./store.ts";
+import { Resources } from "./services/resources.ts";
+import { serviceFactories, readyServices, type ServiceContext } from "./services/composition.ts";
+import type { DaemonOptions } from "./services/options.ts";
+export type { DaemonOptions } from "./services/options.ts";
+export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 export { Store, type StoreOptions } from "./store.ts";
+export { readConfig } from "./config.ts";
 export {
   createDevThread,
   stubHandler,
   type CommandHandler,
   type CommandContext,
 } from "./commands.ts";
-export { readConfig } from "./config.ts";
-const noop = () => {};
+export { createDaemonReview, type ReviewPort, type DaemonReviewOptions } from "./review.ts";
+export { createDaemonUsage, loadUsageSettings, type UsageCommands } from "./usage.ts";
+export type { DaemonPreview, DaemonPreviewOptions } from "./preview.ts";
+export { readHistoryInstances, type DaemonHistoryOptions } from "./history.ts";
+export type { HistoryAdapterPort } from "./history-continuation.ts";
 
-export async function startDaemon(
-  config: Config = readConfig(),
-  handler: CommandHandler = stubHandler(),
-  toolkits: readonly Toolkit[] = [],
-  notificationChannels?: Omit<NotificationChannels, "websocket">,
-  modelInstances: readonly InstanceInput[] = [],
-  workload: HealthOptions["workload"] = () => ({ activeSessions: null, queues: {} }),
-): Promise<{
-  url: string;
-  tokenPath: string;
-  store: Store;
-  models: ModelCatalog;
-  notifications: NotificationWorker;
-  mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
-  remoteUrl?: string;
-  fingerprint?: string;
-  close(): Promise<void>;
-}> {
+export async function startDaemon(options: DaemonOptions = {}) {
+  const config = options.config ?? readConfig();
   const unlock = acquireLock(config.dataDir);
-  const context = { home: homedir(), env: process.env };
-  let log: ReturnType<typeof createLogger> | undefined;
-  let health: ReturnType<typeof createHealthMonitor> | undefined;
-  let store: Store | undefined;
-  let models: ModelCatalog | undefined;
-  let notifications: DaemonNotifications | undefined;
-  let closeChannels = noop;
-  let mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
+  const resources = new Resources();
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let endpointPath: string | undefined;
   const closeResources = async () => {
+    resources.beginShutdown();
     try {
-      await mcp?.close();
+      await server?.close();
     } finally {
       try {
-        await server?.close();
+        await resources.close();
       } finally {
         try {
-          await notifications?.close();
+          if (endpointPath) unlinkSync(endpointPath);
         } finally {
-          try {
-            closeChannels();
-          } finally {
-            try {
-              try {
-                await models?.close();
-              } finally {
-                store?.close();
-              }
-            } finally {
-              try {
-                if (endpointPath) unlinkSync(endpointPath);
-              } finally {
-                health?.close();
-                try {
-                  await log?.close();
-                } finally {
-                  unlock();
-                }
-              }
-            }
-          }
+          unlock();
         }
       }
     }
   };
   try {
+    const context = { home: homedir(), env: process.env };
     const sink = await createFileSink({
       directory: join(config.dataDir, "logs"),
       fileBytes: 1024 * 1024,
@@ -109,76 +63,88 @@ export async function startDaemon(
       },
       async close() {},
     }));
-    log = createLogger({
+    const log = createLogger({
       sink,
       now: Date.now,
       redact: createRedactor(context),
       level: config.logLevel,
     });
-    const ownedLog = log;
-    health = createHealthMonitor({
+    resources.own(() => log.close());
+    const serviceContext: ServiceContext = {
+      config,
+      options,
+      now: Date.now,
+      id: randomUUID,
+      log,
+      resources,
+      services: {},
+      onListen: [],
+      store: new Store(join(config.dataDir, "events.sqlite"), (error) =>
+        log.log("error", "Event subscriber failed", error),
+      ),
+    };
+    const store = serviceContext.store;
+    resources.own(() => store.close());
+    const health = createHealthMonitor({
       database: join(config.dataDir, "events.sqlite"),
       now: Date.now,
       workload: () => {
-        const engine = workload();
+        const current = options.workload?.() ??
+          serviceContext.services.engine?.workload() ?? { activeSessions: null, queues: {} };
         return {
-          ...engine,
+          ...current,
           queues: {
-            ...engine.queues,
+            ...current.queues,
             "daemon.socketInput": server?.diagnosticsQueues().socketInput ?? 0,
             "daemon.healthRequests": server?.diagnosticsQueues().healthRequests ?? 0,
           },
         };
       },
-      logs: ownedLog.stats,
+      logs: log.stats,
     });
+    resources.own(() => health.close());
+    for (const factory of serviceFactories) await factory(serviceContext);
+    const services = readyServices(serviceContext.services);
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
-    store = new Store(join(config.dataDir, "events.sqlite"), (error) =>
-      ownedLog.log("error", "Event subscriber failed", error),
-    );
-    models = openDaemonModels(config.dataDir, modelInstances);
-    mcp = await startDaemonMcp(store, toolkits);
-    const configured = notificationChannels
-      ? { channels: notificationChannels, close: closeChannels }
-      : await loadNotificationChannels();
-    closeChannels = configured.close;
-    notifications = createDaemonNotifications(
-      config.dataDir,
-      store,
-      () => ownedLog.log("error", "Notification service failure"),
-      configured.channels,
-    );
     const remote = await remoteListener(config);
     server = await startServer({
+      ...services,
       ...(remote ? { remote } : {}),
+      maintenance: process.env.ACE_MAINTENANCE === "1",
+      version: process.env.ACE_VERSION ?? "development",
       port: config.port,
       token,
       hostId,
       store,
-      handler,
-      models,
-      notifications: notifications.service,
+      ...(options.preview ? { preview: options.preview } : {}),
       health: health.collect,
-      log: (error) => ownedLog.log("error", "WebSocket failure", error),
+      log: (error) => log.log("error", "WebSocket failure", error),
     });
-    ownedLog.log("info", "Daemon listening", logFields([["url", server.url]]));
-    notifications.setSender(server.notify);
-    await notifications.start();
+    log.log("info", "Daemon listening", logFields([["url", server.url]]));
+    for (const start of serviceContext.onListen) await start(server);
     const path = join(config.dataDir, "daemon-endpoint");
     writeFileSync(path, server.httpUrl, { mode: 0o600 });
     endpointPath = path;
     let closing: Promise<void> | undefined;
     return {
+      maintenance: server.maintenance,
       url: server.url,
+      tokenPath,
+      store,
       ...(server.remoteUrl && server.fingerprint
         ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
         : {}),
-      tokenPath,
-      store,
-      models,
-      notifications: notifications.service,
-      mcp,
+      ...(server.preview ? { preview: server.preview } : {}),
+      preparePlugins: services.preparePlugins,
+      launchPlugins: services.launchPlugins,
+      browser: services.browser,
+      context: services.context,
+      settings: services.settings,
+      models: services.models,
+      notifications: services.notifications,
+      review: services.review,
+      mcp: services.mcp,
       close() {
         closing ??= closeResources();
         return closing;

@@ -1,0 +1,67 @@
+import { loadNotificationChannels } from "../notification-config.ts";
+import { createDaemonNotifications } from "../notifications.ts";
+import type { ServiceContext } from "./types.ts";
+export async function startNotifications(context: ServiceContext): Promise<void> {
+  const { config, options, store, resources, services, log, onListen } = context;
+
+  const configured = options.notificationChannels
+    ? { channels: options.notificationChannels, close: () => {} }
+    : await loadNotificationChannels();
+  resources.own(configured.close);
+  const notifications = createDaemonNotifications(
+    config.dataDir,
+    store,
+    () => log.log("error", "Notification service failure"),
+    configured.channels,
+  );
+  resources.own(() => notifications.close());
+  services.notifications = notifications.service;
+  onListen.push(async (server) => {
+    notifications.setSender(server.notify);
+    await notifications.start();
+  });
+}
+
+import type { SocketContext, SocketService } from "./socket.ts";
+export function createNotificationsSession({
+  options,
+  authorize,
+  sessionId,
+  onPresence,
+  fail,
+}: SocketContext): SocketService {
+  return {
+    async handle(message, device) {
+      switch (message.type) {
+        case "presence.update":
+        case "notification.register":
+        case "notification.preferences":
+        case "notification.snooze": {
+          const scope = message.type === "notification.snooze" ? "operate" : "read";
+          if (!authorize(scope)) {
+            fail("forbidden", `${scope === "read" ? "Read" : "Operate"} scope required`);
+            return true;
+          }
+          if (!options.notifications) {
+            fail("notifications_unavailable", "Notifications unavailable");
+            return true;
+          }
+          try {
+            if (message.type === "presence.update") {
+              onPresence();
+              await options.notifications.updatePresence(sessionId, device, message);
+            } else if (message.type === "notification.register")
+              await options.notifications.register(device, message.device);
+            else if (message.type === "notification.preferences")
+              await options.notifications.preferences(device, message.preferences);
+            else await options.notifications.snooze(message.threadId, message.until);
+          } catch {
+            fail("notification_rejected", "Notification update rejected");
+          }
+          return true;
+        }
+      }
+      return false;
+    },
+  };
+}

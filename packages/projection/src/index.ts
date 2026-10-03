@@ -65,12 +65,11 @@ function reparentAgent(
   nextParent: string | null,
 ): void {
   if (oldParent === nextParent) return;
-  if (oldParent && oldParent !== nextParent)
-    put(
-      view.agentChildren,
-      oldParent,
-      (get(view.agentChildren, oldParent) ?? []).filter((child) => child !== id),
-    );
+  if (oldParent && oldParent !== nextParent) {
+    const children = (get(view.agentChildren, oldParent) ?? []).filter((child) => child !== id);
+    if (children.length) put(view.agentChildren, oldParent, children);
+    else delete view.agentChildren[oldParent];
+  }
   if (nextParent) {
     const children = get(view.agentChildren, nextParent) ?? [];
     children.push(id);

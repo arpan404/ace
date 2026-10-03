@@ -1,3 +1,4 @@
+import type { MaintenanceGate } from "@ace/service";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { PairingRequest, PairingRedemption, type Device } from "@ace/protocol";
 import { AccessError, RemoteAuth } from "./remote-auth.ts";
@@ -23,6 +24,8 @@ export function accessHttp(
   pairing: () => { origin: string; fingerprint: string } | undefined,
   sourceAddress: (request: IncomingMessage) => string = (request) =>
     request.socket.remoteAddress ?? "unknown",
+  maintenance?: MaintenanceGate,
+  version = "development",
 ) {
   return (request: IncomingMessage, response: ServerResponse) => {
     void (async () => {
@@ -46,8 +49,13 @@ export function accessHttp(
       } else {
         auth.requireAdmin(actor());
         if (path === "/v1/status" && request.method === "GET")
-          result = { running: true, remote: pairing() ?? null };
-        else if (path === "/v1/pairings" && request.method === "POST") {
+          result = { running: true, version, remote: pairing() ?? null };
+        else if (path === "/v1/maintenance" && maintenance) {
+          if (request.method === "POST") result = maintenance.enter();
+          else if (request.method === "DELETE") result = maintenance.leave();
+          else if (request.method === "GET") result = maintenance.status();
+          else throw new AccessError(405, "Unsupported method");
+        } else if (path === "/v1/pairings" && request.method === "POST") {
           const connection = pairing();
           if (!connection)
             throw new AccessError(

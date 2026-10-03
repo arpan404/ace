@@ -1,5 +1,18 @@
 import { DiagnosticsHealth } from "./diagnostics.ts";
+import { ReviewData } from "./review.ts";
 import { z } from "zod";
+import { ContextRequest, ContextResult } from "./context.ts";
+import {
+  HistoryListRequest,
+  HistoryListResponse,
+  HistoryImportRequest,
+  HistoryImportResponse,
+  HistoryScanRequest,
+  HistoryScanResponse,
+  HistoryContinueRequest,
+  HistoryContinueResponse,
+} from "./history.ts";
+import { UsageSummary, UsageSeries, UsageMessage } from "./usage.ts";
 import {
   ModelsListRequest,
   ModelsRefreshRequest,
@@ -21,6 +34,15 @@ import { CommandId, DeviceId, HostId, ThreadId } from "./ids.ts";
 import { Interaction } from "./interactions.ts";
 import { Item } from "./items.ts";
 import { Run, Thread } from "./thread.ts";
+
+import {
+  SettingsGet,
+  SettingsSet,
+  SettingsSubscribe,
+  SettingsResult,
+  SettingsChanged,
+  SettingsDiagnosticMessage,
+} from "./settings.ts";
 
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 // Zod records intentionally strip __proto__. Validate entries before rebuilding
@@ -46,6 +68,8 @@ export const ThreadView = z.object({
   runs: records(Run),
   items: records(Item),
   itemOrder: z.array(z.string()),
+  /** Creation cursors for the bounded item window, independent of live update sequence. */
+  itemSeqs: records(seq.positive()).optional(),
   /** Exclusive item creation-sequence cursor for older history. */
   itemsBefore: seq.positive().nullable().default(null),
   interactions: records(Interaction),
@@ -76,12 +100,24 @@ export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().option
 );
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ItemsPage = z.object({
+  seq,
   threadId: ThreadId,
-  items: z.array(Item),
+  items: z.array(Item).max(200),
+  itemSeqs: records(seq.positive()).optional(),
   itemsBefore: seq.positive().nullable(),
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  ContextRequest,
+  SettingsGet,
+  SettingsSet,
+  SettingsSubscribe,
+  HistoryListRequest,
+  HistoryImportRequest,
+  HistoryScanRequest,
+  HistoryContinueRequest,
+  UsageSummary,
+  UsageSeries,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -130,9 +166,19 @@ export const CommandResult = z.object({
   ok: z.boolean(),
   health: DiagnosticsHealth.optional(),
   error: z.string().optional(),
+  review: ReviewData.optional(),
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  ContextResult,
+  SettingsResult,
+  SettingsChanged,
+  SettingsDiagnosticMessage,
+  HistoryListResponse,
+  HistoryImportResponse,
+  HistoryScanResponse,
+  HistoryContinueResponse,
+  UsageMessage,
   ModelsResult,
   NotificationMessage,
   z.object({
@@ -178,7 +224,13 @@ export const ServerMessage = z.discriminatedUnion("type", [
       message: "Progress must not move backwards",
     }),
   CommandResult.extend({ type: z.literal("commandResult") }),
-  z.object({ type: z.literal("error"), code: z.string(), message: z.string() }),
+  z.object({
+    type: z.literal("error"),
+    code: z.string(),
+    message: z.string(),
+    requestId: z.string().optional(),
+    subscriptionId: z.string().optional(),
+  }),
   z.object({
     type: z.literal("output.data"),
     requestId: z.string(),

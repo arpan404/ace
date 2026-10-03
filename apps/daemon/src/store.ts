@@ -1,3 +1,6 @@
+import { setImmediate } from "node:timers/promises";
+import type { ArchiveReader } from "@ace/history-import";
+import { installArchive, readHistoryBlob } from "./history-storage.ts";
 import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
 import { randomUUID } from "node:crypto";
 import { DatabaseSync, type StatementSync, type SQLOutputValue } from "node:sqlite";
@@ -9,6 +12,7 @@ import {
   type DeviceId,
   type CommandId,
   type EventPayload,
+  type RawPayload,
   type ThreadId,
   type ThreadView,
   WorkspaceId,
@@ -18,6 +22,7 @@ import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
 import { migrate } from "./migrations.ts";
 import { StatusStore } from "./status-store.ts";
+import { UsageReplay } from "./usage-replay.ts";
 import { PayloadStore } from "./payload-store.ts";
 
 export interface StoreOptions extends Partial<CredentialRuntime> {
@@ -30,6 +35,8 @@ type Listener = (events: Event[]) => void;
 export class Store {
   readonly devices: Devices;
   private readonly db: DatabaseSync;
+  private readonly usageReplay: UsageReplay;
+  private readonly usageListeners = new Set<() => void>();
   private readonly payloads: PayloadStore;
   private readonly status: StatusStore;
   private readonly nextId: () => string;
@@ -39,6 +46,8 @@ export class Store {
   private closed = false;
   private transactionEvents: Event[] | undefined;
   private depth = 0;
+  private installingHistory = false;
+  private historyWriting = false;
   private listeners = new Set<Listener>();
   private caches = new Map<ThreadId, { view: ThreadView; refs: number }>();
   private publications: Event[][] = [];
@@ -59,6 +68,10 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
+      this.usageReplay = new UsageReplay(this.db);
+      this.db.exec(
+        `CREATE INDEX IF NOT EXISTS threads_update_blockers ON threads(id) WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')`,
+      );
       this.payloads.initialize();
       this.status.initialize((id) => this.getThread(id));
       this.devices = new Devices(this.db, {
@@ -77,6 +90,7 @@ export class Store {
     this.closed = true;
     this.statements.clear();
     this.listeners.clear();
+    this.usageListeners.clear();
     this.caches.clear();
     this.db.close();
   }
@@ -94,10 +108,21 @@ export class Store {
       this.listeners.delete(listener);
     };
   }
+  /** Wake analytics on committed events and durable deletion tombstones. */
+  subscribeUsage(listener: () => void): () => void {
+    if (this.usageListeners.size >= 16 && !this.usageListeners.has(listener))
+      throw new Error("Usage subscription capacity reached");
+    this.usageListeners.add(listener);
+    return () => {
+      this.usageListeners.delete(listener);
+    };
+  }
   headSeq(): number {
     return Number(this.statement("SELECT seq FROM host_sequence WHERE id = 1").get()?.seq);
   }
   private transaction<T>(run: () => T): T {
+    if (this.installingHistory) return run();
+    if (this.historyWriting) throw new Error("History publication in progress");
     if (this.transactionEvents) {
       const length = this.transactionEvents.length;
       const savepoint = `nested_${++this.depth}`;
@@ -130,7 +155,26 @@ export class Store {
       this.transactionEvents = undefined;
     }
     this.publish(events);
+    for (const listener of this.usageListeners) {
+      try {
+        listener();
+      } catch (error) {
+        try {
+          this.onError(error);
+        } catch {
+          /* committed */
+        }
+      }
+    }
     return result;
+  }
+  /** Extend a receipt or event transaction on the same connection. No async I/O. */
+  atomic<T>(run: (db: DatabaseSync) => T): T {
+    return this.transaction(() => run(this.db));
+  }
+  /** Cap provider facts using the same blob owner and transaction as canonical events. */
+  capRaw(raw: RawPayload[], threadId: ThreadId): RawPayload[] {
+    return this.transaction(() => this.payloads.capRaw(raw, threadId));
   }
   private publish(events: Event[]): void {
     if (!events.length) return;
@@ -168,12 +212,64 @@ export class Store {
       this.publishing = false;
     }
   }
+  setHistoryWriting(active: boolean): void {
+    if (active && this.historyWriting) throw new Error("History publication in progress");
+    this.historyWriting = active;
+    // Main-thread writes fail immediately while the worker holds the import transaction.
+    this.db.exec(active ? "PRAGMA busy_timeout=0" : "PRAGMA busy_timeout=5000");
+  }
+  installHistory(archive: ArchiveReader, at: number, cancelled: () => boolean): void {
+    if (this.transactionEvents || this.installingHistory) throw new Error("Store is busy");
+    this.db.exec("BEGIN IMMEDIATE");
+    this.installingHistory = true;
+    try {
+      installArchive(
+        this.db,
+        archive,
+        (payload) => {
+          this.appendEvents(archive.thread.id, [payload], at);
+        },
+        cancelled,
+      );
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    } finally {
+      this.installingHistory = false;
+    }
+  }
+  async notifyHistory(after: number): Promise<void> {
+    const through = this.headSeq();
+    while (after < through) {
+      const events = this.readEvents({ afterSeq: after, limit: 16 });
+      if (!events.length) throw new Error("Missing committed history events");
+      this.publish(events);
+      after = events.at(-1)?.seq ?? through;
+      await setImmediate();
+    }
+  }
+  getWorkspace(id: WorkspaceId): { path: string } | undefined {
+    const row = this.statement("SELECT path FROM workspaces WHERE id=?").get(id);
+    return row ? { path: String(row.path) } : undefined;
+  }
+  importedSource(sourceId: string): Thread | undefined {
+    const row = this.statement(
+      "SELECT * FROM threads WHERE json_extract(imported,'$.sourceId')=?",
+    ).get(sourceId);
+    return row ? this.decodeThread(row) : undefined;
+  }
   createWorkspace(path: string, name: string, at = this.now()): WorkspaceId {
+    if (this.historyWriting) throw new Error("History publication in progress");
     const existing = this.statement("SELECT id FROM workspaces WHERE path = ?").get(path);
     if (existing) return WorkspaceId.parse(existing.id);
     const id = WorkspaceId.parse(this.nextId());
     this.statement("INSERT INTO workspaces VALUES (?, ?, ?, ?)").run(id, path, name, at);
     return id;
+  }
+  getWorkspacePath(id: WorkspaceId): string | undefined {
+    const row = this.statement("SELECT path FROM workspaces WHERE id = ?").get(id);
+    return typeof row?.path === "string" ? row.path : undefined;
   }
   getThread(id: ThreadId): Thread | undefined {
     const row = this.statement("SELECT * FROM threads WHERE id = ?").get(id);
@@ -190,8 +286,16 @@ export class Store {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       ...(row.archived_at === null ? {} : { archivedAt: row.archived_at }),
+      ...(row.imported == null ? {} : { imported: JSON.parse(String(row.imported)) }),
       ...(row.root_agent_id === null ? {} : { rootAgentId: row.root_agent_id }),
     });
+  }
+  updateBlockers(): number {
+    return Number(
+      this.statement(
+        "SELECT COUNT(*) AS n FROM threads WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')",
+      ).get()?.n,
+    );
   }
   listThreads(): Thread[] {
     return this.statement("SELECT * FROM threads ORDER BY updated_at DESC, id")
@@ -211,7 +315,7 @@ export class Store {
           if (thread.id !== threadId || this.getThread(threadId))
             throw new Error("Invalid thread creation");
           this.statement(
-            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO threads (id, workspace_id, title, provider, status, created_at, updated_at, imported) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
           ).run(
             thread.id,
             thread.workspaceId,
@@ -220,6 +324,7 @@ export class Store {
             JSON.stringify(thread.status),
             thread.createdAt,
             event.at,
+            thread.imported ? JSON.stringify(thread.imported) : null,
           );
         } else {
           const existing = this.getThread(threadId);
@@ -297,6 +402,10 @@ export class Store {
       }),
     );
   }
+  /** Usage replay skips transcript/output payloads while advancing host coverage. */
+  readUsagePage(options: { afterSeq: number; limit: number; maxBytes?: number }) {
+    return this.usageReplay.read(options, this.headSeq());
+  }
   recordCommand(commandId: CommandId, deviceId: DeviceId, run: () => CommandResult): CommandResult {
     return this.transaction(() => {
       const receipt = this.statement(
@@ -312,6 +421,29 @@ export class Store {
         JSON.stringify(result),
       );
       return result;
+    });
+  }
+  releaseReviewCommand(commandId: CommandId, deviceId: DeviceId): void {
+    this.statement(
+      "DELETE FROM command_receipts WHERE command_id = ? AND device_id = ? AND json_extract(result, '$.error') = 'review_pending'",
+    ).run(commandId, deviceId);
+  }
+  completeReviewCommand(
+    commandId: CommandId,
+    deviceId: DeviceId,
+    input: CommandResult,
+  ): CommandResult {
+    const result = CommandResult.parse(input);
+    if (result.commandId !== commandId) throw new Error("Command result id mismatch");
+    return this.transaction(() => {
+      this.statement(
+        "UPDATE command_receipts SET result = ? WHERE command_id = ? AND device_id = ? AND json_extract(result, '$.error') = 'review_pending'",
+      ).run(JSON.stringify(result), commandId, deviceId);
+      const row = this.statement("SELECT result FROM command_receipts WHERE command_id = ?").get(
+        commandId,
+      );
+      if (!row) throw new Error("Missing review command reservation");
+      return CommandResult.parse(JSON.parse(String(row.result)));
     });
   }
   acquireThread(id: ThreadId): ThreadView {
@@ -343,23 +475,40 @@ export class Store {
       view.items = Object.fromEntries(page.items.map((item) => [item.id, item]));
       view.itemOrder = page.items.map((item) => item.id);
       view.itemsBefore = page.itemsBefore;
+      if (page.itemSeqs) view.itemSeqs = page.itemSeqs;
       return view;
     } finally {
       this.releaseThread(id);
     }
   }
+  getInteraction(id: string) {
+    return this.status.interaction(id);
+  }
   readItems(threadId: ThreadId, before: number, limit: number) {
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
-    return this.payloads.page(threadId, before, limit);
+    return { ...this.payloads.page(threadId, before, limit), seq: this.headSeq() };
   }
   outputThread(streamId: string) {
     return this.payloads.streamThread(streamId);
   }
+  readItemPage(threadId: ThreadId, before: number, limit: number, byteLimit = 1024 * 1024) {
+    if (!this.getThread(threadId)) throw new Error("Unknown thread");
+    return { ...this.payloads.wirePage(threadId, before, limit, byteLimit), seq: this.headSeq() };
+  }
   readOutput(streamId: string, offset: number, limit: number) {
     return this.payloads.readOutput(streamId, offset, limit);
   }
+  readHistoryBlob(threadId: ThreadId, id: string, offset: number, limit: number) {
+    if (!this.getThread(threadId)) throw new Error("Unknown thread");
+    return readHistoryBlob(this.db, threadId, id, offset, limit);
+  }
   deleteThread(id: ThreadId): void {
     this.transaction(() => {
+      if (!this.getThread(id)) return;
+      const seq = this.headSeq() + 1;
+      if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
+      this.statement("INSERT INTO usage_deletions VALUES (?, ?, ?)").run(seq, id, this.now());
+      this.statement("UPDATE host_sequence SET seq=? WHERE id=1").run(seq);
       this.mcp.deleteThread(id);
       this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
       this.statement("DELETE FROM threads WHERE id = ?").run(id);

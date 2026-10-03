@@ -1,6 +1,5 @@
 import { defineConfig } from "vitest/config";
 import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
-import { processTestSuites } from "./scripts/process-test-suites.ts";
 
 export default defineConfig({
   test: {
@@ -16,7 +15,7 @@ export default defineConfig({
             "tools/*/src/**/*.test.ts",
             "apps/*/src/**/*.test.ts",
           ],
-          exclude: processTestSuites,
+          exclude: ["**/*.process.test.ts"],
           maxWorkers: 2,
           sequence: { groupOrder: 0 },
         },
@@ -24,7 +23,7 @@ export default defineConfig({
       {
         test: {
           name: "process",
-          include: processTestSuites,
+          include: ["{packages,tools,apps}/*/src/**/*.process.test.ts"],
           maxWorkers: 2,
           sequence: { groupOrder: 1 },
           testTimeout: PROCESS_TEST_TIMEOUT,

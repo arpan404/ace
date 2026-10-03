@@ -17,6 +17,7 @@ export interface GitOptions {
   maxPatchBytes?: number;
   now?: () => Date | Promise<Date>;
   tempDirectory?: string;
+  checkpointCounterCacheSize?: number;
 }
 
 export type GitErrorCode =
@@ -24,6 +25,8 @@ export type GitErrorCode =
   | "git_too_old"
   | "git_failed"
   | "git_timeout"
+  | "git_closed"
+  | "git_busy"
   | "malformed_output"
   | "filesystem_error"
   | "output_too_large"

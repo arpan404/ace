@@ -1,33 +1,24 @@
-import type { ModelCatalogApi } from "@ace/models";
-import { handleModelRequest } from "./models.ts";
-import { systemDeliveryRuntime, type DeliveryRuntime } from "./delivery-runtime.ts";
-import type { NotificationWorker } from "@ace/notify";
-import { generateSecret, systemCredentials, type EntropySource } from "./credential-runtime.ts";
+import { createServiceSessions, parseSocketMessage } from "./services/registry.ts";
+import type { SocketMessage } from "./services/socket.ts";
+import { previewHttp } from "./preview-http.ts";
+import { createDaemonPreview, type DaemonPreview } from "./preview.ts";
+import { MaintenanceGate } from "@ace/service";
+import { systemDeliveryRuntime } from "./delivery-runtime.ts";
+import { generateSecret, systemCredentials } from "./credential-runtime.ts";
 import { z } from "zod";
-import { defaultTicketLimits, type TicketLimits } from "./ticket-pool.ts";
-import { createServer as httpServer } from "node:http";
+import { defaultTicketLimits } from "./ticket-pool.ts";
+import { createServer as httpServer, type Server } from "node:http";
 import { createServer as httpsServer } from "node:https";
-import type { Server, IncomingMessage } from "node:http";
 import { accessHttp } from "./access-http.ts";
 import { allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
-import { urlHost, type RemoteListener } from "./network.ts";
+import { urlHost } from "./network.ts";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
-import {
-  ClientMessage,
-  HostId,
-  DeviceId,
-  type ServerMessage,
-  type DiagnosticsHealth,
-  type Notification,
-  type ThreadId,
-} from "@ace/protocol";
-import { commandContext, type CommandHandler } from "./commands.ts";
-import { defaultPressure, Outbox, type PressureOptions } from "./outbox.ts";
-import type { Store } from "./store.ts";
+import { HostId, DeviceId, type ServerMessage, type Notification } from "@ace/protocol";
+import type { PluginServerMessage } from "@ace/protocol/plugins";
+import { defaultPressure, Outbox } from "./outbox.ts";
 import { SocketInput } from "./socket-input.ts";
 import { subscribe } from "./subscription.ts";
-
 const bind = (listener: Server, host: string, port: number) =>
   new Promise<number>((resolve, reject) => {
     listener.once("error", reject);
@@ -47,36 +38,13 @@ const closeListener = (listener: Server) =>
     listener.closeAllConnections();
   });
 
-export interface ServerOptions {
-  models?: ModelCatalogApi;
-  port: number;
-  remote?: RemoteListener;
-  now?: () => number;
-  runtime?: Partial<DeliveryRuntime>;
-  entropy?: EntropySource;
-  pairingAddress?: (request: IncomingMessage) => string;
-  ticketLimits?: Partial<TicketLimits>;
-  token: string;
-  hostId: string;
-  store: Store;
-  handler: CommandHandler;
-  replayLimit?: number;
-  idleTimeoutMs?: number;
-  pressure?: Partial<PressureOptions>;
-  log?: (error: unknown) => void;
-  health?: () => Promise<DiagnosticsHealth>;
-  /** Local-token clients can read all threads by default. */
-  canReadThread?: (deviceId: DeviceId, threadId: ThreadId) => boolean;
-  notifications?: Pick<
-    NotificationWorker,
-    "connectDevice" | "disconnect" | "updatePresence" | "register" | "preferences" | "snooze"
-  > &
-    Partial<Pick<NotificationWorker, "revoke">>;
-  onDisconnect?: (deviceId: DeviceId | undefined) => void;
-}
+export type { ServerOptions } from "./server-options.ts";
+import type { ServerOptions } from "./server-options.ts";
 export async function startServer(options: ServerOptions): Promise<{
+  maintenance: MaintenanceGate;
   url: string;
   notify(device: DeviceId, notification: Notification): boolean;
+  preview?: DaemonPreview;
   httpUrl: string;
   diagnosticsQueues(): { socketInput: number; healthRequests: number };
   remoteUrl?: string;
@@ -110,13 +78,36 @@ export async function startServer(options: ServerOptions): Promise<{
     options.remote && remoteOrigin
       ? { origin: remoteOrigin, fingerprint: options.remote.identity.fingerprint }
       : undefined;
+  let preview: DaemonPreview | undefined;
+  const maintenance = new MaintenanceGate(() => options.store.updateBlockers());
+  if (options.maintenance) maintenance.enter();
   const local = httpServer(
-    accessHttp(auth, auth.localBearer.bind(auth), pairing, options.pairingAddress),
+    previewHttp(
+      () => preview,
+      accessHttp(
+        auth,
+        auth.localBearer.bind(auth),
+        pairing,
+        options.pairingAddress,
+        maintenance,
+        options.version,
+      ),
+    ),
   );
   const remote = options.remote
     ? httpsServer(
         { ...options.remote.identity, minVersion: "TLSv1.2" },
-        accessHttp(auth, auth.deviceBearer.bind(auth), pairing, options.pairingAddress),
+        previewHttp(
+          () => preview,
+          accessHttp(
+            auth,
+            auth.deviceBearer.bind(auth),
+            pairing,
+            options.pairingAddress,
+            undefined,
+            options.version,
+          ),
+        ),
       )
     : undefined;
   for (const listener of [local, remote])
@@ -146,6 +137,7 @@ export async function startServer(options: ServerOptions): Promise<{
   if (remote) attach(remote, false);
   const authenticated = new Map<WebSocket, Device & { revocable: boolean }>();
   const stopRevocation = auth.onRevoke((id) => {
+    preview?.revokeDevice(id);
     void options.notifications
       ?.revoke?.(DeviceId.parse(id))
       .catch(() => options.log?.(new Error("Notification revocation failed")));
@@ -156,8 +148,9 @@ export async function startServer(options: ServerOptions): Promise<{
         socket.terminate();
       }
   });
+  const serviceTasks = new Set<Promise<void>>();
+  const serviceSessions = new Map<WebSocket, ReturnType<typeof createServiceSessions>>();
   const input = new SocketInput();
-  let healthRequests = 0;
   const cleanups = new Map<WebSocket, () => void>();
   let disconnects = Promise.resolve();
   let disconnectError: Error | undefined;
@@ -168,33 +161,56 @@ export async function startServer(options: ServerOptions): Promise<{
       options.log?.(error);
       socket.terminate();
     });
-    let modelRequests = 0;
     if (cleanups.size >= 256) {
       socket.terminate();
       return;
     }
     const sessionId = z.string().min(1).max(200).parse(runtime.id());
     let device: DeviceId | undefined;
-    let healthPending = false;
     let hasPresence = false;
     let cleaned = false;
     let lastActivity = auth.now();
     const subscriptions = new Map<string, () => void>();
     const outbox = new Outbox(socket, { ...defaultPressure, ...options.pressure }, runtime.now);
-    const send = (message: ServerMessage) => outbox.send(message);
-    const fail = (code: string, message: string, close = false) => {
-      send({ type: "error", code, message });
+    const send = (message: ServerMessage | PluginServerMessage) => outbox.send(message);
+    const fail = (
+      code: string,
+      message: string,
+      close = false,
+      scope: { requestId?: string; subscriptionId?: string } = {},
+    ) => {
+      send({ type: "error", code, message, ...scope });
       if (close) socket.close(4001, code);
     };
-    const releaseHealth = () => {
-      if (!healthPending) return;
-      healthPending = false;
-      healthRequests--;
+    const authorize = (scope: import("@ace/protocol").DeviceScope) => {
+      const actor = authenticated.get(socket);
+      const current = actor?.revocable ? options.store.devices.get(actor.id) : actor;
+      return current?.revokedAt === null && allows(current, scope);
     };
+    const sessions = createServiceSessions({
+      options,
+      socket,
+      sessionId,
+      onPresence: () => {
+        hasPresence = true;
+      },
+      subscriptions,
+      tasks: serviceTasks,
+      maintenance,
+      device: () => device,
+      authorize,
+      canReadThread: (thread) =>
+        device !== undefined && options.canReadThread?.(device, thread) !== false,
+      connected: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
+      send,
+      fail,
+    });
+    serviceSessions.set(socket, sessions);
     const cleanup = () => {
       if (cleaned) return;
       cleaned = true;
-      releaseHealth();
+      for (const service of sessions) service.close?.();
+      serviceSessions.delete(socket);
       for (const stop of subscriptions.values()) stop();
       subscriptions.clear();
       outbox.clear();
@@ -232,10 +248,10 @@ export async function startServer(options: ServerOptions): Promise<{
     const receive = async (data: RawData, binary: boolean) => {
       if (socket.readyState !== WebSocket.OPEN) return;
       lastActivity = auth.now();
-      let message: ClientMessage;
+      let message: SocketMessage;
       try {
         if (binary) throw new Error("Text required");
-        message = ClientMessage.parse(JSON.parse(data.toString()));
+        message = parseSocketMessage(JSON.parse(data.toString()));
       } catch {
         fail(
           device ? "invalid_message" : "unauthorized",
@@ -273,15 +289,14 @@ export async function startServer(options: ServerOptions): Promise<{
           revocable: message.ticket !== undefined,
         });
         try {
-          if (allows(authenticated.get(socket), "read"))
-            await options.notifications?.connectDevice(actor.id);
+          if (authorize("read")) await options.notifications?.connectDevice(actor.id);
         } catch {
           fail("device_unavailable", "Device unavailable", true);
           return;
         }
         // Authentication may finish after disconnect, revocation or daemon shutdown.
         if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
-        if (allows(authenticated.get(socket), "read")) {
+        if (authorize("read")) {
           let connections = receivers.get(device);
           if (!connections) {
             connections = new Map();
@@ -297,64 +312,8 @@ export async function startServer(options: ServerOptions): Promise<{
         });
         return;
       }
+      for (const service of sessions) if (await service.handle?.(message, device)) return;
       switch (message.type) {
-        case "models.list":
-        case "models.resolve":
-        case "models.refresh": {
-          const modelFailure = (reason: string) =>
-            send({
-              type: "models.result",
-              requestId: message.requestId,
-              result: { ok: false, reason },
-            });
-          const requiredScope = message.type === "models.refresh" ? "operate" : "read";
-          if (!allows(authenticated.get(socket), requiredScope)) {
-            modelFailure(`${requiredScope} scope required`);
-            break;
-          }
-          if (!options.models) {
-            modelFailure("Model catalog is not configured");
-            break;
-          }
-          if (modelRequests >= 8) {
-            modelFailure("Too many catalog requests");
-            break;
-          }
-          modelRequests++;
-          void handleModelRequest(options.models, message)
-            .then(send, () => modelFailure("Model catalog request failed"))
-            .finally(() => {
-              modelRequests--;
-            });
-          break;
-        }
-        case "presence.update":
-        case "notification.register":
-        case "notification.preferences":
-        case "notification.snooze": {
-          const scope = message.type === "notification.snooze" ? "operate" : "read";
-          if (!allows(authenticated.get(socket), scope)) {
-            fail("forbidden", `${scope === "read" ? "Read" : "Operate"} scope required`);
-            break;
-          }
-          if (!options.notifications) {
-            fail("notifications_unavailable", "Notifications unavailable");
-            break;
-          }
-          try {
-            if (message.type === "presence.update") {
-              hasPresence = true;
-              await options.notifications.updatePresence(sessionId, device, message);
-            } else if (message.type === "notification.register")
-              await options.notifications.register(device, message.device);
-            else if (message.type === "notification.preferences")
-              await options.notifications.preferences(device, message.preferences);
-            else await options.notifications.snooze(message.threadId, message.until);
-          } catch {
-            fail("notification_rejected", "Notification update rejected");
-          }
-          break;
-        }
         case "hello":
           fail("unauthorized", "Hello is only valid once", true);
           break;
@@ -366,21 +325,27 @@ export async function startServer(options: ServerOptions): Promise<{
           subscriptions.delete(message.subscriptionId);
           break;
         case "subscribe": {
-          if (!allows(authenticated.get(socket), "read")) {
-            fail("forbidden", "Read scope required");
+          if (!authorize("read")) {
+            fail("forbidden", "Read scope required", false, {
+              subscriptionId: message.subscriptionId,
+            });
             break;
           }
           subscriptions.get(message.subscriptionId)?.();
           subscriptions.delete(message.subscriptionId);
           if (subscriptions.size >= 64) {
-            fail("subscription_limit", "Too many subscriptions");
+            fail("subscription_limit", "Too many subscriptions", false, {
+              subscriptionId: message.subscriptionId,
+            });
             break;
           }
           if (
             message.scope.kind === "thread" &&
             options.canReadThread?.(device, message.scope.threadId) === false
           ) {
-            fail("read_denied", "Thread is not readable");
+            fail("read_denied", "Thread is not readable", false, {
+              subscriptionId: message.subscriptionId,
+            });
             break;
           }
           try {
@@ -396,18 +361,22 @@ export async function startServer(options: ServerOptions): Promise<{
             );
             subscriptions.set(message.subscriptionId, stop);
           } catch {
-            fail("subscribe_failed", "Unknown thread or invalid cursor");
+            fail("subscribe_failed", "Unknown thread or invalid cursor", false, {
+              subscriptionId: message.subscriptionId,
+            });
           }
           break;
         }
         case "output.read": {
-          if (!allows(authenticated.get(socket), "read")) {
-            fail("forbidden", "Read scope required");
+          if (!authorize("read")) {
+            fail("forbidden", "Read scope required", false, { requestId: message.requestId });
             break;
           }
           const threadId = options.store.outputThread(message.streamId);
           if (!threadId || options.canReadThread?.(device, threadId) === false) {
-            fail("read_denied", "Output stream is not readable");
+            fail("read_denied", "Output stream is not readable", false, {
+              requestId: message.requestId,
+            });
             break;
           }
           send({
@@ -420,90 +389,78 @@ export async function startServer(options: ServerOptions): Promise<{
           break;
         }
         case "items.page": {
-          if (!allows(authenticated.get(socket), "read")) {
-            fail("forbidden", "Read scope required");
+          if (!authorize("read")) {
+            fail("forbidden", "Read scope required", false, { requestId: message.requestId });
             break;
           }
           if (
             !options.store.getThread(message.threadId) ||
             options.canReadThread?.(device, message.threadId) === false
           ) {
-            fail("read_denied", "Thread is not readable");
+            fail("read_denied", "Thread is not readable", false, { requestId: message.requestId });
             break;
           }
           try {
             send({
               type: "items.page",
               requestId: message.requestId,
-              ...options.store.readItems(message.threadId, message.before, message.limit),
+              ...options.store.readItemPage(
+                message.threadId,
+                message.before,
+                message.limit,
+                1024 * 1024 -
+                  Buffer.byteLength(
+                    JSON.stringify({
+                      type: "items.page",
+                      requestId: message.requestId,
+                      threadId: message.threadId,
+                    }),
+                  ) -
+                  128,
+              ),
             });
           } catch {
-            fail("read_denied", "Invalid item cursor");
+            fail("read_denied", "Invalid item cursor", false, { requestId: message.requestId });
           }
           break;
         }
         case "command": {
-          const scope = message.command.payload.type === "diagnostics.health" ? "read" : "operate";
-          if (!allows(authenticated.get(socket), scope)) {
-            fail("forbidden", `${scope === "read" ? "Read" : "Operate"} scope required`);
+          const route = sessions
+            .flatMap((service) => (service.command ? [service.command] : []))
+            .find((service) => service.types.includes(message.command.payload.type));
+          const scope = route?.scope(message.command) ?? "operate";
+          if (!authorize(scope)) {
+            fail("forbidden", `${scope} scope required`);
             break;
           }
           try {
-            if (allows(authenticated.get(socket), "read"))
-              await options.notifications?.connectDevice(device);
+            if (authorize("read")) await options.notifications?.connectDevice(device);
           } catch {
             fail("device_unavailable", "Device unavailable", true);
             break;
           }
           if (socket.readyState !== WebSocket.OPEN || !authenticated.has(socket)) break;
+          if (!authorize(scope)) {
+            fail("forbidden", `${scope} scope required`);
+            break;
+          }
           if (message.command.deviceId !== device) {
             fail("device_mismatch", "Command device must match hello");
             break;
           }
-          if (message.command.payload.type === "diagnostics.health") {
-            if (!options.health) {
-              send({
-                type: "commandResult",
-                commandId: message.command.id,
-                ok: false,
-                error: "diagnostics_unavailable",
-              });
-              break;
-            }
-            if (healthPending) {
-              send({
-                type: "commandResult",
-                commandId: message.command.id,
-                ok: false,
-                error: "diagnostics_busy",
-              });
-              break;
-            }
-            healthPending = true;
-            healthRequests++;
-            void Promise.resolve()
-              .then(options.health)
-              .then(
-                (health) =>
-                  send({ type: "commandResult", commandId: message.command.id, ok: true, health }),
-                () =>
-                  send({
-                    type: "commandResult",
-                    commandId: message.command.id,
-                    ok: false,
-                    error: "diagnostics_failed",
-                  }),
-              )
-              .finally(() => {
-                releaseHealth();
-              });
+          if (!maintenance.admitCommand(message.command)) {
+            fail("maintenance", "Daemon is draining for an update");
             break;
           }
           try {
-            const result = options.store.recordCommand(message.command.id, device, () =>
-              options.handler.handle(message.command, commandContext(options.store)),
-            );
-            send({ type: "commandResult", ...result });
+            if (route) await route.accept(message.command, device);
+            else
+              send({
+                type: "commandResult",
+                commandId: message.command.id,
+                ok: false,
+                error: "not_implemented",
+              });
           } catch (error) {
             options.log?.(error);
             fail("command_failed", "Command transaction rolled back");
@@ -527,8 +484,11 @@ export async function startServer(options: ServerOptions): Promise<{
       const remotePort = await bind(remote, options.remote.host, options.remote.port);
       remoteOrigin = `https://${urlHost(options.remote.advertisedHost)}:${remotePort}`;
     }
+    if (options.preview)
+      preview = await createDaemonPreview(options.store, options.preview, auth.now);
   } catch (error) {
     stopTimer();
+    await preview?.close();
     stopRevocation();
     await closeListener(local);
     if (remote) await closeListener(remote);
@@ -537,9 +497,18 @@ export async function startServer(options: ServerOptions): Promise<{
   }
   let closing: Promise<void> | undefined;
   return {
+    ...(preview ? { preview } : {}),
+    maintenance,
     url: `ws://127.0.0.1:${port}`,
     httpUrl: `http://127.0.0.1:${port}`,
-    diagnosticsQueues: () => ({ socketInput: input.depth(), healthRequests }),
+    diagnosticsQueues: () => ({
+      socketInput: input.depth(),
+      healthRequests: [...serviceSessions.values()].reduce(
+        (count, sessions) =>
+          count + sessions.reduce((sum, service) => sum + (service.healthPending?.() ?? 0), 0),
+        0,
+      ),
+    }),
     ...(remoteOrigin && options.remote
       ? {
           remoteUrl: remoteOrigin.replace("https:", "wss:"),
@@ -565,16 +534,20 @@ export async function startServer(options: ServerOptions): Promise<{
           socket.close(1001, "Daemon shutdown");
           socket.terminate();
         }
-        void Promise.all([closeListener(local), ...(remote ? [closeListener(remote)] : [])]).then(
+        void Promise.all([
+          closeListener(local),
+          ...(remote ? [closeListener(remote)] : []),
+          preview?.close(),
+        ]).then(
           () =>
             wss.close((error) => {
-              if (error) reject(error);
-              else
-                disconnects.then(() => {
-                  if (disconnectError) reject(disconnectError);
-                  else resolve();
-                }, reject);
+              void Promise.all([Promise.allSettled(serviceTasks), disconnects]).then(() => {
+                if (error) reject(error);
+                else if (disconnectError) reject(disconnectError);
+                else resolve();
+              }, reject);
             }),
+          reject,
         );
       });
       return closing;

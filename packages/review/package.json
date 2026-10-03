@@ -1,0 +1,19 @@
+{
+  "name": "@ace/review",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "benchmark": "node bench/reanchor.ts",
+    "benchmark:sessions": "node bench/sessions.ts"
+  },
+  "dependencies": {
+    "@ace/git": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

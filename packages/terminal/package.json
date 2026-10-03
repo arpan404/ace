@@ -1,0 +1,18 @@
+{
+  "name": "@ace/terminal",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "bench": "node src/benchmark.ts",
+    "prepare-native": "node scripts/prepare-native.ts"
+  },
+  "dependencies": {
+    "@ace/protocol": "workspace:*",
+    "node-pty": "^1.1.0"
+  }
+}

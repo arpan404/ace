@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "types": [], "lib": ["es2024", "dom"] },
+  "include": ["src/*.ts"],
+  "exclude": ["src/*.test.ts", "src/*.fixture.ts", "src/test-support.ts"]
+}

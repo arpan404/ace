@@ -21,7 +21,7 @@ export function launchDaemon(
 ) {
   const child = spawn(process.execPath, [daemonCli(), "start"], {
     cwd: fileURLToPath(new URL("../", import.meta.url)),
-    env,
+    env: { ACE_HISTORY_INSTANCES: "[]", ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
   const exited = once(child, "close");

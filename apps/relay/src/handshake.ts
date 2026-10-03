@@ -12,6 +12,9 @@ type Options = {
   clock: Clock;
   timeoutMs: number;
 };
+function readEmptyPayload(state: NoiseXX, message: Uint8Array): void {
+  if (state.readMessage(message).length !== 0) throw new Error("Handshake payload must be empty");
+}
 async function owned(
   socket: WebSocket,
   state: NoiseXX,
@@ -43,7 +46,7 @@ export function initiateHandshake(
   });
   return owned(socket, state, options, async () => {
     await sendFrame(socket, state.writeMessage());
-    state.readMessage(await reader.next());
+    readEmptyPayload(state, await reader.next());
     await sendFrame(socket, state.writeMessage());
   });
 }
@@ -59,8 +62,8 @@ export function respondHandshake(
     ephemeralKey: keyPair(),
   });
   return owned(socket, state, options, async () => {
-    state.readMessage(await reader.next());
+    readEmptyPayload(state, await reader.next());
     await sendFrame(socket, state.writeMessage());
-    state.readMessage(await reader.next());
+    readEmptyPayload(state, await reader.next());
   });
 }

@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { extendsOutput } from "./output-snapshot.ts";
 import {
   Agent,
   AgentActivity,
@@ -44,6 +46,8 @@ const allowed: Record<Fact["type"], string[]> = {
   "turn.ended": ["agent", "nativeTurnId", "outcome", "trigger", "error"],
   activity: ["agent", "activity", "detail"],
   "item.upsert": ["agent", "item", "draft"],
+  "item.reconciled": ["agent", "item", "draft"],
+  "subagents.waiting": ["agent", "item", "targets"],
   "item.delta": ["agent", "item", "field", "append"],
   "interaction.opened": ["agent", "interaction", "blocking", "request", "item", "raw"],
   "interaction.closed": ["interaction", "state", "resolution", "resolvedBy"],
@@ -59,11 +63,28 @@ const allowed: Record<Fact["type"], string[]> = {
     "outputPath",
     "raw",
   ],
-  "background.ended": ["task", "status"],
+  "background.ended": ["task", "status", "uncertain"],
+  "agent.disconnected": ["agent"],
+  "agent.reconnected": ["agent"],
   retry: ["agent", "on", "attempt", "until", "message"],
   "retry.cleared": ["agent"],
   "wake.expected": ["agent", "until"],
-  usage: ["agent", "inputTokens", "outputTokens", "cachedInputTokens", "contextWindow", "costUsd"],
+  usage: [
+    "agent",
+    "inputTokens",
+    "outputTokens",
+    "cachedInputTokens",
+    "contextWindow",
+    "costUsd",
+    "reasoningTokens",
+    "cacheWriteTokens",
+    "cacheWrite1hTokens",
+    "model",
+    "accountId",
+    "billingMode",
+    "counterMode",
+    "counterKey",
+  ],
   signal: ["agent"],
   "process.exited": ["deliberate", "message"],
   "process.started": [],
@@ -152,14 +173,9 @@ function itemError(state: ThreadState, fact: Fields, now: number): string | unde
     previous?.type === "tool_call" &&
     previous.call.detail.kind === "shell"
   ) {
-    const bytes = new TextEncoder().encode(detail.output);
-    const prior = previous.call.detail.output;
-    const size = prior?.bytes ?? 0;
-    const tail = prior?.tail ?? "";
-    const tailSize = new TextEncoder().encode(tail).length;
     if (
-      bytes.length < size ||
-      new TextDecoder().decode(bytes.subarray(size - tailSize, size)) !== tail
+      fact.type !== "item.reconciled" &&
+      !extendsOutput(previous.call.detail.output, detail.output)
     )
       return "legacy output must extend the existing stream";
   }
@@ -225,6 +241,9 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
       );
     case "activity":
       return AgentActivity.safeParse(fact.activity).success && optionalString(fact.detail);
+    case "subagents.waiting":
+      return z.array(z.string()).safeParse(fact.targets).success;
+    case "item.reconciled":
     case "item.upsert":
       return itemError(state, fact, now) === undefined;
     case "item.delta":
@@ -251,7 +270,11 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
         (fact.raw === undefined || validData(raw, fact.raw))
       );
     case "background.ended":
-      return oneOf(fact.status, ["completed", "failed", "stopped", "unknown"]);
+      return (
+        oneOf(fact.status, ["completed", "failed", "stopped", "unknown"]) &&
+        optionalBoolean(fact.uncertain) &&
+        (fact.uncertain !== true || fact.status === "unknown")
+      );
     case "retry":
       return (
         oneOf(fact.on, ["rate_limit", "network", "upstream"]) &&
@@ -270,6 +293,8 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
         fact.count >= 0 &&
         (fact.source === undefined || oneOf(fact.source, ["engine", "provider"]))
       );
+    case "agent.disconnected":
+    case "agent.reconnected":
     case "retry.cleared":
     case "signal":
     case "tick":
@@ -303,7 +328,13 @@ function checkedFact(
   for (const key of ["interaction", "task"])
     if (fields.includes(key) && typeof input[key] !== "string")
       return { error: `${key} key must be a string` };
-  if ((type === "item.upsert" || type === "item.delta") && typeof input.item !== "string")
+  if (
+    (type === "item.upsert" ||
+      type === "item.reconciled" ||
+      type === "item.delta" ||
+      type === "subagents.waiting") &&
+    typeof input.item !== "string"
+  )
     return { error: "item key must be a string" };
   if (type === "agent.seen" || type === "agent.linked") {
     if (type === "agent.seen" && input.origin === "root" && input.parent !== undefined)
@@ -314,7 +345,7 @@ function checkedFact(
     }
     if (typeof input.spawnedBy === "string") {
       const item = get(state.items, input.spawnedBy);
-      const owner = item && get(state.indexes.agentKeysById, item.agentId);
+      const owner = item?.agentId && get(state.indexes.agentKeysById, item.agentId);
       if (owner !== undefined) {
         const error = relationError(state, input.agent as string, owner);
         if (error) return { error };
@@ -340,13 +371,17 @@ function checkedFact(
       return { error: "delta field contradicts its item" };
   }
   if (
-    (type === "background.started" || type === "interaction.opened") &&
+    (type === "background.started" ||
+      type === "interaction.opened" ||
+      type === "subagents.waiting") &&
     typeof input.item === "string"
   ) {
     const item = get(state.items, input.item);
     if (item && item.agentId !== get(state.agents, input.agent as string)?.agent.id)
       return { error: "referenced item has a different owner" };
     if (item && item.type !== "tool_call") return { error: "work links must reference a tool" };
+    if (type === "subagents.waiting" && !item)
+      return { error: "wait must reference an existing tool" };
   }
   if (type === "interaction.opened" || type === "background.started") {
     const current =

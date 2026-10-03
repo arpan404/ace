@@ -20,7 +20,13 @@ export function refreshInteractionIndex(state: ThreadState, key: Key): void {
 }
 
 export function refreshTaskIndex(state: ThreadState, key: Key): void {
-  if (get(state.tasks, key)?.status === "running") put(state.indexes.runningTasks, key, true);
+  if (
+    get(state.tasks, key)?.status === "running" ||
+    (get(state.tasks, key)?.status === "unknown" &&
+      state.uncertainTasks &&
+      get(state.uncertainTasks, key))
+  )
+    put(state.indexes.runningTasks, key, true);
   else delete state.indexes.runningTasks[key];
 }
 

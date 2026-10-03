@@ -1,3 +1,4 @@
+import { restorePrePreviewSchema } from "./migration-test-support.ts";
 import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,6 +16,7 @@ it("preserves main's version-two paired devices when adding payload storage", ()
     const thread = createDevThread(store, store.createWorkspace("/repo", "repo"));
     store.close();
     const db = new DatabaseSync(path);
+    restorePrePreviewSchema(db);
     db.exec(`DROP TABLE text_encoding_migration; DROP TABLE status_migration;
       DROP TABLE view_entities; DROP TABLE item_text_chunks; DROP TABLE item_heads;
       DROP TABLE items; DROP TABLE output_chunks; DROP TABLE output_streams;

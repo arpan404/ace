@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { UsageMetadata } from "./usage.ts";
 import { Agent, AgentFidelity, AgentOrigin, AgentStatus } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import {
@@ -18,11 +19,12 @@ import { NativeRef } from "./provider.ts";
 import { Run, RunTrigger, Thread, ThreadStatus } from "./thread.ts";
 
 export const UsageUpdated = z.object({
+  ...UsageMetadata.shape,
   type: z.literal("usage.updated"),
   agentId: AgentId,
-  inputTokens: z.number().int().nonnegative(),
-  outputTokens: z.number().int().nonnegative(),
-  cachedInputTokens: z.number().int().nonnegative().optional(),
+  inputTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  outputTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  cachedInputTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   contextWindow: z.number().int().positive().optional(),
   costUsd: z.number().nonnegative().optional(),
 });
@@ -50,8 +52,8 @@ export const EventPayload = z.discriminatedUnion("type", [
     name: z.string().optional(),
     role: z.string().optional(),
     model: z.string().optional(),
-    /** Linked late: some providers announce the child before the spawning call. */
-    spawnedBy: ItemId.optional(),
+    /** Linked late, or cleared when authoritative parentage invalidates the spawning owner. */
+    spawnedBy: ItemId.nullable().optional(),
     background: z.boolean().optional(),
     endedAt: Timestamp.optional(),
   }),

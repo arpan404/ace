@@ -18,7 +18,7 @@
     "record": "bun run --filter @ace/recorder record",
     "check:size": "node scripts/check-file-size.ts",
     "ace": "node apps/daemon/src/cli.ts",
-    "postinstall": "bun run --filter @ace/workspace build:native"
+    "postinstall": "bun run --filter @ace/workspace build:native && bun run --filter @ace/terminal prepare-native"
   },
   "devDependencies": {
     "@ace/provider-kit": "workspace:*",
@@ -31,5 +31,8 @@
   "engines": {
     "node": ">=24"
   },
-  "packageManager": "bun@1.4.0"
+  "packageManager": "bun@1.4.0",
+  "trustedDependencies": [
+    "node-pty"
+  ]
 }

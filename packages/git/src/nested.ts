@@ -6,7 +6,28 @@ import type { Repository } from "./repository.ts";
 import { textOutput } from "./cli.ts";
 import { transferTree } from "./object-transfer.ts";
 import { serial } from "./lock.ts";
+import { removeIndexSubtrees } from "./temporary-index.ts";
 import { GitError } from "./types.ts";
+
+export interface NestedWorktree {
+  path: string;
+  root: string;
+  children: NestedWorktree[];
+}
+
+// A restore records each root only after acquiring its lock. Capture and
+// checkout both use these exact children instead of rediscovering ownership.
+export type SnapshotOwnership = ReadonlyMap<string, readonly NestedWorktree[]>;
+
+export function ownedChildren(
+  ownership: SnapshotOwnership,
+  root: string,
+): readonly NestedWorktree[] {
+  const children = ownership.get(root);
+  if (!children)
+    throw new GitError("unsupported_repository", "Snapshot root is outside restore ownership");
+  return children;
+}
 
 export async function nestedPaths(
   repository: Repository,
@@ -15,14 +36,14 @@ export async function nestedPaths(
   env: Record<string, string> = {},
 ): Promise<string[]> {
   const paths = new Set(tracked.filter((e) => e.mode === "160000").map((e) => e.path));
+  for (const entry of tracked) {
+    // A tracked file can now be a repository directory. Check the path itself
+    // without asking Git to run parent clean filters via --modified.
+    for (const ancestor of pathAncestors(entry.path)) paths.add(ancestor);
+  }
   const untracked = nul(
-    (
-      await repository.cli.call(
-        root,
-        ["ls-files", "--others", "--modified", "--exclude-standard", "-z"],
-        { env },
-      )
-    ).stdout,
+    (await repository.cli.call(root, ["ls-files", "--others", "--exclude-standard", "-z"], { env }))
+      .stdout,
   );
   for (const record of untracked) {
     const path = decode(
@@ -65,7 +86,31 @@ export async function repositoryPaths(root: string, paths: Iterable<string>): Pr
     );
     for (const path of roots) if (path !== undefined) nested.push(path);
   }
-  return nested.toSorted();
+  // A repository owns discovery below its root. Returning deeper roots here
+  // would snapshot them twice and acquire their locks out of hierarchy order.
+  const roots = new Set(nested);
+  return nested.toSorted().filter(
+    (path) =>
+      !pathAncestors(path)
+        .slice(0, -1)
+        .some((p) => roots.has(p)),
+  );
+}
+
+export async function nestedRoot(
+  repository: Repository,
+  root: string,
+  path: string,
+): Promise<string> {
+  const nested = await realpath(join(root, path));
+  if (textOutput(await repository.cli.call(nested, ["rev-parse", "--show-prefix"])) !== "")
+    throw new GitError("not_a_repo", "Nested path is not a repository root");
+  if (relative(root, nested).split(sep).join("/") !== path)
+    throw new GitError(
+      "unsupported_repository",
+      "Nested repository must have its own working root",
+    );
+  return nested;
 }
 
 export async function flattenNested(
@@ -74,17 +119,12 @@ export async function flattenNested(
   paths: string[],
   env: Record<string, string>,
   snapshot: (repository: Repository, root: string) => Promise<string>,
+  heldRoots: SnapshotOwnership,
 ): Promise<void> {
+  await removeIndexSubtrees(repository, root, paths, env);
   for (const path of paths) {
-    const nested = await realpath(join(root, path));
-    if (textOutput(await repository.cli.call(nested, ["rev-parse", "--show-prefix"])) !== "")
-      throw new GitError("not_a_repo", "Nested path is not a repository root");
-    if (relative(root, nested).split(sep).join("/") !== path)
-      throw new GitError(
-        "unsupported_repository",
-        "Nested repository must have its own working root",
-      );
-    await serial(nested, async () => {
+    const nested = await nestedRoot(repository, root, path);
+    const capture = async () => {
       const tree = await snapshot(repository, nested);
       await transferTree(repository, nested, root, tree);
       const entries = parseTree(
@@ -98,7 +138,9 @@ export async function flattenNested(
         env,
         input,
       });
-    });
+    };
+    if (heldRoots.has(nested)) await capture();
+    else await serial(nested, capture);
   }
 }
 
@@ -106,6 +148,7 @@ export async function ignoredPaths(
   repository: Repository,
   root: string,
   env: Record<string, string> = {},
+  ownership?: SnapshotOwnership,
 ): Promise<string[]> {
   const ignored = nul(
     (
@@ -116,13 +159,17 @@ export async function ignoredPaths(
       )
     ).stdout,
   ).map((p) => decode(pathSchema, p, "ignored path"));
-  const tracked = parseIndex(
-    (await repository.cli.call(root, ["ls-files", "--stage", "-z"])).stdout,
-  );
-  for (const path of await nestedPaths(repository, root, tracked)) {
+  const nested = ownership
+    ? ownedChildren(ownership, root).map((child) => child.path)
+    : await nestedPaths(
+        repository,
+        root,
+        parseIndex((await repository.cli.call(root, ["ls-files", "--stage", "-z"])).stdout),
+      );
+  for (const path of nested) {
     // Administrative data is excluded from snapshots and must never be replaced.
     ignored.push(`${path}/.git`);
-    for (const child of await ignoredPaths(repository, join(root, path)))
+    for (const child of await ignoredPaths(repository, join(root, path), {}, ownership))
       ignored.push(`${path}/${child}`);
   }
   return ignored;

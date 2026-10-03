@@ -28,6 +28,10 @@ export class GitCli {
   readonly timeoutMs: number;
   private ready: Promise<void> | undefined;
   private readonly runtime: GitProcessRuntime;
+  private readonly calls = new Set<Promise<Output>>();
+  private readonly cancellations = new Set<() => void>();
+  private closed = false;
+  private closing: Promise<void> | undefined;
 
   constructor(options: GitOptions) {
     this.runtime = processRuntime(options.processRuntime);
@@ -48,11 +52,36 @@ export class GitCli {
     }
   }
 
-  async call(cwd: string, args: string[], options: CallOptions = {}): Promise<Output> {
+  get activeCalls(): number {
+    return this.calls.size;
+  }
+  close(): Promise<void> {
+    if (this.closing) return this.closing;
+    this.closed = true;
+    for (const cancel of this.cancellations) cancel();
+    this.closing = Promise.allSettled(this.calls).then(() => {});
+    return this.closing;
+  }
+  call(cwd: string, args: string[], options: CallOptions = {}): Promise<Output> {
+    if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
+    if (this.calls.size >= 64)
+      return Promise.reject(new GitError("git_busy", "Git call limit reached"));
+    const result = this.runCall(cwd, args, options);
+    this.calls.add(result);
+    void result.then(
+      () => this.calls.delete(result),
+      () => this.calls.delete(result),
+    );
+    return result;
+  }
+  private async runCall(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (args.some((arg) => arg.includes("\0"))) {
       throw new GitError("invalid_argument", "Git arguments cannot contain NUL bytes");
     }
-    this.ready ??= this.verify(cwd);
+    this.ready ??= this.verify(cwd).catch((error: unknown) => {
+      this.ready = undefined;
+      throw error;
+    });
     await this.ready;
     return this.execute(cwd, args, options);
   }
@@ -80,6 +109,7 @@ export class GitCli {
   }
 
   private execute(cwd: string, args: string[], options: CallOptions): Promise<Output> {
+    if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
     // Repository/index selectors inherited from an agent must not redirect our commands.
     const env = Object.fromEntries(
       Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
@@ -106,27 +136,37 @@ export class GitCli {
       let truncated = false;
       let failure: GitError | undefined;
       let spawnFailure: Promise<GitError> | undefined;
-      const kill = () => killTree(this.runtime, child);
-      const cancelDeadline = this.runtime.scheduleTimeout(() => {
-        failure = new GitError("git_timeout", `Git exceeded ${this.timeoutMs}ms`, { args });
+      let stopping: Promise<void> | undefined;
+      const kill = () => {
+        stopping ??= killTree(this.runtime, child);
+      };
+      const cancel = () => {
+        failure ??= new GitError("git_closed", "Git service closed");
         kill();
-      }, this.timeoutMs);
-      const streamFailure = (error: Error) => {
+      };
+      this.cancellations.add(cancel);
+      const fail = (error: unknown) => {
+        if (failure) return;
         failure = toGitError(error);
         kill();
       };
+      const cancelDeadline = this.runtime.scheduleTimeout(() => {
+        fail(new GitError("git_timeout", `Git exceeded ${this.timeoutMs}ms`, { args }));
+      }, this.timeoutMs);
+      const streamFailure = (error: Error) => fail(error);
+      child.stdout.on("error", streamFailure);
+      child.stderr.on("error", streamFailure);
       if (options.output) {
         options.output.on("error", streamFailure);
         child.stdout.pipe(options.output);
       }
-      child.stdout.on("data", (chunk: Buffer) => {
+      const stdout = (chunk: Buffer) => {
         if (options.output) return;
         if (options.consume) {
           try {
             options.consume(chunk);
           } catch (error) {
-            failure = toGitError(error);
-            kill();
+            fail(error);
           }
           return;
         }
@@ -136,22 +176,39 @@ export class GitCli {
         if (chunk.length > remaining) {
           truncated = true;
           if (options.captureBytes === undefined) {
-            failure = new GitError("output_too_large", "Git metadata exceeded 64 MiB", { args });
-            kill();
+            fail(new GitError("output_too_large", "Git metadata exceeded 64 MiB", { args }));
           }
         }
-      });
-      child.stderr.on("data", (chunk: Buffer) => {
+      };
+      const stderrData = (chunk: Buffer) => {
         const keep = Math.min(chunk.length, Math.max(0, 65_536 - errorBytes));
         if (keep) errors.push(chunk.subarray(0, keep));
         errorBytes += keep;
-      });
-      child.on("error", (error: NodeJS.ErrnoException) => {
+      };
+      child.stdout.on("data", stdout);
+      child.stderr.on("data", stderrData);
+      const spawnError = (error: NodeJS.ErrnoException) => {
         spawnFailure = classifySpawn(error, cwd, this.binary);
-      });
-      child.on("close", async (code) => {
+      };
+      child.on("error", spawnError);
+      child.once("close", async (code) => {
         cancelDeadline();
-        if (spawnFailure) failure = await spawnFailure;
+        this.cancellations.delete(cancel);
+        if (stopping) await stopping;
+        if (options.input instanceof Readable) {
+          options.input.unpipe(child.stdin);
+          options.input.off("error", streamFailure);
+        }
+        if (options.output) {
+          child.stdout.unpipe(options.output);
+          options.output.off("error", streamFailure);
+        }
+        child.stdout.off("data", stdout);
+        child.stderr.off("data", stderrData);
+        child.stdout.off("error", streamFailure);
+        child.stderr.off("error", streamFailure);
+        child.off("error", spawnError);
+        if (spawnFailure) failure ??= await spawnFailure;
         const stderr = Buffer.concat(errors).toString("utf8");
         if (failure) return reject(failure);
         if (code !== 0 && !options.allowFailure) {
@@ -164,6 +221,7 @@ export class GitCli {
         options.input.on("error", streamFailure);
         options.input.pipe(child.stdin);
       } else child.stdin.end(options.input);
+      if (this.closed) cancel();
     });
   }
 }

@@ -42,7 +42,7 @@ HTTP. Discovery tests use temporary configs and a synthetic OpenCode HTTP API.
 Before changing production code, ran:
 
 ```sh
-bun run test apps/daemon/src/mcp-upgrade.test.ts packages/mcp-server/src/discovery-fifo.test.ts packages/mcp-server/src/http-boundaries.test.ts
+bun run test apps/daemon/src/mcp-upgrade.test.ts packages/mcp-server/src/discovery-fifo.process.test.ts packages/mcp-server/src/http-boundaries.process.test.ts
 ```
 
 Both database tests failed with `Cannot redefine property: root`. Both real-FIFO

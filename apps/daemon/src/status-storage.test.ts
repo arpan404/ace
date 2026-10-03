@@ -1,3 +1,4 @@
+import { restorePrePreviewSchema } from "./migration-test-support.ts";
 import { DatabaseSync } from "node:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -125,6 +126,7 @@ it("backfills version-three work entities and item metadata once, then keeps app
     store.appendEvents(thread.id, [{ type: "item.created", item: message("m", "before") }]);
     store.close();
     const db = new DatabaseSync(path);
+    restorePrePreviewSchema(db);
     db.exec(
       "DROP TABLE text_encoding_migration; DROP TABLE item_text_chunks; DROP TABLE item_heads; DROP TABLE view_entities; DROP TABLE status_migration; UPDATE schema_version SET version = 3",
     );

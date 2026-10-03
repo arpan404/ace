@@ -22,6 +22,7 @@ ace never asks for or stores your provider credentials. Each agent CLI uses the 
 | `packages/projection`     | Pure shared event folds for thread and sidebar views                    |
 | `packages/git`            | Local Git worktrees, checkpoints, diffs and safe restore                |
 | `packages/orchestrator`   | Multi-provider fan-out, races, pipelines and coordinator lanes          |
+| `packages/review`         | Local diff comments, persistent anchors and structured agent fixes      |
 | `packages/protocol`       | Canonical protocol: Zod schemas and types, no runtime logic             |
 | `packages/provider-kit`   | Supervised provider processes, JSON-RPC, SSE and local CLI discovery    |
 | `packages/workspace`      | Workspace file listing, reads, search and change subscriptions          |
