@@ -37,6 +37,7 @@ import { Notifications, type Selection } from "./observable.ts";
 import { Requests } from "./requests.ts";
 import { Sidebar } from "./sidebar.ts";
 import { Subscriptions, type ThreadSubscription } from "./subscriptions.ts";
+import { retryDelay } from "./lifecycle.ts";
 import {
   ClientError,
   defaultLimits,
@@ -134,6 +135,13 @@ export class Client implements ClientApi {
               const error = new ClientError("daemon", message.code);
               this.subscriptions.reject(message.subscriptionId, error);
               this.sidebar.reject(message.subscriptionId, error);
+            } else if (message.commandId) {
+              // A refused command settles its own intent; the connection stays usable.
+              if (!message.retryable)
+                this.requests.reject(message.commandId, new ClientError("daemon", message.code));
+              void this.intents
+                .refuse(message.commandId, message.code, message.retryable === true)
+                .catch(() => this.connection.fail(new ClientError("storage")));
             } else this.connection.fail(new ClientError("daemon", message.code));
             break;
           default:
@@ -170,6 +178,11 @@ export class Client implements ClientApi {
       (command) => {
         if (this.state === "ready") this.connection.send({ type: "command", command });
       },
+      (attempt, run) =>
+        options.scheduler.set(
+          retryDelay(attempt, limits.retryBaseMs, limits.retryCapMs, options.random()),
+          run,
+        ),
     );
   }
   get state(): ConnectionState {

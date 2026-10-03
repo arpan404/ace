@@ -30,7 +30,11 @@ export interface RecoveryPorts {
     target?: string,
   ): Promise<{ nativeSessionId: string; instanceId: string }>;
   contextWindow?: ContextWindowLookup;
+  /** Reports a deadline pass that failed and will be retried. */
+  onError?(error: unknown): void;
 }
+/** A deadline pass that could not commit (the store is busy, say) runs again after this. */
+const deadlineRetryMs = 1_000;
 /** Durable holds and one deadline timer, independent of actor/session residency. */
 export class Recovery {
   private repo: EngineRepository;
@@ -309,28 +313,37 @@ export class Recovery {
     if (this.closed) return;
     const at = this.repo.queue.nextDeadline();
     if (at === undefined) return;
-    this.cancel = this.clock.setTimer(
-      () => {
-        this.repo.store.atomic(() => {
-          for (const id of this.repo.queue.due(this.clock.now())) {
-            const queue = this.repo.queue.get(id);
-            if (queue.timerAction === "snooze")
-              this.repo.queue.set(
-                id,
-                { resumeAt: null, timerAction: null, reason: "manual" },
-                this.clock.now(),
-              );
-            else {
-              // Clear the deadline first, retaining a manual hold on capacity refusal.
-              this.repo.queue.set(id, { resumeAt: null, timerAction: null }, this.clock.now());
-              this.automatic(id, queue.timerAction === "migrate" ? "migrate_now" : undefined);
-            }
+    this.cancel = this.clock.setTimer(() => this.fire(), Math.max(0, at - this.clock.now()));
+  }
+  /** Timer callbacks must never throw: that would take the whole daemon down. */
+  private fire(): void {
+    try {
+      this.repo.store.atomic(() => {
+        for (const id of this.repo.queue.due(this.clock.now())) {
+          const queue = this.repo.queue.get(id);
+          if (queue.timerAction === "snooze")
+            this.repo.queue.set(
+              id,
+              { resumeAt: null, timerAction: null, reason: "manual" },
+              this.clock.now(),
+            );
+          else {
+            // Clear the deadline first, retaining a manual hold on capacity refusal.
+            this.repo.queue.set(id, { resumeAt: null, timerAction: null }, this.clock.now());
+            this.automatic(id, queue.timerAction === "migrate" ? "migrate_now" : undefined);
           }
-        });
-        this.schedule();
-      },
-      Math.max(0, at - this.clock.now()),
-    );
+        }
+      });
+    } catch (error) {
+      // The pass rolled back, so its deadlines are still due; try them again shortly.
+      (this.ports.onError ?? console.error)(error);
+      this.cancel?.();
+      this.cancel = this.closed
+        ? undefined
+        : this.clock.setTimer(() => this.fire(), deadlineRetryMs);
+      return;
+    }
+    this.schedule();
   }
   async migrate(id: ThreadId, target?: string): Promise<void> {
     if (!this.ports.migrate) throw new Error("Account migration is unavailable");

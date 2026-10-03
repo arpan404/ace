@@ -13,6 +13,7 @@ import { createServer as httpServer, type Server } from "node:http";
 import { createServer as httpsServer } from "node:https";
 import { accessHttp } from "./access-http.ts";
 import { webOriginAllowlist } from "./web-origins.ts";
+import { PreAuthAdmission } from "./socket-admission.ts";
 import { allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { urlHost } from "./network.ts";
@@ -40,6 +41,10 @@ const closeListener = (listener: Server) =>
     listener.close(() => resolve());
     listener.closeAllConnections();
   });
+const refuseUpgrade = (socket: import("node:stream").Duplex, status: string) =>
+  socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`, () =>
+    socket.destroy(),
+  );
 
 export type { ServerOptions } from "./server-options.ts";
 import type { ServerOptions } from "./server-options.ts";
@@ -125,22 +130,30 @@ export async function startServer(options: ServerOptions): Promise<{
       listener.headersTimeout = 10_000;
     }
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });
+  const preAuth = new PreAuthAdmission(options.preAuth ?? {}, runtime.delay);
   const attach = (listener: Server, isLocal: boolean) =>
     listener.on("upgrade", (request, socket, head) => {
       if (request.url !== "/") {
         socket.destroy();
         return;
       }
-      if (cleanups.size >= 256) {
-        socket.end(
-          "HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n",
-          () => socket.destroy(),
-        );
+      // Browsers always send Origin, so a page the user merely visits cannot reach the
+      // loopback socket. Native clients send none.
+      const origin = request.headers.origin;
+      if (isLocal && origin !== undefined && !access.allowedOrigins.has(origin)) {
+        refuseUpgrade(socket, "403 Forbidden");
         return;
       }
-      wss.handleUpgrade(request, socket, head, (websocket) =>
-        wss.emit("connection", websocket, isLocal),
-      );
+      const kind: "local" | "remote" = isLocal ? "local" : "remote";
+      const address = request.socket.remoteAddress ?? "unknown";
+      if (cleanups.size >= 256 || !preAuth.admits(kind, address)) {
+        refuseUpgrade(socket, "503 Service Unavailable");
+        return;
+      }
+      wss.handleUpgrade(request, socket, head, (websocket) => {
+        preAuth.track(websocket, kind, address);
+        wss.emit("connection", websocket, isLocal);
+      });
     });
   attach(local, true);
   if (remote) attach(remote, false);
@@ -302,6 +315,7 @@ export async function startServer(options: ServerOptions): Promise<{
           return;
         }
         device = actor.id;
+        preAuth.authenticated(socket);
         authenticated.set(socket, {
           ...actor,
           scopes: [...actor.scopes],
@@ -454,8 +468,18 @@ export async function startServer(options: ServerOptions): Promise<{
             .flatMap((service) => (service.command ? [service.command] : []))
             .find((service) => service.types.includes(message.command.payload.type));
           const scope = route?.scope(message.command) ?? "operate";
+          // Refusals carry the command id so the client settles that intent alone and keeps
+          // its connection; transient ones leave the intent pending for a retry.
+          const refuse = (code: string, text: string, retryable = false) =>
+            send({
+              type: "error",
+              code,
+              message: text,
+              commandId: message.command.id,
+              ...(retryable ? { retryable } : {}),
+            });
           if (!authorize(scope)) {
-            fail("forbidden", `${scope} scope required`);
+            refuse("forbidden", `${scope} scope required`);
             break;
           }
           try {
@@ -466,15 +490,15 @@ export async function startServer(options: ServerOptions): Promise<{
           }
           if (socket.readyState !== WebSocket.OPEN || !authenticated.has(socket)) break;
           if (!authorize(scope)) {
-            fail("forbidden", `${scope} scope required`);
+            refuse("forbidden", `${scope} scope required`);
             break;
           }
           if (message.command.deviceId !== device) {
-            fail("device_mismatch", "Command device must match hello");
+            refuse("device_mismatch", "Command device must match hello");
             break;
           }
           if (!maintenance.admitCommand(message.command)) {
-            fail("maintenance", "Daemon is draining for an update");
+            refuse("maintenance", "Daemon is draining for an update", true);
             break;
           }
           try {
@@ -488,7 +512,7 @@ export async function startServer(options: ServerOptions): Promise<{
               });
           } catch (error) {
             options.log?.(error);
-            fail("command_failed", "Command transaction rolled back");
+            refuse("command_failed", "Command transaction rolled back", true);
           }
           break;
         }

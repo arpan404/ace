@@ -203,3 +203,46 @@ test("an oversized daemon rejection cannot grow the persisted outbox beyond its 
   expect(client.intent(id).getSnapshot()?.state).toBe("pending");
   expect((await storage.load())?.length).toBeLessThanOrEqual(512);
 });
+
+test("a command refused during an update drain stays pending on a live connection and lands after the drain", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const { client, faults, scheduler } = h.make();
+  await ready(client);
+  h.daemon.maintenance.enter();
+  const id = await client.enqueue({ type: "thread.archive", threadId: h.thread.id });
+  await faults.wait((message) => message.type === "error" && message.code === "maintenance");
+  expect(client.state).toBe("ready");
+  expect(client.intent(id).getSnapshot()?.state).toBe("pending");
+  expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeUndefined();
+  h.daemon.maintenance.leave();
+  scheduler.advance(1_000);
+  await when(client.intent(id), (intent) => intent?.state === "acked");
+  expect(client.state).toBe("ready");
+  expect(h.daemon.store.getThread(h.thread.id)?.archivedAt).toBeDefined();
+});
+
+test("a permanent command refusal fails only that intent and keeps the connection", async () => {
+  const h = await setup();
+  cleanup = h.cleanup;
+  const { client, faults } = h.make();
+  await ready(client);
+  faults.incoming = (message, frame, deliver) =>
+    deliver(
+      message.type === "commandResult" && message.commandId === "refused"
+        ? JSON.stringify({
+            type: "error",
+            code: "forbidden",
+            message: "operate scope required",
+            commandId: "refused",
+          })
+        : frame,
+    );
+  await expect(
+    client.command({ type: "thread.archive", threadId: h.thread.id }, {}, "refused"),
+  ).rejects.toMatchObject({ code: "daemon" });
+  await when(client.intent("refused"), (intent) => intent?.state === "failed");
+  expect(client.intent("refused").getSnapshot()?.error).toBe("forbidden");
+  expect(client.state).toBe("ready");
+  await barrier(client, h.thread.id);
+});

@@ -15,6 +15,29 @@ export type SubscriptionStore = Pick<
   | "readEvents"
 >;
 
+/**
+ * Replay is split into frames of about this many event bytes, well below the client's 2 MiB
+ * frame limit. A single larger event still travels alone.
+ */
+const replayFrameBytes = 1024 * 1024;
+function replayFrames(events: Event[]): Event[][] {
+  const frames: Event[][] = [];
+  let frame: Event[] = [];
+  let bytes = 0;
+  for (const event of events) {
+    const size = Buffer.byteLength(JSON.stringify(event));
+    if (frame.length && bytes + size > replayFrameBytes) {
+      frames.push(frame);
+      frame = [];
+      bytes = 0;
+    }
+    frame.push(event);
+    bytes += size;
+  }
+  if (frame.length) frames.push(frame);
+  return frames;
+}
+
 /** Delivery covers (afterSeq, throughSeq], including events filtered out by scope. */
 export function subscribe(
   store: SubscriptionStore,
@@ -54,15 +77,20 @@ export function subscribe(
     progressHead = Math.max(progressHead, head);
     if (selected.length) {
       cancelProgress();
-      const previous = cursor;
-      cursor = head;
-      send({
-        type: "events",
-        subscriptionId: id,
-        afterSeq: previous,
-        throughSeq: head,
-        events: selected,
-      });
+      const frames = replay ? replayFrames(selected) : [selected];
+      for (const [index, frame] of frames.entries()) {
+        if (stopped) return;
+        // Frames stay contiguous: each covers up to its last event, the final one up to head.
+        const previous = cursor;
+        cursor = index === frames.length - 1 ? head : (frame.at(-1)?.seq ?? head);
+        send({
+          type: "events",
+          subscriptionId: id,
+          afterSeq: previous,
+          throughSeq: cursor,
+          events: frame,
+        });
+      }
     } else if (replay) {
       cancelProgress();
       flushProgress();
@@ -103,8 +131,13 @@ export function subscribe(
         throw new Error("Unknown thread");
       const head = initialHead ?? 0;
       if (head > afterSeq) {
+        // head - afterSeq <= replayLimit, so a thread filter still sees every event it needs.
         const events = store
-          .readEvents({ afterSeq, limit: replayLimit })
+          .readEvents({
+            afterSeq,
+            limit: replayLimit,
+            ...(scope.kind === "thread" ? { threadId: scope.threadId } : {}),
+          })
           .filter((event) => event.seq <= head);
         deliver(events, head, true);
       }
