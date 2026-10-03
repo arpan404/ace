@@ -1,4 +1,4 @@
-# 0043: OpenCode v2 through the installed CLI and official HTTP client
+# 0047: OpenCode v2 through the installed CLI and official HTTP client
 
 Date: 2026-10-02. Status: Proposed.
 

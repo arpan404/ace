@@ -5,7 +5,7 @@ v2-only adapter for the user's installed CLI, using the official
 `@opencode/client@2.0.22` Promise client. Retain ace's process owner, raw frame
 validation, recovery barriers and tree status rules. Do not embed the new
 `@opencode/sdk` host. This is a proposed direction, recorded in
-[ADR 0043](../../adr/0043-opencode-v2-local-client.md), not an implemented migration.
+[ADR 0047](../../adr/0047-opencode-v2-local-client.md), not an implemented migration.
 
 ## Evidence and naming
 
