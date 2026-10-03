@@ -369,3 +369,13 @@ The shared scripted provider was structured-cloning `ProviderPayload`, losing it
 Child terminal guards assert canonical item-update events using the canonical ID instead of indexing internal native item keys. The quota guard retains the failed run/error and absence of retries, while expecting main's durable limited thread status. Browser auth rejects whitespace-decorated URLs with an aborting HTTPS constraint before URL normalization can produce conflicting intersection results; schema generation and explicit invalid-challenge guards pass. Protocol references were regenerated.
 
 Checkpoint quota guards now compare bytes across SDK Buffer/Uint8Array representations. The host output stub supplies the pinned SDK schema's required `modelCallId`, so the test reaches bounded output and disposal instead of failing schema validation before send. The orchestrator's main merge `4dc670a3` was pulled before repair.
+
+## Remaining eleven merge-time failures
+
+The next authorized run reproduced eleven failures and two unhandled Claude frame errors across the ten named process files. After repair, **all 26 tests in those ten files pass without unhandled errors**. Typecheck, lint and scoped formatting pass. Full-suite validation remains with the orchestrator; no other test files, CI, benchmarks, mutations, UI edits, browser login, recordings or provider prompts were run.
+
+Cursor capture, raw chunks and durable offsets now require the pinned Cursor SDK backend. Claude's SDK frames keep their own path without Cursor generation metadata. SDK auth receives a projected registered identity; CLI login uses its canonical home. The CLI guard uses a real home alias, and the discovery guard includes installed SDK admission without a CLI.
+
+Release packaging externalizes SDK 1.0.35 and subpaths, stages the installed dependency/peer closure and target helper, and bundles the supervised host separately. Manifest reads cap at 64 KiB and the graph at 64 entries; incompatible helpers and conflicting dependency versions refuse staging. Archive mode normalization preserves executable helpers. The isolated artifact writes and reopens a local SDK SQLite checkpoint and checks executable helper access without authentication or a provider request.
+
+Account-list guards compare CLI, delegated CLI and socket inventories while allowing the default SDK account. Recovery guards retain the failed native run event while the queue waits for explicit pinned continuation, await durable callback ACKs and verify replay deduplication. Checkpoint preservation compares bytes across Buffer/Uint8Array implementations. Fixture scenarios remain pending owner approval with composer-2.5.
