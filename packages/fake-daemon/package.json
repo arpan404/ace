@@ -10,10 +10,12 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@ace/automations": "workspace:*",
     "@ace/client": "workspace:*",
     "@ace/core": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/settings": "workspace:*",
     "zod": "^4.6.5"
   }
 }

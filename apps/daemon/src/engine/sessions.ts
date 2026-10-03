@@ -14,6 +14,7 @@ const SessionIdentity = z.strictObject({
 
 interface SessionDependencies {
   repo: EngineRepository;
+  prepareWorkspace?(id: ThreadId): Promise<string>;
   registry: AdapterRegistry;
   clock: EngineClock;
   closing(): boolean;
@@ -47,12 +48,23 @@ export class Sessions {
     const generation = ++actor.generation;
     try {
       const state = this.dependencies.repo.requireState(actor.id);
-      const metadata = this.dependencies.repo.session(actor.id);
+      let metadata = this.dependencies.repo.session(actor.id);
       const backend = this.dependencies.repo.backend(actor.id);
       const { adapter, capabilities } = this.dependencies.registry.get(
         state.config.provider,
         backend,
       );
+      const entity = this.dependencies.repo.store.getThread(actor.id);
+      if (entity?.deletedAt !== undefined) throw new Error("Thread deleted");
+      if (!metadata.workspaceReady) {
+        if (!this.dependencies.prepareWorkspace)
+          throw new Error("Worktree preparation unavailable");
+        const cwd = await this.dependencies.prepareWorkspace(actor.id);
+        this.dependencies.repo.store.completeWorkspacePreparation(actor.id, metadata.cwd, cwd);
+        metadata = this.dependencies.repo.session(actor.id);
+        if (!metadata.workspaceReady || metadata.cwd !== cwd)
+          throw new Error("Workspace root changed while preparing");
+      }
       const transition = this.dependencies.repo.transitions.get(actor.id);
       if (state.config.provider !== "acp" && metadata.nativeSessionId && !capabilities.resume)
         throw new Error("Provider cannot resume this thread");
@@ -117,7 +129,6 @@ export class Sessions {
                 ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
               },
             }),
-        ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
         signal: lifetime.signal,
         onSessionIdentity: (selection) => {
           if (generation !== actor.generation || lifetime.signal.aborted)
@@ -197,6 +208,14 @@ export class Sessions {
     } catch (error) {
       await actor.flush();
       if (generation === actor.generation) {
+        const session = actor.session;
+        actor.session = undefined;
+        lifetime.abort();
+        try {
+          await session?.close("shutdown");
+        } catch {
+          /* Opening failure remains authoritative. */
+        }
         actor.generation++;
         actor.translator = undefined;
         actor.lifetime = undefined;

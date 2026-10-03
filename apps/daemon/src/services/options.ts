@@ -16,6 +16,8 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  conductor?: import("../conductor-runtime.ts").ConductorRuntimeOptions;
+  workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntimeOptions;
   /** The host owns daemon cancellation, including initialization before endpoint discovery. */
   signal?: AbortSignal;
   files?: Pick<import("@ace/files").FilesOptions, "workspaceRuntime" | "maxReservedBytes">;

@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/RunCheckpoints.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "after": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "before": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "error": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "pending",
+        "ready",
+        "unavailable"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "state"
+  ],
+  "type": "object"
+}

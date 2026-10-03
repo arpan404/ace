@@ -75,7 +75,8 @@ export class SearchIndex {
   }
   /** Current metadata wins over older replay, so a working thread cannot appear done during backfill. */
   observeThread(thread: Thread, seq: number): void {
-    this.atomic(() => this.writer.observeThread(thread, seq));
+    if (thread.deletedAt !== undefined) this.deleteThread(thread.id);
+    else this.atomic(() => this.writer.observeThread(thread, seq));
   }
   flush(limit = 128): number {
     if (!Number.isInteger(limit) || limit < 1 || limit > 256) throw new Error("Invalid batch size");
@@ -89,6 +90,7 @@ export class SearchIndex {
   }
   deleteThread(threadId: string): void {
     this.atomic(() => {
+      this.writer.sql.run("INSERT OR IGNORE INTO search_tombstones VALUES (?)", threadId);
       for (;;) {
         const rows = this.writer.sql
           .get("SELECT item FROM search_stage WHERE thread=? LIMIT 128")

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ThreadId } from "./ids.ts";
+import { ThreadId, WorkspaceId } from "./ids.ts";
 
 export const BlobHash = z.string().regex(/^[a-f0-9]{64}$/);
 const key = z
@@ -32,6 +32,7 @@ export const ResolvedThreadReference = z.object({
 });
 export type ResolvedThreadReference = z.infer<typeof ResolvedThreadReference>;
 export const MessageContext = z.object({
+  draftId: key.optional(),
   items: z.array(ThreadRefContextItem).max(8).optional(),
   mentions: z.array(Mention).max(64).default([]),
   attachments: z
@@ -78,6 +79,21 @@ export const ResolvedMention = z.object({
 });
 export type ResolvedMention = z.infer<typeof ResolvedMention>;
 export const ContextOperation = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("draft.create"), workspaceId: WorkspaceId }),
+  z.object({ op: z.literal("draft.release"), draftId: key }),
+  z.object({
+    op: z.literal("draft.upload.begin"),
+    draftId: key,
+    sha256: BlobHash,
+    bytes: size.positive(),
+    name: z.string().min(1).max(255),
+  }),
+  z.object({
+    op: z.literal("draft.mention.complete"),
+    draftId: key,
+    query: z.string().max(128),
+    limit: z.number().int().min(1).max(50).default(20),
+  }),
   z.object({
     op: z.literal("upload.begin"),
     threadId: ThreadId,
@@ -123,6 +139,7 @@ export const ContextResult = z.object({
   type: z.literal("context.result"),
   requestId: key,
   result: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("draft"), draftId: key }),
     z.object({ kind: z.literal("error"), code: ContextErrorCode, message: z.string() }),
     z.object({ kind: z.literal("upload"), uploadId: key, offset: size, bytes: size }),
     z.object({ kind: z.literal("attachment"), attachment: Attachment }),

@@ -6,7 +6,13 @@ import { realpathSync, statSync } from "node:fs";
 import { validResolution } from "./resolution.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
-import { AcpIdentity, ThreadId, type Command, type CommandResult } from "@ace/protocol";
+import {
+  ExecutionOptions,
+  AcpIdentity,
+  ThreadId,
+  type Command,
+  type CommandResult,
+} from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -25,6 +31,7 @@ export function engineHandler(
     provider: string,
     backend?: import("@ace/engine-api").ProviderBackend,
   ) => string | undefined,
+  machine?: { host: string; name: string },
 ): CommandHandler {
   return {
     handle(command: Command): CommandResult {
@@ -84,16 +91,12 @@ export function engineHandler(
             return fail("workspace_unavailable");
           }
           const entry = registry.get(p.provider);
-          if (
-            p.type === "thread.create" &&
-            p.instanceId &&
-            p.accountId &&
-            p.instanceId !== p.accountId
-          )
+          const accountId = p.accountId ?? ("account" in p ? p.account : undefined);
+          if (p.type === "thread.create" && p.instanceId && accountId && p.instanceId !== accountId)
             return fail("conflicting_account_selection");
           const instanceId =
             (p.type === "thread.create" ? p.instanceId : undefined) ??
-            p.accountId ??
+            accountId ??
             selectInstance?.(p.provider, entry.adapter.backend);
           let handoff: ReturnType<typeof portableContext> | undefined;
           if (p.type === "thread.create" && p.handoffFrom) {
@@ -134,12 +137,14 @@ export function engineHandler(
           }
           if (
             p.options &&
-            Object.keys(p.options).some(
-              (option) =>
-                !registry
-                  .get(p.provider)
-                  .capabilities.launchOptions?.some((supported) => supported === option),
-            )
+            Object.keys(p.options)
+              .filter((key) => key === "effort" || key === "serviceTier")
+              .some(
+                (option) =>
+                  !registry
+                    .get(p.provider)
+                    .capabilities.launchOptions?.some((supported) => supported === option),
+              )
           )
             return fail("launch_options_unsupported");
           threadId = ThreadId.parse(p.threadId ?? nextId());
@@ -162,16 +167,34 @@ export function engineHandler(
               : {}),
             selection: {
               provider: p.provider,
-              options: {
-                ...(p.options?.effort ? { effort: p.options.effort } : {}),
-                ...(p.options?.serviceTier ? { serviceTier: p.options.serviceTier } : {}),
-              },
+              options: ExecutionOptions.parse(p.options ?? {}),
               ...(instanceId ? { instanceId } : {}),
               ...(p.model === undefined ? {} : { model: p.model }),
             },
             cwd,
             at,
             silenceMs,
+            client: {
+              details: {
+                workspace: {
+                  id: p.workspaceId,
+                  name: repo.store.getWorkspace(p.workspaceId)?.name ?? p.workspaceId,
+                  path: cwd,
+                },
+                mode: ("mode" in p ? p.mode : undefined) ?? "local",
+                worktree: cwd,
+                ...("baseBranch" in p && p.baseBranch ? { baseBranch: p.baseBranch } : {}),
+                ...(machine ? { machine } : {}),
+              },
+              live: {
+                provider: p.provider,
+                ...(p.model ? { model: p.model } : {}),
+                ...(instanceId ? { account: instanceId } : {}),
+                options: ExecutionOptions.parse(p.options ?? {}),
+                subagentCount: 0,
+                backgroundTaskCount: 0,
+              },
+            },
           });
           if (handoff && p.type === "thread.create" && p.handoffFrom)
             repo.transitions.history.grant(threadId, p.handoffFrom, handoff.source.throughSeq);
@@ -180,13 +203,15 @@ export function engineHandler(
             return { commandId: command.id, ok: true, threadId };
           }
         } else if ("threadId" in p) {
-          threadId = p.threadId;
+          threadId = ThreadId.parse(p.threadId);
           if (p.type === "thread.archive") {
             if (!repo.store.getThread(threadId)) return fail("thread_not_found");
             const at = now();
             repo.store.appendEvents(threadId, [{ type: "thread.updated", archivedAt: at }], at);
             return { commandId: command.id, ok: true };
           }
+          if (repo.store.getThread(threadId)?.deletedAt !== undefined)
+            return fail("thread_not_found");
           if (!repo.state(threadId)) return fail("thread_not_found");
           if (p.type === "thread.send" && repo.transitions.guarded(threadId))
             return fail("thread_transition_in_progress");

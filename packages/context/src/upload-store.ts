@@ -4,7 +4,13 @@ import { constants } from "node:fs";
 import { mkdir, open, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { Attachment, BlobHash, ContextOperation, type ContextResult } from "@ace/protocol";
+import {
+  ThreadId,
+  Attachment,
+  BlobHash,
+  ContextOperation,
+  type ContextResult,
+} from "@ace/protocol";
 import { ContextError, requireContext } from "./errors.ts";
 import { inspectBlob, defaultImageLimits } from "./media.ts";
 import { Maintenance } from "./maintenance.ts";
@@ -77,6 +83,10 @@ export class UploadStore {
     return join(this.options.root, "blobs", hash);
   }
   private async authorized(device: string, thread: string): Promise<void> {
+    if (this.metadata.get("SELECT 1 FROM drafts WHERE id=?", thread)) {
+      await this.draftWorkspace(device, thread);
+      return;
+    }
     requireContext(
       thread !== "*" &&
         thread.length <= 128 &&
@@ -86,6 +96,72 @@ export class UploadStore {
       "Thread access denied",
     );
   }
+  async draftWorkspace(device: string, id: string): Promise<string> {
+    const row = this.metadata.get("SELECT * FROM drafts WHERE id=?", id);
+    const draft = z
+      .object({
+        device: z.string(),
+        workspace: z.string(),
+        expires: z.number(),
+        adopted: z.string().nullable(),
+      })
+      .safeParse(row);
+    requireContext(
+      draft.success && draft.data.device === device && draft.data.expires > this.options.now(),
+      "not_found",
+      "Draft unavailable",
+    );
+    return draft.data.workspace;
+  }
+  async adopt(device: string, draftId: string, thread: string): Promise<void> {
+    return this.serialize(async () => {
+      await this.authorized(device, thread);
+      const workspace = await this.draftWorkspace(device, draftId);
+      requireContext(
+        workspace === (await this.options.threadWorkspace?.(thread)),
+        "forbidden",
+        "Draft belongs to another workspace",
+      );
+      const row = this.metadata.get("SELECT adopted FROM drafts WHERE id=?", draftId);
+      if (row?.adopted === thread) return;
+      requireContext(row?.adopted === null, "forbidden", "Draft already adopted");
+      const source = this.metadata.usage(draftId);
+      const target = this.metadata.usage(thread);
+      requireContext(
+        source.bytes + target.bytes <= this.limits.threadBytes &&
+          source.count + target.count <= this.limits.threadEntries,
+        "quota",
+        "Thread quota exceeded",
+      );
+      requireContext(
+        !this.metadata.get("SELECT 1 FROM uploads WHERE thread=? AND done=0 LIMIT 1", draftId),
+        "busy",
+        "Finish uploads before creating the thread",
+      );
+      this.metadata.transaction(() => {
+        for (const attachment of this.list(draftId)) {
+          if (
+            !this.metadata.get(
+              "SELECT 1 FROM refs WHERE thread=? AND sha256=?",
+              thread,
+              attachment.sha256,
+            )
+          ) {
+            this.metadata.run(
+              "INSERT INTO refs VALUES(?,?,?)",
+              thread,
+              attachment.sha256,
+              attachment.name,
+            );
+            this.metadata.run("UPDATE blobs SET refs=refs+1 WHERE sha256=?", attachment.sha256);
+            this.metadata.adjust(thread, attachment.bytes, 1);
+          }
+          this.removeReference(draftId, attachment.sha256);
+        }
+        this.metadata.run("UPDATE drafts SET adopted=? WHERE id=?", thread, draftId);
+      });
+    });
+  }
   async handle(
     device: string,
     value: unknown,
@@ -94,6 +170,48 @@ export class UploadStore {
     const op = ContextOperation.parse(value);
     return this.serialize(async () => {
       requireContext(access(), "forbidden", "Device access revoked");
+      if (op.op === "draft.create") {
+        const workspace = await this.options.workspace?.(op.workspaceId);
+        requireContext(workspace, "not_found", "Workspace unavailable");
+        requireContext(
+          Number(this.metadata.get("SELECT COUNT(*) AS n FROM drafts")?.n) < 1024,
+          "quota",
+          "Draft capacity reached",
+        );
+        const draftId = `draft-${this.options.id()}`;
+        z.string()
+          .regex(/^[\w-]{1,128}$/)
+          .parse(draftId);
+        this.metadata.run(
+          "INSERT INTO drafts VALUES(?,?,?,?,NULL)",
+          draftId,
+          device,
+          workspace,
+          this.options.now() + this.limits.ttlMs,
+        );
+        return { kind: "draft", draftId };
+      }
+      if (op.op === "draft.release") {
+        await this.draftWorkspace(device, op.draftId);
+        for (const attachment of this.list(op.draftId)) this.release(op.draftId, attachment.sha256);
+        for (const row of this.metadata.all("SELECT * FROM uploads WHERE thread=?", op.draftId))
+          await this.removeUpload(UploadRow.parse(row));
+        this.metadata.run("DELETE FROM drafts WHERE id=?", op.draftId);
+        return { kind: "ok" };
+      }
+      if (op.op === "draft.upload.begin") {
+        await this.draftWorkspace(device, op.draftId);
+        requireContext(
+          this.metadata.get("SELECT adopted FROM drafts WHERE id=?", op.draftId)?.adopted === null,
+          "forbidden",
+          "Draft already adopted",
+        );
+        return beginUpload(this.metadata, this.options, this.limits, device, {
+          ...op,
+          op: "upload.begin",
+          threadId: ThreadId.parse(op.draftId),
+        });
+      }
       if (op.op === "upload.begin") {
         await this.authorized(device, op.threadId);
         return beginUpload(this.metadata, this.options, this.limits, device, op);
@@ -199,6 +317,10 @@ export class UploadStore {
       );
   }
   private release(thread: string, hash: string): void {
+    this.metadata.transaction(() => this.removeReference(thread, hash));
+  }
+  /** The caller owns the transaction, including both sides of draft adoption. */
+  private removeReference(thread: string, hash: string): void {
     requireContext(
       !this.options.retained?.(thread, hash),
       "busy",
@@ -211,11 +333,9 @@ export class UploadStore {
     );
     const blob = this.metadata.blob(hash);
     if (!existing || !blob) return;
-    this.metadata.transaction(() => {
-      this.metadata.run("DELETE FROM refs WHERE thread=? AND sha256=?", thread, hash);
-      this.metadata.run("UPDATE blobs SET refs=refs-1 WHERE sha256=?", hash);
-      this.metadata.adjust(thread, -blob.bytes, -1);
-    });
+    this.metadata.run("DELETE FROM refs WHERE thread=? AND sha256=?", thread, hash);
+    this.metadata.run("UPDATE blobs SET refs=refs-1 WHERE sha256=?", hash);
+    this.metadata.adjust(thread, -blob.bytes, -1);
   }
   private async commit(row: UploadRow): Promise<Attachment> {
     if (row.done) {
@@ -370,7 +490,21 @@ export class UploadStore {
   }
   /** Bounded GC and expiry batch, serialized with commits. */
   async collect(limit = 128): Promise<number> {
-    return this.serialize(() => this.maintenance.collect(limit));
+    return this.serialize(async () => {
+      const expired = this.metadata.all(
+        "SELECT id FROM drafts WHERE expires<=? ORDER BY expires LIMIT ?",
+        this.options.now(),
+        limit,
+      );
+      for (const row of expired) {
+        const id = z.string().parse(row.id);
+        for (const attachment of this.list(id)) this.release(id, attachment.sha256);
+        for (const upload of this.metadata.all("SELECT * FROM uploads WHERE thread=?", id))
+          await this.removeUpload(UploadRow.parse(upload));
+        this.metadata.run("DELETE FROM drafts WHERE id=?", id);
+      }
+      return expired.length + (await this.maintenance.collect(limit));
+    });
   }
   async close(): Promise<void> {
     this.closing = true;

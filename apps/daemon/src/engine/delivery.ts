@@ -17,10 +17,16 @@ export async function executeIntent(
   sessions: Sessions,
   transitions: ThreadTransitions,
   prepare?: PrepareInput,
+  beforeSend?: (
+    threadId: import("@ace/protocol").ThreadId,
+    commandId: import("@ace/protocol").CommandId,
+  ) => Promise<void>,
 ): Promise<void> {
   const p = intent.command.payload;
   if (p.type === "thread.create" || p.type === "thread.send" || p.type === "thread.fork") {
+    if (repo.store.getThread(actor.id)?.deletedAt !== undefined) throw new Error("Thread deleted");
     if (p.type === "thread.fork") await transitions.freezeForkSource(p.threadId, actor.id);
+    if (p.type === "thread.send") await transitions.selectNext(actor, intent, p.model, p.options);
     if ("context" in p && p.context && !prepare)
       throw new Error("Context preparation is unavailable");
     try {
@@ -75,6 +81,21 @@ export async function executeIntent(
           : undefined,
       );
     try {
+      if (!state.agents[state.rootKey ?? ""]?.activeRun) {
+        try {
+          await beforeSend?.(actor.id, intent.command.id);
+        } catch (error) {
+          throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error));
+        }
+      }
+      if (
+        repo.cancelled(intent.id) ||
+        actor.lifetime?.signal.aborted ||
+        generation !== actor.generation ||
+        actor.session !== session ||
+        repo.queue.get(actor.id).paused
+      )
+        throw new DeliveryDeferred("Delivery was superseded during checkpoint preparation");
       for (const [index, diagnostic] of (prepared?.diagnostics ?? []).slice(0, 64).entries()) {
         const parsed = ContextDiagnostic.parse(diagnostic);
         actor.apply([

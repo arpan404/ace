@@ -1,3 +1,4 @@
+import type { CommandId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
 import type { Recovery } from "./recovery.ts";
 import type { EngineRepository, Intent, IntentHeader } from "./repository.ts";
@@ -14,6 +15,9 @@ interface Dependencies {
   sessions: Sessions;
   recovery: Recovery;
   prepareInput: PrepareInput | undefined;
+  beforeSend:
+    | ((threadId: IntentHeader["threadId"], commandId: CommandId) => Promise<void>)
+    | undefined;
   transitions: ThreadTransitions;
   releaseGuards(intent: IntentHeader): void;
   invalidateContext(threadId: IntentHeader["threadId"]): void;
@@ -71,6 +75,7 @@ export class IntentDelivery {
           this.dependencies.sessions,
           this.dependencies.transitions,
           this.dependencies.prepareInput,
+          this.dependencies.beforeSend,
         );
       await actor.flush();
       if (actor.poisoned) throw new Error("Provider frames could not be persisted");

@@ -105,6 +105,10 @@ export const AutomationResponse = z.object({
   ok: z.boolean(),
   error: z.string().max(8192).optional(),
   automations: z.array(Automation).max(1000).optional(),
+  schedules: z
+    .array(z.object({ id: text, nextRunAt: instant.nullable() }))
+    .max(1000)
+    .optional(),
   inbox: AutomationInbox.optional(),
   run: AutomationRun.optional(),
 });

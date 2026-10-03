@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/RunClientUpdated.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "checkpoints": {
+      "$ref": "https://ace.local/protocol/v1/RunCheckpoints.json"
+    },
+    "runId": {
+      "$ref": "https://ace.local/protocol/v1/RunId.json"
+    },
+    "type": {
+      "const": "run.client.updated",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "runId",
+    "checkpoints"
+  ],
+  "type": "object"
+}

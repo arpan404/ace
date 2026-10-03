@@ -10,6 +10,9 @@
     },
     {
       "$ref": "https://ace.local/protocol/v1/SettingsSubscribe.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SettingsUnsubscribe.json"
     }
   ]
 }

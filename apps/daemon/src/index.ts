@@ -191,6 +191,14 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "usage",
       "agentRegistry",
       "pi",
+      "engine",
+      "transitions",
+      "workspaceActions",
+      "canReadThread",
+      "previewClient",
+      "conductor",
+      "automations",
+      "devices",
     ] as const)
       Object.defineProperty(serverOptions, key, {
         enumerable: true,

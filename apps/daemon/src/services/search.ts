@@ -3,8 +3,10 @@ export function createSearchSession(context: SocketContext): SocketService {
   return {
     handle(message) {
       if (message.type !== "search.status" && message.type !== "search.query") return false;
+      const reject = (code: string, detail: string) =>
+        context.fail(code, detail, false, { requestId: message.requestId });
       if (!context.authorize("read")) {
-        context.fail("forbidden", "Read scope required");
+        reject("forbidden", "Read scope required");
         return true;
       }
       if (message.type === "search.status")

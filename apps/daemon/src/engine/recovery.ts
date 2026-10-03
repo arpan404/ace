@@ -95,10 +95,18 @@ export class Recovery {
     )
       return undefined;
     const p = command.payload;
-    return p.type === "thread.send" && p.delivery === undefined
+    return p.type === "thread.send" &&
+      (p.delivery === undefined || p.model !== undefined || p.options !== undefined)
       ? Command.parse({
           ...command,
-          payload: { ...p, delivery: this.preferences(id).followUpBehavior },
+          payload: {
+            ...p,
+            // A selection belongs to the next turn, never a steer into the active run.
+            delivery:
+              p.model !== undefined || p.options !== undefined
+                ? "queue"
+                : this.preferences(id).followUpBehavior,
+          },
         })
       : command;
   }

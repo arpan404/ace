@@ -94,7 +94,17 @@
           ],
           "type": "object"
         },
+        "activityAt": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "archivedAt": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "autoSettleAt": {
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer"
@@ -235,6 +245,168 @@
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer"
+        },
+        "deletedAt": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "details": {
+          "additionalProperties": false,
+          "properties": {
+            "ahead": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "baseBranch": {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            "behind": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "branch": {
+              "anyOf": [
+                {
+                  "maxLength": 1024,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "diff": {
+              "additionalProperties": false,
+              "properties": {
+                "additions": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "deletions": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "files": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "files",
+                "additions",
+                "deletions"
+              ],
+              "type": "object"
+            },
+            "head": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-f0-9]{40,64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "linkedPr": {
+              "anyOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "number": {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer"
+                    },
+                    "state": {
+                      "enum": [
+                        "open",
+                        "closed",
+                        "merged"
+                      ],
+                      "type": "string"
+                    },
+                    "url": {
+                      "format": "ace-whatwg-url",
+                      "type": "string",
+                      "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.",
+                      "x-ace-url-maxLength": 4096
+                    }
+                  },
+                  "required": [
+                    "number",
+                    "state"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "machine": {
+              "additionalProperties": false,
+              "properties": {
+                "host": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "name": {
+                  "maxLength": 256,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "host",
+                "name"
+              ],
+              "type": "object"
+            },
+            "mode": {
+              "enum": [
+                "local",
+                "worktree"
+              ],
+              "type": "string"
+            },
+            "workspace": {
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "name": {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                "path": {
+                  "maxLength": 4096,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "path"
+              ],
+              "type": "object"
+            },
+            "worktree": {
+              "maxLength": 4096,
+              "type": "string"
+            }
+          },
+          "type": "object"
         },
         "effectiveCapabilities": {
           "additionalProperties": false,
@@ -605,6 +777,103 @@
           ],
           "type": "object"
         },
+        "live": {
+          "additionalProperties": false,
+          "properties": {
+            "account": {
+              "maxLength": 256,
+              "type": "string"
+            },
+            "backgroundTaskCount": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "contextMeter": {
+              "additionalProperties": false,
+              "properties": {
+                "at": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "limit": {
+                  "anyOf": [
+                    {
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "used": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "used",
+                "limit",
+                "at"
+              ],
+              "type": "object"
+            },
+            "model": {
+              "maxLength": 256,
+              "type": "string"
+            },
+            "options": {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "maxLength": 1024,
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "propertyNames": {
+                "maxLength": 128,
+                "type": "string"
+              },
+              "type": "object",
+              "x-ace-constraint": "At most 32 provider option entries."
+            },
+            "provider": {
+              "enum": [
+                "claude",
+                "codex",
+                "opencode",
+                "cursor",
+                "antigravity",
+                "acp",
+                "pi"
+              ],
+              "type": "string"
+            },
+            "subagentCount": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
         "provider": {
           "enum": [
             "claude",
@@ -617,9 +886,33 @@
           ],
           "type": "string"
         },
+        "readAt": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
         "rootAgentId": {
           "minLength": 1,
           "type": "string"
+        },
+        "settledAt": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "settledReason": {
+          "enum": [
+            "manual",
+            "inactivity",
+            "pr_merged",
+            "pr_closed"
+          ],
+          "type": "string"
+        },
+        "snoozedUntil": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
         },
         "status": {
           "oneOf": [
@@ -853,6 +1146,9 @@
         },
         "title": {
           "type": "string"
+        },
+        "unread": {
+          "type": "boolean"
         },
         "updatedAt": {
           "maximum": 9007199254740991,

@@ -1,0 +1,73 @@
+{
+  "$id": "https://ace.local/protocol/v1/PreviewRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operation": {
+      "oneOf": [
+        {
+          "properties": {
+            "op": {
+              "const": "list",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "forward",
+              "type": "string"
+            },
+            "port": {
+              "$ref": "https://ace.local/protocol/v1/PreviewPort.json"
+            }
+          },
+          "required": [
+            "op",
+            "port"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "unforward",
+              "type": "string"
+            },
+            "port": {
+              "$ref": "https://ace.local/protocol/v1/PreviewPort.json"
+            }
+          },
+          "required": [
+            "op",
+            "port"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "preview.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId",
+    "operation"
+  ],
+  "type": "object"
+}

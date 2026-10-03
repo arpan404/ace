@@ -18,6 +18,12 @@
       "maxItems": 64,
       "type": "array"
     },
+    "draftId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[\\w-]+$",
+      "type": "string"
+    },
     "items": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/ThreadRefContextItem.json"

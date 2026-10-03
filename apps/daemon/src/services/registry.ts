@@ -1,3 +1,9 @@
+import { createPreviewClientSession } from "./preview-client.ts";
+import { createConductorSession } from "./conductor.ts";
+import { createAutomationsSession } from "./automations.ts";
+import { createWorkspaceActionsSession } from "./workspace-actions.ts";
+import { createTerminalSession } from "./terminal.ts";
+import { createThreadOrganizationSession } from "./thread-organization.ts";
 import { createRecoverySession } from "./recovery.ts";
 import { createDevicesSession } from "./devices.ts";
 import { createThreadTransitionsSession } from "./thread-transitions.ts";
@@ -27,6 +33,12 @@ import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
+  createPreviewClientSession,
+  createConductorSession,
+  createAutomationsSession,
+  createThreadOrganizationSession,
+  createWorkspaceActionsSession,
+  createTerminalSession,
   createRecoverySession,
   createDevicesSession,
   createPiSocketSession,

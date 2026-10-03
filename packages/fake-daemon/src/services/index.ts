@@ -11,8 +11,8 @@ import { usageReport } from "../catalog/usage.ts";
 import { modelCatalog, settingsValues } from "../scenarios/settings.ts";
 import { accountSummaries } from "./accounts.ts";
 import { commandCatalog, listCommands } from "./commands.ts";
-import { FakeContext } from "./context.ts";
 import { search } from "./search.ts";
+import { listModels, resolveModel } from "./models.ts";
 import { FakeSettings, type Push } from "./settings.ts";
 
 type AccountSummary = z.infer<typeof Summary>;
@@ -24,8 +24,9 @@ export interface ServiceHost {
 }
 
 /**
- * The daemon's request/response services (accounts, usage, models, settings, search, slash
- * commands, context) over the fake daemon's catalogs. Replies use the wire shapes, so the app
+ * The daemon's catalog services (accounts, usage, models, settings, search, slash commands) over
+ * the fake daemon's catalogs. Context, workspace, terminal, plugin, planning and browser services
+ * are per-connection sessions in `services-wire.ts`. Replies use the wire shapes, so the app
  * reads them through `Client.request` exactly as it does from a real daemon. Tests change the
  * public fields to stage what the daemon reports next.
  */
@@ -34,7 +35,6 @@ export class FakeServices {
   models: CatalogModel[];
   commands: PaletteCommand[];
   readonly settings: FakeSettings;
-  readonly context: FakeContext;
   private host: ServiceHost;
   constructor(host: ServiceHost) {
     this.host = host;
@@ -42,8 +42,10 @@ export class FakeServices {
     this.accounts = accountSummaries(now);
     this.models = modelCatalog();
     this.commands = commandCatalog();
-    this.settings = new FakeSettings(settingsValues());
-    this.context = new FakeContext((threadId) => host.thread(threadId)?.workspaceId);
+    this.settings = new FakeSettings(
+      settingsValues(),
+      (threadId) => host.thread(threadId)?.workspaceId,
+    );
   }
   /** Answers one service message. False when it isn't a service this fake serves. */
   handle(message: ClientMessage, push: Push): boolean {
@@ -72,23 +74,36 @@ export class FakeServices {
           kind: message.type === "usage.summary" ? "summary" : "series",
           result: usageReport(message.query),
         };
+      case "accounts.migrate":
+        return {
+          type: "accounts.migrate",
+          requestId: message.requestId,
+          result: { status: "unsupported", reason: "No native sessions in the fake daemon" },
+        };
+      case "usage.session_totals":
+        return { type: "usage.session_totals.result", requestId: message.requestId, totals: [] };
       case "models.list":
-      case "models.refresh": {
-        const filter = message.type === "models.list" ? message.options : message.filter;
-        const models = this.models.filter(
-          (model) =>
-            (!filter.provider || model.provider === filter.provider) &&
-            (!filter.instance || model.instance === filter.instance),
-        );
         return {
           type: "models.result",
           requestId: message.requestId,
-          result: { models: models.slice(0, 100), instances: [] },
+          result: listModels(this.models, message.options),
         };
-      }
+      case "models.refresh":
+        return {
+          type: "models.result",
+          requestId: message.requestId,
+          result: listModels(this.models, { ...message.filter, offset: 0, limit: 100 }),
+        };
+      case "models.resolve":
+        return {
+          type: "models.result",
+          requestId: message.requestId,
+          result: resolveModel(this.models, message.roleSpec),
+        };
       case "settings.get":
       case "settings.set":
       case "settings.subscribe":
+      case "settings.unsubscribe":
         return this.settings.handle(message, push);
       case "search.query":
         return {
@@ -119,11 +134,18 @@ export class FakeServices {
           ),
           diagnostics: [],
         };
-      case "context.request":
+      case "commands.resolve":
         return {
-          type: "context.result",
+          type: "commands.resolve.result",
           requestId: message.requestId,
-          result: this.context.handle(message.operation),
+          result: { ok: false, error: "not_found" },
+        };
+      case "files.request":
+        return {
+          type: "files.error",
+          requestId: message.requestId,
+          code: "not_found",
+          message: "No file fixture",
         };
       default:
         return undefined;

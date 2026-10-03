@@ -1,50 +1,95 @@
-import { ServerMessage, type ClientMessage } from "@ace/protocol";
 import type { z } from "zod";
+import { ServerMessage, ClientMessage } from "@ace/protocol";
 import { ClientError } from "./types.ts";
 
-/*
- * Correlated one-off service requests (ADR 0052). The same surface lands with
- * feat/client-protocol-gaps, which extends the table with the services it adds; on merge keep
- * that branch's copy.
- */
-// Callers write the input shape; the client fills schema defaults when it parses the message.
-type Correlated = Extract<z.input<typeof ClientMessage>, { requestId: string }>;
+type Correlated<T = z.input<typeof ClientMessage>> = T extends unknown
+  ? "requestId" extends keyof T
+    ? T
+    : never
+  : never;
 type WithoutId<T> = T extends unknown ? Omit<T, "requestId"> : never;
-/** Every client message answered by a reply carrying the same request id. */
-export type ServiceRequest = WithoutId<
-  Exclude<Correlated, { type: "items.page" | "output.read" | `registry.${string}` }>
->;
+export type ServiceRequest = WithoutId<Exclude<Correlated, { type: "browser.ack" }>>;
+type Reply = Extract<ServerMessage, { requestId?: string | undefined }>;
 type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T }>;
 
-export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "context.request"
-  ? Replies<"context.result">
-  : Q["type"] extends `models.${string}`
-    ? Replies<"models.result">
-    : Q["type"] extends `settings.${string}`
-      ? Replies<"settings.result">
-      : Q["type"] extends "usage.session_totals"
-        ? Replies<"usage.session_totals.result">
-        : Q["type"] extends `usage.${string}`
-          ? Replies<"usage.result">
-          : Q["type"] extends "search.query"
-            ? Replies<"search.results" | "search.error">
-            : Q["type"] extends "search.status"
-              ? Replies<"search.progress" | "search.error">
-              : Q["type"] extends `accounts.${string}`
-                ? Extract<ServerMessage, { type: Q["type"] }>
-                : Q["type"] extends "files.request"
-                  ? Replies<"files.result" | "files.ready" | "files.error" | "files.upload">
-                  : Q["type"] extends "commands.list"
-                    ? Replies<"commands.list.result">
-                    : Q["type"] extends "commands.resolve"
-                      ? Replies<"commands.resolve.result">
-                      : Q["type"] extends `mcp.${string}`
-                        ? Replies<"mcp.result">
-                        : Q["type"] extends "screen.request"
-                          ? Replies<"screen.result">
-                          : never;
+// #72 adds queue schemas to the canonical union. Keep only correlation here;
+// queue storage, removal, context leases and recovery remain with that owner.
+export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "queue.get"
+  ? Extract<Reply, { type: "queue.result" }>
+  : ExistingServiceResponse<Q>;
+
+type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
+  | "history.list"
+  | "history.scan"
+  ? Extract<Reply, { type: Q["type"] }>
+  : Q["type"] extends "devices.request"
+    ? Replies<"devices.result">
+    : Q["type"] extends "pi.control"
+      ? Replies<"pi.result">
+      : Q["type"] extends "preview.request"
+        ? Replies<"preview.result">
+        : Q["type"] extends "conductor.request"
+          ? Replies<"conductor.result">
+          : Q["type"] extends `automation.${string}`
+            ? Replies<"automation.result">
+            : Q["type"] extends "terminal.request"
+              ? Replies<"terminal.result">
+              : Q["type"] extends "workspace.request"
+                ? Replies<"workspace.result">
+                : Q["type"] extends "context.request"
+                  ? Replies<"context.result">
+                  : Q["type"] extends `models.${string}`
+                    ? Replies<"models.result">
+                    : Q["type"] extends `settings.${string}`
+                      ? Replies<"settings.result">
+                      : Q["type"] extends "usage.session_totals"
+                        ? Replies<"usage.session_totals.result">
+                        : Q["type"] extends `usage.${string}`
+                          ? Replies<"usage.result">
+                          : Q["type"] extends "search.query"
+                            ? Replies<"search.results" | "search.error">
+                            : Q["type"] extends "search.status"
+                              ? Replies<"search.progress" | "search.error">
+                              : Q["type"] extends `accounts.${string}`
+                                ? Extract<Reply, { type: Q["type"] }>
+                                : Q["type"] extends "files.request"
+                                  ? Replies<
+                                      | "files.result"
+                                      | "files.ready"
+                                      | "files.error"
+                                      | "files.upload"
+                                    >
+                                  : Q["type"] extends "commands.list"
+                                    ? Replies<"commands.list.result">
+                                    : Q["type"] extends "commands.resolve"
+                                      ? Replies<"commands.resolve.result">
+                                      : Q["type"] extends `registry.${string}`
+                                        ? Replies<"registry.result">
+                                        : Q["type"] extends `mcp.${string}`
+                                          ? Replies<"mcp.result">
+                                          : Q["type"] extends "pluginRequest"
+                                            ? Replies<"pluginResult">
+                                            : Q["type"] extends `browser.${string}`
+                                              ? Replies<"browser.result">
+                                              : Q["type"] extends "screen.request"
+                                                ? Replies<"screen.result">
+                                                : Q["type"] extends "diagnostics.health"
+                                                  ? Replies<"diagnostics.health.result">
+                                                  : Q["type"] extends "items.page"
+                                                    ? Replies<"items.page">
+                                                    : Q["type"] extends "output.read"
+                                                      ? Replies<"output.data">
+                                                      : Reply;
 
 const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage["type"][]>> = {
+  "pi.control": ["pi.result"],
+  "history.list": ["history.list"],
+  "history.scan": ["history.scan"],
+  "devices.request": ["devices.result"],
+  "preview.request": ["preview.result"],
+  "conductor.request": ["conductor.result"],
+  "terminal.request": ["terminal.result"],
+  "workspace.request": ["workspace.result"],
   "context.request": ["context.result"],
   "models.list": ["models.result"],
   "models.refresh": ["models.result"],
@@ -52,6 +97,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "settings.get": ["settings.result"],
   "settings.set": ["settings.result"],
   "settings.subscribe": ["settings.result"],
+  "settings.unsubscribe": ["settings.result"],
   "usage.summary": ["usage.result"],
   "usage.series": ["usage.result"],
   "usage.session_totals": ["usage.session_totals.result"],
@@ -63,29 +109,32 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "files.request": ["files.result", "files.ready", "files.error", "files.upload"],
   "commands.list": ["commands.list.result"],
   "commands.resolve": ["commands.resolve.result"],
+  pluginRequest: ["pluginResult"],
+  "diagnostics.health": ["diagnostics.health.result"],
   "screen.request": ["screen.result"],
+  "items.page": ["items.page"],
+  "output.read": ["output.data"],
 };
-
-function expected(type: ServiceRequest["type"]): readonly string[] {
-  const listed = replyTypes[type];
-  if (listed) return listed;
-  if (type.startsWith("mcp.")) return ["mcp.result"];
-  return [];
-}
-
 function isServiceResponse<Q extends ServiceRequest>(
   query: Q,
   id: string,
   response: ServerMessage,
 ): response is ServiceResponse<Q> {
-  return (
-    "requestId" in response &&
-    response.requestId === id &&
-    expected(query.type).includes(response.type)
-  );
+  const types: readonly string[] =
+    replyTypes[query.type] ??
+    (query.type.startsWith("automation.")
+      ? ["automation.result"]
+      : query.type.startsWith("queue.")
+        ? ["queue.result"]
+        : query.type.startsWith("registry.")
+          ? ["registry.result"]
+          : query.type.startsWith("mcp.")
+            ? ["mcp.result"]
+            : query.type.startsWith("browser.")
+              ? ["browser.result"]
+              : []);
+  return "requestId" in response && response.requestId === id && types.includes(response.type);
 }
-
-/** Parse a correlated reply and check it answers this request; anything else is a protocol fault. */
 export function decodeServiceResponse<Q extends ServiceRequest>(
   query: Q,
   id: string,

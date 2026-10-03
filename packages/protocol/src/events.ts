@@ -1,3 +1,5 @@
+import { RunClientUpdated } from "./run-client.ts";
+import { ThreadClientUpdated } from "./thread-client.ts";
 import { ThreadLineage, ExecutionSelection, ThreadSwitch } from "./thread-transitions.ts";
 import { AcpSessionSupport } from "./agent-registry.ts";
 import { WorkspaceFilesChanged } from "./files.ts";
@@ -35,6 +37,7 @@ export const UsageUpdated = UsageMetadata.safeExtend({
 export type UsageUpdated = z.infer<typeof UsageUpdated>;
 
 export const EventPayload = z.discriminatedUnion("type", [
+  ThreadClientUpdated,
   z.object({ type: z.literal("thread.created"), thread: Thread }),
   z.object({
     type: z.literal("thread.updated"),
@@ -71,6 +74,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     background: z.boolean().optional(),
     endedAt: Timestamp.optional(),
   }),
+  RunClientUpdated,
   /** Durable admission is distinct from execution and completion. */
   z.object({
     type: z.literal("input.admitted"),

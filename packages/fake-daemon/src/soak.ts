@@ -15,12 +15,14 @@ import {
   type DeliveryEvent,
   type EventPayload,
   type ItemsPage,
+  type ServerMessage,
   type SubscriptionScope,
   type Thread,
   type ThreadListView,
   type ThreadView,
 } from "@ace/protocol";
 import { Connection, type Host, type Wire } from "./connection.ts";
+import { replyUnsupported, type FakeWireSession } from "./services-wire.ts";
 import {
   endTurn,
   finish,
@@ -158,6 +160,12 @@ export class SoakDaemon implements Host {
   /** The soak serves no request/response services; only the thread stream is under load. */
   service(): boolean {
     return false;
+  }
+  session(send: (reply: ServerMessage) => void): FakeWireSession {
+    return {
+      close() {},
+      handle: async (request) => replyUnsupported(request, send),
+    };
   }
   snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined {
     if (scope.kind === "threads") return { ...structuredClone(this.list), seq: this.seq };

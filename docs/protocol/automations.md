@@ -29,11 +29,11 @@ Example:
 
 ```json
 {
-  "concurrency": 4,
-  "enabled": true,
+  "concurrency": 8,
+  "enabled": false,
   "id": "example",
   "jitterMs": 1,
-  "missedRun": "run_once",
+  "missedRun": "skip",
   "prompt": "example",
   "provider": "antigravity",
   "title": "example",
@@ -76,7 +76,7 @@ Example:
 
 ```json
 {
-  "before": 9,
+  "before": null,
   "runs": []
 }
 ```
@@ -103,17 +103,12 @@ Example:
     "id": "example",
     "jitterMs": 6,
     "missedRun": "run_once",
+    "model": "example",
     "prompt": "example",
-    "provider": "codex",
+    "provider": "acp",
     "title": "example",
     "trigger": {
-      "kind": "schedule",
-      "schedule": {
-        "expression": "example",
-        "kind": "cron",
-        "startAt": 0,
-        "timezone": "example"
-      }
+      "kind": "manual"
     },
     "workspace": "example",
     "worktree": true
@@ -190,7 +185,8 @@ Example:
 
 ```json
 {
-  "limit": 4,
+  "before": 6,
+  "limit": 9,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -207,6 +203,7 @@ Example:
 | ok | yes | boolean |  |
 | error | no | string | {"maxLength":8192} |
 | automations | no | array | {"maxItems":1000,"items":{"$ref":"https://ace.local/protocol/v1/Automation.json"}} |
+| schedules | no | array | {"maxItems":1000,"items":{"type":"object","properties":{"id":{"type":"string","minLength":1,"maxLength":256},"nextRunAt":{"anyOf":[{"type":"integer","minimum":0,"maximum":8640000000000000},{"type":"null"}]}},"required":["id","nextRunAt"]}} |
 | inbox | no | [AutomationInbox.json](schema/AutomationInbox.json) |  |
 | run | no | [AutomationRun.json](schema/AutomationRun.json) |  |
 
@@ -214,11 +211,8 @@ Example:
 
 ```json
 {
-  "inbox": {
-    "before": 10,
-    "runs": []
-  },
-  "ok": false,
+  "error": "example",
+  "ok": true,
   "requestId": "example",
   "type": "automation.result"
 }
@@ -247,12 +241,13 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 4,
+  "finishedAt": 7,
   "id": "example",
-  "startedAt": 9,
-  "status": "failed",
+  "result": "example",
+  "startedAt": 1,
+  "status": "succeeded",
   "title": "example",
-  "trigger": "manual"
+  "trigger": "schedule"
 }
 ```
 
@@ -310,7 +305,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   }
@@ -334,8 +329,9 @@ Example:
 {
   "event": "pr_changed",
   "kind": "github",
-  "pollIntervalMs": 60006,
-  "repository": "OC5.71Odd/.E"
+  "pollIntervalMs": 60009,
+  "pullRequest": 6,
+  "repository": "7_ENDfw1fd/TaDA"
 }
 ```
 

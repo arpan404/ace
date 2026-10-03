@@ -1,7 +1,7 @@
 import { canonicalContext } from "@ace/context";
 import type { PrepareInput } from "../engine/input.ts";
 import { z } from "zod";
-import type { ThreadId } from "@ace/protocol";
+import { ThreadId } from "@ace/protocol";
 import { AccountProvider } from "@ace/protocol/accounts";
 import type { RecoveryPorts } from "../engine/recovery.ts";
 import type { EngineRepository } from "../engine/repository.ts";
@@ -120,7 +120,7 @@ export function createRecoverySession(context: SocketContext): SocketService {
         if (
           "threadId" in command.payload &&
           command.payload.threadId &&
-          !canReadThread(command.payload.threadId)
+          !canReadThread(ThreadId.parse(command.payload.threadId))
         ) {
           send({ type: "commandResult", commandId: command.id, ok: false, error: "forbidden" });
           return;
@@ -130,7 +130,7 @@ export function createRecoverySession(context: SocketContext): SocketService {
         if (
           "threadId" in command.payload &&
           command.payload.threadId &&
-          !canReadThread(command.payload.threadId)
+          !canReadThread(ThreadId.parse(command.payload.threadId))
         ) {
           send({ type: "commandResult", commandId: command.id, ok: false, error: "forbidden" });
           return;

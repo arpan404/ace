@@ -1,0 +1,220 @@
+{
+  "$id": "https://ace.local/protocol/v1/WorkspaceActionResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "scripts",
+              "type": "string"
+            },
+            "scripts": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/WorkspaceScript.json"
+              },
+              "maxItems": 256,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "scripts"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "editors": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/InstalledEditor.json"
+              },
+              "maxItems": 32,
+              "type": "array"
+            },
+            "kind": {
+              "const": "editors",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "editors"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "branches": {
+              "items": {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              "maxItems": 1000,
+              "type": "array"
+            },
+            "kind": {
+              "const": "branches",
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "branches",
+            "truncated"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "details": {
+              "$ref": "https://ace.local/protocol/v1/ThreadDetails.json"
+            },
+            "kind": {
+              "const": "details",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "details"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "pr",
+              "type": "string"
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "$ref": "https://ace.local/protocol/v1/ForgePrStatus.json"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "runs",
+              "type": "string"
+            },
+            "nextBefore": {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            "runs": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/Run.json"
+              },
+              "maxItems": 100,
+              "type": "array"
+            },
+            "total": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "runs",
+            "total"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "workspaces",
+              "type": "string"
+            },
+            "next": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "workspaces": {
+              "items": {
+                "properties": {
+                  "id": {
+                    "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+                  },
+                  "name": {
+                    "maxLength": 256,
+                    "type": "string"
+                  },
+                  "path": {
+                    "maxLength": 4096,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "path"
+                ],
+                "type": "object"
+              },
+              "maxItems": 100,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "workspaces"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "kind": {
+              "const": "error",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "code"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "workspace.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}

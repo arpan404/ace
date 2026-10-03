@@ -1,0 +1,61 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadRunMetadata.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "account": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "backgroundTaskCount": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "contextMeter": {
+      "properties": {
+        "at": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "limit": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "used": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "used",
+        "limit",
+        "at"
+      ],
+      "type": "object"
+    },
+    "model": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "options": {
+      "$ref": "https://ace.local/protocol/v1/ExecutionOptions.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "subagentCount": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}

@@ -28,6 +28,11 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  previewClient?: import("../preview-client.ts").PreviewClient;
+  conductor?: import("../conductor-runtime.ts").ConductorRuntime;
+  automations?: import("@ace/automations").AutomationService;
+  workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntime;
+  canReadThread?: NonNullable<import("../server-options.ts").ServerOptions["canReadThread"]>;
   agentControl?: {
     previews: import("../agent-control/owners.ts").AgentPreviews;
     delegations: import("../agent-control/delegations.ts").DelegationService;

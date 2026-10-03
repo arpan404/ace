@@ -30,6 +30,21 @@ export const SettingsValues = z.object({
   "notifications.onCompletion": z.boolean(),
   "notifications.onApproval": z.boolean(),
   "notifications.suppressWhenActive": z.boolean(),
+  "notifications.onFailure": z.boolean(),
+  "notifications.onMention": z.boolean(),
+  "notifications.quietHours": z
+    .object({
+      start: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
+      end: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
+    })
+    .nullable(),
+  "threads.useWorktree": z.boolean(),
+  "threads.autoSettleAfter": z.enum(["1d", "2d", "1w", "never"]),
+  "threads.unresponsiveAfter": z.enum(["2m", "5m", "15m"]),
+  "threads.settleOnMerge": z.boolean(),
+  "threads.settleOnClose": z.boolean(),
+  "app.openAtLogin": z.boolean(),
+  "logs.retention": z.enum(["7d", "30d", "forever"]),
   "remote.enabled": z.boolean(),
   "remote.transport": z.enum(["local", "lan", "tailscale", "relay"]),
   "conductor.planApproval": z.enum(["required", "optional"]),
@@ -100,10 +115,16 @@ export const SettingsSubscribe = z.object({
   keys: z.array(SettingsKey).min(1).max(32),
   scope: SettingsScope,
 });
+export const SettingsUnsubscribe = z.object({
+  type: z.literal("settings.unsubscribe"),
+  requestId,
+  subscriptionId: z.string().min(1).max(128),
+});
 export const SettingsRequest = z.discriminatedUnion("type", [
   SettingsGet,
   SettingsSet,
   SettingsSubscribe,
+  SettingsUnsubscribe,
 ]);
 export type SettingsRequest = z.infer<typeof SettingsRequest>;
 export const SettingsResult = z.object({

@@ -425,6 +425,7 @@ export class EngineRepository {
     nativeSessionId?: string;
     backend?: ProviderBackend;
     instanceId?: string;
+    workspaceReady: boolean;
     options?: ExecutionOptions;
   } {
     return this.store.atomic((db) => {
@@ -438,6 +439,7 @@ export class EngineRepository {
         ...(row.instance_id == null
           ? {}
           : { instanceId: z.string().min(1).max(256).parse(row.instance_id) }),
+        workspaceReady: this.store.executionWorkspace(id).ready,
         ...(row.options == null
           ? {}
           : { options: ExecutionOptions.parse(JSON.parse(String(row.options))) }),
@@ -447,6 +449,19 @@ export class EngineRepository {
           : { nativeSessionId: String(row.native_session_id) }),
       };
     });
+  }
+  createUnpreparedSession(
+    id: ThreadId,
+    cwd: string,
+    model?: string,
+    backend?: ProviderBackend,
+    instanceId?: string,
+    options?: ExecutionOptions,
+  ): void {
+    this.createSession(id, cwd, model, backend, instanceId, options);
+    this.store.atomic((db) =>
+      db.prepare("UPDATE engine_sessions SET workspace_ready=0 WHERE thread_id=?").run(id),
+    );
   }
   createSession(
     id: ThreadId,
@@ -477,13 +492,19 @@ export class EngineRepository {
     backend?: ProviderBackend,
     instanceId?: string,
   ): void {
-    this.store.atomic((db) =>
-      db
-        .prepare(
-          "UPDATE engine_sessions SET native_session_id = ?, backend = COALESCE(?,backend), instance_id = COALESCE(?,instance_id) WHERE thread_id = ?",
-        )
-        .run(nativeId, backend ?? null, instanceId ?? null, id),
-    );
+    this.store.atomic((db) => {
+      db.prepare(
+        "UPDATE engine_sessions SET native_session_id = ?, backend = COALESCE(?,backend), instance_id = COALESCE(?,instance_id) WHERE thread_id = ?",
+      ).run(nativeId, backend ?? null, instanceId ?? null, id);
+      const thread = this.store.getThread(id);
+      if (thread && instanceId && thread.live?.account !== instanceId)
+        this.store.appendEvents(id, [
+          {
+            type: "thread.client.updated",
+            changes: { live: { ...thread.live, account: instanceId } },
+          },
+        ]);
+    });
   }
   pinSessionIdentity(
     id: ThreadId,
@@ -513,8 +534,14 @@ export class EngineRepository {
     });
   }
   backend(id: ThreadId): ProviderBackend | undefined {
-    const metadata = this.session(id);
-    if (metadata.backend) return metadata.backend;
+    // Recovery and teardown also read the binding of a tombstoned thread. They must
+    // not resolve its execution workspace, which intentionally rejects deleted threads.
+    const backend = this.store.atomic((db) => {
+      const row = db.prepare("SELECT backend FROM engine_sessions WHERE thread_id=?").get(id);
+      if (!row) throw new Error("Missing engine session metadata");
+      return row.backend == null ? undefined : z.enum(["acp", "cursor-sdk"]).parse(row.backend);
+    });
+    if (backend) return backend;
     return this.requireState(id).config.provider === "cursor" ? "acp" : undefined;
   }
   captureFrame(id: ThreadId, frame: Frame): void {

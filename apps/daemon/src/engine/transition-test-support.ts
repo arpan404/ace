@@ -32,6 +32,7 @@ export function transitionHarness(
     configureFails?: boolean;
     maxActiveThreads?: number;
     beforeFork?(context: SessionContext): Promise<void>;
+    prepareWorkspace?(id: ThreadId): Promise<string>;
   } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-transition-"));
@@ -206,6 +207,7 @@ export function transitionHarness(
     onError: (error: unknown) => errors.push(error),
     ...(options.maxActiveThreads ? { limits: { maxActiveThreads: options.maxActiveThreads } } : {}),
     ...(options.io ? { transitions: options.io } : {}),
+    ...(options.prepareWorkspace ? { prepareWorkspace: options.prepareWorkspace } : {}),
     ...(options.recovery ? { recovery: options.recovery } : {}),
     ...(options.preferences ? { preferences: options.preferences } : {}),
   };

@@ -121,10 +121,38 @@ it("retained long models do not stall replay for other threads and stay filterab
     f.add("healthy");
     await f.replay();
     expect(f.usage.cursor()).toBe(f.history.headSeq());
+    expect(f.history.snapshotThread(first).agents["long-agent"]?.model).toBe(model);
+    expect(f.history.getThread(first)?.live?.model).toBeUndefined();
+    f.reopen();
+    expect(f.history.getThread(first)?.live?.model).toBeUndefined();
     expect(f.usage.summary(query).rows.map((row) => row.totals.inputTokens)).toEqual([10, 10]);
     expect(
       f.usage.summary({ ...query, filters: { model: [model] } }).rows[0]?.dimensions.thread,
     ).toBe("long");
+  } finally {
+    f.close();
+  }
+});
+it("upgrading retained long root models seeds valid sidebar hints and preserves usage", async () => {
+  const f = fixture();
+  try {
+    const model = "legacy-model".repeat(64);
+    const threadId = f.add("legacy", model);
+    // Reproduce a pre-client-fields database without discarding its retained agents.
+    f.history.atomic((db) => {
+      db.prepare("UPDATE threads SET client=NULL WHERE id=?").run(threadId);
+      db.exec("DELETE FROM client_thread_migration");
+    });
+    f.reopen();
+    expect(f.history.getThread(threadId)).toMatchObject({
+      live: { provider: "codex", subagentCount: 0, backgroundTaskCount: 0 },
+    });
+    expect(f.history.getThread(threadId)?.live?.model).toBeUndefined();
+    expect(f.history.snapshotThread(threadId).agents["legacy-agent"]?.model).toBe(model);
+    await f.replay();
+    expect(
+      f.usage.summary({ ...query, filters: { model: [model] } }).rows[0]?.dimensions.thread,
+    ).toBe("legacy");
   } finally {
     f.close();
   }

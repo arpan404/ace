@@ -1,4 +1,21 @@
+import { PreviewRequest, PreviewResult } from "./preview-client.ts";
+import { ConductorRequest, ConductorResult, ConductorChanged } from "./conductor-client.ts";
+import { AutomationRequest, AutomationResponse } from "./automations.ts";
+import {
+  TerminalRequest,
+  TerminalCredit,
+  TerminalResult,
+  TerminalOutput,
+} from "./terminal-client.ts";
+import {
+  WorkspaceActionRequest,
+  WorkspaceActionResult,
+  EditorLaunch,
+} from "./workspace-actions.ts";
+import { ForgePrStatus, ForgePrRef } from "./forge.ts";
+import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
+import { DiagnosticsHealthRequest, DiagnosticsHealthResult } from "./diagnostics.ts";
 import { PiControlRequest, PiControlResult } from "./pi.ts";
 import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
 import { FilesClientMessage, FilesServerMessage } from "./files.ts";
@@ -64,6 +81,7 @@ import {
   SettingsGet,
   SettingsSet,
   SettingsSubscribe,
+  SettingsUnsubscribe,
   SettingsResult,
   SettingsChanged,
   SettingsDiagnosticMessage,
@@ -151,14 +169,23 @@ export const ItemsPage = z.object({
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  PreviewRequest,
+  ConductorRequest,
+  ...AutomationRequest.options,
   QueueGet,
   PiControlRequest,
 
   RegistryRequest,
+  WorkspaceActionRequest,
+  TerminalRequest,
+  TerminalCredit,
+  PluginClientMessage,
+  DiagnosticsHealthRequest,
   ContextRequest,
   SettingsGet,
   SettingsSet,
   SettingsSubscribe,
+  SettingsUnsubscribe,
   HistoryListRequest,
   HistoryImportRequest,
   HistoryScanRequest,
@@ -231,13 +258,30 @@ export const CommandResult = z.object({
   health: DiagnosticsHealth.optional(),
   error: z.string().optional(),
   review: ReviewData.optional(),
+  pr: ForgePrRef.optional(),
+  prStatus: ForgePrStatus.optional(),
+  editor: EditorLaunch.optional(),
+  terminalId: z.string().min(1).max(128).optional(),
+  commit: z
+    .string()
+    .regex(/^[a-f0-9]{40,64}$/)
+    .optional(),
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  PreviewResult,
+  ConductorResult,
+  ConductorChanged,
+  AutomationResponse,
   QueueResult,
   PiControlResult,
 
   RegistryResult,
+  WorkspaceActionResult,
+  TerminalResult,
+  TerminalOutput,
+  PluginServerMessage,
+  DiagnosticsHealthResult,
   ContextResult,
   SettingsResult,
   SettingsChanged,

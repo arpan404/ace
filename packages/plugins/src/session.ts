@@ -9,7 +9,7 @@ export async function preparePluginSession(
   provider: Provider,
   root: string,
 ) {
-  const projection = projectPlugins(provider, await manager.installed(), { root });
+  const projection = projectPlugins(provider, await manager.selected(provider), { root });
   await materializeProjection(projection, { root });
   return {
     env: projection.env,

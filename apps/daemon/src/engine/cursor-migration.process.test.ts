@@ -63,7 +63,7 @@ it("preserves pre-SDK session identity during the additive metadata migration", 
   const db = new DatabaseSync(join(home, "state.sqlite"));
   try {
     db.exec(
-      `CREATE TABLE engine_schema_version(id INTEGER PRIMARY KEY, version INTEGER); CREATE TABLE threads(id TEXT PRIMARY KEY); CREATE TABLE engine_sessions(thread_id TEXT PRIMARY KEY,cwd TEXT,model TEXT,native_session_id TEXT); INSERT INTO threads VALUES ('old'); INSERT INTO engine_sessions VALUES ('old','/fixture','model','acp-native-id')`,
+      `CREATE TABLE engine_schema_version(id INTEGER PRIMARY KEY, version INTEGER); CREATE TABLE workspaces(id TEXT PRIMARY KEY,path TEXT); CREATE TABLE threads(id TEXT PRIMARY KEY,workspace_id TEXT,client JSON); CREATE TABLE engine_sessions(thread_id TEXT PRIMARY KEY,cwd TEXT,model TEXT,native_session_id TEXT); INSERT INTO workspaces VALUES ('workspace','/fixture'); INSERT INTO threads VALUES ('old','workspace','{}'); INSERT INTO engine_sessions VALUES ('old','/fixture','model','acp-native-id')`,
     );
     db.prepare("INSERT INTO engine_schema_version VALUES (1,?)").run(engineSchemaVersion);
     migrateEngine(db);

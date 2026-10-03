@@ -1,3 +1,4 @@
+import { ThreadId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
 import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
@@ -10,7 +11,6 @@ import { deriveThreadStatus, readyForChildResults, type IdSource } from "@ace/co
 import type { CommandHandler } from "../commands.ts";
 import type { Store } from "../store.ts";
 import type {
-  ThreadId,
   AgentId,
   Thread,
   ProviderKind,
@@ -37,6 +37,9 @@ export interface EngineOptions {
   recovery?: RecoveryPorts;
   preferences?: Partial<RecoveryPreferences>;
   limits?: Partial<EngineLimits>;
+  beforeSend?(threadId: ThreadId, commandId: import("@ace/protocol").CommandId): Promise<void>;
+  prepareWorkspace?(threadId: ThreadId): Promise<string>;
+  machine?: { host: string; name: string };
   sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
   ids?: IdSource;
   threadId?: () => string;
@@ -99,6 +102,7 @@ export class Engine {
       ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
       repo: this.repo,
+      ...(options.prepareWorkspace ? { prepareWorkspace: options.prepareWorkspace } : {}),
       registry: this.registry,
       clock: this.clock,
       closing: () => this.closing,
@@ -144,6 +148,7 @@ export class Engine {
       sessions: this.sessions,
       recovery: this.recovery,
       prepareInput: options.prepareInput,
+      beforeSend: options.beforeSend,
       transitions: this.transitions,
       invalidateContext: (id) => this.meters.invalidate(id, this.clock.now()),
       releaseGuards: (intent) => {
@@ -185,6 +190,7 @@ export class Engine {
       this.recovery,
       this.limits,
       options.selectInstance,
+      options.machine,
     );
     this.handler = {
       handle: (command, context) =>
@@ -338,7 +344,9 @@ export class Engine {
     )
       return;
     await this.recovery.prepare(
-      "threadId" in command.payload ? command.payload.threadId : undefined,
+      "threadId" in command.payload && command.payload.threadId
+        ? ThreadId.parse(command.payload.threadId)
+        : undefined,
     );
   }
   queue(id: ThreadId): QueueSnapshot {

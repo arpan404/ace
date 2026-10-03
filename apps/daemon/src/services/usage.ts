@@ -22,14 +22,23 @@ export function createUsageSession(context: SocketContext): SocketService {
 
   return {
     async handle(message) {
+      const reject = (code: string, detail: string) =>
+        fail(
+          code,
+          detail,
+          false,
+          "requestId" in message && message.requestId !== undefined
+            ? { requestId: message.requestId }
+            : {},
+        );
       switch (message.type) {
         case "usage.session_totals": {
           if (!authorize("read") || !context.canReadThread(message.query.thread)) {
-            fail("forbidden", "Thread read scope required");
+            reject("forbidden", "Thread read scope required");
             return true;
           }
           if (!options.usage?.sessionTotals) {
-            fail("usage_unavailable", "Inclusive usage estimates unavailable");
+            reject("usage_unavailable", "Inclusive usage estimates unavailable");
             return true;
           }
           try {
@@ -37,18 +46,18 @@ export function createUsageSession(context: SocketContext): SocketService {
             if (connected())
               send({ type: "usage.session_totals.result", requestId: message.requestId, totals });
           } catch {
-            fail("usage_failed", "Usage snapshot query rejected");
+            reject("usage_failed", "Usage snapshot query rejected");
           }
           return true;
         }
         case "usage.summary":
         case "usage.series": {
           if (!authorize("read")) {
-            fail("forbidden", "Read scope required");
+            reject("forbidden", "Read scope required");
             return true;
           }
           if (!options.usage) {
-            fail("usage_unavailable", "Usage analytics unavailable");
+            reject("usage_unavailable", "Usage analytics unavailable");
             return true;
           }
           try {
@@ -57,7 +66,7 @@ export function createUsageSession(context: SocketContext): SocketService {
             if (connected())
               send({ type: "usage.result", requestId: message.requestId, kind, result });
           } catch {
-            fail("usage_failed", "Usage query rejected");
+            reject("usage_failed", "Usage query rejected");
           }
           return true;
         }

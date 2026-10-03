@@ -10,7 +10,13 @@
     "acpSupport": {
       "$ref": "https://ace.local/protocol/v1/AcpSessionSupport.json"
     },
+    "activityAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
     "archivedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "autoSettleAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
     "backend": {
@@ -25,6 +31,12 @@
     },
     "createdAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "deletedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "details": {
+      "$ref": "https://ace.local/protocol/v1/ThreadDetails.json"
     },
     "effectiveCapabilities": {
       "$ref": "https://ace.local/protocol/v1/Capabilities.json"
@@ -72,11 +84,35 @@
     "lineage": {
       "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
     },
+    "live": {
+      "$ref": "https://ace.local/protocol/v1/ThreadRunMetadata.json"
+    },
+    "pinned": {
+      "type": "boolean"
+    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
+    "readAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
     "rootAgentId": {
       "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "settledAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "settledReason": {
+      "enum": [
+        "manual",
+        "inactivity",
+        "pr_merged",
+        "pr_closed"
+      ],
+      "type": "string"
+    },
+    "snoozedUntil": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
     "status": {
       "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
@@ -86,6 +122,9 @@
     },
     "title": {
       "type": "string"
+    },
+    "unread": {
+      "type": "boolean"
     },
     "updatedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"

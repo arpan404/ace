@@ -1,3 +1,6 @@
+import { WorkspaceCommands } from "./workspace-actions.ts";
+import { ForgeCommand } from "./forge.ts";
+import { ThreadOrganizationCommands, TurnOptions } from "./thread-client.ts";
 import { TransitionCommands } from "./thread-transitions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
@@ -27,11 +30,18 @@ import {
   OrchestrationPickCommand,
 } from "./orchestration-execution.ts";
 
+/** Preserve provider options while validating the shared launch controls. */
+export const ThreadCreateOptions = TurnOptions.and(z.object(AgentLaunchOptions.shape));
+export type ThreadCreateOptions = z.infer<typeof ThreadCreateOptions>;
+
 export const CommandPayload = z.discriminatedUnion("type", [
   ThreadPrepareCommand,
   ...QueueCommands,
   ...TransitionCommands,
   DiagnosticsHealthCommand,
+  ...ThreadOrganizationCommands,
+  ...WorkspaceCommands,
+  ...ForgeCommand.options,
   ...ConductorCommandPayload.options,
   ...ReviewCommands,
   OrchestrationCreateCommand,
@@ -45,16 +55,22 @@ export const CommandPayload = z.discriminatedUnion("type", [
     provider: ProviderKind,
     threadId: ThreadId.optional(),
     accountId: z.string().min(1).max(128).optional(),
-    options: AgentLaunchOptions.optional(),
+
     trigger: RunTrigger.optional(),
     ...AcpIdentity.partial().shape,
-    model: z.string().optional(),
+    model: z.string().min(1).max(256).optional(),
+    account: z.string().min(1).max(256).optional(),
+    mode: z.enum(["local", "worktree"]).optional(),
+    baseBranch: z.string().min(1).max(1024).optional(),
+    options: ThreadCreateOptions.optional(),
     title: z.string().optional(),
     input: z.array(ContentPart).min(1),
     context: MessageContext.optional(),
   }),
   z.object({
     type: z.literal("thread.send"),
+    model: z.string().min(1).max(256).optional(),
+    options: TurnOptions.optional(),
     trigger: RunTrigger.optional(),
     threadId: ThreadId,
     input: z.array(ContentPart).min(1),
