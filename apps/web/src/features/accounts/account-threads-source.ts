@@ -1,0 +1,99 @@
+/*
+ * Threads per account, from the live thread list (`live.account`, else the execution selection),
+ * and moving an exhausted account's limited threads with `thread.limit` / `migrate_now`.
+ */
+import type { SidebarKey, SidebarReader } from "@ace/client";
+import { useClient, useSidebar, useSidebarIds } from "@ace/client-react";
+import {
+  accountThread,
+  accountThreadCounts,
+  migrationTarget,
+  type AccountThread,
+  type AccountThreadCounts,
+  type AccountView,
+} from "@ace/ui-core";
+import { ThreadId } from "@ace/protocol";
+import { useMutation } from "@tanstack/react-query";
+
+const noIds: readonly string[] = [];
+
+function sameThreads(a: readonly AccountThread[], b: readonly AccountThread[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((thread, index) => {
+      const other = b[index];
+      return (
+        other !== undefined &&
+        other.id === thread.id &&
+        other.account === thread.account &&
+        other.limited === thread.limited
+      );
+    })
+  );
+}
+
+/** Running and limited threads per account id, live; undefined until the list has loaded. */
+export function useAccountThreads(): ReadonlyMap<string, AccountThreadCounts> | undefined {
+  const ids = useSidebarIds() ?? noIds;
+  const keys: SidebarKey[] = ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)];
+  const threads = useSidebar(
+    keys,
+    (reader: SidebarReader) =>
+      reader.loaded
+        ? reader.ids.flatMap((id) => {
+            const entry = reader.thread(id);
+            const counted = entry && accountThread(entry);
+            return counted ? [counted] : [];
+          })
+        : undefined,
+    (a, b) => a === b || (a !== undefined && b !== undefined && sameThreads(a, b)),
+  );
+  return threads && accountThreadCounts(threads);
+}
+
+export interface MoveResult {
+  moved: number;
+  failed: number;
+  to: AccountView;
+}
+
+/**
+ * Moves each limited thread to the same provider's account with most headroom. Every thread is
+ * its own `thread.limit` command against its current queue revision, so one refusal doesn't stop
+ * the others.
+ */
+export function useMoveThreads() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: async (input: {
+      accounts: readonly AccountView[];
+      from: string;
+      threadIds: readonly string[];
+    }): Promise<MoveResult> => {
+      const to = migrationTarget(input.accounts, input.from);
+      if (!to) throw new Error("No other account for this provider has headroom.");
+      if (!input.threadIds.length) throw new Error("There are no threads to move.");
+      const results = await Promise.all(
+        input.threadIds.map(async (id) => {
+          try {
+            const threadId = ThreadId.parse(id);
+            const { queue } = await client.request({ type: "queue.get", threadId, limit: 1 });
+            const result = await client.command({
+              type: "thread.limit",
+              threadId,
+              expectedRevision: queue.revision,
+              action: "migrate_now",
+              instanceId: to.id,
+            });
+            return result.ok;
+          } catch {
+            return false;
+          }
+        }),
+      );
+      const moved = results.filter(Boolean).length;
+      if (!moved) throw new Error(`Couldn't move threads to ${to.providerLabel} · ${to.label}.`);
+      return { moved, failed: results.length - moved, to };
+    },
+  });
+}

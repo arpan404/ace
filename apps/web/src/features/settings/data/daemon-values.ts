@@ -10,17 +10,11 @@ export interface DaemonValues extends ValuesStore {
   set(key: string, value: unknown): Promise<void>;
 }
 
-/** Whether the daemon's settings schema knows this key; unknown keys are refused there. */
-export const isDaemonKey = (key: string) => SettingsKey.safeParse(key).success;
-
 /**
  * A live mirror of the daemon's settings for the keys Settings edits: one `settings.subscribe`
  * per connection, renewed after every reconnect, then `settings.changed` pushes. Writes go to the
- * global layer and resolve once the daemon has stored them.
- *
- * Keys the daemon's schema doesn't have yet are held for this session only.
- * TODO(client-gaps): feat/client-protocol-gaps adds them to SettingsValues; they then route to
- * the daemon with no change here.
+ * global layer and resolve once the daemon has stored them. A key outside the daemon's schema
+ * is refused here, before it reaches the wire: nothing is held only for this session.
  */
 export function daemonValues(client: ClientApi, keys: readonly string[]): DaemonValues {
   const watched = keys
@@ -79,16 +73,12 @@ export function daemonValues(client: ClientApi, keys: readonly string[]): Daemon
     },
     get: () => values,
     async set(key, value) {
-      if (!isDaemonKey(key)) {
-        values = { ...values, [key]: value };
-        emit();
-        return;
-      }
+      const parsedKey = SettingsKey.safeParse(key);
+      if (!parsedKey.success) throw new Error(`The daemon has no setting named ${key}.`);
       const json = z.json().parse(value);
-      const parsedKey = SettingsKey.parse(key);
       // Optimistic: the page shows the new value at once and goes back if the daemon refuses.
       const before = values;
-      apply([{ key: parsedKey, value: json, provenance: "global" }], false);
+      apply([{ key: parsedKey.data, value: json, provenance: "global" }], false);
       const refused = (message: string) => {
         if (values[key] === json) {
           values = { ...values, [key]: before[key] };

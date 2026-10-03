@@ -30,6 +30,8 @@ import {
 } from "@ace/protocol";
 import { Connection, matches, type Host, type Wire } from "./connection.ts";
 import { fakeHealth } from "./health.ts";
+import { FakeAccess } from "./access.ts";
+import { FakeAppDevices } from "./app-devices.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
@@ -90,8 +92,14 @@ export class FakeDaemon implements Host {
   readonly review: FakeReviewDesk;
   /** Accounts, usage, models, settings, search and slash commands, over the wire. */
   readonly services: FakeServices;
+  /** The HTTP access routes: paired devices, pairing and revoking. */
+  readonly access: FakeAccess;
+  /** iOS Simulators and Android emulators, over a dedicated devices channel. */
+  readonly appDevices: FakeAppDevices;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
+    this.access = new FakeAccess(options.clock);
+    this.appDevices = new FakeAppDevices(options.clock);
     this.services = new FakeServices({
       clock: options.clock,
       thread: (threadId) => {
@@ -419,10 +427,26 @@ export class FakeDaemon implements Host {
       this.append(host, [decision], this.options.clock());
       return { commandId, ok: true, threadId: ThreadId.parse(host.id) };
     }
-    if (isQueueCommand(payload))
-      return this.run(commandId, payload.threadId, (host) =>
+    if (isQueueCommand(payload)) {
+      const result = this.run(commandId, payload.threadId, (host) =>
         queueCommand(host, payload, this.options.clock()),
       );
+      // Moving a limited thread runs it on the chosen account from now on.
+      const host = this.threads.get(payload.threadId);
+      if (result.ok && host && payload.type === "thread.limit" && payload.action === "migrate_now")
+        if (payload.instanceId)
+          this.append(
+            host,
+            [
+              {
+                type: "thread.client.updated",
+                changes: { live: { ...host.view.thread.live, account: payload.instanceId } },
+              },
+            ],
+            this.options.clock(),
+          );
+      return result;
+    }
     switch (payload.type) {
       case "thread.fork": {
         const source = this.threads.get(payload.threadId);

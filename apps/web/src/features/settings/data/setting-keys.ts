@@ -1,14 +1,14 @@
-import { ProviderKind } from "@ace/protocol";
+import { LimitPolicy, ProviderKind, type SettingsKey } from "@ace/protocol";
 import { z } from "zod";
 
 /** A daemon setting the UI edits: its key, how to read it, and what it is when unset. */
 export interface SettingDef<T> {
-  key: string;
+  key: SettingsKey;
   schema: z.ZodType<T>;
   fallback: T;
 }
 
-function setting<T>(key: string, schema: z.ZodType<T>, fallback: T): SettingDef<T> {
+function setting<T>(key: SettingsKey, schema: z.ZodType<T>, fallback: T): SettingDef<T> {
   return { key, schema, fallback };
 }
 
@@ -34,10 +34,9 @@ export type QuietHours = z.infer<typeof QuietHours>;
 export const Keybindings = z.record(z.string().max(64), z.string().min(1).max(64));
 export type Keybindings = z.infer<typeof Keybindings>;
 
-/**
- * Every daemon setting Settings edits. Keys in the protocol's SettingsValues use its names;
- * the rest are stored on the global layer under the same dotted scheme.
- */
+export type LimitPolicy = z.infer<typeof LimitPolicy>;
+
+/** Every daemon setting the app edits, by its key in the protocol's SettingsValues. */
 export const settingKeys = {
   defaultProvider: setting("providers.default", ProviderKind, "claude"),
   worktree: setting("threads.useWorktree", z.boolean(), true),
@@ -56,4 +55,5 @@ export const settingKeys = {
   unresponsiveAfter: setting("threads.unresponsiveAfter", UnresponsiveAfter, "5m"),
   logRetention: setting("logs.retention", LogRetention, "30d"),
   keybindings: setting<Keybindings>("clients.keybindings", Keybindings, {}),
+  limitPolicy: setting<LimitPolicy>("threads.limitPolicy", LimitPolicy, "manual"),
 };

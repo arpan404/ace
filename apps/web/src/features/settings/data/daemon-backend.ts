@@ -67,8 +67,8 @@ function distinct(models: readonly CatalogModel[]): CatalogModel[] {
 
 /**
  * Settings against the connected daemon: values through `settings.subscribe` / `settings.set`,
- * providers from `accounts.list`, models from `models.list` / `models.refresh`. Machines, devices
- * and ACP agents added by command go through `access` until the daemon serves them.
+ * providers from `accounts.list`, models from `models.list` / `models.refresh`, and paired devices,
+ * machines and ACP agents added by command through `access`.
  */
 export function daemonSettingsBackend(
   client: ClientApi,

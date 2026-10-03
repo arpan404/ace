@@ -15,6 +15,7 @@ const AgentsTab = lazy(() => loadTabs().then((m) => ({ default: m.AgentsTab })))
 const TerminalTab = lazy(() => loadTabs().then((m) => ({ default: m.TerminalTab })));
 const LogsTab = lazy(() => loadTabs().then((m) => ({ default: m.LogsTab })));
 const BottomActions = lazy(() => loadTabs().then((m) => ({ default: m.BottomActions })));
+const DevicesTab = lazy(() => loadTabs().then((m) => ({ default: m.DevicesTab })));
 
 function Waiting() {
   return (
@@ -41,7 +42,7 @@ function Loading(props: { children: ReactNode; quiet?: boolean; services?: false
 }
 
 /**
- * A thread's right panel (Changes · Preview · Agents) and bottom panel (Terminal · Logs), as
+ * A thread's right panel (Changes · Preview · Devices · Agents) and bottom panel (Terminal · Logs), as
  * data for `<Screen right bottom>`. The shell owns open state, sizes and the panel shortcuts.
  */
 export function threadPanels(threadId: string): {
@@ -69,6 +70,15 @@ export function threadPanels(threadId: string): {
           content: (
             <Loading>
               <PreviewTab threadId={threadId} />
+            </Loading>
+          ),
+        },
+        {
+          id: "devices",
+          label: "Devices",
+          content: (
+            <Loading services={false}>
+              <DevicesTab threadId={threadId} />
             </Loading>
           ),
         },

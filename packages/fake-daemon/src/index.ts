@@ -16,6 +16,7 @@ export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";
 export { coldStartReplay } from "./scenarios/cold-start-replay.ts";
 export { seedPanels } from "./scenarios/panels.ts";
 export { devWorld } from "./scenarios/dev-world.ts";
+export { accountLimit, teamAtLimit } from "./scenarios/account-limit.ts";
 export type { WorldThread } from "./scenarios/dev-world.ts";
 export { FakeReviewDesk } from "./review-desk.ts";
 export { FakeTerminals } from "./terminals.ts";
@@ -30,8 +31,8 @@ export { deckRuns } from "./conductor/decks.ts";
 export type * from "./conductor/types.ts";
 export { skillCatalog } from "./catalog/skills.ts";
 export type { FakeSkill } from "./catalog/skills.ts";
-export { accountList, defaultSchedulingPolicy, moveThreads } from "./catalog/accounts.ts";
-export type { FakeAccount, FakeQuotaWindow, FakeSchedulingPolicy } from "./catalog/accounts.ts";
+export { accountList } from "./catalog/accounts.ts";
+export type { FakeAccount, FakeQuotaWindow } from "./catalog/accounts.ts";
 export { usageReport } from "./catalog/usage.ts";
 export { searchThreads } from "./catalog/search.ts";
 export type { FakeSearchHit, FakeSearchKind } from "./catalog/search.ts";
@@ -43,4 +44,6 @@ export type {
   SettingsFixture,
 } from "./scenarios/settings.ts";
 export { FakeServices, FakeSettings } from "./services/index.ts";
+export { FakeAccess } from "./access.ts";
+export { FakeAppDevices } from "./app-devices.ts";
 export { accountSummary } from "./services/accounts.ts";

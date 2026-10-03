@@ -18,6 +18,15 @@ async function body(request: IncomingMessage): Promise<unknown> {
     throw new AccessError(400, "JSON object required");
   }
 }
+/**
+ * Routes a web client served from another origin may call with its bearer token: paired devices,
+ * pairing and revoking. The token travels only in the Authorization header and no cookie is ever
+ * accepted, so allowing any origin grants nothing a page without the token could use. Pairing
+ * redemption and tickets stay same-origin.
+ */
+function crossOrigin(path: string): boolean {
+  return path === "/v1/devices" || path === "/v1/pairings" || /^\/v1\/devices\/[^/]+$/.test(path);
+}
 export function accessHttp(
   auth: RemoteAuth,
   authenticate: (token: string) => Device | undefined,
@@ -35,6 +44,18 @@ export function accessHttp(
       response.setHeader("Referrer-Policy", "no-referrer");
       response.setHeader("Content-Type", "application/json");
       const path = request.url ?? "";
+      if (crossOrigin(path)) {
+        response.setHeader("Access-Control-Allow-Origin", "*");
+        if (request.method === "OPTIONS") {
+          request.resume();
+          response.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE");
+          response.setHeader("Access-Control-Allow-Headers", "authorization, content-type");
+          response.setHeader("Access-Control-Max-Age", "600");
+          response.statusCode = 204;
+          response.end();
+          return;
+        }
+      }
       // Match exact paths. Credentials and fragments never belong in HTTP URLs.
       const token = request.headers.authorization?.match(/^Bearer ([0-9a-f]{64})$/)?.[1] ?? "";
       const actor = () => authenticate(token);

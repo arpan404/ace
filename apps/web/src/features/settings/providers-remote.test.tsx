@@ -47,7 +47,8 @@ test("an ACP agent added by command joins the provider list", async () => {
 });
 
 test("machines and paired devices are listed; revoking a device removes it after confirming", async () => {
-  await harness().open("/settings/remote");
+  const app = harness();
+  await app.open("/settings/remote");
   const machines = await screen.findByRole("region", { name: "Machines" });
   expect(await within(machines).findByText("studio-mac")).toBeTruthy();
   expect(within(machines).getByText(/^Linux · 3 threads · daemon 0\.8\.0/)).toBeTruthy();
@@ -64,11 +65,13 @@ test("machines and paired devices are listed; revoking a device removes it after
   await waitFor(() => expect(within(devices).queryByText("iPhone 16 Pro")).toBeNull());
   expect(within(devices).getByText("iPad Air")).toBeTruthy();
   expect(await screen.findByText("iPhone 16 Pro can no longer reach this daemon")).toBeTruthy();
+  expect(app.daemon.access.list().map((device) => device.name)).toEqual(["iPad Air"]);
 });
 
 test("pairing shows a one-time QR code, its code and a link that can be copied", async () => {
   const user = userEvent.setup();
-  await harness().open("/settings/remote");
+  // Pairing codes expire on the daemon's clock; here it is the page's.
+  await harness({ clock: () => Date.now() }).open("/settings/remote");
   await user.click(await screen.findByRole("button", { name: "Pair" }));
   const dialog = await screen.findByRole("dialog", { name: "Pair a device" });
   await user.click(within(dialog).getByRole("button", { name: "View only" }));

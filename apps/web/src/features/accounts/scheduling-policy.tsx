@@ -1,49 +1,55 @@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group.tsx";
-import { Switch } from "@/components/ui/switch.tsx";
-import { SettingRow } from "@/components/setting-row.tsx";
-import { usePolicy, useSetPolicy, type SchedulingPolicy } from "./account-details-source.ts";
+import { useToast } from "@/components/ui/toast.tsx";
+import { settingKeys, useSetting, type LimitPolicy } from "@/features/settings/index.ts";
 
-const choices: readonly {
-  value: SchedulingPolicy["onExhausted"];
-  title: string;
-  description: string;
-}[] = [
+const choices: readonly { value: LimitPolicy; title: string; description: string }[] = [
   {
-    value: "switch",
-    title: "Switch to the account with the most headroom",
-    description: "Same provider, same plan tier or higher. The thread keeps its context.",
+    value: "manual",
+    title: "Stop and let me decide",
+    description: "The thread shows Limited with the reset time. Resume, wait or move it yourself.",
   },
   {
-    value: "pause",
-    title: "Pause the thread until the window resets",
-    description: "Nothing moves; you get an Activity item with the reset time.",
+    value: "resume_at_reset",
+    title: "Resume when the window resets",
+    description: "Queued work continues on the same account as soon as the provider allows it.",
   },
   {
-    value: "ask",
-    title: "Ask me each time",
-    description: "An approval card appears in Activity before any switch.",
+    value: "snooze_until_reset",
+    title: "Snooze the thread until the window resets",
+    description: "It leaves Home until the reset, then comes back for you to continue.",
+  },
+  {
+    value: "migrate_now",
+    title: "Move it to another account right away",
+    description:
+      "Same provider, the account with the most headroom. The conversation goes with it.",
   },
 ];
 
-/** "When an account runs out": applies to new turns only. */
+/** "When an account runs out": the daemon's `threads.limitPolicy`, applied to limited threads. */
 export function SchedulingPolicySection() {
-  const policy = usePolicy();
-  const update = useSetPolicy();
-  if (!policy.data) return null;
+  const [policy, setPolicy] = useSetting(settingKeys.limitPolicy);
+  const toast = useToast();
   return (
     <section aria-labelledby="policy-title" className="mt-10">
       <h2 id="policy-title" className="text-md font-medium">
         When an account runs out
       </h2>
       <p className="mt-1 text-ui text-muted-foreground">
-        Applies to new turns. Running turns always finish on the account they started with.
+        Applies when a thread hits its account's limit. Running turns always finish on the account
+        they started with.
       </p>
       <RadioGroup
         aria-labelledby="policy-title"
-        value={policy.data.onExhausted}
+        value={policy}
         onValueChange={(value) => {
           const picked = choices.find((choice) => choice.value === value);
-          if (picked) update.mutate({ onExhausted: picked.value });
+          if (picked)
+            void setPolicy(picked.value).catch((error: unknown) =>
+              toast.add({
+                title: error instanceof Error ? error.message : "Couldn't save that policy.",
+              }),
+            );
         }}
         className="mt-3.5 gap-0"
       >
@@ -62,18 +68,6 @@ export function SchedulingPolicySection() {
           </label>
         ))}
       </RadioGroup>
-      <div className="mt-[22px]">
-        <SettingRow
-          title="Keep 10% headroom for interactive threads"
-          description="Background and deck lanes stop early so a thread you are typing in never hits the wall."
-        >
-          <Switch
-            aria-label="Keep headroom"
-            checked={policy.data.keepHeadroom}
-            onCheckedChange={(keepHeadroom) => update.mutate({ keepHeadroom })}
-          />
-        </SettingRow>
-      </div>
     </section>
   );
 }

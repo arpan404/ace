@@ -7,6 +7,8 @@ import { render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { App, AppFrame, createQueryClient } from "@/app.tsx";
 import { memoryStorage } from "@/boot/client.ts";
+import { DaemonConnectionContext } from "@/boot/connection.tsx";
+import { fakeConnection } from "@/boot/fake.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
 
 const running: ClientApi[] = [];
@@ -55,11 +57,13 @@ export function harness(
     matchMedia?: (query: string) => MediaQueryList;
     /** Run the client the way a browser with workers does: behind a ClientHost and a port. */
     throughWorker?: boolean;
+    /** The daemon's clock; by default a counter from 1,000 ms. */
+    clock?: () => number;
   } = {},
 ) {
   let now = 1_000;
   const daemon = new FakeDaemon({
-    clock: () => (now += 1),
+    clock: options.clock ?? (() => (now += 1)),
     ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
   });
   const client = options.throughWorker ? workerClient(daemon) : fakeClient(daemon);
@@ -71,16 +75,19 @@ export function harness(
     play: (scenario: Scenario) => new ScenarioPlayer(daemon, scenario),
     async open(path: string) {
       await client.start();
+      const connection = fakeConnection(daemon);
       return render(
         <AppFrame
           environment={{ storage, root: document.documentElement, matchMedia: options.matchMedia }}
         >
-          <App
-            client={client}
-            queryClient={createQueryClient()}
-            storage={storage}
-            history={createMemoryHistory({ initialEntries: [path] })}
-          />
+          <DaemonConnectionContext.Provider value={connection}>
+            <App
+              client={client}
+              queryClient={createQueryClient()}
+              storage={storage}
+              history={createMemoryHistory({ initialEntries: [path] })}
+            />
+          </DaemonConnectionContext.Provider>
         </AppFrame>,
       );
     },

@@ -1,4 +1,5 @@
 import type { Scenario } from "../scenario.ts";
+import { teamAtLimit } from "./account-limit.ts";
 import { coldStartReplay } from "./cold-start-replay.ts";
 import { failingSubagent } from "./failing-subagent.ts";
 import { flakyCheckout } from "./flaky-checkout.ts";
@@ -34,5 +35,7 @@ export function devWorld(): WorldThread[] {
     // the subagents report back live.
     { scenario: coldStartReplay(), agoMs: 0, through: "relay-output", live: { speed: 1 } },
     { scenario: failingSubagent(), agoMs: 12 * minute, live: { speed: 0.5 } },
+    // The exhausted Codex Team account's threads, stopped at its limit (Usage & accounts).
+    ...teamAtLimit().map((scenario) => ({ scenario, agoMs: 40 * minute })),
   ];
 }
