@@ -1,33 +1,80 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useThreadMeta } from "@ace/client-react";
+import { checkoutOf, type Checkout } from "@ace/ui-core";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
-import type { GitAction, GitState } from "../sources/workspace-source.ts";
 
-type Change =
-  | { kind: "action"; action: GitAction }
-  | { kind: "branch"; branch: string }
-  | { kind: "mode"; mode: GitState["mode"] };
+const detailsKey = (threadId: string) => ["thread", "details", threadId];
+const prKey = (threadId: string) => ["thread", "pr", threadId];
 
 /**
- * The thread checkout's git and PR state: a request/response read, so it lives in TanStack
- * Query. Every change returns the new state, which replaces the cached one.
+ * The thread checkout's git and PR state. Details are live thread state (the daemon publishes
+ * every refresh into the thread); opening the thread asks the daemon to read the checkout again,
+ * and a linked PR's status is a one-off forge read.
  */
-export function useGit(thread: ThreadRef) {
+export function useCheckout(thread: ThreadRef): Checkout | undefined {
   const sources = useThreadSources();
-  const queryClient = useQueryClient();
-  const key = ["thread", "git", thread.id];
-  const query = useQuery({ queryKey: key, queryFn: () => sources.workspace.git(thread) });
-  const mutation = useMutation({
-    mutationFn: (change: Change) => {
-      switch (change.kind) {
-        case "action":
-          return sources.workspace.gitAction(thread, change.action);
-        case "branch":
-          return sources.workspace.switchBranch(thread, change.branch);
-        case "mode":
-          return sources.workspace.setMode(thread, change.mode);
-      }
-    },
-    onSuccess: (state) => queryClient.setQueryData(key, state),
+  const live = useThreadMeta(thread.id)?.details;
+  const read = useDaemonQuery({
+    queryKey: detailsKey(thread.id),
+    staleTime: 30_000,
+    retry: false,
+    read: (_client, signal) => sources.workspace.details(thread, signal),
   });
-  return { git: query.data, change: mutation.mutateAsync, pending: mutation.isPending };
+  const details = live ?? read.data;
+  const linked = details?.linkedPr;
+  const pr = useDaemonQuery({
+    queryKey: [...prKey(thread.id), linked?.number],
+    enabled: linked !== undefined && linked !== null,
+    staleTime: 60_000,
+    retry: false,
+    read: (_client, signal) => sources.workspace.prStatus(thread, signal),
+  });
+  return checkoutOf(details, pr.data);
+}
+
+export type GitChange =
+  | { kind: "commit"; message: string; push: boolean }
+  | { kind: "push" }
+  | { kind: "create-pr"; title: string; summary: string; draft: boolean };
+
+/**
+ * Commit, push and open a PR. Each change reads the checkout again afterwards, so the header
+ * moves to the next step from what the daemon reports rather than from a guess.
+ */
+export function useGitActions(thread: ThreadRef, checkout: Checkout | undefined) {
+  const sources = useThreadSources();
+  const queries = useQueryClient();
+  const mutation = useMutation({
+    mutationFn: async (change: GitChange): Promise<number | undefined> => {
+      const workspace = sources.workspace;
+      if (change.kind === "commit") {
+        await workspace.commit(thread, change.message, checkout?.head ?? null);
+        if (change.push) await workspace.push(thread);
+        return undefined;
+      }
+      if (change.kind === "push") {
+        await workspace.push(thread);
+        return undefined;
+      }
+      const repository = checkout?.repository;
+      const branch = checkout?.branch;
+      if (!repository || !branch) throw new Error("This checkout can't open a pull request.");
+      // A branch without an upstream reports nothing ahead; pushing first is always safe.
+      await workspace.push(thread);
+      return workspace.createPr(thread, {
+        repository,
+        branch,
+        base: checkout.baseBranch,
+        title: change.title,
+        summary: change.summary,
+        draft: change.draft,
+      });
+    },
+    onSettled: async () => {
+      await queries.invalidateQueries({ queryKey: detailsKey(thread.id) });
+      await queries.invalidateQueries({ queryKey: prKey(thread.id) });
+    },
+  });
+  return { change: mutation.mutateAsync, pending: mutation.isPending };
 }

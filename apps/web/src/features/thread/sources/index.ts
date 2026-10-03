@@ -4,14 +4,14 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import { daemonCommandSource, type CommandSource } from "./command-source.ts";
 import { daemonContextSource, type ContextSource } from "./context-source.ts";
 import { fakeThreadActionsSource, type ThreadActionsSource } from "./thread-actions-source.ts";
-import { unavailableThreadActions, unavailableWorkspaceSource } from "./unavailable.ts";
-import { fakeWorkspaceSource, type WorkspaceSource } from "./workspace-source.ts";
+import { unavailableThreadActions } from "./unavailable.ts";
+import { daemonWorkspaceSource, type WorkspaceSource } from "./workspace-source.ts";
 
 /**
- * What the thread screen reads or does beyond the live thread store. Slash commands, mentions
- * and uploads go to the daemon in every mode. Workspace and organization actions have no
- * protocol on main yet: the fake daemon's stand-ins serve dev:fake and tests, and a real daemon
- * gets sources that report them unavailable.
+ * What the thread screen reads or does beyond the live thread store. Slash commands, mentions,
+ * uploads and the checkout's scripts, editors, git and forge go to the daemon in every mode.
+ * Organization actions have no protocol on main yet: the fake daemon's stand-ins serve dev:fake
+ * and tests, and a real daemon gets sources that report them unavailable.
  */
 export interface ThreadSources {
   workspace: WorkspaceSource;
@@ -22,8 +22,7 @@ export interface ThreadSources {
 
 function createSources(client: ClientApi, fake: boolean): ThreadSources {
   return {
-    // TODO(client-gaps): feat/client-protocol-gaps routes workspace and organization commands.
-    workspace: fake ? fakeWorkspaceSource() : unavailableWorkspaceSource(),
+    workspace: daemonWorkspaceSource(client),
     actions: fake ? fakeThreadActionsSource() : unavailableThreadActions(),
     context: daemonContextSource(client),
     commands: daemonCommandSource(client),
