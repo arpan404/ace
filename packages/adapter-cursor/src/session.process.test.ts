@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { apply, createThreadState } from "@ace/core";
-import { createCursorAdapter, openCursorSession } from "./index.ts";
+import { createCursorAdapter, openCursorSession, CursorHost } from "./index.ts";
 
 const fakeHost = `
 import { createInterface } from 'node:readline';
@@ -83,63 +83,48 @@ it("supervises a real host, keeps steering in one ace run and rejects child cont
   }
 });
 
-it("waits for the engine's durable frame acknowledgement before completing the host send", async () => {
+it("waits for the engine's durable frame acknowledgement across independent host round trips", async () => {
   const root = await mkdtemp(join(tmpdir(), "cursor-frame-ack-"));
   const received = Promise.withResolvers<void>(),
     commit = Promise.withResolvers<void>();
-  let sent = false;
   const entry = join(root, "ack.mjs");
   await writeFile(
     entry,
     `
 import {createInterface} from 'node:readline';
-let options, pending;
+let options, pending, acknowledged=false;
 const out=value=>process.stdout.write(JSON.stringify(value)+'\\n');
 createInterface({input:process.stdin}).on('line',line=>{
  const input=JSON.parse(line);
  if(input.method==='open') { options=input.params;out({id:input.id,result:{agentId:'native'}}); }
- else if(input.method==='send') { pending=input.id;out({id:'host:1',method:'frame',params:{schemaVersion:1,generation:options.generation,operationId:input.params.operationId,segment:0,kind:'delta',body:{type:'text-delta',text:'await storage'}}}); }
- else if(input.id==='host:1') { if(input.error)process.exit(1);out({id:pending,result:{runId:'native-run'}}); }
- else if(input.method==='close')out({id:input.id,result:{disposed:true}});
+ else if(input.method==='send') { pending=input.id;out({id:'host:1',method:'frame',params:{schemaVersion:1,generation:options.generation,operationId:'intent',segment:0,kind:'delta',body:{type:'text-delta',text:'await storage'}}}); }
+ else if(input.id==='host:1') { if(input.error)process.exit(1);acknowledged=true;out({id:pending,result:{runId:'native-run'}}); }
+ else if(input.method==='probe') out({id:input.id,result:{acknowledged}});
 });
 `,
   );
-  const session = await openCursorSession(
-    {
-      threadId: ThreadId.parse("ack-thread"),
-      cwd: root,
-      signal: new AbortController().signal,
-      onExit: () => {},
-      onFrame: async (frame) => {
-        if (frame.dir === "recv" && frame.channel === "sdk") {
-          received.resolve();
-          await commit.promise;
-        }
-      },
-    },
-    {
-      env: { HOME: root },
-      instanceId: "instance",
-      entry,
-      policy: "full-access",
-      generation: () => "host",
-      now: () => 1,
+  const host = new CursorHost(
+    { env: { HOME: root }, entry, generation: () => "host" },
+    async () => {
+      received.resolve();
+      await commit.promise;
     },
   );
   try {
-    const sending = session
-      .send([{ type: "text", text: "synthetic" }], "queue", "intent")
-      .then(() => {
-        sent = true;
-      });
+    await host.request("open", { generation: host.generation });
+    const sending = host.request("send");
     await received.promise;
-    expect(sent).toBe(false);
+    // The first round trip drains ACK-producing parent microtasks. The second
+    // crosses the child's FIFO input after any prematurely queued ACK. Both
+    // happen with storage blocked; no immediate promise-state/timing assertion.
+    await host.request("probe");
+    expect(await host.request("probe")).toEqual({ acknowledged: false });
     commit.resolve();
-    await sending;
-    expect(sent).toBe(true);
+    expect(await sending).toEqual({ runId: "native-run" });
+    expect(await host.request("probe")).toEqual({ acknowledged: true });
   } finally {
     commit.resolve();
-    await session.close("shutdown");
+    await host.stop();
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -165,3 +165,33 @@ it("preserves child-owned shell work and closes child text before foreground tas
     ),
   ).toMatchObject({ complete: true });
 });
+
+it("closes a text-only child message at task completion before the root turn ends", () => {
+  const r = replay();
+  r.frame("delta", {
+    type: "tool-call-started",
+    callId: "task",
+    toolCall: { type: "task", args: {} },
+  });
+  r.frame("delta", {
+    type: "tool-call-delta",
+    callId: "task",
+    taskUpdate: { type: "text-delta", text: "child text only" },
+  });
+  const message = Object.values(r.state.items).find(
+    (item) => item.type === "message" && item.role === "assistant",
+  );
+  if (!message || message.type !== "message") throw new Error("Missing child message");
+  expect(message).toMatchObject({
+    complete: false,
+    parts: [{ type: "text", text: "child text only" }],
+  });
+  r.frame("delta", {
+    type: "tool-call-completed",
+    callId: "task",
+    toolCall: { type: "task", result: { status: "success", value: { isBackground: false } } },
+  });
+  expect(r.state.items[message.id]).toMatchObject({ complete: true });
+  expect(r.state.agents.root?.activeRun).toBeDefined();
+  expect(deriveThreadStatus(r.state).state).not.toBe("done");
+});

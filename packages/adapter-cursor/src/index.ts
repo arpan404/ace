@@ -1,6 +1,6 @@
 export { createCursorAdapter, type CursorAdapterOptions } from "./adapter.ts";
 export { CursorTranslator, type CursorTranslatorOptions } from "./translator.ts";
-export { discoverCursorSdk, type HostOptions } from "./host.ts";
+export { CursorHost, discoverCursorSdk, type HostOptions } from "./host.ts";
 export { openCursorSession, type CursorSessionOptions } from "./session.ts";
 export { createCursorAccountDriver, type CursorAccountDriverOptions } from "./auth.ts";
 export { cursorSdkEnvironment, CursorInstance, defaultCursorInstance } from "./instance.ts";

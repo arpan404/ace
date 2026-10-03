@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { boundedJson, jsonPieces } from "@ace/provider-kit/ipc";
 import { createStreamingRedactor, isSensitiveField, type RedactionContext } from "@ace/redaction";
 import { z } from "zod";
-import { object, string } from "./contracts.ts";
+import { object } from "./contracts.ts";
 import { ShellStreams } from "./shell-streams.ts";
+import { streamText, markText } from "./text-stream.ts";
 
 export const BlobPart = z.object({
   id: z.string().regex(/^sdk-raw-[a-f0-9]{64}$/),
@@ -141,30 +142,4 @@ function markOutput(safe: unknown, output: unknown): unknown {
   if (object(marked.taskUpdate).aceOutputStream === true)
     return { ...preview, taskUpdate: { ...object(preview.taskUpdate), aceOutputStream: true } };
   return safe;
-}
-
-async function streamText(
-  body: unknown,
-  emit: (kind: string, body: unknown) => Promise<void>,
-  scrub: (text: string) => Iterable<string>,
-  frameBytes: number,
-): Promise<boolean> {
-  const update = object(body),
-    text = string(update.text);
-  if (!["text-delta", "thinking-delta"].includes(string(update.type) ?? "") || !text) return false;
-  const chars = Math.max(128, Math.floor((frameBytes - 2048) / 6));
-  for (const piece of scrub(text))
-    for (let offset = 0; offset < piece.length;) {
-      let end = Math.min(piece.length, offset + chars);
-      const high = piece.charCodeAt(end - 1),
-        low = piece.charCodeAt(end);
-      if (end < piece.length && high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff)
-        end++;
-      await emit("delta-chunk", { type: update.type, text: piece.slice(offset, end) });
-      offset = end;
-    }
-  return true;
-}
-function markText(body: unknown, streamed: boolean): unknown {
-  return streamed ? { ...object(body), aceTextStream: true } : body;
 }

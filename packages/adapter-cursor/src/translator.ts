@@ -209,7 +209,7 @@ export class CursorTranslator implements Translator {
             return this.delta(body, this.tools.calls.get(call)?.agent ?? this.root, namespace, 0);
           }
         }
-        if (event.kind === "delta" && body.type === "tool-call-delta") {
+        if (["delta", "delta-chunk"].includes(event.kind) && body.type === "tool-call-delta") {
           const call = `${namespace}:call:${nativeIdentity(body.callId) ?? ""}`;
           const child = this.children.calls.get(call);
           if (child && !child.settled)

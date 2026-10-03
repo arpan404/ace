@@ -111,3 +111,85 @@ it("retains a large text delta completely through ordered chunks rather than ren
   if (!message || message.type !== "message") throw new Error("Missing assistant message");
   expect(message.parts).toEqual([{ type: "text", text }]);
 });
+
+it.each(["text-delta", "thinking-delta"])(
+  "retains a large child %s completely with child attribution and no duplicate preview",
+  async (type) => {
+    const r = replay(),
+      text = "child 🚀\n".repeat(10000);
+    r.frame("delta", {
+      type: "tool-call-started",
+      callId: "task",
+      toolCall: { type: "task", args: { description: "child" } },
+    });
+    const child = Object.values(r.state.agents).find(
+      (record) => record.agent.origin === "provider_subagent",
+    );
+    if (!child) throw new Error("Missing child");
+    const p = await streamSdkBody(
+      { type: "tool-call-delta", callId: "task", taskUpdate: { type, text } },
+      "large-child",
+      async (kind, body) => {
+        r.frame(kind, body);
+      },
+      {},
+    );
+    r.frame("delta", p.body);
+    const messages = Object.values(r.state.items).filter((item) =>
+      type === "text-delta"
+        ? item.type === "message" && item.role === "assistant"
+        : item.type === "reasoning",
+    );
+    expect(messages).toHaveLength(1);
+    const message = messages[0];
+    if (!message) throw new Error("Missing child message");
+    expect(message).toMatchObject({ agentId: child.agent.id, complete: false });
+    if (message.type === "message") expect(message.parts).toEqual([{ type: "text", text }]);
+    else expect(message).toMatchObject({ type: "reasoning", text });
+    r.frame("delta", {
+      type: "tool-call-completed",
+      callId: "task",
+      toolCall: { type: "task", result: { status: "success", value: { isBackground: false } } },
+    });
+    expect(r.state.items[message.id]).toMatchObject({ complete: true });
+    r.frame("result", { status: "finished" });
+    expect(
+      Object.values(r.state.items).filter(
+        (item) =>
+          item.type === "reasoning" || (item.type === "message" && item.role === "assistant"),
+      ),
+    ).toHaveLength(1);
+  },
+);
+
+it("retains large surviving child text from an old segment without settling its replacement", async () => {
+  const r = replay(),
+    text = "surviving child\n".repeat(6000);
+  r.frame("delta", {
+    type: "tool-call-started",
+    callId: "task",
+    toolCall: { type: "task", args: {} },
+  });
+  const child = Object.values(r.state.agents).find(
+    (record) => record.agent.origin === "provider_subagent",
+  );
+  if (!child) throw new Error("Missing child");
+  r.frame("cancel", { replacement: true }, { dir: "send" });
+  r.frame("result", { status: "cancelled" });
+  r.frame("send", { input: [] }, { segment: 1 });
+  const p = await streamSdkBody(
+    { type: "tool-call-delta", callId: "task", taskUpdate: { type: "text-delta", text } },
+    "surviving-child",
+    async (kind, body) => {
+      r.frame(kind, body, { segment: 0 });
+    },
+    {},
+  );
+  r.frame("delta", p.body, { segment: 0 });
+  expect(
+    Object.values(r.state.items).find(
+      (item) => item.type === "message" && item.role === "assistant",
+    ),
+  ).toMatchObject({ agentId: child.agent.id, complete: false, parts: [{ type: "text", text }] });
+  expect(r.state.agents.root?.activeRun).toBeDefined();
+});

@@ -19,6 +19,7 @@ import { boundedCheckpointStore } from "./checkpoint-store.ts";
 import { CursorJournal } from "./journal.ts";
 import { recoverCursorCheckpoint } from "./recovery.ts";
 import { localPolicy } from "./policy.ts";
+import { sdkFailure } from "./sdk-failure.ts";
 
 export type { SdkModule } from "./runtime-boundary.ts";
 import type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";
@@ -331,9 +332,10 @@ export class HostRuntime {
       void this.completion.catch(() => {});
       return { runId: run.id };
     } catch (error) {
+      const failure = sdkFailure(this.sdk, error);
       await this.frame("error", {
-        ...this.failure(error),
-        code: this.failure(error).code ?? "send_uncertain",
+        ...failure,
+        code: failure.code ?? "send_uncertain",
         message:
           "SDK send did not establish a run identity. Delivery is uncertain; inspect this thread before submitting again.",
       });
@@ -348,6 +350,7 @@ export class HostRuntime {
       const result = await run.wait();
       await this.frame("result", result, scope, run);
     } catch (error) {
+      const failure = sdkFailure(this.sdk, error);
       try {
         await run.cancel();
       } catch {
@@ -356,8 +359,8 @@ export class HostRuntime {
       await this.frame(
         "error",
         {
-          ...this.failure(error),
-          code: this.failure(error).code ?? "runtime_failed",
+          ...failure,
+          code: failure.code ?? "runtime_failed",
           message:
             "Cursor SDK run failed or exceeded its transport budget; checkpoint retained. Cancellation and child work may be uncertain.",
         },
@@ -366,15 +369,6 @@ export class HostRuntime {
       );
       throw new Error("SDK runtime failed", { cause: error });
     }
-  }
-  private failure(error: unknown): { code?: string; retryable?: boolean } {
-    // Only authoritative SDK classes establish these failures; no prose heuristics.
-    if (error instanceof this.sdk.AuthenticationError) return { code: "auth" };
-    if (error instanceof this.sdk.RateLimitError)
-      return { code: "rate_limit", retryable: error.isRetryable };
-    if (error instanceof this.sdk.NetworkError)
-      return { code: "network", retryable: error.isRetryable };
-    return {};
   }
   async cancel(): Promise<void> {
     if (this.sending) throw new Error("Cannot prove cancellation during SDK admission");
