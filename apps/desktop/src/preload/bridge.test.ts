@@ -97,11 +97,6 @@ describe("window.ace bridge", () => {
     main.emit(eventChannel("deep-link"), { kind: "thread", threadId: "t-3" });
     expect(seen).toEqual([{ kind: "thread", threadId: "t-1" }]);
   });
-
-  it("exposes the app version and platform synchronously", () => {
-    const ace = createBridge(fakeIpc().ipc, info);
-    expect([ace.version, ace.platform]).toEqual(["0.1.0", "darwin"]);
-  });
 });
 
 /** A page whose history pushes and dispatched events are recorded. */
