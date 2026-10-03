@@ -87,7 +87,10 @@ export function isSelectConfig(
 export function isModelConfig(
   config: z.infer<typeof ConfigOption>,
 ): config is z.infer<typeof SelectConfigOption> {
-  return isSelectConfig(config) && (config.category === "model" || config.id === "model");
+  return (
+    isSelectConfig(config) &&
+    (config.category === "model" || (!config.category && config.id === "model"))
+  );
 }
 export const AcpSession = z
   .object({

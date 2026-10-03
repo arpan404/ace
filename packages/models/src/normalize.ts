@@ -6,7 +6,6 @@ import {
   CodexPage,
   ConfigOption,
   SelectConfigOption,
-  isModelConfig,
   isSelectConfig,
 } from "./native-schemas.ts";
 import { rawPayload } from "./raw.ts";
@@ -100,10 +99,12 @@ export function normalizeAcp(payload: unknown, instance: ModelInstance): Catalog
     ? matchProfile(instance.acpAgentId.slice(9), instance.installationVersion ?? "")
     : undefined;
   const generic = instance.provider === "acp" && instance.acpAgentId !== undefined;
-  const selectors = generic ? sessionSelectors(payload, profile) : undefined;
+  const selectors = sessionSelectors(payload, profile, !generic);
   if (generic && !selectors?.model) return [];
   const session = AcpSession.parse(payload);
-  const modelConfig = session.configOptions?.find(isModelConfig);
+  const modelConfig = session.configOptions
+    ?.filter(isSelectConfig)
+    .find((config) => config.id === selectors.model?.configId);
   const current = modelConfig?.currentValue ?? session.models?.currentModelId;
   const rows = modelConfig
     ? options(modelConfig).map((option) => ({

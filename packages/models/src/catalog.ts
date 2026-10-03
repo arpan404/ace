@@ -144,13 +144,13 @@ export class ModelCatalog implements ModelCatalogApi {
     const write = previous
       .catch(() => {})
       .then(async () => {
-        if (this.#states.get(instance.id) !== state || this.#closed)
+        if (this.#states.get(instance.id) !== state)
           throw new Error("Session model generation changed");
         if (this.#deletions.has(instance.id)) await this.#deletions.remove(instance.id);
-        if (this.#states.get(instance.id) !== state || this.#closed)
+        if (this.#states.get(instance.id) !== state)
           throw new Error("Session model generation changed");
         await this.#options.storage.replace(entry);
-        if (this.#states.get(instance.id) === state && !this.#closed) {
+        if (this.#states.get(instance.id) === state) {
           state.entry = entry;
           delete state.error;
         }
@@ -356,7 +356,11 @@ export class ModelCatalog implements ModelCatalogApi {
       this.#closed = true;
       for (const state of this.#states.values()) state.abort?.abort();
       await Promise.all(this.#flights);
-      await Promise.allSettled(this.#sessionWrites);
+      const writes = await Promise.allSettled(this.#sessionWrites);
+      const failures = writes.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (failures.length) throw new AggregateError(failures, "Session model persistence failed");
       await Promise.all(this.#discoveries);
       await this.#deletions.flush();
       await this.#options.storage.close();

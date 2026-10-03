@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { createModelDiscovery, ModelCatalog, ModelInstance } from "./index.ts";
+import { createModelDiscovery, ModelCatalog, ModelInstance, normalizeAcp } from "./index.ts";
 import type { CacheEntry } from "./types.ts";
 const metadata = (value: string) => ({
   configOptions: [
@@ -40,9 +40,7 @@ test("generic model listing and explicit refresh never launch a metadata session
   const catalog = new ModelCatalog({
     instances: [config],
     storage: { load: () => [], replace() {}, remove() {}, close() {} },
-    discover: async () => {
-      throw new Error("No metadata-only ACP sessions");
-    },
+    discover: async (config) => normalizeAcp(metadata("unauthorized-discovery"), config),
     now: () => 1,
     deadline() {
       throw new Error("No deadline required");
@@ -51,6 +49,7 @@ test("generic model listing and explicit refresh never launch a metadata session
   try {
     expect(catalog.list().models).toEqual([]);
     await catalog.refresh();
+    expect(catalog.list().models).toEqual([]);
     expect(catalog.list().instances[0]?.stale).toBe(true);
   } finally {
     await catalog.close();
@@ -132,8 +131,9 @@ test("dependent session updates serialize persistence and shutdown waits for the
     const first = catalog.updateFromSession(config, metadata("first"));
     await firstStarted.promise;
     const last = catalog.updateFromSession(config, metadata("last"));
+    const closing = catalog.close();
     releaseFirst.resolve();
-    await Promise.all([first, last]);
+    await Promise.all([first, last, closing]);
     expect(stored?.models[0]?.id).toBe("last");
     expect(catalog.list().models[0]?.id).toBe("last");
   } finally {
@@ -210,4 +210,58 @@ test("generic catalogs do not offer unprofiled legacy setters or infer capacity 
   } finally {
     await catalog.close();
   }
+});
+
+test("shutdown reports failure to persist an admitted session update", async () => {
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const config = instance("one");
+  const catalog = new ModelCatalog({
+    instances: [config],
+    storage: {
+      load: () => [],
+      async replace() {
+        started.resolve();
+        await release.promise;
+        throw new Error("Persistence failed");
+      },
+      remove() {},
+      close() {},
+    },
+    discover: async () => [],
+    now: () => 1,
+    deadline: () => () => {},
+  });
+  const writing = catalog.updateFromSession(config, metadata("pending"));
+  const failure = expect(writing).rejects.toThrow("Persistence failed");
+  await started.promise;
+  const closing = expect(catalog.close()).rejects.toThrow("Session model persistence failed");
+  release.resolve();
+  await Promise.all([failure, closing]);
+  await catalog.close();
+});
+
+test("model catalog uses the same declared category and config ID as ACP selection", async () => {
+  const rows = normalizeAcp(
+    {
+      configOptions: [
+        {
+          id: "model",
+          category: "mode",
+          type: "select",
+          currentValue: "plan",
+          options: [{ value: "plan", name: "Plan" }],
+        },
+        {
+          id: "actual",
+          category: "model",
+          type: "select",
+          currentValue: "chosen",
+          options: [{ value: "chosen", name: "Chosen" }],
+        },
+      ],
+    },
+    instance("one"),
+  );
+  expect(rows.map((row) => [row.id, row.modelConfigId])).toEqual([["chosen", "actual"]]);
 });

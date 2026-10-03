@@ -29,9 +29,13 @@ export async function executeIntent(
   if (p.type === "thread.model.set") {
     if (!actor.session.setModel) throw new Error("Provider model selection unavailable");
     await actor.session.setModel(p.model);
-    repo.store.atomic((db) =>
-      db.prepare("UPDATE engine_sessions SET model=? WHERE thread_id=?").run(p.model, actor.id),
-    );
+    await actor.flush();
+    const confirmed = repo.requireState(actor.id);
+    repo.store.atomic((db) => {
+      if (confirmed.rootKey)
+        actor.apply([{ type: "agent.linked", agent: confirmed.rootKey, model: p.model }]);
+      db.prepare("UPDATE engine_sessions SET model=? WHERE thread_id=?").run(p.model, actor.id);
+    });
   } else if (p.type === "thread.mode.set") {
     if (!actor.session.setMode) throw new Error("Provider mode selection unavailable");
     await actor.session.setMode(p.mode);
