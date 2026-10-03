@@ -3,6 +3,7 @@ import { captureExecutionSources } from "./execution-provenance.ts";
 import { quiescent } from "./transition-history.ts";
 import { TransitionState } from "./transition-state.ts";
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
+import type { StatementSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { Command, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
@@ -27,6 +28,12 @@ export class EngineRepository {
   private capacity: number;
   private readiness: TransitionReadiness;
   private snapshots = new Map<ThreadId, Snapshot>();
+  private admissionStatements: {
+    has: StatementSync;
+    mark: StatementSync;
+    ack: StatementSync;
+    correlated: StatementSync;
+  };
   constructor(store: Store, ids: IdSource = { next: () => randomUUID() }, capacity = 64) {
     this.capacity = capacity;
     this.ids = ids;
@@ -35,6 +42,18 @@ export class EngineRepository {
     this.transitions = new TransitionState(store);
     this.readiness = store.atomic((db) => new TransitionReadiness(db));
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
+    this.admissionStatements = store.atomic((db) => ({
+      has: db.prepare(
+        "SELECT 1 FROM engine_state_records WHERE thread_id=? AND section='engineAdmission' AND key='root'",
+      ),
+      mark: db.prepare(
+        "INSERT OR IGNORE INTO engine_state_records VALUES (?, 'engineAdmission', 'root', 'true')",
+      ),
+      correlated: db.prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND command_id=?`),
+      ack: db.prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND awaiting=1 AND ack_target=(
+        SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
+      )`),
+    }));
   }
   state(id: ThreadId): ThreadState | undefined {
     return this.store.atomic((db) => {
@@ -141,19 +160,22 @@ export class EngineRepository {
             finish();
           }
         });
-        for (const event of events)
-          if (
+        // Admission-based providers transfer queue ownership before a run starts.
+        // Persist the acknowledgement policy in the existing per-thread record store,
+        // so a later run cannot acknowledge the next, unrelated engine input.
+        const root = state.agents[state.rootKey ?? ""]?.agent.id;
+        for (const event of events) {
+          const admitted = event.type === "input.admitted" && event.agentId === root;
+          if (admitted) this.admissionStatements.mark.run(id);
+          const started =
             event.type === "run.started" &&
+            event.run.agentId === root &&
             ["user", "queue", "unknown"].includes(event.run.trigger) &&
-            event.run.agentId === state.agents[state.rootKey ?? ""]?.agent.id
-          )
-            this.store.atomic((db) =>
-              db
-                .prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND awaiting=1 AND ack_target=(
-          SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
-        )`)
-                .run(id, id),
-            );
+            !this.admissionStatements.has.get(id);
+          if (event.type === "input.admitted" && admitted && event.commandId !== undefined)
+            this.admissionStatements.correlated.run(id, event.commandId);
+          else if (admitted || started) this.admissionStatements.ack.run(id, id);
+        }
         this.save(state, events, now);
         return state;
       });

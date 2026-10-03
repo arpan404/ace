@@ -37,75 +37,42 @@ Example:
 ```json
 {
   "thread": {
+    "acpAgentId": "example",
     "acpSupport": {
       "capabilities": {
         "imageInput": true,
         "planMode": true,
-        "resume": false
+        "resume": true
       },
-      "coverage": "legacy",
+      "coverage": "generic",
       "mcp": "stdio",
       "modeSelection": false,
       "modelSelection": false,
       "raw": {
         "json": "example",
-        "truncated": true
+        "truncated": false
       },
       "subagentSessions": false,
       "visibility": "limited"
     },
-    "createdAt": 7,
-    "effectiveCapabilities": {
-      "backgroundTaskControl": true,
-      "backgroundVisibility": "partial",
-      "fork": false,
-      "imageInput": true,
-      "interruptCascades": false,
-      "planMode": true,
-      "resume": true,
-      "rewindFiles": true,
-      "steer": false,
-      "subagentTranscripts": true,
-      "tokenUsage": false
-    },
+    "archivedAt": 4,
+    "createdAt": 4,
     "id": "example",
     "imported": {
-      "importedAt": 9,
+      "importedAt": 5,
       "instanceId": "example",
       "native": {
-        "instanceId": "example",
-        "provider": "acp"
+        "installationId": "example",
+        "provider": "antigravity"
       },
       "sourceId": "example"
     },
-    "instanceId": "example",
-    "lineage": {
-      "lossy": false,
-      "mode": "portable",
-      "parentAgentId": "example",
-      "parentThreadId": "example",
-      "point": {
-        "itemId": "example",
-        "type": "item"
-      }
-    },
     "provider": "codex",
-    "rootAgentId": "example",
     "status": {
-      "on": "network",
-      "state": "waiting"
-    },
-    "switch": {
-      "at": 9,
-      "lossy": true,
-      "selection": {
-        "options": {},
-        "provider": "claude"
-      },
-      "state": "failed"
+      "state": "new"
     },
     "title": "example",
-    "updatedAt": 9,
+    "updatedAt": 4,
     "workspaceId": "example"
   }
 }
@@ -129,7 +96,9 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{}
+{
+  "limit": 9
+}
 ```
 
 ## ace_list_agents.output
@@ -146,7 +115,7 @@ Example:
 ```json
 {
   "agents": [],
-  "nextCursor": null
+  "nextCursor": "example"
 }
 ```
 
@@ -211,7 +180,7 @@ Example:
 
 ```json
 {
-  "name": "example",
+  "provider": "claude",
   "task": "example"
 }
 ```
@@ -254,6 +223,7 @@ Example:
 
 ```json
 {
+  "before": 8,
   "sourceThreadId": "example"
 }
 ```
@@ -273,7 +243,7 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 6,
+  "itemsBefore": null,
   "threadId": "example"
 }
 ```
@@ -299,7 +269,6 @@ Example:
 
 ```json
 {
-  "offset": 5,
   "sourceThreadId": "example",
   "streamId": "example"
 }
@@ -322,7 +291,7 @@ Example:
 {
   "bytes": "example",
   "encoding": "utf-8",
-  "eof": false,
-  "nextOffset": 0
+  "eof": true,
+  "nextOffset": 5
 }
 ```

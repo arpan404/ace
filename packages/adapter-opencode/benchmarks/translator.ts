@@ -1,6 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { ThreadId } from "@ace/protocol";
-import { OpenCodeTranslator } from "../src/index.ts";
+import { OpenCodeTranslator } from "../src/testing/v1/index.ts";
 const gc = globalThis.gc;
 if (!gc) throw new Error("Run with node --expose-gc");
 function translator() {

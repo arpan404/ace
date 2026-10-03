@@ -1,0 +1,19 @@
+{
+  "name": "@ace/fake-daemon",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ace/client": "workspace:*",
+    "@ace/core": "workspace:*",
+    "@ace/projection": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "zod": "^4.6.5"
+  }
+}

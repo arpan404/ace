@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { harness } from "./replay.ts";
+import { harness } from "./testing/v1/replay.ts";
 const cases = [
   ["bash", { command: "pwd" }, {}, "shell", { command: "pwd" }],
   [

@@ -210,6 +210,25 @@ Example:
 }
 ```
 
+### input.admitted
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"input.admitted"` |  |
+| agentId | yes | [AgentId.json](schema/AgentId.json) |  |
+| nativeInputId | yes | string | {"minLength":1,"maxLength":512} |
+| commandId | no | string | {"minLength":1,"maxLength":512} |
+
+Example:
+
+```json
+{
+  "agentId": "example",
+  "nativeInputId": "example",
+  "type": "input.admitted"
+}
+```
+
 ### run.started
 
 | Field | Required | Type | Constraints |
@@ -226,14 +245,15 @@ Example:
     "executionSource": {
       "nativeSessionId": "example",
       "selection": {
-        "provider": "claude"
+        "provider": "acp"
       }
     },
     "id": "example",
-    "startedAt": 5,
-    "state": "completed",
+    "nativeId": "example",
+    "startedAt": 6,
+    "state": "interrupted",
     "threadId": "example",
-    "trigger": "subagent_result"
+    "trigger": "background_completion"
   },
   "type": "run.started"
 }
@@ -253,7 +273,7 @@ Example:
 
 ```json
 {
-  "endedAt": 4,
+  "endedAt": 9,
   "runId": "example",
   "state": "interrupted",
   "type": "run.ended"
@@ -273,7 +293,6 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "bytes": 5,
     "complete": true,
     "createdAt": 6,
     "executionSource": {
@@ -285,11 +304,9 @@ Example:
       }
     },
     "id": "example",
-    "mimeType": "example",
     "nativeId": "example",
-    "path": "example",
-    "source": "browser",
-    "type": "artifact"
+    "text": "example",
+    "type": "reasoning"
   },
   "type": "item.created"
 }
@@ -311,7 +328,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "output",
+  "field": "reasoning",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -330,11 +347,18 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "complete": true,
-    "createdAt": 2,
+    "complete": false,
+    "createdAt": 8,
     "id": "example",
     "nativeId": "example",
-    "type": "compaction"
+    "runId": "example",
+    "source": {
+      "bytes": 4,
+      "encoding": "utf-16le",
+      "streamId": "example"
+    },
+    "text": "example",
+    "type": "reasoning"
   },
   "type": "item.updated"
 }
@@ -369,16 +393,20 @@ Example:
 {
   "interaction": {
     "agentId": "example",
-    "blocking": true,
-    "createdAt": 9,
+    "blocking": false,
+    "createdAt": 4,
     "id": "example",
+    "raw": [],
     "request": {
-      "kind": "question",
-      "questions": []
+      "description": "example",
+      "kind": "elicitation",
+      "message": "example",
+      "nativeId": "example",
+      "server": "example",
+      "title": "example"
     },
     "state": "expired",
-    "threadId": "example",
-    "toolCallId": "example"
+    "threadId": "example"
   },
   "type": "interaction.opened"
 }
@@ -399,13 +427,8 @@ Example:
 
 ```json
 {
-  "closedAt": 9,
+  "closedAt": 2,
   "interactionId": "example",
-  "resolution": {
-    "answers": {},
-    "dismissed": false,
-    "kind": "question"
-  },
   "state": "expired",
   "type": "interaction.closed"
 }
@@ -424,14 +447,14 @@ Example:
 {
   "task": {
     "agentId": "example",
-    "ambient": false,
     "childAgentId": "example",
+    "endedAt": 7,
     "id": "example",
-    "kind": "monitor",
-    "raw": [],
-    "startedAt": 3,
+    "kind": "shell",
+    "outputPath": "example",
+    "startedAt": 7,
     "status": "completed",
-    "stoppable": true,
+    "stoppable": false,
     "title": "example"
   },
   "type": "background_task.started"
@@ -452,7 +475,7 @@ Example:
 ```json
 {
   "endedAt": 7,
-  "status": "unknown",
+  "status": "failed",
   "taskId": "example",
   "type": "background_task.updated"
 }
@@ -485,13 +508,13 @@ Example:
 
 ```json
 {
+  "accountId": "example",
   "agentId": "example",
-  "contextWindow": 1,
-  "costUsd": 1,
-  "counterKey": "example",
-  "inputTokens": 7,
+  "billingMode": "api",
+  "contextWindow": 5,
+  "inputTokens": 5,
   "model": "example",
-  "outputTokens": 8,
+  "outputTokens": 4,
   "type": "usage.updated"
 }
 ```
@@ -509,6 +532,7 @@ Example:
 ```json
 {
   "change": {
+    "destination": "example",
     "id": "example",
     "op": "example",
     "path": "example",

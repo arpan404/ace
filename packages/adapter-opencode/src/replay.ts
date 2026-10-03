@@ -41,6 +41,7 @@ export function harness() {
   return {
     view,
     translator,
+    queueCount: () => state.queueCount,
     feed(frame: Frame) {
       accept(translator.translate(frame, frame.t), frame.t);
     },

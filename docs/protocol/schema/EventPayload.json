@@ -168,6 +168,33 @@
     },
     {
       "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "commandId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "nativeInputId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "input.admitted",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "agentId",
+        "nativeInputId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "run": {
           "$ref": "https://ace.local/protocol/v1/Run.json"
         },

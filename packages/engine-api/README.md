@@ -25,3 +25,4 @@ the same native session, provided the adapter advertises resume.
 
 Cursor's portable fork uses the public `@ace/handoff` selector and renderer.
 The engine already routes Cursor's non-native forks through that package.
+`send(input, delivery, commandId?)` includes optional engine command correlation. A provider with durable admission echoes it as `input.admitted.commandId` when the native input is accepted or reconciled. This transfers the exact engine intent to provider queue ownership; it does not create or finish a turn. Keep the correlation local to ace unless the provider contract requires it.

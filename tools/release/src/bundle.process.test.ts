@@ -1,6 +1,7 @@
-import { afterEach, expect, test } from "vitest";
-import { mkdtemp, readFile, rm, cp, mkdir } from "node:fs/promises";
+import { afterEach, expect, test, vi } from "vitest";
+import { mkdtemp, readFile, rm, cp, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import { checked, runProcess } from "@ace/service";
@@ -15,6 +16,7 @@ import { bundleDaemon } from "@ace/release";
 import { ServerMessage, NotificationDevice } from "@ace/protocol";
 const roots: string[] = [];
 afterEach(async () => {
+  vi.unstubAllEnvs();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 test(
@@ -23,14 +25,25 @@ test(
   async () => {
     const root = await mkdtemp(join(tmpdir(), "ace-bundle-"));
     roots.push(root);
+    const emptyPath = join(root, "empty-bin");
+    await mkdir(emptyPath);
     const publicKey = generateKeyPairSync("ed25519")
       .publicKey.export({ type: "spki", format: "pem" })
       .toString();
     await bundleDaemon(resolve(import.meta.dirname, "../../.."), root, publicKey);
+    // Caller instrumentation can depend on the checkout and must not reach the artifact.
+    const bootstrap = join(root, "host-only-bootstrap.mjs");
+    await writeFile(
+      bootstrap,
+      'import { isMainThread } from "node:worker_threads"; if (!isMainThread && process.argv[1]?.endsWith("/usage-worker.mjs")) throw new Error("Host-only worker instrumentation");',
+    );
+    vi.stubEnv("NODE_OPTIONS", `--import=${pathToFileURL(bootstrap).href}`);
     const child = spawn(process.execPath, [join(root, "ace.mjs"), "start"], {
       cwd: root,
       env: {
-        ...process.env,
+        HOME: root,
+        PATH: emptyPath,
+        TZ: "UTC",
         ACE_HOME: join(root, "data"),
         ACE_PORT: "0",
         ACE_LISTEN: "local",
@@ -42,6 +55,7 @@ test(
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    vi.unstubAllEnvs();
     let output = "",
       errors = "";
     child.stderr.on("data", (chunk: Buffer) => {
@@ -54,7 +68,7 @@ test(
           if (output.includes("Token file:")) ready();
         });
         child.once("error", reject);
-        child.once("exit", () => reject(new Error(errors)));
+        child.once("close", () => reject(new Error(errors)));
       });
       const endpoint = await readFile(join(root, "data/daemon-endpoint"), "utf8"),
         token = await readFile(join(root, "data/daemon-token"), "utf8");
@@ -81,11 +95,36 @@ test(
           socket.addEventListener("error", () => reject(new Error("Bundled WebSocket failed")), {
             once: true,
           });
+          socket.addEventListener("close", () => reject(new Error("Bundled WebSocket closed")), {
+            once: true,
+          });
           socket.addEventListener("message", (event) => {
             try {
               const frame = ServerMessage.parse(JSON.parse(String(event.data)));
-              if (frame.type === "welcome") ready();
-              else if (frame.type === "error") reject(new Error(frame.message));
+              if (frame.type === "welcome")
+                socket.send(
+                  JSON.stringify({
+                    type: "usage.summary",
+                    requestId: "bundled-usage",
+                    query: { from: "2026-10-01", to: "2026-10-02" },
+                  }),
+                );
+              else if (frame.type === "usage.result") {
+                expect(frame).toMatchObject({
+                  requestId: "bundled-usage",
+                  kind: "summary",
+                  result: {
+                    timezone: "UTC",
+                    rows: [
+                      {
+                        dimensions: {},
+                        totals: { inputTokens: 0, outputTokens: 0, providerReportedUsd: 0 },
+                      },
+                    ],
+                  },
+                });
+                ready();
+              } else if (frame.type === "error") reject(new Error(frame.message));
             } catch (error) {
               reject(error);
             }
@@ -128,8 +167,6 @@ test(
       } finally {
         store.close();
       }
-      const emptyPath = join(root, "empty-bin");
-      await mkdir(emptyPath);
       const support = join(root, "support.tar.gz");
       await promisify(execFile)(
         process.execPath,
@@ -168,7 +205,7 @@ test(
         checked(runProcess, process.execPath, [join(root, "ace.mjs"), "migrate-check", copy]),
       ).rejects.toThrow("newer");
     } finally {
-      if (child.exitCode === null) {
+      if (child.exitCode === null && child.signalCode === null) {
         const exit = once(child, "exit");
         child.kill("SIGKILL");
         await exit;

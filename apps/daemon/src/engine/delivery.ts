@@ -27,6 +27,7 @@ export async function executeIntent(
         ...(p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input),
       ],
       p.type === "thread.send" && p.delivery === "steer" && capabilities.steer ? "steer" : "queue",
+      intent.command.id,
     );
     transitions.delivered(actor.id);
     return;
