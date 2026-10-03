@@ -65,6 +65,19 @@ test("an automation created in the app is stored by the daemon and listed back",
   await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
   const aside = page.getByRole("complementary", { name: "Automations" });
   await expect(aside.getByRole("link", { name: /Nightly e2e audit/ })).toBeVisible();
+
+  // Turned on in Settings, the daemon runs it by hand: a real run on the scripted provider.
+  await page.getByRole("link", { name: "Settings" }).click();
+  const enabled = page.getByRole("switch", { name: "Run automations" });
+  await enabled.click();
+  await expect(enabled).toHaveAttribute("aria-checked", "true");
+  await page.getByRole("link", { name: "Automations" }).click();
+  await aside.getByRole("link", { name: /Nightly e2e audit/ }).click();
+  await page.getByRole("main").getByRole("button", { name: "Run now" }).click();
+  await expect(page.getByText("Started · Nightly e2e audit")).toBeVisible();
+  await expect(
+    page.getByRole("main").getByRole("list", { name: "Recent runs" }).getByRole("listitem"),
+  ).not.toHaveCount(0);
 });
 
 test("a deck the daemon can't run says why instead of pretending to start", async ({ page }) => {
