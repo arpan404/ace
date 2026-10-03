@@ -11,7 +11,8 @@ export const PromptValue = z.union([z.string().max(16384), z.number().finite(), 
 export type PromptValue = z.infer<typeof PromptValue>;
 export const PromptArguments = z
   .record(PaletteName, PromptValue)
-  .refine((v) => Object.keys(v).length <= 64);
+  .refine((v) => Object.keys(v).length <= 64)
+  .meta({ maxProperties: 64, "x-ace-constraint": "At most 64 arguments." });
 export const PromptArgument = z
   .object({
     type: z.enum(["string", "number", "boolean"]),
@@ -21,14 +22,18 @@ export const PromptArgument = z
   .refine(
     (v) => v.default === undefined || typeof v.default === v.type,
     "Default must match argument type",
-  );
+  )
+  .meta({ "x-ace-constraint": "An argument default must have the declared type." });
 export const PaletteCommand = z.object({
   id: z.string().min(1).max(256),
   name: PaletteName,
   description: z.string().max(2048),
   namespace: z.enum(["ace", "provider", "prompt"]),
   provider: z.union([ProviderKind, z.literal("any")]),
-  arguments: z.record(PaletteName, PromptArgument).refine((v) => Object.keys(v).length <= 64),
+  arguments: z
+    .record(PaletteName, PromptArgument)
+    .refine((v) => Object.keys(v).length <= 64)
+    .meta({ maxProperties: 64, "x-ace-constraint": "At most 64 arguments." }),
   argumentHint: z.string().max(1024).optional(),
   scope: z.enum(["builtin", "user", "workspace", "runtime"]),
 });

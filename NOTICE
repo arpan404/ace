@@ -13,5 +13,7 @@ MIT licensed. This dependency and its bundled MIT license are accepted for the P
 Support archive encoding uses tar-stream 3.2.1, Copyright (c) 2014 Mathias Buus, MIT licensed. This dependency is accepted under its MIT license.
 Image header dimensions use image-size 2.0.2, Copyright 2013-Present Aditya Yadav, MIT licensed.
 This dependency is accepted under its MIT license; no provider or competitor implementation is copied.
+Protocol documentation uses Ajv 8, ajv-formats 3 and randexp 0.5 under the MIT license.
+Protocol property tests use fast-check 4 under the MIT license. These dependencies are accepted under their respective licenses.
 
 Workspace descriptor support uses node-api-headers 1.9.0, MIT licensed, from the Node.js project. This header dependency is accepted under its license; the syscall bridge is written for ace.

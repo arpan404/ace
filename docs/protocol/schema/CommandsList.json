@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/CommandsList.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "limit": {
+      "default": 50,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "query": {
+      "default": "",
+      "maxLength": 256,
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "commands.list",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requestId",
+    "threadId",
+    "type"
+  ],
+  "type": "object"
+}

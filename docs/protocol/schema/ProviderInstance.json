@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderInstance.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "env": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/AccountDirectory.json"
+      },
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/AccountEnvKey.json"
+      },
+      "type": "object"
+    },
+    "homeDir": {
+      "$ref": "https://ace.local/protocol/v1/AccountDirectory.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/AccountId.json"
+    },
+    "label": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/AccountProvider.json"
+    }
+  },
+  "required": [
+    "id",
+    "provider",
+    "label",
+    "homeDir",
+    "env"
+  ],
+  "type": "object"
+}

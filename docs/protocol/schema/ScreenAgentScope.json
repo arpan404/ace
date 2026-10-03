@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenAgentScope.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "threadId",
+    "agentId"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/ApprovalOption.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "allow_once",
+        "allow_session",
+        "allow_always",
+        "deny",
+        "deny_always",
+        "cancel"
+      ],
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "label",
+    "kind"
+  ],
+  "type": "object"
+}

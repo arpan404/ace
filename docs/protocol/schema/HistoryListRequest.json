@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/HistoryListRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "before": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "lastActivity": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        }
+      },
+      "required": [
+        "lastActivity",
+        "id"
+      ],
+      "type": "object"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "limit": {
+      "default": 50,
+      "maximum": 200,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "type": {
+      "const": "history.list",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "cwd"
+  ],
+  "type": "object"
+}

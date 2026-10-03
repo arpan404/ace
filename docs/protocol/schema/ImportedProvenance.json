@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ImportedProvenance.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "importedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "instanceId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "native": {
+      "$ref": "https://ace.local/protocol/v1/NativeRef.json"
+    },
+    "sourceId": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "sourceId",
+    "instanceId",
+    "native",
+    "importedAt"
+  ],
+  "type": "object"
+}

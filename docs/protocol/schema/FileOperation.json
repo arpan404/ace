@@ -1,0 +1,521 @@
+{
+  "$id": "https://ace.local/protocol/v1/FileOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "op": {
+          "const": "stat",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "offset": {
+          "default": 0,
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "op": {
+          "const": "download",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "validator": {
+          "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+        }
+      },
+      "required": [
+        "op",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "artifactId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "offset": {
+          "default": 0,
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "op": {
+          "const": "artifact.download",
+          "type": "string"
+        },
+        "validator": {
+          "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+        }
+      },
+      "required": [
+        "op",
+        "artifactId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "includeIgnored": {
+          "default": false,
+          "type": "boolean"
+        },
+        "op": {
+          "const": "archive.preview",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "path"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "archive.download",
+          "type": "string"
+        },
+        "previewId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "previewId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expected": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "op": {
+          "const": "upload.begin",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "size": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op",
+        "path",
+        "expected",
+        "size"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "upload.resume",
+          "type": "string"
+        },
+        "uploadId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "uploadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "upload.commit",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "uploadId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "uploadId",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "upload.cancel",
+          "type": "string"
+        },
+        "uploadId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "uploadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expected": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "op": {
+          "const": "write",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 1048576,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "path",
+        "expected",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expected": {
+          "type": "null"
+        },
+        "op": {
+          "const": "create",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "text": {
+          "default": "",
+          "maxLength": 1048576,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "path",
+        "expected"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expected": {
+          "type": "null"
+        },
+        "op": {
+          "const": "mkdir",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "path",
+        "expected"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "destination": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "destinationExpected": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "op": {
+          "const": "rename",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "path",
+        "expected",
+        "destination",
+        "destinationExpected"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "destination": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "destinationExpected": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "op": {
+          "const": "move",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "path",
+        "expected",
+        "destination",
+        "destinationExpected"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expected": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "op": {
+          "const": "delete",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "path",
+        "expected"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expected": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "op": {
+          "const": "restore",
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "trashId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "trashId",
+        "path",
+        "expected"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "artifacts.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "artifact.support",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "op": {
+          "const": "artifact.output",
+          "type": "string"
+        },
+        "streamId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "streamId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "blobRef": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "op": {
+          "const": "artifact.raw",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "blobRef"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "after": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "limit": {
+          "default": 32,
+          "maximum": 64,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "trash.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "type": "object"
+    }
+  ]
+}

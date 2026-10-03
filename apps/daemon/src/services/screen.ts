@@ -1,5 +1,4 @@
 import { localScreenManager, screenConnection, type Simulators } from "@ace/screen";
-import { WebSocket } from "ws";
 import { join } from "node:path";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";

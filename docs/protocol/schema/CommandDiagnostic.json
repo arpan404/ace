@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/CommandDiagnostic.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "message": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "source": {
+      "maxLength": 256,
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "message"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/AutomationResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "automations": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/Automation.json"
+      },
+      "maxItems": 1000,
+      "type": "array"
+    },
+    "error": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "inbox": {
+      "$ref": "https://ace.local/protocol/v1/AutomationInbox.json"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "run": {
+      "$ref": "https://ace.local/protocol/v1/AutomationRun.json"
+    },
+    "type": {
+      "const": "automation.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "ok"
+  ],
+  "type": "object"
+}

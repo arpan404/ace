@@ -186,7 +186,12 @@ export class Helper {
         options,
       );
       if (options.protocolVersion === 2) {
-        try { await helper.negotiate(); } catch (error) { await helper.close(); throw error; }
+        try {
+          await helper.negotiate();
+        } catch (error) {
+          await helper.close();
+          throw error;
+        }
       }
       return helper;
     } catch (error) {
@@ -204,7 +209,8 @@ export class Helper {
       const capabilities = ScreenCapabilities.parse(result);
       if (this.options.expectedPlatform && capabilities.platform !== this.options.expectedPlatform)
         throw new Error("Helper display backend differs from selected backend");
-      if (!capabilities.codecs.includes("jpeg")) throw new Error("Helper has no supported JPEG codec");
+      if (!capabilities.codecs.includes("jpeg"))
+        throw new Error("Helper has no supported JPEG codec");
       this.capabilities = capabilities;
       return capabilities;
     } catch (error) {
@@ -222,7 +228,9 @@ export class Helper {
   ): Promise<unknown> {
     return this.send(command);
   }
-  request(command: WithoutEnvelope<ScreenHelperRequest | import("@ace/protocol").ScreenHelperRequestV2>): Promise<unknown> {
+  request(
+    command: WithoutEnvelope<ScreenHelperRequest | import("@ace/protocol").ScreenHelperRequestV2>,
+  ): Promise<unknown> {
     const result = this.send(command);
     if (command.op !== "permissions" || this.capabilities?.platform !== "windows") return result;
     return result.then((data) => {
@@ -243,7 +251,9 @@ export class Helper {
     if (this.closed) return Promise.reject(new Error("Helper is closed"));
     if (this.pending.size >= 32) return Promise.reject(new Error("Helper request limit"));
     const windows = (this.options.platform ?? process.platform) === "win32";
-    const linux = this.options.expectedPlatform?.startsWith("linux") || this.capabilities?.platform.startsWith("linux");
+    const linux =
+      this.options.expectedPlatform?.startsWith("linux") ||
+      this.capabilities?.platform.startsWith("linux");
     if (windows && command.op === "capture")
       return this.send({ op: "watch", active: command.enabled });
     if ((windows || linux) && command.op === "input") {
@@ -252,9 +262,20 @@ export class Helper {
         ScreenHelperRequestV2.parse({ op: kind, ...input, version: 2, id: "input" }),
       );
     }
-    const request = (windows || linux || this.options.protocolVersion === 2 ? ScreenHelperRequestV2 : ScreenHelperRequest).parse({
+    const request = (
+      windows || linux || this.options.protocolVersion === 2
+        ? ScreenHelperRequestV2
+        : ScreenHelperRequest
+    ).parse({
       ...command,
-      version: windows || linux || this.options.protocolVersion === 2 ? 2 : command.op === "hello" ? 1 : this.capabilities ? 2 : 1,
+      version:
+        windows || linux || this.options.protocolVersion === 2
+          ? 2
+          : command.op === "hello"
+            ? 1
+            : this.capabilities
+              ? 2
+              : 1,
       id: this.options.nextId(),
     });
     const line = `${JSON.stringify(request)}\n`;
@@ -264,7 +285,10 @@ export class Helper {
     return new Promise((resolve, reject) => {
       const cancel = (this.options.scheduler ?? nodeScheduler).schedule(
         () => this.fail(new Error("Helper command timed out")),
-        this.options.timeoutMs ?? (request.op === "start" && this.capabilities?.platform === "linux-wayland" ? 130_000 : 10_000),
+        this.options.timeoutMs ??
+          (request.op === "start" && this.capabilities?.platform === "linux-wayland"
+            ? 130_000
+            : 10_000),
       );
       this.pending.set(request.id, { resolve, reject, cancel });
       this.proc.stdin.write(line, (error) => {

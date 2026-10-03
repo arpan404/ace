@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ModelListOptions.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "instance": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "limit": {
+      "default": 100,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "offset": {
+      "default": 0,
+      "maximum": 32768,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    }
+  },
+  "type": "object"
+}

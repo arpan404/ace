@@ -1,0 +1,85 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgePrStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "checks": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeCheck.json"
+      },
+      "maxItems": 2000,
+      "type": "array"
+    },
+    "ci": {
+      "enum": [
+        "none",
+        "pending",
+        "success",
+        "failure",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "comments": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeComment.json"
+      },
+      "maxItems": 2000,
+      "type": "array"
+    },
+    "headSha": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "mergeability": {
+      "enum": [
+        "mergeable",
+        "conflicting",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "raw": {},
+    "ref": {
+      "$ref": "https://ace.local/protocol/v1/ForgePrRef.json"
+    },
+    "reviewThreads": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ForgeReviewThread.json"
+      },
+      "maxItems": 2000,
+      "type": "array"
+    },
+    "state": {
+      "enum": [
+        "open",
+        "draft",
+        "closed",
+        "merged",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 65536,
+      "type": "string"
+    }
+  },
+  "required": [
+    "ref",
+    "title",
+    "url",
+    "headSha",
+    "state",
+    "mergeability",
+    "ci",
+    "checks",
+    "comments",
+    "reviewThreads",
+    "raw"
+  ],
+  "type": "object"
+}

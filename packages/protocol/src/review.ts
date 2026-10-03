@@ -16,7 +16,11 @@ export const ReviewPath = z
       !/^[A-Za-z]:/.test(path) &&
       path.split("/").every((part) => part !== ".." && part !== "." && part !== ""),
     "Expected a safe repository-relative path",
-  );
+  )
+  .meta({
+    "x-ace-constraint":
+      "Repository-relative path without control characters, backslashes, drive prefixes, empty, dot or parent segments.",
+  });
 export const ReviewRevision = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("working-tree") }),
   z.object({
@@ -25,7 +29,8 @@ export const ReviewRevision = z.discriminatedUnion("kind", [
       .string()
       .min(1)
       .max(256)
-      .refine((s) => !s.startsWith("-") && !s.includes("\0")),
+      .refine((s) => !s.startsWith("-") && !s.includes("\0"))
+      .meta({ "x-ace-constraint": "Revision must not begin with a hyphen or contain NUL." }),
   }),
   z.object({ kind: z.literal("checkpoint"), id }),
 ]);
@@ -48,7 +53,11 @@ export const ReviewExecutionTarget = z.object({
 export type ReviewExecutionTarget = z.infer<typeof ReviewExecutionTarget>;
 export const ReviewPosition = z
   .object({ file: ReviewPath, side: z.enum(["old", "new"]), start: line, end: line })
-  .refine((p) => p.end >= p.start && p.end - p.start < 100, "Invalid line range");
+  .refine((p) => p.end >= p.start && p.end - p.start < 100, "Invalid line range")
+  .meta({
+    "x-ace-constraint": "end >= start and end - start < 100.",
+    examples: [{ file: "example.ts", side: "new", start: 1, end: 1 }],
+  });
 export type ReviewPosition = z.infer<typeof ReviewPosition>;
 const context = z.array(z.string().max(8192)).max(3);
 export const ReviewFingerprint = z
@@ -61,7 +70,8 @@ export const ReviewFingerprint = z
   .refine(
     (f) => [...f.before, ...f.lines, ...f.after].reduce((n, s) => n + s.length, 0) <= 8192,
     "Fingerprint too large",
-  );
+  )
+  .meta({ "x-ace-constraint": "Total UTF-16 length of before, lines and after is <= 8192." });
 export type ReviewFingerprint = z.infer<typeof ReviewFingerprint>;
 export const ReviewAnchor = z
   .object({
@@ -73,7 +83,18 @@ export const ReviewAnchor = z
   .refine(
     (anchor) => anchor.position.end - anchor.position.start + 1 === anchor.fingerprint.lines.length,
     "Fingerprint must cover the selected range",
-  );
+  )
+  .meta({
+    "x-ace-constraint": "Fingerprint lines count equals end - start + 1.",
+    examples: [
+      {
+        position: { file: "example.ts", side: "new", start: 1, end: 1 },
+        revision: { kind: "working-tree" },
+        fingerprint: { before: [], lines: ["example"], after: [] },
+        state: "active",
+      },
+    ],
+  });
 export type ReviewAnchor = z.infer<typeof ReviewAnchor>;
 export const ReviewComment = z.object({
   id,

@@ -1,0 +1,77 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenTarget.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "bundleId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+        },
+        "displayId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "app",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "bundleId",
+        "displayId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "bundleId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+        },
+        "kind": {
+          "const": "window",
+          "type": "string"
+        },
+        "windowId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "bundleId",
+        "windowId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "bundleIds": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "displayId": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "display",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "displayId",
+        "bundleIds"
+      ],
+      "type": "object"
+    }
+  ]
+}

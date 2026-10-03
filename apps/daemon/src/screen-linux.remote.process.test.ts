@@ -11,7 +11,8 @@ it("paired viewers cannot approve applications, enable capture, or acquire input
   const screen = new ScreenManager({
     command: process.execPath,
     args: [
-      new URL("../../../packages/screen/src/testing/fake-helper-linux.ts", import.meta.url).pathname,
+      new URL("../../../packages/screen/src/testing/fake-helper-linux.ts", import.meta.url)
+        .pathname,
     ],
     protocolVersion: 2,
     nextId: () => `screen-${++id}`,

@@ -13,6 +13,7 @@ export const Mention = z.object({
   lines: z
     .object({ start: size.positive(), end: size.positive() })
     .refine((lines) => lines.end >= lines.start)
+    .meta({ "x-ace-constraint": "end >= start." })
     .optional(),
 });
 export type Mention = z.infer<typeof Mention>;

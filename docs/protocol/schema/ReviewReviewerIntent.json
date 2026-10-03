@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewReviewerIntent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "diff": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "kind": {
+      "const": "review-run",
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "sessionId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "source": {
+      "$ref": "https://ace.local/protocol/v1/ReviewExecutionSource.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "kind",
+    "requestId",
+    "sessionId",
+    "threadId",
+    "source",
+    "diff"
+  ],
+  "type": "object"
+}

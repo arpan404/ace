@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewData.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "comment": {
+      "$ref": "https://ace.local/protocol/v1/ReviewComment.json"
+    },
+    "comments": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ReviewComment.json"
+      },
+      "maxItems": 20,
+      "type": "array"
+    },
+    "intentId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "nextCursor": {
+      "type": "string"
+    },
+    "replies": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ReviewReply.json"
+      },
+      "maxItems": 20,
+      "type": "array"
+    },
+    "reply": {
+      "$ref": "https://ace.local/protocol/v1/ReviewReply.json"
+    },
+    "session": {
+      "$ref": "https://ace.local/protocol/v1/ReviewSession.json"
+    },
+    "sessions": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ReviewSession.json"
+      },
+      "maxItems": 20,
+      "type": "array"
+    }
+  },
+  "type": "object"
+}

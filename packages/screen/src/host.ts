@@ -11,12 +11,19 @@ export function localScreenManager(helperPath: string, artifactDirectory: string
     throw new Error("No native helper for this platform");
   const backend = process.platform === "linux" ? linuxBackend(process.env) : undefined;
   return new ScreenManager({
-    ...(backend ? {
-      protocolVersion: 2 as const,
-      expectedPlatform: backend === "x11" ? "linux-x11" as const : "linux-wayland" as const,
-      args: ["--backend", backend, "--restore-token", join(artifactDirectory, "portal", "restore-token")],
-      env: process.env,
-    } : {}),
+    ...(backend
+      ? {
+          protocolVersion: 2 as const,
+          expectedPlatform: backend === "x11" ? ("linux-x11" as const) : ("linux-wayland" as const),
+          args: [
+            "--backend",
+            backend,
+            "--restore-token",
+            join(artifactDirectory, "portal", "restore-token"),
+          ],
+          env: process.env,
+        }
+      : {}),
     command: helperPath,
     ...(process.platform === "darwin"
       ? { prepare: () => installScreenHelper(helperPath, dirname(artifactDirectory)) }

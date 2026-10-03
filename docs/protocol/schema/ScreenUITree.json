@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenUITree.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "root": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ScreenUINode.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "root",
+    "truncated"
+  ],
+  "type": "object"
+}

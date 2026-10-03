@@ -1,0 +1,96 @@
+{
+  "$id": "https://ace.local/protocol/v1/NotificationAddress.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "channel": {
+          "const": "websocket",
+          "type": "string"
+        },
+        "platform": {
+          "enum": [
+            "desktop",
+            "web",
+            "phone"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel",
+        "platform"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "const": "webpush",
+          "type": "string"
+        },
+        "platform": {
+          "enum": [
+            "web",
+            "phone"
+          ],
+          "type": "string"
+        },
+        "subscription": {
+          "$ref": "https://ace.local/protocol/v1/WebPushSubscription.json"
+        }
+      },
+      "required": [
+        "channel",
+        "platform",
+        "subscription"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "const": "apns",
+          "type": "string"
+        },
+        "platform": {
+          "const": "phone",
+          "type": "string"
+        },
+        "token": {
+          "pattern": "^[a-fA-F0-9]{64}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel",
+        "platform",
+        "token"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "const": "fcm",
+          "type": "string"
+        },
+        "platform": {
+          "const": "phone",
+          "type": "string"
+        },
+        "token": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel",
+        "platform",
+        "token"
+      ],
+      "type": "object"
+    }
+  ]
+}

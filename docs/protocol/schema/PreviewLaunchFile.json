@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/PreviewLaunchFile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "configurations": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PreviewLaunch.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    }
+  },
+  "required": [
+    "configurations"
+  ],
+  "type": "object"
+}

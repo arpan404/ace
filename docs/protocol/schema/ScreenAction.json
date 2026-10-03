@@ -1,0 +1,119 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenAction.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "button": {
+          "default": "left",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "const": "click",
+          "type": "string"
+        },
+        "x": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "type",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "keyCode": {
+          "maximum": 127,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "key",
+          "type": "string"
+        },
+        "modifiers": {
+          "default": [],
+          "items": {
+            "enum": [
+              "command",
+              "shift",
+              "option",
+              "control"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "keyCode"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "deltaX": {
+          "maximum": 1000,
+          "minimum": -1000,
+          "type": "integer"
+        },
+        "deltaY": {
+          "maximum": 1000,
+          "minimum": -1000,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "scroll",
+          "type": "string"
+        },
+        "x": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "x",
+        "y",
+        "deltaX",
+        "deltaY"
+      ],
+      "type": "object"
+    }
+  ]
+}

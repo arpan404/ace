@@ -46,7 +46,12 @@ export const UsageQuery = z
       return span >= 0 && span <= 365 * 86_400_000 && new Set(q.groupBy).size === q.groupBy.length;
     },
     { message: "Expected unique groups and an inclusive range of at most 366 days" },
-  );
+  )
+  .meta({
+    "x-ace-constraint":
+      "to >= from, their difference is <= 365 days, and groupBy entries are unique.",
+    examples: [{ from: "2026-10-01", to: "2026-10-02" }],
+  });
 export type UsageQuery = z.infer<typeof UsageQuery>;
 export const UsageTotals = z.object({
   inputTokens: tokens,

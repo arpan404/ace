@@ -39,12 +39,19 @@ export class Pixels {
     this.actual = true;
     return this.generation;
   }
-  async settle(): Promise<void> { while (this.task) await this.task; }
-  initialize(): Promise<void> { return this.set(false); }
+  async settle(): Promise<void> {
+    while (this.task) await this.task;
+  }
+  initialize(): Promise<void> {
+    return this.set(false);
+  }
   accepts(frame: Frame): boolean {
-    return this.helper.capabilities?.platform !== "windows" ||
-      (this.actual || this.desired) &&
-      (frame.header.captureGeneration === undefined || frame.header.captureGeneration === this.generation);
+    return (
+      this.helper.capabilities?.platform !== "windows" ||
+      ((this.actual || this.desired) &&
+        (frame.header.captureGeneration === undefined ||
+          frame.header.captureGeneration === this.generation))
+    );
   }
   acquire(): { ready: Promise<void>; release(): void } {
     if (this.stopped) throw new Error("Pixel session stopped");
@@ -63,7 +70,8 @@ export class Pixels {
     };
   }
   private set(active: boolean): Promise<void> {
-    if (!this.helper.capabilities || this.helper.capabilities.platform.startsWith("linux")) return Promise.resolve();
+    if (!this.helper.capabilities || this.helper.capabilities.platform.startsWith("linux"))
+      return Promise.resolve();
     this.desired = active;
     if (this.task) return this.task;
     if (this.actual === active || this.stopped) return Promise.resolve();

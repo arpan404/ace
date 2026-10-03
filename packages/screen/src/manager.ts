@@ -72,11 +72,13 @@ export class ScreenManager {
   async enable(enabled: boolean): Promise<void> {
     this.policy.enable(enabled);
     if (!enabled) {
-      const results = await Promise.allSettled([
-        ...[...this.sessions.keys()].map((id) => this.stop(id)),
-      ]);
+      const results = await Promise.allSettled(
+        [...this.sessions.keys()].map((id) => this.stop(id)),
+      );
       await this.host.close();
-      const errors = results.flatMap(result => result.status === "rejected" ? [result.reason] : []);
+      const errors = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
       if (errors.length) throw new AggregateError(errors, "Screen shutdown failed");
     }
   }
@@ -116,7 +118,7 @@ export class ScreenManager {
   }
   async targets(): Promise<ScreenInventory> {
     if (!this.policy.enabled) throw new Error("Screen access is disabled");
-    await Promise.all([...this.sessions.values()].map(session => session.pixels.settle()));
+    await Promise.all([...this.sessions.values()].map((session) => session.pixels.settle()));
     return ScreenInventory.parse(await this.inspect("targets"));
   }
   async start(input: ScreenTarget, fps = 10): Promise<ScreenState> {
@@ -133,7 +135,12 @@ export class ScreenManager {
       const id = this.options.nextId();
       if (this.sessions.has(id)) throw new Error("Duplicate session id");
       helper = await this.host.open();
-      if (helper.capabilities && ((target.kind === "display" && !helper.capabilities.capture.displays) || (target.kind !== "display" && !helper.capabilities.capture.windows))) throw new Error("Helper does not support capture target");
+      if (
+        helper.capabilities &&
+        ((target.kind === "display" && !helper.capabilities.capture.displays) ||
+          (target.kind !== "display" && !helper.capabilities.capture.windows))
+      )
+        throw new Error("Helper does not support capture target");
       session = createSession(
         helper,
         id,
@@ -175,7 +182,8 @@ export class ScreenManager {
       } else {
         const result = await helper.request(start);
         if (helper.capabilities?.platform.startsWith("linux")) {
-          if (!result || typeof result !== "object" || !("capabilities" in result)) throw new Error("Missing capture capabilities");
+          if (!result || typeof result !== "object" || !("capabilities" in result))
+            throw new Error("Missing capture capabilities");
           helper.capabilities = ScreenCapabilities.parse(result.capabilities);
           session.state.capabilities = helper.capabilities;
         }
@@ -220,7 +228,13 @@ export class ScreenManager {
     session.viewers++;
     session.hadViewer = true;
     let released = false;
-    const release = () => { if (released) return; released = true; lease.release(); session.viewers--; this.releaseUnused(session); };
+    const release = () => {
+      if (released) return;
+      released = true;
+      lease.release();
+      session.viewers--;
+      this.releaseUnused(session);
+    };
     try {
       const stop = session.hub.subscribe(async (frame) => {
         try {
@@ -248,7 +262,8 @@ export class ScreenManager {
   async captureScreenshot(id: string): Promise<Frame> {
     const session = this.live(id);
     this.authorize(session.state.target);
-    if (!session.helper.capabilities || session.helper.capabilities.platform.startsWith("linux")) return this.screenshot(id);
+    if (!session.helper.capabilities || session.helper.capabilities.platform.startsWith("linux"))
+      return this.screenshot(id);
     return session.pixels.screenshot(
       this.options.scheduler ?? nodeScheduler,
       this.options.timeoutMs ?? 10_000,
@@ -271,7 +286,11 @@ export class ScreenManager {
     return result;
   }
   uiTree(id: string, options: unknown, owner?: string) {
-    if (owner !== undefined && !this.live(id).helper.capabilities?.platform.startsWith("linux") && this.live(id).owner !== owner)
+    if (
+      owner !== undefined &&
+      !this.live(id).helper.capabilities?.platform.startsWith("linux") &&
+      this.live(id).owner !== owner
+    )
       throw new Error("Controller ownership required");
     return this.readUI(
       id,
@@ -280,7 +299,11 @@ export class ScreenManager {
     );
   }
   uiFind(id: string, options: unknown, owner?: string) {
-    if (owner !== undefined && !this.live(id).helper.capabilities?.platform.startsWith("linux") && this.live(id).owner !== owner)
+    if (
+      owner !== undefined &&
+      !this.live(id).helper.capabilities?.platform.startsWith("linux") &&
+      this.live(id).owner !== owner
+    )
       throw new Error("Controller ownership required");
     return this.readUI(
       id,
@@ -302,8 +325,15 @@ export class ScreenManager {
       return session.helper.request({ op: "input", input });
     });
   }
-  async namedKey(id: string, input: {key: string; modifiers: ("control"|"shift"|"alt"|"meta"|"super"|"command"|"option")[]}, owner: string): Promise<void> {
-    await this.input(id, "agent", {kind: "key.press", ...input}, owner);
+  async namedKey(
+    id: string,
+    input: {
+      key: string;
+      modifiers: ("control" | "shift" | "alt" | "meta" | "super" | "command" | "option")[];
+    },
+    owner: string,
+  ): Promise<void> {
+    await this.input(id, "agent", { kind: "key.press", ...input }, owner);
   }
   screenshotFresh(id: string): Promise<Frame> {
     return this.captureScreenshot(id);
@@ -314,10 +344,10 @@ export class ScreenManager {
   agentSession(input: ScreenAgentScope): string {
     const owner = agentOwner(input);
     const session = [...this.sessions.values()].find(
-      (session) =>
-        session.state.lifecycle === "live" &&
-        session.state.controller === "agent" &&
-        session.owner === owner,
+      (candidate) =>
+        candidate.state.lifecycle === "live" &&
+        candidate.state.controller === "agent" &&
+        candidate.owner === owner,
     );
     if (!session) throw new Error("Screen delegation required");
     this.authorize(session.state.target);
@@ -338,11 +368,33 @@ export class ScreenManager {
     this.releaseUnused(session);
   }
   private releaseUnused(session: Session): void {
-    if (!session.helper.capabilities?.platform.startsWith("linux") || !session.hadViewer || session.viewers || session.state.controller === "agent" || session.recording || session.recordingStarting || session.releasing || session.state.lifecycle !== "live") return;
+    if (
+      !session.helper.capabilities?.platform.startsWith("linux") ||
+      !session.hadViewer ||
+      session.viewers ||
+      session.state.controller === "agent" ||
+      session.recording ||
+      session.recordingStarting ||
+      session.releasing ||
+      session.state.lifecycle !== "live"
+    )
+      return;
     session.releasing = true;
-    void session.actionTail.then(async () => {
-      if (!session.viewers && session.state.controller !== "agent" && !session.recording && !session.recordingStarting && session.state.lifecycle === "live") await this.stop(session.state.sessionId);
-    }).catch(() => {}).finally(() => { session.releasing = false; });
+    void session.actionTail
+      .then(async () => {
+        if (
+          !session.viewers &&
+          session.state.controller !== "agent" &&
+          !session.recording &&
+          !session.recordingStarting &&
+          session.state.lifecycle === "live"
+        )
+          await this.stop(session.state.sessionId);
+      })
+      .catch(() => {})
+      .finally(() => {
+        session.releasing = false;
+      });
   }
   async action(
     id: string,
@@ -352,15 +404,28 @@ export class ScreenManager {
   ): Promise<void> {
     const action = ScreenAction.parse(input);
     await this.execute(id, actor, owner, async (session) => {
-      if (!session.helper.capabilities?.platform.startsWith("linux")) return session.helper.request({ op: "action", action });
+      if (!session.helper.capabilities?.platform.startsWith("linux"))
+        return session.helper.request({ op: "action", action });
       const scale = session.latest?.header.scale ?? 1;
       switch (action.kind) {
-        case "click": return session.helper.requestV2({op: "pointer.click", x: action.x / scale, y: action.y / scale, button: action.button});
-        case "type": return session.helper.requestV2({op: "text.type", text: action.text});
+        case "click":
+          return session.helper.requestV2({
+            op: "pointer.click",
+            x: action.x / scale,
+            y: action.y / scale,
+            button: action.button,
+          });
+        case "type":
+          return session.helper.requestV2({ op: "text.type", text: action.text });
         case "scroll":
-          await session.helper.requestV2({op: "pointer.move", x: action.x / scale, y: action.y / scale});
-          return session.helper.requestV2({op: "scroll", dx: action.deltaX, dy: action.deltaY});
-        case "key": throw new Error("Use a named key on protocol v2 helpers");
+          await session.helper.requestV2({
+            op: "pointer.move",
+            x: action.x / scale,
+            y: action.y / scale,
+          });
+          return session.helper.requestV2({ op: "scroll", dx: action.deltaX, dy: action.deltaY });
+        case "key":
+          throw new Error("Use a named key on protocol v2 helpers");
       }
     });
   }
@@ -475,14 +540,26 @@ export class ScreenManager {
     try {
       if (session.state.error) await this.host.close();
       else await this.host.stopCapture(session.helper);
-    } catch (error) { errors.push(error); }
+    } catch (error) {
+      errors.push(error);
+    }
     session.state = terminated(session.state);
     this.emit(session);
     try {
-      if (session.recording || session.completedRecording) await this.stopRecording(session.state.sessionId);
-    } catch (error) { errors.push(error); }
-    finally { this.sessions.delete(session.state.sessionId); }
-    if (errors.length) throw new AggregateError(errors, errors.map(error => error instanceof Error ? error.message : "Screen stop failed").join("; "));
+      if (session.recording || session.completedRecording)
+        await this.stopRecording(session.state.sessionId);
+    } catch (error) {
+      errors.push(error);
+    } finally {
+      this.sessions.delete(session.state.sessionId);
+    }
+    if (errors.length)
+      throw new AggregateError(
+        errors,
+        errors
+          .map((error) => (error instanceof Error ? error.message : "Screen stop failed"))
+          .join("; "),
+      );
   }
   async close(): Promise<void> {
     await this.enable(false);

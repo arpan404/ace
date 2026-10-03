@@ -29,7 +29,8 @@ export const SearchFilters = z
     agentId: AgentId.optional(),
     kind: SearchKind.optional(),
   })
-  .refine((f) => f.after === undefined || f.before === undefined || f.after <= f.before);
+  .refine((f) => f.after === undefined || f.before === undefined || f.after <= f.before)
+  .meta({ "x-ace-constraint": "after must be <= before when both timestamps are present." });
 export const SearchQuery = z.object({
   text: z.string().max(512),
   mode: z.enum(["tokens", "substring"]).default("tokens"),

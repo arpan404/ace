@@ -1,0 +1,52 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewAnchor.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    {
+      "fingerprint": {
+        "after": [],
+        "before": [],
+        "lines": [
+          "example"
+        ]
+      },
+      "position": {
+        "end": 1,
+        "file": "example.ts",
+        "side": "new",
+        "start": 1
+      },
+      "revision": {
+        "kind": "working-tree"
+      },
+      "state": "active"
+    }
+  ],
+  "properties": {
+    "fingerprint": {
+      "$ref": "https://ace.local/protocol/v1/ReviewFingerprint.json"
+    },
+    "position": {
+      "$ref": "https://ace.local/protocol/v1/ReviewPosition.json"
+    },
+    "revision": {
+      "$ref": "https://ace.local/protocol/v1/ReviewRevision.json"
+    },
+    "state": {
+      "enum": [
+        "active",
+        "outdated",
+        "addressed-pending-review"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "position",
+    "revision",
+    "fingerprint",
+    "state"
+  ],
+  "type": "object",
+  "x-ace-constraint": "Fingerprint lines count equals end - start + 1."
+}

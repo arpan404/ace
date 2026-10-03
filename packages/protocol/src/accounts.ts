@@ -11,7 +11,11 @@ export type AccountAssignment = z.infer<typeof AccountAssignment>;
 export const AccountDirectory = z
   .string()
   .max(4096)
-  .refine((s) => s.startsWith("/") || /^[A-Za-z]:[\\/]/.test(s));
+  .regex(/^(?:\/|[A-Za-z]:[\\/])/s)
+  .meta({
+    "x-ace-constraint": "Absolute Unix or drive-qualified Windows directory.",
+    examples: ["/example/home"],
+  });
 export const AccountEnvKey = z.enum([
   "CODEX_HOME",
   "CLAUDE_CONFIG_DIR",
@@ -36,7 +40,10 @@ export const QuotaWindow = z.object({
 export const AccountQuota = z.object({
   auth: z.enum(["logged_in", "logged_out", "unknown"]),
   observedAt: z.number().finite().nonnegative(),
-  windows: z.record(z.string().max(128), QuotaWindow).refine((w) => Object.keys(w).length <= 32),
+  windows: z
+    .record(z.string().max(128), QuotaWindow)
+    .refine((w) => Object.keys(w).length <= 32)
+    .meta({ maxProperties: 32, "x-ace-constraint": "At most 32 quota windows." }),
   blockers: z
     .object({ overflow: z.literal(true).optional(), limitError: QuotaWindow.optional() })
     .default({}),

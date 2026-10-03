@@ -1,0 +1,80 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeComment.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "author": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "body": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "file": {
+      "anyOf": [
+        {
+          "maxLength": 65536,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "id": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "kind": {
+      "enum": [
+        "inline",
+        "issue",
+        "review"
+      ],
+      "type": "string"
+    },
+    "line": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "replyTo": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reviewState": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "updatedAt": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "id",
+    "body",
+    "author",
+    "file",
+    "line",
+    "updatedAt",
+    "replyTo"
+  ],
+  "type": "object"
+}

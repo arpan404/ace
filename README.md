@@ -31,6 +31,8 @@ ace never asks for or stores your provider credentials. Each agent CLI uses the 
 | `docs/adr`                | Architecture decision records                                           |
 | `docs/research`           | Primary-source research behind the decisions                            |
 
+The generated [protocol reference](docs/protocol/README.md) covers WebSocket messages, canonical events and built-in MCP tools. Regenerate it with `bun run docs:protocol`.
+
 ## Development
 
 Requires Node 24+ and Bun 1.3+.

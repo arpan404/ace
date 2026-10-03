@@ -1,0 +1,75 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenUIQuery.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "role": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "role"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "role": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "name": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "role": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    }
+  ]
+}

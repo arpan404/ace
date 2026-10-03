@@ -1,0 +1,567 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenHelperRequestV2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "hello",
+          "type": "string"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "permissions",
+          "type": "string"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "targets",
+          "type": "string"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "stop",
+          "type": "string"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "allowlist": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "captureGeneration": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "fps": {
+          "maximum": 30,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "start",
+          "type": "string"
+        },
+        "sessionId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "target": {
+          "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "sessionId",
+        "target",
+        "allowlist",
+        "fps"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "$ref": "https://ace.local/protocol/v1/ScreenAction.json"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "action",
+          "type": "string"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "active": {
+          "type": "boolean"
+        },
+        "captureGeneration": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "watch",
+          "type": "string"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "active"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "allowlist": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "maxDepth": {
+          "default": 8,
+          "maximum": 16,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "maxNodes": {
+          "default": 128,
+          "maximum": 512,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "ui.tree",
+          "type": "string"
+        },
+        "target": {
+          "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "allowlist"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "allowlist": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "limit": {
+          "default": 16,
+          "maximum": 64,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "op": {
+          "const": "ui.find",
+          "type": "string"
+        },
+        "query": {
+          "$ref": "https://ace.local/protocol/v1/ScreenUIQuery.json"
+        },
+        "target": {
+          "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "query"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "$ref": "https://ace.local/protocol/v1/ScreenUIAction.json"
+        },
+        "allowlist": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "ui.act",
+          "type": "string"
+        },
+        "ref": {
+          "$ref": "https://ace.local/protocol/v1/ScreenUIRef.json"
+        },
+        "target": {
+          "$ref": "https://ace.local/protocol/v1/ScreenTarget.json"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "properties": {
+                "dx": {
+                  "default": 0,
+                  "maximum": 1000,
+                  "minimum": -1000,
+                  "type": "integer"
+                },
+                "dy": {
+                  "default": 0,
+                  "maximum": 1000,
+                  "minimum": -1000,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "ref",
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "pointer.move",
+          "type": "string"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        },
+        "x": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "button": {
+          "default": "left",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "pointer.click",
+          "type": "string"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        },
+        "x": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "button": {
+          "default": "left",
+          "enum": [
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "pointer.drag",
+          "type": "string"
+        },
+        "toX": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "toY": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        },
+        "x": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "y": {
+          "minimum": 0,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "x",
+        "y",
+        "toX",
+        "toY"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "key": {
+          "maxLength": 64,
+          "minLength": 1,
+          "type": "string"
+        },
+        "modifiers": {
+          "default": [],
+          "items": {
+            "enum": [
+              "control",
+              "shift",
+              "alt",
+              "meta",
+              "super"
+            ],
+            "type": "string"
+          },
+          "maxItems": 4,
+          "type": "array"
+        },
+        "op": {
+          "const": "key.press",
+          "type": "string"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "key"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "text.type",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "dx": {
+          "maximum": 1000,
+          "minimum": -1000,
+          "type": "integer"
+        },
+        "dy": {
+          "maximum": 1000,
+          "minimum": -1000,
+          "type": "integer"
+        },
+        "id": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "op": {
+          "const": "scroll",
+          "type": "string"
+        },
+        "version": {
+          "const": 2,
+          "type": "number"
+        }
+      },
+      "required": [
+        "version",
+        "id",
+        "op",
+        "dx",
+        "dy"
+      ],
+      "type": "object"
+    }
+  ]
+}

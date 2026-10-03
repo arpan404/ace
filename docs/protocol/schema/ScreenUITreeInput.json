@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenUITreeInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "maxDepth": {
+      "default": 8,
+      "maximum": 16,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "maxNodes": {
+      "default": 128,
+      "maximum": 512,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}

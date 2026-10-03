@@ -89,9 +89,9 @@ test("daemon launches in the assigned account environment and retains that accou
           });
           return scripted.openSession({
             ...context,
-            onFrame(frame) {
-              const payload = new ProviderPayload(JSON.stringify(frame.data));
-              context.onFrame({ ...frame, payload, data: payload.data });
+            onFrame(nativeFrame) {
+              const certificate = new ProviderPayload(JSON.stringify(nativeFrame.data));
+              context.onFrame({ ...nativeFrame, payload: certificate, data: certificate.data });
             },
           });
         },

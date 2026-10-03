@@ -29,11 +29,31 @@ export async function readTree(
   });
   if (helper.capabilities?.platform === "windows") {
     const tree = parseUITree(result, caps.maxNodes, caps.maxDepth);
-    return { ...ScreenUITreeResult.parse({nodes: tree.root ? [tree.root] : [], truncated: tree.truncated}), root: tree.root };
+    return {
+      ...ScreenUITreeResult.parse({
+        nodes: tree.root ? [tree.root] : [],
+        truncated: tree.truncated,
+      }),
+      root: tree.root,
+    };
   }
   if (helper.capabilities?.platform.startsWith("linux")) {
-    const tree = parseUITree({root: result && typeof result === "object" && "tree" in result ? result.tree : null, truncated: result && typeof result === "object" && "truncated" in result ? result.truncated : false}, caps.maxNodes, caps.maxDepth);
-    return { ...ScreenUITreeResult.parse({ nodes: tree.root ? [tree.root] : [], truncated: tree.truncated }), root: tree.root };
+    const tree = parseUITree(
+      {
+        root: result && typeof result === "object" && "tree" in result ? result.tree : null,
+        truncated:
+          result && typeof result === "object" && "truncated" in result ? result.truncated : false,
+      },
+      caps.maxNodes,
+      caps.maxDepth,
+    );
+    return {
+      ...ScreenUITreeResult.parse({
+        nodes: tree.root ? [tree.root] : [],
+        truncated: tree.truncated,
+      }),
+      root: tree.root,
+    };
   }
   return { ...ScreenUITreeResult.parse(result), root: null };
 }

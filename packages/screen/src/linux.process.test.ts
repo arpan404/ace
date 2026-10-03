@@ -45,7 +45,12 @@ it("v2 negotiates its display backend and delivers frames with scale and aliases
       fps: 10,
     });
     await helper.request({ op: "key.press", key: "Enter", modifiers: [] });
-    expect((await frame.promise).header).toMatchObject({ version: 1, scale: 1, sequence: 0, timestamp: 1000 });
+    expect((await frame.promise).header).toMatchObject({
+      version: 1,
+      scale: 1,
+      sequence: 0,
+      timestamp: 1000,
+    });
     await expect(helper.request({ op: "ui.act", ref: "gone", action: "press" })).rejects.toThrow(
       "Unknown ref",
     );

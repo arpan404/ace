@@ -4,12 +4,11 @@ import { z } from "zod";
 export const ScreenEndpoint = z
   .string()
   .max(256)
-  .refine(
-    (value) =>
-      /^unix:\/[^\0\r\n]+$/.test(value) ||
-      /^pipe:\\\\\.\\pipe\\ace-screen-[a-zA-Z0-9_-]+$/.test(value),
-    "Expected an absolute unix: endpoint or an ace-screen named pipe",
-  );
+  .regex(/^(?:unix:\/[^\0\r\n]+|pipe:\\\\\.\\pipe\\ace-screen-[a-zA-Z0-9_-]+)$/)
+  .meta({
+    "x-ace-constraint": "Absolute unix: path without NUL, CR or LF, or an ace-screen named pipe.",
+    examples: ["unix:/example/frames.sock"],
+  });
 export const ScreenError = z.object({
   code: z.enum([
     "permission_denied",
@@ -22,29 +21,31 @@ export const ScreenError = z.object({
   ]),
   message: z.string().max(1024),
 });
-export const ScreenCapabilities = z.object({
-  version: z.literal(2),
-  platform: z.enum(["macos", "windows", "linux-x11", "linux-wayland"]),
-  capture: z.object({ windows: z.boolean(), displays: z.boolean(), changeDriven: z.boolean() }),
-  input: z.object({
-    pointer: z.boolean(),
-    keyboard: z.boolean(),
-    scroll: z.boolean(),
-    text: z.boolean(),
-  }),
-  uiTree: z.boolean(),
-  semanticActions: z
-    .array(z.enum(["press", "focus", "setValue", "scroll", "expand", "select"]))
-    .max(6),
-  codecs: z
-    .array(z.enum(["jpeg", "h264"]))
-    .min(1)
-    .max(2),
-  permissions: z.object({
-    screen: z.enum(["granted", "denied", "prompt", "n/a"]),
-    input: z.enum(["granted", "denied", "prompt", "n/a"]),
-  }),
-}).passthrough();
+export const ScreenCapabilities = z
+  .object({
+    version: z.literal(2),
+    platform: z.enum(["macos", "windows", "linux-x11", "linux-wayland"]),
+    capture: z.object({ windows: z.boolean(), displays: z.boolean(), changeDriven: z.boolean() }),
+    input: z.object({
+      pointer: z.boolean(),
+      keyboard: z.boolean(),
+      scroll: z.boolean(),
+      text: z.boolean(),
+    }),
+    uiTree: z.boolean(),
+    semanticActions: z
+      .array(z.enum(["press", "focus", "setValue", "scroll", "expand", "select"]))
+      .max(6),
+    codecs: z
+      .array(z.enum(["jpeg", "h264"]))
+      .min(1)
+      .max(2),
+    permissions: z.object({
+      screen: z.enum(["granted", "denied", "prompt", "n/a"]),
+      input: z.enum(["granted", "denied", "prompt", "n/a"]),
+    }),
+  })
+  .passthrough();
 export type ScreenCapabilities = z.infer<typeof ScreenCapabilities>;
 export const ScreenRect = z.object({
   x: z.number().finite(),
@@ -54,21 +55,35 @@ export const ScreenRect = z.object({
 });
 export const ScreenUIAction = z.enum(["press", "focus", "setValue", "scroll", "expand", "select"]);
 export const ScreenUIRef = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
-export const ScreenUINode = z.object({
-  ref: ScreenUIRef,
-  role: z.string().max(128),
-  name: z.string().max(256),
-  value: z.string().max(512).optional(),
-  description: z.string().max(256).optional(),
-  bounds: ScreenRect,
-  states: z
-    .array(z.enum(["focused", "selected", "checked", "disabled", "expanded", "offscreen"]))
-    .max(6),
-  actions: z.array(ScreenUIAction).max(6),
-  get children(): z.ZodArray<typeof ScreenUINode> {
-    return z.array(ScreenUINode).max(512);
-  },
-});
+export const ScreenUINode = z
+  .object({
+    ref: ScreenUIRef,
+    role: z.string().max(128),
+    name: z.string().max(256),
+    value: z.string().max(512).optional(),
+    description: z.string().max(256).optional(),
+    bounds: ScreenRect,
+    states: z
+      .array(z.enum(["focused", "selected", "checked", "disabled", "expanded", "offscreen"]))
+      .max(6),
+    actions: z.array(ScreenUIAction).max(6),
+    get children(): z.ZodArray<typeof ScreenUINode> {
+      return z.array(ScreenUINode).max(512);
+    },
+  })
+  .meta({
+    examples: [
+      {
+        ref: "example",
+        role: "button",
+        name: "Example",
+        bounds: { x: 0, y: 0, w: 10, h: 10 },
+        states: [],
+        actions: ["press"],
+        children: [],
+      },
+    ],
+  });
 export const ScreenUITreeOptions = z.object({
   maxDepth: z.number().int().min(0).max(16).default(8),
   maxNodes: z.number().int().min(1).max(512).default(128),
@@ -128,7 +143,12 @@ function boundedNodes(roots: number) {
         for (const node of result.data.children) pending.push({ node, depth: item.depth + 1 });
       }
     })
-    .pipe(z.array(ScreenUINode).max(roots));
+    .pipe(z.array(ScreenUINode).max(roots))
+    .meta({
+      "x-ace-json-input": z.array(ScreenUINode).max(roots),
+      "x-ace-constraint":
+        "At most 512 total UI nodes and depth 16, checked before recursive decoding.",
+    });
 }
 export const ScreenUITreeResult = z.object({
   nodes: boundedNodes(512),
@@ -214,9 +234,24 @@ export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
     active: z.boolean(),
     captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   }),
-  Envelope.extend({ op: z.literal("ui.tree"), target: ScreenTarget.optional(), allowlist: z.array(ScreenBundle).max(64), ...ScreenUITreeOptions.shape }),
-  Envelope.extend({ op: z.literal("ui.find"), target: ScreenTarget.optional(), allowlist: z.array(ScreenBundle).max(64).optional(), ...ScreenUIFindOptions.shape }),
-  Envelope.extend({ op: z.literal("ui.act"), target: ScreenTarget.optional(), allowlist: z.array(ScreenBundle).max(64).optional(), ...ScreenUIActOptions.shape }),
+  Envelope.extend({
+    op: z.literal("ui.tree"),
+    target: ScreenTarget.optional(),
+    allowlist: z.array(ScreenBundle).max(64),
+    ...ScreenUITreeOptions.shape,
+  }),
+  Envelope.extend({
+    op: z.literal("ui.find"),
+    target: ScreenTarget.optional(),
+    allowlist: z.array(ScreenBundle).max(64).optional(),
+    ...ScreenUIFindOptions.shape,
+  }),
+  Envelope.extend({
+    op: z.literal("ui.act"),
+    target: ScreenTarget.optional(),
+    allowlist: z.array(ScreenBundle).max(64).optional(),
+    ...ScreenUIActOptions.shape,
+  }),
   Envelope.extend({
     op: z.literal("pointer.move"),
     x: z.number().finite().nonnegative(),
@@ -267,6 +302,12 @@ export const ScreenPermissionsV2 = z.object({
 export const ScreenUITreeInput = ScreenUITreeOptions;
 export const ScreenUIFindInput = ScreenUIFindOptions;
 export const ScreenUIActInput = ScreenUIActOptions;
-export const ScreenNamedKey = z.object({key: z.string().min(1).max(64), modifiers: z.array(z.enum(["control", "shift", "alt", "meta", "super", "super", "command", "option"])).max(4).default([])});
+export const ScreenNamedKey = z.object({
+  key: z.string().min(1).max(64),
+  modifiers: z
+    .array(z.enum(["control", "shift", "alt", "meta", "super", "super", "command", "option"]))
+    .max(4)
+    .default([]),
+});
 export const ScreenTransportFrameHeader = z.union([ScreenFrameHeaderV2]);
 export type ScreenTransportFrameHeader = z.infer<typeof ScreenTransportFrameHeader>;

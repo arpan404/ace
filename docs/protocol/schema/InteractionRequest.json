@@ -1,0 +1,106 @@
+{
+  "$id": "https://ace.local/protocol/v1/InteractionRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "approval",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ApprovalOption.json"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "options"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "question",
+          "type": "string"
+        },
+        "questions": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/Question.json"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "questions"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "plan_review",
+          "type": "string"
+        },
+        "markdown": {
+          "type": "string"
+        },
+        "planPath": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "todos": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/TodoEntry.json"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "markdown"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "elicitation",
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "schema": {},
+        "server": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "server",
+        "message"
+      ],
+      "type": "object"
+    }
+  ]
+}
