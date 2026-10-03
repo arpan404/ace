@@ -1,0 +1,40 @@
+{
+  "checkpoints": [
+    {
+      "t": 3160,
+      "thread": "needs_you"
+    },
+    {
+      "t": 3164,
+      "thread": "working"
+    },
+    {
+      "t": 10857,
+      "thread": "working",
+      "note": "Sending the interrupt cannot settle a running shell."
+    },
+    {
+      "t": 10875,
+      "thread": "working",
+      "note": "Tool failure precedes shell cleanup and execution termination."
+    },
+    {
+      "t": 10922,
+      "thread": "done",
+      "agentStates": {
+        "root": "interrupted"
+      }
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 1,
+    "agentStates": {
+      "root": "interrupted"
+    },
+    "interactions": {
+      "resolved": 1,
+      "pending": 0
+    }
+  }
+}

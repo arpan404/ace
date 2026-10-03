@@ -1,8 +1,8 @@
 # OpenCode v2 verification
 
-Implementation targets CLI/client 2.0.22. Evidence is the accepted research brief, the pinned official client's generated signatures, and primary v2 schema/operation contracts. ADR 0047 is still Proposed. No provider prompt, probe, fixture recording, benchmark or mutation run was executed. Tests were reserved for merge during implementation and review; the owner's later merge-conflict exception permitted the specific tests listed below.
+Implementation targets CLI/client 2.0.22. Evidence is the accepted research brief, the pinned official client's generated signatures, and primary v2 schema/operation contracts. ADR 0047 is still Proposed. Implementation and review did not run provider prompts, recordings, benchmarks or mutations. Later owner exceptions permitted the merge-conflict tests listed below and the v2 recordings described here.
 
-Static verification: formatting, lint, TypeScript and source size checks are the permitted checks. Their final status is reported in the implementation PR. Runtime behavior below **needs run at merge**.
+Static verification: formatting, lint, TypeScript and source size checks are the permitted checks. Their final status is reported in the implementation PR. The later recording exception executed the adapter and recorder tests; other runtime suites, benchmarks and mutations still need run at merge.
 
 ## Authored behavior coverage
 
@@ -85,9 +85,27 @@ The review's 22 mutation rows remain mapped to these authored public behavior te
 
 `bench/native-deltas.ts` measures incremental native delta translation; `bench/recovery.ts` measures initial versus changed-head recovery at increasing history sizes. `bench/event-fanout.ts` measures observed SSE dispatch with 1/16/64 sessions. `bench/tree-recovery.ts` varies verified tree size at 1/16/128/1,024 nodes and records initial versus repeat recovery plus child pages. `bench/recovery-deltas.ts` varies buffered text coverage at 128/1,024/4,096 deltas. `bench/account-reuse.ts` measures same-account session admission at 1/16/64 sessions. The new programs share the fake executable boundary. These programs report elapsed time/throughput and peak RSS. **Numbers unavailable: benchmarks were not run under the owner's rule. Needs run at merge.** Existing `benchmarks/` programs explicitly use the historical v1 implementation.
 
-## To record after approval
+## Owner-approved recordings on 2026-10-03
 
-No v2 fixture directory has been created. Every run requires separate explicit approval and a quota/time cap. Use OpenCode `opencode-go/muse-spark-1.3-contributor`.
+The owner approved one sequential attempt per runnable scenario with CLI/client
+2.0.22 and `opencode-go/muse-spark-1.3-contributor`. Seven captures and their
+replay expectations now live in
+[`fixtures/opencode/2.0.22/muse-spark-1.3-contributor`](../../../fixtures/opencode/2.0.22/muse-spark-1.3-contributor/README.md).
+Five recordings completed. `tool-read` completed its execution but failed history
+pagination; `subagent-background` reached its recorder time cap after native
+completion. Neither was retried. The fixture README lists times, skipped
+candidates, evidence limits and the source fixes. Pre-commit credential review
+found no remaining sensitive values in the redacted copies.
+
+The task-specific adapter and recorder run passed 189 tests across 23 files;
+the existing live opt-in test was skipped. No new live sessions were opened by
+that test run. Historical v1 replay continues through the archived adapter;
+v2 replay uses the production translator. Static TypeScript, lint, format and
+protocol-reference checks pass. Source size and dependency-boundary checks pass,
+although dependency-cruiser warns that its TypeScript support range ends below
+the repository's TypeScript 7.
+
+## Original recording candidates
 
 | Candidate           | Evidence to collect                                                                    |
 | ------------------- | -------------------------------------------------------------------------------------- |
@@ -101,7 +119,7 @@ No v2 fixture directory has been created. Every run requires separate explicit a
 | retry-overloaded    | controlled structured retry, without repeated real overload attempts                   |
 | plan-review         | only after discovering a configured v2 agent/form flow; otherwise unsupported metadata |
 
-Recorder drafts live in `tools/recorder/src/providers/opencode-v2-scenarios.ts`. Existing common scenarios are adapted for native background shell and multi-select forms. Plan review is skipped. Controlled retry/dismissal and the additional candidates (always/reject persistence, cascade children/shells, steer/queue/cancel, resume, server restart with pending work) need a separately approved recording setup. The driver marks time-cap captures incomplete and refuses to certify a disconnected recording through an empty resync.
+The original recorder drafts live in `tools/recorder/src/providers/opencode-v2-scenarios.ts`. Existing common scenarios are adapted for native background shell and multi-select forms. Plan review is skipped. Controlled retry/dismissal and the additional candidates (always/reject persistence, cascade children/shells, steer/queue/cancel, resume, server restart with pending work) need a separately approved recording setup. The driver marks time-cap captures incomplete and refuses to certify a disconnected recording through an empty resync.
 
 Execution order, synthetic wake/cascade behavior and any plan support remain a release gate requiring approved live evidence. Fake-server tests are deterministic verification artifacts; they are not live fixture certification.
 

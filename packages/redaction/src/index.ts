@@ -7,7 +7,7 @@ export type RedactionContext = {
 };
 
 const SECRET_KEY =
-  /token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code/i;
+  /token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code|encryptedContent/i;
 const TOKEN_COUNTERS = new Set([
   "inputTokens",
   "outputTokens",
@@ -15,14 +15,35 @@ const TOKEN_COUNTERS = new Set([
   "cacheWriteTokens",
   "reasoningTokens",
 ]);
-function accountingCounter(key: string, value: unknown): boolean {
+const NATIVE_TOKEN_COUNTERS = new Set(["input", "output", "reasoning", "total"]);
+function nonnegativeCounter(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+function nativeTokenCounters(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.entries(value);
   return (
-    TOKEN_COUNTERS.has(key) &&
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= 0
+    entries.length > 0 &&
+    entries.every(([key, counter]) => {
+      if (key !== "cache") return NATIVE_TOKEN_COUNTERS.has(key) && nonnegativeCounter(counter);
+      return (
+        counter !== null &&
+        typeof counter === "object" &&
+        !Array.isArray(counter) &&
+        Object.entries(counter).every(
+          ([name, count]) => (name === "read" || name === "write") && nonnegativeCounter(count),
+        )
+      );
+    })
   );
 }
+function accountingCounter(key: string, value: unknown): boolean {
+  return (
+    (TOKEN_COUNTERS.has(key) && nonnegativeCounter(value)) ||
+    (key === "tokens" && nativeTokenCounters(value))
+  );
+}
+
 export function isSecretKey(key: string): boolean {
   return SECRET_KEY.test(key);
 }
@@ -92,6 +113,7 @@ export function createRedactor(
     for (const [pattern, replacement] of paths) {
       if (pattern.source !== "(?:)") out = out.replace(pattern, replacement);
     }
+    out = out.replace(/\/(?:Users|home)\/[^/\s"'<>]+/g, "<HOME>");
     if (environment) out = out.replace(environment, "<ENV>");
     out = out.replace(/([#&](?:code|ticket|token)=)[^&#\s]+/gi, "$1<SECRET>");
     for (const pattern of SECRETS) out = out.replace(pattern, "<SECRET>");
