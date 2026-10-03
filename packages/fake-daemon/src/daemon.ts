@@ -1,3 +1,11 @@
+import {
+  resolvePermissionMode,
+  limitPermissionMode,
+  isPermissionOption,
+  permissionResolutionError,
+} from "@ace/core";
+import { PermissionMode } from "@ace/protocol";
+import { fakeReviewEvents } from "./permissions.ts";
 import type { Fact, Key } from "@ace/core";
 import {
   organizationCommands,
@@ -67,6 +75,8 @@ export interface ThreadInit {
   details?: Thread["details"];
   live?: Thread["live"];
   lineage?: Thread["lineage"];
+  permissionMode?: PermissionMode;
+  parentThreadId?: string;
 }
 type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionResolution) => void;
 
@@ -172,6 +182,10 @@ export class FakeDaemon implements Host {
   createThread(init: ThreadInit, agoMs = 0): void {
     if (this.threads.has(init.id)) throw new Error(`Thread ${init.id} already exists`);
     const now = this.at(agoMs);
+    const parentId = init.parentThreadId ?? init.lineage?.parentThreadId;
+    const parent = parentId
+      ? this.threads.get(parentId)?.view.thread.permission?.effective
+      : undefined;
     const thread = {
       id: ThreadId.parse(init.id),
       workspaceId: WorkspaceId.parse(init.workspaceId),
@@ -180,12 +194,29 @@ export class FakeDaemon implements Host {
       ...(init.details ? { details: init.details } : {}),
       ...(init.live ? { live: init.live } : {}),
       ...(init.lineage ? { lineage: init.lineage } : {}),
+      permission: {
+        override: init.permissionMode ?? null,
+        effective: resolvePermissionMode({
+          ...(init.permissionMode ? { override: init.permissionMode } : {}),
+          setting:
+            parent ??
+            PermissionMode.parse(
+              this.services.settings.resolve("permissions.defaultMode", {
+                workspaceId: WorkspaceId.parse(init.workspaceId),
+                threadId: ThreadId.parse(init.id),
+              }),
+            ),
+          ...(parent ? { parent } : {}),
+        }),
+        pending: false,
+      },
       activityAt: now,
       status: { state: "new" as const },
       createdAt: now,
       updatedAt: now,
     };
     const host = new ThreadHost(thread);
+    host.permissionParent = parentId;
     this.threads.set(init.id, host);
     this.append(host, [{ type: "thread.created", thread }], now);
   }
@@ -196,7 +227,39 @@ export class FakeDaemon implements Host {
   apply(threadId: string, facts: readonly Fact[], agoMs = 0): void {
     const host = this.thread(threadId);
     const now = this.at(agoMs);
-    const payloads = facts.flatMap((fact) => host.fold(fact, now));
+    const fold = (fact: Fact): EventPayload[] => {
+      const before: EventPayload[] = [];
+      if (
+        fact.type === "turn.started" &&
+        fact.agent === (host.state.rootKey ?? "root") &&
+        ["new", "done", "failed", "limited"].includes(host.state.status.state)
+      ) {
+        const parent = host.permissionParent
+          ? this.threads.get(host.permissionParent)?.view.thread.permission?.effective
+          : undefined;
+        const mode = resolvePermissionMode({
+          override: host.view.thread.permission?.override ?? null,
+          setting:
+            parent ??
+            PermissionMode.parse(
+              this.services.settings.resolve("permissions.defaultMode", {
+                threadId: ThreadId.parse(host.id),
+              }),
+            ),
+          ...(parent ? { parent } : {}),
+        });
+        const permission = {
+          override: host.view.thread.permission?.override ?? null,
+          effective: mode,
+          pending: false,
+        };
+        host.view.thread.permission = permission;
+        before.push({ type: "thread.updated", permission });
+      }
+      const emitted = host.fold(fact, now);
+      return [...before, ...emitted, ...fakeReviewEvents(host, emitted, now)];
+    };
+    const payloads = facts.flatMap(fold);
     // A queued message starts the next turn as soon as the root agent is free.
     const drained = drainQueue(host);
     const selection = host.nextSelection;
@@ -209,11 +272,22 @@ export class FakeDaemon implements Host {
           },
         ]
       : [];
-    this.append(
-      host,
-      [...selectionEvent, ...payloads, ...drained.flatMap((fact) => host.fold(fact, now))],
-      now,
+    const events = [...selectionEvent, ...payloads, ...drained.flatMap(fold)];
+    this.append(host, events, now);
+    const reviewed = new Set(
+      events.flatMap((event) =>
+        event.type === "permission.reviewed" && event.review.decision !== "escalate"
+          ? [event.review.interactionId]
+          : [],
+      ),
     );
+    for (const event of events) {
+      if (event.type !== "interaction.closed" || event.state !== "resolved" || !event.resolution)
+        continue;
+      const key = host.interactionKey(event.interactionId);
+      if (key !== undefined && reviewed.has(event.interactionId))
+        for (const listener of this.resolvedListeners) listener(host.id, key, event.resolution);
+    }
     this.afterChange(host, now);
   }
   /**
@@ -453,6 +527,14 @@ export class FakeDaemon implements Host {
   private execute(command: Command): CommandResult {
     const payload = command.payload;
     const commandId = command.id;
+    const options =
+      "selection" in payload && payload.selection
+        ? payload.selection.options
+        : "options" in payload
+          ? payload.options
+          : undefined;
+    if (Object.keys(options ?? {}).some(isPermissionOption))
+      return { commandId, ok: false, error: "provider_permission_options_forbidden" };
     const service = this.servicesWire.command(payload);
     if (service) return { commandId, ...service };
     if (
@@ -565,6 +647,14 @@ export class FakeDaemon implements Host {
           if (key === undefined) continue;
           if (host.interaction(key)?.state !== "pending")
             return { commandId, ok: false, error: "already_resolved" };
+          const pending = host.interaction(key);
+          if (!pending) return { commandId, ok: false, error: "not_found" };
+          const error = permissionResolutionError(
+            host.view.thread.permission?.effective ?? "auto-review",
+            pending.request,
+            payload.resolution,
+          );
+          if (error) return { commandId, ok: false, error };
           this.apply(host.id, [
             {
               type: "interaction.closed",
@@ -579,9 +669,36 @@ export class FakeDaemon implements Host {
         }
         return { commandId, ok: false, error: "not_found" };
       }
+      case "thread.permission.set": {
+        const host = this.threads.get(payload.threadId);
+        if (!host) return { commandId, ok: false, error: "thread_not_found" };
+        const parent = host.permissionParent
+          ? this.threads.get(host.permissionParent)?.view.thread.permission?.effective
+          : undefined;
+        if (
+          payload.permissionMode &&
+          limitPermissionMode(payload.permissionMode, parent) !== payload.permissionMode
+        )
+          return { commandId, ok: false, error: "permission_exceeds_parent" };
+        this.append(
+          host,
+          [
+            {
+              type: "thread.updated",
+              permission: {
+                override: payload.permissionMode,
+                effective: host.view.thread.permission?.effective ?? "auto-review",
+                pending: true,
+              },
+            },
+          ],
+          this.options.clock(),
+        );
+        return { commandId, ok: true };
+      }
       case "thread.create": {
         // Never reaches a provider: the new thread reads the request and keeps "working".
-        const id = `thread-${commandId}`;
+        const id = payload.threadId ?? `thread-${commandId}`;
         if (this.threads.has(id)) return { commandId, ok: true, threadId: ThreadId.parse(id) };
         if (payload.context?.draftId)
           this.servicesWire.context.validateDraft(
@@ -593,6 +710,7 @@ export class FakeDaemon implements Host {
         const started = startedThread(id, payload);
         this.createThread({
           ...started.thread,
+          ...(payload.permissionMode ? { permissionMode: payload.permissionMode } : {}),
           details: {
             workspace: {
               id: payload.workspaceId,

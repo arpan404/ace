@@ -41,4 +41,10 @@ export { isOneWayMessage } from "./one-way.ts";
 export type { OneWayMessage } from "./one-way.ts";
 export { AccessClient } from "./access.ts";
 export type { AccessOptions } from "./access.ts";
+export {
+  PermissionClient,
+  threadPermission,
+  permissionModes,
+  permissionReview,
+} from "./permissions.ts";
 export { oppositeFollowUpBehavior } from "./follow-up.ts";

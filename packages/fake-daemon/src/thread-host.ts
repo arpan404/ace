@@ -46,6 +46,7 @@ export class ThreadHost {
   queueDirty = false;
   nextSelection: { model?: string; options?: TurnOptions } | undefined;
   runOrdinal = 0;
+  permissionParent: string | undefined;
   private counter = 0;
   constructor(thread: Thread) {
     this.state = createThreadState({
