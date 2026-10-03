@@ -9,7 +9,8 @@ import { useThreadActions } from "./use-thread-actions.ts";
 
 /**
  * Settle and Snooze (or Unsettle on a settled row), floating at the row's top right while the
- * pointer or keyboard focus is on the row. They cover the age, which hides meanwhile.
+ * pointer or keyboard focus is on the row. They cover the age, which hides meanwhile, and step
+ * aside while the row's context menu is open.
  */
 export function RowActions(props: {
   entry: ThreadListEntry;
@@ -22,7 +23,7 @@ export function RowActions(props: {
   return (
     <div
       className={cn(
-        "absolute top-1.5 right-2 hidden gap-0.5 rounded-md bg-popover p-0.5 shadow-[0_1px_3px_rgb(0_0_0/0.18),var(--glass-highlight),0_0_0_0.5px_var(--border)] group-focus-within/row:flex group-hover/row:flex has-[[data-popup-open]]:flex",
+        "fx-view-in absolute top-1.5 right-2 hidden gap-0.5 rounded-md bg-popover p-0.5 shadow-[0_1px_3px_rgb(0_0_0/0.18),var(--glass-highlight),0_0_0_0.5px_var(--border)] group-focus-within/row:flex group-hover/row:flex group-data-popup-open/row:invisible has-[[data-popup-open]]:flex",
         props.className,
       )}
     >

@@ -5,6 +5,8 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet.tsx";
 import { useLayout } from "@/lib/layout.tsx";
 import { useMediaQuery } from "@/lib/media.ts";
+import { panelMotion, usePresence } from "@/lib/motion.ts";
+import { cn } from "@/lib/cn.ts";
 
 interface FrameValue {
   /** The second sidebar is on screen (so the header hides its own toggle). */
@@ -28,6 +30,9 @@ export function ViewFrame(props: { label: string; sidebar: ReactNode; children: 
   const wide = useMediaQuery("(min-width: 48rem)", true);
   const [sheetOpen, setSheetOpen] = useState(false);
   const shown = wide ? layout.sidebarOpen : sheetOpen;
+  // The sidebar stays mounted while hidden (it keeps its scroll and state); it slides in from
+  // the left when shown and fades before the column takes its space back when hidden.
+  const presence = usePresence(layout.sidebarOpen);
   const value = useMemo<FrameValue>(
     () => ({
       sidebarShown: shown,
@@ -42,8 +47,13 @@ export function ViewFrame(props: { label: string; sidebar: ReactNode; children: 
         {wide ? (
           <aside
             aria-label={props.label}
-            hidden={!layout.sidebarOpen}
-            className="vibrancy flex w-(--sidebar-w) min-w-0 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground"
+            hidden={!presence.mounted}
+            inert={presence.phase === "exit"}
+            data-edge="left"
+            className={cn(
+              "vibrancy flex w-(--sidebar-w) min-w-0 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
+              panelMotion(presence),
+            )}
           >
             {props.sidebar}
           </aside>
@@ -61,9 +71,7 @@ export function ViewFrame(props: { label: string; sidebar: ReactNode; children: 
             </SheetContent>
           </Sheet>
         )}
-        <div className="vibrancy relative flex min-w-0 flex-1 flex-col bg-reading">
-          {props.children}
-        </div>
+        <div className="relative flex min-w-0 flex-1 flex-col bg-reading">{props.children}</div>
       </div>
     </FrameContext.Provider>
   );

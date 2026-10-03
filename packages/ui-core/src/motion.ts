@@ -32,7 +32,7 @@ export interface ListChange {
   left: { key: string; index: number }[];
   /** Rows that stayed changed their relative order. */
   reordered: boolean;
-  /** Too much changed to animate row by row (a filter flip, a first load). */
+  /** Too much changed to animate row by row: a filter flip, or the list's first fill. */
   bulk: boolean;
 }
 
@@ -48,7 +48,9 @@ export function diffList(previous: readonly string[], next: readonly string[]): 
   const keptBefore = previous.filter((key) => after.has(key));
   const keptAfter = next.filter((key) => before.has(key));
   const reordered = keptBefore.some((key, index) => keptAfter[index] !== key);
-  return { entered, left, reordered, bulk: entered.length + left.length > bulkChange };
+  // A list filling up from nothing is a load, not news: nothing rises in.
+  const bulk = previous.length === 0 || entered.length + left.length > bulkChange;
+  return { entered, left, reordered, bulk };
 }
 
 /**

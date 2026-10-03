@@ -7,8 +7,8 @@ import { StepRow, WorkLogHeader } from "./work-log-view.tsx";
  * "Worked for 4m 12s › Explored 6 files · Ran 3 commands · Edited 2 files". The whole tool log
  * at rest; expanding shows each step as a quiet row. Opens by itself when a step needs approval.
  */
-export function WorkLog(props: { threadId: string; itemIds: readonly string[] }) {
-  const headline = useWorkLog(props.threadId, props.itemIds);
+export function WorkLog(props: { threadId: string; itemIds: readonly string[]; live?: boolean }) {
+  const headline = useWorkLog(props.threadId, props.itemIds, props.live);
   const [toggled, setOpen] = useState<boolean>();
   const open = toggled ?? headline?.awaiting ?? false;
   const panel = useId();
@@ -25,7 +25,7 @@ export function WorkLog(props: { threadId: string; itemIds: readonly string[] })
         <ul
           id={panel}
           aria-label="Steps"
-          className="mt-0.5 mb-2 flex animate-in flex-col border-l-2 py-1 pl-2.5 duration-(--dur-2) fade-in slide-in-from-top-1"
+          className="fx-rise-in mt-0.5 mb-2 flex flex-col border-l-2 py-1 pl-2.5"
         >
           {props.itemIds.map((id) => (
             <ToolStep key={id} threadId={props.threadId} itemId={id} />

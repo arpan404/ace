@@ -34,3 +34,8 @@ test("switching the project filter swaps many rows at once and reads as a reset"
   const after = Array.from({ length: 6 }, (_, i) => `ace-${i}`);
   expect(diffList(before, after).bulk).toBe(true);
 });
+
+test("a list filling from nothing is a load, so nothing animates in", () => {
+  expect(diffList([], ["a", "b"]).bulk).toBe(true);
+  expect(diffList(["a"], ["a", "b"]).bulk).toBe(false);
+});

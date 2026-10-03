@@ -13,7 +13,12 @@ import { WorkLog } from "./work-log.tsx";
  * One transcript block. Each child subscribes to its own items, so streaming stays local, and
  * the block itself skips re-rendering when the virtualizer re-measures its neighbours.
  */
-export const BlockView = memo(function BlockView(props: { threadId: string; block: Block }) {
+export const BlockView = memo(function BlockView(props: {
+  threadId: string;
+  block: Block;
+  /** The last block of a turn still in progress. */
+  live?: boolean;
+}) {
   const { threadId, block } = props;
   switch (block.kind) {
     case "user":
@@ -21,7 +26,7 @@ export const BlockView = memo(function BlockView(props: { threadId: string; bloc
     case "message":
       return <AssistantMessage threadId={threadId} itemId={block.itemId} />;
     case "work":
-      return <WorkLog threadId={threadId} itemIds={block.itemIds} />;
+      return <WorkLog threadId={threadId} itemIds={block.itemIds} live={props.live ?? false} />;
     case "subagents":
       return <Subagents threadId={threadId} itemIds={block.itemIds} />;
     case "background":

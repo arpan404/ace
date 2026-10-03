@@ -27,7 +27,8 @@
   /* Materials that let the wallpaper show through. */
   --rail: rgb(var(--rail-rgb) / calc(1 - 0.62 * var(--glass-k)));
   --sidebar: rgb(var(--sidebar-rgb) / calc(1 - 0.5 * var(--glass-k)));
-  --reading: rgb(var(--reading-rgb) / calc(1 - 0.16 * var(--glass-k)));
+  /* The reading column is a page, not glass: opaque enough that the washes never read as discs. */
+  --reading: rgb(var(--reading-rgb) / calc(1 - 0.1 * var(--glass-k)));
   --glass-bg: rgb(var(--glass-rgb) / calc(1 - (1 - var(--glass-a)) * var(--glass-k)));
   --panel: color-mix(in oklab, var(--reading), var(--background) 30%);
 
