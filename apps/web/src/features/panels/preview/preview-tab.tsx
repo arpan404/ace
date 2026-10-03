@@ -5,7 +5,6 @@ import {
   HandIcon,
   LockSimpleIcon,
 } from "@phosphor-icons/react";
-import { cn } from "@/lib/cn.ts";
 import { useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
@@ -70,7 +69,7 @@ function LiveBrowser(props: {
     </BrowserFrame>
   );
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2.5 px-3.5 pt-3.5">
+    <div className="flex h-full min-h-0 flex-col gap-2.5 px-3.5 pt-3.5 pb-3">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <ControlStatus view={props.view} />
         <span className="flex-1" />
@@ -216,16 +215,16 @@ function LiveFrame(props: {
       ...(event.key.length === 1 ? { text: event.key } : {}),
     });
   };
-  // The page at 1:1, like the browser it is: text stays legible and the pane scrolls rather
-  // than shrinking the page into a thumbnail.
-  const size = { width: frame.width, height: frame.height };
+  // The page fits the pane's width, scaled down uniformly (never up), as the design shows it;
+  // a tall page scrolls. Pointer positions are mapped back through the same scale.
+  const size = { maxWidth: frame.width, aspectRatio: `${frame.width} / ${frame.height}` };
   const image = (
     <img
       src={frame.src}
       alt={`Live view of ${props.view.url}`}
       draggable={false}
       style={size}
-      className="block max-w-none"
+      className="block h-auto w-full"
     />
   );
   return (
@@ -239,9 +238,7 @@ function LiveFrame(props: {
           onMouseDown={send("mousePressed")}
           onMouseUp={send("mouseReleased")}
           onKeyDown={onKeyDown}
-          className={cn(
-            "relative cursor-default outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          )}
+          className="relative w-full cursor-default outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
         >
           {image}
         </div>
@@ -263,7 +260,7 @@ function DevServer(props: {
   if (!server) return null;
   const url = server.origin ?? `http://localhost:${server.port}`;
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2.5 px-3.5 pt-3.5">
+    <div className="flex h-full min-h-0 flex-col gap-2.5 px-3.5 pt-3.5 pb-3">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         {props.servers.length > 1 ? (
           <Select

@@ -28,9 +28,9 @@ test("the preview names the agent of this thread whose browser call is running",
   const { panel, script } = await openPreview(coldStartReplay(), "/t/thread-cold-start", "turn-2");
   const status = async (name: string) =>
     (await within(panel).findByText(name, { exact: false })).closest("span")?.textContent;
-  expect(await status("reconnect-audit")).toContain("is controlling the browser");
+  expect(await status("resume-sweep")).toContain("is controlling the browser");
 
-  // Once reconnect-audit's browser call ends, the thread's own agent holds the page.
+  // Once resume-sweep's browser call ends, the thread's own agent holds the page.
   await act(async () => script.runThrough("audit-done"));
   expect(await status("Claude Code")).toContain("is controlling the browser");
 });
