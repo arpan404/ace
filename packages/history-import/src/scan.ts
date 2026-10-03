@@ -193,7 +193,7 @@ export async function scan(
       }
       signal.throwIfAborted();
       await catalog.prune(instance.id, epoch, signal);
-      await catalog.summarizeTree(instance.id, signal);
+      await catalog.summarizeTree(instance.id, signal, () => progress(result.files, { ...result }));
     }
   }
   return result;

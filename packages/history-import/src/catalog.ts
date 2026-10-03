@@ -191,7 +191,11 @@ export class Catalog {
       path,
     );
   }
-  async summarizeTree(instance: string, signal: AbortSignal): Promise<void> {
+  async summarizeTree(
+    instance: string,
+    signal: AbortSignal,
+    progress: () => void | Promise<void>,
+  ): Promise<void> {
     // Limit each synchronous SQLite operation, including cancellation and read latency.
     const pages = async (update: (ids: string[]) => number) => {
       let after = "",
@@ -205,33 +209,29 @@ export class Catalog {
         const ids = rows.map((row) => z.string().parse(row.id));
         after = ids.at(-1) ?? after;
         changes += update(ids);
+        await progress();
         await setImmediate();
       }
     };
     await pages((ids) =>
       Number(
         this.statement(
-          `UPDATE sources SET activity=own_activity WHERE id IN (${ids.map(() => "?").join(",")})`,
+          `UPDATE sources SET activity=own_activity,summary=json_set(summary,'$.lastActivity',own_activity) WHERE id IN (${ids.map(() => "?").join(",")})`,
         ).run(...ids).changes,
       ),
     );
+    const recency =
+      "MAX(own_activity,COALESCE((SELECT MAX(child.activity) FROM sources child WHERE child.instance=parent.instance AND child.parent=parent.native),own_activity))";
     for (let depth = 0; depth < 16; depth++) {
       const changes = await pages((ids) =>
         Number(
           this.statement(
-            `UPDATE sources AS parent SET activity=MAX(own_activity,COALESCE((SELECT MAX(child.activity) FROM sources child WHERE child.instance=parent.instance AND child.parent=parent.native),own_activity)) WHERE id IN (${ids.map(() => "?").join(",")}) AND activity<>MAX(own_activity,COALESCE((SELECT MAX(child.activity) FROM sources child WHERE child.instance=parent.instance AND child.parent=parent.native),own_activity))`,
+            `UPDATE sources AS parent SET activity=${recency},summary=json_set(summary,'$.lastActivity',${recency}) WHERE id IN (${ids.map(() => "?").join(",")}) AND activity<>${recency}`,
           ).run(...ids).changes,
         ),
       );
       if (!changes) break;
     }
-    await pages((ids) =>
-      Number(
-        this.statement(
-          `UPDATE sources SET summary=json_set(summary,'$.lastActivity',activity) WHERE id IN (${ids.map(() => "?").join(",")}) AND json_extract(summary,'$.lastActivity')<>activity`,
-        ).run(...ids).changes,
-      ),
-    );
   }
   async prune(instance: string, epoch: number, signal: AbortSignal): Promise<void> {
     for (const table of ["sources", "files"]) {
@@ -261,19 +261,28 @@ export class Catalog {
     const { cwd, limit, before } = HistoryListRequest.parse(input);
     const rows = before
       ? this.readStatement(
-          "SELECT summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM visible_sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl')) AND (activity<? OR (activity=? AND id<?)) ORDER BY activity DESC,id DESC LIMIT ?",
+          "SELECT id,activity,summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM visible_sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl')) AND (activity<? OR (activity=? AND id<?)) ORDER BY activity DESC,id DESC LIMIT ?",
         ).all(cwd, before.lastActivity, before.lastActivity, before.id, limit + 1)
       : this.readStatement(
-          "SELECT summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM visible_sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl')) ORDER BY activity DESC,id DESC LIMIT ?",
+          "SELECT id,activity,summary FROM visible_sources sources WHERE cwd=? AND parent IS NULL AND (kind<>'database' OR NOT EXISTS (SELECT 1 FROM visible_sources preferred WHERE preferred.instance=sources.instance AND preferred.native=sources.native AND preferred.kind='jsonl')) ORDER BY activity DESC,id DESC LIMIT ?",
         ).all(cwd, limit + 1);
-    const sessions = rows
-      .slice(0, limit)
-      .map((r) => HistorySession.parse(JSON.parse(String(r.summary))));
-    const last = sessions.at(-1);
+    const sessions = rows.slice(0, limit).map((r) =>
+      HistorySession.parse({
+        ...HistorySession.parse(JSON.parse(String(r.summary))),
+        lastActivity: z.number().int().nonnegative().parse(r.activity),
+      }),
+    );
+    const last = rows.slice(0, limit).at(-1);
     return HistoryListResponse.parse({
       type: "history.list",
       sessions,
-      next: rows.length > limit && last ? { lastActivity: last.lastActivity, id: last.id } : null,
+      next:
+        rows.length > limit && last
+          ? {
+              lastActivity: z.number().int().nonnegative().parse(last.activity),
+              id: z.string().parse(last.id),
+            }
+          : null,
     });
   }
   children(instance: string, native: string): Source[] {
