@@ -23,8 +23,39 @@ export type ExtensionOperation = Extract<
       | "preview.close";
   }
 >;
+export type ThreadOwnerOperation = Extract<
+  AgentControlOperation,
+  {
+    op:
+      | "thread.read"
+      | "thread.rename"
+      | "thread.regenerate_title"
+      | "thread.link_pr"
+      | "thread.settle"
+      | "thread.snooze";
+  }
+>;
+function threadOwnerOperation(operation: AgentControlOperation): ThreadOwnerOperation | undefined {
+  switch (operation.op) {
+    case "thread.read":
+    case "thread.rename":
+    case "thread.regenerate_title":
+    case "thread.link_pr":
+    case "thread.settle":
+    case "thread.snooze":
+      return operation;
+    default:
+      return undefined;
+  }
+}
 /** Typed owner ports are capability-gated. They cannot carry an approval or arbitrary command. */
 export interface AgentControlExtensions {
+  /** Canonical client thread/Forge owners register here without expanding agent authority. */
+  thread?(
+    caller: McpAttribution,
+    operation: ThreadOwnerOperation,
+    signal: AbortSignal,
+  ): Promise<AgentControlResult>;
   execute?(
     caller: McpAttribution,
     operation: ExtensionOperation,
@@ -54,6 +85,12 @@ export function createAgentControlPort(
         ].includes(operation.op);
         if (!service.authorize(caller, operation.threadId, !read))
           return { ok: false, code: "forbidden" };
+      }
+      const owned = threadOwnerOperation(operation);
+      if (owned && extensions.thread) {
+        const result = await extensions.thread(caller, owned, signal);
+        signal.throwIfAborted();
+        if (result.code !== "unsupported") return result;
       }
       switch (operation.op) {
         case "delegate_task": {
