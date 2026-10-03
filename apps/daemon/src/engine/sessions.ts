@@ -44,7 +44,8 @@ export class Sessions {
   }
   async open(actor: ThreadActor): Promise<void> {
     const stateBefore = this.dependencies.repo.requireState(actor.id);
-    const ownLive = !this.dependencies.repo.quiescent(stateBefore);
+    // A prepared root is starting before its first turn, not a pinned live policy.
+    const ownLive = stateBefore.hasRun && !this.dependencies.repo.quiescent(stateBefore);
     if (actor.session && ownLive) return;
     const mode = ownLive
       ? this.dependencies.repo.permissions.effective(actor.id)

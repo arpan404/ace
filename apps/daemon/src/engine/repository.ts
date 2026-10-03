@@ -229,7 +229,15 @@ export class EngineRepository {
           const snapshot = this.snapshots.get(id);
           const finish = snapshot?.prepare(fact) ?? (() => {});
           try {
-            const emitted = apply(state, fact, { now, ids: this.ids });
+            const emitted = apply(state, fact, {
+              now,
+              ids: this.ids,
+              ...(fact.type === "turn.ended"
+                ? {
+                    resolvingInteractions: this.pending.resolvingInteractions(id),
+                  }
+                : {}),
+            });
             if (
               fact.type === "turn.started" &&
               (fact.trigger === "restart" || fact.trigger === "limit_resume") &&

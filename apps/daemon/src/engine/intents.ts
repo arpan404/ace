@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { StatementSync } from "node:sqlite";
-import { Command, CommandId, ThreadId, RunTrigger } from "@ace/protocol";
+import { Command, CommandId, ThreadId, RunTrigger, InteractionId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import type { QueueStore } from "./queue-store.ts";
 
@@ -199,6 +199,15 @@ export class IntentStore {
   running(id: ThreadId): boolean {
     return Boolean(
       this.sql("SELECT 1 FROM intents WHERE thread_id=? AND status='running' LIMIT 1").get(id),
+    );
+  }
+  resolvingInteractions(id: ThreadId): ReadonlySet<InteractionId> {
+    return new Set(
+      this.sql(
+        "SELECT resolution_id FROM intents WHERE thread_id=? AND status='running' AND kind='interaction.resolve' AND resolution_id IS NOT NULL",
+      )
+        .all(id)
+        .map((row) => InteractionId.parse(row.resolution_id)),
     );
   }
   acknowledged(id: number): boolean {

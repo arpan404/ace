@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Command } from "@ace/protocol";
+import { Command, ThreadId } from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 
@@ -22,6 +22,81 @@ function approval(command: string): Fact {
     },
   };
 }
+
+test.each(["success", "failure", "process-exit"] as const)(
+  "a native answer crossing turn completion retains its audit without reviving dead requests: %s",
+  async (outcome) => {
+    const frames = scriptFrames();
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const ended = Promise.withResolvers<void>();
+    const h = await harness(
+      [{ on: "send", frames: [frames.frame(start, approval("pwd"))] }],
+      frames,
+    );
+    const base = h.registry.get("codex");
+    h.registry.register(
+      {
+        ...base.adapter,
+        async openSession(ctx) {
+          const session = await base.adapter.openSession(ctx);
+          const resolve = session.resolve.bind(session);
+          session.resolve = async (key, resolution) => {
+            entered.resolve();
+            await release.promise;
+            if (outcome === "failure") throw new Error("Native answer rejected");
+            await resolve(key, resolution);
+          };
+          return session;
+        },
+      },
+      base.discovery,
+    );
+    const stop = h.store.subscribe((events) => {
+      if (events.some((event) => event.payload.type === "run.ended")) ended.resolve();
+    });
+    const creating = h.create();
+    try {
+      await entered.promise;
+      const id = h.store.listThreads()[0]?.id;
+      const context = h.contexts[0];
+      if (!id || !context) throw new Error("Missing admitted session");
+      await context.onFrame(frames.frame(end));
+      await ended.promise;
+      const interaction = () => Object.values(h.store.snapshotThread(id).interactions)[0];
+      expect(interaction()?.state).toBe("pending");
+      expect(interaction()?.resolution).toBeUndefined();
+      expect(h.store.getThread(id)?.status.state).toBe("needs_you");
+      if (outcome === "process-exit") {
+        await context.onFrame(frames.frame({ type: "process.exited", deliberate: false }));
+        expect(interaction()?.state).toBe("expired");
+      }
+      release.resolve();
+      await creating;
+      expect(interaction()?.state).toBe(
+        outcome === "success" ? "resolved" : outcome === "failure" ? "cancelled" : "expired",
+      );
+      expect(interaction()?.review).toMatchObject({
+        decision: "approve",
+        reason: "Read-only workspace inspection command",
+      });
+      if (outcome === "success") {
+        expect(interaction()?.resolution).toMatchObject({ optionId: "once" });
+        expect(interaction()?.resolvedBy).toBeTruthy();
+      } else expect(interaction()?.resolution).toBeUndefined();
+      expect(
+        h.store
+          .readEvents({ afterSeq: 0, threadId: id, limit: 1000 })
+          .filter((event) => event.payload.type === "permission.reviewed"),
+      ).toHaveLength(1);
+    } finally {
+      stop();
+      release.resolve();
+      await creating;
+      await h.close();
+    }
+  },
+);
 
 test("the default reviews a low-risk command with one durable reason and one-shot provider answer", async () => {
   const frames = scriptFrames();
@@ -235,6 +310,7 @@ test("scoped settings apply at admission while delegated children inherit a stri
         deviceId: "host",
         payload: {
           type: "thread.prepare",
+          threadId: ThreadId.parse("scoped-child-thread"),
           workspaceId: h.workspace,
           provider: "codex",
           title: "Child",
@@ -264,11 +340,12 @@ test("trusted spawn cannot bypass ace policy through native provider options", a
           id: "unsafe-spawn",
           deviceId: "host",
           payload: {
-            type: "thread.prepare",
+            type: "thread.create",
             workspaceId: h.workspace,
             provider: "codex",
             title: "Child",
             options: { sandbox: "danger-full-access" },
+            input: [{ type: "text", text: "unsafe native policy" }],
           },
         }),
       ),
