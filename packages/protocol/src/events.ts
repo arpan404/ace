@@ -58,6 +58,12 @@ export const EventPayload = z.discriminatedUnion("type", [
     background: z.boolean().optional(),
     endedAt: Timestamp.optional(),
   }),
+  /** Durable admission is distinct from execution and completion. */
+  z.object({
+    type: z.literal("input.admitted"),
+    agentId: AgentId,
+    nativeInputId: z.string().min(1).max(512),
+  }),
   z.object({ type: z.literal("run.started"), run: Run }),
   z.object({
     type: z.literal("run.ended"),

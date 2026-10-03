@@ -57,6 +57,8 @@ export const InteractionResolution = z.discriminatedUnion("kind", [
     answers: z.record(z.string(), z.array(z.string())),
     /** The user declined to answer; the agent continues without answers. */
     dismissed: z.boolean().optional(),
+    /** Optional explanation returned to the agent when declining a question. */
+    feedback: z.string().max(8192).optional(),
   }),
   z.object({
     kind: z.literal("plan_review"),

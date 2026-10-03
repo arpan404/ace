@@ -230,6 +230,9 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       }
       break;
     }
+    case "input.admitted":
+      // Queue ownership is reconciled by the host; admission creates no transcript/run.
+      break;
     case "usage.updated":
       put(view.usage, p.agentId, structuredCopy(p));
       break;

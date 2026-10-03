@@ -197,3 +197,67 @@ test("targeted root interrupts use the same native root identity as the opened s
     ),
   ).toEqual([]);
 });
+
+test("durable input admission transfers the engine queue without manufacturing a run", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      {
+        on: "send",
+        frames: [
+          frames.frame(
+            { type: "input.admitted", agent: "root", nativeInputId: "input-one" },
+            { type: "queue.changed", source: "provider", count: 1 },
+          ),
+        ],
+      },
+    ],
+    frames,
+  );
+  cleanups.push(h.close);
+  const id = await h.create();
+  expect(Object.values(h.store.snapshotThread(id).runs)).toEqual([]);
+  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "queue" });
+  const context = h.contexts[0];
+  if (!context) throw new Error("Missing provider context");
+  context.onFrame(frames.frame({ type: "queue.changed", source: "provider", count: 0 }, start));
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("working");
+  context.onFrame(frames.frame(end));
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("done");
+});
+
+test("a run after durable admission cannot acknowledge the next unanswered steering input", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      {
+        on: "send",
+        frames: [
+          frames.frame(
+            { type: "input.admitted", agent: "root", nativeInputId: "first" },
+            { type: "queue.changed", source: "provider", count: 1 },
+          ),
+        ],
+      },
+      { on: "send", frames: [] },
+    ],
+    frames,
+    { steer: true },
+  );
+  cleanups.push(h.close);
+  const id = await h.create();
+  h.command({ type: "thread.send", threadId: id, input, delivery: "steer" });
+  await h.engine.flush();
+  const context = h.contexts[0];
+  if (!context) throw new Error("Missing provider context");
+  context.onFrame(
+    frames.frame({ type: "queue.changed", source: "provider", count: 0 }, start, end),
+  );
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status).toEqual({ state: "waiting", on: "queue" });
+  context.onFrame(frames.frame({ type: "input.admitted", agent: "root", nativeInputId: "second" }));
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("done");
+});
