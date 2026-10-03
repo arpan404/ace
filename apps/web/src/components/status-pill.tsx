@@ -1,6 +1,6 @@
 import { cva } from "class-variance-authority";
 import { cn } from "@/lib/cn.ts";
-import type { Tone } from "@/lib/status.ts";
+import { type Tone } from "@ace/ui-core";
 
 /** Tinted chip for the thread status chip, agent tree and Activity only (DESIGN-fable.md). */
 const pill = cva(

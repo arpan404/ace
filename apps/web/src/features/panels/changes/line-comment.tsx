@@ -2,7 +2,8 @@ import { CheckIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { KeyboardEvent } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { formatAge, useNow } from "@/lib/time.ts";
+import { useNow } from "@/lib/time.ts";
+import { formatAge } from "@ace/ui-core";
 import type { ReviewDraft } from "./drafts.ts";
 
 const card =

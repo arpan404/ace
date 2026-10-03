@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { readJson, writeJson, type KeyValueStorage } from "@/lib/storage.ts";
+import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 
 /**
  * Where the reader left each thread: the newest item they had on screen. The "New activity"

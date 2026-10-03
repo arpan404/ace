@@ -2,7 +2,7 @@ import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import { CardsIcon } from "@phosphor-icons/react";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { runGroup } from "@/features/deck/deck-model.ts";
+import { deckGroup } from "@ace/ui-core";
 import { useDeckRuns } from "@/features/deck/deck-source.ts";
 import { Screen } from "@/features/shell/screen.tsx";
 
@@ -12,8 +12,8 @@ export const Route = createFileRoute("/deck/")({ component: DeckIndex });
 function DeckIndex() {
   const { ready, runs } = useDeckRuns();
   const first =
-    runs.find((run) => runGroup(run) === "gated") ??
-    runs.find((run) => runGroup(run) === "active") ??
+    runs.find((run) => deckGroup(run) === "gated") ??
+    runs.find((run) => deckGroup(run) === "active") ??
     runs[0];
   if (first) return <Navigate to="/deck/$runId" params={{ runId: first.id }} replace />;
   return (

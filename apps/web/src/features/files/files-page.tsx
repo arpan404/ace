@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { PageTitle, Screen } from "@/features/shell/screen.tsx";
-import { formatAge, useNow } from "@/lib/time.ts";
+import { useNow } from "@/lib/time.ts";
+import { formatAge } from "@ace/ui-core";
 import {
   uploadsThread,
   useChangedFiles,

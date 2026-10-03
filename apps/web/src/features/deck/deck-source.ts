@@ -11,7 +11,7 @@ import {
   useFakeBackend,
   type FakeBackend,
 } from "@/features/more/fake-backend.ts";
-import type { DeckRun } from "./deck-model.ts";
+import { type DeckRun } from "@ace/ui-core";
 
 export interface DeckSource {
   /** False until the first list arrives; screens show nothing rather than "no decks". */

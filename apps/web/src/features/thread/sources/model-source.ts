@@ -20,8 +20,6 @@ export interface ModelSource {
   choices(): Promise<readonly ModelChoice[]>;
 }
 
-export { providerNames } from "@/components/ui/provider-glyph.tsx";
-
 const catalog: readonly ModelChoice[] = [
   {
     id: "claude-opus-personal",

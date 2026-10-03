@@ -2,7 +2,8 @@ import { useIntentSender, useItem, useTask } from "@ace/client-react";
 import { StopIcon, TerminalIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { formatDuration, useTicker } from "../lib/clock.ts";
+import { useTicker } from "../lib/clock.ts";
+import { formatElapsed } from "@ace/ui-core";
 
 const ended = {
   completed: "Finished",
@@ -29,7 +30,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
       : task.title;
   const elapsed = (task.endedAt ?? now) - task.startedAt;
   // A clock disagreement with the daemon shows no age rather than a wrong one.
-  const age = elapsed >= 0 && elapsed < 7 * 24 * 3_600_000 ? formatDuration(elapsed) : undefined;
+  const age = elapsed >= 0 && elapsed < 7 * 24 * 3_600_000 ? formatElapsed(elapsed) : undefined;
   const stopping = intent?.state === "pending" || (intent?.state === "acked" && running);
   return (
     <div

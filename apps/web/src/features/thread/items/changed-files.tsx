@@ -2,7 +2,7 @@ import { FileCodeIcon } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { useLayout } from "@/lib/layout.tsx";
-import { summarizeChanges } from "../lib/diff.ts";
+import { summarizeChanges } from "@ace/ui-core";
 import { useItemsSelect } from "../lib/use-items.ts";
 
 type Files = ReturnType<typeof summarizeChanges>;

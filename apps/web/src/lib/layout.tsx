@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import { z } from "zod";
-import { readJson, writeJson, type KeyValueStorage } from "./storage.ts";
+import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 
 /**
  * Shell layout: the second sidebar, the right panel (Changes · Preview · Agents) and the

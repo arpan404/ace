@@ -1,6 +1,6 @@
 import { useAgent, useItem } from "@ace/client-react";
 import { FileIcon } from "@phosphor-icons/react";
-import { formatClock } from "../lib/clock.ts";
+import { formatClock } from "@ace/ui-core";
 import { Prose } from "../markdown/prose.tsx";
 
 /** The person's message: a right-aligned bubble with its time below. */

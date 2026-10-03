@@ -42,3 +42,28 @@ export function agentStatusLabel(status: AgentStatus): { label: string; tone: To
       return { label: "Unresponsive", tone: "failed" };
   }
 }
+
+/**
+ * The only mark a thread row shows: a dot for needs you, failed and unresponsive, a spinner
+ * while it works, nothing for waiting, done and new.
+ */
+export type ThreadMarkKind = "needs-you" | "failed" | "unresponsive" | "working" | "none";
+export function threadStatusMark(status: ThreadStatus): ThreadMarkKind {
+  switch (status.state) {
+    case "needs_you":
+      return "needs-you";
+    case "failed":
+      return "failed";
+    case "unresponsive":
+      return "unresponsive";
+    case "working":
+      return "working";
+    default:
+      return "none";
+  }
+}
+
+/** Subagents beyond the root that are working right now, from the daemon's derived status. */
+export function runningSubagents(status: ThreadStatus): number {
+  return status.state === "working" ? Math.max(0, status.agents - 1) : 0;
+}

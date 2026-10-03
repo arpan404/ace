@@ -10,7 +10,8 @@ import {
   MenuSeparator,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { ProviderGlyph, providerNames } from "@/components/ui/provider-glyph.tsx";
+import { ProviderGlyph } from "@/components/ui/provider-glyph.tsx";
+import { providerNames } from "@ace/ui-core";
 import type { Resolved } from "./choices.ts";
 import type { NewThreadOptions } from "./options-source.ts";
 

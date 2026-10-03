@@ -1,8 +1,8 @@
 import { useSidebarThread } from "@ace/client-react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { formatAge, useNow } from "@/lib/time.ts";
-import { isSnoozed, isUnread } from "./arrange.ts";
+import { useNow } from "@/lib/time.ts";
+import { formatAge, isSnoozed, isUnread } from "@ace/ui-core";
 import { RenameField } from "./rename-field.tsx";
 import { RowActions } from "./row-actions.tsx";
 import { StatusMark } from "./row-parts.tsx";

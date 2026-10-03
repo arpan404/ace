@@ -1,7 +1,11 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";
-import type { KeyValueStorage } from "@/lib/storage.ts";
-import { Organizer, type OrganizerState, type ThreadMark } from "./organizer.ts";
+import {
+  type KeyValueStorage,
+  Organizer,
+  type OrganizerState,
+  type ThreadMark,
+} from "@ace/ui-core";
 
 // One organizer per injected storage, so each app instance (and each test) has its own.
 const organizers = new WeakMap<KeyValueStorage, Organizer>();

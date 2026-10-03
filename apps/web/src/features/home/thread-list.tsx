@@ -2,7 +2,7 @@ import { CaretDownIcon } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn.ts";
 import { useMemo, useRef } from "react";
-import type { Arrangement } from "./arrange.ts";
+import { type Arrangement } from "@ace/ui-core";
 import { AutoSettleNote } from "./auto-settle-note.tsx";
 import { SettledRow } from "./settled-row.tsx";
 import { ThreadRow } from "./thread-row.tsx";

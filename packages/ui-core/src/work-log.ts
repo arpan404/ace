@@ -1,5 +1,5 @@
 import type { Item, ToolCall } from "@ace/protocol";
-import { changeStat } from "./diff.ts";
+import { changeStat } from "./file-changes.ts";
 
 export type StepIcon = "read" | "search" | "shell" | "edit" | "web" | "tool" | "think" | "note";
 

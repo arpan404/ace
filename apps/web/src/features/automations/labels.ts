@@ -1,4 +1,4 @@
-import { providerNames } from "@/components/ui/provider-glyph.tsx";
+import { providerNames } from "@ace/ui-core";
 import type { Automation, AutomationRun } from "@ace/protocol";
 
 /** "Claude Code · sonnet-4.6, in a fresh worktree". */

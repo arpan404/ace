@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { readJson, writeJson, type KeyValueStorage } from "@/lib/storage.ts";
+import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import type { AccountOption, ModelOption, NewThreadOptions } from "./options-source.ts";
 
 export const WorkMode = z.enum(["worktree", "local"]);

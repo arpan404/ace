@@ -3,7 +3,7 @@ import { arrayEqual, useSidebar, useSidebarIds, type SidebarKey } from "@ace/cli
 import type { ThreadListEntry } from "@ace/protocol";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { arrange, isSettled, isUnread, projectCounts } from "@/features/home/arrange.ts";
+import { arrange, isSettled, isUnread, projectCounts } from "@ace/ui-core";
 import { threadDetailsSource } from "@/features/home/thread-details.ts";
 import { useThreadActions } from "@/features/home/use-thread-actions.ts";
 import { useOrganizer, useOrganizerState } from "@/features/home/use-organizer.ts";

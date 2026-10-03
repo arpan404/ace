@@ -35,8 +35,8 @@ export function describeActivity(status: AgentStatus, toolTitle?: string): strin
   }
 }
 
-export type Glyph = "spinner" | "waiting" | "needs-you" | "failed" | "done" | "stopped";
-export function glyphOf(status: AgentStatus): Glyph {
+export type AgentGlyph = "spinner" | "waiting" | "needs-you" | "failed" | "done" | "stopped";
+export function glyphOf(status: AgentStatus): AgentGlyph {
   switch (status.state) {
     case "starting":
     case "working":
@@ -57,16 +57,6 @@ export const isRunning = (agent: Pick<Agent, "status">) =>
   agent.status.state === "working" ||
   agent.status.state === "starting" ||
   agent.status.state === "blocked";
-
-/** "42s", "6m", "1h 12m": how long something has run (or ran). */
-export function formatDuration(from: number, to: number): string {
-  const seconds = Math.max(0, Math.round((to - from) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
-}
 
 const taskStates: Record<BackgroundTask["status"], string> = {
   running: "running",

@@ -14,8 +14,14 @@ import {
 import { cn } from "@/lib/cn.ts";
 import { useId, useState } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { formatDuration, useTicker } from "../lib/clock.ts";
-import { describeStep, summarizeWork, workCounts, type StepIcon } from "../lib/describe-step.ts";
+import { useTicker } from "../lib/clock.ts";
+import {
+  formatElapsed,
+  describeStep,
+  summarizeWork,
+  workCounts,
+  type StepIcon,
+} from "@ace/ui-core";
 import { flatEqual, useItemsSelect } from "../lib/use-items.ts";
 import { StepDetail } from "./step-detail.tsx";
 
@@ -41,7 +47,7 @@ export function WorkLog(props: { threadId: string; itemIds: readonly string[] })
   const now = useTicker(summary?.running ?? false);
   const panel = useId();
   if (!summary) return null;
-  const elapsed = formatDuration(
+  const elapsed = formatElapsed(
     Math.max(1000, (summary.running ? now : summary.endedAt) - summary.startedAt),
   );
   const counts = workCounts(summary);

@@ -2,10 +2,10 @@ import { LaptopIcon, MoonIcon, PushPinIcon } from "@phosphor-icons/react";
 import type { ProviderKind, ThreadStatus } from "@ace/protocol";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
-import { ProviderGlyph, providerNames } from "@/components/ui/provider-glyph.tsx";
+import { ProviderGlyph } from "@/components/ui/provider-glyph.tsx";
+import { providerNames, threadStatusLabel } from "@ace/ui-core";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { threadStatusLabel } from "@/lib/status.ts";
 
 /**
  * The only colour on a row: an amber dot for needs you, red for failed, a hollow ring for
