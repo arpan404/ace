@@ -28,6 +28,7 @@ const archive = new Archive(catalog.db);
 let controller = new AbortController();
 let iterator: AsyncGenerator<Packet> | undefined;
 let busy = false;
+let scanning = false;
 let progressId = 0;
 const progressWaiters = new Map<number, () => void>();
 const port = parentPort;
@@ -48,6 +49,24 @@ port.on("message", async (value: unknown) => {
   const parsed = Envelope.safeParse(value);
   if (!parsed.success) return;
   const { id, request } = parsed.data;
+  // A scan yields between bounded batches. Reads use a separate committed SQLite snapshot.
+  if (scanning && (request.op === "list" || request.op === "get")) {
+    try {
+      port.postMessage({
+        id,
+        value:
+          request.op === "list"
+            ? catalog.list(request.request)
+            : (catalog.get(request.id)?.summary ?? null),
+      });
+    } catch (error) {
+      port.postMessage({
+        id,
+        error: error instanceof Error ? error.message : "History read failed",
+      });
+    }
+    return;
+  }
   if (busy) {
     port.postMessage({ id, error: "History operation already in progress" });
     return;
@@ -75,15 +94,16 @@ port.on("message", async (value: unknown) => {
     else if (request.op === "archive.blob") result = archive.readBlob(request.request);
     else if (request.op === "scan") {
       controller = new AbortController();
+      scanning = true;
       result = await scan(
         catalog,
         options.instances,
         controller.signal,
-        (files) =>
+        (files, scanProgress) =>
           new Promise<void>((resolve) => {
             const nextProgressId = ++progressId;
             progressWaiters.set(nextProgressId, resolve);
-            port.postMessage({ progress: files, progressId: nextProgressId });
+            port.postMessage({ progress: files, result: scanProgress, progressId: nextProgressId });
           }),
       );
     } else if (request.op === "list") result = catalog.list(request.request);
@@ -134,6 +154,7 @@ port.on("message", async (value: unknown) => {
     });
   } finally {
     busy = false;
+    scanning = false;
   }
 });
 port.postMessage({ id: 0, value: "ready" });
