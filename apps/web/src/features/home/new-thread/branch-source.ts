@@ -1,26 +1,36 @@
-// TODO(client-gaps): feat/client-protocol-gaps. Branches come from the workspace service, which
-// has no client request on main, and thread.create carries no base branch yet. In fake mode the
-// fake daemon's projects have branches; against a real daemon the list is empty and New thread
-// hides the base-branch picker.
-import { useQuery } from "@tanstack/react-query";
-import { useDaemonConnection } from "@/boot/connection.tsx";
+import { WorkspaceId } from "@ace/protocol";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
 
-const branches: Record<string, string[]> = {
-  ace: ["main", "fix/replay-dedupe", "deck/resumable-streams", "release/0.9"],
-  "ace-mobile": ["main", "feat/haptics", "fix/sheet-rotate"],
-  relay: ["main", "fix/restart-retry", "perf/fanout"],
-  "billing-api": ["main", "fix/refund-tax", "fix/pdf-locale"],
-  "docs-site": ["main", "docs/install-daemon"],
-};
+const defaults = ["main", "master", "trunk", "develop"];
 
-/** Branches a worktree can start from, default branch first; empty when unknown. */
+/** The usual default branch first, then the rest as the daemon listed them. */
+export function defaultFirst(branches: readonly string[]): string[] {
+  const first = defaults.find((name) => branches.includes(name));
+  return first ? [first, ...branches.filter((branch) => branch !== first)] : [...branches];
+}
+
+const none: readonly string[] = [];
+
+/**
+ * Branches a worktree can start from, from the daemon's workspace service (`branches.list`),
+ * default branch first; empty while loading or when the project's branches can't be read.
+ */
 export function useBranches(project: string | undefined): readonly string[] {
-  const fake = useDaemonConnection().mode === "fake";
   return (
-    useQuery({
+    useDaemonQuery({
       queryKey: ["new-thread", "branches", project],
-      queryFn: async () => (fake ? (branches[project ?? ""] ?? ["main"]) : []),
       enabled: project !== undefined,
-    }).data ?? []
+      staleTime: 30_000,
+      read: async (client, signal) => {
+        const reply = await client.request(
+          {
+            type: "workspace.request",
+            operation: { op: "branches.list", workspaceId: WorkspaceId.parse(project) },
+          },
+          { signal },
+        );
+        return reply.result.kind === "branches" ? defaultFirst(reply.result.branches) : none;
+      },
+    }).data ?? none
   );
 }

@@ -50,6 +50,10 @@ export class FakeSettings {
   get(key: string): unknown {
     return this.global.has(key) ? this.global.get(key) : Reflect.get(defaults, key);
   }
+  /** One setting resolved for a scope (thread over workspace over global over defaults). */
+  resolve(key: string, scope: SettingsScope): unknown {
+    return this.entries([key], scope)[0]?.value;
+  }
   /** The thread-settle settings the organization projection reads for this scope. */
   organizationEntries(scope: SettingsScope): SettingsEntry[] {
     return organizationKeys.flatMap((key) => this.entries([key], scope));

@@ -1,8 +1,9 @@
 import { workbench } from "@ace/fake-daemon";
+import { ThreadId } from "@ace/protocol";
 import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { harness, memoryKeyValue } from "@/test/harness.tsx";
+import { harness } from "@/test/harness.tsx";
 
 const threads = () => screen.getByRole("navigation", { name: "Threads" });
 const card = (title: RegExp) => within(threads()).queryByRole("link", { name: title });
@@ -44,9 +45,8 @@ test("Rename from the menu edits the title in place; Escape keeps the old one", 
   expect(card(/restarts later/)).toBeNull();
 });
 
-test("Mark unread, Pin and their opposites follow the thread's state", async () => {
-  const storage = memoryKeyValue();
-  await openHome({ storage });
+test("Mark unread and Pin are kept by the daemon, so the list shows them after a reload", async () => {
+  const app = await openHome();
   let menu = await rightClick(/Backpressure/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Mark unread" }));
   await waitFor(() => expect(card(/Backpressure.*, unread/)).toBeTruthy());
@@ -59,20 +59,28 @@ test("Mark unread, Pin and their opposites follow the thread's state", async () 
       within(card(/Backpressure/) ?? threads()).getByRole("img", { name: "Pinned" }),
     ).toBeTruthy(),
   );
+  const view = app.daemon.snapshot({ kind: "threads" });
+  expect(view?.kind === "threads" && view.threads["thread-fan-out"]).toMatchObject({
+    pinned: true,
+    unread: true,
+  });
   cleanup();
 
-  // Both survive a reload.
-  await openHome({ storage });
-  expect(
-    within(card(/Backpressure.*, unread/) ?? threads()).getByRole("img", { name: "Pinned" }),
-  ).toBeTruthy();
+  // Another window on the same daemon sees both.
+  await app.open("/");
+  await within(await screen.findByRole("navigation", { name: "Threads" })).findAllByRole("link");
+  await waitFor(() =>
+    expect(
+      within(card(/Backpressure.*, unread/) ?? threads()).getByRole("img", { name: "Pinned" }),
+    ).toBeTruthy(),
+  );
   menu = await rightClick(/Backpressure/);
   expect(within(menu).getByRole("menuitem", { name: "Unpin" })).toBeTruthy();
 });
 
 test("opening an unread thread marks it read", async () => {
   await openHome();
-  const menu = await rightClick(/Bump Codex|Invoice PDF/);
+  const menu = await rightClick(/Invoice PDF/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Mark unread" }));
   const unread = await waitFor(() => {
     const link = card(/, unread/);
@@ -83,36 +91,61 @@ test("opening an unread thread marks it read", async () => {
   await waitFor(() => expect(card(/, unread/)).toBeNull());
 });
 
-test("Delete hides the thread with Undo; Archive tells the daemon once Undo has passed", async () => {
+/** The daemon still serves the thread; a deleted one is gone from every read. */
+function onDaemon(app: Awaited<ReturnType<typeof openHome>>, id: string) {
+  return app.daemon.snapshot({ kind: "thread", threadId: ThreadId.parse(id) }) !== undefined;
+}
+
+test("Delete hides the thread with Undo, and Undo keeps it on the daemon", async () => {
   const app = await openHome();
-  let menu = await rightClick(/Invoice PDF/);
+  const menu = await rightClick(/Invoice PDF/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Delete thread" }));
   await waitFor(() => expect(card(/Invoice PDF/)).toBeNull());
   await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
   await waitFor(() => expect(card(/Invoice PDF/)).toBeTruthy());
+  expect(onDaemon(app, "thread-pdf-locale")).toBe(true);
+});
 
-  menu = await rightClick(/Backpressure/);
-  await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
-  await waitFor(() => expect(card(/Backpressure/)).toBeNull());
-  expect(await screen.findByText("Archived · Backpressure on broadcast fan-out")).toBeTruthy();
+test("Delete reaches the daemon once Undo has passed", async () => {
+  const app = await openHome();
+  const menu = await rightClick(/Invoice PDF/);
+  await userEvent.click(within(menu).getByRole("menuitem", { name: "Delete thread" }));
+  await waitFor(() => expect(card(/Invoice PDF/)).toBeNull());
+  expect(onDaemon(app, "thread-pdf-locale")).toBe(true);
+  await waitFor(() => expect(onDaemon(app, "thread-pdf-locale")).toBe(false), {
+    timeout: 9_000,
+  });
+  expect(card(/Invoice PDF/)).toBeNull();
+}, 15_000);
+
+test("Archive takes effect on the daemon at once and Undo unarchives it", async () => {
+  const app = await openHome();
   const archivedAt = () => {
     const view = app.daemon.snapshot({ kind: "threads" });
     return view?.kind === "threads" ? view.threads["thread-fan-out"]?.archivedAt : undefined;
   };
-  expect(archivedAt()).toBeUndefined();
-  await waitFor(() => expect(archivedAt()).toBeDefined(), { timeout: 9_000 });
-  expect(card(/Backpressure/)).toBeNull();
-}, 15_000);
-
-test("Undoing an archive keeps the thread on the daemon untouched", async () => {
-  const app = await openHome();
   const menu = await rightClick(/Backpressure/);
   await userEvent.click(within(menu).getByRole("menuitem", { name: "Archive" }));
-  await userEvent.click(await screen.findByRole("button", { name: "Undo" }));
+  await waitFor(() => expect(card(/Backpressure/)).toBeNull());
+  expect(await screen.findByText("Archived · Backpressure on broadcast fan-out")).toBeTruthy();
+  await waitFor(() => expect(archivedAt()).toBeDefined());
+
+  await userEvent.click(screen.getByRole("button", { name: "Undo" }));
   await waitFor(() => expect(card(/Backpressure/)).toBeTruthy());
-  await waitFor(() => expect(screen.queryByText(/^Archived ·/)).toBeNull(), { timeout: 9_000 });
-  const view = app.daemon.snapshot({ kind: "threads" });
-  expect(view?.kind === "threads" && view.threads["thread-fan-out"]?.archivedAt).toBeUndefined();
+  expect(archivedAt()).toBeUndefined();
+});
+
+test("a thread the daemon won't delete stays in the list and says why", async () => {
+  await openHome();
+  const menu = await rightClick(/Dedupe thread events/);
+  await userEvent.click(within(menu).getByRole("menuitem", { name: "Delete thread" }));
+  await waitFor(() => expect(card(/Dedupe thread events/)).toBeNull());
+  expect(
+    await screen.findByText("Stop its agents and close its terminals first.", undefined, {
+      timeout: 9_000,
+    }),
+  ).toBeTruthy();
+  await waitFor(() => expect(card(/Dedupe thread events/)).toBeTruthy());
 }, 15_000);
 
 test("New thread on main starts a thread in the same project", async () => {

@@ -93,10 +93,14 @@ test("archiving from the ⋯ menu leaves the thread", async () => {
   await waitFor(() => expect(screen.queryByRole("feed", { name: "Transcript" })).toBeNull());
 });
 
-test("snoozing from the ⋯ menu confirms until when", async () => {
-  await openThread();
+test("snoozing from the ⋯ menu snoozes it on the daemon and confirms until when", async () => {
+  const app = await openThread();
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Snooze" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Tomorrow 9:00" }));
-  expect(await screen.findByText("Snoozed until tomorrow 9:00")).toBeTruthy();
+  await userEvent.click(await screen.findByRole("menuitem", { name: /^Tomorrow/ }));
+  expect(await screen.findByText(/^Snoozed until tomorrow/)).toBeTruthy();
+  const view = app.daemon.snapshot({ kind: "threads" });
+  expect(
+    view?.kind === "threads" && view.threads["thread-replay-cursor"]?.snoozedUntil,
+  ).toBeGreaterThan(Date.now());
 });

@@ -32,7 +32,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useNow } from "@/lib/time.ts";
 import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
-import { useQueuedMessages } from "@/lib/queued-messages.ts";
+import { useServerQueue } from "@/lib/server-queue.ts";
 import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
 
 const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-subtle-foreground";
@@ -46,7 +46,7 @@ export function AgentsTab(props: { threadId: string }) {
   const tree = useAgentTree(props.threadId) ?? [];
   const tasks = useTaskIds(props.threadId) ?? [];
   const thread = useThreadMeta(props.threadId);
-  const { queued } = useQueuedMessages(props.threadId);
+  const queuedCount = useServerQueue(props.threadId).page?.total ?? 0;
   const queueWaiting = thread?.status.state === "waiting" && thread.status.on === "queue";
   if (!tree.length)
     return (
@@ -62,7 +62,7 @@ export function AgentsTab(props: { threadId: string }) {
         <ul aria-label="Agent tree">
           <Branch threadId={props.threadId} nodes={tree} depth={0} />
         </ul>
-        {(tasks.length > 0 || queued.length > 0 || queueWaiting) && (
+        {(tasks.length > 0 || queuedCount > 0 || queueWaiting) && (
           <section aria-labelledby="agents-background">
             <h3 id="agents-background" className={heading}>
               Background
@@ -71,12 +71,12 @@ export function AgentsTab(props: { threadId: string }) {
               {tasks.map((id) => (
                 <TaskRow key={id} threadId={props.threadId} taskId={id} />
               ))}
-              {(queued.length > 0 || queueWaiting) && <QueueRow count={queued.length} />}
+              {(queuedCount > 0 || queueWaiting) && <QueueRow count={queuedCount} />}
             </ul>
           </section>
         )}
         <h3 className={heading}>Status</h3>
-        <Why threadId={props.threadId} queued={queued.length} />
+        <Why threadId={props.threadId} queued={queuedCount} />
       </div>
     </ArrivalScope>
   );

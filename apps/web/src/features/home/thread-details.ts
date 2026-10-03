@@ -1,56 +1,36 @@
-// TODO(client-gaps): feat/client-protocol-gaps projects branch, PR, worktree, machine and diff
-// onto the thread list entry. Until then the card's third line comes from this source: the fake
-// daemon's Home list in fake mode, nothing against a real daemon. Components depend only on
-// `useThreadDetails`.
+import type { SidebarReader } from "@ace/client";
+import { useSidebar, useSidebarIds, type SidebarKey } from "@ace/client-react";
+import type { ThreadListEntry } from "@ace/protocol";
+import { cardDetails, homeMachine, type CardDetails } from "@ace/ui-core";
+import { createContext, use, useCallback, useMemo } from "react";
 
-import type { ThreadDetails } from "@ace/ui-core";
-import { useDaemonConnection } from "@/boot/connection.tsx";
+/** The machine most threads run on; cards name a machine only when it is another one. */
+export const HomeMachine = createContext<string | undefined>(undefined);
 
-export interface ThreadDetailsSource {
-  details(threadId: string): ThreadDetails | undefined;
+const none: readonly string[] = [];
+
+/** Read once for the whole list, so rows don't each scan every entry. */
+export function useHomeMachine(): string | undefined {
+  const ids = useSidebarIds() ?? none;
+  const keys = useMemo<SidebarKey[]>(
+    () => ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)],
+    [ids],
+  );
+  const select = useCallback(
+    (reader: SidebarReader) =>
+      homeMachine(
+        reader.ids.flatMap((id) => {
+          const entry = reader.thread(id);
+          return entry ? [entry] : [];
+        }),
+      ),
+    [],
+  );
+  return useSidebar(keys, select);
 }
 
-const fakeDetails: Record<string, ThreadDetails> = {
-  "thread-retry-budget": { branch: "fix/restart-retry", pr: 188, diff: { added: 64, removed: 12 } },
-  "thread-sheet-rotate": { branch: "fix/sheet-rotate", machine: "build-box" },
-  "thread-refund-tax": { branch: "fix/refund-tax", pr: 77, diff: { added: 31, removed: 18 } },
-  "thread-dedupe": {
-    branch: "fix/replay-dedupe",
-    pr: 214,
-    worktree: true,
-    diff: { added: 30, removed: 7 },
-  },
-  "thread-resumable-streams": { branch: "deck/resumable-streams", worktree: true },
-  "thread-install-page": { branch: "docs/install-daemon", diff: { added: 120, removed: 88 } },
-  "thread-worktree-cleanup": { branch: "fix/worktree-cleanup", pr: 209, machine: "build-box" },
-  "thread-pdf-locale": { branch: "fix/pdf-locale", pr: 74, diff: { added: 22, removed: 5 } },
-  "thread-fan-out": { branch: "perf/fanout", machine: "build-box" },
-  "thread-bump-codex": { branch: "chore/codex-048", pr: 212 },
-  "thread-haptics": { branch: "feat/haptics" },
-  "thread-flaky-restart": { branch: "fix/flaky-restart", pr: 205 },
-  "thread-status-json": { branch: "feat/status-json", pr: 203 },
-  "thread-mobile-tokens": { branch: "feat/theme-tokens" },
-  "thread-refund-idempotency": { branch: "fix/refund-idempotency", pr: 71 },
-  "thread-rate-limit-docs": { branch: "docs/rate-limits" },
-  "thread-noise-vectors": { branch: "test/noise-vectors" },
-  "thread-settings-keys": { branch: "feat/settings-keys", pr: 198 },
-  "thread-snooze-threads": { branch: "feat/snooze", pr: 196 },
-  "thread-push-approvals": { branch: "feat/push-approvals" },
-  "thread-vat-rounding": { branch: "fix/vat-rounding", pr: 66 },
-  "thread-codex-quickstart": { branch: "docs/codex-quickstart" },
-  "thread-relay-metrics": { branch: "feat/relay-metrics", pr: 41 },
-  "thread-replay-cursor": { branch: "fix/replay-cursor" },
-  "thread-cold-start": { branch: "fix/cold-start-cap", worktree: true },
-  "thread-checkout": { branch: "fix/flaky-checkout", pr: 81 },
-  "thread-settings": { branch: "chore/settings-schema-v3", pr: 207 },
-  "thread-router": { branch: "docs/router" },
-};
-
-export const threadDetailsSource: ThreadDetailsSource = {
-  details: (threadId) => (Object.hasOwn(fakeDetails, threadId) ? fakeDetails[threadId] : undefined),
-};
-
-export function useThreadDetails(threadId: string): ThreadDetails | undefined {
-  const fake = useDaemonConnection().mode === "fake";
-  return fake ? threadDetailsSource.details(threadId) : undefined;
+/** Branch, PR, worktree, machine and diff for a card, from the daemon's `details`. */
+export function useCardDetails(entry: ThreadListEntry | undefined): CardDetails | undefined {
+  const home = use(HomeMachine);
+  return entry && cardDetails(entry, home);
 }

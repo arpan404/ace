@@ -14,6 +14,8 @@ const listed = (made: ReturnType<typeof harness>) => {
   return view?.kind === "threads" ? Object.values(view.threads) : [];
 };
 const prompt = () => screen.findByRole("combobox", { name: "Message" });
+/** A menu that just closed still animates out; wait before opening the next. */
+const menuClosed = () => waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
 
 test("⌘N, a project, a model and a message start a thread that then opens", async () => {
   const made = app();
@@ -70,4 +72,53 @@ test("the last model, account and work mode are remembered for the next thread",
   await app({ storage }).open("/new");
   expect(await screen.findByRole("button", { name: "Model: Opus 4.1, account work" })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Where the work happens: Local" })).toBeTruthy();
+});
+
+test("a worktree thread starts from the chosen branch, on the chosen account and effort", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  await userEvent.click(await screen.findByRole("button", { name: /^Model: Opus 4.1/ }));
+  // Model, account and effort share one menu, which stays open while choosing.
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "GPT-5 Codex" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "high effort" }));
+  await userEvent.keyboard("{Escape}");
+  await menuClosed();
+  await userEvent.click(await screen.findByRole("button", { name: /^Start from branch/ }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "develop" }));
+
+  await userEvent.type(await prompt(), "Add jitter to the retry backoff{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Add jitter to the retry backoff" });
+  const created = listed(made).find((t) => t.title === "Add jitter to the retry backoff");
+  expect(created?.details).toMatchObject({ mode: "worktree", baseBranch: "develop" });
+  expect(created?.live).toMatchObject({ account: "codex-personal", options: { effort: "high" } });
+});
+
+test("files and @ mentions work before the thread exists and arrive with it", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  const field = await prompt();
+  await userEvent.type(field, "Explain @replay");
+  const files = await screen.findByRole("listbox", { name: "Files" });
+  expect(within(files).getAllByRole("option")[0]?.textContent).toContain("replay.ts");
+  await userEvent.keyboard("{Enter}");
+
+  await userEvent.upload(
+    screen.getByLabelText("Files to attach"),
+    new File(["2026-10-03 resume seq 0"], "relay.log", { type: "text/plain" }),
+  );
+  const chips = screen.getByRole("list", { name: "Attachments" });
+  await waitFor(() => expect(within(chips).queryByRole("status")).toBeNull());
+  expect(within(chips).queryByText(/couldn't/i)).toBeNull();
+
+  await userEvent.click(screen.getByRole("button", { name: "Send" }));
+  const heading = await screen.findByRole("heading", { level: 1, name: /^Explain @/ });
+  const created = listed(made).find((t) => t.title === heading.textContent);
+  if (!created) throw new Error("no thread");
+  const reply = await made.client.request({
+    type: "context.request",
+    operation: { op: "attachment.list", threadId: created.id },
+  });
+  expect(
+    reply.result.kind === "attachments" && reply.result.attachments.map((a) => a.name),
+  ).toEqual(["relay.log"]);
 });

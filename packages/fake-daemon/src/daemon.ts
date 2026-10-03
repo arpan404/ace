@@ -9,6 +9,7 @@ import {
   createThreadListView,
 } from "@ace/projection";
 import {
+  AgentId,
   EventId,
   HostId,
   ThreadId,
@@ -42,6 +43,8 @@ import {
   stopTaskFacts,
   type ThreadCommandOutcome,
 } from "./thread-commands.ts";
+import { holdOnLimit, isQueueCommand, queueCommand, queuePage } from "./queue-commands.ts";
+import { forkPointError, switchEvents } from "./transitions.ts";
 
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
@@ -58,6 +61,7 @@ export interface ThreadInit {
   provider: ProviderKind;
   details?: Thread["details"];
   live?: Thread["live"];
+  lineage?: Thread["lineage"];
 }
 type ResolvedListener = (threadId: string, key: Key, resolution?: InteractionResolution) => void;
 
@@ -142,6 +146,7 @@ export class FakeDaemon implements Host {
       provider: init.provider,
       ...(init.details ? { details: init.details } : {}),
       ...(init.live ? { live: init.live } : {}),
+      ...(init.lineage ? { lineage: init.lineage } : {}),
       activityAt: now,
       status: { state: "new" as const },
       createdAt: now,
@@ -160,7 +165,7 @@ export class FakeDaemon implements Host {
     const now = this.at(agoMs);
     const payloads = facts.flatMap((fact) => host.fold(fact, now));
     // A queued message starts the next turn as soon as the root agent is free.
-    const drained = facts.length ? drainQueue(host) : [];
+    const drained = drainQueue(host);
     const selection = host.nextSelection;
     host.nextSelection = undefined;
     const selectionEvent: EventPayload[] = selection
@@ -176,6 +181,22 @@ export class FakeDaemon implements Host {
       [...selectionEvent, ...payloads, ...drained.flatMap((fact) => host.fold(fact, now))],
       now,
     );
+    this.afterChange(host, now);
+  }
+  /**
+   * What the daemon does once a thread changed: hold the queue on a usage limit, publish the
+   * queue's new revision, apply a switch waiting for the turn to end, and settle on schedule.
+   */
+  private afterChange(host: ThreadHost, now: number): void {
+    holdOnLimit(host);
+    const follow: EventPayload[] = [...switchEvents(host, now)];
+    if (host.queueDirty) {
+      host.queueDirty = false;
+      host.queue.revision++;
+      follow.push({ type: "queue.updated", ...host.queue });
+    }
+    this.append(host, follow, now);
+    this.settle(host, now);
   }
   private append(host: ThreadHost, payloads: EventPayload[], now: number): void {
     if (!payloads.length) return;
@@ -196,6 +217,19 @@ export class FakeDaemon implements Host {
             : undefined,
       );
       if (metadata) followups.push(metadata);
+      // The daemon turns a provider's context sample into the agent's replaceable meter.
+      if (payload.type === "context.sampled")
+        followups.push({
+          type: "context_meter.updated",
+          meter: {
+            agentId: payload.agentId,
+            epoch: (host.view.contextMeters?.[payload.agentId]?.epoch ?? 0) + 1,
+            usedTokens: payload.usedTokens,
+            windowTokens: payload.windowTokens ?? null,
+            ...(payload.model ? { model: payload.model } : {}),
+            source: "provider",
+          },
+        });
       if (payload.type === "thread.updated" && payload.status)
         followups.push({
           type: "thread.client.updated",
@@ -257,6 +291,19 @@ export class FakeDaemon implements Host {
     return connection;
   }
   service(message: ClientMessage, connection: Connection): boolean {
+    if (message.type === "queue.get") {
+      const host = this.threads.get(message.threadId);
+      const page =
+        host && host.view.thread.deletedAt === undefined
+          ? queuePage(host, message.threadId, message)
+          : "thread_not_found";
+      connection.push(
+        typeof page === "string"
+          ? { type: "error", code: page, message: page, requestId: message.requestId }
+          : { type: "queue.result", requestId: message.requestId, queue: page },
+      );
+      return true;
+    }
     return this.services.handle(message, connection.push);
   }
   release(connection: Connection): void {
@@ -268,21 +315,23 @@ export class FakeDaemon implements Host {
     // Deleting the current entry during Set iteration is safe.
     for (const connection of this.connections) connection.close(code);
   }
+  /** Run the auto-settle and snooze-expiry timers for every thread, as the daemon's do. */
   sweep(): void {
     const at = this.options.clock();
-    for (const host of this.threads.values()) {
-      const changes = settleDecision(
-        host.view.thread,
-        settlePolicy(this.services.settings.organizationEntries({ threadId: host.view.thread.id })),
-        at,
-      );
-      if (
-        Object.entries(changes).some(
-          ([key, value]) => (Reflect.get(host.view.thread, key) ?? null) !== value,
-        )
+    for (const host of this.threads.values()) this.settle(host, at);
+  }
+  private settle(host: ThreadHost, at: number): void {
+    const changes = settleDecision(
+      host.view.thread,
+      settlePolicy(this.services.settings.organizationEntries({ threadId: host.view.thread.id })),
+      at,
+    );
+    if (
+      Object.entries(changes).some(
+        ([key, value]) => (Reflect.get(host.view.thread, key) ?? null) !== value,
       )
-        this.append(host, [{ type: "thread.client.updated", changes }], at);
-    }
+    )
+      this.append(host, [{ type: "thread.client.updated", changes }], at);
   }
   snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined {
     if (scope.kind === "threads") return { ...structuredClone(this.list), seq: this.seq };
@@ -353,7 +402,66 @@ export class FakeDaemon implements Host {
       this.append(host, [decision], this.options.clock());
       return { commandId, ok: true, threadId: ThreadId.parse(host.id) };
     }
+    if (isQueueCommand(payload))
+      return this.run(commandId, payload.threadId, (host) =>
+        queueCommand(host, payload, this.options.clock()),
+      );
     switch (payload.type) {
+      case "thread.fork": {
+        const source = this.threads.get(payload.threadId);
+        if (!source || source.view.thread.deletedAt !== undefined)
+          return { commandId, ok: false, error: "thread_not_found" };
+        const refused = forkPointError(source, payload.point);
+        if (refused) return { commandId, ok: false, error: refused };
+        const id = `${payload.threadId}-fork-${commandId}`;
+        if (this.threads.has(id)) return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
+        const from = source.view.thread;
+        const provider = payload.selection?.provider ?? from.provider;
+        const started = startedThread(id, {
+          type: "thread.create",
+          workspaceId: from.workspaceId,
+          provider,
+          ...(payload.selection?.model ? { model: payload.selection.model } : {}),
+          title: payload.title ?? `${from.title} (fork)`,
+          input: [{ type: "text", text: payload.input }],
+        });
+        this.createThread({
+          ...started.thread,
+          ...(from.details ? { details: from.details } : {}),
+          lineage: {
+            parentThreadId: from.id,
+            parentAgentId: AgentId.parse(source.view.thread.rootAgentId ?? `${from.id}.root`),
+            point: payload.point,
+            mode: provider === from.provider ? "native" : "portable",
+            lossy: provider !== from.provider,
+          },
+        });
+        this.apply(id, started.facts);
+        return { commandId, ok: true, forkThreadId: ThreadId.parse(id) };
+      }
+      case "thread.switch": {
+        const host = this.threads.get(payload.threadId);
+        if (!host || host.view.thread.deletedAt !== undefined)
+          return { commandId, ok: false, error: "thread_not_found" };
+        const at = this.options.clock();
+        this.append(
+          host,
+          [
+            {
+              type: "thread.updated",
+              switch: {
+                selection: { ...payload.selection, options: payload.selection.options ?? {} },
+                state: "queued",
+                lossy: payload.selection.provider !== host.view.thread.provider,
+                at,
+              },
+            },
+          ],
+          at,
+        );
+        this.afterChange(host, at);
+        return { commandId, ok: true };
+      }
       case "diagnostics.health":
         return { commandId, ok: true, health: fakeHealth(this.options.clock(), this.threads.size) };
       case "interaction.resolve": {
@@ -405,7 +513,9 @@ export class FakeDaemon implements Host {
           },
           live: {
             ...(payload.model ? { model: payload.model } : {}),
-            ...(payload.account ? { account: payload.account } : {}),
+            ...((payload.accountId ?? payload.account)
+              ? { account: payload.accountId ?? payload.account }
+              : {}),
             ...(payload.options ? { options: payload.options } : {}),
             subagentCount: 0,
             backgroundTaskCount: 0,
@@ -418,7 +528,17 @@ export class FakeDaemon implements Host {
       }
       case "thread.send":
         return this.run(commandId, payload.threadId, (host) =>
-          sendFacts(host, commandId, { ...payload, delivery: payload.delivery ?? "queue" }),
+          sendFacts(host, commandId, {
+            ...payload,
+            // An omitted delivery resolves the person's follow-up setting, as the daemon does.
+            delivery:
+              payload.delivery ??
+              (this.services.settings.resolve("threads.followUpBehavior", {
+                threadId: payload.threadId,
+              }) === "steer"
+                ? "steer"
+                : "queue"),
+          }),
         );
       case "thread.interrupt":
         return this.run(commandId, payload.threadId, (host) =>

@@ -1,6 +1,5 @@
 import type { ProviderKind, ThreadListEntry } from "@ace/protocol";
-import { isSnoozed, isUnread } from "./arrange.ts";
-import type { ThreadMark } from "./organizer.ts";
+import { activityOf, isSnoozed, isUnread } from "./arrange.ts";
 import { providerLabel } from "./providers.ts";
 import { describeWake } from "./snooze.ts";
 import {
@@ -12,15 +11,32 @@ import {
 } from "./status.ts";
 import { formatAge } from "./time.ts";
 
-/** Git and machine facts for a thread card that the thread list entry doesn't carry yet. */
-export interface ThreadDetails {
-  branch: string;
-  pr?: number;
+/** Git and machine facts a card shows, from the daemon's `details` projection. */
+export interface CardDetails {
+  branch?: string | undefined;
+  pr?: number | undefined;
   /** The thread runs in its own worktree rather than the project checkout. */
-  worktree?: boolean;
+  worktree?: boolean | undefined;
   /** Set when the thread runs on another machine. */
-  machine?: string;
-  diff?: { added: number; removed: number };
+  machine?: string | undefined;
+  diff?: { added: number; removed: number } | undefined;
+}
+
+/**
+ * A card's details from the entry. `home` is the machine most threads run on (see
+ * `homeMachine`); a card names its machine only when it is a different one.
+ */
+export function cardDetails(entry: ThreadListEntry, home: string | undefined): CardDetails {
+  const details = entry.details;
+  if (!details) return {};
+  const machine = details.machine;
+  return {
+    branch: details.branch ?? undefined,
+    pr: details.linkedPr?.number,
+    worktree: details.mode === "worktree",
+    machine: machine && home !== undefined && machine.host !== home ? machine.name : undefined,
+    diff: details.diff && { added: details.diff.additions, removed: details.diff.deletions },
+  };
 }
 
 /** How a person has organised a row, which decides its menu items and hover actions. */
@@ -34,7 +50,6 @@ export interface ThreadRowFlags {
 /** Everything a Home card or settled row shows, already worded. */
 export interface ThreadCard {
   id: string;
-  /** The local rename wins over the daemon's title until the rename reaches it. */
   title: string;
   project: string;
   /** "now", "4m", "2d". */
@@ -58,8 +73,7 @@ export interface ThreadCard {
 
 export interface ThreadCardInput {
   entry: ThreadListEntry;
-  mark: ThreadMark | undefined;
-  details?: ThreadDetails | undefined;
+  details?: CardDetails | undefined;
   /** Activity before this moment counts as seen. */
   baseline: number;
   /** Shown in the Settled section (see `arrange`). */
@@ -70,31 +84,31 @@ export interface ThreadCardInput {
 
 /** The view model of one thread in the Home list. Pure: the caller passes the clock. */
 export function threadCard(input: ThreadCardInput): ThreadCard {
-  const { entry, mark, details, now } = input;
-  const snoozed = isSnoozed(mark, now);
-  const unread = isUnread(entry, mark, input.baseline);
+  const { entry, details, now } = input;
+  const snoozed = isSnoozed(entry, now);
+  const unread = isUnread(entry, input.baseline);
   const needsYou = entry.status.state === "needs_you";
   const subagents = runningSubagents(entry.status);
   const { label, tone } = threadStatusLabel(entry.status);
   return {
     id: entry.id,
-    title: mark?.title ?? entry.title,
+    title: entry.title,
     project: entry.workspaceId,
-    age: formatAge(entry.updatedAt, now),
+    age: formatAge(activityOf(entry), now),
     flags: {
       settled: input.settled,
       unread,
-      pinned: mark?.pinned === true,
+      pinned: entry.pinned === true,
       snoozed,
     },
     emphasis: needsYou || unread,
     announceUnread: unread && !needsYou,
     wake:
-      snoozed && mark?.snoozedUntil !== undefined
-        ? describeWake(mark.snoozedUntil, now, input.locale)
+      snoozed && entry.snoozedUntil !== undefined
+        ? describeWake(entry.snoozedUntil, now, input.locale)
         : undefined,
     machine: details?.machine,
-    branch: details
+    branch: details?.branch
       ? { name: details.branch, pr: details.pr, worktree: details.worktree === true }
       : undefined,
     status: { label, tone, mark: threadStatusMark(entry.status) },

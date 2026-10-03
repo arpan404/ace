@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
-import { Composer, type Draft } from "@/features/thread/index.ts";
+import { Composer, useDraftScope, type Draft } from "@/features/thread/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjects } from "../use-home-threads.ts";
 import { useOrganizerState } from "../use-organizer.ts";
@@ -35,21 +35,34 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     setChoices(next);
     saveChoices(storage, next);
   };
-  // Mentions and uploads complete against the project before the thread exists.
+  // Mentions and uploads go to a draft scope on the daemon before the thread exists; the new
+  // thread adopts it. A draft ref's id is that scope.
+  const scope = useDraftScope(project);
   const draftThread = useMemo(
-    () => ({ id: "new", workspaceId: project ?? "", title: "", draft: true }),
-    [project],
+    () => ({ id: scope.draftId ?? "", workspaceId: project ?? "", title: "", draft: true }),
+    [scope.draftId, project],
   );
   const send = async (draft: Draft) => {
     if (sending || !project || !resolved.model) return false;
     choose({ project });
-    return create({
+    const draftId = scope.draftId;
+    const created = await create({
       project,
       provider: resolved.model.provider,
       model: resolved.model.fromCatalog ? resolved.model.id : undefined,
+      account: resolved.account?.id,
+      mode: resolved.mode,
+      baseBranch: base,
+      effort: resolved.effort,
       text: draft.text.trim() || "See the attached files.",
-      context: { mentions: draft.mentions, attachments: draft.attachments },
+      context: {
+        ...(draftId ? { draftId } : {}),
+        mentions: draft.mentions,
+        attachments: draft.attachments,
+      },
     });
+    if (created) scope.adopt();
+    return created;
   };
 
   return (
@@ -69,8 +82,9 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
               <ModelPicker
                 options={options}
                 resolved={resolved}
-                onModel={(model) => choose({ model, account: undefined })}
+                onModel={(model) => choose({ model, account: undefined, effort: undefined })}
                 onAccount={(account) => choose({ account })}
+                onEffort={(effort) => choose({ effort })}
               />
             }
           />

@@ -8,6 +8,7 @@ import { useProfileName } from "@/lib/profile.ts";
 import { settingKeys, type AutoSettle } from "./data/setting-keys.ts";
 import { settingsQueries, useSetting, useSettingsBackend } from "./data/use-settings.ts";
 import { DaemonSettings } from "./daemon-settings.tsx";
+import { RecoverySettings } from "./recovery-settings.tsx";
 import { SettingSwitch } from "./setting-switch.tsx";
 
 const autoSettleOptions: { value: AutoSettle; label: string }[] = [
@@ -55,6 +56,7 @@ export function GeneralSettings() {
         <SettingSwitch setting={settingKeys.settleOnMerge} title="Settle when the PR merges" />
         <SettingSwitch setting={settingKeys.openAtLogin} title="Open ace at login" />
       </SettingSection>
+      <RecoverySettings />
       {!fake && <DaemonSettings />}
     </>
   );

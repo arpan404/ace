@@ -1,42 +1,189 @@
-import { useIntent } from "@ace/client-react";
-import { ClockIcon, XIcon } from "@phosphor-icons/react";
+import type { QueuedMessage } from "@ace/protocol";
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  ClockIcon,
+  DotsThreeIcon,
+  LightningIcon,
+  PencilSimpleIcon,
+  TrashIcon,
+  WarningIcon,
+  XIcon,
+} from "@phosphor-icons/react";
+import { useState } from "react";
+import { Icon } from "@/components/icon.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import type { QueuedMessage } from "@/lib/queued-messages.ts";
+import { Textarea } from "@/components/ui/input.tsx";
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
+import { cn } from "@/lib/cn.ts";
+import { queuedText, type QueueControls } from "./use-queue.ts";
 
-/** Messages sent while the agent was busy, as pills above the composer until delivered. */
-export function QueuedPills(props: {
-  queued: readonly QueuedMessage[];
-  onRemove(message: QueuedMessage): void;
-}) {
-  if (!props.queued.length) return null;
+/**
+ * The daemon's queue for this thread, as pills above the composer: each waiting message with
+ * Send now, Edit, Move up and down and Remove. A message the daemon can't vouch for (it may
+ * have reached the agent before a restart) can only be removed.
+ */
+export function QueuedPills(props: { queue: QueueControls }) {
+  const { page } = props.queue;
+  if (!page?.messages.length) return null;
+  const hidden = page.total - page.messages.length;
   return (
-    <ul aria-label="Queued messages" className="mb-2 flex flex-col items-center gap-1.5">
-      {props.queued.map((message) => (
-        <QueuedPill key={message.intentId} message={message} onRemove={props.onRemove} />
-      ))}
-    </ul>
+    <div className="mb-2 flex flex-col items-center gap-1.5">
+      <ul aria-label="Queued messages" className="flex w-full flex-col items-center gap-1.5">
+        {page.messages.map((message, index) => (
+          <QueuedPill
+            key={message.id}
+            message={message}
+            index={index}
+            last={index === page.messages.length - 1}
+            queue={props.queue}
+          />
+        ))}
+      </ul>
+      {hidden > 0 && (
+        <p className="text-xs text-subtle-foreground">
+          {hidden === 1 ? "1 more queued message" : `${hidden} more queued messages`}
+        </p>
+      )}
+    </div>
   );
 }
 
-function QueuedPill(props: { message: QueuedMessage; onRemove(message: QueuedMessage): void }) {
-  const intent = useIntent(props.message.intentId);
-  const text = props.message.text;
-  const short = text.length > 60 ? `${text.slice(0, 60)}…` : text;
-  const failed = intent?.state === "failed";
+function QueuedPill(props: {
+  message: QueuedMessage;
+  index: number;
+  last: boolean;
+  queue: QueueControls;
+}) {
+  const { message, queue } = props;
+  const [editing, setEditing] = useState(false);
+  const text = queuedText(message);
+  const uncertain = message.state === "uncertain";
+  const files =
+    (message.context?.attachments.length ?? 0) + (message.context?.mentions.length ?? 0);
+  if (editing)
+    return (
+      <li className="w-full">
+        <EditQueued
+          text={text}
+          busy={queue.busy}
+          onCancel={() => setEditing(false)}
+          onSave={async (next) => {
+            if (await queue.edit(message, next)) setEditing(false);
+          }}
+        />
+      </li>
+    );
   return (
-    <li className="fx-rise-in glass inline-flex h-7 max-w-full items-center gap-[7px] rounded-full pr-1.5 pl-2.5 text-sm text-muted-foreground">
-      <ClockIcon aria-hidden size={14} />
-      <span className={failed ? "text-status-failed" : undefined}>
-        {failed ? "Not queued" : "Queued"}
+    <li
+      className={cn(
+        "fx-rise-in glass inline-flex h-7 max-w-full items-center gap-[7px] rounded-full pr-1 pl-2.5 text-sm text-muted-foreground",
+      )}
+    >
+      <Icon icon={uncertain ? WarningIcon : ClockIcon} size={14} />
+      <span className="shrink-0">{uncertain ? "May have been sent" : "Queued"}</span>
+      <span className="min-w-0 truncate font-medium text-foreground">
+        {text || "Attached files"}
       </span>
-      <span className="min-w-0 truncate font-medium text-foreground">{short}</span>
+      {files > 0 && (
+        <span className="shrink-0 text-xs text-subtle-foreground">
+          +{files} {files === 1 ? "file" : "files"}
+        </span>
+      )}
+      {!uncertain && (
+        <Menu>
+          <MenuTrigger
+            render={
+              <IconButton
+                icon={DotsThreeIcon}
+                label={`Queued message options: ${text}`}
+                size="sm"
+                className="size-5"
+                disabled={queue.busy}
+              />
+            }
+          />
+          <MenuContent side="top" align="end" className="min-w-[190px]">
+            <MenuItem icon={<Icon icon={LightningIcon} />} onClick={() => queue.sendNow(message)}>
+              Send now
+            </MenuItem>
+            <MenuItem icon={<Icon icon={PencilSimpleIcon} />} onClick={() => setEditing(true)}>
+              Edit
+            </MenuItem>
+            <MenuItem
+              icon={<Icon icon={ArrowUpIcon} />}
+              disabled={props.index === 0}
+              onClick={() => queue.move(props.index, -1)}
+            >
+              Move up
+            </MenuItem>
+            <MenuItem
+              icon={<Icon icon={ArrowDownIcon} />}
+              disabled={props.last}
+              onClick={() => queue.move(props.index, 1)}
+            >
+              Move down
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem danger icon={<Icon icon={TrashIcon} />} onClick={() => queue.remove(message)}>
+              Remove
+            </MenuItem>
+          </MenuContent>
+        </Menu>
+      )}
       <IconButton
         icon={XIcon}
         label="Remove from queue"
         size="sm"
         className="size-5"
-        onClick={() => props.onRemove(props.message)}
+        disabled={queue.busy}
+        onClick={() => queue.remove(message)}
       />
     </li>
+  );
+}
+
+/** A queued message opened for editing: Enter saves, Shift+Enter breaks a line, Esc cancels. */
+function EditQueued(props: {
+  text: string;
+  busy: boolean;
+  onSave(text: string): Promise<void>;
+  onCancel(): void;
+}) {
+  const [text, setText] = useState(props.text);
+  const save = () => {
+    const next = text.trim();
+    if (!next || props.busy) return;
+    if (next === props.text.trim()) return props.onCancel();
+    void props.onSave(next);
+  };
+  return (
+    <div className="fx-rise-in glass flex flex-col gap-2 rounded-xl p-2">
+      <Textarea
+        aria-label="Edit queued message"
+        value={text}
+        autoFocus
+        className="min-h-14 bg-transparent"
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            props.onCancel();
+          } else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            event.preventDefault();
+            save();
+          }
+        }}
+      />
+      <div className="flex justify-end gap-1.5">
+        <Button size="sm" variant="ghost" onClick={props.onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" variant="primary" disabled={!text.trim() || props.busy} onClick={save}>
+          Save
+        </Button>
+      </div>
+    </div>
   );
 }

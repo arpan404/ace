@@ -16,6 +16,15 @@ export const AutoSettle = z.enum(["1d", "2d", "1w", "never"]);
 export const UnresponsiveAfter = z.enum(["2m", "5m", "15m"]);
 export type AutoSettle = z.infer<typeof AutoSettle>;
 export type UnresponsiveAfter = z.infer<typeof UnresponsiveAfter>;
+export const FollowUp = z.enum(["queue", "steer"]);
+export type FollowUp = z.infer<typeof FollowUp>;
+export const LimitPolicy = z.enum([
+  "manual",
+  "resume_at_reset",
+  "snooze_until_reset",
+  "migrate_now",
+]);
+export type LimitPolicy = z.infer<typeof LimitPolicy>;
 export const LogRetention = z.enum(["7d", "30d", "forever"]);
 export type LogRetention = z.infer<typeof LogRetention>;
 const clock = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
@@ -34,6 +43,9 @@ export const settingKeys = {
   worktree: setting("threads.useWorktree", z.boolean(), true),
   autoSettle: setting("threads.autoSettleAfter", AutoSettle, "2d"),
   settleOnMerge: setting("threads.settleOnMerge", z.boolean(), true),
+  followUp: setting("threads.followUpBehavior", FollowUp, "queue"),
+  continueAfterRestart: setting("threads.continueAfterRestart", z.boolean(), false),
+  limitPolicy: setting("threads.limitPolicy", LimitPolicy, "manual"),
   openAtLogin: setting("app.openAtLogin", z.boolean(), false),
   notifyNeedsYou: setting("notifications.onApproval", z.boolean(), true),
   notifyDone: setting("notifications.onCompletion", z.boolean(), true),
