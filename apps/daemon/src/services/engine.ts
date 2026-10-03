@@ -1,3 +1,4 @@
+import { AccountProvider } from "@ace/protocol/accounts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
@@ -16,9 +17,17 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const accountRegistry = services.accountRegistry;
   if (accounts && accountRegistry)
     registry.bindSessions((adapter) => {
-      if (!accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider))
-        return adapter;
-      return accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
+      if (!AccountProvider.safeParse(adapter.provider).success) return adapter;
+      const bound = accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
+      return {
+        ...adapter,
+        openSession(session) {
+          return session.instanceId ||
+            accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
+            ? bound.openSession(session)
+            : adapter.openSession(session);
+        },
+      };
     });
   const engine = new Engine(store, {
     ...engineOptions,

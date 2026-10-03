@@ -1,4 +1,6 @@
-import { createDaemonCommandLibrary } from "../command-library.ts";
+import { AccountProvider } from "@ace/protocol/accounts";
+import { pickInstance } from "@ace/accounts";
+import { createDaemonCommandLibrary, defaultCommandInstances } from "../command-library.ts";
 import { connectDaemonCommandEvents, type CommandEventSource } from "../command-events.ts";
 import type { ProviderInstance } from "@ace/commands";
 import { join } from "node:path";
@@ -16,6 +18,7 @@ export async function startCommands({
   options,
   resources,
   services,
+  now,
 }: ServiceContext) {
   const integration = options.commands ?? {};
   const registered = services.accountRegistry?.list() ?? [];
@@ -24,22 +27,41 @@ export async function startCommands({
     config.dataDir,
     integration.instances ??
       (registered.length
-        ? registered.map(({ instance }) => ({
-            id: instance.id,
-            provider: instance.provider,
-            home:
-              instance.provider === "opencode"
-                ? join(instance.env.XDG_CONFIG_HOME ?? instance.homeDir, "opencode")
-                : instance.homeDir,
-          }))
+        ? [
+            ...defaultCommandInstances(process.env).filter(
+              (instance) =>
+                !registered.some((account) => account.instance.provider === instance.provider),
+            ),
+            ...registered.map(({ instance }) => ({
+              id: instance.id,
+              provider: instance.provider,
+              home:
+                instance.provider === "opencode"
+                  ? join(instance.env.XDG_CONFIG_HOME ?? instance.homeDir, "opencode")
+                  : instance.homeDir,
+            })),
+          ]
         : undefined),
     process.env,
     integration.instanceForThread ??
       ((thread) => {
-        const row = store.atomic((db) =>
-          db.prepare("SELECT instance_id FROM engine_sessions WHERE thread_id=?").get(thread.id),
-        );
-        return typeof row?.instance_id === "string" ? row.instance_id : thread.provider;
+        const row = services.engine
+          ? store.atomic((db) =>
+              db
+                .prepare("SELECT instance_id FROM engine_sessions WHERE thread_id=?")
+                .get(thread.id),
+            )
+          : undefined;
+        if (typeof row?.instance_id === "string") return row.instance_id;
+        const provider = AccountProvider.safeParse(thread.provider);
+        const selected = provider.success
+          ? pickInstance(
+              { provider: provider.data, role: "worker", estimatedLoad: 1 },
+              registered,
+              now(),
+            )
+          : undefined;
+        return selected?.id ?? thread.provider;
       }),
   );
   resources.own(() => library.close());

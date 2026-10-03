@@ -26,7 +26,9 @@ interface Ranked<T> {
   score: number;
 }
 const compare = <T extends PaletteCommand>(a: Ranked<T>, b: Ranked<T>) =>
-  a.score - b.score || b.command.id.localeCompare(a.command.id);
+  a.score - b.score ||
+  b.command.name.localeCompare(a.command.name) ||
+  b.command.id.localeCompare(a.command.id);
 /** A min heap keeps only the best k entries, O(n log k) time and O(k) ranking memory. */
 export function searchCommands<T extends PaletteCommand>(
   commands: Iterable<T>,

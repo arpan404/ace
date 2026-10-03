@@ -5,10 +5,18 @@ import type { Capabilities, ProviderKind } from "@ace/protocol";
 export class AdapterRegistry {
   private entries = new Map<
     ProviderKind,
-    { adapter: ProviderAdapter & { close?(): Promise<void> }; capabilities: Capabilities }
+    {
+      adapter: ProviderAdapter & { close?(): Promise<void> };
+      source: ProviderAdapter & { close?(): Promise<void> };
+      capabilities: Capabilities;
+    }
   >();
   register(adapter: ProviderAdapter & { close?(): Promise<void> }, cli: DiscoveryResult): void {
-    this.entries.set(adapter.provider, { adapter, capabilities: adapter.capabilities(cli) });
+    this.entries.set(adapter.provider, {
+      adapter,
+      source: adapter,
+      capabilities: adapter.capabilities(cli),
+    });
   }
   get(provider: ProviderKind) {
     const entry = this.entries.get(provider);
@@ -17,7 +25,7 @@ export class AdapterRegistry {
   }
   bindSessions(bind: (adapter: ProviderAdapter) => ProviderAdapter): void {
     for (const entry of this.entries.values()) {
-      const original = entry.adapter;
+      const original = entry.source;
       const bound = bind(original);
       entry.adapter = {
         ...bound,

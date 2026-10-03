@@ -18,7 +18,7 @@ const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
 });
-test("daemon launches in the assigned account environment and retains that account after restart", async () => {
+test("daemon binds an account registered after startup and retains that account after restart", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-account-launch-"));
   cleanup.push(() => rm(home, { recursive: true, force: true }));
   const account = createInstance({
@@ -28,15 +28,6 @@ test("daemon launches in the assigned account environment and retains that accou
     homeDir: join(home, "codex"),
   });
   await mkdir(account.homeDir);
-  const registry = await openRegistry(join(home, "accounts.sqlite"));
-  await registry.register(account);
-  registry.ingest(account.id, {
-    provider: "codex",
-    observedAt: 1,
-    timeZone: "UTC",
-    payload: new ProviderPayload(JSON.stringify({ auth: "logged_in" })),
-  });
-  registry.close();
   const observations: {
     home: string;
     key: string;
@@ -115,6 +106,16 @@ test("daemon launches in the assigned account environment and retains that accou
     vi.unstubAllEnvs();
   });
   const first = await open();
+  const registry = await openRegistry(join(home, "accounts.sqlite"));
+  await registry.register(account);
+  registry.ingest(account.id, {
+    provider: "codex",
+    observedAt: 1,
+    timeZone: "UTC",
+    payload: new ProviderPayload(JSON.stringify({ auth: "logged_in" })),
+  });
+  registry.close();
+
   cleanup.push(() => first.close());
   const workspaceId = first.store.createWorkspace(home, "workspace");
   const create = Command.parse({

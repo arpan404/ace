@@ -17,9 +17,24 @@ export function createDaemonCommandLibrary(
   env: NodeJS.ProcessEnv = process.env,
   instanceForThread: (thread: Thread) => string = (thread) => thread.provider,
 ): CommandLibrary {
+  return new CommandLibrary({
+    aceHome,
+    instances: instances ?? defaultCommandInstances(env),
+    now: Date.now,
+    context(threadId) {
+      const thread = store.getThread(ThreadId.parse(threadId));
+      if (!thread) throw new Error("Unknown thread");
+      const workspace = store.getWorkspacePath(thread.workspaceId);
+      if (!workspace) throw new Error("Unknown workspace");
+      return { workspace, provider: thread.provider, instance: instanceForThread(thread) };
+    },
+  });
+}
+
+export function defaultCommandInstances(env: NodeJS.ProcessEnv): ProviderInstance[] {
   const home = homedir(),
     settings = homes.parse(env);
-  const defaults: ProviderInstance[] = [
+  return [
     { id: "claude", provider: "claude", home: settings.CLAUDE_CONFIG_DIR ?? join(home, ".claude") },
     { id: "codex", provider: "codex", home: settings.CODEX_HOME ?? join(home, ".codex") },
     {
@@ -35,16 +50,4 @@ export function createDaemonCommandLibrary(
       home,
     })),
   ];
-  return new CommandLibrary({
-    aceHome,
-    instances: instances ?? defaults,
-    now: Date.now,
-    context(threadId) {
-      const thread = store.getThread(ThreadId.parse(threadId));
-      if (!thread) throw new Error("Unknown thread");
-      const workspace = store.getWorkspacePath(thread.workspaceId);
-      if (!workspace) throw new Error("Unknown workspace");
-      return { workspace, provider: thread.provider, instance: instanceForThread(thread) };
-    },
-  });
 }
