@@ -297,6 +297,36 @@ export class Recovery {
     if (!this.ports.migrate) throw new Error("Account migration is unavailable");
     const result = await this.ports.migrate(id, target);
     this.repo.nativeSession(id, result.nativeSessionId, result.instanceId);
+    const metadata = this.repo.transitions.get(id);
+    if (metadata.selection) {
+      metadata.selection.instanceId = result.instanceId;
+      this.repo.transitions.set(id, metadata);
+      this.repo.transitions.remember(id, metadata.selection);
+      this.repo.store.appendEvents(
+        id,
+        [{ type: "thread.updated", execution: metadata.selection }],
+        this.clock.now(),
+      );
+    }
+  }
+  bindingChanged(id: ThreadId): void {
+    const queue = this.repo.queue.get(id);
+    this.repo.queue.set(
+      id,
+      {
+        limited: false,
+        resetAt: null,
+        resumeAt: null,
+        timerAction: null,
+        holdToken: queue.holdToken + 1,
+        reason:
+          queue.paused && (queue.reason === "limit" || queue.reason === "snooze")
+            ? "manual"
+            : queue.reason,
+      },
+      this.clock.now(),
+    );
+    this.schedule();
   }
   owns(id: ThreadId, token: number): boolean {
     return this.repo.queue.get(id).holdToken === token;

@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/HandoffChunkInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "limit": {
+      "default": 32768,
+      "maximum": 32768,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "offset": {
+      "default": 0,
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "sourceThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "streamId": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "sourceThreadId",
+    "streamId"
+  ],
+  "type": "object"
+}

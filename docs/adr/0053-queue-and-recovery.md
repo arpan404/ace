@@ -104,3 +104,21 @@ Its eventual start clears the continuation, so completion leaves no phantom work
 Provider exit or daemon restart ends that ownership and captures a fresh restart
 notice for native continuation; it never replays the old admitted input. A newer
 pause or limit still wins through the existing hold-token fence.
+
+Fork/switch integration retains queue ownership by thread ID. A fork starts with
+an empty queue and no inherited quota facts; source messages and holds stay on the
+source. An accepted but unclaimed fork waits after restart. Explicit resume may
+release that hold without consuming provider input, while the native snapshot
+guard remains until the fork executes. Accepted switches can apply at a quiescent
+boundary even with held messages, which retain their IDs, content and order.
+Cross-provider/account switches clear the old binding's quota facts while keeping
+the queue held for explicit continuation. They cancel the old account's reset
+deadline so its timer cannot spend quota on the destination. Portable handoff accompanies that
+continuation exactly once, including admission followed by RPC rejection.
+Cross-provider switches reset the old provider's admission policy; context samples
+become unknown after any applied switch. Recovery account migration also updates
+the execution selection used by fork provenance and subsequent switches.
+
+The owner permits specific tests of conflicted code during merge resolution.
+Those targeted integration runs are recorded in the PR; the full suite, mutation
+runs and performance measurements remain deferred until merge.

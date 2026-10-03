@@ -2,6 +2,7 @@ import { z } from "zod";
 import { requireSnapshotVersion } from "./schema-version.ts";
 import type { AgentRecord, ThreadState } from "@ace/core";
 import {
+  ThreadLineage,
   Agent,
   AgentActivity,
   AgentFidelity,
@@ -27,6 +28,7 @@ const error = z.object({
 });
 const root = z.object({
   agent: z.string(),
+  lineage: ThreadLineage.optional(),
   fidelity: AgentFidelity,
   native: NativeRef,
   cwd: z.string(),

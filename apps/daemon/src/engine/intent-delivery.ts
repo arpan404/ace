@@ -4,6 +4,7 @@ import type { EngineRepository, Intent, IntentHeader } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { Sessions } from "./sessions.ts";
+import type { ThreadTransitions } from "./transitions.ts";
 import type { Fact } from "@ace/core";
 import { executeIntent, DeliveryDeferred } from "./delivery.ts";
 interface Dependencies {
@@ -13,6 +14,9 @@ interface Dependencies {
   sessions: Sessions;
   recovery: Recovery;
   prepareInput: PrepareInput | undefined;
+  transitions: ThreadTransitions;
+  releaseGuards(intent: IntentHeader): void;
+  invalidateContext(threadId: IntentHeader["threadId"]): void;
   isSteer(intent: IntentHeader): boolean;
 }
 /** Claims, acknowledgements and uncertain delivery have one owner. */
@@ -22,7 +26,8 @@ export class IntentDelivery {
     this.dependencies = dependencies;
   }
   async run(actor: ThreadActor, candidate: IntentHeader): Promise<void> {
-    const send = ["thread.create", "thread.send"].includes(candidate.kind);
+    const send = ["thread.create", "thread.send", "thread.fork"].includes(candidate.kind);
+    const editableSend = ["thread.create", "thread.send"].includes(candidate.kind);
     const continuation = ["thread.resume", "queue.resume", "thread.limit"].includes(candidate.kind);
     const holdToken = this.dependencies.repo.queue.get(actor.id).holdToken;
     const intent = this.dependencies.repo.claim(candidate);
@@ -43,18 +48,34 @@ export class IntentDelivery {
     try {
       if (["thread.resume", "queue.resume", "thread.limit"].includes(intent.command.payload.type))
         await this.resume(actor, intent);
-      else
+      else if (intent.kind === "thread.switch" || intent.kind === "thread.merge") {
+        const binding = {
+          provider: this.dependencies.repo.requireState(actor.id).config.provider,
+          instanceId: this.dependencies.repo.session(actor.id).instanceId,
+        };
+        await this.dependencies.transitions.execute(actor, intent);
+        if (intent.kind === "thread.switch") {
+          this.dependencies.invalidateContext(actor.id);
+          if (
+            binding.provider !== this.dependencies.repo.requireState(actor.id).config.provider ||
+            binding.instanceId !== this.dependencies.repo.session(actor.id).instanceId
+          )
+            this.dependencies.recovery.bindingChanged(actor.id);
+        }
+      } else
         await executeIntent(
           actor,
           intent,
           this.dependencies.repo,
           this.dependencies.registry,
           this.dependencies.sessions,
+          this.dependencies.transitions,
           this.dependencies.prepareInput,
         );
       await actor.flush();
       if (actor.poisoned) throw new Error("Provider frames could not be persisted");
       this.dependencies.repo.mark(intent, "done");
+      this.dependencies.releaseGuards(intent);
     } catch (error) {
       await actor.flush();
       const acknowledged = this.dependencies.repo.pending.acknowledged(intent.id);
@@ -62,6 +83,7 @@ export class IntentDelivery {
         // Admission transfers ownership even if the transport loses the reply.
         // Keep the durable run correlation until the admitted run actually starts.
         this.dependencies.repo.mark(intent, "done");
+        this.dependencies.transitions.delivered(actor.id);
         this.dependencies.recovery.release(actor.id, holdToken);
       } else if (send && error instanceof DeliveryDeferred && !acknowledged) {
         this.dependencies.repo.queue.clearUncertain(intent.id);
@@ -70,9 +92,10 @@ export class IntentDelivery {
         this.dependencies.repo.queue.set(actor.id, {}, this.dependencies.clock.now());
       } else {
         // RPC failure cannot undo native consumption, nor prove nonconsumption.
-        if (send && !acknowledged) this.dependencies.repo.queue.uncertain(intent.id);
+        if (send && acknowledged) this.dependencies.transitions.delivered(actor.id);
+        if (editableSend && !acknowledged) this.dependencies.repo.queue.uncertain(intent.id);
         this.fail(intent, error instanceof Error ? error.message : String(error));
-        if (send && !acknowledged)
+        if (editableSend && !acknowledged)
           this.dependencies.repo.queue.set(
             actor.id,
             { paused: true, reason: "uncertain" },
@@ -93,7 +116,10 @@ export class IntentDelivery {
     if (!this.dependencies.recovery.owns(actor.id, token)) return;
     const queue = this.dependencies.repo.queue.get(actor.id);
     if (queue.continuation) {
-      if (!this.dependencies.repo.session(actor.id).nativeSessionId)
+      if (
+        !this.dependencies.repo.session(actor.id).nativeSessionId &&
+        !this.dependencies.repo.transitions.get(actor.id).handoff
+      )
         throw new Error("Native history is unavailable for continuation");
       // Closing an existing limited session prevents old frames from acknowledging replacement work.
       if (queue.limited && actor.session) await this.dependencies.sessions.close(actor, "user");
@@ -102,7 +128,17 @@ export class IntentDelivery {
       this.dependencies.repo.beginSend(intent, intent.id);
       const session = actor.session;
       if (!session) throw new Error("Provider exited before continuation");
-      await session.send([{ type: "text", text: queue.continuation }], "queue", intent.command.id);
+      await session.send(
+        [
+          ...this.dependencies.transitions
+            .input(actor.id)
+            .map((text) => ({ type: "text" as const, text })),
+          { type: "text", text: queue.continuation },
+        ],
+        "queue",
+        intent.command.id,
+      );
+      this.dependencies.transitions.delivered(actor.id);
     } else {
       this.dependencies.repo.beginSend(intent, undefined);
       this.dependencies.recovery.begin(actor.id, token);
@@ -113,6 +149,26 @@ export class IntentDelivery {
   fail(intent: IntentHeader, message: string): void {
     this.dependencies.repo.store.atomic(() => {
       this.dependencies.repo.mark(intent, "failed", message);
+      this.dependencies.releaseGuards(intent);
+      if (intent.kind === "thread.switch") {
+        const pending = this.dependencies.repo.store.getThread(intent.threadId)?.switch;
+        if (pending)
+          this.dependencies.repo.store.appendEvents(
+            intent.threadId,
+            [
+              {
+                type: "thread.updated",
+                switch: {
+                  ...pending,
+                  state: "failed",
+                  error: message.slice(0, 2048),
+                  at: this.dependencies.clock.now(),
+                },
+              },
+            ],
+            this.dependencies.clock.now(),
+          );
+      }
       if (["thread.resume", "queue.resume", "thread.limit"].includes(intent.kind))
         this.dependencies.repo.queue.set(
           intent.threadId,

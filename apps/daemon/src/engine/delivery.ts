@@ -1,4 +1,5 @@
 import type { PrepareInput } from "./input.ts";
+import type { ThreadTransitions } from "./transitions.ts";
 import { Command, ContextDiagnostic } from "@ace/protocol";
 import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
@@ -13,11 +14,14 @@ export async function executeIntent(
   repo: EngineRepository,
   registry: AdapterRegistry,
   sessions: Sessions,
+  transitions: ThreadTransitions,
   prepare?: PrepareInput,
 ): Promise<void> {
   const p = intent.command.payload;
-  if (p.type === "thread.create" || p.type === "thread.send") {
-    if (p.context && !prepare) throw new Error("Context preparation is unavailable");
+  if (p.type === "thread.create" || p.type === "thread.send" || p.type === "thread.fork") {
+    if (p.type === "thread.fork") await transitions.freezeForkSource(p.threadId, actor.id);
+    if ("context" in p && p.context && !prepare)
+      throw new Error("Context preparation is unavailable");
     await sessions.open(actor);
     const capabilities =
       actor.effectiveCapabilities ??
@@ -26,24 +30,25 @@ export async function executeIntent(
     if (!session) throw new Error("Provider session exited before send");
     const state = repo.requireState(actor.id);
     const generation = actor.generation;
-    const prepared = p.context
-      ? await prepare?.(
-          p.type === "thread.create"
-            ? Command.parse({
-                ...intent.command,
-                payload: {
-                  type: "thread.send",
-                  threadId: actor.id,
-                  input: p.input,
-                  context: p.context,
-                  delivery: "queue",
-                },
-              })
-            : intent.command,
-          state.config.provider,
-          capabilities,
-        )
-      : undefined;
+    const prepared =
+      "context" in p && p.context
+        ? await prepare?.(
+            p.type === "thread.create"
+              ? Command.parse({
+                  ...intent.command,
+                  payload: {
+                    type: "thread.send",
+                    threadId: actor.id,
+                    input: p.input,
+                    context: p.context,
+                    delivery: "queue",
+                  },
+                })
+              : intent.command,
+            state.config.provider,
+            capabilities,
+          )
+        : undefined;
     if (
       generation !== actor.generation ||
       actor.session !== session ||
@@ -78,12 +83,17 @@ export async function executeIntent(
         ]);
       }
       await session.send(
-        prepared?.input ?? p.input,
+        [
+          ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
+          ...(prepared?.input ??
+            (p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input)),
+        ],
         p.type === "thread.send" && p.delivery === "steer" && capabilities.steer
           ? "steer"
           : "queue",
         intent.command.id,
       );
+      transitions.delivered(actor.id);
     } catch (error) {
       actor.releaseInput(intent.id);
       throw error;

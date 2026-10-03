@@ -94,3 +94,11 @@ Verifier regression cases, **not executed (tests run at merge)**:
   restart notice, preserve `restart`, and reach done without replaying old input.
 - Bypass default exclusion refusal or ignore a real outside writer: migration must
   leave source history, destination files and source binding unchanged.
+
+Merge integration mutation cases, **not executed (tests run at merge)**:
+transfer source queued messages or limits into a fork; block explicit resume of an
+unclaimed guarded fork; discard held message order on switch; keep the source
+quota or context occupancy after a destination switch; keep an old provider's
+admission policy or source account reset timer after switching; replay a consumed portable handoff after a lost
+recovery reply; fail to wake an accepted cold switch. Targeted behavior tests may
+run under the owner's merge-conflict exception; no mutation is applied or measured.

@@ -11,6 +11,7 @@
     "bench": "node bench/context.ts"
   },
   "dependencies": {
+    "@ace/handoff": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "image-size": "^2.0.2",

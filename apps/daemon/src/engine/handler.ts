@@ -2,14 +2,9 @@ import { isSend, maxMessageBytes } from "./queue-store.ts";
 import type { Recovery } from "./recovery.ts";
 import { realpathSync, statSync } from "node:fs";
 import { validResolution } from "./resolution.ts";
-import { createThreadState } from "@ace/core";
-import {
-  AcpIdentity,
-  Thread,
-  type Command,
-  type CommandResult,
-  type ThreadId,
-} from "@ace/protocol";
+import { createEngineThread } from "./create-thread.ts";
+import { acceptTransition } from "./transition-handler.ts";
+import { AcpIdentity, ThreadId, type Command, type CommandResult } from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -27,6 +22,8 @@ export function engineHandler(
     handle(command: Command): CommandResult {
       const result = recovery.handle(command);
       if (result) return result;
+      const transition = acceptTransition(repo, registry, command, now(), nextId, wake);
+      if (transition) return transition;
       const p = command.payload;
       if (
         isSend(p) &&
@@ -66,32 +63,22 @@ export function engineHandler(
             return fail("workspace_unavailable");
           }
           const at = now();
-          const thread = Thread.parse({
-            id: nextId(),
+          threadId = ThreadId.parse(nextId());
+          if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
+          createEngineThread(repo, {
+            id: threadId,
             workspaceId: p.workspaceId,
             title: p.title ?? "New thread",
-            provider: p.provider,
-            ...acpIdentity,
-            status: { state: "new" },
-            createdAt: at,
-            updatedAt: at,
-          });
-          threadId = thread.id;
-          if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
-          const state = createThreadState({
-            threadId,
-            config: { provider: p.provider, silenceMs },
-            rootAgent: {
-              agent: "root",
-              fidelity: "full",
-              native: { provider: p.provider, ...acpIdentity },
-              cwd,
+            ...(acpIdentity ? { acpIdentity } : {}),
+            selection: {
+              provider: p.provider,
+              options: {},
               ...(p.model === undefined ? {} : { model: p.model }),
             },
+            cwd,
+            at,
+            silenceMs,
           });
-          repo.save(state, [{ type: "thread.created", thread }], at);
-          repo.createSession(threadId, cwd, p.model);
-          repo.queue.ensure(threadId);
         } else if ("threadId" in p) {
           threadId = p.threadId;
           if (p.type === "thread.archive") {
@@ -101,6 +88,8 @@ export function engineHandler(
             return { commandId: command.id, ok: true };
           }
           if (!repo.state(threadId)) return fail("thread_not_found");
+          if (p.type === "thread.send" && repo.transitions.guarded(threadId))
+            return fail("thread_transition_in_progress");
           if (
             p.type === "thread.interrupt" &&
             p.agentId !== undefined &&

@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "vitest";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { realpath } from "node:fs/promises";
 import { ContextService } from "@ace/context";
 import { fixture, cleanupRecovery, text } from "./recovery-test-support.ts";
 import { scriptFrames, start, end } from "./test-support.ts";
@@ -40,22 +41,29 @@ for (const provider of ["codex", "pi"] as const) {
     const id = h.store.listThreads()[0]?.id;
     if (!id) throw new Error("Missing thread");
     await promisify(execFile)("git", ["init", "-q", h.home]);
+    const workspace = await realpath(h.home);
     const context = await ContextService.open({
       root: `${h.home}/context`,
-      workspace: () => h.home,
+      workspace: () => workspace,
       authorize: () => true,
       now: h.clock.now,
       id: () => "upload",
     });
     try {
       prepare = prepareQueuedInput({ services: { context } });
-      h.command({
+      const sent = h.command({
         type: "thread.send",
         threadId: id,
         input: text("inspect remaining input"),
         context: { mentions: [{ path: "missing.txt" }], attachments: [] },
       });
+      expect(sent.error).toBeUndefined();
       await h.engine.flush();
+      expect(
+        Object.values(h.store.snapshotThread(id).items).filter(
+          (item) => item.type === "notice" && item.level === "error",
+        ),
+      ).toEqual([]);
       expect(
         Object.values(h.store.snapshotThread(id).items).some(
           (item) =>

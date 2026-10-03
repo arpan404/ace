@@ -59,6 +59,9 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     registry,
     recovery: engineOptions.recovery ?? ports,
     prepareInput: engineOptions.prepareInput ?? prepareQueuedInput(context),
+    ...((engineOptions.transitions ?? services.transitions)
+      ? { transitions: engineOptions.transitions ?? services.transitions }
+      : {}),
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());

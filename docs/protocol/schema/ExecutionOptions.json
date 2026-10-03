@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ExecutionOptions.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {
+    "anyOf": [
+      {
+        "maxLength": 1024,
+        "type": "string"
+      },
+      {
+        "type": "number"
+      },
+      {
+        "type": "boolean"
+      },
+      {
+        "type": "null"
+      }
+    ]
+  },
+  "propertyNames": {
+    "maxLength": 128,
+    "type": "string"
+  },
+  "type": "object",
+  "x-ace-constraint": "At most 32 provider option entries."
+}

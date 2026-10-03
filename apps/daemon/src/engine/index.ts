@@ -3,6 +3,7 @@ import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts
 import { ContextMeters } from "./context-meter.ts";
 import { recoverEngine } from "./restart.ts";
 import { IntentDelivery } from "./intent-delivery.ts";
+import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
 import { Sessions } from "./sessions.ts";
 import { randomUUID } from "node:crypto";
 import { deriveThreadStatus, type IdSource } from "@ace/core";
@@ -19,6 +20,7 @@ export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
+  transitions?: TransitionIO;
   prepareInput?: PrepareInput;
   recovery?: RecoveryPorts;
   preferences?: Partial<RecoveryPreferences>;
@@ -49,6 +51,7 @@ export class Engine {
   private recovery: Recovery;
   private meters: ContextMeters;
   private delivery: IntentDelivery;
+  private transitions: ThreadTransitions;
   private readyPromise: Promise<void>;
   private readyState = false;
   private closing = false;
@@ -91,6 +94,27 @@ export class Engine {
       RecoveryPreferences.parse(options.preferences ?? {}),
       (id) => this.wake(id),
     );
+    this.transitions = new ThreadTransitions(
+      this.repo,
+      this.registry,
+      this.sessions,
+      options.transitions ?? {
+        migrate: async () => ({ status: "refused", reason: "Accounts migration is unavailable" }),
+        applyPatch: async () => {
+          throw new Error("Git service is unavailable");
+        },
+      },
+      () => this.clock.now(),
+      async (id) => {
+        const target = this.actor(id);
+        await target.flush();
+        if (!this.repo.quiescent(this.repo.requireState(id)))
+          throw new Error("Transition tree became live");
+        await this.sessions.close(target, "idle");
+        if (!this.repo.quiescent(this.repo.requireState(id)))
+          throw new Error("Transition tree has unsettled work");
+      },
+    );
     this.delivery = new IntentDelivery({
       repo: this.repo,
       clock: this.clock,
@@ -98,6 +122,14 @@ export class Engine {
       sessions: this.sessions,
       recovery: this.recovery,
       prepareInput: options.prepareInput,
+      transitions: this.transitions,
+      invalidateContext: (id) => this.meters.invalidate(id, this.clock.now()),
+      releaseGuards: (intent) => {
+        for (const id of this.repo.transitions.releaseGuards(intent.commandId)) {
+          this.releaseDormant(id);
+          queueMicrotask(() => this.wake(id));
+        }
+      },
       isSteer: (intent) => this.isSteer(intent),
     });
     this.meters = new ContextMeters(store, options.recovery?.contextWindow);
@@ -239,6 +271,7 @@ export class Engine {
     const queue = this.repo.queue.get(id);
     if (
       this.repo.pending.recovery(id) ||
+      this.repo.pending.transition(id) ||
       this.repo.pending.controls(id).length ||
       (!queue.paused && !queue.limited && this.repo.pending.message(id))
     )
@@ -268,6 +301,8 @@ export class Engine {
     const controls = this.repo.pending.controls(actor.id);
     for (const intent of controls) {
       if (this.closing) return;
+      const guard = this.repo.transitions.guardOwner(actor.id);
+      if (guard && guard !== intent.commandId) continue;
       await this.delivery.run(actor, intent);
     }
     this.releaseDormant(actor.id);
@@ -291,13 +326,33 @@ export class Engine {
     }
     if (actor.idleDue && actor.session) await this.sessions.close(actor, "idle");
     if (this.closing) return;
+    const guard = this.repo.transitions.guardOwner(actor.id);
+    const change = this.repo.pending.transition(actor.id);
+    if (
+      change &&
+      (!guard || guard === change.commandId) &&
+      !this.repo.pending.awaiting(actor.id) &&
+      !this.repo.pending.recovering(actor.id) &&
+      this.repo.quiescent(this.repo.requireState(actor.id))
+    ) {
+      await this.delivery.run(actor, change);
+      this.wake(actor.id);
+      return;
+    }
     const recovery = this.repo.pending.recovery(actor.id);
-    if (recovery) {
+    const queue = this.repo.queue.get(actor.id);
+    // Releasing a restart hold does not consume native history. Keep the fork or
+    // patch guard until its owning transition executes after this explicit resume.
+    if (
+      recovery &&
+      (!guard ||
+        guard === recovery.commandId ||
+        (!queue.continuation && ["thread.resume", "queue.resume"].includes(recovery.kind)))
+    ) {
       await this.delivery.run(actor, recovery);
       this.wake(actor.id);
       return;
     }
-    const queue = this.repo.queue.get(actor.id);
     if (this.repo.pending.recoveryAcknowledgement(actor.id)) return;
     if (queue.paused || queue.limited) {
       this.releaseDormant(actor.id);
@@ -306,7 +361,11 @@ export class Engine {
     }
     const first = this.repo.pending.message(actor.id);
     const intent = first && this.isSteer(first) ? this.repo.pending.queuedMessage(actor.id) : first;
-    if (intent) {
+    if (
+      intent &&
+      (!guard || guard === intent.commandId) &&
+      !["thread.switch", "thread.merge"].includes(intent.kind)
+    ) {
       this.repo.mark(intent, "queued");
       this.syncQueue(actor);
       const state = this.repo.requireState(actor.id);
@@ -325,7 +384,13 @@ export class Engine {
   }
   private isSteer(intent: IntentHeader): boolean {
     if (intent.kind !== "thread.send" || intent.delivery !== "steer") return false;
+    if (this.repo.transitions.guarded(intent.threadId)) return false;
     const state = this.repo.requireState(intent.threadId);
+    if (
+      this.repo.pending.transition(intent.threadId) &&
+      (this.repo.pending.running(intent.threadId) || this.repo.quiescent(state))
+    )
+      return false;
     return (
       Boolean(this.actors.get(intent.threadId)?.session) &&
       !this.repo.queue.get(intent.threadId).paused &&

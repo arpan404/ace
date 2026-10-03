@@ -152,6 +152,7 @@ export function seeAgent(
     record,
     {
       origin: fact.origin,
+      ...(fact.lineage === undefined ? {} : { lineage: fact.lineage }),
       fidelity: fact.fidelity,
       native: structuredClone(fact.native),
       cwd: fact.cwd,

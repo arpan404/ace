@@ -1,12 +1,13 @@
 import { z } from "zod";
 import type { StatementSync } from "node:sqlite";
-import { Command, ThreadId } from "@ace/protocol";
+import { Command, CommandId, ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import type { QueueStore } from "./queue-store.ts";
 
 const Header = z.object({
   id: z.number().int().positive(),
   threadId: ThreadId,
+  commandId: CommandId,
   kind: z.string(),
   status: z.enum(["pending", "queued", "running", "done", "failed"]),
   attempts: z.number().int().nonnegative(),
@@ -19,12 +20,15 @@ export type IntentHeader = z.infer<typeof Header>;
 export interface Intent extends IntentHeader {
   command: Command;
 }
-const columns = "id,thread_id,kind,status,attempts,awaiting,ack_target,delivery,acknowledged";
+const columns =
+  "id,command_id,thread_id,kind,status,attempts,awaiting,ack_target,delivery,acknowledged";
 const recoveryKinds = "'thread.resume','queue.resume','thread.limit'";
+const deliveryKinds = "'thread.create','thread.send','thread.fork','thread.switch','thread.merge'";
 function header(row: Record<string, unknown>): IntentHeader {
   return Header.parse({
     id: row.id,
     threadId: row.thread_id,
+    commandId: row.command_id,
     kind: row.kind,
     status: row.status,
     attempts: row.attempts,
@@ -130,13 +134,13 @@ export class IntentStore {
   }
   message(id: ThreadId): IntentHeader | undefined {
     const row = this.sql(
-      `SELECT ${columns} FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send') AND status IN ('pending','queued') ORDER BY position,id LIMIT 1`,
+      `SELECT ${columns} FROM intents WHERE thread_id=? AND kind IN (${deliveryKinds}) AND status IN ('pending','queued') ORDER BY position,id LIMIT 1`,
     ).get(id);
     return row ? header(row) : undefined;
   }
   queuedMessage(id: ThreadId): IntentHeader | undefined {
     const row = this.sql(
-      `SELECT ${columns} FROM intents WHERE thread_id=? AND kind IN ('thread.create','thread.send') AND delivery='queue' AND status IN ('pending','queued') ORDER BY position,id LIMIT 1`,
+      `SELECT ${columns} FROM intents WHERE thread_id=? AND kind IN (${deliveryKinds}) AND delivery='queue' AND status IN ('pending','queued') ORDER BY position,id LIMIT 1`,
     ).get(id);
     return row ? header(row) : undefined;
   }
@@ -146,16 +150,23 @@ export class IntentStore {
     ).get(id);
     return row ? header(row) : undefined;
   }
+  transition(id: ThreadId): IntentHeader | undefined {
+    const row = this.sql(
+      `SELECT ${columns} FROM intents WHERE thread_id=? AND kind IN ('thread.switch','thread.merge') AND status IN ('pending','queued') ORDER BY CASE kind WHEN 'thread.switch' THEN 0 ELSE 1 END,position,id LIMIT 1`,
+    ).get(id);
+    return row ? header(row) : undefined;
+  }
   runnableThreads(limit: number): ThreadId[] {
     return this.sql(`SELECT DISTINCT i.thread_id FROM intents i JOIN engine_queue q ON q.thread_id=i.thread_id
-      WHERE i.status IN ('pending','queued') AND (i.kind IN (${recoveryKinds}) OR (q.paused=0 AND q.limited=0))
+      WHERE i.status IN ('pending','queued') AND (i.kind IN (${recoveryKinds},'thread.switch','thread.merge') OR (q.paused=0 AND q.limited=0))
+      AND NOT EXISTS(SELECT 1 FROM engine_transition_guards g WHERE g.thread_id=i.thread_id AND g.command_id<>i.command_id)
       AND NOT EXISTS(SELECT 1 FROM engine_slots s WHERE s.thread_id=i.thread_id) LIMIT ?`)
       .all(limit)
       .map((row) => ThreadId.parse(row.thread_id));
   }
   controls(id: ThreadId): IntentHeader[] {
     return this.sql(
-      `SELECT ${columns} FROM intents WHERE thread_id=? AND kind NOT IN ('thread.create','thread.send',${recoveryKinds}) AND status='pending' ORDER BY position,id LIMIT 64`,
+      `SELECT ${columns} FROM intents WHERE thread_id=? AND kind NOT IN (${deliveryKinds},${recoveryKinds}) AND status='pending' ORDER BY position,id LIMIT 64`,
     )
       .all(id)
       .map(header);

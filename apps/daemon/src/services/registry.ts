@@ -1,4 +1,5 @@
 import { createRecoverySession } from "./recovery.ts";
+import { createThreadTransitionsSession } from "./thread-transitions.ts";
 import { createPiSocketSession } from "./pi.ts";
 
 import { createAgentRegistrySession } from "./agent-registry.ts";
@@ -42,6 +43,7 @@ export const socketServiceFactories = [
   createModelsSession,
   createAgentRegistrySession,
   createReviewSession,
+  createThreadTransitionsSession,
   createEngineSession,
   createDiagnosticsSession,
 ];

@@ -11,6 +11,7 @@ export function recoverEngine(
   wake: (id: ThreadId) => void,
 ): void {
   repo.store.atomic(() => {
+    repo.transitions.pruneGuards();
     for (const state of repo.states()) {
       const legacyLimits = Object.entries(state.agents).flatMap(([agent, record]) =>
         record.retry?.on === "rate_limit" && !record.limited
@@ -81,9 +82,16 @@ export function recoverEngine(
         );
       } else if (
         intent.status === "pending" &&
-        !["thread.send", "thread.create", "thread.resume", "queue.resume", "thread.limit"].includes(
-          intent.kind,
-        )
+        ![
+          "thread.send",
+          "thread.create",
+          "thread.fork",
+          "thread.switch",
+          "thread.merge",
+          "thread.resume",
+          "queue.resume",
+          "thread.limit",
+        ].includes(intent.kind)
       )
         fail(intent, "Control interrupted by daemon restart; retry explicitly");
     }
@@ -104,7 +112,10 @@ export function recoverEngine(
       if (!uncertain && !queue.limited && recovery.preferences(state.threadId).continueAfterRestart)
         recovery.automatic(state.threadId);
       // Recovery controls already accepted before a crash are safe only when unclaimed.
-      if (repo.pending.recovery(state.threadId) && repo.reserve(state.threadId))
+      if (
+        (repo.pending.recovery(state.threadId) || repo.pending.transition(state.threadId)) &&
+        repo.reserve(state.threadId)
+      )
         wake(state.threadId);
     }
   });

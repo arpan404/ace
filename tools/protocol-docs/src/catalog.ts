@@ -1,3 +1,5 @@
+import * as transitions from "@ace/protocol/thread-transitions";
+import * as handoffRead from "@ace/protocol/handoff-read";
 import * as plugins from "@ace/protocol/plugins";
 import * as preview from "@ace/protocol/preview";
 import * as history from "@ace/protocol/history";
@@ -7,7 +9,7 @@ import * as queue from "@ace/protocol/queue";
 import * as contextMeter from "@ace/protocol/context-meter";
 import * as protocol from "@ace/protocol";
 import * as forge from "@ace/protocol/forge";
-import { builtinToolCatalog } from "@ace/mcp-server";
+import { builtinToolCatalog, handoffToolCatalog } from "@ace/mcp-server";
 import { z } from "zod";
 import type { SchemaEntry, ToolEntry } from "./model.ts";
 
@@ -23,6 +25,8 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./preview", preview],
   ["./history", history],
   ["./accounts", accounts],
+  ["./thread-transitions", transitions],
+  ["./handoff-read", handoffRead],
   ["./pi", pi],
 ]);
 
@@ -37,7 +41,7 @@ export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] 
       exported.set(name, schema);
     }
   const entries: SchemaEntry[] = [...exported].map(([name, schema]) => ({ name, schema }));
-  const tools = builtinToolCatalog.map((tool): ToolEntry => {
+  const tools = [...builtinToolCatalog, ...handoffToolCatalog].map((tool): ToolEntry => {
     const input = `${tool.name}.input`;
     const output = `${tool.name}.output`;
     entries.push(

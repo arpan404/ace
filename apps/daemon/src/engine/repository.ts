@@ -1,3 +1,7 @@
+import { TransitionReadiness } from "./transition-readiness.ts";
+import { captureExecutionSources } from "./execution-provenance.ts";
+import { quiescent } from "./transition-history.ts";
+import { TransitionState } from "./transition-state.ts";
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import type { StatementSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
@@ -20,6 +24,8 @@ export class EngineRepository {
   private capacity: number;
   private commandId: () => string;
   private opening = new Set<ThreadId>();
+  readonly transitions: TransitionState;
+  private readiness: TransitionReadiness;
   private snapshots = new Map<ThreadId, Snapshot>();
   private admissionStatements: {
     has: StatementSync;
@@ -40,6 +46,8 @@ export class EngineRepository {
     store.atomic(migrateEngine);
     this.queue = new QueueStore(store);
     this.pending = new IntentStore(store, this.queue);
+    this.transitions = new TransitionState(store);
+    this.readiness = store.atomic((db) => new TransitionReadiness(db));
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
     this.admissionStatements = store.atomic((db) => ({
       has: db.prepare(
@@ -61,6 +69,15 @@ export class EngineRepository {
   }
   beginSessionOpen(id: ThreadId): void {
     this.opening.add(id);
+  }
+  resetAdmission(id: ThreadId): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "DELETE FROM engine_state_records WHERE thread_id=? AND section='engineAdmission' AND key='root'",
+        )
+        .run(id),
+    );
   }
   finishSessionOpen(id: ThreadId): void {
     this.opening.delete(id);
@@ -104,6 +121,23 @@ export class EngineRepository {
     this.store.atomic((db) => {
       let snapshot = this.snapshots.get(state.threadId);
       if (!snapshot || snapshot.state !== state) snapshot = new Snapshot(db, state);
+      if (
+        payloads.some(
+          (event) =>
+            event.type === "run.started" ||
+            event.type === "item.created" ||
+            event.type === "item.updated",
+        )
+      ) {
+        const session = this.session(state.threadId);
+        const selection = this.transitions.get(state.threadId).selection ?? {
+          provider: state.config.provider,
+          options: {},
+          ...session,
+        };
+        captureExecutionSources(state, payloads, selection, session.nativeSessionId);
+      }
+      this.readiness.capture(state, payloads);
       snapshot.retainChanges(payloads);
       this.store.appendEvents(state.threadId, payloads, at);
       db.prepare(`INSERT INTO thread_state VALUES (?, ?, ?)
@@ -165,6 +199,7 @@ export class EngineRepository {
             if (fact.type === "item.delta" && emitted.some((event) => event.type === "item.delta"))
               snapshot?.delta(fact);
             snapshot?.remember(fact, emitted);
+            if (fact.type === "tick") this.readiness.refreshBlocked(state);
             return emitted;
           } finally {
             finish();
@@ -204,6 +239,10 @@ export class EngineRepository {
       this.evict(id);
       throw error;
     }
+  }
+
+  quiescent(state: ThreadState): boolean {
+    return quiescent(state, this.readiness.agentsReady(state));
   }
 
   add(command: Command, id: ThreadId, resolutionId?: string): void {
@@ -248,7 +287,7 @@ export class EngineRepository {
       Number(
         db
           .prepare(
-            "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND (status IN ('pending','queued') OR uncertain=1) AND kind IN ('thread.send','thread.create')) + (SELECT COUNT(DISTINCT ack_target) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') + (SELECT COUNT(*) FROM engine_queue q WHERE q.thread_id=? AND q.continuation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM intents i WHERE i.thread_id=q.thread_id AND i.kind IN ('thread.resume','queue.resume','thread.limit') AND i.awaiting=1)) AS count",
+            "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND (status IN ('pending','queued') OR uncertain=1) AND kind IN ('thread.send','thread.create','thread.fork','thread.switch','thread.merge')) + (SELECT COUNT(DISTINCT ack_target) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') + (SELECT COUNT(*) FROM engine_queue q WHERE q.thread_id=? AND q.continuation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM intents i WHERE i.thread_id=q.thread_id AND i.kind IN ('thread.resume','queue.resume','thread.limit') AND i.awaiting=1)) AS count",
           )
           .get(id, id, id)?.count,
       ),

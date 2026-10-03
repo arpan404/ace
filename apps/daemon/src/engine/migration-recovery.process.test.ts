@@ -1,9 +1,11 @@
 import { afterEach, expect, test } from "vitest";
 import { DatabaseSync } from "node:sqlite";
-import { mkdir, writeFile, readFile, access } from "node:fs/promises";
+import { mkdir, writeFile, readFile, access, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
+import { ProviderPayload } from "@ace/provider-kit/payload";
+import type { SessionContext } from "@ace/engine-api";
 import { AccountRegistry, AccountService, createInstance } from "@ace/accounts";
 import { fixture, cleanupRecovery, text, replaceProvider } from "./recovery-test-support.ts";
 import { scriptFrames, start, end } from "./test-support.ts";
@@ -12,6 +14,19 @@ import type { RecoveryPorts } from "./recovery.ts";
 
 afterEach(cleanupRecovery);
 const nativeId = "11111111-1111-4111-8111-111111111111";
+// Scripted steps clone frames, so re-admit their trusted bytes at the provider
+// boundary rather than presenting a cloned certificate to the accounts service.
+function encodedContext(context: SessionContext): SessionContext {
+  return {
+    ...context,
+    onFrame(frame) {
+      const encoded = JSON.stringify(frame.data);
+      if (encoded === undefined) throw new Error("Scripted frame is not JSON");
+      const payload = new ProviderPayload(encoded);
+      context.onFrame({ ...frame, payload, data: payload.data });
+    },
+  };
+}
 for (const scenario of ["offline", "native_lock", "external_writer", "unverified"] as const) {
   const refused = scenario !== "offline";
   test(
@@ -92,7 +107,7 @@ for (const scenario of ["offline", "native_lock", "external_writer", "unverified
         native = {
           ...original,
           async openSession(ctx) {
-            const session = await original.openSession(ctx);
+            const session = await original.openSession(encodedContext(ctx));
             return {
               ...session,
               nativeSessionId: nativeId,
@@ -125,8 +140,19 @@ for (const scenario of ["offline", "native_lock", "external_writer", "unverified
           ),
         );
         const id = await h.create();
-        h.command({ type: "thread.send", threadId: id, input: text("following") });
+        expect(
+          Object.values(h.store.snapshotThread(id).items).filter(
+            (item) => item.type === "notice" && item.level === "error",
+          ),
+        ).toEqual([]);
+        expect(h.store.getThread(id)?.status.state).toBe("limited");
+        expect(h.command({ type: "thread.send", threadId: id, input: text("following") }).ok).toBe(
+          true,
+        );
         await h.engine.flush();
+        expect(h.engine.queue(id).messages).toEqual([
+          expect.objectContaining({ input: text("following") }),
+        ]);
         const replacement = replaceProvider(h, frames, [
           { on: "send", frames: [frames.frame(start, end)] },
           { on: "send", frames: [frames.frame(start, end)] },
@@ -135,7 +161,7 @@ for (const scenario of ["offline", "native_lock", "external_writer", "unverified
         native = {
           ...destination,
           async openSession(ctx) {
-            const session = await destination.openSession(ctx);
+            const session = await destination.openSession(encodedContext(ctx));
             return {
               ...session,
               async send(input, delivery, commandId) {
@@ -154,15 +180,15 @@ for (const scenario of ["offline", "native_lock", "external_writer", "unverified
           },
         };
         h.registry.register(bound, { installed: true, auth: "logged_in", loginHint: "unused" });
-        expect(
-          h.command({
-            type: "thread.limit",
-            threadId: id,
-            expectedRevision: h.engine.queue(id).revision,
-            action: "migrate_now",
-            instanceId: "account-b",
-          }).ok,
-        ).toBe(true);
+        const result = h.command({
+          type: "thread.limit",
+          threadId: id,
+          expectedRevision: h.engine.queue(id).revision,
+          action: "migrate_now",
+          instanceId: "account-b",
+        });
+        expect(result.error).toBeUndefined();
+        expect(result.ok).toBe(true);
         await h.engine.flush();
         expect(await readFile(join(source, relative), "utf8")).toBe(history);
         if (refused) {
@@ -186,7 +212,7 @@ for (const scenario of ["offline", "native_lock", "external_writer", "unverified
           });
           expect(h.contexts.at(-1)).toMatchObject({
             instanceId: "account-b",
-            env: { CODEX_HOME: target },
+            env: { CODEX_HOME: await realpath(target) },
             resume: { nativeSessionId: nativeId },
           });
           expect(replacement.commands.findLast((command) => command.type === "send")).toMatchObject(

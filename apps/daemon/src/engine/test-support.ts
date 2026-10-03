@@ -6,6 +6,7 @@ import { once } from "node:events";
 import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
 import type { Fact } from "@ace/core";
 import type { Frame, SessionContext } from "@ace/engine-api";
+import { ProviderPayload } from "@ace/provider-kit/payload";
 import { Command, Capabilities, type CommandPayload, type ServerMessage } from "@ace/protocol";
 import { Store, Engine, AdapterRegistry, type EngineClock, type EngineOptions } from "@ace/daemon";
 import { startServer } from "../server.ts";
@@ -59,7 +60,8 @@ export function scriptFrames() {
     frame(...facts: Fact[]): Frame {
       const channel = `facts-${++seq}`;
       bundles.set(channel, facts);
-      return { seq, t: seq, dir: "recv", channel, data: { scripted: true } };
+      const payload = new ProviderPayload('{"scripted":true}');
+      return { seq, t: seq, dir: "recv", channel, data: payload.data, payload };
     },
     translate(frame: Frame): Fact[] {
       return structuredClone(bundles.get(frame.channel) ?? []);
