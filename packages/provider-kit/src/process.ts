@@ -241,3 +241,4 @@ export async function probe(command: string, args: readonly string[]): Promise<s
   if (output.code !== 0) throw new Error("Probe exited unsuccessfully");
   return output.stdout;
 }
+export { spawnInteractive, type InteractiveProcess } from "./process-interactive.ts";

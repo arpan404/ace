@@ -19,6 +19,7 @@
         "ace": "./src/cli.ts",
       },
       "dependencies": {
+        "@ace/accounts": "workspace:*",
         "@ace/adapter-acp": "workspace:*",
         "@ace/adapter-claude": "workspace:*",
         "@ace/adapter-codex": "workspace:*",
@@ -66,6 +67,15 @@
       },
       "devDependencies": {
         "@types/ws": "^8.18.1",
+      },
+    },
+    "packages/accounts": {
+      "name": "@ace/accounts",
+      "dependencies": {
+        "@ace/engine-api": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "zod": "^4.6.5",
       },
     },
     "packages/adapter-acp": {
@@ -434,6 +444,8 @@
     "node-pty",
   ],
   "packages": {
+    "@ace/accounts": ["@ace/accounts@workspace:packages/accounts"],
+
     "@ace/adapter-acp": ["@ace/adapter-acp@workspace:packages/adapter-acp"],
 
     "@ace/adapter-claude": ["@ace/adapter-claude@workspace:packages/adapter-claude"],

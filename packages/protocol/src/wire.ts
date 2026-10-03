@@ -20,6 +20,7 @@ import {
   HistoryContinueResponse,
 } from "./history.ts";
 import { UsageSummary, UsageSeries, UsageMessage } from "./usage.ts";
+import { AccountsRequest, AccountsResponse } from "./accounts.ts";
 import {
   ModelsListRequest,
   ModelsRefreshRequest,
@@ -33,6 +34,7 @@ import {
   NotificationSnooze,
   NotificationMessage,
 } from "./notifications.ts";
+
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import { Command } from "./commands.ts";
@@ -128,6 +130,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ...FilesClientMessage.options,
   CommandsList,
   CommandsResolve,
+  ...AccountsRequest.options,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -135,6 +138,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   NotificationRegister,
   NotificationSettings,
   NotificationSnooze,
+
   z
     .object({
       type: z.literal("hello"),
@@ -192,8 +196,10 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ...FilesServerMessage.options,
   CommandsListResult,
   CommandsResolveResult,
+  ...AccountsResponse.options,
   ModelsResult,
   NotificationMessage,
+
   z.object({
     type: z.literal("welcome"),
     hostId: HostId,

@@ -1,3 +1,4 @@
+import type { AccountService } from "@ace/accounts";
 import type { CommandService } from "@ace/commands";
 import type { FilesService } from "@ace/files";
 import type { KeyPair } from "@ace/secure-channel";
@@ -26,6 +27,7 @@ import type { CommandHandler } from "./commands.ts";
 import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
+  accounts?: AccountService;
   commands?: CommandService;
   files?: FilesService;
   relay?: { url: string; keys: KeyPair };

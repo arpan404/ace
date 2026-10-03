@@ -1,3 +1,4 @@
+import type { AccountService, AccountRegistry } from "@ace/accounts";
 import type { CommandLibrary } from "@ace/commands";
 import type { FilesService } from "@ace/files";
 import type { KeyPair } from "@ace/secure-channel";
@@ -22,6 +23,8 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  accounts?: AccountService;
+  accountRegistry?: AccountRegistry;
   commands?: CommandLibrary;
   files?: FilesService;
   relay?: { url: string; keys: KeyPair };

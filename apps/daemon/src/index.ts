@@ -152,6 +152,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       browser: services.browser,
       context: services.context,
       settings: services.settings,
+      accounts: services.accounts,
       commands: services.commands,
       models: services.models,
       notifications: services.notifications,
