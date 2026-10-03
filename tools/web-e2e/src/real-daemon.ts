@@ -13,6 +13,7 @@ import {
   scriptedReply,
   screensTitle,
   seededTitle,
+  workerTitle,
   workspaceName,
 } from "./real-daemon-config.ts";
 
@@ -125,6 +126,7 @@ await seedThread(
   "Say hello from the scripted provider.",
 );
 await seedThread(daemon.url, daemonToken, workspace, screensTitle, "List what is in this project.");
+await seedThread(daemon.url, daemonToken, workspace, workerTitle, "Greet both tabs.");
 process.stdout.write(`e2e daemon ready on ${daemon.url}\n`);
 
 const stop = () => void daemon.close().finally(() => process.exit(0));

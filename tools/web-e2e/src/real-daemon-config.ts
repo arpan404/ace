@@ -9,4 +9,6 @@ export const workspaceName = "e2e-project";
 export const seededTitle = "Smoke test on a real daemon";
 /** A second thread for the per-screen spec, so each spec counts replies in its own thread. */
 export const screensTitle = "Screens on a real daemon";
+/** The worker spec's own thread, so its sends never change another spec's reply count. */
+export const workerTitle = "Shared worker on a real daemon";
 export const scriptedReply = "Hello from the scripted provider.";

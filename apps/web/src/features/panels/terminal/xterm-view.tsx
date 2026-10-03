@@ -60,6 +60,9 @@ export function XtermView(props: { sessions: TerminalSessions; id: string; name:
         scrollback: 5_000,
         cursorBlink: false,
         allowProposedApi: false,
+        // The canvas is invisible to assistive technology; xterm's accessibility tree mirrors
+        // the visible rows (a screen's worth of text per frame, not the scrollback) as DOM text.
+        screenReaderMode: true,
         theme: theme(element),
       });
       term.open(element);

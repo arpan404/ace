@@ -4,7 +4,7 @@ import {
   daemonPort,
   daemonTokenPath,
   scriptedReply,
-  seededTitle,
+  workerTitle,
 } from "../src/real-daemon-config.ts";
 
 const transcript = (page: Page) => page.getByRole("feed", { name: "Transcript" });
@@ -27,9 +27,9 @@ test("two tabs share the worker's daemon connection: neither opens a socket, bot
     await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
     await page
       .getByRole("navigation", { name: "Threads" })
-      .getByRole("link", { name: new RegExp(seededTitle) })
+      .getByRole("link", { name: new RegExp(workerTitle) })
       .click();
-    await expect(page.getByRole("heading", { level: 1, name: seededTitle })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: workerTitle })).toBeVisible();
     return page;
   };
 
