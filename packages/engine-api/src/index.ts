@@ -27,6 +27,8 @@ export interface ProviderAdapter {
   capabilities(cli: DiscoveryResult): Capabilities;
   createTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator;
   openSession(ctx: SessionContext): Promise<ProviderSession>;
+  /** Idle provider history clone, bound to this adapter's private home. Never sends input. */
+  forkSession?(input: { nativeSessionId: string; signal: AbortSignal }): Promise<string>;
 }
 
 export interface Translator {
@@ -51,7 +53,16 @@ export interface SessionContext {
   signal: AbortSignal;
 }
 
+/** Configuration owners use these controls; no authentication operations are exposed. */
+export interface ProviderMcpControl {
+  status(): Promise<unknown>;
+  replace(servers: Record<string, unknown>): Promise<unknown>;
+  reconnect(name: string): Promise<void>;
+  enable(name: string): Promise<void>;
+  disable(name: string): Promise<void>;
+}
 export interface ProviderSession {
+  readonly mcp?: ProviderMcpControl;
   readonly nativeSessionId: string;
   send(input: ContentPart[], delivery: "steer" | "queue"): Promise<void>;
   interrupt(target: { agent?: Key; cascade: boolean }): Promise<void>;

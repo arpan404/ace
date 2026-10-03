@@ -196,3 +196,22 @@ lookups; relationship changes walk ancestors to validate cycles. The daemon's
 `bench/usage-replay.ts` measures byte-bounded SQL replay over large metadata.
 Both print throughput/latency and peak RSS without a gating time threshold.
 No revised benchmark was executed; current results need run at merge.
+
+## Inclusive provider estimates
+
+`usageScope: "provider_session" | "model_session"` marks inclusive provider
+snapshots. These require a native `counterKey` and go to `usage_session_totals`,
+inside the same replay transaction. They never contribute to additive agent/day
+rollups or quota burn. Model scope also carries `model`. Missing `usageScope`, or
+`usageScope: "agent"`, retains the existing additive accounting contract.
+
+`UsageStore.sessionTotalsFor({thread,limit})` and the worker's matching method
+return the newest snapshots, bounded to 100 rows. Counts are monotonically
+preserved within each native key. Duplicate/lower/startup reports cannot erase
+saved estimates. A provider reset must choose a new key. Inherited resume/fork
+baselines remain observations rather than fresh spend. Thread deletion removes
+these snapshots transactionally. Provider estimates are not billing statements.
+
+`bench/session-totals.ts` measures this prepared-statement ingestion path through
+the public store. It has not run; latency, throughput and peak RSS need measurement
+at merge.

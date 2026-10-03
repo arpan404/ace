@@ -5,6 +5,8 @@ const tokens = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const dollars = z.number().nonnegative();
 const adjustment = z.number();
 export const UsageMetadata = z.object({
+  /** Inclusive provider/model snapshots are stored separately from additive agent accounting. */
+  usageScope: z.enum(["agent", "provider_session", "model_session"]).optional(),
   reasoningTokens: tokens.optional(),
   cacheWriteTokens: tokens.optional(),
   cacheWrite1hTokens: tokens.optional(),

@@ -16,6 +16,9 @@ port.on("message", (input: unknown) => {
       case "ingest":
         value = store.ingest(call.batch);
         break;
+      case "sessionTotals":
+        value = store.sessionTotalsFor(call.query);
+        break;
       case "summary":
         value = store.summary(call.query);
         break;
