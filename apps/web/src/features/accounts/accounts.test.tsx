@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { teamAtLimit } from "@ace/fake-daemon";
+import { ScenarioPlayer, devWorld, teamAtLimit } from "@ace/fake-daemon";
 import { harness } from "@/test/harness.tsx";
 
 const card = (name: string) => screen.findByRole("article", { name });
@@ -158,4 +158,19 @@ test("when the daemon can't list accounts, the page says so in words and reads t
   app.daemon.restoreRequests();
   await userEvent.click(screen.getByRole("button", { name: "Try again" }));
   expect(await card("Claude Code Personal")).toBeTruthy();
+});
+
+test("in the development world each account counts the threads running on it", async () => {
+  const app = harness();
+  for (const thread of devWorld()) {
+    const player = new ScenarioPlayer(app.daemon, thread.scenario, { agoMs: thread.agoMs });
+    if (thread.through) player.runThrough(thread.through);
+    else player.runUntilBlocked();
+  }
+  await app.open("/more/accounts");
+
+  const personal = await card("Claude Code Personal");
+  expect(await within(personal).findByText(/^\d+ running threads?$/)).toBeTruthy();
+  const work = await card("Claude Code Work");
+  expect(await within(work).findByText(/^\d+ running threads?$/)).toBeTruthy();
 });

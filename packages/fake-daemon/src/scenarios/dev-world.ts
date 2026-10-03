@@ -1,3 +1,4 @@
+import type { ProviderKind } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
 import { teamAtLimit } from "./account-limit.ts";
 import { coldStartReplay } from "./cold-start-replay.ts";
@@ -26,7 +27,7 @@ const minute = 60_000;
  * reads these threads over the wire, so screens agree.
  */
 export function devWorld(): WorldThread[] {
-  return [
+  return withAccounts([
     { scenario: longHistory(120), agoMs: 2 * 24 * 60 * minute },
     ...homeList().map((aged) => ({ scenario: aged.scenario, agoMs: aged.agoMs })),
     { scenario: flakyCheckout(), agoMs: 3 * minute, live: { speed: 1 } },
@@ -37,5 +38,34 @@ export function devWorld(): WorldThread[] {
     { scenario: failingSubagent(), agoMs: 12 * minute, live: { speed: 0.5 } },
     // The exhausted Codex Team account's threads, stopped at its limit (Usage & accounts).
     ...teamAtLimit().map((scenario) => ({ scenario, agoMs: 40 * minute })),
-  ];
+  ]);
+}
+
+/** The accounts of the design (catalog/accounts.ts) each provider's threads run on, in turn. */
+const accountsByProvider: Partial<Record<ProviderKind, readonly string[]>> = {
+  claude: ["claude-personal", "claude-work", "claude-personal"],
+  codex: ["codex-personal"],
+  acp: ["gemini-google"],
+  opencode: ["opencode"],
+  cursor: ["cursor"],
+};
+
+/**
+ * Every thread runs on a signed-in account, as on a real daemon (`live.account`), so Usage &
+ * accounts counts each account's running threads. Threads that name one keep it.
+ */
+function withAccounts(world: WorldThread[]): WorldThread[] {
+  const turns = new Map<ProviderKind, number>();
+  return world.map((entry) => {
+    const { thread } = entry.scenario;
+    const accounts = accountsByProvider[thread.provider];
+    if (thread.live?.account || !accounts?.length) return entry;
+    const turn = turns.get(thread.provider) ?? 0;
+    turns.set(thread.provider, turn + 1);
+    const account = accounts[turn % accounts.length];
+    return {
+      ...entry,
+      scenario: { ...entry.scenario, thread: { ...thread, live: { ...thread.live, account } } },
+    };
+  });
 }
