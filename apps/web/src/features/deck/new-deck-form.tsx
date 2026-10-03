@@ -210,9 +210,12 @@ export function NewDeckForm() {
       </form.Field>
       <form.Field name="merge">
         {(field) => (
-          <fieldset className="border-t pt-4">
-            <legend className="text-[13.5px] font-medium">When the cards pass review</legend>
+          <div className="border-t pt-4">
+            <h2 id="merge-policy" className="text-[13.5px] font-medium">
+              When the cards pass review
+            </h2>
             <RadioGroup
+              aria-labelledby="merge-policy"
               value={field.state.value}
               onValueChange={(value) => {
                 const picked = merges.find((option) => option.value === value);
@@ -232,7 +235,7 @@ export function NewDeckForm() {
                 </label>
               ))}
             </RadioGroup>
-          </fieldset>
+          </div>
         )}
       </form.Field>
       <div className="grid grid-cols-3 gap-4 border-t pt-4">

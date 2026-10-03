@@ -113,8 +113,8 @@ function FileRow(props: { file: ChangedFile }) {
       <span className="min-w-0 flex-1 truncate font-mono text-[12.5px]">{file.path}</span>
       <span className="w-16 text-sm text-subtle-foreground">{file.change}</span>
       <span className="w-20 text-right font-mono text-[12px] tabular-nums">
-        <span className="text-diff-add">+{file.additions}</span>{" "}
-        <span className="text-diff-del">−{file.deletions}</span>
+        <span className="text-status-done">+{file.additions}</span>{" "}
+        <span className="text-status-failed">−{file.deletions}</span>
       </span>
       <span className="w-8 text-right text-xs text-subtle-foreground">
         {formatAge(file.updatedAt, now)}

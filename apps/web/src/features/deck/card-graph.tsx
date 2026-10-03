@@ -71,49 +71,55 @@ export function CardGraph(props: {
   }, [cards, selected]);
 
   return (
-    <div
-      ref={container}
-      className="relative mt-3.5 grid gap-[18px]"
-      style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}
-    >
-      <svg aria-hidden className="pointer-events-none absolute inset-0 size-full overflow-visible">
-        {edges.map((edge) => (
-          <path
-            key={edge.key}
-            d={edge.d}
-            fill="none"
-            strokeWidth={1.5}
-            className={
-              edge.hot
-                ? "stroke-[color-mix(in_oklab,var(--ring)_55%,transparent)]"
-                : "stroke-border"
-            }
-          />
-        ))}
-      </svg>
-      {Array.from({ length: count }, (_, index) => (
-        <section
-          key={index}
-          aria-label={props.run.stages[index] ?? `Stage ${index + 1}`}
-          className="relative z-[1] flex flex-col gap-3"
+    // Narrow windows scroll the plan sideways rather than crushing the cards.
+    <div className="mt-3.5 overflow-x-auto pb-1">
+      <div
+        ref={container}
+        className="relative grid gap-[18px]"
+        style={{ gridTemplateColumns: `repeat(${count}, minmax(170px, 1fr))` }}
+      >
+        <svg
+          aria-hidden
+          className="pointer-events-none absolute inset-0 size-full overflow-visible"
         >
-          <h3 className="px-0.5 pb-0.5 text-xs font-medium text-subtle-foreground">
-            {props.run.stages[index] ?? `Stage ${index + 1}`}
-          </h3>
-          {/* The first column centres on its dependants, as the plan reads left to right. */}
-          {index === 0 && <div aria-hidden className="flex-1" />}
-          {(columns[index] ?? []).map((card) => (
-            <CardTile
-              key={card.id}
-              card={card}
-              run={props.run}
-              selected={card.id === props.selected}
-              onSelect={() => props.onSelect(card.id)}
+          {edges.map((edge) => (
+            <path
+              key={edge.key}
+              d={edge.d}
+              fill="none"
+              strokeWidth={1.5}
+              className={
+                edge.hot
+                  ? "stroke-[color-mix(in_oklab,var(--ring)_55%,transparent)]"
+                  : "stroke-border"
+              }
             />
           ))}
-          {index === 0 && <div aria-hidden className="flex-1" />}
-        </section>
-      ))}
+        </svg>
+        {Array.from({ length: count }, (_, index) => (
+          <section
+            key={index}
+            aria-label={props.run.stages[index] ?? `Stage ${index + 1}`}
+            className="relative z-[1] flex flex-col gap-3"
+          >
+            <h3 className="px-0.5 pb-0.5 text-xs font-medium text-subtle-foreground">
+              {props.run.stages[index] ?? `Stage ${index + 1}`}
+            </h3>
+            {/* The first column centres on its dependants, as the plan reads left to right. */}
+            {index === 0 && <div aria-hidden className="flex-1" />}
+            {(columns[index] ?? []).map((card) => (
+              <CardTile
+                key={card.id}
+                card={card}
+                run={props.run}
+                selected={card.id === props.selected}
+                onSelect={() => props.onSelect(card.id)}
+              />
+            ))}
+            {index === 0 && <div aria-hidden className="flex-1" />}
+          </section>
+        ))}
+      </div>
     </div>
   );
 }
