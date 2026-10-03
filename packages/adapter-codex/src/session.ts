@@ -1,4 +1,5 @@
 import { codexInjection } from "@ace/mcp-server";
+import { CodexSelectionOptions } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { isInteractiveRequest } from "./interactions.ts";
 import { runtime, type CodexRuntime } from "./runtime.ts";
@@ -22,6 +23,10 @@ export async function openCodexSession(
   ctx: SessionContext,
   options: CodexOptions = {},
 ): Promise<ProviderSession> {
+  const selectedOptions = CodexSelectionOptions.parse(ctx.options ?? {});
+  if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
+  if (ctx.fork?.point.type === "item")
+    throw new Error("Codex supports native turn boundaries only");
   if (ctx.signal.aborted) throw ctx.signal.reason;
   const io = { ...runtime, ...options.runtime };
   const cli =
@@ -90,7 +95,10 @@ export async function openCodexSession(
       const p = obj(m["params"]);
       const method = str(m["method"]);
       const thread = str(p["threadId"]);
-      if (dir === "send" && ["thread/start", "thread/resume", "turn/start"].includes(method))
+      if (
+        dir === "send" &&
+        ["thread/start", "thread/resume", "thread/fork", "turn/start"].includes(method)
+      )
         controlRequests.set(m["id"], { method, thread });
       if (dir === "recv") {
         const control = controlRequests.get(m["id"]);
@@ -341,10 +349,18 @@ export async function openCodexSession(
     } satisfies ThreadStartParams;
     const result = obj(
       await request(
-        ctx.resume ? "thread/resume" : "thread/start",
-        ctx.resume
-          ? ({ ...params, threadId: ctx.resume.nativeSessionId } satisfies ThreadResumeParams)
-          : params,
+        ctx.fork ? "thread/fork" : ctx.resume ? "thread/resume" : "thread/start",
+        ctx.fork
+          ? {
+              ...params,
+              threadId: ctx.fork.nativeSessionId,
+              ...(ctx.fork.point.type === "turn" ? { lastTurnId: ctx.fork.point.nativeId } : {}),
+              excludeTurns: true,
+              deferGoalContinuation: true,
+            }
+          : ctx.resume
+            ? ({ ...params, threadId: ctx.resume.nativeSessionId } satisfies ThreadResumeParams)
+            : params,
       ),
     );
     nativeSessionId = str(obj(result["thread"])["id"]);
@@ -352,6 +368,14 @@ export async function openCodexSession(
     known.add(nativeSessionId);
 
     model = str(result["model"], model);
+    if (ctx.options !== undefined)
+      await request("thread/settings/update", {
+        threadId: nativeSessionId,
+        effort: null,
+        summary: null,
+        serviceTier: null,
+        ...selectedOptions,
+      });
   } catch (error) {
     await close();
     throw error;
@@ -361,6 +385,19 @@ export async function openCodexSession(
   }
   return {
     nativeSessionId,
+    async configure(selection) {
+      const executionOptions = CodexSelectionOptions.parse(selection.options);
+      assertOpen();
+      await request("thread/settings/update", {
+        threadId: nativeSessionId,
+        model: selection.model ?? null,
+        effort: null,
+        summary: null,
+        serviceTier: null,
+        ...executionOptions,
+      });
+      model = selection.model ?? "";
+    },
     close,
     ...createSessionCommands({
       nativeSessionId,

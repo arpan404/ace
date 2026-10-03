@@ -1,5 +1,36 @@
 import { z } from "zod";
-import { Agent, Thread, McpNoticeInput, McpSpawnInput } from "@ace/protocol";
+import {
+  Agent,
+  Thread,
+  McpNoticeInput,
+  McpSpawnInput,
+  HandoffPageInput,
+  HandoffPage,
+  HandoffChunkInput,
+  HandoffChunk,
+} from "@ace/protocol";
+
+/** Registered by the handoff owner; scope checks stay at the storage boundary. */
+export const handoffToolCatalog = [
+  {
+    name: "ace_read_handoff",
+    description:
+      "Page cited handoff history. Use sourceThreadId from the manifest and itemsBefore for earlier pages.",
+    input: HandoffPageInput,
+    output: HandoffPage,
+    capability: null,
+    timeoutMs: 10_000,
+  },
+  {
+    name: "ace_read_handoff_chunk",
+    description:
+      "Read a bounded text or shell-output stream from handoff history. Bytes are base64; decode with the returned encoding. Continue at nextOffset until eof.",
+    input: HandoffChunkInput,
+    output: HandoffChunk,
+    capability: null,
+    timeoutMs: 10_000,
+  },
+] as const;
 
 const accepted = z.strictObject({
   intentId: z.string().min(1).max(256),

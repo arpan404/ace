@@ -33,6 +33,8 @@
         "@ace/diagnostics": "workspace:*",
         "@ace/engine-api": "workspace:*",
         "@ace/files": "workspace:*",
+        "@ace/git": "workspace:*",
+        "@ace/handoff": "workspace:*",
         "@ace/history-import": "workspace:*",
         "@ace/mcp-server": "workspace:*",
         "@ace/models": "workspace:*",
@@ -162,7 +164,7 @@
         "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
-        "zod": "^4.3.6",
+        "zod": "^4.6.5",
       },
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
@@ -293,6 +295,7 @@
     "packages/context": {
       "name": "@ace/context",
       "dependencies": {
+        "@ace/handoff": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "image-size": "^2.0.2",
@@ -365,6 +368,12 @@
       },
       "devDependencies": {
         "@ace/provider-kit": "workspace:*",
+      },
+    },
+    "packages/handoff": {
+      "name": "@ace/handoff",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
       },
     },
     "packages/history-import": {
@@ -653,6 +662,8 @@
     "@ace/forge": ["@ace/forge@workspace:packages/forge"],
 
     "@ace/git": ["@ace/git@workspace:packages/git"],
+
+    "@ace/handoff": ["@ace/handoff@workspace:packages/handoff"],
 
     "@ace/history-import": ["@ace/history-import@workspace:packages/history-import"],
 

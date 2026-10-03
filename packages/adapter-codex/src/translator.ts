@@ -141,7 +141,11 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       const thread = obj(result["thread"]);
       if (pending?.method === "initialize" && message["error"] === undefined)
         facts.push({ type: "process.started" });
-      if (pending?.method === "thread/start" || pending?.method === "thread/resume") {
+      if (
+        pending?.method === "thread/start" ||
+        pending?.method === "thread/resume" ||
+        pending?.method === "thread/fork"
+      ) {
         if (str(thread["id"])) {
           root = str(thread["id"]);
           cwd = str(thread["cwd"], str(pending.params["cwd"], cwd));

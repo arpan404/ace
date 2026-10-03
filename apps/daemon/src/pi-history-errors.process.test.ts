@@ -12,7 +12,7 @@ import { readJsonLines } from "@ace/provider-kit/jsonl";
 import { Client } from "./socket-test-support.ts";
 import { until } from "./engine/test-support.ts";
 
-test("Pi history cancellation returns a bounded specific diagnostic through the daemon socket", async () => {
+test("Pi history cancellation and portable fork commands remain available through the same daemon socket", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-pi-diagnostic-"));
   await writeFile(
     join(home, "source.jsonl"),
@@ -115,6 +115,32 @@ test("Pi history cancellation returns a bounded specific diagnostic through the 
     });
     expect(await until(client, (message) => message.type === "pi.result")).toMatchObject({
       result: { ok: false, error: "Pi navigation was not acknowledged" },
+    });
+    const run = Object.values(daemon.store.snapshotThread(thread.id).runs).at(-1);
+    if (!run) throw new Error("Missing completed Pi run");
+    client.send({
+      type: "command",
+      command: Command.parse({
+        id: "portable-fork",
+        deviceId: "device",
+        payload: {
+          type: "thread.fork",
+          threadId: thread.id,
+          point: { type: "turn", runId: run.id },
+          input: "synthetic fork",
+          budgetBytes: 4096,
+        },
+      }),
+    });
+    const receipt = await until(client, (message) => message.type === "commandResult");
+    expect(receipt).toMatchObject({ commandId: "portable-fork", ok: true });
+    if (receipt.type !== "commandResult" || !receipt.forkThreadId)
+      throw new Error("Missing portable fork receipt");
+    expect(daemon.store.getThread(receipt.forkThreadId)?.lineage).toMatchObject({
+      parentThreadId: thread.id,
+      point: { type: "turn", runId: run.id },
+      mode: "portable",
+      lossy: true,
     });
   } finally {
     await client.close();
