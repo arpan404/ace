@@ -25,6 +25,12 @@ async function content() {
     await client.start();
     return app(client);
   }
+  // The endless-agent load test (tools/web-perf); only bundled in `vite --mode perf`.
+  if (import.meta.env.MODE === "perf") {
+    const { client } = (await import("./boot/perf.ts")).bootPerf();
+    await client.start();
+    return app(client);
+  }
   return (
     <ConnectionGate
       stores={{ local: localStorage, session: sessionStorage }}

@@ -603,6 +603,17 @@
         "@playwright/test": "1.63.0",
       },
     },
+    "tools/web-perf": {
+      "name": "@ace/web-perf",
+      "dependencies": {
+        "@ace/client": "workspace:*",
+        "@ace/client-worker": "workspace:*",
+        "@ace/fake-daemon": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@playwright/test": "1.63.0",
+        "zod": "^4.6.5",
+      },
+    },
   },
   "trustedDependencies": [
     "node-pty",
@@ -707,6 +718,8 @@
     "@ace/web": ["@ace/web@workspace:apps/web"],
 
     "@ace/web-e2e": ["@ace/web-e2e@workspace:tools/web-e2e"],
+
+    "@ace/web-perf": ["@ace/web-perf@workspace:tools/web-perf"],
 
     "@ace/workspace": ["@ace/workspace@workspace:packages/workspace"],
 
