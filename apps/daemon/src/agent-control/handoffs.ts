@@ -218,7 +218,13 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
       signal.throwIfAborted();
       const result = store.atomic(() => {
         signal.throwIfAborted();
-        const workspace = store.createWorkspace(path, operation.branch);
+        const parentDeck = store.getThread(caller.threadId)?.deck;
+        const workspace = store.createWorkspace(
+          path,
+          operation.branch,
+          undefined,
+          parentDeck ? { ...parentDeck, role: "delegate" } : undefined,
+        );
         const child = delegations.prepareReserved(caller, reservation, workspace);
         signal.throwIfAborted();
         delegations.launch(child, child.request.task);

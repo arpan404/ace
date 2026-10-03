@@ -63,6 +63,12 @@ export class NativeConductorExecutor {
     if (!existing) {
       const result = await this.commands.run(key, {
         type: "thread.prepare",
+        deck: {
+          deckId: state.id,
+          runId: state.id,
+          workspaceId: state.spec.workspaceId,
+          role: "root",
+        },
         threadId,
         workspaceId: state.spec.workspaceId,
         provider: model.provider,
@@ -159,12 +165,25 @@ export class NativeConductorExecutor {
           return [];
         }
         // Cancel may arrive during filesystem preparation. Admission checks the durable stop markers.
-        const workspace = this.context.store.createWorkspace(binding.path, binding.branch);
+        const deck = {
+          deckId: state.id,
+          runId: state.id,
+          workspaceId: state.spec.workspaceId,
+          role: effect.lane.role,
+          laneId: effect.lane.id,
+        };
+        const workspace = this.context.store.createWorkspace(
+          binding.path,
+          binding.branch,
+          undefined,
+          deck,
+        );
         const source = effect.lane.source
           ? this.journal.latest(state.id, effect.lane.source)
           : undefined;
         edge = this.delegations.prepareReserved(caller, reservation, workspace, {
           resultDelivery: "owner",
+          deck,
           ...(source ? { handoffFrom: source.thread } : {}),
         });
         binding = { ...binding, workspace };
@@ -341,6 +360,29 @@ export class NativeConductorExecutor {
         }
       }
     } else throw new Error("deck_destructive_gate_requires_provider_approval");
+  }
+  /** Upgrade pre-marker runs on restart without changing their execution identity. */
+  restoreOwnership(state: State): void {
+    const store = this.context.store;
+    const base = { deckId: state.id, runId: state.id, workspaceId: state.spec.workspaceId };
+    const mark = (thread: ThreadId, deck: import("@ace/protocol").DeckOwnership) => {
+      const current = store.getThread(thread);
+      if (current && JSON.stringify(current.deck) !== JSON.stringify(deck))
+        store.appendEvents(thread, [{ type: "thread.client.updated", changes: { deck } }]);
+    };
+    const root = this.journal.root(state.id);
+    if (root) mark(root.thread, { ...base, role: "root" });
+    for (const binding of this.journal.lanes(state.id)) {
+      const lane = state.lanes[binding.lane];
+      if (!lane) continue;
+      const deck = { ...base, laneId: lane.id, role: lane.role };
+      mark(binding.thread, deck);
+      if (binding.workspace) store.markWorkspaceDeck(binding.workspace, deck);
+      if (root)
+        for (const edge of this.delegations.journal.family(root.thread))
+          if (this.delegations.journal.isDescendant(edge.childId, binding.thread))
+            mark(edge.childId, { ...deck, role: "delegate" });
+    }
   }
   restoreGates(state: State, root = this.journal.root(state.id)) {
     if (!root) return;

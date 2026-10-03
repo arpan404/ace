@@ -1,4 +1,4 @@
-import { ThreadId, type ConductorRunView } from "@ace/protocol";
+import { WorkspaceId, ThreadId, type ConductorRunView } from "@ace/protocol";
 import type { FakeServiceContext } from "../service-context.ts";
 import type { FakeDeckCard, FakeDeckRun } from "./types.ts";
 
@@ -84,6 +84,15 @@ export function fakeDelegations(
             },
           ]);
         }
+        const deck = {
+          deckId: run.id,
+          runId: run.id,
+          workspaceId: WorkspaceId.parse(run.workspaceId),
+          role,
+          laneId: `${card.id}.${role}`,
+        };
+        if (host && JSON.stringify(host.thread(threadId)?.thread.deck) !== JSON.stringify(deck))
+          host.update(threadId, { type: "thread.client.updated", changes: { deck } });
         const settled = card.state === "merged" || ["cancelled", "merged"].includes(run.phase);
         const asking = role === "worker" && !settled && !!card.question;
         if (host && asking) ask(host, threadId, card);
@@ -209,6 +218,14 @@ export function fakeDeckRoot(run: FakeDeckRun, host?: FakeServiceContext) {
       },
     ]);
   }
+  const deck = {
+    deckId: run.id,
+    runId: run.id,
+    workspaceId: WorkspaceId.parse(run.workspaceId),
+    role: "root" as const,
+  };
+  if (JSON.stringify(host.thread(id)?.thread.deck) !== JSON.stringify(deck))
+    host.update(id, { type: "thread.client.updated", changes: { deck } });
   for (const interaction of Object.values(host.thread(id)?.interactions ?? {})) {
     const marker = interaction.raw.find((raw) => raw.type === deckGateMarker);
     if (interaction.state === "pending" && marker?.name && marker.name !== run.gate?.id)

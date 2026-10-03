@@ -79,6 +79,11 @@ test("a deck gate answered on the deck's own thread is the conductor's decision"
       kind: "thread",
       threadId: ThreadId.parse("relay-streams.root"),
     });
+    expect(root && "thread" in root ? root.thread.deck : undefined).toMatchObject({
+      deckId: "relay-streams",
+      runId: "relay-streams",
+      role: "root",
+    });
     const interactions = root && "interactions" in root ? Object.values(root.interactions) : [];
     const mirrored = interactions.find((interaction) => interaction.state === "pending");
     expect(mirrored?.raw[0]?.type).toBe("ace.conductor.gate");

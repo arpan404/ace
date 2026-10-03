@@ -151,6 +151,7 @@ export class WorkspaceRuntime {
             id: WorkspaceId.parse(row.id),
             name: String(row.name),
             path: String(row.path),
+            deck: this.store.workspaceDeck(WorkspaceId.parse(row.id)),
           })),
           ...(rows.length > op.limit ? { next: String(rows[op.limit - 1]?.id) } : {}),
         });

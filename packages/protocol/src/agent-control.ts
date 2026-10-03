@@ -1,3 +1,4 @@
+import { DeckOwnership } from "./deck-ownership.ts";
 import { z } from "zod";
 import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
@@ -178,6 +179,7 @@ export const AgentControlResult = z.object({
 export type AgentControlResult = z.infer<typeof AgentControlResult>;
 
 export const ThreadPrepareCommand = z.object({
+  deck: DeckOwnership.optional(),
   type: z.literal("thread.prepare"),
   handoffFrom: ThreadId.optional(),
   threadId: ThreadId,

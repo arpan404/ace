@@ -172,7 +172,11 @@ export class DelegationService {
     caller: McpAttribution,
     reservation: DelegationReservation,
     workspace: WorkspaceId,
-    ownership?: { resultDelivery: "owner"; handoffFrom?: ThreadId },
+    ownership?: {
+      resultDelivery: "owner";
+      handoffFrom?: ThreadId;
+      deck?: import("@ace/protocol").DeckOwnership;
+    },
   ) {
     return this.admission.commit(caller, reservation, workspace, ownership);
   }

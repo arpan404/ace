@@ -138,7 +138,11 @@ export class DelegationAdmission {
     caller: McpAttribution,
     reservation: DelegationReservation,
     workspace: WorkspaceId,
-    ownership?: { resultDelivery: "owner"; handoffFrom?: ThreadId },
+    ownership?: {
+      resultDelivery: "owner";
+      handoffFrom?: ThreadId;
+      deck?: import("@ace/protocol").DeckOwnership;
+    },
   ) {
     return this.deps.store.atomic(() => {
       const requested = reservation.record;
@@ -169,8 +173,12 @@ export class DelegationAdmission {
           throw new Error("Account unavailable or quota exhausted");
       }
       const identity = r.request.provider === "acp" ? AcpIdentity.parse(r.request) : undefined;
+      const parentDeck = this.deps.store.getThread(r.parentId)?.deck;
+      const deck =
+        ownership?.deck ?? (parentDeck ? { ...parentDeck, role: "delegate" as const } : undefined);
       const result = this.command(controlCommandId(r.parentId, r.requestId, "create"), {
         type: "thread.prepare",
+        ...(deck ? { deck } : {}),
         ...(ownership?.handoffFrom ? { handoffFrom: ownership.handoffFrom } : {}),
         threadId: r.childId,
         workspaceId: workspace,

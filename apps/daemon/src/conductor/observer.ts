@@ -39,7 +39,10 @@ export class DeckObserver {
     // Resume only interrupted in-flight work. Engine recovery retains history and uncertain queues.
     for (const run of this.runtime.active()) {
       const state = this.runtime.state(run);
-      if (state) this.executor.restoreGates(state);
+      if (state) {
+        this.executor.restoreOwnership(state);
+        this.executor.restoreGates(state);
+      }
       if (!state || state.phase === "paused" || state.phase === "cancelling") continue;
       for (const binding of this.executor.journal.current(state)) {
         if (!state.lanes[binding.lane]?.live || state.lanes[binding.lane]?.status === "migrating")

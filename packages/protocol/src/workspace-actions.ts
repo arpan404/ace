@@ -1,3 +1,4 @@
+import { DeckOwnership } from "./deck-ownership.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ForgePrStatus } from "./forge.ts";
@@ -68,7 +69,14 @@ export const WorkspaceActionResult = z.object({
     z.object({
       kind: z.literal("workspaces"),
       workspaces: z
-        .array(z.object({ id: WorkspaceId, name: z.string().max(256), path: z.string().max(4096) }))
+        .array(
+          z.object({
+            id: WorkspaceId,
+            name: z.string().max(256),
+            path: z.string().max(4096),
+            deck: DeckOwnership.optional(),
+          }),
+        )
         .max(100),
       next: id.optional(),
     }),
