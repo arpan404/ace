@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { spawnProcess, type ProcessSpawner } from "./io.ts";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
@@ -5,6 +6,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { finished } from "node:stream/promises";
 import type { BrowserArtifact, BrowserFrame } from "@ace/protocol";
+
+const Timestamp = z.number().finite().nonnegative();
 
 const player = `<!doctype html><meta name="viewport" content="width=device-width"><title>Browser recording</title>
 <button id="play">Play</button><img id="frame" style="max-width:100%"><script>
@@ -69,17 +72,23 @@ export class Recording {
     await append(recording.concat, "ffconcat version 1.0\n");
     return recording;
   }
+  private admissionOpen(): boolean {
+    return !(this.closed || this.busy || this.failure || this.exhausted || this.count >= 100_000);
+  }
   accept(frame: BrowserFrame): boolean {
-    if (this.closed || this.busy || this.failure || this.exhausted || this.count >= 100_000)
-      return false;
-    const data = Buffer.from(frame.data, "base64");
+    if (!this.admissionOpen()) return false;
+    return this.acceptJpeg(frame.timestamp, Buffer.from(frame.data, "base64"));
+  }
+  /** Admit an owned JPEG without base64 conversion. Keep its bytes unchanged until flush. */
+  acceptJpeg(timestamp: number, data: Uint8Array): boolean {
+    if (!this.admissionOpen()) return false;
+    Timestamp.parse(timestamp);
     if (this.bytes + data.length > this.limit) {
       this.exhausted = true;
       return false;
     }
     this.bytes += data.length;
     const file = `${++this.count}.jpg`;
-    const timestamp = frame.timestamp;
     this.busy = (async () => {
       await writeFile(join(this.dir, file), data, { mode: 0o600 });
       await append(this.manifest, JSON.stringify({ file, timestamp }) + "\n");

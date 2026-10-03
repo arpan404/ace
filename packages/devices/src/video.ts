@@ -125,15 +125,7 @@ export async function renderDeviceVideo(
       if (sequence <= previousSequence || timestamp < previousTimestamp)
         throw invalid("Device recording frames are out of order");
       const payload = await exact(file, payloadPosition, header.bytes, info.size);
-      if (
-        !recording.accept({
-          sequence,
-          timestamp,
-          width: header.width,
-          height: header.height,
-          data: payload.toString("base64"),
-        })
-      )
+      if (!recording.acceptJpeg(timestamp, payload))
         throw new DeviceError(
           "limit",
           "Device recording exceeds the encoder's bounded frame budget",

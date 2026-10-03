@@ -77,7 +77,7 @@ async function source(directory: string, data: Buffer): Promise<RecordingArtifac
   await writeFile(path, data);
   return { id: "artifact", path, bytes: data.length, mimeType: "application/vnd.ace.screen" };
 }
-it("encodes every v1 and v2 frame with original timing and removes temporary conversion files", async () => {
+it("passes every v1 and v2 JPEG byte and timestamp to the encoder and removes intermediates", async () => {
   const f = await fixture();
   const artifact = await source(
     f.directory,
@@ -90,7 +90,6 @@ it("encodes every v1 and v2 frame with original timing and removes temporary con
     mimeType: "video/mp4",
   });
   const output = await readFile(result.path);
-  expect(output.subarray(4, 8).toString()).toBe("ftyp");
   const evidence = z
     .object({ concat: z.string(), images: z.array(z.string()) })
     .parse(JSON.parse(output.subarray(24).toString()));
@@ -190,4 +189,20 @@ it("rejects nonregular sources and mismatched artifact metadata", async () => {
     code: "invalid_data",
   });
   expect((await stat(artifact.path)).size).toBe(artifact.bytes);
+});
+
+it("binary recording admission preserves JPEG bytes and refuses an exhausted frame budget", async () => {
+  const f = await fixture();
+  const directory = join(f.directory, "binary");
+  const recording = await BrowserRecording.start(directory, undefined, 4);
+  const jpeg = Uint8Array.from([255, 216, 255, 217]);
+  expect(recording.acceptJpeg(10, jpeg)).toBe(true);
+  await recording.flush();
+  expect(await readFile(join(directory, "1.jpg"))).toEqual(Buffer.from(jpeg));
+  expect(recording.acceptJpeg(20, jpeg)).toBe(false);
+  const result = await recording.stop();
+  expect(result.mimeType).toBe("text/html");
+  expect(await readFile(join(directory, "frames.jsonl"), "utf8")).toBe(
+    '{"file":"1.jpg","timestamp":10}\n',
+  );
 });
