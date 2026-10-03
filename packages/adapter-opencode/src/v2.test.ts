@@ -317,12 +317,18 @@ it("comment-only transport activity keeps liveness without creating a model turn
 
 it("recovered synthetic completion cannot resurrect a historical background child", () => {
   const h = setup();
+  // Ancestry alone cannot prove a child idle. Establish terminal execution evidence.
+  h.event("session.execution.started");
   h.event("session.created", {
     sessionID: "child",
     parentID: "s-root",
     projectID: "p",
     location: { directory: "/one" },
   });
+  h.event("session.execution.started", { sessionID: "child" });
+  h.event("session.execution.succeeded", { sessionID: "child" });
+  h.event("session.execution.succeeded");
+  expect(h.view.thread.status.state).toBe("done");
   h.frame("snapshot.message", {
     sessionID: "s-root",
     message: {
@@ -356,7 +362,7 @@ it("recovered synthetic completion cannot resurrect a historical background chil
     },
   });
   expect(Object.values(h.view.backgroundTasks).filter((t) => t.status === "running")).toEqual([]);
-  expect(h.view.thread.status.state).toBe("new");
+  expect(h.view.thread.status.state).toBe("done");
 });
 
 it("an old idle outcome cannot finish a newer execution observed before disconnect", () => {
@@ -423,7 +429,10 @@ it("a later background dispatch to the same child waits for its own completion",
       id,
       metadata: { sessionID: "child", status: "running" },
     });
+    h.event("session.execution.started", { sessionID: "child" });
     h.event("session.execution.succeeded");
+    expect(h.view.thread.status.state).toBe("working");
+    h.event("session.execution.succeeded", { sessionID: "child" });
   };
   dispatch("first");
   expect(h.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
