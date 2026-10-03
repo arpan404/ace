@@ -1,3 +1,4 @@
+import { supportsPermissionMode } from "@ace/core";
 import { AcpIdentity } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
@@ -14,6 +15,7 @@ const SessionIdentity = z.strictObject({
 
 interface SessionDependencies {
   repo: EngineRepository;
+  permissionSettings?: import("./permissions.ts").PermissionSettings;
   prepareWorkspace?(id: ThreadId): Promise<string>;
   registry: AdapterRegistry;
   clock: EngineClock;
@@ -41,7 +43,30 @@ export class Sessions {
     this.dependencies = dependencies;
   }
   async open(actor: ThreadActor): Promise<void> {
-    if (actor.session) return;
+    const stateBefore = this.dependencies.repo.requireState(actor.id);
+    const ownLive = !this.dependencies.repo.quiescent(stateBefore);
+    if (actor.session && ownLive) return;
+    const mode = ownLive
+      ? this.dependencies.repo.permissions.effective(actor.id)
+      : await this.dependencies.repo.permissions.resolve(
+          actor.id,
+          this.dependencies.permissionSettings,
+        );
+    const entry = this.dependencies.registry.get(
+      stateBefore.config.provider,
+      this.dependencies.repo.backend(actor.id),
+    );
+    if (!supportsPermissionMode(entry.capabilities.permissions, mode))
+      throw new Error(
+        `permission_mode_unsupported: ${stateBefore.config.provider} cannot honor ${mode}`,
+      );
+    if (actor.session && this.dependencies.repo.permissions.effective(actor.id) !== mode)
+      await this.close(actor, "idle");
+    if (actor.session) {
+      this.dependencies.repo.permissions.applied(actor.id, mode, this.dependencies.clock.now());
+      return;
+    }
+    this.dependencies.repo.permissions.applied(actor.id, mode, this.dependencies.clock.now());
     this.dependencies.repo.beginSessionOpen(actor.id);
     const lifetime = new AbortController();
     actor.lifetime = lifetime;
@@ -87,6 +112,7 @@ export class Sessions {
       const context = await this.dependencies.context?.(actor.id, lifetime.signal);
       const session = await adapter.openSession({
         ...context,
+        permissionMode: mode,
         ...(aceMcp ? { aceMcp } : {}),
         options: transition.selection?.options ?? metadata.options ?? {},
         ...(identity ? { acpIdentity: identity } : {}),

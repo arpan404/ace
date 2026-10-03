@@ -1,3 +1,4 @@
+import { Permissions } from "./permissions.ts";
 import { ProviderRecovery } from "./provider-recovery.ts";
 import type { ProviderBackend, Frame } from "@ace/engine-api";
 import { z } from "zod";
@@ -21,6 +22,7 @@ import { IntentStore, type IntentHeader } from "./intents.ts";
 export type { Intent, IntentHeader } from "./intents.ts";
 export class EngineRepository {
   readonly store: Store;
+  readonly permissions: Permissions;
   readonly recovery: ProviderRecovery;
   private capture: StatementSync;
   readonly queue: QueueStore;
@@ -51,6 +53,7 @@ export class EngineRepository {
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    this.permissions = new Permissions(this);
     this.recovery = new ProviderRecovery(store);
     this.capture = store.atomic((db) =>
       db.prepare("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)"),

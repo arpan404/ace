@@ -75,6 +75,7 @@ export async function harness(
     limits?: EngineOptions["limits"];
     recovery?: EngineOptions["recovery"];
     preferences?: EngineOptions["preferences"];
+    permissionSettings?: EngineOptions["permissionSettings"];
     prepareInput?: EngineOptions["prepareInput"];
     beforeSend?: EngineOptions["beforeSend"];
     steer?: boolean;
@@ -136,6 +137,7 @@ export async function harness(
     registry,
     ...(options.recovery ? { recovery: options.recovery } : {}),
     ...(options.preferences ? { preferences: options.preferences } : {}),
+    ...(options.permissionSettings ? { permissionSettings: options.permissionSettings } : {}),
     ...(options.prepareInput ? { prepareInput: options.prepareInput } : {}),
     ...(options.beforeSend ? { beforeSend: options.beforeSend } : {}),
     ...(options.limits === undefined ? {} : { limits: options.limits }),

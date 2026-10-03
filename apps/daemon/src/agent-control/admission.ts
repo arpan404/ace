@@ -3,13 +3,12 @@ import { admitDelegation, delegationBudget } from "@ace/orchestrator";
 import { pickInstance } from "@ace/accounts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import {
+  Command,
   AcpIdentity,
   DelegationRequest,
   ThreadId,
   type McpAttribution,
   type WorkspaceId,
-  type CommandPayload,
-  type CommandResult,
 } from "@ace/protocol";
 import type { DelegationDependencies } from "./delegations.ts";
 import type { DelegationJournal, DelegationReservation } from "./journal.ts";
@@ -21,19 +20,17 @@ export class DelegationAdmission {
   private journal: DelegationJournal;
   private policy: import("@ace/protocol").DelegationPolicy;
   private admits: () => boolean;
-  private command: (id: string, payload: CommandPayload) => CommandResult;
+
   constructor(
     deps: DelegationDependencies,
     journal: DelegationJournal,
     policy: import("@ace/protocol").DelegationPolicy,
     admits: () => boolean,
-    command: (id: string, payload: CommandPayload) => CommandResult,
   ) {
     this.deps = deps;
     this.journal = journal;
     this.policy = policy;
     this.admits = admits;
-    this.command = command;
   }
   private validate(caller: McpAttribution, input: DelegationRequest) {
     if (!this.admits()) throw new Error("Admission closed");
@@ -156,17 +153,27 @@ export class DelegationAdmission {
           throw new Error("Account unavailable or quota exhausted");
       }
       const identity = r.request.provider === "acp" ? AcpIdentity.parse(r.request) : undefined;
-      const result = this.command(controlCommandId(r.parentId, r.requestId, "create"), {
-        type: "thread.prepare",
-        threadId: r.childId,
-        workspaceId: workspace,
-        provider: r.request.provider,
-        ...identity,
-        title: r.request.role.slice(0, 256),
-        ...(r.request.model ? { model: r.request.model } : {}),
-        ...(r.request.options ? { options: r.request.options } : {}),
-        ...(current.accountId ? { accountId: current.accountId } : {}),
-      });
+      const result = this.deps.engine.spawn(
+        Command.parse({
+          id: controlCommandId(r.parentId, r.requestId, "create"),
+          deviceId: "ace-agent",
+          payload: {
+            type: "thread.prepare",
+            threadId: r.childId,
+            workspaceId: workspace,
+            provider: r.request.provider,
+            ...identity,
+            title: r.request.role.slice(0, 256),
+            ...(r.request.model ? { model: r.request.model } : {}),
+            ...(r.request.options ? { options: r.request.options } : {}),
+            ...(current.accountId ? { accountId: current.accountId } : {}),
+          },
+        }),
+        {
+          parentThreadId: r.parentId,
+          ...(r.request.permissionMode ? { permissionMode: r.request.permissionMode } : {}),
+        },
+      );
       if (!result.ok) throw new Error(result.error);
       const child = this.deps.store.getThread(r.childId);
       if (!child) throw new Error("Child creation failed");
