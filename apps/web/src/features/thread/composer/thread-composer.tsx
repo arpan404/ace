@@ -16,7 +16,8 @@ import { QueuedPills } from "./queued.tsx";
 /** The agent is mid-turn or held up: a new message waits unless the person steers. */
 export function isBusy(status: ThreadStatus | undefined): boolean {
   if (!status) return false;
-  if (status.state === "working" || status.state === "needs_you") return true;
+  if (status.state === "working" || status.state === "needs_you" || status.state === "limited")
+    return true;
   return status.state === "waiting" && status.on !== "background_task";
 }
 

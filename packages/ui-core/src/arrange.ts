@@ -63,6 +63,7 @@ export function rank(entry: ThreadListEntry, mark: ThreadMark | undefined, now: 
       return 0;
     case "working":
     case "waiting":
+    case "limited":
       return 1;
     case "failed":
     case "unresponsive":

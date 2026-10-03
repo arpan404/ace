@@ -28,6 +28,15 @@ test("Home puts threads that need you first, then moving ones, then trouble, the
   expect(arrange(entries, state(), now).active).toEqual(["asks", "working", "failed", "done"]);
 });
 
+test("a thread held by a provider limit stays with the moving ones, above trouble", () => {
+  const entries = [
+    entry("failed", { state: "failed" }, now - hour),
+    entry("done", { state: "done" }, now - hour),
+    entry("limited", { state: "limited", until: now + hour }, now - 2 * hour),
+  ];
+  expect(arrange(entries, state(), now).active).toEqual(["limited", "failed", "done"]);
+});
+
 test("within a group pinned threads lead, then the most recently active", () => {
   const entries = [
     entry("older", { state: "working", agents: 1 }, now - 3 * hour),
