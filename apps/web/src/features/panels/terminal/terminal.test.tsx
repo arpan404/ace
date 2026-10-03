@@ -24,18 +24,18 @@ const output = (panel: HTMLElement, name: string) => within(panel).getByRole("lo
 test("the agent's background dev server streams into its own tab", async () => {
   const { panel, script } = await openTerminal();
   const relay = await within(panel).findByRole("tab", {
-    name: "dev:relay, running",
+    name: "relay:soak, running",
     selected: true,
   });
   expect(relay).toBeTruthy();
-  expect(output(panel, "dev:relay output").textContent).toContain(
-    "relay listening on ws://127.0.0.1:8787",
+  expect(output(panel, "relay:soak output").textContent).toContain(
+    "soak relay listening on ws://127.0.0.1:8790",
   );
-  expect(output(panel, "dev:relay output").textContent).not.toContain("cold start");
+  expect(output(panel, "relay:soak output").textContent).not.toContain("cold start");
 
   await act(async () => script.runThrough("relay-output"));
   await waitFor(() =>
-    expect(output(panel, "dev:relay output").textContent).toContain(
+    expect(output(panel, "relay:soak output").textContent).toContain(
       "client ios-2 connected · resume seq 0 · cold start",
     ),
   );

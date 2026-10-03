@@ -138,21 +138,25 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
         facts: [
           tool("root", "spawn-audit", {
             kind: "agent.spawn",
-            title: "Audit every resume path",
-            detail: { kind: "agent.spawn", description: "Audit resume paths", childAgent: "audit" },
+            title: "Find every caller that resumes from seq 0",
+            detail: {
+              kind: "agent.spawn",
+              description: "Sweep the web and mobile resume callers",
+              childAgent: "audit",
+            },
           }),
           tool("root", "spawn-test", {
             kind: "agent.spawn",
-            title: "Write the regression test",
+            title: "Test the client buffer against a late ack",
             detail: {
               kind: "agent.spawn",
-              description: "Restart the daemon mid-stream and assert no duplicates",
+              description: "Hold resume.ack for 2s and assert the buffer survives",
               childAgent: "test",
             },
           }),
-          subagent("claude", "audit", "reconnect-audit", "spawn-audit"),
+          subagent("claude", "audit", "resume-sweep", "spawn-audit"),
           turn("audit", "audit-1", "spawn"),
-          subagent("claude", "test", "regression-test", "spawn-test"),
+          subagent("claude", "test", "ack-buffer-test", "spawn-test"),
           turn("test", "test-1", "spawn"),
         ],
       },
@@ -175,7 +179,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
         agoMs: 5 * m + 50 * s,
         facts: [
           toolDone("audit", "edit-outbox"),
-          // reconnect-audit checks pairing in the browser; the Preview tab names it as the driver.
+          // resume-sweep checks pairing in the browser; the Preview tab names it as the driver.
           tool("audit", "browse-pairing", {
             kind: "browser",
             title: "Pair a phone on localhost:5173/settings/devices",
@@ -184,10 +188,10 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
           activity("audit", "Reading apps/mobile/src/resume.ts"),
           tool("test", "run-tests", {
             kind: "shell",
-            title: "Run the replay tests",
-            detail: { kind: "shell", command: "bun run test replay" },
+            title: "Run the outbox tests",
+            detail: { kind: "shell", command: "bun run test outbox" },
           }),
-          activity("test", "bun run test replay"),
+          activity("test", "bun run test outbox"),
         ],
       },
       {
@@ -197,19 +201,23 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
         facts: [
           tool("root", "relay", {
             kind: "shell",
-            title: "Run the relay in the background",
-            detail: { kind: "shell", command: "bun run dev:relay" },
+            title: "Soak the relay with two clients",
+            detail: { kind: "shell", command: "bun run relay:soak --clients 2" },
           }),
           {
             type: "background.started",
             agent: "root",
             task: "relay",
             kind: "shell",
-            title: "bun run dev:relay",
+            title: "bun run relay:soak --clients 2",
             item: "relay",
             stoppable: true,
           },
-          output("root", "relay", "$ bun run dev:relay\nrelay listening on ws://127.0.0.1:8787\n"),
+          output(
+            "root",
+            "relay",
+            "$ bun run relay:soak --clients 2\nsoak relay listening on ws://127.0.0.1:8790\n",
+          ),
           { type: "subagents.waiting", agent: "root", item: "spawn-test", targets: [] },
         ],
       },
@@ -245,7 +253,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
             "audit",
             "audit-report",
             "assistant",
-            "The mobile client also resumes with seq 0 when its cache is empty; the cap covers it.",
+            "Three callers resume from seq 0: the web tab after a cache wipe, the iOS cold launch and the share extension. The cap covers all three.",
           ),
           toolDone("audit", "browse-pairing"),
           endTurn("audit", "audit-1"),
@@ -257,7 +265,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
         delayMs: 20_000,
         label: "test-done",
         facts: [
-          output("test", "run-tests", "3 pass · 0 fail · 1 file  412ms\n"),
+          output("test", "run-tests", "5 pass · 0 fail · 2 files  1.38s\n"),
           toolDone("test", "run-tests"),
           endTurn("test", "test-1"),
           toolDone("root", "spawn-test"),
@@ -277,7 +285,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
             "root",
             "reply-2",
             "assistant",
-            "Both resume paths are covered and the regression test passes. The relay is still running for you to try.",
+            "All three seq-0 callers are capped and the late-ack test passes. The soak relay is still running if you want to poke at it.",
           ),
           endTurn("root", "t2"),
         ],

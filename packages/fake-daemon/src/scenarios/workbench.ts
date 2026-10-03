@@ -73,7 +73,7 @@ function retryBudget(): Scenario {
     steps: [
       {
         kind: "facts",
-        agoMs: 8 * 60_000,
+        agoMs: 8 * 60_000 + 41_000,
         facts: [
           ...opening(
             "claude",
@@ -85,6 +85,7 @@ function retryBudget(): Scenario {
       ...retryBudgetEdits(),
       {
         kind: "facts",
+        agoMs: 1 * 60_000 + 26_000,
         facts: [
           message(
             "root",

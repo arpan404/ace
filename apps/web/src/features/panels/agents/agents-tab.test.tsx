@@ -40,13 +40,15 @@ test("the Agents tab shows what each agent is doing, the background shell, and w
   });
   expect(within(root).getByText("Claude Code")).toBeTruthy();
   expect(within(root).getByText("waiting for subagents")).toBeTruthy();
-  const audit = within(panel).getByRole("group", { name: "reconnect-audit: Working" });
+  const audit = within(panel).getByRole("group", { name: "resume-sweep: Working" });
   // Its running browser call is what it is doing (the Preview tab names it as the driver).
   expect(within(audit).getByText("Pair a phone on localhost:5173/settings/devices")).toBeTruthy();
-  const tester = within(panel).getByRole("group", { name: "regression-test: Working" });
-  expect(within(tester).getByText("Run the replay tests")).toBeTruthy();
+  const tester = within(panel).getByRole("group", { name: "ack-buffer-test: Working" });
+  expect(within(tester).getByText("Run the outbox tests")).toBeTruthy();
 
-  expect(within(panel).getByRole("listitem", { name: "bun run dev:relay: running" })).toBeTruthy();
+  expect(
+    within(panel).getByRole("listitem", { name: "bun run relay:soak --clients 2: running" }),
+  ).toBeTruthy();
   expect(within(panel).getByRole("region", { name: "Why isn't this done?" }).textContent).toContain(
     "Two subagents are still running and one background shell is open.",
   );
@@ -65,9 +67,11 @@ test("Stop ends a background shell, and the thread settles once nothing else is 
     "One background shell is open. The thread settles when the shell is stopped or finishes.",
   );
 
-  const shell = within(panel).getByRole("listitem", { name: "bun run dev:relay: running" });
+  const shell = within(panel).getByRole("listitem", {
+    name: "bun run relay:soak --clients 2: running",
+  });
   await userEvent.click(within(shell).getByRole("button", { name: "Stop" }));
-  await within(panel).findByRole("listitem", { name: "bun run dev:relay: stopped" });
+  await within(panel).findByRole("listitem", { name: "bun run relay:soak --clients 2: stopped" });
   expect(within(panel).queryByRole("button", { name: "Stop" })).toBeNull();
   const done = await within(panel).findByRole("region", { name: "Done" });
   expect(done.textContent).toContain("Every agent has finished");
@@ -80,11 +84,11 @@ test("Stop on a subagent interrupts only that subagent", async () => {
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
   await userEvent.keyboard("{Meta>}j{/Meta}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  const audit = await within(panel).findByRole("group", { name: "reconnect-audit: Working" });
+  const audit = await within(panel).findByRole("group", { name: "resume-sweep: Working" });
   await userEvent.hover(audit);
   await userEvent.click(within(audit).getByRole("button", { name: "Stop" }));
-  await within(panel).findByRole("group", { name: "reconnect-audit: Interrupted" });
-  expect(within(panel).getByRole("group", { name: "regression-test: Working" })).toBeTruthy();
+  await within(panel).findByRole("group", { name: "resume-sweep: Interrupted" });
+  expect(within(panel).getByRole("group", { name: "ack-buffer-test: Working" })).toBeTruthy();
   expect(within(panel).getByRole("region", { name: "Why isn't this done?" }).textContent).toContain(
     "One subagent is still running",
   );
@@ -99,7 +103,7 @@ test("a message queued in the composer shows in the Agents tab and in why the th
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await within(panel).findByRole("group", { name: "Main agent: Waiting on subagents" });
   // Each agent row carries its provider.
-  const audit = within(panel).getByRole("group", { name: "reconnect-audit: Working" });
+  const audit = within(panel).getByRole("group", { name: "resume-sweep: Working" });
   expect(within(audit).getByRole("img", { name: "Claude Code" })).toBeTruthy();
   expect(within(panel).queryByRole("listitem", { name: /queued message/ })).toBeNull();
 

@@ -36,7 +36,7 @@ test("the bottom panel's terminal shows the background shell and runs a new term
   const bottom = page.getByRole("region", { name: "Bottom panel" });
   await expect(bottom.getByRole("tab", { name: "Terminal", selected: true })).toBeVisible();
   const terminals = bottom.getByRole("tablist", { name: "Terminals" });
-  await expect(terminals.getByRole("tab", { name: /dev:relay/ })).toBeVisible();
+  await expect(terminals.getByRole("tab", { name: /relay:soak/ })).toBeVisible();
 
   await bottom.getByRole("button", { name: "New terminal" }).click();
   const terminal = bottom.getByRole("group", { name: /^zsh( \d+)? terminal$/ });

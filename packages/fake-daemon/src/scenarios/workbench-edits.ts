@@ -4,7 +4,8 @@ import type { Step } from "../scenario.ts";
 import { tool, toolDone } from "./facts.ts";
 
 const minute = 60_000;
-/** Each edit as its own step, `agoMs` apart, so the work log spans real minutes. */
+/** Each edit as its own step, `agoMs` apart (uneven, as real work is), so the work log spans
+ * real minutes. */
 const spaced = (edits: readonly Fact[][], agoMs: readonly number[]): Step[] =>
   edits.map((facts, index) => ({ kind: "facts", agoMs: agoMs[index] ?? 0, facts }));
 
@@ -88,7 +89,7 @@ export function retryBudgetEdits(): Step[] {
         { path: "src/supervisor/supervisor.ts", kind: "update", diff: supervisorDiff },
       ]),
     ],
-    [7 * minute, 4 * minute],
+    [7 * minute + 22_000, 4 * minute + 9_000],
   );
 }
 
@@ -133,7 +134,7 @@ export function refundTaxEdits(): Step[] {
       edit("edit-tax", [{ path: "src/refunds/tax.ts", kind: "update", diff: taxDiff }]),
       edit("edit-tax-test", [{ path: "src/refunds/tax.test.ts", kind: "add", newText: taxTest }]),
     ],
-    [9 * minute, 5 * minute],
+    [9 * minute + 47_000, 5 * minute + 13_000],
   );
 }
 
@@ -189,6 +190,6 @@ export function installPageEdits(): Step[] {
         { path: "docs/legacy-install.md", kind: "delete", oldText: legacyInstall },
       ]),
     ],
-    [6 * minute, 2 * minute],
+    [6 * minute + 31_000, 2 * minute + 52_000],
   );
 }
