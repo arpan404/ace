@@ -66,7 +66,11 @@ export function ModelPicker(props: {
                 onValueChange={(id) => props.onAccount(String(id))}
               >
                 {accounts.map((a) => (
-                  <MenuRadioItem key={a.id} value={a.id} aria-label={`Account ${accountTag(a.label)}`}>
+                  <MenuRadioItem
+                    key={a.id}
+                    value={a.id}
+                    aria-label={`Account ${accountTag(a.label)}`}
+                  >
                     <span className="flex items-center gap-3">
                       {accountTag(a.label)}
                       <span className="ml-auto text-xs text-subtle-foreground">{a.usage}</span>

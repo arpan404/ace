@@ -200,12 +200,11 @@ function LiveFrame(props: {
 }) {
   const { frame } = props;
   const pane = useRef<HTMLDivElement>(null);
-  const page = useRef<HTMLImageElement>(null);
   useViewportSync(props.source, props.threadId, pane, props.active);
   // Pointer positions map back to page pixels through the picture's rendered box, which is
   // 1:1 once the viewport follows the pane and scaled to fit when the backend can't resize.
   const point = (event: MouseEvent<HTMLElement>) => {
-    const box = page.current?.getBoundingClientRect();
+    const box = event.currentTarget.querySelector("img")?.getBoundingClientRect();
     const scale = box?.width ? frame.width / box.width : 1;
     return {
       x: Math.round((event.clientX - (box?.left ?? 0)) * scale),
@@ -226,7 +225,6 @@ function LiveFrame(props: {
   };
   const image = (
     <img
-      ref={page}
       src={frame.src}
       alt={`Live view of ${props.view.url}`}
       draggable={false}

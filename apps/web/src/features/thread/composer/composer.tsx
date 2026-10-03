@@ -200,7 +200,7 @@ export function Composer(props: {
             type="button"
             aria-label="Attach files or images"
             onClick={() => file.current?.click()}
-            className="grid size-[34px] place-items-center rounded-card text-muted-foreground transition-colors duration-(--dur-1) [grid-area:plus] hover:bg-accent hover:text-foreground"
+            className="grid size-[34px] place-items-center rounded-full text-muted-foreground transition-colors duration-(--dur-1) [grid-area:plus] hover:bg-accent hover:text-foreground"
           >
             <PlusIcon aria-hidden size={20} />
           </button>

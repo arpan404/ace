@@ -105,6 +105,8 @@ const screens: Record<string, Setup> = {
       .getByRole("textbox", { name: /Comment on line/ })
       .fill("Should the ack also carry `coldStartWindow`?");
     await file.getByRole("button", { name: "Comment", exact: true }).click();
+    // Send to agent appears under the pointer; move away so it shows at rest, not hovered.
+    await page.mouse.move(700, 880);
   },
   // The same line comment, after switching the diff to Split.
   "thread-changes-split": async (page) => {

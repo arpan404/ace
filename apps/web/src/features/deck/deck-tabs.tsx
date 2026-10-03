@@ -74,7 +74,10 @@ export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) 
                 )}
               </span>
               {/* The summary wraps to two lines; the full text is in the tooltip and the lane. */}
-              <span title={summary} className="line-clamp-2 text-sm leading-[1.4] text-muted-foreground">
+              <span
+                title={summary}
+                className="line-clamp-2 text-sm leading-[1.4] text-muted-foreground"
+              >
                 {latest ? (
                   <>
                     <span className="text-foreground">{latest.label}</span> · {latest.verdict}
