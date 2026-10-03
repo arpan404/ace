@@ -22,16 +22,16 @@ Example:
 
 ```json
 {
-  "at": 5,
+  "at": 7,
   "id": "example",
   "payload": {
-    "endedAt": 7,
-    "runId": "example",
-    "state": "completed",
-    "trigger": "schedule",
-    "type": "run.ended"
+    "closedAt": 9,
+    "interactionId": "example",
+    "resolvedBy": "example",
+    "state": "expired",
+    "type": "interaction.closed"
   },
-  "seq": 3,
+  "seq": 0,
   "threadId": "example"
 }
 ```
@@ -52,14 +52,23 @@ Example:
 ```json
 {
   "thread": {
-    "createdAt": 6,
+    "createdAt": 5,
     "id": "example",
-    "provider": "opencode",
+    "imported": {
+      "importedAt": 1,
+      "instanceId": "example",
+      "native": {
+        "provider": "claude"
+      },
+      "sourceId": "example"
+    },
+    "provider": "codex",
     "status": {
-      "state": "unresponsive"
+      "agents": 10,
+      "state": "working"
     },
     "title": "example",
-    "updatedAt": 4,
+    "updatedAt": 2,
     "workspaceId": "example"
   },
   "type": "thread.created"
@@ -79,9 +88,7 @@ Example:
 
 ```json
 {
-  "status": {
-    "state": "done"
-  },
+  "archivedAt": null,
   "type": "thread.updated"
 }
 ```
@@ -98,22 +105,19 @@ Example:
 ```json
 {
   "agent": {
-    "createdAt": 6,
+    "createdAt": 3,
     "cwd": "example",
-    "endedAt": 4,
-    "fidelity": "summary",
+    "fidelity": "full",
     "id": "example",
     "native": {
-      "nativeId": "example",
-      "path": "example",
-      "provider": "acp"
+      "aliases": [],
+      "provider": "cursor"
     },
-    "origin": "root",
-    "parentId": "example",
+    "origin": "provider_subagent",
+    "parentId": null,
     "status": {
-      "activity": "responding",
-      "detail": "example",
-      "state": "working"
+      "on": "human",
+      "state": "blocked"
     },
     "threadId": "example"
   },
@@ -135,7 +139,8 @@ Example:
 {
   "agentId": "example",
   "status": {
-    "state": "idle"
+    "activity": "responding",
+    "state": "working"
   },
   "type": "agent.status"
 }
@@ -165,7 +170,8 @@ Example:
 {
   "agentId": "example",
   "model": "example",
-  "spawnedBy": "example",
+  "name": "example",
+  "role": "example",
   "type": "agent.updated"
 }
 ```
@@ -184,10 +190,10 @@ Example:
   "run": {
     "agentId": "example",
     "id": "example",
-    "startedAt": 2,
-    "state": "completed",
+    "startedAt": 1,
+    "state": "interrupted",
     "threadId": "example",
-    "trigger": "unknown"
+    "trigger": "queue"
   },
   "type": "run.started"
 }
@@ -207,9 +213,9 @@ Example:
 
 ```json
 {
-  "endedAt": 2,
+  "endedAt": 5,
   "runId": "example",
-  "state": "failed",
+  "state": "interrupted",
   "type": "run.ended"
 }
 ```
@@ -228,12 +234,13 @@ Example:
   "item": {
     "agentId": "example",
     "complete": true,
-    "createdAt": 7,
+    "createdAt": 6,
     "id": "example",
     "parts": [],
+    "raw": [],
     "role": "assistant",
     "runId": "example",
-    "synthetic": false,
+    "synthetic": true,
     "type": "message"
   },
   "type": "item.created"
@@ -256,7 +263,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "text",
+  "field": "reasoning",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -275,10 +282,25 @@ Example:
 {
   "item": {
     "agentId": "example",
+    "call": {
+      "agentId": "example",
+      "detail": {
+        "kind": "search",
+        "path": "example",
+        "query": "example"
+      },
+      "error": "example",
+      "id": "example",
+      "kind": "todo",
+      "raw": [],
+      "startedAt": 4,
+      "status": "cancelled",
+      "title": "example"
+    },
     "complete": true,
-    "createdAt": 5,
+    "createdAt": 3,
     "id": "example",
-    "type": "compaction"
+    "type": "tool_call"
   },
   "type": "item.updated"
 }
@@ -313,20 +335,14 @@ Example:
 {
   "interaction": {
     "agentId": "example",
-    "blocking": false,
-    "createdAt": 4,
+    "blocking": true,
+    "createdAt": 6,
     "id": "example",
-    "raw": [],
     "request": {
-      "kind": "elicitation",
-      "message": "example",
-      "schema": null,
-      "server": "example"
+      "kind": "question",
+      "questions": []
     },
-    "resolution": {
-      "kind": "approval",
-      "optionId": "example"
-    },
+    "resolvedBy": "example",
     "state": "pending",
     "threadId": "example"
   },
@@ -349,9 +365,8 @@ Example:
 
 ```json
 {
-  "closedAt": 9,
+  "closedAt": 3,
   "interactionId": "example",
-  "resolvedBy": "example",
   "state": "cancelled",
   "type": "interaction.closed"
 }
@@ -370,12 +385,14 @@ Example:
 {
   "task": {
     "agentId": "example",
-    "childAgentId": "example",
+    "ambient": true,
+    "endedAt": 8,
     "id": "example",
-    "kind": "other",
-    "startedAt": 2,
-    "status": "stopped",
-    "stoppable": false,
+    "kind": "monitor",
+    "outputPath": "example",
+    "startedAt": 1,
+    "status": "unknown",
+    "stoppable": true,
     "title": "example",
     "toolCallId": "example"
   },
@@ -396,7 +413,7 @@ Example:
 
 ```json
 {
-  "status": "unknown",
+  "status": "failed",
   "taskId": "example",
   "type": "background_task.updated"
 }
@@ -404,8 +421,12 @@ Example:
 
 ### usage.updated
 
+Semantic rule: If usageScope is provider_session or model_session, counterKey is required.
+
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| usageScope | no | ["agent","provider_session","model_session"] |  |
+| counterKey | no | string | {"minLength":1,"maxLength":512} |
 | reasoningTokens | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | cacheWriteTokens | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | cacheWrite1hTokens | no | integer | {"minimum":0,"maximum":9007199254740991} |
@@ -413,7 +434,6 @@ Example:
 | accountId | no | string | {"minLength":1,"maxLength":512} |
 | billingMode | no | ["api","subscription","unknown"] |  |
 | counterMode | no | ["cumulative","incremental"] |  |
-| counterKey | no | string | {"minLength":1,"maxLength":512} |
 | type | yes | `"usage.updated"` |  |
 | agentId | yes | [AgentId.json](schema/AgentId.json) |  |
 | inputTokens | yes | integer | {"minimum":0,"maximum":9007199254740991} |
@@ -428,10 +448,9 @@ Example:
 {
   "accountId": "example",
   "agentId": "example",
-  "billingMode": "api",
-  "counterKey": "example",
-  "inputTokens": 6,
-  "outputTokens": 2,
+  "contextWindow": 3,
+  "inputTokens": 3,
+  "outputTokens": 1,
   "type": "usage.updated"
 }
 ```
@@ -449,11 +468,10 @@ Example:
 ```json
 {
   "change": {
-    "destination": "example",
     "id": "example",
     "op": "example",
     "path": "example",
-    "version": "example"
+    "version": null
   },
   "type": "workspace.files_changed",
   "workspaceId": "example"

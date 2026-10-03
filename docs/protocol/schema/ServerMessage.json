@@ -27,7 +27,13 @@
       "$ref": "https://ace.local/protocol/v1/HistoryContinueResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/McpProviderResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/UsageMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UsageSessionTotalsMessage.json"
     },
     {
       "properties": {

@@ -45,7 +45,16 @@
       "maximum": 9007199254740991,
       "minimum": 0,
       "type": "integer"
+    },
+    "usageScope": {
+      "enum": [
+        "agent",
+        "provider_session",
+        "model_session"
+      ],
+      "type": "string"
     }
   },
-  "type": "object"
+  "type": "object",
+  "x-ace-constraint": "If usageScope is provider_session or model_session, counterKey is required."
 }

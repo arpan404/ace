@@ -220,6 +220,7 @@ export class AccountService {
         instanceId: chosen.id,
         session: {
           instanceId: chosen.id,
+          ...(session.mcp ? { mcp: session.mcp } : {}),
           get nativeSessionId() {
             return session.nativeSessionId;
           },

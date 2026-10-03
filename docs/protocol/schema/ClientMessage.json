@@ -27,10 +27,16 @@
       "$ref": "https://ace.local/protocol/v1/HistoryContinueRequest.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/McpProviderRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/UsageSummary.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/UsageSeries.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UsageSessionTotals.json"
     },
     {
       "properties": {

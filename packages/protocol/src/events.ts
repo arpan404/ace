@@ -19,8 +19,7 @@ import { Item } from "./items.ts";
 import { NativeRef } from "./provider.ts";
 import { Run, RunTrigger, Thread, ThreadStatus } from "./thread.ts";
 
-export const UsageUpdated = z.object({
-  ...UsageMetadata.shape,
+export const UsageUpdated = UsageMetadata.safeExtend({
   type: z.literal("usage.updated"),
   agentId: AgentId,
   inputTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
@@ -28,7 +27,7 @@ export const UsageUpdated = z.object({
   cachedInputTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   contextWindow: z.number().int().positive().optional(),
   costUsd: z.number().nonnegative().optional(),
-});
+}).meta(UsageMetadata.meta() ?? {});
 export type UsageUpdated = z.infer<typeof UsageUpdated>;
 
 export const EventPayload = z.discriminatedUnion("type", [

@@ -137,6 +137,7 @@ it("decodes every own snapshot entity key without losing prototype-like identifi
     ...Object.fromEntries(Object.entries(rows).map(([key, row]) => [key, { ["__proto__"]: row }])),
     itemOrder: ["__proto__"],
     itemsBefore: null,
+    usageSnapshots: {},
   };
   const snapshot = { type: "snapshot", subscriptionId: "s", seq: 3, view };
   expect(ServerMessage.parse(JSON.parse(JSON.stringify(snapshot)))).toEqual(snapshot);

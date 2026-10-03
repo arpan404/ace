@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/UsageCounter.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "counterKey": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "usageScope": {
+      "enum": [
+        "agent",
+        "provider_session",
+        "model_session"
+      ],
+      "type": "string"
+    }
+  },
+  "type": "object",
+  "x-ace-constraint": "If usageScope is provider_session or model_session, counterKey is required."
+}

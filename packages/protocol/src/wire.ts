@@ -19,7 +19,14 @@ import {
   HistoryContinueRequest,
   HistoryContinueResponse,
 } from "./history.ts";
-import { UsageSummary, UsageSeries, UsageMessage } from "./usage.ts";
+import { McpProviderRequest, McpProviderResult } from "./mcp.ts";
+import {
+  UsageSummary,
+  UsageSeries,
+  UsageMessage,
+  UsageSessionTotals,
+  UsageSessionTotalsMessage,
+} from "./usage.ts";
 import { AccountsRequest, AccountsResponse } from "./accounts.ts";
 import { ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
 import {
@@ -97,6 +104,8 @@ export const ThreadView = z.object({
   interactions: records(Interaction),
   backgroundTasks: records(BackgroundTask),
   usage: records(UsageUpdated),
+  /** Inclusive snapshots are independent of per-agent activity. */
+  usageSnapshots: records(UsageUpdated).default({}),
 });
 export type ThreadView = z.infer<typeof ThreadView>;
 export const ThreadListEntry = Thread.omit({ rootAgentId: true });
@@ -140,8 +149,10 @@ export const ClientMessage = z.discriminatedUnion("type", [
   HistoryImportRequest,
   HistoryScanRequest,
   HistoryContinueRequest,
+  McpProviderRequest,
   UsageSummary,
   UsageSeries,
+  UsageSessionTotals,
   ...FilesClientMessage.options,
   CommandsList,
   CommandsResolve,
@@ -211,7 +222,9 @@ export const ServerMessage = z.discriminatedUnion("type", [
   HistoryImportResponse,
   HistoryScanResponse,
   HistoryContinueResponse,
+  McpProviderResult,
   UsageMessage,
+  UsageSessionTotalsMessage,
   ...FilesServerMessage.options,
   CommandsListResult,
   CommandsResolveResult,

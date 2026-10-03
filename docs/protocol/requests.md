@@ -177,6 +177,21 @@ Example:
 }
 ```
 
+### Variant 9
+
+Type: union. See JSON Schema for constraints.
+
+Example:
+
+```json
+{
+  "name": "example",
+  "requestId": "example",
+  "threadId": "example",
+  "type": "mcp.enable"
+}
+```
+
 ### usage.summary
 
 | Field | Required | Type | Constraints |
@@ -219,6 +234,26 @@ Example:
 }
 ```
 
+### usage.session_totals
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"usage.session_totals"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":512} |
+| query | yes | [UsageSessionTotalsQuery.json](schema/UsageSessionTotalsQuery.json) |  |
+
+Example:
+
+```json
+{
+  "query": {
+    "thread": "example"
+  },
+  "requestId": "example",
+  "type": "usage.session_totals"
+}
+```
+
 ### files.request
 
 | Field | Required | Type | Constraints |
@@ -232,10 +267,8 @@ Example:
 ```json
 {
   "operation": {
-    "expected": null,
-    "op": "upload.begin",
-    "path": "example",
-    "size": 9
+    "blobRef": "example",
+    "op": "artifact.raw"
   },
   "requestId": "example",
   "type": "files.request"
