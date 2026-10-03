@@ -85,6 +85,15 @@ export const Thread = z.object({
   workspaceId: WorkspaceId,
   title: z.string(),
   provider: ProviderKind,
+  backend: z.enum(["acp", "cursor-sdk"]).optional(),
+  capabilities: Capabilities.optional(),
+  handoff: z
+    .object({
+      sourceThreadId: ThreadId,
+      truncated: z.boolean(),
+      bytes: z.number().int().nonnegative(),
+    })
+    .optional(),
   ...ThreadProviderMetadata.shape,
   rootAgentId: AgentId.optional(),
   status: ThreadStatus,

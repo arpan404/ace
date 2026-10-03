@@ -3,13 +3,19 @@
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
+  "exports": {
+    "./cursor-sdk": "./src/cursor-sdk.ts"
+  },
   "scripts": {
     "record": "node src/cli.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@ace/adapter-cursor": "workspace:*",
     "@ace/adapter-opencode": "workspace:*",
+    "@ace/core": "workspace:*",
     "@ace/engine-api": "workspace:*",
+    "@ace/handoff": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
     "@ace/redaction": "workspace:*",

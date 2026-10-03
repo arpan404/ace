@@ -118,6 +118,8 @@ export class IntentDelivery {
     const token = this.dependencies.repo.queue.get(actor.id).holdToken;
     const p = intent.command.payload;
     if (p.type === "thread.limit" && p.action === "migrate_now") {
+      if (this.dependencies.repo.backend(actor.id) === "cursor-sdk")
+        throw new Error("Cursor SDK account migration requires a fresh portable context handoff");
       await this.dependencies.sessions.close(actor, "user");
       await this.dependencies.recovery.migrate(actor.id, p.instanceId);
     }

@@ -8,6 +8,21 @@ export type RedactionContext = {
 
 const SECRET_KEY =
   /token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code/i;
+const TOKEN_COUNTERS = new Set([
+  "inputTokens",
+  "outputTokens",
+  "cacheReadTokens",
+  "cacheWriteTokens",
+  "reasoningTokens",
+]);
+function accountingCounter(key: string, value: unknown): boolean {
+  return (
+    TOKEN_COUNTERS.has(key) &&
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+  );
+}
 export function isSecretKey(key: string): boolean {
   return SECRET_KEY.test(key);
 }
@@ -35,7 +50,13 @@ function escape(text: string): string {
 }
 
 /** Build a redactor that scrubs one JSONL line of personal or secret data. */
-export function createRedactor(ctx: RedactionContext): (line: string) => string {
+export function createRedactor(
+  ctx: RedactionContext,
+  literalTextFields: readonly string[] = [],
+): (line: string) => string {
+  // Streaming text is literal, even when a delta happens to start with a JSON delimiter.
+  // Structural fields keep recursive decoding; literal fields still receive lexical scrubbing.
+  const literalFields = new Set(literalTextFields);
   const home = ctx.home ?? "";
   const username = ctx.username ?? "";
   const host = ctx.host ?? "";
@@ -89,9 +110,10 @@ export function createRedactor(ctx: RedactionContext): (line: string) => string 
   return (line) => {
     if (line.length > 262144) return '"<OVERSIZED REDACTED>"';
     let remaining = 10000;
-    function clean(value: unknown, depth: number): unknown {
+    function clean(value: unknown, depth: number, field?: string): unknown {
       if (--remaining < 0 || depth > 32) return "<OMITTED>";
       if (typeof value === "string") {
+        if (field !== undefined && literalFields.has(field)) return scrub(value);
         const text = value.trimStart();
         if (text.startsWith("{") || text.startsWith("[") || text.startsWith('"')) {
           try {
@@ -113,11 +135,12 @@ export function createRedactor(ctx: RedactionContext): (line: string) => string 
             enumerable: true,
             configurable: true,
             writable: true,
-            value: isSecretKey(key)
-              ? "<SECRET>"
-              : identity.test(key)
-                ? "<ID>"
-                : clean(item, depth + 1),
+            value:
+              isSecretKey(key) && !accountingCounter(key, item)
+                ? "<SECRET>"
+                : identity.test(key)
+                  ? "<ID>"
+                  : clean(item, depth + 1, key),
           });
         }
         return result;
@@ -138,4 +161,65 @@ export function createRedactor(ctx: RedactionContext): (line: string) => string 
       return '"<REDACTION FAILED: RECORD OMITTED>"';
     }
   };
+}
+
+/** Preserve token matches across bounded chunks without rescanning the remaining text. */
+export function createStreamingRedactor(ctx: RedactionContext): (text: string) => Iterable<string> {
+  const scrub = createRedactor(ctx, ["text"]);
+  const values = Object.values(ctx.env ?? {}).filter((value): value is string => !!value);
+  const sources = [
+    ...SECRETS,
+    EMAIL,
+    IDENTIFYING_KEYS,
+    /("[^"\n]*(?:token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code)[^"\n]*"\s*:\s*)"(?:[^"\\]|\\.)*"/gi,
+    /\b(?:token|secret|password|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi,
+    /([#&](?:code|ticket|token)=)[^&#\s]+/gi,
+    ...(values.length ? [new RegExp(values.map(escape).join("|"), "g")] : []),
+  ];
+  return function* (text: string) {
+    const scans = sources.map((pattern) => {
+      const regex = new RegExp(pattern.source, pattern.flags);
+      return { regex, match: regex.exec(text) };
+    });
+    let start = 0;
+    while (start < text.length) {
+      let end = Math.min(text.length, start + 4096);
+      for (const scan of scans) {
+        while (scan.match && scan.match.index + scan.match[0].length <= start)
+          scan.match = scan.regex.exec(text);
+      }
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const scan of scans) {
+          while (scan.match && scan.match.index < end) {
+            const matchEnd = scan.match.index + scan.match[0].length;
+            if (matchEnd > end) {
+              end = matchEnd;
+              changed = true;
+            }
+            scan.match = scan.regex.exec(text);
+          }
+        }
+      }
+      if (end - start > 65536) throw new Error("Sensitive SDK text exceeds redaction chunk budget");
+      const high = text.charCodeAt(end - 1),
+        low = text.charCodeAt(end);
+      if (end < text.length && high >= 0xd800 && high <= 0xdbff && low >= 0xdc00 && low <= 0xdfff)
+        end++;
+      const parsed: unknown = JSON.parse(scrub(JSON.stringify({ text: text.slice(start, end) })));
+      if (
+        !parsed ||
+        typeof parsed !== "object" ||
+        !("text" in parsed) ||
+        typeof parsed.text !== "string"
+      )
+        throw new Error("SDK text redaction failed");
+      yield parsed.text;
+      start = end;
+    }
+  };
+}
+export function isSensitiveField(key: string, value: unknown): boolean {
+  return isSecretKey(key) && !accountingCounter(key, value);
 }

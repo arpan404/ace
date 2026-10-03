@@ -8,6 +8,7 @@ export function withDaemonMcp(
   context: Pick<ServiceContext, "services" | "store" | "id">,
   adapter: ProviderAdapter,
 ): ProviderAdapter {
+  if (adapter.backend === "cursor-sdk") return adapter;
   return {
     ...adapter,
     openSession(session) {

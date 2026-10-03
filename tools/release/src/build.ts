@@ -61,7 +61,11 @@ async function main() {
   for (const path of paths) {
     await chmod(
       join(root, path),
-      path === "bin/node" || path.endsWith("spawn-helper") ? 0o755 : 0o644,
+      path === "bin/node" ||
+        path.endsWith("spawn-helper") ||
+        ((await stat(join(root, path))).mode & 0o111) !== 0
+        ? 0o755
+        : 0o644,
     );
     checksums[path] = await hashFile(join(root, path));
   }

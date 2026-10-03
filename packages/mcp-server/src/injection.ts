@@ -107,6 +107,17 @@ export function acpInjection(
   };
 }
 
+/** Cursor's public SDK HTTP MCP transport, never local.customTools. */
+export function cursorSdkInjection(input: AceMcpConnection) {
+  const { url, bearer } = AceMcpConnectionSchema.parse(input);
+  return {
+    mcpServers: {
+      ace: { type: "http" as const, url, headers: { Authorization: `Bearer ${bearer}` } },
+    },
+    developerInstructions: developerInstructions("cursor"),
+  };
+}
+
 /** Scrub before building a persisted provider payload, including echoed stderr. */
 export function redactMcpCredential(encoded: string, input?: AceMcpConnection): string {
   return input ? encoded.replaceAll(input.bearer, "<ACE_MCP_CREDENTIAL>") : encoded;

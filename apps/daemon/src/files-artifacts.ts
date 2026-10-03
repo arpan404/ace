@@ -159,14 +159,36 @@ export function daemonArtifacts(
           `raw-${randomUUID()}.bin`,
           `${blobRef}.json`,
           "output",
-          (temporary) =>
-            blobs.export({
+          async (temporary) => {
+            if (!("rowid" in info)) {
+              const file = await open(temporary, "wx", 0o600);
+              try {
+                for (let offset = 0; offset < info.size;) {
+                  assertAuthorized();
+                  const chunk = store.readRawChunk(
+                    blobRef,
+                    offset,
+                    Math.min(65536, info.size - offset),
+                  );
+                  if (!chunk.length)
+                    throw new FileError("CONFLICT", "Raw blob snapshot incomplete");
+                  await file.writeFile(chunk);
+                  offset += chunk.length;
+                }
+                await file.sync();
+              } finally {
+                await file.close();
+              }
+              return;
+            }
+            await blobs.export({
               database,
               temporary,
-              rowid: info.rowid,
+              rowid: z.number().int().positive().parse(info.rowid),
               size: info.size,
               sha256: info.sha256,
-            }),
+            });
+          },
           assertAuthorized,
         );
       });

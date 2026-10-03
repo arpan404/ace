@@ -2,6 +2,8 @@ import { nextDeadline, type Fact } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
 import { z } from "zod";
+import { ProviderPayload } from "@ace/provider-kit/payload";
+import { boundedJson } from "@ace/provider-kit/ipc";
 import type { EngineLimits } from "./limits.ts";
 import type { EngineRepository } from "./repository.ts";
 
@@ -11,6 +13,7 @@ const frameSchema = z.object({
   dir: z.enum(["send", "recv", "stderr", "note"]),
   channel: z.string(),
   data: z.unknown(),
+  payload: z.custom<ProviderPayload>(ProviderPayload.is).optional(),
 });
 export interface EngineClock {
   now(): number;
@@ -164,10 +167,17 @@ export class ThreadActor {
       });
       return;
     }
-    const decoded = result.data;
+    const { payload, ...metadata } = result.data;
+    const decoded: Frame = { ...metadata, ...(payload ? { payload } : {}) };
     let bytes: number;
     try {
-      bytes = Buffer.byteLength(JSON.stringify(decoded));
+      const certificate = decoded.payload;
+      if (decoded.channel === "sdk" && (!certificate || certificate.data !== decoded.data))
+        throw new Error("SDK frame lacks matching encoded admission certificate");
+      bytes =
+        certificate && certificate.data === decoded.data
+          ? certificate.bytes + 512
+          : Buffer.byteLength(boundedJson(decoded, this.limits.maxFrameBytes));
     } catch (error) {
       this.enqueue(() => {
         throw error;
@@ -176,9 +186,18 @@ export class ThreadActor {
     }
     this.accept(() => {
       if (generation !== this.generation) return;
+      const cursorSdk =
+        decoded.channel === "sdk" &&
+        this.repo.requireState(this.id).config.provider === "cursor" &&
+        this.repo.backend(this.id) === "cursor-sdk";
+      if (cursorSdk && this.repo.recovery.committed(this.id, decoded)) return;
       const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
       const before = this.repo.requireState(this.id).status;
       this.repo.store.atomic(() => {
+        const body = z.object({ kind: z.string(), body: z.unknown() }).safeParse(decoded.data);
+        if (cursorSdk && body.success && body.data.kind === "blob")
+          this.repo.store.appendRawChunk(this.id, body.data.body);
+        if (cursorSdk) this.repo.captureFrame(this.id, decoded);
         this.apply(facts);
         if (
           facts.some(
@@ -193,7 +212,13 @@ export class ThreadActor {
           )
         )
           this.syncQueue();
+        if (cursorSdk) this.repo.recovery.commit(this.id, decoded);
       });
+      if (
+        decoded.channel === "sdk" &&
+        facts.some((fact) => fact.type === "process.exited" && !fact.deliberate)
+      )
+        this.lifetime?.abort();
       if (
         before !== this.repo.requireState(this.id).status ||
         facts.some(

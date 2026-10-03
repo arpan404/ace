@@ -2,6 +2,14 @@ import { expect, it } from "vitest";
 import { createRedactor } from "@ace/redaction";
 const redact = createRedactor({ home: "/private/home" });
 const payload = { refreshToken: ["OPAQUE_REFRESH"], password: { value: "OPAQUE_PASSWORD" } };
+it("literal stream fragments keep JSON delimiters while secrets and structural payloads stay scrubbed", () => {
+  const redactText = createRedactor({ env: { CURSOR_API_KEY: "sentinel-credential" } }, ["text"]);
+  for (const text of ["{", "[", '"', '{"visible":', "sentinel-credential"]) {
+    const result = JSON.parse(redactText(JSON.stringify({ text, payload })));
+    expect(result.text).toBe(text === "sentinel-credential" ? "<ENV>" : text);
+    expect(result.payload).toEqual({ refreshToken: "<SECRET>", password: "<SECRET>" });
+  }
+});
 it.each([
   ["embedded payload", JSON.stringify({ payload: JSON.stringify(payload) })],
   ["colliding keys", JSON.stringify({ "/private/home": 1, "<HOME>": 2, ...payload })],

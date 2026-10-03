@@ -1167,6 +1167,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"thread.create"` |  |
+| handoffFrom | no | [ThreadId.json](schema/ThreadId.json) |  |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
@@ -1188,6 +1189,7 @@ Example:
 
 ```json
 {
+  "accountId": "example",
   "acpAgentId": "example",
   "input": [
     {
@@ -1201,9 +1203,8 @@ Example:
   "options": {
     "serviceTier": "priority"
   },
-  "provider": "acp",
+  "provider": "pi",
   "title": "example",
-  "trigger": "background_completion",
   "type": "thread.create",
   "workspaceId": "example"
 }

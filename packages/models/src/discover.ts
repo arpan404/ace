@@ -1,3 +1,4 @@
+import { CursorHostSlots } from "@ace/adapter-cursor";
 import { discoverClaudeModels } from "@ace/adapter-claude";
 import {
   spawnSupervised,
@@ -10,18 +11,42 @@ import { cursorSessionOptions, isMissingMethod } from "./cursor.ts";
 import { discoverOpenCodeModels } from "@ace/adapter-opencode";
 import { normalizeOpenCodeV2 } from "./open-code.ts";
 import { CodexPage } from "./native-schemas.ts";
-import { normalizeAcp, normalizeClaude, normalizeCodex } from "./normalize.ts";
+import { normalizeAcp, normalizeClaude, normalizeCodex, normalizeCursorSdk } from "./normalize.ts";
 import type { DiscoverModels, ModelInstance } from "./types.ts";
 import type { CatalogModel } from "@ace/protocol";
 
 export type DiscoveryOptions = {
   spawn?: (options: SpawnOptions) => SupervisedProcess;
+  cursorSlots?: CursorHostSlots;
+  /** Selected launch environment stays local to supervised SDK workers, never catalog rows. */
+  cursorEnv?: NodeJS.ProcessEnv;
+  cursorEnvironment?(instance: ModelInstance): NodeJS.ProcessEnv;
   opencode?: (instance: ModelInstance, signal: AbortSignal) => Promise<unknown>;
 };
 export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverModels {
   const spawn = options.spawn ?? spawnSupervised;
+  const cursorSlots = options.cursorSlots ?? new CursorHostSlots(2);
   return async (instance: ModelInstance, signal: AbortSignal): Promise<CatalogModel[]> => {
     signal.throwIfAborted();
+    if (instance.backend === "cursor-sdk") {
+      const { createCursorAccountDriver } = await import("@ace/adapter-cursor");
+      if (!instance.homeDir) throw new Error("Cursor SDK catalog needs its selected instance home");
+      const driver = createCursorAccountDriver({
+        launchEnv: { ...options.cursorEnv, ...instance.env },
+        slots: cursorSlots,
+        ...(options.cursorEnvironment
+          ? { environment: () => options.cursorEnvironment?.(instance) ?? {} }
+          : {}),
+        ...(options.spawn ? { spawn: options.spawn } : {}),
+        stopInstance: async () => {
+          throw new Error("Catalog worker cannot sign out live sessions");
+        },
+      });
+      return normalizeCursorSdk(
+        await driver.models({ id: instance.id, homeDir: instance.homeDir }, signal),
+        instance,
+      );
+    }
     // Unprofiled session/new is executable startup behavior, not a metadata query.
     if (instance.provider === "acp") return [];
     if (instance.provider === "claude")

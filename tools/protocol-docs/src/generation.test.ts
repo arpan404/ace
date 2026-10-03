@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { CursorAuthEvent } from "@ace/protocol";
 import * as fc from "fast-check";
 import {
   protocolCatalog,
@@ -202,4 +203,30 @@ it("derives ids and the version from matching hello and welcome literals", () =>
       },
     ]),
   ).toThrow("inconsistent protocol versions");
+});
+
+it("Cursor browser login preserves an HTTPS challenge exactly and rejects whitespace without throwing", () => {
+  const event = {
+    type: "cursor.auth.login",
+    requestId: "request",
+    loginId: "login",
+    instanceId: "account",
+    state: "browser",
+    expiresAt: 1000,
+  };
+  const url = "https://cursor.com/login?challenge=synthetic%20challenge";
+  expect(CursorAuthEvent.parse({ ...event, url })).toMatchObject({ url });
+  for (const invalid of [
+    `${url} `,
+    `${url}\n`,
+    ` ${url}`,
+    "https://cursor.com/\tchallenge",
+    "http://cursor.com/login",
+    "file:///tmp/login",
+    "javascript:alert(1)",
+    "https:/login",
+    "https://",
+  ]) {
+    expect(CursorAuthEvent.safeParse({ ...event, url: invalid }).success).toBe(false);
+  }
 });

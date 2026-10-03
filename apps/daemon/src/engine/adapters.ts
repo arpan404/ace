@@ -1,4 +1,9 @@
 import { discoverProviders, discoverPi } from "@ace/provider-kit/discovery";
+import {
+  discoverCursorSdk,
+  createCursorAdapter,
+  type CursorAdapterOptions,
+} from "@ace/adapter-cursor";
 import type { ProviderAdapter } from "@ace/engine-api";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import { AdapterRegistry } from "./registry.ts";
@@ -8,6 +13,8 @@ export async function discoverAdapters(
   discover: typeof discoverProviders = discoverProviders,
   claudeAdapter?: (cli: DiscoveryResult) => ProviderAdapter,
   additional?: (registry: AdapterRegistry) => Promise<void>,
+  cursorOptions: CursorAdapterOptions = {},
+  sdkDiscovery: typeof discoverCursorSdk = discoverCursorSdk,
 ): Promise<AdapterRegistry> {
   const registry = new AdapterRegistry();
   const { claude, codex, opencode, cursor } = await discover();
@@ -34,10 +41,22 @@ export async function discoverAdapters(
   }
   if (cursor.installed) {
     const { createAcpAdapter, cursorQuirks } = await import("@ace/adapter-acp");
-    registry.register(
+    registry.registerFallback(
       createAcpAdapter(cursorQuirks, cursor.path ? { command: cursor.path } : {}),
       cursor,
+      "acp",
     );
+  }
+  const sdk = await sdkDiscovery(cursorOptions.discovery);
+  if (sdk.installed) {
+    // Unsupported SDKs stay selected and fail on admission. Only absence permits ACP fallback.
+    registry.register(createCursorAdapter(cursorOptions), {
+      installed: true,
+      auth: "unknown",
+      loginHint: "Cursor SDK sign-in is separate from agent login",
+      ...(sdk.version ? { version: sdk.version } : {}),
+      ...(sdk.error ? { error: sdk.error } : {}),
+    });
   }
   if (additional) await additional(registry);
   else {

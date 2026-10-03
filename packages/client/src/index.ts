@@ -1,4 +1,5 @@
 export type { RegistryQuery } from "./api.ts";
+export type { CursorAuthQuery } from "./client.ts";
 export { Client } from "./client.ts";
 export { ClientError, defaultLimits } from "./types.ts";
 export type {
@@ -34,6 +35,7 @@ export type { SidebarKey, SidebarReader } from "./readers.ts";
 export { ticketCredential } from "./credentials.ts";
 export type { Credential } from "./credentials.ts";
 export { retryDelay } from "./lifecycle.ts";
+export { rootProviderControls, childProviderControls } from "./provider-controls.ts";
 export type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 export { isOneWayMessage } from "./one-way.ts";
 export type { OneWayMessage } from "./one-way.ts";

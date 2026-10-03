@@ -17,6 +17,10 @@ export function acceptTransition(
   now: number,
   nextId: () => string,
   wake: (id: ThreadId) => void,
+  selectInstance?: (
+    provider: string,
+    backend?: import("@ace/engine-api").ProviderBackend,
+  ) => string | undefined,
 ): CommandResult | undefined {
   const p = command.payload;
   if (p.type !== "thread.fork" && p.type !== "thread.merge" && p.type !== "thread.switch") return;
@@ -39,7 +43,7 @@ export function acceptTransition(
         };
         const source = point.executionSource;
         const inherited = source?.selection ?? current;
-        const selection = p.selection
+        let selection = p.selection
           ? {
               ...p.selection,
               ...(p.selection.provider === inherited.provider &&
@@ -60,7 +64,11 @@ export function acceptTransition(
           selection.instanceId !== inherited.instanceId
         )
           return fail("fork_account_mismatch_use_switch");
-        const capabilities = registry.get(selection.provider).capabilities;
+        const entry = registry.get(selection.provider);
+        const capabilities = entry.capabilities;
+        const instanceId =
+          selection.instanceId ?? selectInstance?.(selection.provider, entry.adapter.backend);
+        if (instanceId) selection = { ...selection, instanceId };
         if (Object.keys(selection.options).length && !capabilities.sessionOptions)
           return fail("provider_options_unsupported");
         const rootId = state.agents[state.rootKey ?? ""]?.agent.id;
@@ -94,6 +102,8 @@ export function acceptTransition(
           workspaceId: thread.workspaceId,
           title: p.title ?? `${thread.title} (fork)`,
           selection,
+          capabilities,
+          ...(entry.adapter.backend ? { backend: entry.adapter.backend } : {}),
           cwd: metadata.cwd,
           at: now,
           silenceMs: state.config.silenceMs,
@@ -152,7 +162,10 @@ export function acceptTransition(
         const selection = repo.transitions.selection(id, fallback, p.selection);
         if (
           Object.keys(selection.options).length &&
-          !registry.get(selection.provider).capabilities.sessionOptions
+          !registry.get(
+            selection.provider,
+            selection.provider === state.config.provider ? repo.backend(id) : undefined,
+          ).capabilities.sessionOptions
         )
           return fail("provider_options_unsupported");
         repo.transitions.remember(id, repo.transitions.get(id).selection ?? fallback);

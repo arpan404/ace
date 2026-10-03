@@ -20,6 +20,7 @@ import type { TransitionIO } from "./transitions.ts";
 export function transitionHarness(
   options: {
     native?: boolean;
+    cursorBackend?: import("@ace/engine-api").ProviderBackend;
     forkPoints?: ("turn" | "item" | "end")[];
     outcome?: "completed" | "failed" | "interrupted";
     limited?: boolean;
@@ -65,6 +66,7 @@ export function transitionHarness(
   for (const provider of ["codex", "claude", "cursor", "acp"] satisfies ProviderKind[]) {
     const adapter: ProviderAdapter = {
       provider,
+      ...(provider === "cursor" && options.cursorBackend ? { backend: options.cursorBackend } : {}),
       ...(provider === "acp"
         ? {
             acceptsIdentity: (identity: SessionContext["acpIdentity"]) =>
@@ -122,6 +124,9 @@ export function transitionHarness(
         sessions.push(entry);
         return {
           nativeSessionId: nativeId,
+          ...(provider === "cursor" && options.cursorBackend
+            ? { backend: options.cursorBackend }
+            : {}),
           instanceId: entry.selection.instanceId ?? "account-a",
           ...(options.configure === false
             ? {}
@@ -264,6 +269,7 @@ export function transitionHarness(
     home,
     store,
     workspace,
+    registry,
     clock,
     sessions,
     inputs,

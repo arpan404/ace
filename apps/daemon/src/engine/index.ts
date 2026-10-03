@@ -28,6 +28,10 @@ export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
+  selectInstance?: (
+    provider: string,
+    backend?: import("@ace/engine-api").ProviderBackend,
+  ) => string | undefined;
   transitions?: TransitionIO;
   prepareInput?: PrepareInput;
   recovery?: RecoveryPorts;
@@ -184,6 +188,8 @@ export class Engine {
       (id) => this.wake(id),
       options.threadId ?? randomUUID,
       this.recovery,
+      this.limits,
+      options.selectInstance,
       options.machine,
     );
     this.handler = {
@@ -498,7 +504,7 @@ export class Engine {
       this.registry.has(state.config.provider) &&
       (
         this.actors.get(intent.threadId)?.effectiveCapabilities ??
-        this.registry.get(state.config.provider).capabilities
+        this.registry.get(state.config.provider, this.repo.backend(intent.threadId)).capabilities
       ).steer
     );
   }

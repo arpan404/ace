@@ -1,5 +1,7 @@
 # Cursor Agent (Cursor CLI / `cursor-agent`): provider research for ace
 
+Implementation status: the SDK-first adapter and preserved ACP fallback are documented in [the package README](../../../packages/adapter-cursor/README.md). [Assembly and verification limits](../../integration/cursor-sdk-verification.md) remain explicit; no SDK fixtures are approved or recorded. The historical ACP evidence below remains unchanged.
+
 Researched 2026-10-01/02. Version inspected: `cursor-agent` / `agent` **2026.09.26-dd393fe** (`agent --version`), installed at `~/.local/share/cursor-agent/versions/2026.09.26-dd393fe/`. The CLI is a webpack-bundled Node app (`index.js` plus numbered chunks) launched by a bash shim (`cursor-agent` sets `CURSOR_INVOKED_AS` and runs the bundled `node index.js`).
 
 Current decision: [ADR 0043](../../adr/0043-cursor-sdk-local-runtime.md) accepts

@@ -1,5 +1,6 @@
 import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
+import type { CursorAuthService } from "@ace/accounts";
 import type { AccountService } from "@ace/accounts";
 import type { CommandService } from "@ace/commands";
 import type { FilesService } from "@ace/files";
@@ -39,6 +40,7 @@ export interface ServerOptions {
   screen?: ScreenManager;
   devices?: DevicesService;
   accounts?: AccountService;
+  cursorAuth?: CursorAuthService;
   commands?: CommandService;
   files?: FilesService;
   relay?: { url: string; keys: KeyPair };

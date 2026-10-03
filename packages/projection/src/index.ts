@@ -129,6 +129,9 @@ export function updateThread(thread: Thread, event: Event): void {
     }
   }
   if (payload.type === "thread.updated") {
+    if (payload.backend !== undefined) thread.backend = payload.backend;
+    if (payload.capabilities !== undefined)
+      thread.capabilities = structuredCopy(payload.capabilities);
     if (payload.provider !== undefined) thread.provider = payload.provider;
     if (payload.lineage !== undefined) thread.lineage = structuredCopy(payload.lineage);
     if (payload.execution !== undefined) thread.execution = structuredCopy(payload.execution);

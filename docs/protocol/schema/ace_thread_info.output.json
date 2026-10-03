@@ -109,6 +109,138 @@
           "minimum": 0,
           "type": "integer"
         },
+        "backend": {
+          "enum": [
+            "acp",
+            "cursor-sdk"
+          ],
+          "type": "string"
+        },
+        "capabilities": {
+          "additionalProperties": false,
+          "properties": {
+            "approvals": {
+              "enum": [
+                "interactive",
+                "sandbox-only",
+                "none"
+              ],
+              "type": "string"
+            },
+            "backgroundTaskControl": {
+              "type": "boolean"
+            },
+            "backgroundVisibility": {
+              "enum": [
+                "full",
+                "partial",
+                "none"
+              ],
+              "type": "string"
+            },
+            "childControls": {
+              "enum": [
+                "native",
+                "read-only"
+              ],
+              "type": "string"
+            },
+            "childFidelity": {
+              "enum": [
+                "full",
+                "summary",
+                "placeholder"
+              ],
+              "type": "string"
+            },
+            "fork": {
+              "type": "boolean"
+            },
+            "forkMode": {
+              "enum": [
+                "native",
+                "context-handoff",
+                "none"
+              ],
+              "type": "string"
+            },
+            "forkPoints": {
+              "items": {
+                "enum": [
+                  "turn",
+                  "item",
+                  "end"
+                ],
+                "type": "string"
+              },
+              "maxItems": 2,
+              "type": "array"
+            },
+            "forkSubagents": {
+              "type": "boolean"
+            },
+            "imageInput": {
+              "type": "boolean"
+            },
+            "interruptCascades": {
+              "type": "boolean"
+            },
+            "launchOptions": {
+              "items": {
+                "enum": [
+                  "effort",
+                  "serviceTier"
+                ],
+                "type": "string"
+              },
+              "maxItems": 2,
+              "type": "array"
+            },
+            "planMode": {
+              "type": "boolean"
+            },
+            "resume": {
+              "type": "boolean"
+            },
+            "rewindFiles": {
+              "type": "boolean"
+            },
+            "sessionOptions": {
+              "type": "boolean"
+            },
+            "steer": {
+              "type": "boolean"
+            },
+            "steeringMode": {
+              "enum": [
+                "native",
+                "interrupt-restart",
+                "queue"
+              ],
+              "type": "string"
+            },
+            "subagentTranscripts": {
+              "type": "boolean"
+            },
+            "tokenUsage": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "steer",
+            "interruptCascades",
+            "resume",
+            "fork",
+            "subagentTranscripts",
+            "backgroundTaskControl",
+            "backgroundVisibility",
+            "planMode",
+            "tokenUsage",
+            "imageInput",
+            "rewindFiles"
+          ],
+          "type": "object"
+        },
         "createdAt": {
           "maximum": 9007199254740991,
           "minimum": 0,
@@ -279,6 +411,14 @@
         "effectiveCapabilities": {
           "additionalProperties": false,
           "properties": {
+            "approvals": {
+              "enum": [
+                "interactive",
+                "sandbox-only",
+                "none"
+              ],
+              "type": "string"
+            },
             "backgroundTaskControl": {
               "type": "boolean"
             },
@@ -290,8 +430,31 @@
               ],
               "type": "string"
             },
+            "childControls": {
+              "enum": [
+                "native",
+                "read-only"
+              ],
+              "type": "string"
+            },
+            "childFidelity": {
+              "enum": [
+                "full",
+                "summary",
+                "placeholder"
+              ],
+              "type": "string"
+            },
             "fork": {
               "type": "boolean"
+            },
+            "forkMode": {
+              "enum": [
+                "native",
+                "context-handoff",
+                "none"
+              ],
+              "type": "string"
             },
             "forkPoints": {
               "items": {
@@ -339,6 +502,14 @@
             },
             "steer": {
               "type": "boolean"
+            },
+            "steeringMode": {
+              "enum": [
+                "native",
+                "interrupt-restart",
+                "queue"
+              ],
+              "type": "string"
             },
             "subagentTranscripts": {
               "type": "boolean"
@@ -417,6 +588,29 @@
           "required": [
             "provider",
             "options"
+          ],
+          "type": "object"
+        },
+        "handoff": {
+          "additionalProperties": false,
+          "properties": {
+            "bytes": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sourceThreadId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "sourceThreadId",
+            "truncated",
+            "bytes"
           ],
           "type": "object"
         },

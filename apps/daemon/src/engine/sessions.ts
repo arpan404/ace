@@ -4,6 +4,13 @@ import type { ThreadId } from "@ace/protocol";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
+import { z } from "zod";
+
+const SessionIdentity = z.strictObject({
+  backend: z.enum(["acp", "cursor-sdk"]),
+  instanceId: z.string().min(1).max(256),
+  nativeSessionId: z.string().min(1).max(512).optional(),
+});
 
 interface SessionDependencies {
   repo: EngineRepository;
@@ -41,8 +48,12 @@ export class Sessions {
     const generation = ++actor.generation;
     try {
       const state = this.dependencies.repo.requireState(actor.id);
-      const { adapter, capabilities } = this.dependencies.registry.get(state.config.provider);
       let metadata = this.dependencies.repo.session(actor.id);
+      const backend = this.dependencies.repo.backend(actor.id);
+      const { adapter, capabilities } = this.dependencies.registry.get(
+        state.config.provider,
+        backend,
+      );
       const entity = this.dependencies.repo.store.getThread(actor.id);
       if (entity?.deletedAt !== undefined) throw new Error("Thread deleted");
       if (!metadata.workspaceReady) {
@@ -65,6 +76,8 @@ export class Sessions {
         rootKey,
         ...(identity ? { acpIdentity: identity } : {}),
       });
+      if (backend === "cursor-sdk")
+        this.dependencies.repo.recovery.restore(actor.id, actor.translator);
       actor.apply([{ type: "process.started" }]);
       const rootAgent = state.agents[rootKey]?.agent;
       const aceMcp =
@@ -104,9 +117,40 @@ export class Sessions {
         ...(metadata.model === undefined ? {} : { model: metadata.model }),
         ...(metadata.nativeSessionId === undefined
           ? {}
-          : { resume: { nativeSessionId: metadata.nativeSessionId } }),
+          : {
+              resume: {
+                nativeSessionId: metadata.nativeSessionId,
+                ...(backend ? { backend } : {}),
+                ...(backend === "cursor-sdk"
+                  ? {
+                      afterFrameOffset: this.dependencies.repo.recovery.offset(actor.id),
+                    }
+                  : {}),
+                ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
+              },
+            }),
         signal: lifetime.signal,
-        onFrame: (frame) => actor.frame(frame, generation),
+        onSessionIdentity: (selection) => {
+          if (generation !== actor.generation || lifetime.signal.aborted)
+            throw new Error("Provider identity arrived after host admission was fenced");
+          const parsed = SessionIdentity.parse(selection);
+          if (parsed.backend !== backend) throw new Error("Provider changed its selected backend");
+          this.dependencies.repo.pinSessionIdentity(actor.id, {
+            backend: parsed.backend,
+            instanceId: parsed.instanceId,
+            ...(parsed.nativeSessionId ? { nativeSessionId: parsed.nativeSessionId } : {}),
+          });
+        },
+        onFrame: (frame) => {
+          actor.frame(frame, generation);
+          const committed = actor.flush().then(() => {
+            if (actor.poisoned) throw new Error("Provider frame failed to commit");
+          });
+          // Void consumers rely on the actor's failure facts; ACK consumers still
+          // receive the rejecting promise and must stop intake on failed commit.
+          void committed.catch(() => {});
+          return committed;
+        },
         onExit: (exit) =>
           actor.enqueue(() => {
             if (generation !== actor.generation) return;
@@ -135,17 +179,30 @@ export class Sessions {
       actor.session = session;
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
       this.dependencies.repo.store.atomic(() => {
-        this.dependencies.repo.nativeSession(actor.id, session.nativeSessionId, session.instanceId);
+        this.dependencies.repo.nativeSession(
+          actor.id,
+          session.nativeSessionId,
+          session.backend ??
+            adapter.backend ??
+            (state.config.provider === "cursor" ? "acp" : undefined),
+          session.instanceId,
+        );
         delete transition.fork;
         if (transition.selection && session.instanceId)
           transition.selection.instanceId = session.instanceId;
         this.dependencies.repo.transitions.set(actor.id, transition);
-        if (transition.selection)
-          this.dependencies.repo.store.appendEvents(
-            actor.id,
-            [{ type: "thread.updated", execution: transition.selection }],
-            this.dependencies.clock.now(),
-          );
+        this.dependencies.repo.store.appendEvents(
+          actor.id,
+          [
+            {
+              type: "thread.updated",
+              capabilities,
+              ...((session.backend ?? backend) ? { backend: session.backend ?? backend } : {}),
+              ...(transition.selection ? { execution: transition.selection } : {}),
+            },
+          ],
+          this.dependencies.clock.now(),
+        );
       });
       this.dependencies.wake(actor.id);
     } catch (error) {

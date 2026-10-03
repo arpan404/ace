@@ -45,7 +45,7 @@ test("Cursor portable forks deliver the shared manifest and retain scoped histor
   const manifest = PortableHandoff.parse(
     JSON.parse(input.slice(0, input.indexOf("\ncontinue fork"))),
   );
-  expect(manifest.origin).toEqual({ provider: "cursor" });
+  expect(manifest.origin).toEqual({ provider: "cursor", backend: "acp" });
   expect(manifest.throughSeq).toBe(cutoff);
   expect(manifest.history.before).toBe(cutoff + 1);
   expect(Buffer.byteLength(JSON.stringify(manifest))).toBeLessThanOrEqual(4096);

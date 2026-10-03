@@ -3,6 +3,8 @@ export interface EngineLimits {
   maxQueuedFrames: number;
   maxQueuedBytes: number;
   maxFrameBytes: number;
+  maxPendingInputs: number;
+  maxInputBytes: number;
 }
 export function engineLimits(input: Partial<EngineLimits> = {}): EngineLimits {
   const limits = {
@@ -10,6 +12,8 @@ export function engineLimits(input: Partial<EngineLimits> = {}): EngineLimits {
     maxQueuedFrames: 256,
     maxQueuedBytes: 8 * 1024 * 1024,
     maxFrameBytes: 4 * 1024 * 1024,
+    maxPendingInputs: 32,
+    maxInputBytes: 262144,
     ...input,
   };
   for (const value of Object.values(limits))

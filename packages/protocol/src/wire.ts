@@ -50,6 +50,7 @@ import {
   UsageSessionTotals,
   UsageSessionTotalsMessage,
 } from "./usage.ts";
+import { CursorAuthRequest, CursorAuthEvent } from "./cursor-auth.ts";
 import { AccountsRequest, AccountsResponse } from "./accounts.ts";
 import { DeviceClientMessage, DeviceServerMessage } from "./devices.ts";
 import { ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
@@ -197,6 +198,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   CommandsList,
   CommandsResolve,
   ...AccountsRequest.options,
+  ...CursorAuthRequest.options,
   SearchQueryRequest,
   SearchStatusRequest,
   ScreenClientMessage,
@@ -296,6 +298,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   CommandsListResult,
   CommandsResolveResult,
   ...AccountsResponse.options,
+  ...CursorAuthEvent.options,
   SearchQueryResponse,
   SearchStatusResponse,
   SearchErrorResponse,

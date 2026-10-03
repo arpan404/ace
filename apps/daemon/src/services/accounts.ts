@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
 export async function startAccounts(context: ServiceContext) {
-  const { config, resources, services, now } = context;
+  const { config, resources, services, now, options } = context;
   const registry = await openRegistryIndex(
     process.env.ACE_ACCOUNTS_DB ?? join(config.dataDir, "accounts.sqlite"),
     context.signal,
@@ -20,6 +20,7 @@ export async function startAccounts(context: ServiceContext) {
     now,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     env: process.env,
+    cursorEnv: options.engine?.cursor?.env ?? process.env,
     resolveAcpLogin: (identity, env) =>
       services.agentRegistry?.resolveLogin(identity, env) ?? Promise.resolve(undefined),
   });

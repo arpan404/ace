@@ -103,7 +103,18 @@ export class ThreadTransitions {
     const selection = this.repo.transitions.selection(actor.id, current, p.selection);
     const crossProvider = selection.provider !== current.provider;
     const crossAccount = !crossProvider && selection.instanceId !== current.instanceId;
-    const capabilities = this.registry.get(selection.provider).capabilities;
+    const backend = this.repo.backend(actor.id);
+    const entry = this.registry.get(selection.provider, crossProvider ? undefined : backend);
+    const capabilities = entry.capabilities;
+    // SDK stores are pinned to the thread and account. The CLI portability driver
+    // cannot copy them, and clearing native identity would reclaim old checkpoints.
+    if (
+      (crossAccount || crossProvider) &&
+      (backend === "cursor-sdk" || entry.adapter.backend === "cursor-sdk")
+    )
+      throw new Error(
+        "Cursor SDK runtime/account changes require a fresh portable fork or thread.create with handoffFrom; the source checkpoint is preserved",
+      );
     if (
       !crossProvider &&
       metadata.nativeSessionId &&
@@ -173,11 +184,12 @@ export class ThreadTransitions {
         currentState.config.provider = selection.provider;
         this.repo.save(currentState, [], this.now());
         db.prepare(
-          "UPDATE engine_sessions SET model=?,instance_id=?,native_session_id=? WHERE thread_id=?",
+          "UPDATE engine_sessions SET model=?,instance_id=?,native_session_id=?,backend=? WHERE thread_id=?",
         ).run(
           selection.model ?? null,
           selection.instanceId ?? null,
           crossProvider || migratedFork ? null : (nativeSessionId ?? null),
+          crossProvider ? (entry.adapter.backend ?? null) : (backend ?? null),
           actor.id,
         );
         this.repo.transitions.set(actor.id, {

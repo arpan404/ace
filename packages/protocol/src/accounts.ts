@@ -91,8 +91,13 @@ export const QuotaWindow = z.object({
   usedPercent: z.number().min(0).max(100),
   resetsAt: z.number().finite().nonnegative().nullable(),
 });
+export const CursorSdkAuth = z.strictObject({
+  status: z.enum(["logged-in", "logged-out"]),
+  source: z.enum(["environment", "sdk-store", "none"]),
+});
 export const AccountQuota = z.object({
   auth: z.enum(["logged_in", "logged_out", "unknown"]),
+  cursorSdkAuth: CursorSdkAuth.optional(),
   observedAt: z.number().finite().nonnegative(),
   windows: z
     .record(z.string().max(128), QuotaWindow)

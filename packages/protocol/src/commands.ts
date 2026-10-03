@@ -49,6 +49,8 @@ export const CommandPayload = z.discriminatedUnion("type", [
   OrchestrationPickCommand,
   z.object({
     type: z.literal("thread.create"),
+    /** Explicit portable fork/migration, preserving the source and allocating fresh native state. */
+    handoffFrom: ThreadId.optional(),
     workspaceId: WorkspaceId,
     provider: ProviderKind,
     threadId: ThreadId.optional(),
