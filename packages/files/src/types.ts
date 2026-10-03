@@ -19,6 +19,7 @@ export function checkVersion(current: string | null, expected: string | null): v
   if (current !== expected) throw new FileError("CONFLICT", "File version changed", current);
 }
 export interface FilesOptions {
+  workspaceRuntime?: import("@ace/workspace").WorkspaceRuntime;
   exclusiveRename?: import("./exclusive-rename.ts").ExclusiveRename;
   workspace: string;
   dataDir: string;
