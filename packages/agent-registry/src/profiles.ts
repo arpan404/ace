@@ -11,6 +11,7 @@ export type CompatibilityProfile = Readonly<{
   denyResume: boolean;
   denyHttpMcp?: boolean;
   bridge?: "claude" | "codex";
+  subagentSessions?: true;
   env?: Readonly<Record<string, string>>;
 }>;
 const specs: Omit<CompatibilityProfile, "revision">[] = [
@@ -59,6 +60,7 @@ const specs: Omit<CompatibilityProfile, "revision">[] = [
     denySelectors: false,
     denyResume: false,
     bridge: "claude",
+    subagentSessions: true,
   },
   {
     id: "codex-bridge",
@@ -71,6 +73,7 @@ const specs: Omit<CompatibilityProfile, "revision">[] = [
     denySelectors: false,
     denyResume: false,
     bridge: "codex",
+    subagentSessions: true,
   },
   {
     id: "goose-153",

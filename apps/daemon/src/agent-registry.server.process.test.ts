@@ -86,3 +86,53 @@ test("registry metadata uses read scope while install controls require admin and
   });
   expect(installed()).toBe(false);
 });
+
+test.each([
+  ["read", "admin"],
+  ["read", "operate"],
+] as const)(
+  "install plan and intent deny missing required scope %j before executing",
+  async (...scopes) => {
+    const { agents, installed } = await registry();
+    const preview = await agents.handle({
+      type: "registry.install-plan",
+      requestId: "local-preview",
+      acpAgentId: "official:sample",
+      runtime: "binary",
+    });
+    if (!preview.result.ok || !("plan" in preview.result)) throw new Error("Missing plan");
+    const f = await setup({ agentRegistry: agents });
+    const device = await f.pair([...scopes]);
+    const ticket = await f.ticket(device.token);
+    const client = await f.connectTicket(device.device.id, ticket.ticket);
+    await client.next();
+    for (const request of [
+      {
+        type: "registry.install-plan",
+        requestId: "plan",
+        acpAgentId: "official:sample",
+        runtime: "binary",
+      },
+      {
+        type: "registry.install-intent",
+        requestId: "intent",
+        digest: preview.result.plan.digest,
+        intentId: "approved",
+      },
+    ] as const) {
+      client.send(request);
+      expect(await client.next()).toMatchObject({
+        type: "registry.result",
+        requestId: request.requestId,
+        result: {
+          ok: false,
+          reason: scopes.some((scope) => scope === "admin")
+            ? "operate scope required"
+            : "admin scope required",
+        },
+      });
+    }
+    expect(installed()).toBe(false);
+    expect(agents.inventory.list()).toEqual([]);
+  },
+);

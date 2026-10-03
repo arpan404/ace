@@ -100,7 +100,16 @@ test.each([false, true])(
       { http },
       {
         mcp: {
-          configuredServers: [{ name: "user", command: "/user/cli", args: [], env: [] }],
+          configuredServers: [
+            {
+              name: "user",
+              command: "/user/cli",
+              args: [],
+              env: [],
+              [secret]: "secret-key-value",
+              "[ace lease redacted]": "existing-key-value",
+            },
+          ],
           httpServers: [
             {
               name: "ace",
@@ -138,6 +147,9 @@ test.each([false, true])(
       ]);
       expect(JSON.stringify(h.frames)).not.toContain(secret);
       expect(JSON.stringify(metadata)).not.toContain(secret);
+      expect(JSON.stringify(metadata)).toContain("secret-key-value");
+      expect(JSON.stringify(metadata)).toContain("existing-key-value");
+      expect(JSON.stringify(h.frames)).toContain("secret-key-value");
     } finally {
       await h.session.close("user");
     }
@@ -243,3 +255,88 @@ test("old Qwen restrictions override claimed load, selectors and HTTP MCP", asyn
     await h.session.close("user");
   }
 });
+
+test.each(["failInitialize", "failSession"])(
+  "%s startup failure revokes the MCP lease",
+  async (failure) => {
+    let revoked = false;
+    await expect(
+      open(
+        { [failure]: true },
+        {
+          mcp: {
+            httpServers: [],
+            stdioServers: [],
+            secrets: [],
+            end() {
+              revoked = true;
+            },
+          },
+        },
+      ),
+    ).rejects.toThrow("Synthetic startup failure");
+    expect(revoked).toBe(true);
+  },
+);
+test("synchronous spawn failure revokes the lease before surfacing the error", async () => {
+  let revoked = false;
+  await expect(
+    openAcpSession(
+      {
+        threadId: ThreadId.parse("spawn-failure"),
+        cwd: process.cwd(),
+        signal: new AbortController().signal,
+        onFrame() {},
+        onExit() {},
+        mcp: {
+          httpServers: [],
+          secrets: [],
+          end() {
+            revoked = true;
+          },
+        },
+      },
+      genericQuirks,
+      { command: "synthetic", args: [] },
+      {
+        spawn() {
+          throw new Error("Synthetic spawn failure");
+        },
+        now: () => 1,
+      },
+    ),
+  ).rejects.toThrow("Synthetic spawn failure");
+  expect(revoked).toBe(true);
+});
+test.each(["claude-acp", "codex-acp"])(
+  "%s child sessions require bilateral profile negotiation",
+  async (agent) => {
+    const version = agent === "claude-acp" ? "0.85.1" : "2.1.1";
+    for (const advertised of [false, true]) {
+      const h = await open({ subagents: advertised }, {}, agent, version);
+      try {
+        const initialize = h.frames.find(
+          (frame) => Envelope.safeParse(frame.data).data?.method === "initialize",
+        );
+        expect(Envelope.parse(initialize?.data).params?.clientCapabilities).toMatchObject({
+          subagents: {},
+        });
+        expect(h.session.acpSupport).toMatchObject({
+          subagentSessions: advertised,
+          visibility: "limited",
+          coverage: "source_profile",
+        });
+        expect(h.session.effectiveCapabilities?.subagentTranscripts).toBe(advertised);
+      } finally {
+        await h.session.close("user");
+      }
+    }
+    const generic = await open({ subagents: true });
+    try {
+      expect(generic.session.acpSupport?.subagentSessions).toBe(false);
+      expect(generic.session.effectiveCapabilities?.subagentTranscripts).toBe(false);
+    } finally {
+      await generic.session.close("user");
+    }
+  },
+);

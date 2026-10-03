@@ -21,18 +21,31 @@ export function redactLease(data: unknown, secrets: readonly string[]): unknown 
       return copy ?? value;
     }
     if (value && typeof value === "object") {
+      const entries = Object.entries(value);
       let copy: Record<string, unknown> | undefined;
-      for (const [key, original] of Object.entries(value)) {
+      // Reserve original keys so redacted keys cannot overwrite an existing field.
+      const used = new Set(entries.map(([key]) => key));
+      const suffixes = new Map<string, number>();
+      for (const [key, original] of entries) {
         const child = replace(original, depth + 1);
-        if (child !== original) {
-          copy ??= Object.fromEntries(Object.entries(value));
-          Object.defineProperty(copy, key, {
-            value: child,
-            enumerable: true,
-            writable: true,
-            configurable: true,
-          });
+        const safeKey = replace(key, depth + 1);
+        if (typeof safeKey !== "string") throw new Error("Invalid redacted key");
+        if (child === original && safeKey === key) continue;
+        copy ??= Object.fromEntries(entries);
+        let target = safeKey;
+        if (safeKey !== key) {
+          delete copy[key];
+          let suffix = suffixes.get(safeKey) ?? 1;
+          while (used.has(target)) target = `${safeKey}#${suffix++}`;
+          suffixes.set(safeKey, suffix);
+          used.add(target);
         }
+        Object.defineProperty(copy, target, {
+          value: child,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
       }
       return copy ?? value;
     }

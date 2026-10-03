@@ -36,6 +36,7 @@ test("two ACP thread selections and effective support persist independently thro
               mcp: "stdio",
               modelSelection: false,
               modeSelection: false,
+              subagentSessions: false,
               coverage: "generic",
               visibility: "limited",
               raw: { json: "{}", truncated: false },

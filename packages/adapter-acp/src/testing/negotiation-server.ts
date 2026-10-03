@@ -8,6 +8,9 @@ const config = z
     legacy: z.boolean().default(false),
     noSelectors: z.boolean().default(false),
     flood: z.boolean().default(false),
+    failInitialize: z.boolean().default(false),
+    failSession: z.boolean().default(false),
+    subagents: z.boolean().default(false),
   })
   .parse(JSON.parse(process.env.ACE_SYNTHETIC_ACP ?? "{}"));
 const Envelope = z
@@ -45,11 +48,19 @@ const setup = () =>
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = Envelope.parse(JSON.parse(line));
   const result = (value: unknown) => write({ id: message.id, result: value });
+  if (
+    (message.method === "initialize" && config.failInitialize) ||
+    (message.method === "session/new" && config.failSession)
+  ) {
+    write({ id: message.id, error: { code: -1, message: "Synthetic startup failure" } });
+    return;
+  }
   if (message.method === "initialize")
     result({
       protocolVersion: 1,
       agentCapabilities: {
         loadSession: config.load,
+        sessionCapabilities: config.subagents ? { subagents: {} } : {},
         mcpCapabilities: { http: config.http },
         promptCapabilities: { image: true },
         futureExtension: { preserved: true },

@@ -12,6 +12,10 @@ const Initialize = z
     agentCapabilities: z
       .object({
         loadSession: z.boolean().optional(),
+        sessionCapabilities: z
+          .object({ subagents: z.object({}).passthrough().optional() })
+          .passthrough()
+          .optional(),
         promptCapabilities: z.object({ image: z.boolean().optional() }).passthrough().optional(),
         mcpCapabilities: z
           .object({ http: z.boolean().optional(), sse: z.boolean().optional() })
@@ -26,6 +30,7 @@ export type Negotiated = {
   capabilities: Capabilities;
   httpMcp: boolean;
   sseMcp: boolean;
+  subagentSessions: boolean;
   raw: unknown;
 };
 export function negotiate(
@@ -47,12 +52,16 @@ export function negotiate(
   const advertised = response.agentCapabilities;
   const existing = quirks.capabilities(version ?? response.agentInfo?.version);
   const generic = quirks.provider === "acp";
+  const subagentSessions =
+    profile?.subagentSessions === true && advertised.sessionCapabilities?.subagents !== undefined;
   return {
     raw,
+    subagentSessions,
     httpMcp: !profile?.denyHttpMcp && advertised.mcpCapabilities?.http === true,
     sseMcp: !profile?.denyHttpMcp && advertised.mcpCapabilities?.sse === true,
     capabilities: {
       ...existing,
+      subagentTranscripts: generic ? subagentSessions : existing.subagentTranscripts,
       resume:
         !profile?.denyResume && advertised.loadSession === true && (generic || existing.resume),
       imageInput: advertised.promptCapabilities?.image === true && (generic || existing.imageInput),
@@ -84,6 +93,7 @@ export function sessionSupport(
     mcp,
     modelSelection: !!selectors.model,
     modeSelection: !!selectors.mode,
+    subagentSessions: negotiated.subagentSessions,
     coverage,
     visibility: "limited",
     raw: boundedRaw(negotiated.raw),

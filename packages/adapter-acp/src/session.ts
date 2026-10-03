@@ -39,7 +39,10 @@ export async function openAcpSession(
   launch: LaunchOptions,
   runtime: SessionRuntime = { spawn: spawnSupervised, now: () => performance.now() },
 ): Promise<ProviderSession> {
-  if (ctx.signal.aborted) throw new Error("ACP session lifetime already ended");
+  if (ctx.signal.aborted) {
+    ctx.mcp?.end();
+    throw new Error("ACP session lifetime already ended");
+  }
   let proc: SupervisedProcess;
   try {
     proc = runtime.spawn({
@@ -51,7 +54,7 @@ export async function openAcpSession(
     });
   } catch (error) {
     ctx.mcp?.end();
-    throw error;
+    throw sanitizedError(error, ctx);
   }
   const session = new AcpSession(ctx, quirks, proc, runtime, launch);
   try {
@@ -214,6 +217,7 @@ class AcpSession implements ProviderSession {
             fs: { readTextFile: false, writeTextFile: false },
             terminal: false,
             _meta: this.quirks.clientMeta,
+            ...(this.launch.profile?.subagentSessions ? { subagents: {} } : {}),
           },
         },
         { signal: this.ctx.signal },

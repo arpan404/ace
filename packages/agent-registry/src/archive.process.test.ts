@@ -24,10 +24,12 @@ async function tar(name: string, type: "file" | "symlink" = "file"): Promise<Uin
   await done;
   return gzipSync(Buffer.concat(chunks));
 }
-test.each(["../escape", "/absolute/escape"])(
+test.each(["traversal", "absolute"])(
   "archive path %s is rejected without publishing or writing outside its private root",
-  async (name) => {
+  async (kind) => {
     const work = await temporary();
+    const escaped = join(work.root, "escape");
+    const name = kind === "traversal" ? "../../../escape" : escaped;
     const bytes = await tar(name);
     const entry = sample();
     entry.distribution.binary = {
@@ -61,7 +63,7 @@ test.each(["../escape", "/absolute/escape"])(
       });
       expect(reply.result.ok).toBe(false);
       expect(service.inventory.list()).toEqual([]);
-      await expect(access(join(work.root, "escape"))).rejects.toThrow();
+      await expect(access(escaped)).rejects.toThrow();
     } finally {
       await service.close();
       await work.close();
