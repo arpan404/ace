@@ -10,6 +10,8 @@ import { Capabilities, ServerMessage, type ContentPart, type ProviderKind } from
 import {
   daemonHome,
   daemonPort,
+  pluginMarketPath,
+  pluginName,
   scriptedReply,
   screensTitle,
   seededTitle,
@@ -103,6 +105,8 @@ git("init", "-q", "-b", "main");
 git("add", "README.md");
 git("commit", "-q", "-m", "Initial commit");
 
+seedPluginMarket();
+
 const registry = new AdapterRegistry();
 for (const provider of ["claude", "codex"] as const)
   registry.register(scriptedProvider(provider), {
@@ -174,4 +178,52 @@ async function seedThread(
   );
   await result;
   socket.close();
+}
+
+/** A marketplace with one plugin: a skill, a command and an MCP server its review shows. */
+function seedPluginMarket(): void {
+  const root = join(pluginMarketPath, "plugins", pluginName);
+  const files: Record<string, string> = {
+    "marketplace.json": JSON.stringify({
+      name: "e2e-market",
+      plugins: [{ name: pluginName, source: `./plugins/${pluginName}` }],
+    }),
+    [`plugins/${pluginName}/ace-plugin.json`]: JSON.stringify({
+      schemaVersion: 1,
+      name: pluginName,
+      version: "1.0.0",
+      description: "Tools for the e2e project",
+      skills: [{ name: "greet", path: "skills/greet" }],
+      commands: [{ name: "standup", path: "commands/standup.md" }],
+      agents: [],
+      rules: [],
+      mcpServers: {
+        notes: { type: "stdio", command: "node", args: ["${PLUGIN_ROOT}/server.js"], env: {} },
+      },
+    }),
+    [`plugins/${pluginName}/skills/greet/SKILL.md`]:
+      "---\nname: greet\ndescription: Greet the team\n---\nSay hello to everyone in the thread.\n",
+    [`plugins/${pluginName}/commands/standup.md`]:
+      "---\ndescription: Summarise the day\n---\nSummarise what moved today.\n",
+    [`plugins/${pluginName}/server.js`]: "throw new Error('never runs during the e2e');\n",
+  };
+  mkdirSync(root, { recursive: true });
+  for (const [path, content] of Object.entries(files)) {
+    const target = join(pluginMarketPath, path);
+    mkdirSync(join(target, ".."), { recursive: true });
+    writeFileSync(target, content);
+  }
+  commitAll(pluginMarketPath, "Plugin market");
+}
+
+/** A fresh repository at `cwd` holding everything in it as one commit. */
+function commitAll(cwd: string, subject: string): void {
+  const run = (...args: string[]) =>
+    execFileSync("git", ["-c", "user.name=ace e2e", "-c", "user.email=e2e@ace.invalid", ...args], {
+      cwd,
+      stdio: "ignore",
+    });
+  run("init", "-q", "-b", "main");
+  run("add", ".");
+  run("commit", "-q", "-m", subject);
 }

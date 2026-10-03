@@ -114,7 +114,10 @@ and reads again after a reconnect. Live state still comes only from `@ace/client
 
 Wired on the wire in every mode: accounts and usage (`accounts.list`, `usage.series`), search
 (`search.query`), models (`models.list`, `models.refresh`), settings (`settings.subscribe` /
-`settings.set`), slash commands (`commands.list`), mentions and uploads (`context.request`). In
+`settings.set`), slash commands (`commands.list`), mentions and uploads (`context.request`),
+Deck runs (`conductor.request` and `conductor.*` commands), automations (`automation.*`),
+skills and plugins (`pluginRequest`), and the Activity feed (forge `pr.status` and Deck
+escalations). In
 fake mode `@ace/fake-daemon` serves the same messages from its catalogs
 (`packages/fake-daemon/src/services/`), so a feature has one code path.
 
@@ -124,9 +127,8 @@ stand-in; against a real daemon it reports the feature empty or unavailable, nev
 Today: workspace and forge actions, scripts and editors, thread organization (rename, fork,
 settle, snooze, pin, delete, unqueue), card details, New thread's branches and pre-thread
 mentions, account details and the run-out policy, settings keys outside the protocol schema,
-machines, devices and pairing, ACP agents added by command, automations, the Activity feed,
-Deck runs, skills and plugins, changed files and transfers, and the terminal, browser and
-preview panels. When the backend lands, wiring a feature changes only its adapter.
+machines, devices and pairing, ACP agents added by command, changed files and transfers, and
+the terminal, browser and preview panels. When the backend lands, wiring a feature changes only its adapter.
 
 ## Fake-daemon scenarios
 
