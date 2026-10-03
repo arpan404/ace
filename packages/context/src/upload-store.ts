@@ -37,11 +37,15 @@ export class UploadStore {
       "invalid_request",
       "Thread reference cap cannot exceed wire limit",
     );
-    this.metadata = new Metadata(join(options.root, "context.sqlite"));
+    this.metadata = new Metadata(join(options.root, "context.sqlite"), options.signal);
+    this.tail = this.metadata.ready;
     this.leases = new BlobLeases(this.metadata);
     this.maintenance = new Maintenance(this.metadata, options.root, options.now, (row) =>
       this.removeUpload(row),
     );
+  }
+  get ready(): Promise<void> {
+    return this.metadata.ready;
   }
   static async open(options: UploadOptions): Promise<UploadStore> {
     await mkdir(join(options.root, "uploads"), { recursive: true, mode: 0o700 });
@@ -55,9 +59,14 @@ export class UploadStore {
       "Attachment store busy",
     );
     this.queued++;
-    const result = this.tail.then(operation).finally(() => {
-      this.queued--;
-    });
+    const result = this.tail
+      .then(async () => {
+        await this.metadata.ready;
+        return operation();
+      })
+      .finally(() => {
+        this.queued--;
+      });
     this.tail = result.catch(() => {});
     return result;
   }
@@ -360,9 +369,12 @@ export class UploadStore {
   }
   async close(): Promise<void> {
     this.closing = true;
-    await this.tail;
-    await this.maintenance.close();
-    this.leases.close();
-    this.metadata.close();
+    try {
+      await this.tail;
+      await this.maintenance.close();
+    } finally {
+      this.leases.close();
+      this.metadata.close();
+    }
   }
 }

@@ -1,3 +1,4 @@
+import { warmup } from "./warmup.ts";
 import { realpath } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -11,12 +12,16 @@ import type { ServiceContext } from "./types.ts";
 export async function startPlugins(context: ServiceContext): Promise<void> {
   const { config, now, id, resources, services } = context;
 
-  const plugins = await PluginManager.open({
+  const plugins = await PluginManager.openIndex({
     root: join(await realpath(config.dataDir), "plugins"),
     now,
     id,
   });
-  resources.own(() => plugins.close());
+  const maintenance = warmup(context, "plugins", () => plugins.maintain(context.signal));
+  resources.own(async () => {
+    await maintenance;
+    plugins.close();
+  });
   const launches = new PluginLaunches((provider, root, options) =>
     launchPluginProcess(plugins, provider, root, options),
   );

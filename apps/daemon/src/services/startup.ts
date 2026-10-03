@@ -52,6 +52,10 @@ async function bounded<T>(
 
 /** Ordered startup with private publication and resource ownership for each attempt. */
 export class ServiceStartup {
+  private readonly readiness = new Map<
+    string,
+    () => { state: "starting" | "ready" | "degraded"; error?: string }
+  >();
   private readonly statuses = new Map<string, ServiceStatus>();
   private readonly listeners: {
     name: string;
@@ -69,7 +73,13 @@ export class ServiceStartup {
   private readonly context: ServiceContext;
   status = (): ServiceStatus[] =>
     [...this.statuses.values()].map(({ name, state, error }) => {
-      const result: ServiceStatus = { name, state };
+      const warming = state !== "degraded" ? this.readiness.get(name)?.() : undefined;
+      const result: ServiceStatus = {
+        name,
+        state:
+          state === "ready" || warming?.state === "degraded" ? (warming?.state ?? state) : state,
+      };
+      error = warming?.error ?? error;
       if (error !== undefined) result.error = error;
       return result;
     });
@@ -147,6 +157,7 @@ export class ServiceStartup {
             services,
             onListen,
             signal: controller.signal,
+            readiness: (read) => this.readiness.set(name, read),
           }),
         this.runtime,
       );

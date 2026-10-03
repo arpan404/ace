@@ -1,3 +1,4 @@
+import { warmup } from "./warmup.ts";
 import { join } from "node:path";
 import { ContextService } from "@ace/context";
 import { ThreadId } from "@ace/protocol";
@@ -6,6 +7,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
   const { config, store, now, id, resources, services, log, onListen } = runtime;
 
   const context = await ContextService.open({
+    signal: runtime.signal,
     root: join(config.dataDir, "context"),
     now,
     id,
@@ -17,6 +19,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
   });
   resources.own(() => context.close());
   services.context = context;
+  void warmup(runtime, "context", () => context.uploads.ready);
   let pending: Promise<void> | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   const maintain = () => {

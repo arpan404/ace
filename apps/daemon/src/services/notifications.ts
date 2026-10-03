@@ -1,3 +1,4 @@
+import { warmup } from "./warmup.ts";
 import { loadNotificationChannels } from "../notification-config.ts";
 import { createDaemonNotifications } from "../notifications.ts";
 import type { ServiceContext } from "./types.ts";
@@ -21,14 +22,17 @@ export async function startNotifications(context: ServiceContext): Promise<void>
   );
   resources.own(() => notifications.close());
   // A cursor reply proves the worker has opened its store, even when the log is empty.
-  await notifications.ready();
+  await notifications.open();
   services.notifications = notifications.service;
   onListen.push(async (server) => {
     notifications.setSender(server.notify);
     // Clients can connect through the endpoint before feature startup completes.
     for (const device of server.notificationDevices())
       await notifications.service.connectDevice(device);
-    notifications.activate();
+    void warmup(context, "notifications", async () => {
+      await notifications.ready();
+      notifications.activate();
+    });
   });
 }
 

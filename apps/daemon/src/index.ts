@@ -205,7 +205,12 @@ export async function startDaemon(options: DaemonOptions = {}) {
       },
       engine: services.engine,
       accounts: services.accounts,
-      commands: services.commands,
+      get commands() {
+        return services.commands;
+      },
+      get history() {
+        return services.history;
+      },
       get models() {
         return requireService(services.models, "models");
       },

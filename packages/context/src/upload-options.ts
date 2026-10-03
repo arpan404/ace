@@ -22,6 +22,7 @@ export const defaultUploadLimits: UploadLimits = {
   ttlMs: 24 * 60 * 60 * 1000,
 };
 export interface UploadOptions {
+  signal?: AbortSignal;
   root: string;
   now(): number;
   id(): string;

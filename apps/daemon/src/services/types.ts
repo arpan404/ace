@@ -52,6 +52,7 @@ export interface Services {
 }
 export interface ServiceContext {
   signal: AbortSignal;
+  readiness?(read: () => { state: "starting" | "ready" | "degraded"; error?: string }): void;
   config: Config;
   options: DaemonOptions;
   store: Store;

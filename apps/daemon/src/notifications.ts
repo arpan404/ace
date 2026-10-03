@@ -1,3 +1,4 @@
+import { setImmediate } from "node:timers/promises";
 import { join } from "node:path";
 import {
   NotificationWorker,
@@ -14,6 +15,7 @@ const offline = () => false;
 export interface DaemonNotifications {
   service: NotificationWorker;
   setSender(sender: (device: DeviceId, notification: Notification) => boolean): void;
+  open(): Promise<void>;
   ready(): Promise<void>;
   activate(): void;
   start(): Promise<void>;
@@ -52,7 +54,10 @@ export function createDaemonNotifications(
   let closed = false;
   const ready = async () => {
     await service.cursor();
-    await attached.recover();
+    while (!(await attached.recover())) {
+      if (closed || signal?.aborted) throw new Error("Notification recovery aborted");
+      await setImmediate();
+    }
     if (closed || signal?.aborted) throw new Error("Notification startup aborted");
   };
   const activate = () => {
@@ -67,6 +72,9 @@ export function createDaemonNotifications(
   };
   return {
     service,
+    open: async () => {
+      await service.cursor();
+    },
     ready,
     activate,
     setSender(sender) {

@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -122,7 +123,18 @@ async function launch(
 it("a source daemon with a fresh empty home reaches ready, publishes its endpoint and serves clients", async () => {
   const daemon = await launch([fileURLToPath(new URL("./cli.ts", import.meta.url)), "start"]);
   // A blanket timeout workaround that disables notifications is not a successful startup.
-  expect(daemon.status.services.find((service) => service.name === "notifications")).toEqual({
+  let status = daemon.status;
+  const deadline = performance.now() + 5000;
+  while (
+    status.services.find((service) => service.name === "notifications")?.state === "starting" &&
+    performance.now() < deadline
+  ) {
+    await delay(20);
+    status = Status.parse(
+      await accessRequest(daemon.origin, "/v1/status", { token: daemon.token }),
+    );
+  }
+  expect(status.services.find((service) => service.name === "notifications")).toEqual({
     name: "notifications",
     state: "ready",
   });
