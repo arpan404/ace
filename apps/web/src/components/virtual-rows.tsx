@@ -8,6 +8,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
+import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 
 /*
  * Rows of a long list mounted only while near the viewport of whatever ancestor scrolls (a
@@ -83,6 +84,10 @@ export function VirtualRows<T>(props: VirtualRowsProps<T>) {
       const item = items[index];
       return item === undefined ? index : rowKey(item, index);
     },
+  });
+  useForgetGoneRows(virtualizer, items.length, (index) => {
+    const item = items[index];
+    return item === undefined ? index : rowKey(item, index);
   });
   useImperativeHandle(
     props.handle,
