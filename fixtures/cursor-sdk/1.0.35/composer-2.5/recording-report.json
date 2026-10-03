@@ -6,6 +6,98 @@
   "scenarios": [
     {
       "scenario": "text-thinking-read",
+      "outcome": "complete",
+      "elapsedMs": 8786,
+      "recordingPolicy": "full-access"
+    },
+    {
+      "scenario": "edit-shell-results",
+      "outcome": "complete",
+      "elapsedMs": 10357,
+      "recordingPolicy": "full-access"
+    },
+    {
+      "scenario": "restricted-mcp",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent. No thread/instance-scoped MCP lease was provisioned because the prerequisite Auto-review verification failed."
+    },
+    {
+      "scenario": "full-access",
+      "outcome": "complete",
+      "elapsedMs": 10995
+    },
+    {
+      "scenario": "plan-question",
+      "outcome": "complete",
+      "elapsedMs": 20186,
+      "recordingPolicy": "full-access"
+    },
+    {
+      "scenario": "foreground-child",
+      "outcome": "complete",
+      "elapsedMs": 12999,
+      "recordingPolicy": "full-access"
+    },
+    {
+      "scenario": "background-child",
+      "outcome": "complete",
+      "elapsedMs": 25924,
+      "recordingPolicy": "full-access"
+    },
+    {
+      "scenario": "nested-task",
+      "outcome": "complete",
+      "elapsedMs": 43282,
+      "recordingPolicy": "full-access"
+    },
+    {
+      "scenario": "background-shell",
+      "outcome": "complete",
+      "elapsedMs": 42335,
+      "recordingPolicy": "full-access"
+    },
+    {
+      "scenario": "interrupt-work",
+      "outcome": "complete",
+      "elapsedMs": 6901,
+      "recordingPolicy": "full-access"
+    },
+    {
+      "scenario": "steering-restart",
+      "outcome": "complete",
+      "elapsedMs": 9672,
+      "recordingPolicy": "full-access"
+    },
+    {
+      "scenario": "checkpoint-resume",
+      "outcome": "incomplete",
+      "elapsedMs": 17510,
+      "recordingPolicy": "full-access",
+      "reason": "SDK recording incomplete; do not promote it to a fixture; Cursor SDK history recovery failed within the checkpoint/heap/time budget. Preserve this thread and create an explicit bounded context handoff; automatic resend is fenced."
+    },
+    {
+      "scenario": "portable-fork",
+      "outcome": "complete",
+      "elapsedMs": 20891,
+      "recordingPolicy": "full-access"
+    },
+    {
+      "scenario": "mcp-image",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent. No thread/instance-scoped MCP lease was provisioned because the prerequisite Auto-review verification failed."
+    },
+    {
+      "scenario": "usage",
+      "outcome": "complete",
+      "elapsedMs": 8388,
+      "recordingPolicy": "full-access"
+    }
+  ],
+  "initialScenarios": [
+    {
+      "scenario": "text-thinking-read",
       "outcome": "skipped",
       "elapsedMs": 0,
       "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
@@ -93,5 +185,6 @@
       "elapsedMs": 0,
       "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
     }
-  ]
+  ],
+  "fullAccessApproval": "Owner-approved 2026-10-03 continuation: 12 behavioural scenarios once in full-access, no retries"
 }

@@ -1,0 +1,59 @@
+{
+  "checkpoints": [
+    {
+      "t": 2794,
+      "thread": "working",
+      "agentStates": {
+        "root": "working"
+      }
+    },
+    {
+      "t": 11214,
+      "thread": "working",
+      "agentStates": {
+        "root": "blocked"
+      }
+    },
+    {
+      "t": 16418,
+      "thread": "done",
+      "agentStates": {
+        "root": "idle"
+      }
+    },
+    {
+      "t": 16425,
+      "thread": "working",
+      "agentStates": {
+        "root": "working"
+      }
+    },
+    {
+      "t": 18643,
+      "thread": "working",
+      "agentStates": {
+        "root": "blocked"
+      }
+    },
+    {
+      "t": 25697,
+      "thread": "done",
+      "agentStates": {
+        "root": "idle"
+      }
+    }
+  ],
+  "final": {
+    "thread": "done",
+    "agents": 3,
+    "agentStates": {
+      "root": "idle"
+    },
+    "items": {
+      "tool_call": 5
+    },
+    "interactions": {
+      "pending": 0
+    }
+  }
+}

@@ -135,10 +135,17 @@ Offline public-API guards substitute only the SDK/provider service and catalog;
 they retain real disposable repositories, file streams, translator and core.
 They cover authorization refusal, fail-closed setup, selected home, redaction,
 checkpoint continuation, fresh portable identity and unresolved background work.
-The owner-approved fixture task ran the scoped Cursor adapter/recorder tests and
-the CLI auth regression tests: 20 files, 85 tests passed. It recorded
-`full-access` once and skipped the fourteen restricted scenarios because
-Auto-review availability was unverified. See the committed batch report and
-`fixtures/cursor-sdk/1.0.35/composer-2.5/ANALYSIS.md` for outcomes, elapsed time,
-observations and remaining evidence gaps. The full merge gate was not run during
-this task; the owner's test exception covered these specific tests.
+The initial fixture task passed 20 scoped files / 85 tests. The full-access
+continuation passed 24 scoped files / 151 tests, including Cursor replays,
+recorder/sink/admission tests, merged Cursor/OpenCode redaction, OpenCode fixture
+replays, and CLI auth regressions. It completed eleven new scenarios, left
+checkpoint resume incomplete, and kept both MCP scenarios skipped. The original
+full-access capture was not recorded again. See the committed batch report and
+`fixtures/cursor-sdk/1.0.35/composer-2.5/ANALYSIS.md` for times and evidence limits.
+The full merge gate was not run locally; the owner's test exception covered these
+specific tests. The offline privacy scanner also checks replayed items after
+streamed text has been reassembled:
+
+```sh
+node tools/recorder/src/scan-cursor-sdk-fixtures.ts
+```

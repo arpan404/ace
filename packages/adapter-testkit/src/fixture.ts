@@ -20,6 +20,7 @@ const FrameSchema = z.looseObject({
   channel: z.string(),
   data: z.unknown(),
 });
+const SdkFrameSource = z.object({ threadId: z.string().optional() });
 const SdkSupplement = z.looseObject({
   type: z.enum(["sdk-model-catalog", "sdk-scenario-analysis"]),
 });
@@ -28,6 +29,8 @@ export interface Fixture {
   header: RecordingHeader;
   frames: Frame[];
   metadata?: z.infer<typeof SdkSupplement>[];
+  /** SDK portable handoffs carry independent thread streams in one capture. */
+  threads?: Record<string, Frame[]>;
 }
 
 /** Reject broken ordering rather than silently changing the provider transcript. */
@@ -73,5 +76,16 @@ export async function readFixture(path: string): Promise<Fixture> {
   const header = RecordingHeader.parse(rows[0]);
   const frames = rows.slice(1).map((row) => FrameSchema.parse(row));
   validateFrames(frames);
-  return { header, frames, ...(metadata.length ? { metadata } : {}) };
+  const threads: Record<string, Frame[]> = Object.create(null);
+  if (sdkRecording)
+    for (const frame of frames) {
+      const { threadId } = SdkFrameSource.parse(frame);
+      if (threadId) (threads[threadId] ??= []).push(frame);
+    }
+  return {
+    header,
+    frames,
+    ...(metadata.length ? { metadata } : {}),
+    ...(Object.keys(threads).length ? { threads } : {}),
+  };
 }
