@@ -49,6 +49,11 @@ export interface Visibility {
   visible(): boolean;
   watch(changed: () => void): () => void;
 }
+/** Proof that this tab is alive, for as long as it lives (a Web Lock in a browser). */
+export interface Liveness {
+  /** Resolves once the lock is held, with its name and a way to let it go. */
+  hold(): Promise<{ name: string; release(): void }>;
+}
 export interface RemoteOptions {
   scheduler: Scheduler;
   /** While the page is hidden the worker sends it nothing (ADR 0056). Always visible if absent. */
@@ -57,6 +62,13 @@ export interface RemoteOptions {
   attached?(): void;
   /** Interval of the liveness ping that keeps this tab's leases in the worker. */
   pingMs?: number;
+  /**
+   * Where the browser has it, a lock the worker watches instead of pings: throttled or frozen
+   * hidden tabs keep their leases, and a closed tab's are released at once.
+   */
+  liveness?: Liveness;
+  /** Sent intents nobody watches that a tab remembers, for a watcher that subscribes late. */
+  unwatchedIntents?: number;
   listeners?: number;
 }
 interface Pending {
@@ -88,6 +100,7 @@ export class RemoteClient implements ClientApi {
   private attached: Promise<void>;
   private settle: Pending | undefined;
   private stopPing: (() => void) | undefined;
+  private releaseLock: (() => void) | undefined;
   private unwatch: (() => void) | undefined;
   private closed = false;
   private listener = (event: { data: unknown }) => this.receive(event.data);
@@ -151,6 +164,16 @@ export class RemoteClient implements ClientApi {
       });
     };
     ping();
+    void this.options.liveness?.hold().then(
+      (held) => {
+        if (this.closed) return held.release();
+        this.releaseLock = held.release;
+        this.post({ t: "alive", lock: held.name });
+      },
+      () => {
+        /* No lock: the pings keep this tab alive. */
+      },
+    );
     return this.attached;
   }
   /** Leave the worker. Its client keeps running while other tabs use it. */
@@ -160,6 +183,7 @@ export class RemoteClient implements ClientApi {
     this.stopPing?.();
     this.unwatch?.();
     this.post({ t: "bye" });
+    this.releaseLock?.();
     this.port.removeEventListener("message", this.listener);
     this.port.close?.();
     for (const pending of this.pending.values()) pending.reject(new ClientError("offline"));
@@ -189,7 +213,10 @@ export class RemoteClient implements ClientApi {
     const { id: sent, intent } = trusted<{ id: string; intent: Intent | undefined }>(result);
     const record = this.intents.get(sent);
     if (record) record.value = intent;
-    else this.intents.set(sent, { value: intent, watchers: 0 });
+    else {
+      this.intents.set(sent, { value: intent, watchers: 0 });
+      this.forgetUnwatchedIntents();
+    }
     this.notifications.emit([`intent:${sent}`]);
     return sent;
   }
@@ -247,6 +274,18 @@ export class RemoteClient implements ClientApi {
     return this.stream<Uint8Array>("output", [payload, timeout(options)], options.signal);
   }
 
+  /** Keeps only the newest sent intents nobody watches; each holds its whole command. */
+  private forgetUnwatchedIntents(): void {
+    let excess = -(this.options.unwatchedIntents ?? 64);
+    for (const record of this.intents.values()) if (record.watchers === 0) excess++;
+    // Maps iterate in insertion order: the oldest go first.
+    for (const [id, record] of this.intents) {
+      if (excess <= 0) return;
+      if (record.watchers > 0) continue;
+      this.intents.delete(id);
+      excess--;
+    }
+  }
   private get listeners() {
     return this.options.listeners ?? defaultLimits.listeners;
   }

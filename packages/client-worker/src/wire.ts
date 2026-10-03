@@ -57,6 +57,8 @@ export const TabMessage = z.discriminatedUnion("t", [
   /** A hidden tab receives nothing until it is visible again; then it gets what changed. */
   z.object({ t: z.literal("visible"), visible: z.boolean() }),
   z.object({ t: z.literal("ping") }),
+  /** The tab holds this Web Lock for its lifetime; the worker drops it once the lock frees. */
+  z.object({ t: z.literal("alive"), lock: z.string().check(z.minLength(1)) }),
   z.object({ t: z.literal("bye") }),
 ]);
 export type TabMessage = z.infer<typeof TabMessage>;

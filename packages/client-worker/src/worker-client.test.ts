@@ -9,7 +9,7 @@ import {
 import { DeviceId, ThreadId } from "@ace/protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import { z } from "zod";
-import { ClientHost, RemoteClient } from "./index.ts";
+import { ClientHost, RemoteClient, type HostOptions, type RemoteOptions } from "./index.ts";
 
 const timers: Scheduler = {
   set(delayMs, callback) {
@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 /** A worker host serving tabs over real MessageChannels, backed by one fake daemon. */
-function world(snapshotItems?: number) {
+function world(snapshotItems?: number, hostOptions: Partial<HostOptions> = {}) {
   let now = 1;
   let ids = 0;
   const daemon = new FakeDaemon({
@@ -67,8 +67,9 @@ function world(snapshotItems?: number) {
     frameMs: 4,
     lingerMs: 30,
     silenceMs: 300,
+    ...hostOptions,
   });
-  const tab = (target = "local") => {
+  const tab = (target = "local", tabOptions: Partial<RemoteOptions> = {}) => {
     const { port1, port2 } = new MessageChannel();
     host.attach(port1);
     const page = { visible: true, changed: () => {} };
@@ -85,6 +86,7 @@ function world(snapshotItems?: number) {
             return () => {};
           },
         },
+        ...tabOptions,
       },
     );
     cleanups.push(() => remote.close());
@@ -385,4 +387,123 @@ test("a one-way control is refused, not queued, while the worker's client is dis
   expect(() => remote.send({ type: "terminal.credit", subscriptionId: "shell" })).toThrow(
     expect.objectContaining({ code: "offline" }),
   );
+});
+
+/** Web Locks in memory: a lock is free once its holder lets go; a waiter hears it then. */
+function lockManager() {
+  const held = new Map<string, { release(): void; waiters: (() => void)[] }>();
+  return {
+    liveness: {
+      async hold() {
+        const name = `tab-${held.size + 1}`;
+        const lock = {
+          waiters: [] as (() => void)[],
+          release: () => {
+            held.delete(name);
+            for (const waiter of lock.waiters) waiter();
+          },
+        };
+        held.set(name, lock);
+        return { name, release: lock.release };
+      },
+    },
+    lockReleased(name: string, gone: () => void) {
+      const lock = held.get(name);
+      if (!lock) {
+        gone();
+        return () => {};
+      }
+      lock.waiters.push(gone);
+      return () => {
+        lock.waiters = lock.waiters.filter((waiter) => waiter !== gone);
+      };
+    },
+    /** The tab's process dies: its lock frees without a goodbye. */
+    crash: (name: string) => held.get(name)?.release(),
+  };
+}
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("a hidden tab whose timers are throttled keeps its leases and catches up when shown", async () => {
+  const { daemon, tab, sockets } = world(undefined, { hiddenSilenceMs: 5_000 });
+  const script = new ScenarioPlayer(daemon, flakyCheckout());
+  // Pings stop altogether, as in a hidden page the browser has throttled or frozen.
+  const remote = tab("local", { pingMs: 60_000 });
+  await remote.start();
+  const lease = remote.thread(script.threadId);
+  await vi.waitFor(() => expect(lease.store.thread).toBeDefined());
+  remote.show(false);
+  await pause(800);
+  expect(sockets.open).toBe(1);
+  script.runUntilBlocked();
+  const reference = (await inProcess(daemon)).thread(script.threadId);
+  remote.show(true);
+  await vi.waitFor(() => {
+    expect(reference.store.order.length).toBeGreaterThan(3);
+    expect(transcript(lease.store)).toEqual(transcript(reference.store));
+  });
+  lease.release();
+  reference.release();
+});
+
+test("a tab holding its liveness lock is never dropped for silence, and is released when it dies", async () => {
+  const locks = lockManager();
+  const { tab, sockets, host } = world(undefined, { lockReleased: locks.lockReleased });
+  const remote = tab("local", { pingMs: 60_000, liveness: locks.liveness });
+  await remote.start();
+  const lease = remote.threads();
+  await vi.waitFor(() => expect(sockets.open).toBe(1));
+  await pause(800);
+  expect(sockets.open).toBe(1);
+  await expect(remote.loadOlder("thread-nobody-holds", 20)).rejects.toMatchObject({
+    code: "offline",
+  });
+  locks.crash("tab-1");
+  await vi.waitFor(() => expect(sockets.open).toBe(0), { timeout: 2000 });
+  expect(host.clients).toBe(0);
+  lease.release();
+});
+
+test("a tab hidden through a long stream catches up exactly when shown", async () => {
+  const { daemon, tab } = world();
+  const script = new ScenarioPlayer(daemon, longHistory(700));
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  const lease = remote.thread(script.threadId);
+  await vi.waitFor(() => expect(lease.store.thread).toBeDefined());
+  remote.show(false);
+  await pause(20);
+  script.runUntilBlocked();
+  const reference = (await inProcess(daemon)).thread(script.threadId);
+  await vi.waitFor(() => expect(reference.store.order.length).toBeGreaterThan(100));
+  remote.show(true);
+  await vi.waitFor(() => {
+    expect(transcript(lease.store)).toEqual(transcript(reference.store));
+    expect(lease.store.agentIds()).toEqual(reference.store.agentIds());
+  });
+  lease.release();
+  reference.release();
+});
+
+test("a tab remembers only its newest sent commands that nobody watches", async () => {
+  const { daemon, tab } = world();
+  const script = new ScenarioPlayer(daemon, longHistory(1));
+  script.runUntilBlocked();
+  const remote = tab("local", { unwatchedIntents: 2 });
+  await remote.start();
+  await settled(remote);
+  const send = (text: string) =>
+    remote.enqueue({
+      type: "thread.send",
+      threadId: ThreadId.parse(script.threadId),
+      input: [{ type: "text", text }],
+      delivery: "queue",
+    });
+  const first = await send("one");
+  await send("two");
+  const last = await send("three");
+  expect(remote.intent(first).getSnapshot()).toBeUndefined();
+  expect(remote.intent(last).getSnapshot()).toBeDefined();
 });
