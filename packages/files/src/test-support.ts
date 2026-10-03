@@ -18,7 +18,7 @@ export class Client {
   private queued: Message[] = [];
   private waiters: { resolve(message: Message): void; reject(error: Error): void }[] = [];
   private ended = false;
-  constructor(url: string) {
+  constructor(url: string, receiveChanges = false) {
     this.socket = new WebSocket(url, { maxPayload: 1024 * 1024 });
     this.socket.on("message", (data, binary) => {
       const message = binary
@@ -26,7 +26,7 @@ export class Client {
         : z.union([FilesServerMessage, Metrics]).parse(JSON.parse(data.toString()));
       if (!Buffer.isBuffer(message) && message.type === "files.changed") {
         this.changes.push(message);
-        return;
+        if (!receiveChanges) return;
       }
       const waiter = this.waiters.shift();
       if (waiter) waiter.resolve(message);

@@ -1,5 +1,5 @@
 import { createExclusiveRename, type ExclusiveRename } from "./exclusive-rename.ts";
-import { mkdir } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { SafeRoot } from "@ace/workspace";
 import { FileOperation, type WorkspaceFileChange } from "@ace/protocol";
@@ -304,6 +304,7 @@ export class FilesService {
     id?: string;
   }): Promise<string> {
     return this.serial(async () => {
+      input = { ...input, root: await realpath(input.root) };
       const root = this.roots.get(input.root);
       if (!root) throw new FileError("FORBIDDEN", "Unknown artifact root");
       const identifier =

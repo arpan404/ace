@@ -5,6 +5,7 @@ import { WebSocketServer } from "ws";
 import { z } from "zod";
 import { FilesService, attachFilesSocket, createBlobExport } from "./index.ts";
 
+const MetricsRequest = z.object({ type: z.literal("test.metrics") });
 const [root, data] = z.tuple([z.string(), z.string()]).parse(process.argv.slice(2));
 const database = join(root, "source.sqlite");
 const source = new DatabaseSync(database);
@@ -41,7 +42,7 @@ server.on("connection", (socket) => {
     if (binary) session.binary(z.instanceof(Buffer).parse(raw));
     else {
       const input: unknown = JSON.parse(raw.toString());
-      if (z.object({ type: z.literal("test.metrics") }).safeParse(input).success)
+      if (MetricsRequest.safeParse(input).success)
         socket.send(
           JSON.stringify({
             type: "test.metrics",

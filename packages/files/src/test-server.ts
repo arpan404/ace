@@ -4,6 +4,7 @@ import { WebSocketServer } from "ws";
 import { z } from "zod";
 import { attachFilesSocket, FilesService } from "./index.ts";
 
+const MetricsRequest = z.object({ type: z.literal("test.metrics") });
 const [root, dataDir] = z.tuple([z.string(), z.string()]).parse(process.argv.slice(2));
 const service = await FilesService.create({
   workspace: root,
@@ -21,7 +22,7 @@ server.on("connection", (socket) => {
       return;
     }
     const input: unknown = JSON.parse(data.toString());
-    const metric = z.object({ type: z.literal("test.metrics") }).safeParse(input);
+    const metric = MetricsRequest.safeParse(input);
     if (metric.success)
       socket.send(
         JSON.stringify({

@@ -18,7 +18,7 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
   if (config.workspaceRoot) {
     const eventStore = store;
     const workspaceRoot = await realpath(config.workspaceRoot);
-    const workspaceId = store.createWorkspace(workspaceRoot, basename(workspaceRoot));
+    const workspaceId = store.createWorkspace(config.workspaceRoot, basename(workspaceRoot));
     const artifactsDirectory = join(config.dataDir, "artifacts");
     await mkdir(artifactsDirectory, { recursive: true, mode: 0o700 });
     const artifactsRoot = await realpath(artifactsDirectory);
@@ -61,9 +61,9 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
         now,
       ),
     );
-    await artifacts.support(loadHostId(config.dataDir));
-    resources.own(() => artifactsService.close());
     const artifactsService = artifacts;
+    resources.own(() => artifactsService.close());
+    await artifacts.support(loadHostId(config.dataDir));
     const ownedFiles = files;
     maintenance = setInterval(() => {
       void ownedFiles

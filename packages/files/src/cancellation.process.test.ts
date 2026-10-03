@@ -50,7 +50,7 @@ async function socketFixture(
   await once(wss, "listening");
   const address = wss.address();
   if (!address || typeof address === "string") throw new Error("No socket address");
-  const client = new Client(`ws://127.0.0.1:${address.port}`);
+  const client = new Client(`ws://127.0.0.1:${address.port}`, true);
   await once(client.socket, "open");
   return {
     client,

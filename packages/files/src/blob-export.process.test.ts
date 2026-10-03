@@ -35,9 +35,9 @@ it("exports a 200 MiB SQLite raw blob through WebSocket while keeping daemon mem
     const client = server.client;
     client.send({ type: "test.metrics" });
     const baseline = z.object({ peak: z.number() }).parse(await client.next()).peak;
-    const result = z
-      .object({ value: z.object({ artifactId: z.string() }) })
-      .parse(await client.request({ op: "artifact.raw", blobRef: "raw" }));
+    const exported = await client.request({ op: "artifact.raw", blobRef: "raw" });
+    expect(exported, JSON.stringify(exported)).toMatchObject({ type: "files.result" });
+    const result = z.object({ value: z.object({ artifactId: z.string() }) }).parse(exported);
     const ready = z.object({ channel: z.number(), size: z.number() }).parse(
       await client.request({
         op: "artifact.download",

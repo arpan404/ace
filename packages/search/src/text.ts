@@ -96,6 +96,10 @@ export function itemText(item: Item, output?: string): { title: string; window: 
         add(output ?? summary?.tail ?? "");
       } else add(item.call.detail);
       break;
+    case "artifact":
+      add(item.path);
+      add(item.mimeType);
+      break;
     case "compaction":
       break;
   }

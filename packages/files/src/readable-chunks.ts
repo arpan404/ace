@@ -1,5 +1,4 @@
 import type { Readable } from "node:stream";
-import { z } from "zod";
 import { FileError } from "./types.ts";
 
 /** Pause after one data event. Unlike async stream iteration, this never concatenates chunks. */
@@ -24,11 +23,11 @@ export function readChunks(stream: Readable) {
       stream.destroy(new FileError("QUOTA", "Unrequested archive chunk"));
       return;
     }
-    const chunk = z.instanceof(Buffer).safeParse(input);
-    if (chunk.success) pending.resolve({ done: false, value: chunk.data });
+    if (Buffer.isBuffer(input)) pending.resolve({ done: false, value: input });
     else {
-      pending.reject(chunk.error);
-      stream.destroy(chunk.error);
+      const error = new FileError("IO_ERROR", "Archive stream returned nonbinary data");
+      pending.reject(error);
+      stream.destroy(error);
     }
   };
   const end = () => {
