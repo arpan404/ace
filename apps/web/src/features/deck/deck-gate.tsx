@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import type { DeckRun, Gate } from "./deck-model.ts";
+import { type DeckRun, type Gate } from "@ace/ui-core";
 import { useDeckSource } from "./deck-source.ts";
 
 const approveLabel: Record<Gate["kind"], string> = {

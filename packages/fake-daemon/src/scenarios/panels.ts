@@ -4,7 +4,8 @@ import { FakeTerminals } from "../terminals.ts";
 /**
  * Terminal, browser and preview state for the panels of a thread, matching the approved
  * design: a `tests` terminal that has already run the replay suite, a `zsh` terminal after
- * `git status`, an agent driving the browser on the pairing page, and a detected dev server.
+ * `git status`, the browser on the pairing page (driven by whichever agent of the thread has a
+ * browser call running), and a detected dev server.
  */
 export function panelServices(
   threadId = "thread-cold-start",
@@ -18,7 +19,6 @@ export function panelServices(
   terminals.received.length = 0;
   const browser = new FakeBrowser();
   browser.drive(threadId, {
-    owner: "reconnect-audit",
     url: "localhost:5173/settings/devices",
     typed: "iPhone 16 Pro",
   });

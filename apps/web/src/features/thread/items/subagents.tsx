@@ -50,23 +50,20 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
         aria-expanded={open}
         aria-controls={tree}
         onClick={() => setOpen(!open)}
-        className="-mx-1.5 inline-flex h-[26px] items-center gap-1.5 rounded-[7px] px-1.5 text-[13.5px] text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
+        className="-mx-1.5 inline-flex h-[26px] items-center gap-1.5 rounded-[7px] px-1.5 text-[13.5px] text-muted-foreground transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground"
       >
         Started {count} {count === 1 ? "subagent" : "subagents"}
         <CaretRightIcon
           aria-hidden
           size={14}
           className={cn(
-            "text-subtle-foreground transition-transform duration-200 ease-spring",
+            "text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
             open && "rotate-90",
           )}
         />
       </button>
       {open && (
-        <div
-          id={tree}
-          className="mt-1 mb-2 ml-2.5 animate-in border-l-2 pl-2.5 duration-200 fade-in slide-in-from-top-1"
-        >
+        <div id={tree} className="fx-rise-in mt-1 mb-2 ml-2.5 border-l-2 pl-2.5">
           <div role="tree" aria-label="Subagents">
             {parent && <AgentRow threadId={props.threadId} agentId={parent} depth={0} />}
             {children.map((child) => (

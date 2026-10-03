@@ -1,4 +1,5 @@
-import { Client } from "@ace/client";
+import { Client, type ClientApi } from "@ace/client";
+import { ClientHost, RemoteClient } from "@ace/client-worker";
 import { FakeDaemon, ScenarioPlayer, fakeTransport, type Scenario } from "@ace/fake-daemon";
 import { DeviceId } from "@ace/protocol";
 import { createMemoryHistory } from "@tanstack/react-router";
@@ -6,9 +7,9 @@ import { render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { App, AppFrame, createQueryClient } from "@/app.tsx";
 import { memoryStorage } from "@/boot/client.ts";
-import type { KeyValueStorage } from "@/lib/storage.ts";
+import { type KeyValueStorage } from "@ace/ui-core";
 
-const running: Client[] = [];
+const running: ClientApi[] = [];
 afterEach(async () => {
   await Promise.all(running.splice(0).map((client) => client.close()));
 });
@@ -52,6 +53,8 @@ export function harness(
     snapshotItems?: number;
     storage?: KeyValueStorage;
     matchMedia?: (query: string) => MediaQueryList;
+    /** Run the client the way a browser with workers does: behind a ClientHost and a port. */
+    throughWorker?: boolean;
   } = {},
 ) {
   let now = 1_000;
@@ -59,7 +62,7 @@ export function harness(
     clock: () => (now += 1),
     ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
   });
-  const client = fakeClient(daemon);
+  const client = options.throughWorker ? workerClient(daemon) : fakeClient(daemon);
   const storage = options.storage ?? memoryKeyValue();
   return {
     daemon,
@@ -82,4 +85,27 @@ export function harness(
       );
     },
   };
+}
+
+const timers = {
+  set(delayMs: number, callback: () => void) {
+    const timer = setTimeout(callback, delayMs);
+    return () => clearTimeout(timer);
+  },
+};
+
+/** The page's side of the client worker, with the worker's host on a MessageChannel. */
+function workerClient(daemon: FakeDaemon): ClientApi {
+  const host = new ClientHost({
+    target: () => ({ key: "fake", create: () => fakeClient(daemon) }),
+    scheduler: timers,
+    now: () => Date.now(),
+    frameMs: 4,
+    lingerMs: 1,
+  });
+  const { port1, port2 } = new MessageChannel();
+  host.attach(port1);
+  const remote = new RemoteClient(port2, {}, { scheduler: timers });
+  running.push(remote);
+  return remote;
 }

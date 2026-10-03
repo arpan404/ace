@@ -1,8 +1,10 @@
 import { CheckIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import type { KeyboardEvent } from "react";
+import { InlineMarkdown } from "@/components/inline-markdown.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { formatAge, useNow } from "@/lib/time.ts";
+import { useNow } from "@/lib/time.ts";
+import { formatAge } from "@ace/ui-core";
 import type { ReviewDraft } from "./drafts.ts";
 
 const card =
@@ -70,7 +72,9 @@ export function DraftCard(props: {
         <b className="font-medium text-foreground">You</b> ·{" "}
         {age === "now" ? "just now" : `${age} ago`}
       </div>
-      <p className="text-foreground">{draft.text}</p>
+      <p className="text-foreground">
+        <InlineMarkdown text={draft.text} />
+      </p>
       {draft.state === "sent" ? (
         <p className="mt-1.5 flex items-center gap-1.5 text-muted-foreground">
           <CheckIcon aria-hidden size={14} />

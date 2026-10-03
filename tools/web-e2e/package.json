@@ -6,6 +6,7 @@
   "scripts": {
     "e2e": "playwright test --project=fake --project=real-daemon",
     "screens": "playwright test --project=screens",
+    "walkthrough": "playwright test --project=walkthrough",
     "daemon": "node src/real-daemon.ts",
     "typecheck": "tsc -p tsconfig.json"
   },

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
-import { SearchPage } from "@/features/search/search-page.tsx";
+import { SearchPage } from "@/features/search/index.ts";
 
 const Search = z.object({
   q: z.string().max(512).optional().catch(undefined),

@@ -45,11 +45,37 @@ test("an automation shows its prompt, where it runs and its recent runs with out
   await heading("Nightly dependency audit");
   expect(main().getByText("Every day at 02:00 · ace")).toBeTruthy();
   expect(screen.getByText(/Audit dependencies in each project for advisories/)).toBeTruthy();
-  expect(screen.getByText("Claude Code · sonnet-4.6, in a fresh worktree")).toBeTruthy();
+  expect(
+    await screen.findByText("Claude Code · work · Sonnet 4.5, in a fresh worktree"),
+  ).toBeTruthy();
   const runs = within(screen.getByRole("list", { name: "Recent runs" }));
   expect(runs.getByText("2 advisories · opened a thread in ace")).toBeTruthy();
   expect(runs.getByText("Failed: npm registry timeout, retried once")).toBeTruthy();
   expect(runs.getByRole("img", { name: "failed" })).toBeTruthy();
+});
+
+test("a recent run that left a thread opens it", async () => {
+  await open("/automations/auto-pr-review");
+  await heading("Review pull requests on open");
+  const runs = within(await screen.findByRole("list", { name: "Recent runs" }));
+  await userEvent.click(
+    runs.getByRole("link", { name: "Open the thread for #212 · approved with 1 note" }),
+  );
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "Bump Codex app-server to 0.48" }),
+  ).toBeTruthy();
+});
+
+test("a recent run without a thread opens what started it and what it found", async () => {
+  await open("/automations/auto-flaky-triage");
+  await heading("Flaky test triage");
+  const flaky = within(await screen.findByRole("list", { name: "Recent runs" }));
+  await userEvent.click(
+    flaky.getByRole("button", { name: "Open the run Nothing flaky across 3 runs" }),
+  );
+  const details = await screen.findByRole("dialog", { name: "Flaky test triage" });
+  expect(within(details).getByText("On its schedule")).toBeTruthy();
+  expect(within(details).getByText("4 min")).toBeTruthy();
 });
 
 test("pausing stops the schedule and resuming from the menu restarts it", async () => {
@@ -85,7 +111,7 @@ test("Run now starts a run that reports its result in the list, the feed and a t
 
 test("a new automation is validated, read back in words and opened once created", async () => {
   await open("/automations");
-  await userEvent.click(main().getByRole("link", { name: "New automation" }));
+  await userEvent.click(screen.getByRole("link", { name: "New automation" }));
   await heading("New automation");
 
   await userEvent.click(screen.getByRole("button", { name: "Create automation" }));
@@ -167,9 +193,16 @@ test("deleting an automation can be undone from the toast", async () => {
   await userEvent.click(screen.getByRole("button", { name: "More actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Delete" }));
 
-  await screen.findByRole("heading", { level: 1, name: "Automations" });
+  // Automations moves on to the first one left.
+  await heading("Nightly dependency audit");
   await waitFor(() => expect(sidebar.queryByRole("link", { name: /Changelog draft/ })).toBeNull());
   const toasts = within(screen.getByRole("region", { name: "Notifications" }));
   await userEvent.click(await toasts.findByRole("button", { name: "Undo" }));
   expect(await sidebar.findByRole("link", { name: /Changelog draft/ })).toBeTruthy();
+});
+
+test("Automations opens on the first automation rather than an empty pane", async () => {
+  await open("/automations");
+  expect(await heading("Nightly dependency audit")).toBeTruthy();
+  expect(screen.queryByText("No automation selected")).toBeNull();
 });

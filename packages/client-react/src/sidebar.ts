@@ -1,9 +1,9 @@
-import type { Sidebar, SidebarReader } from "@ace/client";
+import type { SidebarKey, SidebarReader } from "@ace/client";
 import { useCallback, useMemo } from "react";
 import { useSidebarStore } from "./leases.ts";
 import { arrayEqual, useSelection } from "./selection.ts";
 
-export type SidebarKey = Parameters<Sidebar["select"]>[0][number];
+export type { SidebarKey };
 
 /** Select from the shared thread list with the same key and equality rules as useThread. */
 export function useSidebar<T>(
@@ -24,6 +24,11 @@ export function useSidebar<T>(
 const readIds = (reader: SidebarReader) => reader.ids;
 export function useSidebarIds(): readonly string[] | undefined {
   return useSidebar(["ids"], readIds, arrayEqual);
+}
+const readLoaded = (reader: SidebarReader) => reader.loaded;
+/** False until the thread list's first snapshot, so screens can show a skeleton, not "empty". */
+export function useSidebarLoaded(): boolean {
+  return useSidebar(["ids"], readLoaded) ?? false;
 }
 export function useSidebarThread(threadId: string) {
   const selector = useCallback((reader: SidebarReader) => reader.thread(threadId), [threadId]);

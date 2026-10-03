@@ -1,16 +1,10 @@
-// TODO(train-2): wire to protocol when merged. The thread list entry on main carries no git or
-// machine facts, so the card's branch, PR, worktree, machine and diff come from this source.
-// Today it holds the fake daemon's Home list; components depend only on `ThreadDetailsSource`.
+// TODO(client-gaps): feat/client-protocol-gaps projects branch, PR, worktree, machine and diff
+// onto the thread list entry. Until then the card's third line comes from this source: the fake
+// daemon's Home list in fake mode, nothing against a real daemon. Components depend only on
+// `useThreadDetails`.
 
-export interface ThreadDetails {
-  branch: string;
-  pr?: number;
-  /** The thread runs in its own worktree rather than the project checkout. */
-  worktree?: boolean;
-  /** Set when the thread runs on another machine. */
-  machine?: string;
-  diff?: { added: number; removed: number };
-}
+import type { ThreadDetails } from "@ace/ui-core";
+import { useDaemonConnection } from "@/boot/connection.tsx";
 
 export interface ThreadDetailsSource {
   details(threadId: string): ThreadDetails | undefined;
@@ -24,7 +18,7 @@ const fakeDetails: Record<string, ThreadDetails> = {
     branch: "fix/replay-dedupe",
     pr: 214,
     worktree: true,
-    diff: { added: 41, removed: 9 },
+    diff: { added: 30, removed: 7 },
   },
   "thread-resumable-streams": { branch: "deck/resumable-streams", worktree: true },
   "thread-install-page": { branch: "docs/install-daemon", diff: { added: 120, removed: 88 } },
@@ -45,6 +39,11 @@ const fakeDetails: Record<string, ThreadDetails> = {
   "thread-vat-rounding": { branch: "fix/vat-rounding", pr: 66 },
   "thread-codex-quickstart": { branch: "docs/codex-quickstart" },
   "thread-relay-metrics": { branch: "feat/relay-metrics", pr: 41 },
+  "thread-replay-cursor": { branch: "fix/replay-cursor" },
+  "thread-cold-start": { branch: "fix/cold-start-cap", worktree: true },
+  "thread-checkout": { branch: "fix/flaky-checkout", pr: 81 },
+  "thread-settings": { branch: "chore/settings-schema-v3", pr: 207 },
+  "thread-router": { branch: "docs/router" },
 };
 
 export const threadDetailsSource: ThreadDetailsSource = {
@@ -52,5 +51,6 @@ export const threadDetailsSource: ThreadDetailsSource = {
 };
 
 export function useThreadDetails(threadId: string): ThreadDetails | undefined {
-  return threadDetailsSource.details(threadId);
+  const fake = useDaemonConnection().mode === "fake";
+  return fake ? threadDetailsSource.details(threadId) : undefined;
 }

@@ -36,17 +36,38 @@ test("the log records sessions, subagents, background work and turns as they hap
     ).toBe(true),
   );
   expect(lines(panel).some((line) => line.includes("turn completed"))).toBe(true);
-  expect(lines(panel).some((line) => line.includes("subagent reconnect-audit"))).toBe(false);
+  expect(lines(panel).some((line) => line.includes("subagent resume-sweep"))).toBe(false);
 
   await act(async () => script.runThrough("turn-2"));
   await waitFor(() =>
-    expect(lines(panel).some((line) => line.includes("subagent reconnect-audit spawned"))).toBe(
+    expect(lines(panel).some((line) => line.includes("subagent resume-sweep spawned"))).toBe(true),
+  );
+  expect(
+    lines(panel).some((line) =>
+      line.includes("started bun run relay:soak --clients 2 in background"),
+    ),
+  ).toBe(true);
+});
+
+test("shell commands with their exit, the thread's creation and quota warnings are logged in order", async () => {
+  const { script } = await openLogs("relay-output");
+  const panel = await showLogs("Cap cold-start replay at 200 events");
+  await waitFor(() =>
+    expect(
+      lines(panel).some((line) => line.includes("$ bun run test outbox (ack-buffer-test)")),
+    ).toBe(true),
+  );
+  expect(lines(panel)[0]).toMatch(/daemon\s*thread created in ace/);
+  expect(lines(panel).find((line) => line.includes("82% of its 5-hour window"))).toMatch(/warn/);
+  // A background shell is logged as background work, not as a command.
+  expect(lines(panel).some((line) => line.includes("$ bun run relay:soak"))).toBe(false);
+
+  await act(async () => script.runThrough("test-done"));
+  await waitFor(() =>
+    expect(lines(panel).some((line) => line.includes("bun run test outbox · succeeded"))).toBe(
       true,
     ),
   );
-  expect(
-    lines(panel).some((line) => line.includes("started bun run dev:relay in background")),
-  ).toBe(true);
 });
 
 test("a failed subagent is logged as an error with its reason", async () => {
@@ -70,7 +91,7 @@ test("Clear hides what is logged so far; new lines still appear and Show brings 
 
   await act(async () => script.runThrough("turn-2"));
   await waitFor(() =>
-    expect(lines(panel).some((line) => line.includes("subagent regression-test spawned"))).toBe(
+    expect(lines(panel).some((line) => line.includes("subagent ack-buffer-test spawned"))).toBe(
       true,
     ),
   );

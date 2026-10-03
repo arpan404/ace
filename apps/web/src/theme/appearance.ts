@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { readJson, writeJson, type KeyValueStorage } from "@/lib/storage.ts";
+import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { accentNames, defaultThemeId } from "./presets.ts";
 
 export const AccentChoice = z.enum([...accentNames, "custom"]);

@@ -1,0 +1,154 @@
+/*
+ * The motion system (DESIGN-fable.md, "Motion"). Every animation in the app uses these tokens
+ * and moves only transform and opacity, so it runs on the compositor and never forces layout.
+ * Durations are mirrored for JS timers in @ace/ui-core `motionMs`.
+ *
+ *   --dur-1  150ms  hover, colour, press
+ *   --dur-2  200ms  popovers, menus, tooltips, new rows
+ *   --dur-3  240ms  panels, sidebar, list moves
+ *   --dur-4  320ms  sheets, theme cross-fade
+ *   --dur-exit 140ms anything leaving: exits are quicker than entrances
+ *
+ * Under `prefers-reduced-motion` every duration is zero and the keyframes below are off, so
+ * state changes are instant but nothing is skipped.
+ */
+:root {
+  --dur-1: 150ms;
+  --dur-2: 200ms;
+  --dur-3: 240ms;
+  --dur-4: 320ms;
+  --dur-exit: 140ms;
+
+  /* Calm deceleration for colour and layout-ish moves. */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* A light overshoot: popovers, menus, chevrons, the press release. */
+  --spring: cubic-bezier(0.3, 1.25, 0.5, 1);
+  /* Sheets and panels: fast out of the gate, long settle, no overshoot. */
+  --sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  /* Leaving: accelerate away. */
+  --leave: cubic-bezier(0.4, 0, 1, 1);
+
+  /* Distances. Small on purpose: things arrive, they don't fly in. */
+  --rise: 4px;
+  --slide: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+    --dur-3: 0ms;
+    --dur-4: 0ms;
+    --dur-exit: 0ms;
+    --rise: 0px;
+    --slide: 0px;
+  }
+}
+
+@layer components {
+  /* A row, block or card arriving: fade and a 4px rise on the spring. */
+  .fx-rise-in {
+    animation: fx-rise-in var(--dur-2) var(--spring) both;
+  }
+  /* A scrim or overlay appearing: opacity only. */
+  .fx-fade-in {
+    animation: fx-fade-in var(--dur-3) var(--sheet) both;
+  }
+  /* Something leaving in place before its neighbours close the gap. */
+  .fx-fade-out {
+    pointer-events: none;
+    animation: fx-fade-out var(--dur-exit) var(--leave) both;
+  }
+  /* Panels and the second sidebar slide a short way from their edge. */
+  .fx-panel-in {
+    animation: fx-panel-in var(--dur-3) var(--sheet) both;
+  }
+  .fx-panel-out {
+    pointer-events: none;
+    animation: fx-panel-out var(--dur-exit) var(--leave) both;
+  }
+  .fx-panel-in,
+  .fx-panel-out {
+    --fx-x: 0px;
+    --fx-y: 0px;
+  }
+  .fx-panel-in[data-edge="right"],
+  .fx-panel-out[data-edge="right"] {
+    --fx-x: var(--slide);
+  }
+  .fx-panel-in[data-edge="left"],
+  .fx-panel-out[data-edge="left"] {
+    --fx-x: calc(var(--slide) * -1);
+  }
+  .fx-panel-in[data-edge="bottom"],
+  .fx-panel-out[data-edge="bottom"] {
+    --fx-y: var(--slide);
+  }
+  /* Counts and badges that change: a small pop, never a bounce. */
+  .fx-pop {
+    animation: fx-pop var(--dur-2) var(--spring) both;
+  }
+  /* Rows of a list that is reordering slide to their new place. Set only while moving, so
+     scrolling and re-measuring never animate. */
+  .fx-list-moving > * {
+    transition: transform var(--dur-3) var(--spring);
+  }
+  /* A view's content when the route changes. */
+  .fx-view-in {
+    animation: fx-fade-in var(--dur-2) var(--ease) both;
+  }
+  /* Placeholder blocks while something loads: a slow breath of opacity. */
+  .fx-skeleton {
+    background: color-mix(in oklab, var(--foreground) 6%, transparent);
+    border-radius: var(--radius-sm, 6px);
+    animation: fx-breathe 1.6s ease-in-out infinite;
+  }
+}
+
+/* Theme switches cross-fade the whole window instead of repainting token by token. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--dur-4);
+  animation-timing-function: var(--ease);
+}
+
+@keyframes fx-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--rise));
+  }
+}
+@keyframes fx-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes fx-fade-out {
+  to {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+@keyframes fx-panel-in {
+  from {
+    opacity: 0;
+    transform: translate(var(--fx-x), var(--fx-y));
+  }
+}
+@keyframes fx-panel-out {
+  to {
+    opacity: 0;
+    transform: translate(var(--fx-x), var(--fx-y));
+  }
+}
+@keyframes fx-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+@keyframes fx-breathe {
+  50% {
+    opacity: 0.45;
+  }
+}

@@ -1,103 +1,42 @@
-// TODO(train-2): wire to protocol when merged
 /*
- * Accounts (#25: accounts.list / accounts.migrate) and usage analytics (usage.series /
- * usage.summary). The usage messages are on the wire but @ace/client has no request for
- * them yet, and the accounts protocol is not on this branch, so both read from the fake
- * backend in fake mode. Usage already speaks the protocol's UsageQuery and UsageResult.
+ * Accounts and usage from the daemon: `accounts.list` (quota and availability per signed-in CLI
+ * account) and `usage.series` / `usage.summary`. What the daemon can't report yet (plan, default
+ * account, threads per account, the run-out policy) comes from account-details-source.ts.
  */
 import { UsageQuery, type UsageResult } from "@ace/protocol";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  UnavailableError,
-  useFakeBackend,
-  type FakeBackend,
-} from "@/features/more/fake-backend.ts";
+import { accountView, type AccountView } from "@ace/ui-core";
+import { useQueryClient } from "@tanstack/react-query";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { useAccountDetails, type AccountDetails } from "./account-details-source.ts";
 
-export interface QuotaWindow {
-  id: string;
-  label: string;
-  usedPercent: number;
-  resetsAt: number;
-}
-export interface Account {
-  id: string;
-  provider: "claude" | "codex" | "opencode" | "cursor" | "acp";
-  providerLabel: string;
-  cliVersion: string;
-  label: string;
-  plan: string;
-  isDefault: boolean;
-  availability: "available" | "near_limit" | "exhausted" | "logged_out" | "unknown";
-  windows: readonly QuotaWindow[];
-  runningThreads: number;
-  pausedThreads: number;
-}
-export interface SchedulingPolicy {
-  onExhausted: "switch" | "pause" | "ask";
-  keepHeadroom: boolean;
-}
-
-async function loaded(backend: Promise<FakeBackend> | null): Promise<FakeBackend> {
-  if (!backend) throw new UnavailableError("Accounts and usage");
-  return backend;
-}
+export type { QuotaWindowView as QuotaWindow } from "@ace/ui-core";
+export type Account = AccountView & Partial<AccountDetails>;
 
 const keys = {
   accounts: ["accounts", "list"] as const,
-  policy: ["accounts", "policy"] as const,
   usage: (from: string, to: string, groupBy: string) => ["usage", from, to, groupBy] as const,
 };
 
-export function useAccounts() {
-  const backend = useFakeBackend();
-  return useQuery({
+/** Every account the daemon's CLIs are signed in to, as view models. */
+export function useAccountViews() {
+  return useDaemonQuery({
     queryKey: keys.accounts,
-    // A copy, as a wire response would be: later fake changes show only after a refetch.
-    queryFn: async (): Promise<readonly Account[]> =>
-      structuredClone((await loaded(backend)).accounts),
-  });
-}
-
-export function usePolicy() {
-  const backend = useFakeBackend();
-  return useQuery({
-    queryKey: keys.policy,
-    queryFn: async (): Promise<SchedulingPolicy> => (await loaded(backend)).policy,
-  });
-}
-
-export function useSetPolicy() {
-  const backend = useFakeBackend();
-  const queries = useQueryClient();
-  return useMutation({
-    mutationFn: async (next: Partial<SchedulingPolicy>) => {
-      const fake = await loaded(backend);
-      fake.policy = { ...fake.policy, ...next };
-      return fake.policy;
+    read: async (client, signal): Promise<AccountView[]> => {
+      const reply = await client.request({ type: "accounts.list" }, { signal });
+      return reply.accounts.map(accountView);
     },
-    onSuccess: (policy) => queries.setQueryData(keys.policy, policy),
   });
 }
 
-/** Moves an exhausted account's threads to the same provider's account with most headroom. */
-export function useMoveThreads() {
-  const backend = useFakeBackend();
-  const queries = useQueryClient();
-  return useMutation({
-    mutationFn: async (accountId: string): Promise<{ moved: number; to: string }> => {
-      const fake = await loaded(backend);
-      const result = fake.fake.moveThreads(fake.accounts, accountId);
-      if ("error" in result)
-        throw new Error(
-          result.error === "no_account_with_headroom"
-            ? "No other account for this provider has headroom."
-            : "There are no threads to move.",
-        );
-      fake.accounts = result.accounts;
-      return { moved: result.moved, to: result.to.label };
-    },
-    onSettled: () => queries.invalidateQueries({ queryKey: keys.accounts }),
-  });
+/** Accounts with the details the accounts screen shows beside the daemon's report. */
+export function useAccounts() {
+  const accounts = useAccountViews();
+  const details = useAccountDetails();
+  const data = accounts.data?.map((account): Account => ({
+    ...account,
+    ...details.data?.get(account.id),
+  }));
+  return { ...accounts, data };
 }
 
 /** Re-read accounts and quota from the providers. */
@@ -112,12 +51,12 @@ export function useUsage(input: {
   to: string;
   groupBy: ("day" | "model" | "provider")[];
 }) {
-  const backend = useFakeBackend();
-  return useQuery({
+  return useDaemonQuery({
     queryKey: keys.usage(input.from, input.to, input.groupBy.join(",")),
-    queryFn: async (): Promise<UsageResult> => {
+    read: async (client, signal): Promise<UsageResult> => {
       const query = UsageQuery.parse({ ...input, equivalentApiCost: true, limit: 1000 });
-      return (await loaded(backend)).fake.usageReport(query);
+      const reply = await client.request({ type: "usage.series", query }, { signal });
+      return reply.result;
     },
   });
 }

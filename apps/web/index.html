@@ -11,6 +11,108 @@
         background: #0a0a0a;
         color-scheme: dark;
       }
+      /*
+       * The boot shell: rail, sidebar rows and header painted before the app's script runs,
+       * in the theme replayed below (Dark defaults on a first visit). The app fades it out over
+       * --dur-2 once the real shell has painted (src/lib/boot-splash.ts).
+       */
+      #boot {
+        position: fixed;
+        inset: 0;
+        z-index: 140;
+        display: flex;
+        pointer-events: none;
+        background: var(--wall, #0a0a0a);
+        transition: opacity var(--dur-2, 200ms) var(--ease, ease);
+      }
+      #boot[data-leaving] {
+        opacity: 0;
+      }
+      #boot i {
+        display: block;
+        border-radius: 6px;
+        background: color-mix(in oklab, var(--foreground, #ededed) 6%, transparent);
+        animation: boot-breathe 1.6s ease-in-out infinite;
+      }
+      #boot .rail {
+        width: 68px;
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 22px;
+        padding-top: 18px;
+        background: rgb(var(--rail-rgb, 17 17 19) / 0.9);
+        border-right: 1px solid var(--sidebar-border, rgb(255 255 255 / 0.06));
+      }
+      #boot .rail i {
+        width: 26px;
+        height: 26px;
+        border-radius: 7px;
+      }
+      #boot .side {
+        width: 296px;
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        gap: 22px;
+        padding: 18px 16px;
+        background: rgb(var(--sidebar-rgb, 19 19 21) / 0.92);
+        border-right: 1px solid var(--sidebar-border, rgb(255 255 255 / 0.06));
+      }
+      #boot .side i {
+        height: 10px;
+      }
+      #boot .main {
+        flex: 1;
+        min-width: 0;
+        background: rgb(var(--reading-rgb, 14 14 15));
+      }
+      #boot .head {
+        height: 50px;
+        display: flex;
+        align-items: center;
+        padding: 0 16px;
+      }
+      #boot .head i {
+        width: 220px;
+        height: 12px;
+      }
+      #boot .tabs {
+        display: none;
+      }
+      @media (max-width: 47.99rem) {
+        #boot .side {
+          display: none;
+        }
+      }
+      @media (max-width: 39.99rem) {
+        #boot {
+          flex-direction: column-reverse;
+        }
+        #boot .rail {
+          display: none;
+        }
+        #boot .tabs {
+          display: block;
+          height: 56px;
+          flex: none;
+          background: rgb(var(--rail-rgb, 17 17 19) / 0.9);
+          border-top: 1px solid var(--sidebar-border, rgb(255 255 255 / 0.06));
+        }
+      }
+      @keyframes boot-breathe {
+        50% {
+          opacity: 0.45;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot,
+        #boot i {
+          transition: none;
+          animation: none;
+        }
+      }
     </style>
     <script>
       // Replay the theme the app last applied (src/theme/theme-provider.tsx) before first paint.
@@ -37,6 +139,17 @@
     </script>
   </head>
   <body>
+    <div id="boot" aria-hidden="true">
+      <div class="tabs"></div>
+      <div class="rail"><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="side">
+        <i style="width: 40%"></i><i style="width: 86%"></i><i style="width: 72%"></i
+        ><i style="width: 80%"></i><i style="width: 64%"></i><i style="width: 76%"></i>
+      </div>
+      <div class="main">
+        <div class="head"><i></i></div>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

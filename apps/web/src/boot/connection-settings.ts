@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { KeyValueStorage } from "@/lib/storage.ts";
+import { type KeyValueStorage } from "@ace/ui-core";
 
 /** The daemon listens on 127.0.0.1:4242 by default (ACE_PORT) and upgrades `/` to WebSocket. */
 export const defaultDaemonUrl = "ws://127.0.0.1:4242/";

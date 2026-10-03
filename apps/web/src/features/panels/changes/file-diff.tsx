@@ -1,10 +1,14 @@
 import { CaretDownIcon, CodeIcon, PlusIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { Fragment, useState } from "react";
+import { Fragment, lazy, Suspense, useState } from "react";
+import { Spinner } from "@/components/ui/spinner.tsx";
 import type { ReactNode } from "react";
-import { pairRows, type DiffLine, type DiffRow, type SplitRow } from "./diff.ts";
+import { pairRows, type DiffLine, type DiffRow, type SplitRow, type FileDiff } from "@ace/ui-core";
+import { VirtualRows } from "@/components/virtual-rows.tsx";
 import { DiffStat } from "./diff-stat.tsx";
-import type { FileDiff } from "./turns.ts";
+import { useDiffRenderer } from "./diff-renderer.ts";
+
+const GpuDiff = lazy(() => import("./gpu-diff.tsx"));
 
 export interface LineTarget {
   side: "old" | "new";
@@ -37,6 +41,8 @@ export function FileDiffBlock(props: {
 }) {
   const [open, setOpen] = useState(true);
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
+  const [asText, setAsText] = useState(false);
+  const renderer = useDiffRenderer(props.file.rows.length);
   const { file } = props;
   const slash = file.path.lastIndexOf("/");
   const rows: DiffRow[] = file.rows.flatMap((row, index) =>
@@ -59,7 +65,7 @@ export function FileDiffBlock(props: {
           aria-hidden
           size={14}
           className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-200 ease-spring",
+            "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
             !open && "-rotate-90",
           )}
         />
@@ -78,7 +84,17 @@ export function FileDiffBlock(props: {
           className="ml-auto text-[12px]"
         />
       </button>
-      {open && (
+      {open && renderer !== "dom" && !asText && (
+        <Suspense fallback={<Spinner label="Loading the diff renderer" className="m-3.5" />}>
+          <GpuDiff
+            path={file.path}
+            rows={rows}
+            renderer={renderer}
+            onShowText={() => setAsText(true)}
+          />
+        </Suspense>
+      )}
+      {open && (renderer === "dom" || asText) && (
         <div
           className={cn(
             "font-mono text-[12px] leading-5",
@@ -116,28 +132,55 @@ const lineKey = (row: DiffRow) =>
     ? `fold:${row.lines?.[0]?.old ?? row.count ?? ""}`
     : `${row.kind}:${row.old ?? ""}:${row.new ?? ""}`;
 
+/** Above this many rows a file mounts only the rows near the viewport. */
+const virtualAbove = 400;
+const rowHeight = 20;
+
+function Rows<T>(props: {
+  items: readonly { item: T; key: string }[];
+  render(item: T, key: string): ReactNode;
+}) {
+  if (props.items.length <= virtualAbove)
+    return props.items.map(({ item, key }) => (
+      <Fragment key={key}>{props.render(item, key)}</Fragment>
+    ));
+  return (
+    <VirtualRows
+      items={props.items}
+      rowKey={(entry) => entry.key}
+      estimate={rowHeight}
+      render={(entry) => props.render(entry.item, entry.key)}
+    />
+  );
+}
+
 function Unified(props: RowsProps) {
-  return keyed(props.rows, lineKey).map(({ item: row, key }) => {
-    if (row.kind === "fold") return <Fold key={key} row={row} expand={props.expand} />;
-    const target = targetOf(row);
-    return (
-      <Fragment key={key}>
-        <div
-          className={cn(
-            "group/line relative grid min-w-max grid-cols-[44px_44px_minmax(0,1fr)]",
-            props.wrap && "min-w-0",
-            tone(row),
-            target && props.highlighted(target) && commented,
-          )}
-        >
-          <Gutter line={row} value={row.old} />
-          <Gutter line={row} value={row.new} />
-          <Code line={row} target={target} onComment={props.onComment} />
-        </div>
-        {target && props.renderAnnotation(target)}
-      </Fragment>
-    );
-  });
+  return (
+    <Rows
+      items={keyed(props.rows, lineKey)}
+      render={(row) => {
+        if (row.kind === "fold") return <Fold row={row} expand={props.expand} />;
+        const target = targetOf(row);
+        return (
+          <>
+            <div
+              className={cn(
+                "group/line relative grid min-w-max grid-cols-[44px_44px_minmax(0,1fr)]",
+                props.wrap && "min-w-0",
+                tone(row),
+                target && props.highlighted(target) && commented,
+              )}
+            >
+              <Gutter line={row} value={row.old} />
+              <Gutter line={row} value={row.new} />
+              <Code line={row} target={target} onComment={props.onComment} />
+            </div>
+            {target && props.renderAnnotation(target)}
+          </>
+        );
+      }}
+    />
+  );
 }
 
 const pairKey = (pair: SplitRow) =>
@@ -146,53 +189,62 @@ const pairKey = (pair: SplitRow) =>
     : `pair:${pair.left?.old ?? ""}:${pair.right?.new ?? ""}`;
 
 function Split(props: RowsProps) {
-  return keyed(pairRows(props.rows), pairKey).map(({ item: pair, key }) => {
-    if (pair.kind === "fold") return <Fold key={key} row={pair.row} expand={props.expand} />;
-    const sides = [
-      { side: "left", line: pair.left, number: pair.left?.old },
-      { side: "right", line: pair.right, number: pair.right?.new },
-    ] as const;
-    const targets = sides
-      .map(({ line }) => line && targetOf(line))
-      .filter(
-        (target, i, all): target is LineTarget =>
-          !!target && !all.slice(0, i).some((other) => sameTarget(other, target)),
-      );
-    return (
-      <Fragment key={key}>
-        <div className="grid min-w-0 grid-cols-2">
-          {sides.map(({ side, line, number }) => {
-            const target = line && targetOf(line);
-            return (
-              <div
-                key={side}
-                className={cn(
-                  "group/line relative grid min-w-0 grid-cols-[40px_minmax(0,1fr)] overflow-hidden",
-                  side === "right" && "border-l",
-                  line && tone(line),
-                  target && props.highlighted(target) && commented,
-                )}
-              >
-                {line && (
-                  <>
-                    <Gutter line={line} value={number} />
-                    <Code line={line} target={target} onComment={props.onComment} />
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        {targets.map((target) => (
-          <Fragment key={`${target.side}:${target.line}`}>
-            {props.renderAnnotation(target)}
-          </Fragment>
-        ))}
-      </Fragment>
-    );
-  });
+  return (
+    <Rows
+      items={keyed(pairRows(props.rows), pairKey)}
+      render={(pair) => <SplitRowView pair={pair} {...props} />}
+    />
+  );
 }
 
+function SplitRowView(props: RowsProps & { pair: SplitRow }) {
+  const { pair } = props;
+  if (pair.kind === "fold") return <Fold row={pair.row} expand={props.expand} />;
+  const sides = [
+    { side: "left", line: pair.left, number: pair.left?.old },
+    { side: "right", line: pair.right, number: pair.right?.new },
+  ] as const;
+  const targets = sides
+    .map(({ line }) => line && targetOf(line))
+    .filter(
+      (target, i, all): target is LineTarget =>
+        !!target && !all.slice(0, i).some((other) => sameTarget(other, target)),
+    );
+  return (
+    <>
+      <div className="grid min-w-0 grid-cols-2">
+        {sides.map(({ side, line, number }) => {
+          const target = line && targetOf(line);
+          return (
+            <div
+              key={side}
+              className={cn(
+                "group/line relative grid min-w-0 grid-cols-[40px_minmax(0,1fr)] overflow-hidden",
+                side === "right" && "border-l",
+                line ? tone(line) : empty,
+                target && props.highlighted(target) && commented,
+              )}
+            >
+              {line && (
+                <>
+                  <Gutter line={line} value={number} />
+                  <Code line={line} target={target} onComment={props.onComment} />
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {targets.map((target) => (
+        <Fragment key={`${target.side}:${target.line}`}>{props.renderAnnotation(target)}</Fragment>
+      ))}
+    </>
+  );
+}
+
+/** The side of a split row with no line (an add's left, a delete's right): faintly hatched. */
+const empty =
+  "bg-[repeating-linear-gradient(-45deg,transparent_0_5px,color-mix(in_oklab,var(--foreground)_4%,transparent)_5px_6px)]";
 const commented =
   "bg-[color-mix(in_oklab,var(--ring)_8%,transparent)] shadow-[inset_2px_0_0_var(--ring)]";
 const tone = (line: DiffLine) =>
@@ -229,7 +281,7 @@ function Code(props: {
           type="button"
           aria-label={`Comment on ${target.side === "old" ? "old " : ""}line ${target.line}`}
           onClick={() => props.onComment(target)}
-          className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-[4px] bg-ring text-white opacity-0 transition-opacity duration-150 group-hover/line:opacity-100 focus-visible:opacity-100"
+          className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-[4px] bg-ring text-white opacity-0 transition-opacity duration-(--dur-1) group-hover/line:opacity-100 focus-visible:opacity-100"
         >
           <PlusIcon aria-hidden size={10} weight="bold" />
         </button>

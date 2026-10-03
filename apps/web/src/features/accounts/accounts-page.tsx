@@ -2,7 +2,8 @@ import { ArrowsClockwiseIcon, ChartBarIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { PageTitle, Screen } from "@/features/shell/screen.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { PageTitle, Screen } from "@/features/shell/index.ts";
 import { AccountCard } from "./account-card.tsx";
 import { AddAccount } from "./add-account.tsx";
 import { useAccounts, useRefreshAccounts, type Account } from "./accounts-source.ts";
@@ -12,7 +13,7 @@ import { UsageSection } from "./usage-section.tsx";
 function byProvider(accounts: readonly Account[]) {
   const groups = new Map<string, Account[]>();
   for (const account of accounts) {
-    const key = `${account.providerLabel}\u0000${account.cliVersion}`;
+    const key = `${account.providerLabel}\u0000${account.version ?? ""}`;
     groups.set(key, [...(groups.get(key) ?? []), account]);
   }
   return [...groups.values()];
@@ -50,7 +51,9 @@ export function AccountsPage() {
               title="Accounts unavailable"
               description={accounts.error.message}
             />
-          ) : accounts.data && !accounts.data.length ? (
+          ) : !accounts.data ? (
+            <ListSkeleton label="accounts" shape="row" rows={4} className="mt-6" />
+          ) : !accounts.data.length ? (
             <EmptyState
               icon={ChartBarIcon}
               title="No accounts found yet"
@@ -64,7 +67,9 @@ export function AccountsPage() {
                 <section key={first.providerLabel} aria-label={first.providerLabel}>
                   <div className="mt-[30px] flex items-baseline gap-2">
                     <h2 className="text-md font-medium">{first.providerLabel}</h2>
-                    <small className="text-sm text-subtle-foreground">{first.cliVersion}</small>
+                    {first.version && (
+                      <small className="text-sm text-subtle-foreground">{first.version}</small>
+                    )}
                   </div>
                   <div className="mt-3 grid grid-cols-1 gap-3.5 md:grid-cols-2">
                     {group.map((account) => (

@@ -1,7 +1,6 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { ActivityProvider } from "@/features/activity/activity-state.tsx";
-import { ActivitySidebar } from "@/features/activity/activity-sidebar.tsx";
-import { ViewFrame } from "@/features/shell/view-frame.tsx";
+import { ActivityProvider, ActivitySidebar } from "@/features/activity/index.ts";
+import { ViewFrame } from "@/features/shell/index.ts";
 
 export const Route = createFileRoute("/activity")({
   component: () => (

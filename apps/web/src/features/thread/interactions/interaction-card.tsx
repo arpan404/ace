@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Prose } from "../markdown/prose.tsx";
-import { agentName } from "../items/agent-row.tsx";
+import { agentName } from "@ace/ui-core";
 import { QuestionForm } from "./question-form.tsx";
 import { PlanReview } from "./plan-review.tsx";
 import type { Answer } from "./answer.ts";

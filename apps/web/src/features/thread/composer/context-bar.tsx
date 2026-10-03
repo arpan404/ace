@@ -17,7 +17,7 @@ import { useGit } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
 
 const control =
-  "inline-flex h-6 items-center gap-[5px] rounded-sm px-[7px] text-subtle-foreground outline-none transition-colors duration-150 hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground";
+  "inline-flex h-6 items-center gap-[5px] rounded-sm px-[7px] text-subtle-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground";
 
 function Separator() {
   return <span aria-hidden className="mx-1 h-3 w-px bg-border" />;
@@ -28,7 +28,9 @@ export function ContextBar(props: { thread: ThreadRef }) {
   const { git, change } = useGit(props.thread);
   if (!git) return <div className="h-8" />;
   return (
-    <div className="flex h-8 items-center gap-0.5 px-2.5 pt-2 text-[12px] text-subtle-foreground">
+    // Narrow, the bar scrolls sideways instead of running off the edge, and fades at whichever
+    // edge has more to scroll to.
+    <div className="flex h-8 scroll-fade-x items-center gap-0.5 overflow-x-auto px-2.5 pt-2 text-[12px] whitespace-nowrap text-subtle-foreground [--scroll-fade-size:2rem] [scrollbar-width:none] *:shrink-0">
       <Menu>
         <MenuTrigger
           aria-label={`Checkout: ${git.mode === "worktree" ? "Worktree" : "Local"}`}

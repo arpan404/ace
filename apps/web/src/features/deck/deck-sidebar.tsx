@@ -3,15 +3,16 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-row.tsx";
-import { ViewSidebar } from "@/features/shell/view-frame.tsx";
-import { formatAge, useNow } from "@/lib/time.ts";
-import { runGroup, runSummary, type DeckRun, type RunGroup } from "./deck-model.ts";
+import { ViewSidebar } from "@/features/shell/index.ts";
+import { useNow } from "@/lib/time.ts";
+import { formatAge, deckGroup, deckRunSummary, type DeckRun, type DeckGroup } from "@ace/ui-core";
 import { useDeckRuns } from "./deck-source.ts";
 
-const groups: readonly { id: RunGroup; label: string }[] = [
+const groups: readonly { id: DeckGroup; label: string }[] = [
   { id: "gated", label: "Gated" },
   { id: "active", label: "Active" },
   { id: "finished", label: "Finished" },
@@ -40,13 +41,15 @@ export function DeckSidebar() {
     >
       <Link
         to="/deck/new"
-        className="mb-1.5 flex h-8 items-center gap-[9px] rounded-md px-2.5 text-ui font-medium text-sidebar-foreground transition-colors duration-150 hover:bg-sidebar-accent data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] [&_svg]:text-muted-foreground"
+        className="mb-1.5 flex h-8 items-center gap-[9px] rounded-md px-2.5 text-ui font-medium text-sidebar-foreground transition-colors duration-(--dur-1) hover:bg-sidebar-accent data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] [&_svg]:text-muted-foreground"
       >
         <Icon icon={CardsIcon} />
         New deck
         <Kbd keys="shift+mod+n" variant="bare" className="ml-auto" />
       </Link>
-      {ready && !shown.length ? (
+      {!ready ? (
+        <ListSkeleton label="decks" shape="card" rows={4} />
+      ) : !shown.length ? (
         <EmptyState
           icon={CardsIcon}
           title="No decks yet"
@@ -55,7 +58,7 @@ export function DeckSidebar() {
       ) : (
         <nav aria-label="Decks">
           {groups.map((group) => {
-            const members = shown.filter((run) => runGroup(run) === group.id);
+            const members = shown.filter((run) => deckGroup(run) === group.id);
             return members.length ? (
               <ViewRowSection key={group.id} label={group.label}>
                 {members.map((run) => (
@@ -79,7 +82,7 @@ function DeckRow(props: { run: DeckRun }) {
       <ViewRowBody
         icon={CardsIcon}
         title={props.run.title}
-        description={runSummary(props.run)}
+        description={deckRunSummary(props.run)}
         meta={formatAge(props.run.updatedAt, now)}
       />
     </Link>

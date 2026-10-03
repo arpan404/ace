@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { DeckSidebar } from "@/features/deck/deck-sidebar.tsx";
-import { ViewFrame } from "@/features/shell/view-frame.tsx";
+import { DeckSidebar } from "@/features/deck/index.ts";
+import { ViewFrame } from "@/features/shell/index.ts";
 
 /** Deck: multi-agent runs (internally @ace/conductor). */
 export const Route = createFileRoute("/deck")({

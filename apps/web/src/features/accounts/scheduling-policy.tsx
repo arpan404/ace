@@ -1,7 +1,7 @@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { SettingRow } from "@/components/setting-row.tsx";
-import { usePolicy, useSetPolicy, type SchedulingPolicy } from "./accounts-source.ts";
+import { usePolicy, useSetPolicy, type SchedulingPolicy } from "./account-details-source.ts";
 
 const choices: readonly {
   value: SchedulingPolicy["onExhausted"];

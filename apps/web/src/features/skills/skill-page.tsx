@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/menu.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { Screen } from "@/features/shell/screen.tsx";
+import { Screen } from "@/features/shell/index.ts";
 import { kinds } from "./skills-sidebar.tsx";
 import {
   availabilities,
@@ -52,7 +52,7 @@ function SkillDetail(props: { skill: Skill }) {
   const setEnabled = useSetSkillEnabled();
   const setAvailability = useSetAvailability();
   const group = kinds.find((entry) => entry.kind === skill.kind)?.label ?? "Skills";
-  // TODO(train-2): open in the user's editor through the daemon once it can.
+  // TODO(client-gaps): open in the user's editor through workspace.request's editor launch.
   const openSource = () => toast.add({ title: `Opening ${skill.location}` });
   return (
     <Screen

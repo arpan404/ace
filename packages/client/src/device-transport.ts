@@ -4,7 +4,7 @@ import {
   type PortableRelay,
   type PortableRelayOptions,
   type PortableSocket,
-} from "@ace/relay/portable";
+} from "./portable-relay.ts";
 import type { Credential } from "./credentials.ts";
 import type { DeviceTransport } from "@ace/devices/client";
 

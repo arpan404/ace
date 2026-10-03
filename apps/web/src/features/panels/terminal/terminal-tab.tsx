@@ -41,9 +41,12 @@ function useBackgroundShells(threadId: string): readonly BackgroundTask[] {
 function useTerminalList(sessions: TerminalSessions, threadId: string) {
   const source = sessions.source;
   const version = useVersion(source);
-  // `version` changes whenever the list does, so the list is re-read only then.
-  // oxlint-disable-next-line react-hooks/exhaustive-deps
-  const list = useMemo(() => source.list(threadId), [source, threadId, version]);
+  // `version` changes whenever the list does, so the list is re-read only then. It is read in
+  // the body so React Compiler keeps it as a dependency too.
+  const list = useMemo(
+    () => (version >= 0 ? source.list(threadId) : []),
+    [source, threadId, version],
+  );
   const selected = useSyncExternalStore(sessions.watchSelection, () =>
     sessions.selection(threadId),
   );

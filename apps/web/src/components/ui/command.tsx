@@ -24,12 +24,12 @@ function CommandDialog({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-[100] bg-black/25 transition-opacity duration-200 data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <Dialog.Backdrop className="fixed inset-0 z-[100] bg-black/25 transition-opacity duration-(--dur-2) data-ending-style:opacity-0 data-starting-style:opacity-0" />
         <Dialog.Popup
           aria-label={title}
           className={cn(
             "glass fixed top-[18%] left-1/2 z-[101] flex max-h-[min(540px,70dvh)] w-[min(620px,calc(100vw-2rem))] -translate-x-1/2 flex-col overflow-hidden rounded-xl text-popover-foreground outline-none",
-            "transition-[opacity,transform] duration-200 ease-spring data-ending-style:opacity-0 data-starting-style:-translate-y-1.5 data-starting-style:scale-[0.98] data-starting-style:opacity-0",
+            "transition-[opacity,transform] duration-(--dur-2) ease-spring data-ending-style:opacity-0 data-ending-style:scale-[0.98] data-ending-style:duration-(--dur-exit) data-ending-style:ease-exit data-starting-style:-translate-y-1.5 data-starting-style:scale-[0.98] data-starting-style:opacity-0",
           )}
         >
           {children}

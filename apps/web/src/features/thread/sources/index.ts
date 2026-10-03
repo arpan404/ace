@@ -1,43 +1,44 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
-import { fakeCommandSource, type CommandSource } from "./command-source.ts";
-import { fakeContextSource, type ContextSource } from "./context-source.ts";
-import { fakeModelSource, type ModelSource } from "./model-source.ts";
+import { useDaemonConnection } from "@/boot/connection.tsx";
+import { daemonCommandSource, type CommandSource } from "./command-source.ts";
+import { daemonContextSource, type ContextSource } from "./context-source.ts";
 import { fakeThreadActionsSource, type ThreadActionsSource } from "./thread-actions-source.ts";
+import { unavailableThreadActions, unavailableWorkspaceSource } from "./unavailable.ts";
 import { fakeWorkspaceSource, type WorkspaceSource } from "./workspace-source.ts";
 
 /**
- * Everything the thread screen reads or does that the daemon protocol on main cannot carry yet.
- * Components depend on these interfaces only; each source file holds its own fake.
+ * What the thread screen reads or does beyond the live thread store. Slash commands, mentions
+ * and uploads go to the daemon in every mode. Workspace and organization actions have no
+ * protocol on main yet: the fake daemon's stand-ins serve dev:fake and tests, and a real daemon
+ * gets sources that report them unavailable.
  */
 export interface ThreadSources {
   workspace: WorkspaceSource;
   context: ContextSource;
-  models: ModelSource;
   commands: CommandSource;
   actions: ThreadActionsSource;
 }
 
-// TODO(train-2): wire to protocol when merged. Replace the fakes with daemon-backed sources
-// built from `client`; nothing else changes.
-function createSources(_client: Client): ThreadSources {
+function createSources(client: ClientApi, fake: boolean): ThreadSources {
   return {
-    workspace: fakeWorkspaceSource(),
-    context: fakeContextSource(),
-    models: fakeModelSource(),
-    commands: fakeCommandSource(),
-    actions: fakeThreadActionsSource(),
+    // TODO(client-gaps): feat/client-protocol-gaps routes workspace and organization commands.
+    workspace: fake ? fakeWorkspaceSource() : unavailableWorkspaceSource(),
+    actions: fake ? fakeThreadActionsSource() : unavailableThreadActions(),
+    context: daemonContextSource(client),
+    commands: daemonCommandSource(client),
   };
 }
 
 // One set per client, so each connection (and each test's client) gets its own state.
-const perClient = new WeakMap<Client, ThreadSources>();
+const perClient = new WeakMap<ClientApi, ThreadSources>();
 
 export function useThreadSources(): ThreadSources {
   const client = useClient();
+  const fake = useDaemonConnection().mode === "fake";
   let sources = perClient.get(client);
   if (!sources) {
-    sources = createSources(client);
+    sources = createSources(client, fake);
     perClient.set(client, sources);
   }
   return sources;

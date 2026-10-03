@@ -20,7 +20,7 @@ test("an approval is answered in the thread and the agent carries on", async () 
   const feed = screen.getByRole("feed", { name: "Transcript" });
   expect(
     within(feed).getByRole("button", {
-      name: "Ran rm -rf node_modules/.cache/vitest Awaiting approval",
+      name: "Run rm -rf node_modules/.cache/vitest Awaiting approval",
     }),
   ).toBeTruthy();
 

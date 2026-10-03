@@ -3,7 +3,14 @@ import type { InteractionResolution } from "@ace/protocol";
 import type { FakeDaemon, ThreadInit } from "./daemon.ts";
 
 export type Step =
-  | { kind: "facts"; facts: Fact[]; delayMs?: number; label?: string }
+  | {
+      kind: "facts";
+      facts: Fact[];
+      delayMs?: number;
+      label?: string;
+      /** How long before the daemon's now these facts happened, so seeded threads look lived in. */
+      agoMs?: number;
+    }
   | {
       kind: "await";
       /** Adapter key of an interaction opened earlier in the script. */
@@ -20,17 +27,28 @@ export interface Timer {
   set(delayMs: number, callback: () => void): () => void;
 }
 
+export interface PlayOptions {
+  /** The whole scenario happened this long ago: every step is stamped this much earlier. */
+  agoMs?: number;
+}
+
 /** Plays a scripted scenario into a FakeDaemon, step by step or on a timer. */
 export class ScenarioPlayer {
   private daemon: FakeDaemon;
   private steps: Step[];
   private index = 0;
+  private agoMs: number;
   readonly threadId: string;
-  constructor(daemon: FakeDaemon, scenario: Scenario) {
+  constructor(daemon: FakeDaemon, scenario: Scenario, options: PlayOptions = {}) {
     this.daemon = daemon;
     this.steps = [...scenario.steps];
     this.threadId = scenario.thread.id;
-    daemon.createThread(scenario.thread);
+    this.agoMs = options.agoMs ?? 0;
+    const first = scenario.steps[0];
+    daemon.createThread(
+      scenario.thread,
+      this.agoMs + (first?.kind === "facts" ? (first.agoMs ?? 0) : 0),
+    );
   }
   get done(): boolean {
     return this.index >= this.steps.length;
@@ -45,7 +63,8 @@ export class ScenarioPlayer {
     const step = this.steps[this.index];
     if (!step || this.blocked) return false;
     this.index++;
-    if (step.kind === "facts") this.daemon.apply(this.threadId, step.facts);
+    if (step.kind === "facts")
+      this.daemon.apply(this.threadId, step.facts, this.agoMs + (step.agoMs ?? 0));
     else if (step.next)
       this.steps.splice(
         this.index,

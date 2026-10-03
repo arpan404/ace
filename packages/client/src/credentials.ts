@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { DeviceCredential, SocketTicket } from "@ace/protocol";
-import { ClientError } from "./types.ts";
+import { ClientError } from "./errors.ts";
 
 export type Credential = string | { token: string } | { ticket: string };
 const HelloCredential = z.union([

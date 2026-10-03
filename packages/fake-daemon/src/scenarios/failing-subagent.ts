@@ -7,7 +7,7 @@ import { endTurn, message, rootAgent, subagent, tool, toolDone, turn } from "./f
  */
 export function failingSubagent(id = "thread-settings"): Scenario {
   return {
-    thread: { id, workspaceId: "acme-api", title: "Migrate settings schema", provider: "codex" },
+    thread: { id, workspaceId: "ace", title: "Migrate settings schema", provider: "codex" },
     steps: [
       {
         kind: "facts",

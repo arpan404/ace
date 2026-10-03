@@ -6,7 +6,8 @@ import { buttonVariants } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
-import { formatAge, useNow } from "@/lib/time.ts";
+import { useNow } from "@/lib/time.ts";
+import { formatAge } from "@ace/ui-core";
 import { useActivityState } from "./activity-state.tsx";
 
 /**
@@ -35,7 +36,7 @@ export function CardFrame(props: {
       data-card-key={props.cardKey}
       onPointerDown={() => setFocused(props.cardKey)}
       className={cn(
-        "rounded-[12px] px-[18px] py-4 shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-200",
+        "rounded-[12px] px-[18px] py-4 shadow-[inset_0_0_0_1px_var(--border)] transition-shadow duration-(--dur-2)",
         isFocused &&
           "shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ring)_55%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]",
       )}
@@ -76,17 +77,10 @@ export function CardActions(props: { lead?: ReactNode; children: ReactNode }) {
   );
 }
 
-/** Key hint inside a button; on the ink primary button it inverts. */
+/** Key hint inside a button; on the ink primary button it is a plain dim letter. */
 export function ButtonKey(props: { children: string; primary?: boolean }) {
   return (
-    <Kbd
-      aria-hidden
-      className={cn(
-        "ml-1",
-        props.primary &&
-          "bg-[color-mix(in_oklab,var(--primary-foreground)_18%,transparent)] text-current",
-      )}
-    >
+    <Kbd aria-hidden variant={props.primary ? "on-primary" : "default"} className="ml-1">
       {props.children}
     </Kbd>
   );

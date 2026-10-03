@@ -33,7 +33,8 @@ export function ContextBar(props: {
   mode: WorkMode;
   onMode(mode: WorkMode): void;
   branches: readonly string[];
-  base: string;
+  /** Undefined when the project's branches aren't known. */
+  base: string | undefined;
   onBase(branch: string): void;
 }) {
   return (
@@ -64,7 +65,7 @@ export function ContextBar(props: {
           if (parsed.success) props.onMode(parsed.data);
         }}
       />
-      {props.mode === "worktree" && (
+      {props.mode === "worktree" && props.base !== undefined && (
         <>
           <Divider />
           <Picker
@@ -101,7 +102,7 @@ function Picker(props: {
     <Menu>
       <MenuTrigger
         aria-label={`${props.name}: ${props.value}`}
-        className="inline-flex h-[26px] items-center gap-1.5 rounded-[7px] px-2 outline-none transition-colors duration-150 hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
+        className="inline-flex h-[26px] items-center gap-1.5 rounded-[7px] px-2 outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
       >
         <Icon icon={props.icon} size={14} />
         <span className={props.mono ? "font-mono text-[12px]" : undefined}>{props.value}</span>

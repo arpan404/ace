@@ -1,8 +1,8 @@
 import type { Interaction, InteractionRequest } from "@ace/protocol";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
+import { questionOptions } from "@ace/ui-core";
 import { useHotkey } from "@/lib/hotkeys.ts";
-import { questionOptions } from "./approval.ts";
 import {
   ButtonKey,
   CardActions,
@@ -88,7 +88,7 @@ function OptionButton(props: {
       type="button"
       disabled={props.disabled}
       onClick={props.onChoose}
-      className="flex items-center gap-2.5 rounded-[10px] bg-muted px-3 py-[9px] text-left text-ui transition-colors duration-150 hover:bg-accent disabled:cursor-default disabled:hover:bg-muted"
+      className="flex items-center gap-2.5 rounded-[10px] bg-muted px-3 py-[9px] text-left text-ui transition-colors duration-(--dur-1) hover:bg-accent disabled:cursor-default disabled:hover:bg-muted"
     >
       {key && (
         <Kbd aria-hidden className="shrink-0">

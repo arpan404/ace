@@ -1,11 +1,23 @@
-import { providerNames } from "@/components/ui/provider-glyph.tsx";
+import { choiceLine, modelLabel, providerNames, type ModelChoice } from "@ace/ui-core";
 import type { Automation, AutomationRun } from "@ace/protocol";
 
-/** "Claude Code · sonnet-4.6, in a fresh worktree". */
-export function runsOn(automation: Automation): string {
-  const model = automation.model ? ` · ${automation.model}` : "";
+/**
+ * "Claude Code · work · Sonnet 4.5, in a fresh worktree". The model is a catalog row id (model on
+ * one account) or a bare model id; the account shows only when the catalog names it.
+ */
+export function runsOn(automation: Automation, choices: readonly ModelChoice[]): string {
   const where = automation.worktree ? "in a fresh worktree" : "in the project checkout";
-  return `${providerNames[automation.provider]}${model}, ${where}`;
+  const { model, provider } = automation;
+  const choice = model
+    ? choices.find((candidate) => candidate.provider === provider && candidate.id === model)
+    : undefined;
+  if (choice) return `${choiceLine(choice)}, ${where}`;
+  const bare = model?.split(":").at(-1);
+  const named = bare
+    ? choices.find((c) => c.provider === provider && c.modelId === bare)
+    : undefined;
+  const label = bare ? ` · ${named?.model ?? modelLabel(bare)}` : "";
+  return `${providerNames[provider]}${label}, ${where}`;
 }
 
 export const missedRunLabels: Record<Automation["missedRun"], string> = {

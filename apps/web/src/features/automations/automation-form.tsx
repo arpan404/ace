@@ -7,7 +7,7 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { AutomationForm } from "./automation-values.ts";
-import { providerNames } from "@/components/ui/provider-glyph.tsx";
+import { providerNames } from "@ace/ui-core";
 import { missedRunLabels } from "./labels.ts";
 import { Row, visible } from "./form-row.tsx";
 import { ScheduleFields } from "./schedule-fields.tsx";

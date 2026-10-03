@@ -5,9 +5,15 @@ import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 import { panelServices } from "../services.ts";
 
-async function openPreview(scenario = coldStartReplay(), path = "/t/thread-cold-start") {
+async function openPreview(
+  scenario = coldStartReplay(),
+  path = "/t/thread-cold-start",
+  through?: string,
+) {
   const app = harness();
-  app.play(scenario).step();
+  const script = app.play(scenario);
+  if (through) script.runThrough(through);
+  else script.step();
   await app.open(path);
   await screen.findByRole("heading", { level: 1, name: scenario.thread.title });
   await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
@@ -15,15 +21,23 @@ async function openPreview(scenario = coldStartReplay(), path = "/t/thread-cold-
   await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
   const browser = (await panelServices(app.client)).preview;
   if (!(browser instanceof FakeBrowser)) throw new Error("expected the fake browser service");
-  return { app, panel, browser };
+  return { app, panel, browser, script };
 }
+
+test("the preview names the agent of this thread whose browser call is running", async () => {
+  const { panel, script } = await openPreview(coldStartReplay(), "/t/thread-cold-start", "turn-2");
+  const status = async (name: string) =>
+    (await within(panel).findByText(name, { exact: false })).closest("span")?.textContent;
+  expect(await status("resume-sweep")).toContain("is controlling the browser");
+
+  // Once resume-sweep's browser call ends, the thread's own agent holds the page.
+  await act(async () => script.runThrough("audit-done"));
+  expect(await status("Claude Code")).toContain("is controlling the browser");
+});
 
 test("the preview shows the page an agent is driving and follows its frames", async () => {
   const { panel, browser } = await openPreview();
-  expect(
-    (await within(panel).findByText("reconnect-audit", { exact: false })).closest("span")
-      ?.textContent,
-  ).toContain("is controlling the browser");
+  await within(panel).findByText("is controlling the browser", { exact: false });
   const frame = within(panel).getByRole("img", {
     name: "Live view of localhost:5173/settings/devices",
   });
@@ -33,6 +47,17 @@ test("the preview shows the page an agent is driving and follows its frames", as
   act(() => browser.type("thread-cold-start", "iPhone 16 Pro Max"));
   await waitFor(() => expect(frame.getAttribute("src")).not.toBe(first));
   expect(decodeURIComponent(frame.getAttribute("src") ?? "")).toContain("iPhone 16 Pro Max");
+});
+
+test("the agent's browser is sized to the pane, so the page shows at full size", async () => {
+  const { panel, browser } = await openPreview();
+  await within(panel).findByText("is controlling the browser", { exact: false });
+  // jsdom lays every element out 800px wide; the browser starts at 760.
+  await waitFor(() => expect(browser.frame("thread-cold-start")?.width).toBe(800));
+  const page = within(panel).getByRole("img", {
+    name: "Live view of localhost:5173/settings/devices",
+  });
+  expect(decodeURIComponent(page.getAttribute("src") ?? "")).toContain('width="800"');
 });
 
 test("taking control pauses the agent, forwards clicks and keys, and hands back", async () => {

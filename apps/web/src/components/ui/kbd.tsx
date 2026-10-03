@@ -11,7 +11,11 @@ function Kbd({
   variant = "default",
   children,
   ...props
-}: React.ComponentProps<"kbd"> & { keys?: string; variant?: "default" | "bare" | "outline" }) {
+}: React.ComponentProps<"kbd"> & {
+  keys?: string;
+  /** `on-primary`: a plain dim key on an ink button, no box. */
+  variant?: "default" | "bare" | "outline" | "on-primary";
+}) {
   return (
     <kbd
       data-slot="kbd"
@@ -19,6 +23,7 @@ function Kbd({
         "pointer-events-none inline-flex h-4 min-w-[18px] items-center justify-center rounded-xs px-[5px] font-sans text-[11px] leading-4 font-medium tracking-[0.02em] text-subtle-foreground select-none",
         variant === "default" && "bg-secondary",
         variant === "outline" && "shadow-[inset_0_0_0_1px_var(--border)]",
+        variant === "on-primary" && "px-0 text-current opacity-55",
         "in-data-[slot=tooltip-content]:bg-transparent in-data-[slot=tooltip-content]:px-0 in-data-[slot=tooltip-content]:text-current in-data-[slot=tooltip-content]:opacity-55",
         className,
       )}

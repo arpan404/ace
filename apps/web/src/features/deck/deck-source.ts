@@ -1,4 +1,5 @@
-// TODO(train-2): wire to protocol when merged
+// TODO(client-gaps): feat/client-protocol-gaps. Fake mode only; a real daemon reports
+// this feature unavailable.
 /*
  * The one boundary between the Deck screens and the daemon. Commands are the real
  * `conductor.*` payloads from @ace/protocol; the run view is not on the wire yet, so runs
@@ -6,12 +7,8 @@
  */
 import { ConductorCommandPayload } from "@ace/protocol";
 import { useMemo, useSyncExternalStore } from "react";
-import {
-  UnavailableError,
-  useFakeBackend,
-  type FakeBackend,
-} from "@/features/more/fake-backend.ts";
-import type { DeckRun } from "./deck-model.ts";
+import { UnavailableError, useFakeBackend, type FakeBackend } from "@/boot/fake-backend.ts";
+import { type DeckRun } from "@ace/ui-core";
 
 export interface DeckSource {
   /** False until the first list arrives; screens show nothing rather than "no decks". */

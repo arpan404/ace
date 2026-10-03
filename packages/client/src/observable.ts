@@ -4,8 +4,11 @@ export interface Selection<T> {
   subscribe(listener: () => void): () => void;
 }
 /** Explicit keys keep unrelated selectors out of the event hot path. */
+/** Every change a store announces: its keys, or "all" after a snapshot replaced everything. */
+export type ChangeTap = (keys: ReadonlySet<string> | "all") => void;
 export class Notifications {
   private keys = new Map<string, Set<() => void>>();
+  private taps = new Set<ChangeTap>();
   private count = 0;
   private limit: number;
   constructor(limit: number) {
@@ -57,18 +60,41 @@ export class Notifications {
       },
     };
   }
+  /** Observe every emitted key, listened to or not (a worker forwarding changes to tabs). */
+  tap(listener: ChangeTap): () => void {
+    this.taps.add(listener);
+    return () => this.taps.delete(listener);
+  }
   emit(keys: Iterable<string>): void {
+    const changed: ReadonlySet<string> = keys instanceof Set ? keys : new Set(keys);
+    if (this.taps.size) this.announce(changed);
     const updates = new Set<() => void>();
-    for (const key of keys) for (const listener of this.keys.get(key) ?? []) updates.add(listener);
-    for (const update of updates) {
+    for (const key of changed)
+      for (const listener of this.keys.get(key) ?? []) updates.add(listener);
+    run(updates);
+  }
+  emitAll(): void {
+    this.announce("all");
+    const updates = new Set<() => void>();
+    for (const set of this.keys.values()) for (const listener of set) updates.add(listener);
+    run(updates);
+  }
+  private announce(keys: ReadonlySet<string> | "all"): void {
+    for (const tap of this.taps) {
       try {
-        update();
+        tap(keys);
       } catch {
-        /* An observer cannot stop committed state delivery. */
+        /* A tap cannot stop committed state delivery. */
       }
     }
   }
-  emitAll(): void {
-    this.emit(this.keys.keys());
+}
+function run(updates: ReadonlySet<() => void>): void {
+  for (const update of updates) {
+    try {
+      update();
+    } catch {
+      /* An observer cannot stop committed state delivery. */
+    }
   }
 }

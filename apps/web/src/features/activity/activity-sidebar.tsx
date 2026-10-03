@@ -4,13 +4,14 @@ import { cn } from "@/lib/cn.ts";
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { useAutomationRuns, useAutomations } from "@/features/automations/use-automations.ts";
-import { ViewSidebar } from "@/features/shell/view-frame.tsx";
+import { useAutomationRuns, useAutomations } from "@/features/automations/index.ts";
+import { ViewSidebar } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { inProject, useActivityState, type ActivityTab } from "./activity-state.tsx";
 import { useFeed, type FeedEvent } from "./feed-source.ts";
 import { EventRow, RunRow, ThreadNeedsRows } from "./feed-rows.tsx";
 import { useNeedsYou, useNeedsYouCount } from "./use-needs-you.ts";
+import { ArrivalScope } from "@/lib/arrival.tsx";
 
 const tabs: { id: ActivityTab; label: string }[] = [
   { id: "all", label: "All" },
@@ -35,7 +36,12 @@ function FeedTabs() {
   const { tab, setTab } = useActivityState();
   const count = useNeedsYouCount();
   return (
-    <div role="tablist" aria-label="Activity filter" className="flex shrink-0 px-2.5 pb-2">
+    // A narrow sidebar scrolls the filters sideways instead of clipping the last one.
+    <div
+      role="tablist"
+      aria-label="Activity filter"
+      className="flex shrink-0 overflow-x-auto px-2.5 pb-2 [scrollbar-width:none] *:shrink-0"
+    >
       {tabs.map((entry) => (
         <button
           key={entry.id}
@@ -44,7 +50,7 @@ function FeedTabs() {
           aria-selected={tab === entry.id}
           onClick={() => setTab(entry.id)}
           className={cn(
-            "h-[26px] rounded-[7px] px-2 text-[12px] font-medium whitespace-nowrap text-muted-foreground transition-colors duration-150 hover:bg-sidebar-accent hover:text-foreground",
+            "h-[26px] rounded-[7px] px-[7px] text-[12px] font-medium whitespace-nowrap text-muted-foreground transition-colors duration-(--dur-1) hover:bg-sidebar-accent hover:text-foreground",
             tab === entry.id &&
               "bg-[color-mix(in_oklab,var(--foreground)_10%,transparent)] text-foreground hover:bg-[color-mix(in_oklab,var(--foreground)_10%,transparent)]",
           )}
@@ -104,15 +110,17 @@ function FeedList() {
     );
   return (
     <ul aria-label="Activity" className="flex flex-col gap-px">
-      {showNeeds && (
-        <>
-          {needs.threadIds.map((id) => (
-            <ThreadNeedsRows key={id} threadId={id} />
-          ))}
-          {needs.escalations.map((event) => eventRow(event, feed.read))}
-        </>
-      )}
-      {others}
+      <ArrivalScope>
+        {showNeeds && (
+          <>
+            {needs.threadIds.map((id) => (
+              <ThreadNeedsRows key={id} threadId={id} />
+            ))}
+            {needs.escalations.map((event) => eventRow(event, feed.read))}
+          </>
+        )}
+        {others}
+      </ArrivalScope>
     </ul>
   );
 }

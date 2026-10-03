@@ -11,7 +11,7 @@ function Checkbox({ className, ...props }: CheckboxPrimitive.Root.Props) {
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        "grid size-3.5 shrink-0 place-items-center rounded-[4px] shadow-[inset_0_0_0_1px_var(--input)] outline-none transition-[background-color,box-shadow] duration-150",
+        "grid size-3.5 shrink-0 place-items-center rounded-[4px] shadow-[inset_0_0_0_1px_var(--input)] outline-none transition-[background-color,box-shadow] duration-(--dur-1)",
         "focus-visible:shadow-[inset_0_0_0_1px_var(--input),0_0_0_2px_color-mix(in_oklab,var(--ring)_45%,transparent)]",
         "data-checked:bg-primary data-checked:shadow-none disabled:opacity-50",
         className,

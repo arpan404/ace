@@ -88,7 +88,7 @@ Electron is a thin shell, implemented later. The main process starts or attaches
 
 ### Performance budgets
 
-These numbers are measured on the fake-daemon build. CI enforcement is a follow-up.
+These numbers are measured on the fake-daemon build. ADR 0056 now enforces budgets in `bun run check:perf` and CI and records where work runs off the main thread.
 
 | Budget                                 | Limit                                                     | Now                                                   |
 | -------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------- |

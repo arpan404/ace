@@ -5,6 +5,7 @@ import {
   HostId,
   ThreadId,
   WorkspaceId,
+  type ClientMessage,
   type Command,
   type CommandResult,
   type DeliveryEvent,
@@ -21,6 +22,7 @@ import { fakeHealth } from "./health.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
+import { FakeServices } from "./services/index.ts";
 import { startedThread } from "./scenarios/started-thread.ts";
 import {
   drainQueue,
@@ -64,8 +66,19 @@ export class FakeDaemon implements Host {
   private resolvedListeners = new Set<ResolvedListener>();
   /** Review mode sessions and comments; sent comments arrive in the thread as a user message. */
   readonly review: FakeReviewDesk;
+  /** Accounts, usage, models, settings, search, slash commands and context, over the wire. */
+  readonly services: FakeServices;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
+    this.services = new FakeServices({
+      clock: options.clock,
+      thread: (threadId) => {
+        const host = this.threads.get(threadId);
+        return (
+          host && { workspaceId: host.view.thread.workspaceId, provider: host.view.thread.provider }
+        );
+      },
+    });
     this.review = new FakeReviewDesk(options.clock, (threadId, text) =>
       this.apply(threadId, [
         {
@@ -86,9 +99,13 @@ export class FakeDaemon implements Host {
   accepts(credential: { token?: string | undefined; ticket?: string | undefined }): boolean {
     return credential.token === this.token;
   }
-  createThread(init: ThreadInit): void {
+  /** The daemon's clock, `agoMs` back. Never before the epoch, whatever a script asks for. */
+  private at(agoMs: number): number {
+    return Math.max(0, this.options.clock() - agoMs);
+  }
+  createThread(init: ThreadInit, agoMs = 0): void {
     if (this.threads.has(init.id)) throw new Error(`Thread ${init.id} already exists`);
-    const now = this.options.clock();
+    const now = this.at(agoMs);
     const thread = {
       id: ThreadId.parse(init.id),
       workspaceId: WorkspaceId.parse(init.workspaceId),
@@ -102,10 +119,13 @@ export class FakeDaemon implements Host {
     this.threads.set(init.id, host);
     this.append(host, [{ type: "thread.created", thread }], now);
   }
-  /** Apply adapter facts to a thread and publish the resulting events as one batch. */
-  apply(threadId: string, facts: readonly Fact[]): void {
+  /**
+   * Apply adapter facts to a thread and publish the resulting events as one batch, stamped
+   * `agoMs` before now (scripts backdate seeded history).
+   */
+  apply(threadId: string, facts: readonly Fact[], agoMs = 0): void {
     const host = this.thread(threadId);
-    const now = this.options.clock();
+    const now = this.at(agoMs);
     const payloads = facts.flatMap((fact) => host.fold(fact, now));
     // A queued message starts the next turn as soon as the root agent is free.
     const drained = facts.length ? drainQueue(host) : [];
@@ -134,6 +154,11 @@ export class FakeDaemon implements Host {
     if (!host) throw new Error(`Unknown thread ${id}`);
     return host;
   }
+  /** The daemon item id a script's adapter key became, for seeding client-side state. */
+  itemId(threadId: string, key: Key): string | undefined {
+    const host = this.threads.get(threadId);
+    return host && Object.hasOwn(host.state.items, key) ? host.state.items[key]?.id : undefined;
+  }
   isPending(threadId: string, key: Key): boolean {
     return this.thread(threadId).interaction(key)?.state === "pending";
   }
@@ -149,8 +174,12 @@ export class FakeDaemon implements Host {
     this.connections.add(connection);
     return connection;
   }
+  service(message: ClientMessage, connection: Connection): boolean {
+    return this.services.handle(message, connection.push);
+  }
   release(connection: Connection): void {
     this.connections.delete(connection);
+    this.services.release(connection.push);
   }
   /** Drop every socket, as a daemon restart or network loss would. */
   disconnectAll(code = 1006): void {
