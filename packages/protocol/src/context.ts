@@ -17,8 +17,23 @@ export const Mention = z.object({
     .optional(),
 });
 export type Mention = z.infer<typeof Mention>;
+export const ThreadRefContextItem = z.strictObject({
+  type: z.literal("thread_ref"),
+  threadId: ThreadId,
+  budgetBytes: z.number().int().min(1024).max(8192).default(4096),
+});
+export type ThreadRefContextItem = z.infer<typeof ThreadRefContextItem>;
+export const ResolvedThreadReference = z.object({
+  type: z.literal("thread_ref"),
+  threadId: ThreadId,
+  summary: z.string().max(8192),
+  truncated: z.boolean(),
+  pointer: z.object({ threadId: ThreadId, before: size.nullable() }),
+});
+export type ResolvedThreadReference = z.infer<typeof ResolvedThreadReference>;
 export const MessageContext = z.object({
   draftId: key.optional(),
+  items: z.array(ThreadRefContextItem).max(8).optional(),
   mentions: z.array(Mention).max(64).default([]),
   attachments: z
     .array(z.object({ sha256: BlobHash }))

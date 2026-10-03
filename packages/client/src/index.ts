@@ -27,3 +27,16 @@ export type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 
 export { AccessClient } from "./access.ts";
 export type { AccessOptions } from "./access.ts";
+export { oppositeFollowUpBehavior } from "./follow-up.ts";
+
+export { DeviceClient, DeviceClientError } from "@ace/devices/client";
+export type {
+  DeviceClientSnapshot,
+  DeviceLogBatch,
+  DeviceTransport,
+  DeviceClientOptions,
+} from "@ace/devices/client";
+export { deviceTransport, authenticatedChannel } from "./device-transport.ts";
+export type { AuthenticatedChannelOptions, DeviceConnectionTarget } from "./device-transport.ts";
+export { downloadArtifact } from "@ace/files/client";
+export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";

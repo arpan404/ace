@@ -10,6 +10,7 @@ import { ClientError, type Limits } from "./types.ts";
 export type ThreadKey =
   | "error"
   | "thread"
+  | "queue"
   | "order"
   | "cursor"
   | "history"
@@ -21,11 +22,14 @@ export type ThreadKey =
   | `run:${string}`
   | `interaction:${string}`
   | `task:${string}`
+  | `context:${string}`
   | `usage:${string}`
   | `usageSnapshot:${string}`;
 export interface ThreadReader {
   readonly error: ClientError | undefined;
   readonly thread: ThreadView["thread"] | undefined;
+  readonly queue: ThreadView["queue"] | undefined;
+  readonly context: import("@ace/protocol").ContextMeter | undefined;
   readonly order: readonly string[];
   readonly cursor: number | undefined;
   readonly itemsBefore: number | null | undefined;
@@ -41,6 +45,7 @@ export interface ThreadReader {
   interaction(id: string): ThreadView["interactions"][string] | undefined;
   task(id: string): ThreadView["backgroundTasks"][string] | undefined;
   usage(id: string): ThreadView["usage"][string] | undefined;
+  contextMeter(id: string): import("@ace/protocol").ContextMeter | undefined;
   usageSnapshot(key: string): ThreadView["usageSnapshots"][string] | undefined;
   truncated(id: string): boolean;
 }
@@ -70,6 +75,13 @@ export class ThreadStore implements ThreadReader {
   }
   get thread() {
     return this.view?.thread;
+  }
+  get queue() {
+    return this.view?.queue;
+  }
+  get context() {
+    const root = this.view?.thread.rootAgentId;
+    return root ? this.contextMeter(root) : undefined;
   }
   get order(): readonly string[] {
     return this.view?.itemOrder ?? emptyOrder;
@@ -107,6 +119,10 @@ export class ThreadStore implements ThreadReader {
   }
   task(id: string) {
     return this.own(this.view?.backgroundTasks, id);
+  }
+  contextMeter(id: string) {
+    const meters = this.view?.contextMeters;
+    return meters && Object.hasOwn(meters, id) ? meters[id] : undefined;
   }
   usage(id: string) {
     return this.own(this.view?.usage, id);
@@ -147,6 +163,7 @@ export class ThreadStore implements ThreadReader {
       interactions: view.interactions,
       tasks: view.backgroundTasks,
       usage: view.usage,
+      contextMeters: view.contextMeters ?? {},
       usageSnapshots: view.usageSnapshots,
     })) {
       const size = Object.keys(record).length;
@@ -295,6 +312,14 @@ export class ThreadStore implements ThreadReader {
         case "background_task.updated":
           this.copy(view.backgroundTasks, p.taskId);
           keys.add(`task:${p.taskId}`);
+          break;
+        case "queue.updated":
+          keys.add("queue");
+          break;
+        case "context_meter.updated":
+          if (!keys.has(`context:${p.meter.agentId}`))
+            this.capacity("contextMeters", !!this.contextMeter(p.meter.agentId));
+          keys.add(`context:${p.meter.agentId}`);
           break;
         case "usage.updated": {
           if (p.usageScope === "provider_session" || p.usageScope === "model_session") {

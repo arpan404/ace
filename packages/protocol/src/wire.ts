@@ -28,6 +28,8 @@ import {
 import { DiagnosticsHealth } from "./diagnostics.ts";
 import { ReviewData } from "./review.ts";
 import { z } from "zod";
+import { QueueGet, QueueResult, QueueState } from "./queue.ts";
+import { ContextMeter } from "./context-meter.ts";
 import { ContextRequest, ContextResult } from "./context.ts";
 import {
   HistoryListRequest,
@@ -36,6 +38,7 @@ import {
   HistoryImportResponse,
   HistoryScanRequest,
   HistoryScanResponse,
+  HistoryScanUpdated,
   HistoryContinueRequest,
   HistoryContinueResponse,
 } from "./history.ts";
@@ -48,6 +51,7 @@ import {
   UsageSessionTotalsMessage,
 } from "./usage.ts";
 import { AccountsRequest, AccountsResponse } from "./accounts.ts";
+import { DeviceClientMessage, DeviceServerMessage } from "./devices.ts";
 import { ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
 import {
   ModelsListRequest,
@@ -110,6 +114,8 @@ const records = <T>(schema: z.ZodType<T>) =>
         "Plain JSON object with every own opaque ID, including __proto__, validated and retained.",
     });
 export const ThreadView = z.object({
+  queue: QueueState.optional(),
+  contextMeters: records(ContextMeter).optional(),
   kind: z.literal("thread"),
   seq,
   thread: Thread,
@@ -165,13 +171,14 @@ export const ClientMessage = z.discriminatedUnion("type", [
   PreviewRequest,
   ConductorRequest,
   ...AutomationRequest.options,
+  QueueGet,
   PiControlRequest,
+
   RegistryRequest,
   WorkspaceActionRequest,
   TerminalRequest,
   TerminalCredit,
   PluginClientMessage,
-  ...BrowserClientMessage.options,
   DiagnosticsHealthRequest,
   ContextRequest,
   SettingsGet,
@@ -193,6 +200,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   SearchQueryRequest,
   SearchStatusRequest,
   ScreenClientMessage,
+  DeviceClientMessage,
+  ...BrowserClientMessage.options,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -204,6 +213,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("hello"),
+      channel: z.enum(["files", "devices", "browser", "screen"]).optional(),
       protocolVersion: z.literal(1),
       deviceId: DeviceId,
       token: z.string().optional(),
@@ -239,11 +249,11 @@ export const ClientMessage = z.discriminatedUnion("type", [
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 export const CommandResult = z.object({
+  threadId: ThreadId.optional(),
   commandId: CommandId,
   ok: z.boolean(),
   forkThreadId: ThreadId.optional(),
   health: DiagnosticsHealth.optional(),
-  threadId: ThreadId.optional(),
   error: z.string().optional(),
   review: ReviewData.optional(),
   pr: ForgePrRef.optional(),
@@ -261,13 +271,14 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ConductorResult,
   ConductorChanged,
   AutomationResponse,
+  QueueResult,
   PiControlResult,
+
   RegistryResult,
   WorkspaceActionResult,
   TerminalResult,
   TerminalOutput,
   PluginServerMessage,
-  ...BrowserServerMessage.options,
   DiagnosticsHealthResult,
   ContextResult,
   SettingsResult,
@@ -276,6 +287,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   HistoryListResponse,
   HistoryImportResponse,
   HistoryScanResponse,
+  HistoryScanUpdated,
   HistoryContinueResponse,
   McpProviderResult,
   UsageMessage,
@@ -288,6 +300,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   SearchStatusResponse,
   SearchErrorResponse,
   ...ScreenServerMessage.options,
+  ...DeviceServerMessage.options,
+  ...BrowserServerMessage.options,
   ModelsResult,
   NotificationMessage,
   z.object({

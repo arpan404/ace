@@ -84,7 +84,7 @@ export class FakeWorkspaceWire {
   command(payload: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
     const forge = this.forge.command(payload);
     if (forge) return forge;
-    if (!("threadId" in payload)) return undefined;
+    if (!("threadId" in payload) || !payload.threadId) return undefined;
     const thread = this.context.thread(payload.threadId)?.thread;
     if (
       ["workspace.editor.open", "workspace.script.run", "git.commit", "git.push"].includes(

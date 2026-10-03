@@ -27,6 +27,8 @@ it("system discovery uses only version and login-status commands on fake provide
     '#!/bin/sh\ncase "$*" in\n"--version") echo "1.2.3";;\n"login status") echo "Logged in using ChatGPT";;\n*) exit 99;;\nesac\n';
   await writeFile(join(bin, "codex"), script);
   await chmod(join(bin, "codex"), 0o700);
+  await writeFile(join(bin, "git"), "#!/bin/sh\nexit 1\n");
+  await chmod(join(bin, "git"), 0o700);
   const probes = createSystemProbes(
     {
       dataDir,

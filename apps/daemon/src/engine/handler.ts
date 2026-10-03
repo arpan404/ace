@@ -1,8 +1,16 @@
+import { isSend, maxMessageBytes } from "./queue-store.ts";
+import type { Recovery } from "./recovery.ts";
 import { realpathSync, statSync } from "node:fs";
 import { validResolution } from "./resolution.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
-import { AcpIdentity, ThreadId, type Command, type CommandResult } from "@ace/protocol";
+import {
+  ExecutionOptions,
+  AcpIdentity,
+  ThreadId,
+  type Command,
+  type CommandResult,
+} from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -14,17 +22,27 @@ export function engineHandler(
   silenceMs: number,
   wake: (id: ThreadId) => void,
   nextId: () => string,
+  recovery: Recovery,
   machine?: { host: string; name: string },
 ): CommandHandler {
   return {
     handle(command: Command): CommandResult {
+      const result = recovery.handle(command);
+      if (result) return result;
       const transition = acceptTransition(repo, registry, command, now(), nextId, wake);
       if (transition) return transition;
       const p = command.payload;
+      if (
+        isSend(p) &&
+        (p.type === "thread.send" || p.type === "thread.create") &&
+        (p.input.length > 64 || Buffer.byteLength(JSON.stringify(command)) > maxMessageBytes)
+      )
+        return { commandId: command.id, ok: false, error: "message_too_large" };
       const fail = (error: string): CommandResult => ({ commandId: command.id, ok: false, error });
       if (
         ![
           "thread.create",
+          "thread.prepare",
           "thread.send",
           "thread.interrupt",
           "thread.archive",
@@ -38,7 +56,7 @@ export function engineHandler(
       return repo.store.atomic(() => {
         let threadId: ThreadId | undefined;
         let resolutionId: string | undefined;
-        if (p.type === "thread.create") {
+        if (p.type === "thread.create" || p.type === "thread.prepare") {
           const identity = p.provider === "acp" ? AcpIdentity.safeParse(p) : undefined;
           if (p.provider === "acp" && !identity?.success) return fail("acp_identity_required");
           const acpIdentity = identity?.success ? identity.data : undefined;
@@ -52,8 +70,20 @@ export function engineHandler(
           } catch {
             return fail("workspace_unavailable");
           }
+          if (
+            p.options &&
+            Object.keys(p.options)
+              .filter((key) => key === "effort" || key === "serviceTier")
+              .some(
+                (option) =>
+                  !registry
+                    .get(p.provider)
+                    .capabilities.launchOptions?.some((supported) => supported === option),
+              )
+          )
+            return fail("launch_options_unsupported");
           const at = now();
-          threadId = ThreadId.parse(nextId());
+          threadId = ThreadId.parse(p.threadId ?? nextId());
           if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
           createEngineThread(repo, {
             id: threadId,
@@ -62,8 +92,10 @@ export function engineHandler(
             ...(acpIdentity ? { acpIdentity } : {}),
             selection: {
               provider: p.provider,
-              options: p.options ?? {},
-              ...(p.account ? { instanceId: p.account } : {}),
+              options: ExecutionOptions.parse(p.options ?? {}),
+              ...((p.accountId ?? ("account" in p ? p.account : undefined))
+                ? { instanceId: p.accountId ?? ("account" in p ? p.account : undefined) }
+                : {}),
               ...(p.model === undefined ? {} : { model: p.model }),
             },
             cwd,
@@ -76,21 +108,27 @@ export function engineHandler(
                   name: repo.store.getWorkspace(p.workspaceId)?.name ?? p.workspaceId,
                   path: cwd,
                 },
-                mode: p.mode ?? "local",
+                mode: ("mode" in p ? p.mode : undefined) ?? "local",
                 worktree: cwd,
-                ...(p.baseBranch ? { baseBranch: p.baseBranch } : {}),
+                ...("baseBranch" in p && p.baseBranch ? { baseBranch: p.baseBranch } : {}),
                 ...(machine ? { machine } : {}),
               },
               live: {
                 provider: p.provider,
                 ...(p.model ? { model: p.model } : {}),
-                ...(p.account ? { account: p.account } : {}),
-                options: p.options ?? {},
+                ...((p.accountId ?? ("account" in p ? p.account : undefined))
+                  ? { account: p.accountId ?? ("account" in p ? p.account : undefined) }
+                  : {}),
+                options: ExecutionOptions.parse(p.options ?? {}),
                 subagentCount: 0,
                 backgroundTaskCount: 0,
               },
             },
           });
+          if (p.type === "thread.prepare") {
+            repo.release(threadId);
+            return { commandId: command.id, ok: true, threadId };
+          }
         } else if ("threadId" in p) {
           threadId = ThreadId.parse(p.threadId);
           if (p.type === "thread.archive") {
@@ -136,15 +174,22 @@ export function engineHandler(
           if (!threadId)
             return fail(p.type === "interaction.resolve" ? "already_resolved" : "task_not_found");
         } else return fail("not_implemented");
-        if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
-        repo.add(command, threadId, resolutionId);
+        const admitted = recovery.admit(command, threadId);
+        if (!admitted) return fail("queue_capacity_exceeded");
+        const heldSend = p.type === "thread.send" && repo.queue.get(threadId).paused;
+        if (!heldSend && !repo.reserve(threadId)) return fail("engine_capacity_exceeded");
+        const released = p.type === "thread.interrupt" ? repo.cancelPending(threadId, now()) : [];
+        repo.add(admitted, threadId, resolutionId);
+        if (p.type === "thread.create" || p.type === "thread.send") {
+          repo.queue.set(threadId, {}, now());
+          recovery.sync(threadId);
+        }
         // Microtasks execute only after the enclosing receipt transaction commits.
-        queueMicrotask(() => wake(threadId));
-        return {
-          commandId: command.id,
-          ok: true,
-          ...(p.type === "thread.create" ? { threadId } : {}),
-        };
+        queueMicrotask(() => {
+          if (repo.state(threadId)) wake(threadId);
+          for (const id of released) wake(id);
+        });
+        return { commandId: command.id, ok: true, threadId };
       });
     },
   };

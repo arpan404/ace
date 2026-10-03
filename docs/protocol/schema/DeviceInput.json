@@ -1,0 +1,142 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceInput.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "tap",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "durationMs": {
+          "default": 500,
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "longPress",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "x",
+        "y"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "durationMs": {
+          "default": 500,
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "swipe",
+          "type": "string"
+        },
+        "toX": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "toY": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "x": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 16384,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "x",
+        "y",
+        "toX",
+        "toY"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "type",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 4096,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "key": {
+          "enum": [
+            "home",
+            "back",
+            "rotate",
+            "enter",
+            "power"
+          ],
+          "type": "string"
+        },
+        "kind": {
+          "const": "key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "type": "object"
+    }
+  ]
+}

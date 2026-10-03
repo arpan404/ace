@@ -1,4 +1,4 @@
-# 0056: Daemon-owned thread organization and client requests
+# 0057: Daemon-owned thread organization and client requests
 
 Date: 2026-10-03. Status: accepted.
 
@@ -27,3 +27,5 @@ Plugin catalog pages cache validated accepted snapshots by a persisted installat
 A cached catalog never authorizes current physical source bytes. Source reads open without following symlinks and without blocking on a replacement FIFO, validate the descriptor's regular-file type and accepted length, and stream-check the accepted SHA-256 before returning a page. A changed source is rejected, including at a truncated EOF. The reader retains one 64 KiB read buffer and at most a 64 KiB page plus one UTF-8 boundary byte. Nonempty pages advance only across complete code points. Inline command pages cache validated encoded bytes by snapshot generation, capped at 2,048 entries and 32 MiB with FIFO eviction. Acceptance/removal replaces the generation and clears this cache. Editing still resolves the original manifest and requires a new trust review.
 
 Context mention reads use the same persisted execution binding as scripts, Git and checkpoints. An unready isolated binding cannot fall back to the registered project. Draft adoption continues to authorize against the logical project root; composition reads the actual prepared execution root.
+
+Integration train 3 keeps these services in the named startup graph: workspace actions initialize before engine admission; preview, organization, automation and conductor initialization follow endpoint publication. Optional failures degrade by service name. Context combines draft ownership and execution-root authority with the agent-control family reference policy and queue attachment retention. The ADR moved to 0057 because main allocated 0056 to in-app devices.

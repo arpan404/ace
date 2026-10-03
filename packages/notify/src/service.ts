@@ -179,7 +179,7 @@ export function attachNotifications(
   },
   log: NotificationLog,
   onError: (error: unknown) => void,
-): { tick(): Promise<void>; close(): void } {
+): { recover(): Promise<boolean>; tick(): Promise<void>; close(): void } {
   let running: Promise<void> | undefined;
   const replay = async () => {
     // Bounded work per tick; startup callers can tick until cursor reaches head.
@@ -199,6 +199,8 @@ export function attachNotifications(
     }
   });
   return {
+    // Finite log recovery is separate from delivery and propagates initialization errors.
+    recover: replay,
     tick() {
       running ??= (async () => {
         try {

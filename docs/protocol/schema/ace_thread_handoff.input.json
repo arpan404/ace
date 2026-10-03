@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_thread_handoff.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "branch": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[a-zA-Z0-9_.-]+$",
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "requestId",
+    "branch"
+  ],
+  "type": "object"
+}

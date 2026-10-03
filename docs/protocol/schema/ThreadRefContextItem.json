@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadRefContextItem.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "budgetBytes": {
+      "default": 4096,
+      "maximum": 8192,
+      "minimum": 1024,
+      "type": "integer"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "thread_ref",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "threadId"
+  ],
+  "type": "object"
+}

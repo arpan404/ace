@@ -1,7 +1,7 @@
 import { GitService } from "@ace/git";
-import { ThreadId } from "@ace/protocol";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { commandContext } from "../commands.ts";
+import { ThreadId } from "@ace/protocol";
 import type { TransitionIO } from "../engine/transitions.ts";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -33,7 +33,11 @@ export function createThreadTransitionsSession(context: SocketContext): SocketSe
       scope: () => "operate",
       accept(command, device) {
         const p = command.payload;
-        if (!("threadId" in p) || !context.canReadThread(ThreadId.parse(p.threadId))) {
+        if (
+          !("threadId" in p) ||
+          !p.threadId ||
+          !context.canReadThread(ThreadId.parse(p.threadId))
+        ) {
           context.send({
             type: "commandResult",
             commandId: command.id,

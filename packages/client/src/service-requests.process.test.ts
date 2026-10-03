@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "vitest";
 import { setup, ready, memoryStorage, when } from "./test-support.ts";
+import { AccessClient, ticketCredential } from "./index.ts";
 import { ClientMessage } from "@ace/protocol";
 let cleanup: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -152,7 +153,18 @@ test("a denied service write rejects that request while a read-only device stays
   const f = await setup();
   cleanup = f.cleanup;
   const device = f.daemon.store.devices.create("Reader", ["read"], 1);
-  const { client } = f.make({ deviceId: device.device.id, credential: async () => device.token });
+  const access = new AccessClient({
+    origin: new URL(f.daemon.url.replace(/^ws:/, "http:")).origin,
+    token: async () => device.token,
+    fetch,
+  });
+  const { client } = f.make({
+    deviceId: device.device.id,
+    credential: ticketCredential(
+      async () => device.token,
+      () => access.ticket(),
+    ),
+  });
   await ready(client);
   await expect(
     client.request({
@@ -223,4 +235,120 @@ test("context reads cannot fall back to the project while an isolated workspace 
     operation: { op: "mention.complete", threadId: f.thread.id, query: "project-", limit: 50 },
   });
   expect(reply.result).toMatchObject({ kind: "error" });
+});
+
+test("history reads with optional wire correlations work through both client APIs without durable receipts", async () => {
+  const f = await setup(undefined, { instances: [] });
+  cleanup = f.cleanup;
+  const storage = memoryStorage();
+  const { client } = f.make({ storage });
+  await ready(client);
+  const before = await storage.load();
+  const direct = await client.request({
+    type: "history.list",
+    cwd: f.daemon.store.getWorkspacePath(f.workspaceId) ?? "",
+    limit: 10,
+  });
+  const specialized = await client.listHistory({
+    cwd: f.daemon.store.getWorkspacePath(f.workspaceId) ?? "",
+    limit: 10,
+  });
+  expect(direct.sessions).toEqual(specialized.sessions);
+  const status = await client.request({ type: "history.scan", action: "status" });
+  expect(status.scan?.state).toBeDefined();
+  expect(await storage.load()).toBe(before);
+  expect(
+    f.daemon.store.atomic(
+      (db) => db.prepare("SELECT COUNT(*) AS n FROM command_receipts").get()?.n,
+    ),
+  ).toBe(0);
+});
+
+test("daemon draft adoption uses the same canonical project identity as mention completion", async () => {
+  const f = await setup();
+  cleanup = f.cleanup;
+  const { client } = f.make();
+  await ready(client);
+  const draft = await client.request({
+    type: "context.request",
+    operation: { op: "draft.create", workspaceId: f.workspaceId },
+  });
+  if (draft.result.kind !== "draft") throw new Error("Expected draft");
+  const { createHash } = await import("node:crypto");
+  const bytes = Buffer.from("canonical draft attachment");
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const begin = await client.request({
+    type: "context.request",
+    operation: {
+      op: "draft.upload.begin",
+      draftId: draft.result.draftId,
+      bytes: bytes.length,
+      sha256,
+      name: "draft.txt",
+    },
+  });
+  if (begin.result.kind !== "upload") throw new Error("Expected upload");
+  await client.request({
+    type: "context.request",
+    operation: {
+      op: "upload.chunk",
+      uploadId: begin.result.uploadId,
+      offset: 0,
+      data: bytes.toString("base64"),
+    },
+  });
+  await client.request({
+    type: "context.request",
+    operation: { op: "upload.commit", uploadId: begin.result.uploadId },
+  });
+  const prepared = await f.daemon.context.compose(
+    "test-device",
+    f.thread.id,
+    { draftId: draft.result.draftId, mentions: [], attachments: [{ sha256 }] },
+    { provider: "codex", images: [], documents: [], embeddedContext: false, maxInlineBytes: 0 },
+  );
+  prepared.release();
+  const listed = await client.request({
+    type: "context.request",
+    operation: { op: "attachment.list", threadId: f.thread.id },
+  });
+  expect(listed.result).toMatchObject({
+    kind: "attachments",
+    attachments: [{ sha256, name: "draft.txt", bytes: bytes.length }],
+  });
+});
+
+test("listener-phase service routing reads persisted automation changes and Deck plans", async () => {
+  const f = await setup();
+  cleanup = f.cleanup;
+  const { client } = f.make();
+  await ready(client);
+  const automation = {
+    id: "integration-manual",
+    title: "Saved automation",
+    enabled: false,
+    workspace: f.daemon.store.getWorkspacePath(f.workspaceId) ?? "",
+    provider: "codex" as const,
+    prompt: "Synthetic disabled task",
+    worktree: false,
+    trigger: { kind: "manual" as const },
+    missedRun: "skip" as const,
+    concurrency: 1,
+    jitterMs: 0,
+  };
+  expect(await client.request({ type: "automation.put", automation })).toMatchObject({ ok: true });
+  expect(await client.request({ type: "automation.list" })).toMatchObject({
+    ok: true,
+    automations: [automation],
+  });
+  expect(
+    await client.request({ type: "conductor.request", operation: { op: "list", limit: 10 } }),
+  ).toMatchObject({ ok: true, runs: [] });
+  expect(await client.request({ type: "automation.remove", id: automation.id })).toMatchObject({
+    ok: true,
+  });
+  expect(await client.request({ type: "automation.list" })).toMatchObject({
+    ok: true,
+    automations: [],
+  });
 });

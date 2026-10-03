@@ -1,32 +1,65 @@
+import { warmup } from "./warmup.ts";
+import { realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { ContextService } from "@ace/context";
+import { ContextService, summarizeThreadReference } from "@ace/context";
 import { ThreadId, WorkspaceId } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 export async function startContext(runtime: ServiceContext): Promise<void> {
   const { config, store, now, id, resources, services, log, onListen } = runtime;
 
   const context = await ContextService.open({
+    signal: runtime.signal,
     root: join(config.dataDir, "context"),
     now,
     id,
+    retained: (thread, hash) =>
+      services.engine?.retainsAttachment(ThreadId.parse(thread), hash) ?? false,
     authorize: (_device, thread) => {
       const entity = store.getThread(ThreadId.parse(thread));
       return entity !== undefined && entity.deletedAt === undefined;
     },
-    workspaceRoot: (workspaceId) => store.getWorkspacePath(WorkspaceId.parse(workspaceId)),
-    threadWorkspaceRoot: (thread) => {
-      const entity = store.getThread(ThreadId.parse(thread));
-      return entity ? store.getWorkspacePath(entity.workspaceId) : undefined;
+    workspaceRoot: async (workspaceId) => {
+      const path = store.getWorkspacePath(WorkspaceId.parse(workspaceId));
+      return path ? realpath(path) : undefined;
     },
-    workspace: (thread) => {
+    async threadReference(_device, owner, reference) {
+      const source = store.getThread(ThreadId.parse(owner));
+      const target = store.getThread(reference.threadId);
+      const journal = services.agentControl?.delegations.journal;
+      const family =
+        source &&
+        journal &&
+        (journal.get(source.id)?.rootId ?? source.id) ===
+          (journal.get(reference.threadId)?.rootId ?? reference.threadId);
+      if (
+        !source ||
+        source.deletedAt !== undefined ||
+        !target ||
+        target.deletedAt !== undefined ||
+        (target.workspaceId !== source.workspaceId && !family)
+      )
+        throw new Error("Thread context access denied");
+      return summarizeThreadReference(
+        reference,
+        target,
+        store.readItemPage(target.id, store.headSeq() + 1, 20, 32768),
+      );
+    },
+    threadWorkspaceRoot: async (thread) => {
+      const entity = store.getThread(ThreadId.parse(thread));
+      const path = entity ? store.getWorkspacePath(entity.workspaceId) : undefined;
+      return path ? realpath(path) : undefined;
+    },
+    workspace: async (thread) => {
       const threadId = ThreadId.parse(thread);
       if (!store.getThread(threadId)) return undefined;
       const binding = store.executionWorkspace(threadId);
-      return binding.ready ? binding.path : undefined;
+      return binding.ready ? realpath(binding.path) : undefined;
     },
   });
   resources.own(() => context.close());
   services.context = context;
+  void warmup(runtime, "context", () => context.uploads.ready);
   let pending: Promise<void> | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   const maintain = () => {

@@ -1,3 +1,4 @@
+import { AceMcpConnectionSchema } from "@ace/mcp-server";
 import { fileURLToPath } from "node:url";
 import type { ProviderSession, SessionContext, Frame } from "@ace/engine-api";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
@@ -54,7 +55,16 @@ export async function openPiSession(
     permissionArgs = piPermissionArgs(mode);
   const lifetime = new AbortController();
   const controlSecret = io.secret();
-  const lease = mode === "unrestricted" ? options.openMcp?.(ctx, lifetime.signal) : undefined;
+  // The daemon's existing session lease owns capabilities and revocation. Reuse it.
+  const lease =
+    mode !== "unrestricted"
+      ? undefined
+      : ctx.aceMcp
+        ? {
+            ...AceMcpConnectionSchema.parse({ url: ctx.aceMcp.url, bearer: ctx.aceMcp.bearer }),
+            end() {},
+          }
+        : options.openMcp?.(ctx, lifetime.signal);
   const args = [
     "--mode",
     "rpc",

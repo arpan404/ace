@@ -1,4 +1,4 @@
-import { mkdir, readdir, rename, rm } from "node:fs/promises";
+import { mkdir, opendir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { withDirectoryLock } from "./lock.ts";
 import {
@@ -47,24 +47,30 @@ export class PluginManager {
     );
   }
   static async open(options: PluginManagerOptions): Promise<PluginManager> {
-    const root = await ownDirectory(options.root);
-    for (const suffix of ["", "-wal", "-shm", "-journal"])
-      await assertNoSymlinks(join(root, "registry.sqlite") + suffix);
-    const manager = new PluginManager(root, options);
+    const manager = await PluginManager.openIndex(options);
     try {
-      await manager.lock(async () => {
-        await manager.collect();
-      });
+      await manager.maintain(new AbortController().signal);
       return manager;
     } catch (error) {
       manager.close();
       throw error;
     }
   }
+  static async openIndex(options: PluginManagerOptions): Promise<PluginManager> {
+    const root = await ownDirectory(options.root);
+    for (const suffix of ["", "-wal", "-shm", "-journal"])
+      await assertNoSymlinks(join(root, "registry.sqlite") + suffix);
+    const manager = new PluginManager(root, options);
+    return manager;
+  }
+  /** Cleanup is maintenance, not a prerequisite for opening the registry. */
+  maintain(signal: AbortSignal): Promise<void> {
+    return this.lock(() => this.collect(signal));
+  }
   private lock<T>(run: () => Promise<T>): Promise<T> {
     return withDirectoryLock(this.root, run);
   }
-  private async collect(): Promise<void> {
+  private async collect(signal?: AbortSignal): Promise<void> {
     const installs = this.registry.installs();
     const reviews = this.registry.summaries();
     if (installs.length > limits.installs || reviews.length > limits.pending)
@@ -77,8 +83,11 @@ export class PluginManager {
       const root = join(this.root, directory);
       await assertNoSymlinks(root);
       await mkdir(root, { recursive: true, mode: 0o700 });
-      for (const entry of await readdir(root))
-        if (!keep.has(entry)) await rm(join(root, entry), { recursive: true, force: true });
+      for await (const entry of await opendir(root)) {
+        signal?.throwIfAborted();
+        if (!keep.has(entry.name))
+          await rm(join(root, entry.name), { recursive: true, force: true });
+      }
     }
   }
   async prepare(request: { repository: string; ref: string; name: string }): Promise<PluginReview> {

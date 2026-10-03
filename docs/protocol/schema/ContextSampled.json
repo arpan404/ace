@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/ContextSampled.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "model": {
+      "type": "string"
+    },
+    "sessionId": {
+      "type": "string"
+    },
+    "type": {
+      "const": "context.sampled",
+      "type": "string"
+    },
+    "usedTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "windowTokens": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "type",
+    "agentId",
+    "usedTokens"
+  ],
+  "type": "object"
+}

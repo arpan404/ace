@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import type { BrowserBackendSession, BrowserBackend } from "./backend.ts";
@@ -34,6 +35,10 @@ export interface SessionOptions {
   state: (state: BrowserState) => void;
   cleanup: () => Promise<void>;
 }
+const ScreenshotBytes = z
+  .instanceof(Uint8Array)
+  .refine((bytes) => bytes.byteLength <= 8 * 1024 * 1024, "Browser screenshot exceeds image limit");
+
 const inputActions = new Set([
   "navigate",
   "click",
@@ -169,7 +174,8 @@ export class BrowserSession {
   disconnect(connectionId: string): void {
     if (this.owner === connectionId) this.handback(connectionId);
   }
-  private check(actor: Actor): void {
+  private check(actor: Actor, signal?: AbortSignal): void {
+    signal?.throwIfAborted();
     if (this.closed) throw new Error("Browser closed");
     if (this.paused) throw new Error(this.reason ?? "Browser backend paused");
     if (actor.kind === "agent" && this.controller !== "agent")
@@ -192,50 +198,64 @@ export class BrowserSession {
       });
     return result;
   }
-  execute(raw: unknown, actor: Actor = { kind: "agent" }): Promise<unknown> {
+  execute(raw: unknown, actor: Actor = { kind: "agent" }, signal?: AbortSignal): Promise<unknown> {
     const command = BrowserCommand.parse(raw);
     return this.enqueue(async () => {
+      signal?.throwIfAborted();
       if (this.closed) throw new Error("Browser closed");
-      if (inputActions.has(command.action)) this.check(actor);
+      if (inputActions.has(command.action)) this.check(actor, signal);
       if (this.paused) throw new Error(this.reason ?? "Browser backend paused");
       const generation = this.generation;
       if (inputActions.has(command.action)) {
         await this.leaseReady;
-        this.check(actor);
+        this.check(actor, signal);
       }
-      const result = await this.run(command, actor);
+      const result = await this.run(command, actor, signal);
       if (this.paused || (generation !== this.generation && this.pageStateLost))
         throw new Error("Browser backend changed during command");
       return result;
     });
   }
-  private async run(command: BrowserCommand, actor: Actor): Promise<unknown> {
+  screenshot(signal?: AbortSignal): Promise<Uint8Array> {
+    return this.enqueue(async () => {
+      signal?.throwIfAborted();
+      if (this.closed) throw new Error("Browser closed");
+      if (this.paused) throw new Error(this.reason ?? "Browser backend paused");
+      const generation = this.generation;
+      const bytes = await this.options.backend.screenshot("jpeg");
+      signal?.throwIfAborted();
+      if (this.paused || (generation !== this.generation && this.pageStateLost))
+        throw new Error("Browser backend changed during screenshot");
+      return ScreenshotBytes.parse(bytes);
+    });
+  }
+  private async run(command: BrowserCommand, actor: Actor, signal?: AbortSignal): Promise<unknown> {
     const { backend: page, dir, id, evaluatePolicy, threadId } = this.options;
     const cdp = page.cdp;
     switch (command.action) {
       case "navigate":
         if (!(await this.options.navigatePolicy(command.url)))
           throw new Error("Browser origin requires approval");
-        this.check(actor);
+        this.check(actor, signal);
         await page.navigate(command.url, command.timeout);
         return this.state;
       case "snapshot":
         return this.refs.snapshot();
       case "click": {
         const rect = await this.refs.bounds(command.ref);
-        this.check(actor);
+        this.check(actor, signal);
         if (rect.width <= 0 || rect.height <= 0) throw new Error("Browser element is not visible");
         await page.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
         return { ok: true };
       }
       case "type":
         await this.refs.select(command.ref);
-        this.check(actor);
+        this.check(actor, signal);
         await page.insertText(command.text);
         return { ok: true };
       case "press":
         if (command.ref) await this.refs.focus(command.ref);
-        this.check(actor);
+        this.check(actor, signal);
         await page.press(command.key);
         return { ok: true };
       case "scroll":
@@ -269,7 +289,7 @@ export class BrowserSession {
       case "evaluate": {
         if (!(await evaluatePolicy?.(threadId, page.url())))
           throw new Error("Browser evaluate requires approval");
-        this.check(actor);
+        this.check(actor, signal);
         return evaluatePage(cdp, command.expression);
       }
     }

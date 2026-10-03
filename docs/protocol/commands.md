@@ -23,9 +23,8 @@ Example:
   "deviceId": "example",
   "id": "example",
   "payload": {
-    "scriptId": "example",
     "threadId": "example",
-    "type": "workspace.script.run"
+    "type": "thread.delete"
   }
 }
 ```
@@ -33,6 +32,184 @@ Example:
 ## CommandPayload
 
 [JSON Schema](schema/CommandPayload.json), input validation.
+
+### thread.prepare
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.prepare"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
+| title | yes | string | {"minLength":1,"maxLength":256} |
+| provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
+| model | no | string | {"minLength":1,"maxLength":256} |
+| accountId | no | [AccountInstanceId.json](schema/AccountInstanceId.json) |  |
+| options | no | [AgentLaunchOptions.json](schema/AgentLaunchOptions.json) |  |
+
+Example:
+
+```json
+{
+  "installationId": "example",
+  "model": "example",
+  "options": {},
+  "provider": "claude",
+  "threadId": "example",
+  "title": "example",
+  "type": "thread.prepare",
+  "workspaceId": "example"
+}
+```
+
+### queue.edit
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"queue.edit"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| expectedRevision | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| messageId | yes | [CommandId.json](schema/CommandId.json) |  |
+| input | yes | [QueueInput.json](schema/QueueInput.json) |  |
+| context | no | [MessageContext.json](schema/MessageContext.json) |  |
+| delivery | no | [FollowUpBehavior.json](schema/FollowUpBehavior.json) |  |
+
+Example:
+
+```json
+{
+  "expectedRevision": 8,
+  "input": [
+    {
+      "mimeType": "example",
+      "type": "image",
+      "url": "example"
+    }
+  ],
+  "messageId": "example",
+  "threadId": "example",
+  "type": "queue.edit"
+}
+```
+
+### queue.move
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"queue.move"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| expectedRevision | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| messageId | yes | [CommandId.json](schema/CommandId.json) |  |
+| after | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/CommandId.json"},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "after": "example",
+  "expectedRevision": 5,
+  "messageId": "example",
+  "threadId": "example",
+  "type": "queue.move"
+}
+```
+
+### queue.remove
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"queue.remove"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| expectedRevision | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| messageId | yes | [CommandId.json](schema/CommandId.json) |  |
+
+Example:
+
+```json
+{
+  "expectedRevision": 1,
+  "messageId": "example",
+  "threadId": "example",
+  "type": "queue.remove"
+}
+```
+
+### queue.pause
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"queue.pause"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| expectedRevision | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "expectedRevision": 9,
+  "threadId": "example",
+  "type": "queue.pause"
+}
+```
+
+### queue.resume
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"queue.resume"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| expectedRevision | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "expectedRevision": 9,
+  "threadId": "example",
+  "type": "queue.resume"
+}
+```
+
+### thread.resume
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.resume"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| expectedRevision | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "expectedRevision": 8,
+  "threadId": "example",
+  "type": "thread.resume"
+}
+```
+
+### thread.limit
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.limit"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| expectedRevision | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| action | yes | ["resume_now","resume_at_reset","snooze_until_reset","migrate_now"] |  |
+| instanceId | no | [AccountId.json](schema/AccountId.json) |  |
+
+Example:
+
+```json
+{
+  "action": "resume_now",
+  "expectedRevision": 5,
+  "threadId": "example",
+  "type": "thread.limit"
+}
+```
 
 ### thread.fork
 
@@ -50,15 +227,11 @@ Example:
 
 ```json
 {
+  "budgetBytes": 2056,
   "input": "example",
   "point": {
     "runId": "example",
     "type": "turn"
-  },
-  "selection": {
-    "model": "example",
-    "options": {},
-    "provider": "opencode"
   },
   "threadId": "example",
   "type": "thread.fork"
@@ -104,7 +277,8 @@ Example:
 ```json
 {
   "selection": {
-    "provider": "acp"
+    "model": "example",
+    "provider": "claude"
   },
   "threadId": "example",
   "type": "thread.switch"
@@ -207,7 +381,7 @@ Example:
 {
   "threadId": "example",
   "type": "thread.read",
-  "unread": true
+  "unread": false
 }
 ```
 
@@ -257,7 +431,7 @@ Example:
 {
   "threadId": "example",
   "type": "thread.snooze",
-  "until": 9
+  "until": 5
 }
 ```
 
@@ -347,12 +521,12 @@ Example:
 {
   "link": {
     "pr": {
-      "number": 5,
+      "number": 1,
       "repository": {
         "forge": "gitlab",
-        "host": "Jq",
-        "name": "Abe0-Yjyr",
-        "owner": "0j0DcaH01Rx/TT.CflCh/LZynqaru4/l3Kuth-f6ZB/sgGgoMSE/nS4/S1zihIP.A"
+        "host": "CgmCiXLZynr",
+        "name": "zihIP.AVAb",
+        "owner": "r/9l3Kuth-f6/BTsgGgoMS/mnS40S"
       }
     },
     "threadId": "example"
@@ -386,9 +560,9 @@ Example:
   },
   "repository": {
     "forge": "gitlab",
-    "host": "muHqzaPxEqL",
-    "name": "Y4jLGS_Bc0n",
-    "owner": "IMoxA7o6/7apIF8-/0tJRcvCW/bKsOQDpTFb1/5VH.-NYcI/pVa8CvK/azLdigp/JA-Q/wSr64JP/LriofvBXO/rSAwUHVRqZ"
+    "host": "ZkysF16muHq",
+    "name": "pVa8CvK",
+    "owner": "_PwDp/IMoxA7o6/K7apIF8-S0t/RcvCW-b/sOQDpTF/1/5VH.-NYcI"
   },
   "threadId": "example",
   "type": "forge.pr.create"
@@ -408,12 +582,12 @@ Example:
 {
   "link": {
     "pr": {
-      "number": 1,
+      "number": 2,
       "repository": {
-        "forge": "gitlab",
-        "host": "MhFK7jj0",
-        "name": "S",
-        "owner": "WgnY332eR7N/WWBXoFLojA/YR/neZ/yBhf1pCLwTs/9Wc/ksu6ZDcXB5"
+        "forge": "github",
+        "host": "Leigq",
+        "name": "QMgFK7ii09W",
+        "owner": "JA-Q/Sr64/PVLriof/BXO0/SAwU/VRqZ9Y/jLGS_Bc0ny"
       }
     },
     "threadId": "example"
@@ -436,15 +610,15 @@ Example:
 ```json
 {
   "body": "example",
-  "commentId": 9,
+  "commentId": 6,
   "link": {
     "pr": {
-      "number": 8,
+      "number": 5,
       "repository": {
-        "forge": "gitlab",
-        "host": "q3Sd",
-        "name": "P.vmWIee",
-        "owner": "koUky-WBGT/G/.ox4Kq78"
+        "forge": "github",
+        "host": "332fR7NK5",
+        "name": "1p",
+        "owner": "WBXoFLojA/RnneZ-yBh"
       }
     },
     "threadId": "example"
@@ -469,16 +643,16 @@ Example:
     "pr": {
       "number": 8,
       "repository": {
-        "forge": "gitlab",
-        "host": "CWijyGroc",
-        "name": "-vhS",
-        "owner": "W/B0yI3p/jGmDq.z/.J0ry5LnI"
+        "forge": "github",
+        "host": "so9Wd3lt",
+        "name": "b",
+        "owner": "6ZDc/5bSeU/p2Sc/koUky-WBGT/dGP/ox4Kq78QP.v/WIe/T/OXCWhixGqn"
       }
     },
     "threadId": "example"
   },
   "reviewers": [
-    "IPkYyv31QrM"
+    "DB0y"
   ],
   "type": "forge.review.request"
 }
@@ -500,12 +674,12 @@ Example:
   "headSha": "example",
   "link": {
     "pr": {
-      "number": 6,
+      "number": 5,
       "repository": {
-        "forge": "github",
-        "host": "dV",
-        "name": "zocuXBjd",
-        "owner": "YEP/cJ/2ux.rYm7s/r3Ys/xdb4HC5y/hAEl5s.vLf/Y/4U"
+        "forge": "gitlab",
+        "host": "qMkHnEr.AX",
+        "name": "2RsMjicVlY",
+        "owner": "J0ry5LnIs-v/Y.JQkZzw"
       }
     },
     "threadId": "example"
@@ -531,17 +705,17 @@ Example:
   "headSha": "example",
   "link": {
     "pr": {
-      "number": 1,
+      "number": 5,
       "repository": {
-        "forge": "github",
-        "host": "3",
-        "name": "VIoK6",
-        "owner": "-/XpKhJORCmM/56teE24/LuXZXVv/Sxvk2/vyvI9w/sNyFin/.jR4MzM"
+        "forge": "gitlab",
+        "host": "dJ",
+        "name": "fdYh4UP",
+        "owner": "2ux.rYm7s/3YsP/db4HC/y2hAEl5s.v"
       }
     },
     "threadId": "example"
   },
-  "method": "squash",
+  "method": "merge",
   "type": "forge.pr.auto-merge"
 }
 ```
@@ -558,7 +732,7 @@ Example:
 
 ```json
 {
-  "runId": "hiT7q3p7oiVDDj.ivW7_u4JN5.BJhDq2eYWgP2F0DIJo82v4XVGFxYrk_krOII2hvjDKGVFIDzVvVCwMB58OIblVqsmudA",
+  "runId": "dYCkeKLwe4e.U5YqLiKPSDnNM67ufF35OMvY0YWwDTy",
   "spec": {
     "constraints": {
       "accounts": [
@@ -640,11 +814,11 @@ Example:
 ```json
 {
   "approval": {
-    "deadline": 8,
-    "decision": "reject",
-    "gateId": "vc_9.zZystyhQjGMRuLjM3Sj0dTw_th_pGj9fapxNa_t4Lhtie9k"
+    "budget": 8,
+    "decision": "approve",
+    "gateId": "vB58OIblVqsmudAvm5GtT8M0D2T.PvJuHzHkyWuD9qOOvnK7U-TsKktX8RH7l0c2sLFUzemey.I.K"
   },
-  "runId": "lGtT8M0D2T.PvJuHzHkyWuD9qOOvnK7U-TsKktX8RH7l0c2sLFUzemey.I.KkZc2Tk57NIDsv-sn6jVa2sNcUbWKXBWhUpDjh6jpX2TXRqZn.Ahp49",
+  "runId": "lGwzwJ-xHtOzGjoP_kS5NANAWJpL7aPhViT7q3p7oiVDDj.ivW7_u4JN5.BJhDq2eYWgP2F0DIJo82v4XVGFxYrk_krOII2hvjDKGVFIDzVvVC",
   "type": "conductor.approve"
 }
 ```
@@ -660,7 +834,7 @@ Example:
 
 ```json
 {
-  "runId": "XeWO-fcWuWqiznZKnHVgGZj.863KJBFFMm",
+  "runId": "k7NIDsv-sn6jVa2sNcUbWKXBWhUpDjh6jpX2TXRqZn.Ahp49wAc_9.zZystyhQjGMRuLjM3Sj0dTw_th_pGj9fapxNa_t4Lhtie9k7FPg4ZqeWO-fc",
   "type": "conductor.pause"
 }
 ```
@@ -676,7 +850,7 @@ Example:
 
 ```json
 {
-  "runId": "ztV-Jlh2UbBWwFJPu-ndhArGC957e",
+  "runId": "UWqiznZKnHVgGZj.863KJBFFMmAotV-Jlh2UbBWw",
   "type": "conductor.resume"
 }
 ```
@@ -692,7 +866,7 @@ Example:
 
 ```json
 {
-  "runId": "KxzDH70rPjc8JNwLDCTzgZVc-44BrNhAKBtzIDL6LA2aiRoNJBOsNekuB8bSAr3M84bMA6cqd3noVFqaBxwSxr-L2OCEfXj_.CFmtoIt6OPP8YyI6",
+  "runId": "DPu-ndhArGC957eL5xzDH70rPjc8JNwLDCTzgZVc-44BrNhAKBtzIDL6LA2aiRoNJBOsNe",
   "type": "conductor.cancel"
 }
 ```
@@ -710,11 +884,12 @@ Example:
 {
   "source": {
     "from": {
-      "id": "example",
-      "kind": "checkpoint"
-    },
-    "to": {
       "kind": "working-tree"
+    },
+    "threadId": "example",
+    "to": {
+      "kind": "commit",
+      "ref": "example"
     },
     "workspaceId": "example"
   },
@@ -743,6 +918,7 @@ Example:
     "start": 1
   },
   "sessionId": "example",
+  "suggestion": "example",
   "text": "example",
   "type": "review.comment"
 }
@@ -860,8 +1036,8 @@ Example:
 ```json
 {
   "from": {
-    "id": "example",
-    "kind": "checkpoint"
+    "kind": "commit",
+    "ref": "example"
   },
   "sessionId": "example",
   "to": {
@@ -903,9 +1079,7 @@ Example:
 
 ```json
 {
-  "cursor": "example",
-  "limit": 5,
-  "sessionId": "example",
+  "limit": 6,
   "type": "review.list"
 }
 ```
@@ -922,28 +1096,28 @@ Example:
 ```json
 {
   "input": {
-    "baseRef": "f377c28579ff1cebf4b52f1e0db2691dc95da44823325641ddcb7492b369b174",
+    "baseRef": "aea7dd51ea0ff5fe937411b6c9911ced2e834486",
     "prompt": "example",
     "targetBranch": "example",
     "template": {
       "budget": {
         "cost": 8,
-        "durationMs": 1,
-        "maxAttempts": 7,
+        "durationMs": 6,
+        "maxAttempts": 3,
         "maxDepth": 8,
-        "maxLanes": 1,
-        "tokens": 6
+        "maxLanes": 5,
+        "tokens": 5
       },
       "checks": {
         "command": [
           "example"
         ]
       },
-      "kind": "coordinator",
+      "kind": "pipeline",
       "lanes": [
         {
           "model": "example",
-          "provider": "opencode"
+          "provider": "cursor"
         }
       ]
     },
@@ -964,7 +1138,7 @@ Example:
 
 ```json
 {
-  "orchestrationId": "al3lDHKF",
+  "orchestrationId": "82e",
   "type": "orchestration.cancel"
 }
 ```
@@ -982,8 +1156,8 @@ Example:
 
 ```json
 {
-  "laneId": "tAZuhuCnxQ",
-  "orchestrationId": "OVW.sT",
+  "laneId": "D6uK11iI5",
+  "orchestrationId": "Nl",
   "type": "orchestration.pick"
 }
 ```
@@ -995,6 +1169,9 @@ Example:
 | type | yes | `"thread.create"` |  |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
+| accountId | no | string | {"minLength":1,"maxLength":128} |
+| trigger | no | [RunTrigger.json](schema/RunTrigger.json) |  |
 | acpAgentId | no | string | {"minLength":1,"maxLength":256} |
 | installationId | no | string | {"minLength":1,"maxLength":256} |
 | instanceId | no | string | {"minLength":1,"maxLength":256} |
@@ -1002,7 +1179,7 @@ Example:
 | account | no | string | {"minLength":1,"maxLength":256} |
 | mode | no | ["local","worktree"] |  |
 | baseBranch | no | string | {"minLength":1,"maxLength":1024} |
-| options | no | [ExecutionOptions.json](schema/ExecutionOptions.json) |  |
+| options | no | [ThreadCreateOptions.json](schema/ThreadCreateOptions.json) |  |
 | title | no | string |  |
 | input | yes | array | {"minItems":1,"items":{"$ref":"https://ace.local/protocol/v1/ContentPart.json"}} |
 | context | no | [MessageContext.json](schema/MessageContext.json) |  |
@@ -1011,16 +1188,22 @@ Example:
 
 ```json
 {
-  "context": {
-    "attachments": []
-  },
+  "acpAgentId": "example",
   "input": [
     {
       "text": "example",
       "type": "text"
     }
   ],
-  "provider": "opencode",
+  "installationId": "example",
+  "instanceId": "example",
+  "mode": "worktree",
+  "options": {
+    "serviceTier": "priority"
+  },
+  "provider": "acp",
+  "title": "example",
+  "trigger": "background_completion",
   "type": "thread.create",
   "workspaceId": "example"
 }
@@ -1033,25 +1216,29 @@ Example:
 | type | yes | `"thread.send"` |  |
 | model | no | string | {"minLength":1,"maxLength":256} |
 | options | no | [ExecutionOptions.json](schema/ExecutionOptions.json) |  |
+| trigger | no | [RunTrigger.json](schema/RunTrigger.json) |  |
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | input | yes | array | {"minItems":1,"items":{"$ref":"https://ace.local/protocol/v1/ContentPart.json"}} |
 | context | no | [MessageContext.json](schema/MessageContext.json) |  |
-| delivery | yes | ["steer","queue"] |  |
+| delivery | no | [FollowUpBehavior.json](schema/FollowUpBehavior.json) |  |
 
 Example:
 
 ```json
 {
-  "delivery": "queue",
+  "context": {
+    "attachments": [],
+    "draftId": "O3HJMGTY"
+  },
+  "delivery": "steer",
   "input": [
     {
-      "mimeType": "example",
-      "type": "image",
-      "url": "example"
+      "path": "example",
+      "type": "file"
     }
   ],
-  "options": {},
   "threadId": "example",
+  "trigger": "restart",
   "type": "thread.send"
 }
 ```
@@ -1069,6 +1256,7 @@ Example:
 
 ```json
 {
+  "agentId": "example",
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -1140,7 +1328,7 @@ Example:
 {
   "interactionId": "example",
   "resolution": {
-    "decision": "reject",
+    "decision": "cancel",
     "kind": "plan_review"
   },
   "type": "interaction.resolve"
@@ -1169,11 +1357,11 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
 | commandId | yes | [CommandId.json](schema/CommandId.json) |  |
 | ok | yes | boolean |  |
 | forkThreadId | no | [ThreadId.json](schema/ThreadId.json) |  |
 | health | no | [DiagnosticsHealth.json](schema/DiagnosticsHealth.json) |  |
-| threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
 | error | no | string |  |
 | review | no | [ReviewData.json](schema/ReviewData.json) |  |
 | pr | no | [ForgePrRef.json](schema/ForgePrRef.json) |  |
@@ -1187,13 +1375,8 @@ Example:
 ```json
 {
   "commandId": "example",
-  "commit": "eff2bec69bb33283f810faa5d9525bf25a50321c8ba631c90dd64",
-  "ok": true,
-  "review": {
-    "comments": [],
-    "intentId": "example",
-    "nextCursor": "example"
-  },
-  "terminalId": "example"
+  "error": "example",
+  "ok": false,
+  "threadId": "example"
 }
 ```

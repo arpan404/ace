@@ -1,6 +1,6 @@
 # Web client protocol integration
 
-ADR [0056](adr/0056-client-requests-and-thread-organization.md) records the ownership decisions. All changes are additive; protocol version remains 1. This backend PR supplies the contracts for replacing the web app's `TODO(train-2)` adapters. It does not change those frontend adapters.
+ADR [0057](adr/0057-client-requests-and-thread-organization.md) records the ownership decisions. All changes are additive; protocol version remains 1. This backend PR supplies the contracts for replacing the web app's `TODO(train-2)` adapters. It does not change those frontend adapters.
 
 ## Gap ownership
 

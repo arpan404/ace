@@ -28,3 +28,6 @@ export type { BlobLease } from "./blob-leases.ts";
 
 export type { CacheScheduler } from "./cache-scheduler.ts";
 export { deliverContext, type ContextDelivery, type ContextConsumer } from "./delivery.ts";
+
+export { summarizeThreadReference } from "./thread-reference.ts";
+export { canonicalContext } from "./canonical.ts";

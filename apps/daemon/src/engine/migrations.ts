@@ -19,6 +19,8 @@ export function migrateEngine(db: DatabaseSync): void {
       );
       migrateWorkspaceReadiness(db);
     }
+    if (!columns.some((column) => column.name === "options"))
+      db.exec("ALTER TABLE engine_sessions ADD COLUMN options JSON");
     return;
   }
   const legacy = db
@@ -34,7 +36,7 @@ export function migrateEngine(db: DatabaseSync): void {
   );
   CREATE TABLE engine_sessions (
     thread_id TEXT PRIMARY KEY REFERENCES threads(id), cwd TEXT NOT NULL,
-    model TEXT, native_session_id TEXT, instance_id TEXT,
+    model TEXT, native_session_id TEXT, instance_id TEXT, options JSON,
     workspace_ready INTEGER NOT NULL DEFAULT 1 CHECK(workspace_ready IN (0,1))
   );
   CREATE TABLE intents (

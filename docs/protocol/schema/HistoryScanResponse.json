@@ -7,6 +7,14 @@
       "minimum": 0,
       "type": "integer"
     },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "scan": {
+      "$ref": "https://ace.local/protocol/v1/HistoryScanStatus.json"
+    },
     "type": {
       "const": "history.scan",
       "type": "string"

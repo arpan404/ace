@@ -43,11 +43,15 @@ export class UploadStore {
       "invalid_request",
       "Thread reference cap cannot exceed wire limit",
     );
-    this.metadata = new Metadata(join(options.root, "context.sqlite"));
+    this.metadata = new Metadata(join(options.root, "context.sqlite"), options.signal);
+    this.tail = this.metadata.ready;
     this.leases = new BlobLeases(this.metadata);
     this.maintenance = new Maintenance(this.metadata, options.root, options.now, (row) =>
       this.removeUpload(row),
     );
+  }
+  get ready(): Promise<void> {
+    return this.metadata.ready;
   }
   static async open(options: UploadOptions): Promise<UploadStore> {
     await mkdir(join(options.root, "uploads"), { recursive: true, mode: 0o700 });
@@ -61,9 +65,14 @@ export class UploadStore {
       "Attachment store busy",
     );
     this.queued++;
-    const result = this.tail.then(operation).finally(() => {
-      this.queued--;
-    });
+    const result = this.tail
+      .then(async () => {
+        await this.metadata.ready;
+        return operation();
+      })
+      .finally(() => {
+        this.queued--;
+      });
     this.tail = result.catch(() => {});
     return result;
   }
@@ -147,7 +156,7 @@ export class UploadStore {
             this.metadata.run("UPDATE blobs SET refs=refs+1 WHERE sha256=?", attachment.sha256);
             this.metadata.adjust(thread, attachment.bytes, 1);
           }
-          this.release(draftId, attachment.sha256);
+          this.removeReference(draftId, attachment.sha256);
         }
         this.metadata.run("UPDATE drafts SET adopted=? WHERE id=?", thread, draftId);
       });
@@ -308,6 +317,15 @@ export class UploadStore {
       );
   }
   private release(thread: string, hash: string): void {
+    this.metadata.transaction(() => this.removeReference(thread, hash));
+  }
+  /** The caller owns the transaction, including both sides of draft adoption. */
+  private removeReference(thread: string, hash: string): void {
+    requireContext(
+      !this.options.retained?.(thread, hash),
+      "busy",
+      "Attachment is referenced by queued or unacknowledged work",
+    );
     const existing = this.metadata.get(
       "SELECT sha256 FROM refs WHERE thread=? AND sha256=?",
       thread,
@@ -315,11 +333,9 @@ export class UploadStore {
     );
     const blob = this.metadata.blob(hash);
     if (!existing || !blob) return;
-    this.metadata.transaction(() => {
-      this.metadata.run("DELETE FROM refs WHERE thread=? AND sha256=?", thread, hash);
-      this.metadata.run("UPDATE blobs SET refs=refs-1 WHERE sha256=?", hash);
-      this.metadata.adjust(thread, -blob.bytes, -1);
-    });
+    this.metadata.run("DELETE FROM refs WHERE thread=? AND sha256=?", thread, hash);
+    this.metadata.run("UPDATE blobs SET refs=refs-1 WHERE sha256=?", hash);
+    this.metadata.adjust(thread, -blob.bytes, -1);
   }
   private async commit(row: UploadRow): Promise<Attachment> {
     if (row.done) {
@@ -492,9 +508,12 @@ export class UploadStore {
   }
   async close(): Promise<void> {
     this.closing = true;
-    await this.tail;
-    await this.maintenance.close();
-    this.leases.close();
-    this.metadata.close();
+    try {
+      await this.tail;
+      await this.maintenance.close();
+    } finally {
+      this.leases.close();
+      this.metadata.close();
+    }
   }
 }

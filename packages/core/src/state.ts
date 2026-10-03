@@ -36,6 +36,7 @@ export interface ApplyContext {
 
 export interface AgentRecord {
   agent: Agent;
+  externalStatus?: ThreadStatus;
   activeRun?: RunId;
   lastRun?: RunId;
   /** Process-namespaced native turn ids index the canonical run history. */
@@ -48,6 +49,8 @@ export interface AgentRecord {
   detail?: string;
   lastSignalAt: number;
   disconnectedAt?: number;
+  /** Rate-limit evidence survives retry expiry and process exit until explicitly cleared. */
+  limited?: { until?: number; message?: string };
   retry?: Omit<Extract<Fact, { type: "retry" }>, "type" | "agent">;
   wakeUntil?: number;
   parentKey?: Key;

@@ -29,23 +29,17 @@ Example:
 
 ```json
 {
-  "concurrency": 6,
-  "enabled": true,
+  "concurrency": 4,
+  "enabled": false,
   "id": "example",
   "jitterMs": 2,
   "missedRun": "run_once",
   "model": "example",
   "prompt": "example",
-  "provider": "claude",
+  "provider": "codex",
   "title": "example",
   "trigger": {
-    "kind": "schedule",
-    "schedule": {
-      "expression": "example",
-      "kind": "cron",
-      "startAt": 0,
-      "timezone": "example"
-    }
+    "kind": "manual"
   },
   "workspace": "example",
   "worktree": false
@@ -83,7 +77,7 @@ Example:
 
 ```json
 {
-  "before": 9,
+  "before": 10,
   "runs": []
 }
 ```
@@ -105,14 +99,13 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 4,
-    "enabled": true,
+    "concurrency": 7,
+    "enabled": false,
     "id": "example",
-    "jitterMs": 3,
-    "missedRun": "skip",
-    "model": "example",
+    "jitterMs": 1,
+    "missedRun": "run_once",
     "prompt": "example",
-    "provider": "pi",
+    "provider": "codex",
     "title": "example",
     "trigger": {
       "kind": "schedule",
@@ -198,7 +191,7 @@ Example:
 
 ```json
 {
-  "limit": 10,
+  "limit": 5,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -223,9 +216,8 @@ Example:
 
 ```json
 {
-  "ok": false,
+  "ok": true,
   "requestId": "example",
-  "schedules": [],
   "type": "automation.result"
 }
 ```
@@ -254,10 +246,12 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "startedAt": 7,
-  "status": "failed",
+  "result": "example",
+  "startedAt": 8,
+  "status": "running",
+  "threadId": "example",
   "title": "example",
-  "trigger": "schedule"
+  "trigger": "github"
 }
 ```
 
@@ -337,10 +331,11 @@ Example:
 
 ```json
 {
-  "event": "pr_changed",
+  "event": "ci_failed",
   "kind": "github",
-  "pollIntervalMs": 60008,
-  "repository": "NJ/u71."
+  "label": "example",
+  "pollIntervalMs": 60004,
+  "repository": ".O060bX0g-/NoVf"
 }
 ```
 

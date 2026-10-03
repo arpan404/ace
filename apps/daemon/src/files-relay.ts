@@ -1,20 +1,24 @@
 import { connectHostToRelay, type HostChannel } from "@ace/relay";
-import { attachFilesRelay, type FilesService } from "@ace/files";
+import type { FilesService } from "@ace/files";
+import { randomUUID } from "node:crypto";
+import { attachRelayService, type RelayServices } from "./services/relay-channel.ts";
 import { HostId } from "@ace/protocol";
 import type { KeyPair } from "@ace/secure-channel";
 import { allows, type Devices } from "./devices.ts";
 import type { RemoteAuth } from "./remote-auth.ts";
 
 /** The production host composes authenticated relay frames with the same file service. */
-export async function startFilesRelay(options: {
-  url: string;
-  keys: KeyPair;
-  files: FilesService;
-  auth: RemoteAuth;
-  devices: Devices;
-  hostId: string;
-  headSeq(): number;
-}) {
+export async function startFilesRelay(
+  options: RelayServices & {
+    url: string;
+    keys: KeyPair;
+    files: FilesService;
+    auth: RemoteAuth;
+    devices: Devices;
+    hostId: string;
+    headSeq(): number;
+  },
+) {
   const clients = new Map<HostChannel, string>();
   const controller = new AbortController();
   const stopRevoked = options.auth.onRevoke((id) => {
@@ -45,13 +49,25 @@ export async function startFilesRelay(options: {
         }
         channel.authorize();
         clients.set(channel, device.id);
-        const session = attachFilesRelay(options.files, channel, device.id, (capability) => {
-          const current = options.devices.get(device.id);
-          return (
-            current?.revokedAt === null &&
-            allows(current, capability === "files.read" ? "read" : "operate")
-          );
-        });
+        let session: ReturnType<typeof attachRelayService>;
+        try {
+          session = attachRelayService({
+            ...options,
+            channel,
+            kind: hello.channel ?? "files",
+            device: device.id,
+            sessionId: randomUUID(),
+            authorize: (scope) => {
+              const current = options.devices.get(device.id);
+              return current?.revokedAt === null && allows(current, scope);
+            },
+          });
+        } catch {
+          clients.delete(channel);
+          channel.close();
+          return;
+        }
+
         try {
           await channel.send({
             type: "welcome",
@@ -63,7 +79,7 @@ export async function startFilesRelay(options: {
             if (frame instanceof Uint8Array)
               session.binary(Buffer.from(frame.buffer, frame.byteOffset, frame.byteLength));
             else if (frame.type === "ping") await channel.send({ type: "pong" });
-            else session.accept(frame);
+            else await session.accept(frame);
           }
         } finally {
           session.close();

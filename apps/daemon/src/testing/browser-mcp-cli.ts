@@ -29,6 +29,7 @@ const Rpc = z.object({
 const write = (data: unknown) => process.stdout.write(`${JSON.stringify(data)}\n`);
 
 function codexConnection() {
+  if (args[0] !== "app-server") throw new Error("Codex subcommand must precede its options");
   const option = args.find((arg) => arg.startsWith("mcp_servers.ace.url="));
   if (!option || !args.includes('mcp_servers.ace.bearer_token_env_var="ACE_MCP_BEARER_TOKEN"'))
     throw new Error("Codex MCP launch options missing");

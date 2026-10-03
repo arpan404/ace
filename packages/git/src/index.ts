@@ -1,4 +1,5 @@
 import { commitChanges, pushBranch, listBranches } from "./actions.ts";
+import { deleteBranch, type BranchCleanup } from "./branch-cleanup.ts";
 import { GitCli } from "./cli.ts";
 import { tmpdir } from "node:os";
 import { createCheckpoint, deleteCheckpoints, listCheckpoints } from "./checkpoints.ts";
@@ -74,6 +75,11 @@ export class GitService {
 
   removeWorktree(options: { repo: string; path: string; force?: boolean }) {
     return removeWorktree(this.repository, options);
+  }
+
+  /** Remove only an unchanged branch created by a host-owned worktree operation. */
+  deleteBranch(options: BranchCleanup): Promise<void> {
+    return deleteBranch(this.repository, options);
   }
 
   async pruneWorktrees(repo: string): Promise<void> {

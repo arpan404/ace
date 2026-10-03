@@ -4,6 +4,8 @@ import { ThreadLineage, ExecutionSelection, ThreadSwitch } from "./thread-transi
 import { AcpSessionSupport } from "./agent-registry.ts";
 import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
+import { QueueUpdated } from "./queue.ts";
+import { ContextMeterUpdated, ContextSampled } from "./context-meter.ts";
 import { UsageMetadata } from "./usage.ts";
 import { Agent, AgentFidelity, AgentOrigin, AgentStatus } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
@@ -54,6 +56,7 @@ export const EventPayload = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("agent.updated"),
     agentId: AgentId,
+    childThreadId: ThreadId.optional(),
     /** Placeholder agents are completed and re-parented after native linkage arrives. */
     parentId: AgentId.nullable().optional(),
     origin: AgentOrigin.optional(),
@@ -117,6 +120,9 @@ export const EventPayload = z.discriminatedUnion("type", [
     status: BackgroundTask.shape.status,
     endedAt: Timestamp.optional(),
   }),
+  QueueUpdated,
+  ContextMeterUpdated,
+  ContextSampled,
   UsageUpdated,
   WorkspaceFilesChanged,
 ]);

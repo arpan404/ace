@@ -1,0 +1,47 @@
+{
+  "$id": "https://ace.local/protocol/v1/HistoryScanStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "error": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "idle",
+        "scanning",
+        "ready",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "stats": {
+      "$ref": "https://ace.local/protocol/v1/HistoryScanStats.json"
+    },
+    "unsupported": {
+      "items": {
+        "properties": {
+          "instanceId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instanceId",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "maxItems": 256,
+      "type": "array"
+    }
+  },
+  "required": [
+    "state",
+    "stats",
+    "unsupported"
+  ],
+  "type": "object"
+}

@@ -65,13 +65,10 @@ export function createEngineThread(
     },
   });
   repo.save(state, [{ type: "thread.created", thread }], at);
-  if (unprepared) repo.createUnpreparedSession(id, cwd, selection.model);
-  else repo.createSession(id, cwd, selection.model);
+  if (unprepared)
+    repo.createUnpreparedSession(id, cwd, selection.model, selection.instanceId, selection.options);
+  else repo.createSession(id, cwd, selection.model, selection.instanceId, selection.options);
+  repo.queue.ensure(id);
   repo.transitions.set(id, { selection, context: [] });
   repo.transitions.remember(id, selection);
-  repo.store.atomic((db) =>
-    db
-      .prepare("UPDATE engine_sessions SET instance_id=? WHERE thread_id=?")
-      .run(selection.instanceId ?? null, id),
-  );
 }

@@ -302,7 +302,11 @@ export class FakeDaemon implements Host {
     const commandId = command.id;
     const service = this.servicesWire.command(payload);
     if (service) return { commandId, ...service };
-    if (organizationCommands.some((type) => type === payload.type) && "threadId" in payload) {
+    if (
+      organizationCommands.some((type) => type === payload.type) &&
+      "threadId" in payload &&
+      payload.threadId
+    ) {
       const host = this.threads.get(payload.threadId);
       if (!host || host.view.thread.deletedAt !== undefined)
         return { commandId, ok: false, error: "thread_not_found" };
@@ -380,7 +384,9 @@ export class FakeDaemon implements Host {
         return { commandId, ok: true, threadId: ThreadId.parse(id) };
       }
       case "thread.send":
-        return this.run(commandId, payload.threadId, (host) => sendFacts(host, commandId, payload));
+        return this.run(commandId, payload.threadId, (host) =>
+          sendFacts(host, commandId, { ...payload, delivery: payload.delivery ?? "queue" }),
+        );
       case "thread.interrupt":
         return this.run(commandId, payload.threadId, (host) =>
           interruptFacts(host, payload.agentId, payload.cascade),

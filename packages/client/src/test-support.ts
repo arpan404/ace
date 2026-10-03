@@ -124,7 +124,10 @@ export class Faults {
     return new Promise((resolve) => this.watchers.push({ predicate, resolve }));
   }
 }
-export async function setup(handler?: CommandHandler) {
+export async function setup(
+  handler?: CommandHandler,
+  history?: import("@ace/daemon").DaemonOptions["history"],
+) {
   const directory = await mkdtemp(join(tmpdir(), "ace-client-"));
   const daemon = await startDaemon({
     config: {
@@ -136,6 +139,7 @@ export async function setup(handler?: CommandHandler) {
       logLevel: "silent",
     },
     handler: handler,
+    ...(history ? { history } : {}),
   });
   const token = (await readFile(daemon.tokenPath, "utf8")).trim();
   const workspaceId = daemon.store.createWorkspace(directory, "test");

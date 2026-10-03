@@ -15,6 +15,8 @@ import type {
   RunTrigger,
   ToolCall,
   ToolDetail,
+  ThreadStatus,
+  ThreadId,
 } from "@ace/protocol";
 
 /** Adapter-owned identity, unique within an entity kind and provider process. */
@@ -67,6 +69,7 @@ export type AgentError = Extract<AgentStatus, { state: "failed" }>["error"];
  * creates a minimal streaming item, which later upserts can enrich.
  */
 export type Fact =
+  | { type: "agent.external"; agent: Key; threadId: ThreadId; status: ThreadStatus }
   | {
       type: "agent.seen";
       agent: Key;
@@ -162,6 +165,8 @@ export type Fact =
   | { type: "agent.disconnected"; agent: Key }
   | { type: "agent.reconnected"; agent: Key }
   | { type: "retry.cleared"; agent: Key }
+  /** Explicit quota recovery; ordinary stream activity is not quota evidence. */
+  | { type: "limit.cleared"; agent: Key }
   | { type: "wake.expected"; agent: Key; until: number }
   | ({
       type: "usage";
@@ -172,6 +177,14 @@ export type Fact =
       contextWindow?: number;
       costUsd?: number;
     } & UsageMetadata)
+  | {
+      type: "context.sample";
+      agent: Key;
+      usedTokens: number;
+      windowTokens?: number;
+      sessionId?: string;
+      model?: string;
+    }
   | { type: "signal"; agent?: Key }
   | { type: "process.started" }
   | { type: "process.exited"; deliberate: boolean; message?: string }

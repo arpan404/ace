@@ -166,3 +166,22 @@ New behavior tests cover a real socket fake desktop and a local HTTP archive
 server. Relay and acquisition benchmarks live in `bench/relay.ts` and
 `bench/acquisition.ts`. Tests, mutations and benchmarks were not executed under
 the owner's merge-only policy. Runtime results and throughput need run at merge.
+
+## Agent tools
+
+`browserToolkit(service)` registers `ace_browser_navigate`, `click`, `type`,
+`press`, `scroll`, `snapshot`, `screenshot`, `evaluate`, `wait_for`, `logs`,
+`resize` and `emulate`, each with the `ace_browser_` prefix. The daemon composes
+this toolkit before opening provider sessions. Arguments cannot override the
+credential's thread identity. The daemon adds `ace_browser_open` and `ace_browser_close`, deriving workspace
+identity from the attributed thread and automatically selecting the backend.
+Command registration lives in this package; the daemon supplies lazy opening.
+Agents cannot approve origins or evaluation.
+
+MCP screenshots return bounded JPEG image content directly from the owned page.
+The client browser screenshot command still writes a PNG artifact. Human takeover
+blocks agent input, and ending the MCP credential cancels input awaiting dispatch.
+The queue and origin/evaluation policy checks are the same as the public browser API.
+
+The MCP browser and provider-composition behavior tests were written but not run.
+They need run at merge under the owner's current verification policy.

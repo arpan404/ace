@@ -5,6 +5,8 @@ import {
   MessageContext,
   type ContextResult,
   type ContextDiagnostic,
+  type ThreadRefContextItem,
+  ResolvedThreadReference,
 } from "@ace/protocol";
 import { ContextError, requireContext } from "./errors.ts";
 import { resolveMentions } from "./mentions.ts";
@@ -21,6 +23,11 @@ export interface ContextServiceOptions extends UploadOptions {
   /** Logical project root used to authorize draft adoption into isolated worktrees. */
   threadWorkspaceRoot?(id: string): string | undefined | Promise<string | undefined>;
   workspaceRoot?(id: string): string | undefined | Promise<string | undefined>;
+  threadReference?(
+    device: string,
+    owner: string,
+    reference: ThreadRefContextItem,
+  ): Promise<ResolvedThreadReference>;
   workspace(thread: string): string | undefined | Promise<string | undefined>;
 }
 export class ContextService {
@@ -92,6 +99,44 @@ export class ContextService {
       };
     }
   }
+  async resolveThreadReferences(
+    device: string,
+    thread: string,
+    value: MessageContext,
+  ): Promise<ResolvedThreadReference[]> {
+    const context = MessageContext.parse(value);
+    requireContext(
+      await this.options.authorize(device, thread),
+      "forbidden",
+      "Thread access denied",
+    );
+    const references = context.items ?? [];
+    requireContext(
+      references.reduce((sum, item) => sum + item.budgetBytes, 0) <= 32768,
+      "quota",
+      "Thread context budget exceeded",
+    );
+    if (!references.length) return [];
+    const resolve = this.options.threadReference;
+    requireContext(resolve, "unsupported", "Thread reference service unavailable");
+    const results: ResolvedThreadReference[] = [];
+    for (const reference of references) {
+      const result = ResolvedThreadReference.parse(await resolve(device, thread, reference));
+      requireContext(
+        result.threadId === reference.threadId && result.pointer.threadId === reference.threadId,
+        "forbidden",
+        "Thread reference scope mismatch",
+      );
+      requireContext(
+        Buffer.byteLength(result.summary) + Buffer.byteLength(JSON.stringify(result.pointer)) <=
+          reference.budgetBytes,
+        "quota",
+        "Thread reference exceeds its byte budget",
+      );
+      results.push(result);
+    }
+    return results;
+  }
   /** Engine hook: resolve thread-owned references before calling the adapter. No client paths accepted. */
   async compose(
     device: string,
@@ -117,12 +162,20 @@ export class ContextService {
       const mentions = workspace
         ? await resolveMentions(workspace, context.mentions)
         : { entries: [], diagnostics: [] };
+      const references = await this.resolveThreadReferences(device, thread, context);
       const prepared: PreparedAttachment[] = mentions.entries.map((entry) => ({
         path: join(workspace?.root ?? "", entry.path),
         name: entry.path,
         mimeType: "text/plain",
         text: entry.text,
       }));
+      for (const reference of references)
+        prepared.push({
+          path: `ace://thread/${reference.threadId}`,
+          name: reference.threadId,
+          mimeType: "text/plain",
+          text: `${reference.summary}\nPointer: ${JSON.stringify(reference.pointer)}`,
+        });
       let remaining = capabilities.maxInlineBytes;
       for (const blob of lease.blobs) {
         const attachment: PreparedAttachment = {

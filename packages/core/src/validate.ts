@@ -16,6 +16,8 @@ import {
   RawPayload,
   RunTrigger,
   Timestamp,
+  ThreadId,
+  ThreadStatus,
 } from "@ace/protocol";
 import type { Fact, ItemDraft, ToolDetailDraft } from "./facts.ts";
 import { get } from "./emit.ts";
@@ -28,6 +30,7 @@ const raw = RawPayload.array();
 const agentId = AgentId.parse("validation_agent");
 const itemId = ItemId.parse("validation_item");
 const allowed: Record<Fact["type"], string[]> = {
+  "agent.external": ["agent", "threadId", "status"],
   "agent.seen": [
     "agent",
     "parent",
@@ -69,13 +72,17 @@ const allowed: Record<Fact["type"], string[]> = {
   "agent.reconnected": ["agent"],
   retry: ["agent", "on", "attempt", "until", "message"],
   "retry.cleared": ["agent"],
+  "limit.cleared": ["agent"],
   "wake.expected": ["agent", "until"],
+  "context.sample": ["agent", "usedTokens", "windowTokens", "sessionId", "model"],
   usage: [
     "agent",
     "inputTokens",
     "outputTokens",
     "cachedInputTokens",
     "contextWindow",
+    "contextTokens",
+    "contextSessionId",
     "costUsd",
     "reasoningTokens",
     "cacheWriteTokens",
@@ -217,6 +224,12 @@ function itemError(state: ThreadState, fact: Fields, now: number): string | unde
 
 function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: number): boolean {
   switch (type) {
+    case "agent.external":
+      return (
+        ThreadId.safeParse(fact.threadId).success &&
+        validData(ThreadStatus, fact.status) &&
+        get(state.agents, String(fact.agent))?.agent.origin === "ace"
+      );
     case "agent.seen":
       return (
         Agent.safeParse({
@@ -294,6 +307,8 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
       );
     case "wake.expected":
       return Timestamp.safeParse(fact.until).success;
+    case "context.sample":
+      return EventPayload.safeParse({ ...fact, type: "context.sampled", agentId }).success;
     case "usage":
       return EventPayload.safeParse({ ...fact, type: "usage.updated", agentId }).success;
     case "process.exited":
@@ -308,6 +323,7 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
     case "agent.disconnected":
     case "agent.reconnected":
     case "retry.cleared":
+    case "limit.cleared":
     case "signal":
     case "tick":
     case "process.started":

@@ -1,0 +1,55 @@
+{
+  "$id": "https://ace.local/protocol/v1/QueueUpdated.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "paused": {
+      "type": "boolean"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "manual",
+            "restart",
+            "limit",
+            "snooze",
+            "uncertain"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "resumeAt": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "revision": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "type": {
+      "const": "queue.updated",
+      "type": "string"
+    }
+  },
+  "required": [
+    "revision",
+    "paused",
+    "reason",
+    "resumeAt",
+    "type"
+  ],
+  "type": "object"
+}

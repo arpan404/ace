@@ -40,9 +40,9 @@ export function rateLimitFacts(state: ClaudeState, data: Data): void {
     });
   } else {
     const wasBlocked = state.rateBlocks.delete(bucket);
-    if (wasBlocked && state.rateBlocks.size === 0 && state.retryOn === "rate_limit") {
-      state.emit({ type: "retry.cleared", agent: state.root });
-      state.retryOn = undefined;
+    if (wasBlocked && state.rateBlocks.size === 0) {
+      state.emit({ type: "limit.cleared", agent: state.root });
+      if (state.retryOn === "rate_limit") state.retryOn = undefined;
     }
   }
 }

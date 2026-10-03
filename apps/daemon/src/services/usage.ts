@@ -1,3 +1,4 @@
+import { warmup } from "./warmup.ts";
 import { createDaemonUsage, loadUsageSettings } from "../usage.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startUsage(context: ServiceContext): Promise<void> {
@@ -12,6 +13,7 @@ export async function startUsage(context: ServiceContext): Promise<void> {
   resources.own(() => usage.close());
   services.usage = usage;
   await usage.start();
+  void warmup(context, "usage", () => usage.catchUp());
 }
 
 import type { SocketContext, SocketService } from "./socket.ts";
@@ -21,7 +23,14 @@ export function createUsageSession(context: SocketContext): SocketService {
   return {
     async handle(message) {
       const reject = (code: string, detail: string) =>
-        fail(code, detail, false, "requestId" in message ? { requestId: message.requestId } : {});
+        fail(
+          code,
+          detail,
+          false,
+          "requestId" in message && message.requestId !== undefined
+            ? { requestId: message.requestId }
+            : {},
+        );
       switch (message.type) {
         case "usage.session_totals": {
           if (!authorize("read") || !context.canReadThread(message.query.thread)) {

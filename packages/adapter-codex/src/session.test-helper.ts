@@ -5,7 +5,13 @@ import type { Frame, SessionContext } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
 import { createCodexAdapter } from "./index.ts";
 import { replayHarness } from "./replay.test-helper.ts";
-export async function sessionHarness(resume = false, mode = "", fork?: SessionContext["fork"]) {
+export async function sessionHarness(
+  resume = false,
+  mode = "",
+  fork?: SessionContext["fork"],
+  options?: SessionContext["options"],
+  aceMcp?: SessionContext["aceMcp"],
+) {
   const directory = await mkdtemp(join(tmpdir(), "ace-codex-session-"));
   const binary = join(directory, "codex.mjs");
   await writeFile(
@@ -40,6 +46,8 @@ export async function sessionHarness(resume = false, mode = "", fork?: SessionCo
     threadId: ThreadId.parse("fixture"),
     cwd: directory,
     ...(fork ? { fork } : {}),
+    ...(options ? { options } : {}),
+    ...(aceMcp ? { aceMcp } : {}),
     ...(resume ? { resume: { nativeSessionId: "native" } } : {}),
     signal: controller.signal,
     onFrame(frame) {

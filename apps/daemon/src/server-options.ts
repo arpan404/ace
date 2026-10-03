@@ -1,3 +1,4 @@
+import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { AccountService } from "@ace/accounts";
 import type { CommandService } from "@ace/commands";
@@ -32,9 +33,11 @@ export interface ServerOptions {
   conductor?: import("./conductor-runtime.ts").ConductorRuntime;
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
   workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;
+  engine?: import("./engine/index.ts").Engine;
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
   pi?: import("./services/pi.ts").PiService;
   screen?: ScreenManager;
+  devices?: DevicesService;
   accounts?: AccountService;
   commands?: CommandService;
   files?: FilesService;
@@ -45,6 +48,9 @@ export interface ServerOptions {
   usage?: UsageCommands;
   maintenance?: boolean;
   version?: string;
+  serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[];
+  /** Socket welcomes follow finite listener setup; HTTP discovery remains immediate. */
+  ready?: Promise<void>;
   models?: ModelCatalogApi;
   agentRegistry?: Pick<import("@ace/agent-registry").AgentRegistry, "handle">;
   port: number;

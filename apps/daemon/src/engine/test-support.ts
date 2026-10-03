@@ -6,6 +6,7 @@ import { once } from "node:events";
 import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
 import type { Fact } from "@ace/core";
 import type { Frame, SessionContext } from "@ace/engine-api";
+import { ProviderPayload } from "@ace/provider-kit/payload";
 import { Command, Capabilities, type CommandPayload, type ServerMessage } from "@ace/protocol";
 import { Store, Engine, AdapterRegistry, type EngineClock, type EngineOptions } from "@ace/daemon";
 import { startServer } from "../server.ts";
@@ -59,7 +60,8 @@ export function scriptFrames() {
     frame(...facts: Fact[]): Frame {
       const channel = `facts-${++seq}`;
       bundles.set(channel, facts);
-      return { seq, t: seq, dir: "recv", channel, data: { scripted: true } };
+      const payload = new ProviderPayload('{"scripted":true}');
+      return { seq, t: seq, dir: "recv", channel, data: payload.data, payload };
     },
     translate(frame: Frame): Fact[] {
       return structuredClone(bundles.get(frame.channel) ?? []);
@@ -71,6 +73,10 @@ export async function harness(
   frames: ReturnType<typeof scriptFrames>,
   options: {
     limits?: EngineOptions["limits"];
+    recovery?: EngineOptions["recovery"];
+    preferences?: EngineOptions["preferences"];
+    prepareInput?: EngineOptions["prepareInput"];
+    beforeSend?: EngineOptions["beforeSend"];
     steer?: boolean;
     idleMs?: number;
     tick?: (now: number) => Fact[];
@@ -128,6 +134,10 @@ export async function harness(
   const errors: unknown[] = [];
   const engine = new Engine(store, {
     registry,
+    ...(options.recovery ? { recovery: options.recovery } : {}),
+    ...(options.preferences ? { preferences: options.preferences } : {}),
+    ...(options.prepareInput ? { prepareInput: options.prepareInput } : {}),
+    ...(options.beforeSend ? { beforeSend: options.beforeSend } : {}),
     ...(options.limits === undefined ? {} : { limits: options.limits }),
     clock,
     idleMs: options.idleMs ?? 30_000,
@@ -140,6 +150,7 @@ export async function harness(
     hostId: "host",
     store,
     handler: engine.handler,
+    engine,
   });
   const clients: Client[] = [];
   function command(payload: CommandPayload, deviceId = "device", id: string = randomUUID()) {
@@ -199,7 +210,7 @@ export async function harness(
       for (const client of clients) await client.close();
       await server.close();
       await engine.close();
-      store.close();
+      await store.close();
       rmSync(home, { recursive: true, force: true });
     },
   };

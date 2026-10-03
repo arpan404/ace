@@ -1,3 +1,4 @@
+import { warmup } from "./warmup.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { pickInstance } from "@ace/accounts";
 import { createDaemonCommandLibrary, defaultCommandInstances } from "../command-library.ts";
@@ -12,7 +13,15 @@ export interface DaemonCommandIntegration {
   instanceForThread?: (thread: Thread) => string;
   events?: CommandEventSource;
 }
-export async function startCommands({
+export async function startCommands(context: ServiceContext): Promise<void> {
+  const initialization = warmup(context, "commands", async () => {
+    await context.services.accountRegistry?.ready;
+    context.signal.throwIfAborted();
+    await initializeCommands(context);
+  });
+  context.resources.own(() => initialization);
+}
+async function initializeCommands({
   store,
   config,
   options,
