@@ -17,6 +17,10 @@ export function engineHandler(
   wake: (id: ThreadId) => void,
   nextId: () => string,
   limits: EngineLimits,
+  selectInstance?: (
+    provider: string,
+    backend?: import("@ace/engine-api").ProviderBackend,
+  ) => string | undefined,
 ): CommandHandler {
   return {
     handle(command: Command): CommandResult {
@@ -49,6 +53,7 @@ export function engineHandler(
             return fail("workspace_unavailable");
           }
           const entry = registry.get(p.provider);
+          const instanceId = p.instanceId ?? selectInstance?.(p.provider, entry.adapter.backend);
           let handoff: ReturnType<typeof portableContext> | undefined;
           if (p.handoffFrom) {
             const source = repo.store.getThread(p.handoffFrom);
@@ -124,6 +129,7 @@ export function engineHandler(
             p.model,
             registry.get(p.provider).adapter.backend ??
               (p.provider === "cursor" ? "acp" : undefined),
+            instanceId,
           );
         } else if ("threadId" in p) {
           threadId = p.threadId;

@@ -41,6 +41,8 @@ export class Sessions {
         throw new Error("Provider cannot resume this thread");
       const rootKey = state.rootKey ?? "root";
       actor.translator = adapter.createTranslator({ threadId: actor.id, rootKey });
+      if (backend === "cursor-sdk")
+        this.dependencies.repo.recovery.restore(actor.id, actor.translator);
       actor.apply([{ type: "process.started" }]);
       const session = await adapter.openSession({
         threadId: actor.id,
@@ -54,6 +56,11 @@ export class Sessions {
               resume: {
                 nativeSessionId: metadata.nativeSessionId,
                 ...(backend ? { backend } : {}),
+                ...(backend === "cursor-sdk"
+                  ? {
+                      afterFrameOffset: this.dependencies.repo.recovery.offset(actor.id),
+                    }
+                  : {}),
                 ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
               },
             }),

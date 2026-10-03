@@ -153,11 +153,13 @@ export class ThreadActor {
     }
     this.accept(() => {
       if (generation !== this.generation) return;
+      if (this.repo.recovery.committed(this.id, decoded)) return;
       const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
       this.repo.store.atomic(() => {
         this.repo.captureFrame(this.id, decoded);
         this.apply(facts);
         this.syncQueue();
+        this.repo.recovery.commit(this.id, decoded);
       });
       if (
         decoded.channel === "sdk" &&

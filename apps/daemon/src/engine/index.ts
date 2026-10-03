@@ -23,6 +23,10 @@ export interface EngineOptions {
   idleMs?: number;
   silenceMs?: number;
   onError?: (error: unknown) => void;
+  selectInstance?: (
+    provider: string,
+    backend?: import("@ace/engine-api").ProviderBackend,
+  ) => string | undefined;
 }
 export class Engine {
   readonly handler: CommandHandler;
@@ -72,6 +76,7 @@ export class Engine {
       (id) => this.wake(id),
       options.threadId ?? randomUUID,
       this.limits,
+      options.selectInstance,
     );
     this.handler = {
       handle: (command, context) =>
@@ -167,7 +172,9 @@ export class Engine {
         uncertain.add(intent.threadId);
         this.fail(
           intent,
-          "Provider delivery was interrupted by daemon restart; execution is uncertain",
+          this.repo.backend(intent.threadId) === "cursor-sdk"
+            ? "SDK dispatch was interrupted by daemon restart. Original input is retained; delivery is uncertain. Inspect recovery/history before explicitly retrying; no prompt was automatically resent."
+            : "Provider delivery was interrupted by daemon restart; execution is uncertain",
         );
       }
     }

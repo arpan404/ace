@@ -63,8 +63,10 @@ function migrateBackendMetadata(db: DatabaseSync): void {
   if (!columns.has("backend")) db.exec("ALTER TABLE engine_sessions ADD COLUMN backend TEXT");
   if (!columns.has("instance_id"))
     db.exec("ALTER TABLE engine_sessions ADD COLUMN instance_id TEXT");
-  db.exec(`CREATE TABLE IF NOT EXISTS engine_provider_frames (
+  db.exec(`CREATE TABLE IF NOT EXISTS engine_provider_cursors (thread_id TEXT PRIMARY KEY REFERENCES threads(id) ON DELETE CASCADE, offset INTEGER NOT NULL);
+  CREATE TABLE IF NOT EXISTS engine_provider_frames (
     thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE, generation TEXT NOT NULL, seq INTEGER NOT NULL,
     frame JSON NOT NULL, PRIMARY KEY(thread_id,generation,seq)
-  )`);
+  );
+  CREATE INDEX IF NOT EXISTS engine_provider_frames_thread ON engine_provider_frames(thread_id)`);
 }

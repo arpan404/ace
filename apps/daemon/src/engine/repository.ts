@@ -1,3 +1,5 @@
+import type { StatementSync } from "node:sqlite";
+import { ProviderRecovery } from "./provider-recovery.ts";
 import type { ProviderBackend, Frame } from "@ace/engine-api";
 import { z } from "zod";
 import { boundedJson } from "@ace/provider-kit/ipc";
@@ -21,6 +23,8 @@ export interface Intent {
 }
 export class EngineRepository {
   readonly store: Store;
+  readonly recovery: ProviderRecovery;
+  private capture: StatementSync;
   private ids: IdSource;
   private capacity: number;
   private snapshots = new Map<ThreadId, Snapshot>();
@@ -29,6 +33,10 @@ export class EngineRepository {
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    this.recovery = new ProviderRecovery(store);
+    this.capture = store.atomic((db) =>
+      db.prepare("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)"),
+    );
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
   }
   state(id: ThreadId): ThreadState | undefined {
@@ -273,13 +281,19 @@ export class EngineRepository {
       };
     });
   }
-  createSession(id: ThreadId, cwd: string, model?: string, backend?: ProviderBackend): void {
+  createSession(
+    id: ThreadId,
+    cwd: string,
+    model?: string,
+    backend?: ProviderBackend,
+    instanceId?: string,
+  ): void {
     this.store.atomic((db) =>
       db
         .prepare(
-          "INSERT INTO engine_sessions (thread_id,cwd,model,native_session_id,backend) VALUES (?, ?, ?, NULL, ?)",
+          "INSERT INTO engine_sessions (thread_id,cwd,model,native_session_id,backend,instance_id) VALUES (?, ?, ?, NULL, ?, ?)",
         )
-        .run(id, cwd, model ?? null, backend ?? null),
+        .run(id, cwd, model ?? null, backend ?? null, instanceId ?? null),
     );
   }
   nativeSession(
@@ -340,10 +354,6 @@ export class EngineRepository {
       channel: frame.channel,
       data: frame.data,
     });
-    this.store.atomic((db) =>
-      db
-        .prepare("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)")
-        .run(id, generation, frame.seq, json),
-    );
+    this.store.atomic(() => this.capture.run(id, generation, frame.seq, json));
   }
 }

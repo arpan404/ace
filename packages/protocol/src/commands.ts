@@ -1,3 +1,4 @@
+import { AccountId } from "./accounts.ts";
 import { z } from "zod";
 import { DiagnosticsHealthCommand } from "./diagnostics.ts";
 import { MessageContext } from "./context.ts";
@@ -31,6 +32,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
   OrchestrationPickCommand,
   z.object({
     type: z.literal("thread.create"),
+    instanceId: AccountId.optional(),
     /** Explicit portable fork/migration, preserving the source and allocating fresh native state. */
     handoffFrom: ThreadId.optional(),
     workspaceId: WorkspaceId,
