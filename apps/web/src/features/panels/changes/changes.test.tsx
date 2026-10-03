@@ -150,3 +150,21 @@ test("a collapsed file stays collapsed after looking at another tab and coming b
       .getAttribute("aria-expanded"),
   ).toBe("false");
 });
+
+test("a line comment stays on its line when the diff switches between Unified and Split", async () => {
+  const { panel } = await openChanges();
+  const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
+  const line = within(replay).getByText(/client.send\(\{ type: "resume.ack", headSeq/);
+  await userEvent.click(within(line).getByRole("button", { name: /^Comment on line \d+$/ }));
+  await userEvent.type(within(replay).getByRole("textbox"), "Carry coldStartWindow too?");
+  await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
+  const name = within(replay).getByRole("article").getAttribute("aria-label");
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Split" }));
+  const split = within(panel).getByRole("region", { name: "apps/server/src/replay.ts" });
+  const card = within(split).getByRole("article", { name: name ?? "" });
+  expect(within(card).getByText("Carry coldStartWindow too?")).toBeTruthy();
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Unified" }));
+  expect(within(panel).getByText("Carry coldStartWindow too?")).toBeTruthy();
+});

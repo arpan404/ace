@@ -8,7 +8,10 @@ import { ThreadMenu } from "./thread-menu.tsx";
 import { useThreadCard } from "./use-thread-card.ts";
 
 const grid =
-  "grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 rounded-md px-[11px] pt-[9px] pb-2.5 outline-none transition-colors duration-(--dur-1) compact:pt-1.5 compact:pb-[7px] focus-visible:shadow-[inset_0_0_0_1.5px_color-mix(in_oklab,var(--ring)_60%,transparent)]";
+  "grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 rounded-md px-[11px] pt-[9px] pb-2.5 outline-none transition-colors duration-(--dur-1) compact:pt-1.5 compact:pb-[7px]";
+/** The keyboard ring of the row's link, drawn over the hover actions so none of it hides. */
+const ring =
+  "after:pointer-events-none after:absolute after:inset-0 after:z-[2] after:rounded-md has-[>a:focus-visible]:after:shadow-[inset_0_0_0_2px_var(--ring)]";
 
 /**
  * One Home card: project and machine on line one with the age, the title on line two (medium
@@ -34,7 +37,7 @@ export function ThreadRow(props: { threadId: string }) {
   );
   return (
     <ThreadMenu entry={entry} state={card.flags} onRename={() => setRenaming(true)}>
-      <div className="group/row relative" data-thread-row={entry.id}>
+      <div className={cn("group/row relative", ring)} data-thread-row={entry.id}>
         {renaming ? (
           <div className={cn(grid, "bg-sidebar-accent")}>{lines}</div>
         ) : (

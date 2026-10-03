@@ -106,9 +106,11 @@ const screens: Record<string, Setup> = {
       .fill("Should the ack also carry `coldStartWindow`?");
     await file.getByRole("button", { name: "Comment", exact: true }).click();
   },
+  // The same line comment, after switching the diff to Split.
   "thread-changes-split": async (page) => {
-    await rightTab("/t/thread-cold-start", /^Changes/)(page);
+    await screens["thread-changes"]?.(page);
     await page.getByRole("button", { name: "Split" }).click();
+    await page.getByRole("article", { name: /Comment on line/ }).waitFor();
   },
   // The same hero state as `thread`, queued message included, with the Agents tab open.
   "thread-agents": async (page) => {
@@ -218,8 +220,10 @@ const sized: Record<string, { width: number; height: number; setup: Setup }> = {
     height: 900,
     setup: async (page) => {
       await openThread("/t/thread-dedupe")(page);
+      // From the first row through its Settle and Snooze to the second row.
       await threadList(page).getByRole("link").first().focus();
-      await page.keyboard.press("Tab");
+      for (let step = 0; step < 3; step++) await page.keyboard.press("Tab");
+      await expect(threadList(page).getByRole("link").nth(1)).toBeFocused();
     },
   },
   "focus-composer": {
