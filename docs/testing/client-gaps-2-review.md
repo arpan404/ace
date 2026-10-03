@@ -48,3 +48,15 @@ Git classification processes all stderr with linear work in the diagnostic byte 
 Preview admission retains at most eight thread entries and 32 pending transitions per tab. Transitions serialize per thread. The service owns at most 64 retained viewers per thread and `64 * maxSessions` across open/closed pages, 512 by default. Physical replacement does O(viewers) work for the affected thread, at most 64, with current-frame replay and no history scan. Closing detaches old frame bindings and drops their pending-frame references. Upload cleanup retains one append promise per channel and drains it without buffering another chunk.
 
 No benchmark numbers were collected. A benchmark run would violate the owner's explicit ban. Chunk throughput, peak RSS, root admission latency at representative owner counts, noisy diagnostic parsing latency and concurrent Preview ordering **need run at merge**. The same applies to the review's serial/concurrent flakiness runs and mutation executions.
+
+## Dependency cycle merge gate
+
+The merge gate reproduced two type-only cycles through `api.ts`, `files.ts` and `file-connection.ts`. File upload/download input types now live in the type-only `files-types.ts` leaf. The interface and transfer implementations import that leaf; package exports retain the existing public type names. The dependency-cruiser rule is unchanged.
+
+The owner subsequently authorized the client and shared-worker file-transfer tests for this fix, and added `check:deps` and `docs:protocol --check` to the required static checks. Results on this change:
+
+- `bun run check:deps`, `bun run typecheck`, `bun run lint`, `bun run fmt`, `bun run check:size` and `bun run docs:protocol --check`: passed. The dependency checker retains its existing TypeScript 7 compatibility notice; no checker configuration or dependencies were changed.
+- `bun run test --project process packages/client/src/files-scoped.process.test.ts`: four tests passed.
+- `bun run test --project unit packages/client-worker/src/worker-client.test.ts -t 'shared-worker file transfers|reconnect invalidates one tab'`: two tests passed; 17 unrelated tests skipped by the filter.
+
+Broader tests, mutation runs, benchmarks and CI were not executed. Earlier verification-round records above describe that round's execution ban; the six targeted tests here are the later, explicitly authorized exception.

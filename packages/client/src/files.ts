@@ -1,20 +1,9 @@
 import { fileConnection, type FileClient } from "./file-connection.ts";
-import type { FileOperation, ThreadId } from "@ace/protocol";
+import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import type { ClientApi } from "./api.ts";
 import { decodeBase64, encodeBase64 } from "./base64.ts";
 import { ClientError, type RequestOptions } from "./types.ts";
 
-export type FileDownloadInput = { threadId: ThreadId } & Extract<
-  FileOperation,
-  { op: "download" | "artifact.download" | "archive.download" }
->;
-export interface FileUploadInput {
-  threadId: ThreadId;
-  path: string;
-  expected: string | null;
-  size: number;
-  sha256: string;
-}
 /** Each pull completes before yielding; no download bytes are read ahead of the consumer. */
 async function* downloadChunks(
   client: FileClient,

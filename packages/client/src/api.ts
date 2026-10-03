@@ -9,7 +9,7 @@ import type {
   ThreadListView,
   ThreadView,
 } from "@ace/protocol";
-import type { FileDownloadInput, FileUploadInput } from "./files.ts";
+import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import type { Intent } from "./intents.ts";
 import type { OneWayMessage } from "./one-way.ts";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";

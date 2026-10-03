@@ -55,4 +55,5 @@ export type { AuthenticatedChannelOptions, DeviceConnectionTarget } from "./devi
 export { downloadArtifact } from "@ace/files/client";
 export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";
 
-export { downloadFile, uploadFile, type FileDownloadInput, type FileUploadInput } from "./files.ts";
+export { downloadFile, uploadFile } from "./files.ts";
+export type { FileDownloadInput, FileUploadInput } from "./files-types.ts";

@@ -1,4 +1,5 @@
-import { downloadFile, uploadFile, type FileDownloadInput, type FileUploadInput } from "./files.ts";
+import { downloadFile, uploadFile } from "./files.ts";
+import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import {
   HistoryScanStatus,
   HistoryScanResponse,
