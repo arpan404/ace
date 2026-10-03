@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 import { z } from "zod";
 import { forkClaudeSession } from "./index.ts";
 
-const sourceId = "a2465c19-f2ce-4c26-a47c-7d46b7d9f3e";
+const sourceId = "a2465c19-f2ce-4c26-a47c-7d46b7d9f3e0";
 const firstId = "9d6d901c-47da-48c8-a2d5-24e3786221a1";
 const lastId = "767fa44a-3d99-4332-a3e3-0c7b65c6a6ca";
 async function transcript(home: string, text: string) {

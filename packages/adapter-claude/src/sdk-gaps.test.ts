@@ -72,7 +72,8 @@ test("a child keeps producing canonical progress while an elicitation waits beyo
     },
     "elicitation",
   );
-  h.result();
+  // The native callback is still pending, so its owning turn has not ended.
+  h.tick(120_000);
   h.send(
     {
       type: "assistant",
@@ -95,6 +96,7 @@ test("a child keeps producing canonical progress while an elicitation waits beyo
   expect(h.state.status.state).not.toBe("done");
   h.send({ requestId: "ask", state: "expired" }, "interaction_lifecycle");
   expect(Object.values(h.state.interactions)[0]?.state).toBe("expired");
+  h.result();
 });
 
 test("duplicate root results cannot finish a later turn or add another main-loop usage sample", () => {
@@ -176,7 +178,6 @@ test("an allowed rate window clears only its own block and leaves later network 
     });
   rate("rejected", "five_hour");
   rate("rejected", "seven_day");
-  h.result();
   rate("allowed", "five_hour");
   expect(h.state.agents["root"]?.agent.status).toMatchObject({
     state: "blocked",
@@ -185,6 +186,9 @@ test("an allowed rate window clears only its own block and leaves later network 
   h.system("api_retry", { error: "connection lost", error_status: null });
   rate("allowed", "seven_day");
   expect(h.state.agents["root"]?.agent.status).toMatchObject({ state: "blocked", on: "network" });
+  // A completed turn retires its retry; quota-window ownership is separate.
+  h.result();
+  expect(h.state.agents["root"]?.agent.status).toEqual({ state: "idle" });
   expect(
     h
       .items()
