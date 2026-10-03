@@ -57,21 +57,36 @@ test("agent activity and multiple model snapshots survive live delivery and snap
       });
     }
     faults.disconnect();
+    await when(client.connectionState(), (state) => state === "reconnecting");
     // Force snapshot recovery rather than allowing the live replay to hide materialization bugs.
     let replaced = false;
     faults.incoming = (message, frame, deliver) => {
       if (message.type === "events" && !replaced) {
         replaced = true;
-        deliver(JSON.stringify({ ...message, afterSeq: message.afterSeq + 1 }));
+        // Keep a valid envelope with stale coverage so delivery detects a
+        // recoverable gap instead of rejecting an invalid event range.
+        deliver(JSON.stringify({ ...message, afterSeq: message.afterSeq - 1 }));
       } else deliver(frame);
     };
     h.daemon.store.appendEvents(h.thread.id, [EventPayload.parse({ ...total, inputTokens: 210 })]);
+    const recoverySeq = h.daemon.store.headSeq();
     scheduler.advance(125);
     await when(
       store.select([`usageSnapshot:${key}`], (view) => view.usageSnapshot(key)?.inputTokens),
       (value) => value === 210,
     );
+    // A recovered value alone could come from replay. Require the authoritative
+    // snapshot response too, so this exercises snapshot materialization.
+    await faults.wait(
+      (message) =>
+        message.type === "snapshot" &&
+        message.view.kind === "thread" &&
+        message.view.thread.id === h.thread.id &&
+        message.seq >= recoverySeq,
+    );
     await barrier(client, h.thread.id);
+    expect(replaced).toBe(true);
+    expect(client.state).toBe("ready");
     expect(store.usage("root")).toMatchObject({ inputTokens: 10, outputTokens: 2 });
     expect(h.daemon.store.snapshotThread(h.thread.id).usageSnapshots[key]?.inputTokens).toBe(210);
     for (const model of models) {
