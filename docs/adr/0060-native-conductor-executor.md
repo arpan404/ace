@@ -1,4 +1,4 @@
-# 0058: Native conductor executor
+# 0060: Native conductor executor
 
 Date: 2026-10-03. Status: accepted for implementation.
 
@@ -6,7 +6,7 @@ Date: 2026-10-03. Status: accepted for implementation.
 
 Deck's durable plan, card and lane reducer exists, but the real daemon has no executor. Its fake client can display runs that the real daemon cannot start. ADR 0004 makes the engine the owner of whole-tree status; ADR 0052 explicitly provides a delegation service for Deck. A second provider runner would lose approvals, queue admission, account selection and recovery.
 
-Checked origin/main and open PR #81 before allocating 0058. Main already contains two 0056 records and 0057. The open PR reserves no additional ADR number. The existing duplicates are retained.
+Rechecked origin/main and open PRs #82 and #83 on 2026-10-03. Main contains two 0056 records and 0057. PR #82 reserves 0058 and 0059, so this ADR uses the next free number, 0060. Its initial 0058 allocation preceded PR #82 and is superseded. The existing 0056 duplicates are retained.
 
 ## Decision
 
@@ -23,6 +23,12 @@ Each worker gets a private branch/worktree based on the run integration revision
 Conductor plan, budget, merge and escalation gates remain durable conductor gates answered with conductor.approve. Provider questions and approvals remain engine interactions answered with interaction.resolve. Both appear under needsUser; provider entries carry their interaction and thread ids. Resolving one never grants authority to answer another. Pausing stops new scheduling and pauses lane queues before interruption. Resuming uses the existing queue/recovery commands. Cancellation records subtree stop intents through DelegationService and interrupts each lane with cascade. Interrupt acceptance does not settle a lane: cancelled is published only after whole-thread terminal observations, including queued and not-yet-launched lanes.
 
 Restart discovers every nonterminal run, including those with no pending effects. After normal engine recovery it rebuilds indexed lane observers, reconciles the current whole-thread status and drains the original outbox. Interrupted in-flight sessions are resumed through the engine's recovery API, respecting human interactions and stop markers. A timer owns artifact/stall deadlines and bounded retries; clocks and timer scheduling are injected. Shutdown detaches observers and timers before closing persistence and leaves durable execution intents available for restart.
+
+## Admission retries and artifact recovery
+
+Keep one durable command attempt per effect and target. Commit its command identity and payload before asynchronous preparation. Replay accepted receipts, and replace only queue-conflict/capacity rejections with a new identity. A switch admission receipt is not execution: reconcile the applied provider/account/model selection and indexed engine intent status. Replace an interrupted, failed switch attempt after engine recovery; retain pending and running attempts. Do not resume migrating lanes on the old selection during startup.
+
+Read complete assistant text through Store source ranges, bounded to two MiB of UTF-16 storage and one MiB of UTF-8 artifact input. The plan and review schemas retain their respective compact JSON limits. Lost sources, worktrees or invalid artifacts affect only artifact admission. Whole-thread status and timed missing-artifact escalation still run.
 
 ## Client contract
 
