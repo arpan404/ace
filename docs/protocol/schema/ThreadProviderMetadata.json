@@ -1,0 +1,28 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadProviderMetadata.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "acpSupport": {
+      "$ref": "https://ace.local/protocol/v1/AcpSessionSupport.json"
+    },
+    "effectiveCapabilities": {
+      "$ref": "https://ace.local/protocol/v1/Capabilities.json"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

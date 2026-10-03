@@ -1,6 +1,6 @@
 # OpenCode v2 verification
 
-Implementation targets CLI/client 2.0.22. Evidence is the accepted research brief, the pinned official client's generated signatures, and primary v2 schema/operation contracts. ADR 0047 is still Proposed. No provider prompt, probe, fixture recording, test, benchmark or mutation run was executed during this implementation. The owner's final instruction reserves all dynamic verification for merge.
+Implementation targets CLI/client 2.0.22. Evidence is the accepted research brief, the pinned official client's generated signatures, and primary v2 schema/operation contracts. ADR 0047 is still Proposed. No provider prompt, probe, fixture recording, benchmark or mutation run was executed. Tests were reserved for merge during implementation and review; the owner's later merge-conflict exception permitted the specific tests listed below.
 
 Static verification: formatting, lint, TypeScript and source size checks are the permitted checks. Their final status is reported in the implementation PR. Runtime behavior below **needs run at merge**.
 
@@ -112,3 +112,20 @@ Two additive shared contracts are required: `input.admitted` transfers queue own
 `origin/main` was fetched and merged without rebasing; it was already an ancestor of the branch. The seven blockers and both performance/lifecycle follow-ups from the owner's review are statically addressed. The recorder declares its direct Zod dependency and implements the server's explicit consumer closure contract. The public engine API and canonical schemas are unchanged by these fixes.
 
 No test failure or subsequent pass was measured: regression cases were authored before the fixes, and execution remains reserved for merge. The earlier `done` expectations without an execution are corrected to `new`. No comment titled “Integration rehearsal: findings for this PR” was present during this follow-up.
+
+## Main merge verification
+
+Merged main through `fd655559`, preserving Claude SDK discovery, ACP registry identity/session metadata and OpenCode v2 model discovery. The shared engine session interface retains ACP configuration controls, Claude MCP/fork controls and OpenCode command correlation. NOTICE retains both sets of dependency acceptances. The lockfile starts from main and was regenerated with lifecycle scripts disabled; protocol references start from main and were regenerated through their owner, with the drift check passing.
+
+Under the explicit merge-conflict exception, 45 tests passed across these six files:
+
+- `packages/models/src/discover.process.test.ts`
+- `packages/models/src/registry.test.ts`
+- `packages/adapter-opencode/src/v2-lifecycle.process.test.ts`
+- `apps/daemon/src/engine/main-integration.process.test.ts`
+- `apps/daemon/src/engine/metadata-commands.process.test.ts`
+- `apps/daemon/src/engine/model-selection.process.test.ts`
+
+The added public discovery regression verifies that one discovery instance returns OpenCode v2 metadata while an unprofiled ACP agent is never started. Its first run rejected incomplete fake metadata; the corrected source-shaped fixture passed. Designed mutations: drop OpenCode discovery or remove ACP's no-start guard — **not executed (tests run at merge)**.
+
+This subset does not certify the remaining authored tests or live execution ordering. The full test suite, `bun run check`, CI, benchmarks, mutations and recordings were not run. No integration-rehearsal comment was present on the current PR.

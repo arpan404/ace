@@ -4,6 +4,9 @@
   "oneOf": [
     {
       "properties": {
+        "defaultToNo": {
+          "type": "boolean"
+        },
         "description": {
           "type": "string"
         },
@@ -11,11 +14,34 @@
           "const": "approval",
           "type": "string"
         },
+        "mcpServer": {
+          "additionalProperties": {},
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "source"
+          ],
+          "type": "object"
+        },
         "options": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/ApprovalOption.json"
           },
           "type": "array"
+        },
+        "permissionUpdates": {
+          "items": {},
+          "type": "array"
+        },
+        "suppressAlwaysAllowRule": {
+          "type": "boolean"
         },
         "title": {
           "type": "string"
@@ -80,6 +106,9 @@
     },
     {
       "properties": {
+        "description": {
+          "type": "string"
+        },
         "kind": {
           "const": "elicitation",
           "type": "string"
@@ -87,8 +116,21 @@
         "message": {
           "type": "string"
         },
+        "mode": {
+          "enum": [
+            "form",
+            "url"
+          ],
+          "type": "string"
+        },
+        "nativeId": {
+          "type": "string"
+        },
         "schema": {},
         "server": {
+          "type": "string"
+        },
+        "title": {
           "type": "string"
         },
         "url": {

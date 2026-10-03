@@ -1,0 +1,7 @@
+{
+  "$id": "https://ace.local/protocol/v1/AccountInstanceId.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maxLength": 256,
+  "minLength": 1,
+  "type": "string"
+}

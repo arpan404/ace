@@ -18,6 +18,10 @@ async function analyticsFixture() {
       if (!usage) throw new Error("Missing usage service");
       return usage.series(q);
     },
+    async sessionTotals(q) {
+      if (!usage) throw new Error("Missing usage service");
+      return usage.sessionTotals(q);
+    },
   };
   const f = await setup({ usage: port });
   const service = createDaemonUsage(
@@ -191,4 +195,44 @@ it("daemon backfill advances through output-only pages and settings overrides re
   expect(repriced.priceVersion).toContain("negotiated");
   writeFileSync(join(f.home, "usage-settings.json"), JSON.stringify({ timezone: "Mars/Orbit" }));
   await expect(loadUsageSettings(f.home)).rejects.toThrow();
+});
+
+it("inclusive snapshot reads use the daemon worker and require thread read authority", async () => {
+  const f = await analyticsFixture();
+  f.store.appendEvents(f.thread.id, [
+    EventPayload.parse({
+      type: "usage.updated",
+      agentId: "root",
+      inputTokens: 100,
+      outputTokens: 20,
+      costUsd: 3,
+      usageScope: "provider_session",
+      counterKey: "native:initial",
+    }),
+  ]);
+  const client = await f.connect();
+  await client.next();
+  client.send({
+    type: "usage.session_totals",
+    requestId: "inclusive",
+    query: { thread: f.thread.id, limit: 100 },
+  });
+  expect(await client.next()).toMatchObject({
+    type: "usage.session_totals.result",
+    requestId: "inclusive",
+    totals: [
+      { scope: "provider_session", counterKey: "native:initial", inputTokens: 100, costUsd: 3 },
+    ],
+  });
+  expect((await f.service.summary(query)).rows[0]?.totals.inputTokens).toBe(12);
+  const device = await f.pair(["operate"]);
+  const ticket = await f.ticket(device.token);
+  const restricted = await f.connectTicket(device.device.id, ticket.ticket);
+  await restricted.next();
+  restricted.send({
+    type: "usage.session_totals",
+    requestId: "denied",
+    query: { thread: f.thread.id, limit: 100 },
+  });
+  expect(await restricted.next()).toMatchObject({ type: "error", code: "forbidden" });
 });

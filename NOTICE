@@ -23,3 +23,6 @@ OpenCode local HTTP transport uses @opencode/client 2.0.22 and its @opencode/sch
 and @opencode/protocol 2.0.22 dependencies, Copyright OpenCode contributors,
 MIT licensed. These dependencies are accepted under their MIT licenses. ace uses
 only the public Promise client; it does not embed the OpenCode runtime.
+
+ACP method constants and protocol types use @agentclientprotocol/sdk 1.7.0, Apache-2.0 licensed. This dependency is accepted under its Apache-2.0 license; ace retains its own bounded transport.
+ACP archive extraction uses tar-stream 3.2.1 under its accepted MIT license and yauzl 3.4.0, Copyright (c) 2014 Josh Wolfe, MIT licensed. yauzl is accepted under its MIT license.

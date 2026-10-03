@@ -29,6 +29,10 @@ export const InteractionRequest = z.discriminatedUnion("kind", [
     title: z.string(),
     description: z.string().optional(),
     options: z.array(ApprovalOption),
+    defaultToNo: z.boolean().optional(),
+    suppressAlwaysAllowRule: z.boolean().optional(),
+    mcpServer: z.object({ name: z.string(), source: z.string() }).passthrough().optional(),
+    permissionUpdates: z.array(z.unknown()).optional(),
   }),
   z.object({ kind: z.literal("question"), questions: z.array(Question) }),
   z.object({
@@ -45,6 +49,10 @@ export const InteractionRequest = z.discriminatedUnion("kind", [
     message: z.string(),
     url: z.string().optional(),
     schema: z.unknown().optional(),
+    mode: z.enum(["form", "url"]).optional(),
+    nativeId: z.string().optional(),
+    title: z.string().optional(),
+    description: z.string().optional(),
   }),
 ]);
 export type InteractionRequest = z.infer<typeof InteractionRequest>;

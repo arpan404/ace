@@ -2,6 +2,11 @@
   "$id": "https://ace.local/protocol/v1/ModelRoleSpec.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
     "effort": {
       "maxLength": 256,
       "minLength": 1,
@@ -11,7 +16,17 @@
       "default": false,
       "type": "boolean"
     },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
     "instance": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
       "maxLength": 256,
       "minLength": 1,
       "type": "string"

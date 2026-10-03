@@ -1,3 +1,4 @@
+export type { RegistryQuery } from "./client.ts";
 export { Client } from "./client.ts";
 export { ClientError, defaultLimits } from "./types.ts";
 export type {

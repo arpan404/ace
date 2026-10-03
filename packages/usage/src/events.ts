@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { UsageUpdated, type Event } from "@ace/protocol";
+import { UsageUpdated, UsageCounter, type Event } from "@ace/protocol";
 // Canonical ace identifiers and agent models have no length cap. Replay bounds bytes separately.
 const id = z.string().min(1);
 export const UsageEvent = z.object({
@@ -25,7 +25,11 @@ export const UsageEvent = z.object({
     z.object({ type: z.literal("run.started"), agent: id, run: id }),
     z.object({ type: z.literal("thread.deleted") }),
     z.object({ type: z.literal("usage.skipped") }),
-    UsageUpdated.extend({ agentId: id, model: z.string().nullable().optional() }),
+    UsageCounter.safeExtend({
+      ...UsageUpdated.shape,
+      agentId: id,
+      model: z.string().nullable().optional(),
+    }),
   ]),
 });
 export type UsageEvent = z.infer<typeof UsageEvent>;

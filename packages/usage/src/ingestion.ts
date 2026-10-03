@@ -1,3 +1,4 @@
+import { SessionTotals } from "./session-totals.ts";
 import { z } from "zod";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { UsageBatch, type UsageEvent } from "./events.ts";
@@ -23,11 +24,13 @@ export type DailyIncrement = CountValues & {
   billing: string;
 };
 export class Ingestion {
+  private readonly sessionTotals: SessionTotals;
   private readonly db: DatabaseSync;
   private readonly day: (at: number) => string;
   private readonly statements = new Map<string, StatementSync>();
   constructor(db: DatabaseSync, day: (at: number) => string) {
     this.db = db;
+    this.sessionTotals = new SessionTotals(db);
     this.day = day;
   }
   private sql(query: string): StatementSync {
@@ -90,6 +93,7 @@ export class Ingestion {
       return;
     }
     if (p.type === "thread.deleted") {
+      this.sessionTotals.delete(thread);
       this.sql(
         "DELETE FROM usage_counters WHERE agent IN (SELECT agent FROM usage_agents WHERE thread=?)",
       ).run(thread);
@@ -143,6 +147,10 @@ export class Ingestion {
         p.agent,
         thread,
       );
+      return;
+    }
+    if (p.usageScope === "provider_session" || p.usageScope === "model_session") {
+      this.sessionTotals.observe(thread, event.at, p);
       return;
     }
     const metadata = this.sql(`SELECT a.thread, a.parent, a.model,

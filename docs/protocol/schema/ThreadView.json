@@ -117,6 +117,17 @@
       },
       "type": "object",
       "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+    },
+    "usageSnapshots": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/UsageUpdated.json"
+      },
+      "default": {},
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
     }
   },
   "required": [
