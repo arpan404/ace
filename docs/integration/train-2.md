@@ -8,7 +8,7 @@
 - Keep package dependencies, protocol exports and NOTICE attribution from every head. Regenerate lockfiles from the current integration branch with `bun install`.
 - Replace incoming process manifests with `.process.test.ts` filenames. Preserve all-package externalization in the process fixture build so native bindings, CommonJS dependencies and worker URLs resolve normally.
 
-Each feature merge is typechecked before its commit. Full runtime validation follows the final merge.
+Every feature merge tree passes typecheck, independently rechecked before delivery. The integrated runtime is validated by the full gate.
 
 - #46: move catalog startup and socket requests to service factories. Keep trusted runtime/execution event subscriptions and shutdown cancellation. Retain the stronger typed workspace lookup instead of coercing database values to strings. Migrate command I/O suites by filename.
 - #25: register the account registry and bounded authenticated account requests as services. Preserve CLI argument normalization and account subcommands. Single-provider discovery now owns the shared probe logic, with train 1's Antigravity read-only probe retained. Keep filename-based test projects and classify account I/O tests.
@@ -42,3 +42,5 @@ I7 remains open for model-role resolution, MCP leases, plugin launch projection,
 - Canonicalize trusted artifact roots at registration, while preserving the workspace identity used for mutation event fan-out. Dispose the file producer before startup operations that can fail.
 - Keep cancellation ordering assertions and let that test's client receive change messages instead of silently collecting them separately. Hoist metrics-request schemas in isolated transfer fixtures and validate archive chunks without allocating a schema per chunk; 200 MiB memory assertions remain unchanged.
 - Externalize Koffi and stage its pinned native optional dependency for the release target. Unify commands/files on Koffi 3.3.2 while retaining incoming NOTICE paragraphs and documenting the current accepted version. Bundle file blob/rename and search-query workers and rewrite their runtime URLs, so standalone releases do not depend on checkout paths.
+
+- Give the helper decisions distinct ADR numbers: Windows 0048 and Linux 0049. Retain 0037 for file transfer and update the Windows native README link.

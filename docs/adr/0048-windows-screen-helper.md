@@ -1,4 +1,4 @@
-# 0037: Windows screen helper and protocol v2
+# 0048: Windows screen helper and protocol v2
 
 Date: 2026-10-02. Status: accepted, Windows runtime verification pending.
 
