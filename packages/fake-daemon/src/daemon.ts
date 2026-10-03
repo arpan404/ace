@@ -5,6 +5,7 @@ import {
   HostId,
   ThreadId,
   WorkspaceId,
+  type ClientMessage,
   type Command,
   type CommandResult,
   type DeliveryEvent,
@@ -21,6 +22,7 @@ import { fakeHealth } from "./health.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
+import { FakeServices } from "./services/index.ts";
 import { startedThread } from "./scenarios/started-thread.ts";
 import {
   drainQueue,
@@ -64,8 +66,19 @@ export class FakeDaemon implements Host {
   private resolvedListeners = new Set<ResolvedListener>();
   /** Review mode sessions and comments; sent comments arrive in the thread as a user message. */
   readonly review: FakeReviewDesk;
+  /** Accounts, usage, models, settings, search, slash commands and context, over the wire. */
+  readonly services: FakeServices;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
+    this.services = new FakeServices({
+      clock: options.clock,
+      thread: (threadId) => {
+        const host = this.threads.get(threadId);
+        return (
+          host && { workspaceId: host.view.thread.workspaceId, provider: host.view.thread.provider }
+        );
+      },
+    });
     this.review = new FakeReviewDesk(options.clock, (threadId, text) =>
       this.apply(threadId, [
         {
@@ -149,8 +162,12 @@ export class FakeDaemon implements Host {
     this.connections.add(connection);
     return connection;
   }
+  service(message: ClientMessage, connection: Connection): boolean {
+    return this.services.handle(message, connection.push);
+  }
   release(connection: Connection): void {
     this.connections.delete(connection);
+    this.services.release(connection.push);
   }
   /** Drop every socket, as a daemon restart or network loss would. */
   disconnectAll(code = 1006): void {

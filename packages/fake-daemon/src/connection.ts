@@ -22,6 +22,8 @@ export interface Host {
   replay(scope: SubscriptionScope, afterSeq: number): DeliveryEvent[];
   page(threadId: string, before: number, limit: number): ItemsPage | undefined;
   command(command: Command): CommandResult;
+  /** Request/response services; false when the message isn't one the host serves. */
+  service(message: ClientMessage, connection: Connection): boolean;
   release(connection: Connection): void;
 }
 /** The socket half the connection writes to. Delivery is asynchronous, like a real socket. */
@@ -45,6 +47,8 @@ export class Connection {
   private ready = false;
   private closed = false;
   private subscriptions = new Map<string, Subscription>();
+  /** Service replies and pushes for this socket; stable, so a service can forget it on close. */
+  readonly push = (message: ServerMessage): void => this.send(message);
   constructor(host: Host, wire: Wire) {
     this.host = host;
     this.wire = wire;
@@ -111,7 +115,13 @@ export class Connection {
         this.error("not_found", { requestId: message.requestId });
         return;
       default:
-        this.error("unsupported", {});
+        if (this.host.service(message, this)) return;
+        this.error(
+          "unsupported",
+          "requestId" in message && typeof message.requestId === "string"
+            ? { requestId: message.requestId }
+            : {},
+        );
     }
   }
   private subscribe(id: string, scope: SubscriptionScope, afterSeq: number | undefined): void {
