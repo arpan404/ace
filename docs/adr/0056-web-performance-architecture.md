@@ -74,7 +74,7 @@ Where WebGL2 exists, PTY terminals use xterm.js (loaded on first show) with its 
 
 | Budget                                                                                   | Limit     | Measured on 2026-10-03          |
 | ---------------------------------------------------------------------------------------- | --------- | ------------------------------- |
-| Initial JS, gzip (entry and its static imports)                                          | ≤ 345 KB  | 328 KB                          |
+| Initial JS, gzip (entry and its static imports)                                          | ≤ 345 KB  | 312 KB                          |
 | Any route's own chunks, gzip                                                             | ≤ 140 KB  | thread 134 KB, settings 70 KB   |
 | CSS, gzip                                                                                | ≤ 22 KB   | 18 KB                           |
 | Each worker, gzip                                                                        | ≤ 70 KB   | client 60, diff 48, markdown 39 |
@@ -88,7 +88,7 @@ Where WebGL2 exists, PTY terminals use xterm.js (loaded on first show) with its 
 - Soak: `SoakDaemon` (`@ace/fake-daemon`) is an endless agent: one exchange folded through `@ace/core` once and replayed with fresh ids, keeping a bounded window, so it publishes millions of events at a fixed cost and growth measured in the process is the client's. Its clock runs 30 days over the run.
 - Browser: the production build in `--mode perf`, whose client worker is fed by `SoakDaemon` at 5,000 events/s, in Chromium while a person types into the composer and scrolls the transcript. Long tasks and Event Timing are recorded from first paint; the run first checks that its detector sees a deliberate 120 ms task.
 
-The initial-JS budget is a ratchet at today's size. Declaring `sideEffects` in `apps/web` (so a route importing one component from a slice's index no longer pulls in the slice) and loading the palette lazily took it from 501 KB to 328 KB; ADR 0045's 200 KB target needs the shell's view chrome split by route.
+The initial-JS budget is a ratchet at today's size. Declaring `sideEffects` in `apps/web` (so a route importing one component from a slice's index no longer pulls in the slice) and loading the palette lazily took it from 501 KB to 328 KB. The page then still bundled the in-page `Client` (used only where the browser has neither worker) and with it the protocol's frame schemas; loading that fallback on demand (`boot/page-client.ts`) and declaring `sideEffects: false` in `@ace/client` and `@ace/client-worker` (so the page's `RemoteClient` no longer drags in `Client`, `ClientHost` and their request schemas through the package indexes) took it to 312 KB. ADR 0045's 200 KB target needs the shell's view chrome split by route.
 
 CI runs the bundle and soak budgets in the `check` job and the browser budgets in the `browser` job.
 
