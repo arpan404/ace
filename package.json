@@ -20,6 +20,8 @@
     "web:dev": "bun run --filter @ace/web dev",
     "web:dev:fake": "bun run --filter @ace/web dev:fake",
     "web:build": "bun run --filter @ace/web build",
+    "web:e2e": "bun run --filter @ace/web-e2e e2e",
+    "web:screens": "bun run --filter @ace/web-e2e screens",
     "ace": "node apps/daemon/src/cli.ts",
     "postinstall": "bun run --filter @ace/workspace build:native && bun run --filter @ace/terminal prepare-native"
   },
