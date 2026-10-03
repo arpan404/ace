@@ -115,7 +115,6 @@ export async function openSession(
     options: {
       ...(injection
         ? {
-            mcpServers: injection.mcpServers,
             systemPrompt: {
               type: "preset",
               preset: "claude_code",
@@ -128,7 +127,7 @@ export async function openSession(
       ...(ctx.resume ? { resume: sessionId } : { sessionId }),
       pathToClaudeCodeExecutable: executable,
       ...configurationOptions(options.configuration ?? codingConfiguration),
-      mcpServers: nativeMcpServers(options.mcpServers ?? {}),
+      mcpServers: nativeMcpServers({ ...options.mcpServers, ...injection?.mcpServers }),
       includePartialMessages: true,
       forwardSubagentText: true,
       perTaskStopAffordance: true,

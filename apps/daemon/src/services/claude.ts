@@ -28,17 +28,27 @@ export function daemonClaudeAdapter(
       const mcp = context.services.mcp;
       const agentId = context.store.getThread(ctx.threadId)?.rootAgentId;
       if (!mcp || !agentId) throw new Error("Claude MCP scope is unavailable");
-      const lease = mcp.openSession(
-        {
-          sessionId: context.id(),
-          threadId: ctx.threadId,
-          agentId,
-          capabilities: ["agents", "notify"],
-        },
-        ctx.signal,
-      );
-      const ace = claudeInjection({ url: mcp.url, bearer: lease.bearer }).mcpServers;
-      const redact = createRedactor({ env: { ACE_MCP_BEARER_TOKEN: lease.bearer } });
+      const lease = ctx.aceMcp
+        ? undefined
+        : mcp.openSession(
+            {
+              sessionId: context.id(),
+              threadId: ctx.threadId,
+              agentId,
+              capabilities: [
+                "agents",
+                "notify",
+                "browser",
+                ...(context.services.devices ? ["devices" as const] : []),
+                ...(context.services.screen ? ["screen" as const] : []),
+              ],
+            },
+            ctx.signal,
+          );
+      const connection = ctx.aceMcp ?? (lease ? { url: mcp.url, bearer: lease.bearer } : undefined);
+      if (!connection) throw new Error("Claude MCP connection is unavailable");
+      const ace = claudeInjection(connection).mcpServers;
+      const redact = createRedactor({ env: { ACE_MCP_BEARER_TOKEN: connection.bearer } });
       // Control traffic is cold; redact its credentials without copying stream deltas.
       const stored = (value: unknown): unknown =>
         JSON.parse(redact(JSON.stringify(value) ?? "null"));
@@ -57,7 +67,7 @@ export function daemonClaudeAdapter(
       let unbind: (() => void) | undefined;
       const end = () => {
         unbind?.();
-        lease.end();
+        lease?.end();
       };
       try {
         const adapter = createClaudeAdapter({
@@ -93,7 +103,11 @@ export function daemonClaudeAdapter(
           enable: (name) => safe(() => controls.enable(name)),
           disable: (name) => safe(() => controls.disable(name)),
         };
-        unbind = mcp.providers.bind(ctx.threadId, boundControls, lease.principal.signal);
+        unbind = mcp.providers.bind(
+          ctx.threadId,
+          boundControls,
+          lease?.principal.signal ?? ctx.signal,
+        );
         return {
           ...opened,
           mcp: boundControls,

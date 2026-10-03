@@ -2,6 +2,7 @@ import { bindMcpSession } from "./mcp-session.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
+import type { McpCapability } from "@ace/protocol";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
@@ -19,10 +20,18 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       daemonClaudeAdapter(context, cli),
     ));
   if (!engineOptions.registry) resources.own(() => registry.close());
+  const capabilities: McpCapability[] = [
+    "notify",
+    "agents",
+    "browser",
+    ...(services.devices ? ["devices" as const] : []),
+    ...(services.screen ? ["screen" as const] : []),
+  ];
   const acp =
     services.agentRegistry && services.models && services.mcp
       ? acpEngineOptions({
           registry,
+          capabilities,
           agents: services.agentRegistry,
           models: services.models,
           mcp: services.mcp,
@@ -57,13 +66,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
                 services.devices?.disconnect(JSON.stringify([threadId, agentId]));
                 services.screen?.releaseController(JSON.stringify([threadId, agentId]));
               },
-              capabilities: [
-                "notify",
-                "agents",
-                "browser",
-                ...(services.devices ? ["devices" as const] : []),
-                ...(services.screen ? ["screen" as const] : []),
-              ],
+              capabilities,
             })
           : selected.openSession(session);
       },

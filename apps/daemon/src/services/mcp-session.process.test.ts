@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from "vitest";
-import { Agent, Capabilities, Command } from "@ace/protocol";
+import { Agent, AgentId, Capabilities, Command } from "@ace/protocol";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import type { SessionContext } from "@ace/engine-api";
 import { Store } from "../store.ts";
@@ -197,4 +197,84 @@ it("daemon composition gives lazy engine sessions scoped MCP authority before pr
   await daemon.close();
   // The isolated listener has shut down, so a closed session cannot reach tools.
   await expect(h.read(caller)).rejects.toThrow();
+});
+
+it("session MCP binding preserves effective selectors and provider MCP controls", async () => {
+  const h = await setup();
+  let model = "initial";
+  let mode = "code";
+  let servers: Record<string, unknown> = {};
+  let resume = false;
+  const original = h.adapter.openSession;
+  h.adapter.openSession = async (context) => ({
+    ...(await original(context)),
+    get effectiveCapabilities() {
+      return {
+        ...h.adapter.capabilities({ installed: true, auth: "unknown", loginHint: "offline" }),
+        resume,
+      };
+    },
+    async setModel(value) {
+      model = value;
+      resume = true;
+    },
+    async setMode(value) {
+      mode = value;
+    },
+    mcp: {
+      async status() {
+        return { model, mode, servers };
+      },
+      async replace(value) {
+        servers = value;
+        return { servers };
+      },
+      async reconnect() {},
+      async enable() {},
+      async disable() {},
+    },
+  });
+  const session = await h.open();
+  cleanup.push(() => session.close("shutdown"));
+  expect(session.effectiveCapabilities?.resume).toBe(false);
+  await session.setModel?.("selected");
+  await session.setMode?.("plan");
+  await session.mcp?.replace({ local: { command: "user-mcp" } });
+  expect(await session.mcp?.status()).toEqual({
+    model: "selected",
+    mode: "plan",
+    servers: { local: { command: "user-mcp" } },
+  });
+  expect(session.effectiveCapabilities?.resume).toBe(true);
+});
+
+it("a negotiated ACP lease retains its caller and ends without issuing a duplicate lease", async () => {
+  const h = await setup();
+  const lifetime = new AbortController();
+  const existing = h.mcp.openSession(
+    {
+      sessionId: "negotiated",
+      threadId: h.thread.id,
+      agentId: AgentId.parse("root"),
+      capabilities: ["agents"],
+    },
+    lifetime.signal,
+  );
+  const connection = { url: h.mcp.url, bearer: existing.bearer };
+  const context = {
+    ...h.context,
+    mcp: { httpServers: [], stdioServers: [], secrets: [existing.bearer], end: existing.end },
+  };
+  const session = await bindMcpSession(h.adapter, context, {
+    mcp: h.mcp,
+    store: h.store,
+    capabilities: ["agents"],
+    id() {
+      throw new Error("A second lease would replace the ACP negotiated caller");
+    },
+  });
+  const query = { ...h.context, aceMcp: connection };
+  expect((await h.read(query)).status).toBe(200);
+  await session.close("shutdown");
+  expect((await h.read(query)).status).toBe(401);
 });
