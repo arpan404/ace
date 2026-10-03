@@ -243,7 +243,13 @@ const screens: Record<string, Setup> = {
   // Offline, disconnected, loading and failure states, so they can be checked for intent.
   "state-offline": async (page) => {
     await openThread("/t/thread-dedupe")(page);
-    await page.context().setOffline(true);
+    // The network goes away under the client (what the page's offline event does in a real
+    // connection); the dev server stays reachable for lazy modules.
+    await page.evaluate(() =>
+      (
+        globalThis as unknown as { ace: { client: { networkOnline(online: boolean): void } } }
+      ).ace.client.networkOnline(false),
+    );
     await page.getByText(/^Offline\./).waitFor();
   },
   "state-reconnecting": async (page) => {
