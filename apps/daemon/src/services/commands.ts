@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import { warmup } from "./warmup.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { pickInstance } from "@ace/accounts";
@@ -86,13 +87,55 @@ export function createCommandsSession(context: SocketContext): SocketService {
       if (message.type !== "commands.list" && message.type !== "commands.resolve") return false;
       const reject = (code: string, detail: string) =>
         context.fail(code, detail, false, { requestId: message.requestId });
+      if (message.type === "commands.list" && message.draft) {
+        if (message.threadId) {
+          reject("invalid_request", "Choose a thread or draft");
+          return true;
+        }
+        const draft = message.draft;
+        const device = context.device();
+        try {
+          if (
+            !device ||
+            !context.authorize("read") ||
+            !context.options.context?.draftWorkspace ||
+            !context.options.commands?.listDraft
+          )
+            throw new Error("Draft unavailable");
+          const root = await context.options.context.draftWorkspace(device, draft.draftId);
+          const workspace = context.options.store.getWorkspacePath(draft.workspaceId);
+          if (!workspace || (await realpath(workspace)) !== root)
+            throw new Error("Draft workspace mismatch");
+          const result = await context.options.commands.listDraft(
+            draft.draftId,
+            {
+              workspace: root,
+              provider: draft.provider,
+              instance: draft.instanceId ?? draft.provider,
+            },
+            message.query,
+            message.limit,
+          );
+          if (
+            context.connected() &&
+            context.authorize("read") &&
+            (await context.options.context.draftWorkspace(device, draft.draftId)) === root
+          )
+            context.send({ type: "commands.list.result", requestId: message.requestId, ...result });
+        } catch {
+          reject("draft_unavailable", "Draft or command catalog unavailable");
+        }
+        return true;
+      }
+      if (!message.threadId) {
+        reject("invalid_request", "Thread or draft required");
+        return true;
+      }
+      const threadId = message.threadId;
       const readable = () =>
-        context.connected() && context.authorize("read") && context.canReadThread(message.threadId);
+        context.connected() && context.authorize("read") && context.canReadThread(threadId);
       if (!context.authorize("read")) reject("forbidden", "Read scope required");
-      else if (
-        !context.options.store.getThread(message.threadId) ||
-        !context.canReadThread(message.threadId)
-      )
+      else if (!context.options.store.getThread(threadId) || !context.canReadThread(threadId))
         reject("read_denied", "Thread is not readable");
       else if (!context.options.commands)
         reject("commands_unavailable", "Command catalog unavailable");
@@ -100,7 +143,7 @@ export function createCommandsSession(context: SocketContext): SocketService {
         try {
           if (message.type === "commands.list") {
             const result = await context.options.commands.list(
-              message.threadId,
+              threadId,
               message.query,
               message.limit,
             );
@@ -112,7 +155,7 @@ export function createCommandsSession(context: SocketContext): SocketService {
               });
           } else {
             const result = await context.options.commands.resolve(
-              message.threadId,
+              threadId,
               message.commandId,
               message.arguments,
               message.positional,

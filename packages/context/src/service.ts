@@ -58,6 +58,9 @@ export class ContextService {
     requireContext(root, "not_found", "Thread workspace unavailable");
     return this.workspaces.get(root);
   }
+  draftWorkspace(device: string, draftId: string): Promise<string> {
+    return this.uploads.draftWorkspace(device, draftId);
+  }
   async handle(
     device: string,
     value: unknown,

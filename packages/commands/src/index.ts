@@ -9,4 +9,5 @@ export { parseRuntime } from "./runtime.ts";
 export { resolveCommand } from "./plan.ts";
 export { fuzzyScore, searchCommands, type Usage } from "./search.ts";
 export type { Definition, ParsedSource, ParseContext, Target } from "./types.ts";
-export { CommandLibrary, type LibraryContext } from "./library.ts";
+export { CommandLibrary } from "./library.ts";
+export type { LibraryContext } from "./types.ts";
