@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { pairRows, type DiffLine, type DiffRow, type SplitRow, type FileDiff } from "@ace/ui-core";
 import { VirtualRows } from "@/components/virtual-rows.tsx";
 import { DiffStat } from "./diff-stat.tsx";
+import { GpuDiff, useDiffRenderer } from "./gpu-diff.tsx";
 
 export interface LineTarget {
   side: "old" | "new";
@@ -37,6 +38,8 @@ export function FileDiffBlock(props: {
 }) {
   const [open, setOpen] = useState(true);
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
+  const [asText, setAsText] = useState(false);
+  const renderer = useDiffRenderer(props.file.rows.length);
   const { file } = props;
   const slash = file.path.lastIndexOf("/");
   const rows: DiffRow[] = file.rows.flatMap((row, index) =>
@@ -78,7 +81,15 @@ export function FileDiffBlock(props: {
           className="ml-auto text-[12px]"
         />
       </button>
-      {open && (
+      {open && renderer !== "dom" && !asText && (
+        <GpuDiff
+          path={file.path}
+          rows={rows}
+          renderer={renderer}
+          onShowText={() => setAsText(true)}
+        />
+      )}
+      {open && (renderer === "dom" || asText) && (
         <div
           className={cn(
             "font-mono text-[12px] leading-5",
