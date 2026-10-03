@@ -1,3 +1,4 @@
+export { runDaemonProcess } from "./process-daemon.ts";
 export { createDaemonCommandLibrary } from "./command-library.ts";
 export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
 export type { DaemonCommandIntegration } from "./services/commands.ts";
@@ -35,12 +36,27 @@ export { readHistoryInstances, type DaemonHistoryOptions } from "./history.ts";
 export type { HistoryAdapterPort } from "./history-continuation.ts";
 
 export async function startDaemon(options: DaemonOptions = {}) {
+  options.signal?.throwIfAborted();
   const config = options.config ?? readConfig();
   const unlock = acquireLock(config.dataDir);
   const resources = new Resources();
+  const lifetime = new AbortController();
+  resources.onShutdown(() => lifetime.abort());
+  let initialized = false;
+  const abort = () => {
+    resources.beginShutdown();
+    if (initialized) void closeResources().catch(() => {});
+  };
+  options.signal?.addEventListener("abort", abort, { once: true });
+  resources.own(() => options.signal?.removeEventListener("abort", abort));
   let server: Awaited<ReturnType<typeof startServer>> | undefined;
   let endpointPath: string | undefined;
-  const closeResources = async () => {
+  let closing: Promise<void> | undefined;
+  const closeResources = () => {
+    closing ??= disposeResources();
+    return closing;
+  };
+  const disposeResources = async () => {
     resources.beginShutdown();
     try {
       await server?.close();
@@ -76,8 +92,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
       level: config.logLevel,
     });
     resources.own(() => log.close());
+    lifetime.signal.throwIfAborted();
     const serviceContext: ServiceContext = {
-      signal: new AbortController().signal,
+      signal: lifetime.signal,
       config,
       options,
       now: Date.now,
@@ -156,13 +173,16 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "history",
       "usage",
       "agentRegistry",
+      "pi",
     ] as const)
       Object.defineProperty(serverOptions, key, {
         enumerable: true,
         configurable: true,
         get: () => services[key],
       });
+    lifetime.signal.throwIfAborted();
     server = await startServer(serverOptions);
+    lifetime.signal.throwIfAborted();
     log.log("info", "Daemon listening", logFields([["url", server.url]]));
     const path = join(config.dataDir, "daemon-endpoint");
     writeFileSync(path, server.httpUrl, { mode: 0o600 });
@@ -170,7 +190,8 @@ export async function startDaemon(options: DaemonOptions = {}) {
     // Endpoint readiness depends on the listener and core store/command port.
     // Feature activation runs under named bounds without withholding discovery.
     await startup.listening(server);
-    let closing: Promise<void> | undefined;
+    lifetime.signal.throwIfAborted();
+    initialized = true;
     return {
       ...(server.relayHostId && services.relay
         ? {
@@ -223,10 +244,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       get mcp() {
         return requireService(services.mcp, "mcp");
       },
-      close() {
-        closing ??= closeResources();
-        return closing;
-      },
+      close: closeResources,
     };
   } catch (error) {
     await closeResources().catch(() => {});

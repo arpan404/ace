@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { setTimeout as delay } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -121,19 +120,22 @@ async function launch(
 }
 
 it("a source daemon with a fresh empty home reaches ready, publishes its endpoint and serves clients", async () => {
-  const daemon = await launch([fileURLToPath(new URL("./cli.ts", import.meta.url)), "start"]);
-  // A blanket timeout workaround that disables notifications is not a successful startup.
-  let status = daemon.status;
-  const deadline = performance.now() + 5000;
-  while (
-    status.services.find((service) => service.name === "notifications")?.state === "starting" &&
-    performance.now() < deadline
-  ) {
-    await delay(20);
-    status = Status.parse(
-      await accessRequest(daemon.origin, "/v1/status", { token: daemon.token }),
-    );
-  }
+  const source = `
+    import { startDaemon, runDaemonProcess } from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
+    const notifications = Promise.withResolvers();
+    const daemon = await runDaemonProcess(startDaemon, { startup: {
+      onStatus(status) {
+        if (status.name === "notifications" && status.state === "ready") notifications.resolve();
+        if (status.name === "notifications" && status.state === "degraded") notifications.reject(new Error(status.error));
+      },
+    } });
+    if (daemon) {
+      await notifications.promise;
+      process.stdout.write("ace daemon: " + daemon.url + "\\n");
+    }
+  `;
+  const daemon = await launch(["--input-type=module", "-e", source]);
+  const status = daemon.status;
   expect(status.services.find((service) => service.name === "notifications")).toEqual({
     name: "notifications",
     state: "ready",
@@ -244,3 +246,73 @@ it("a stalled engine start leaves the daemon readable and rejects commands witho
   daemon.child.kill("SIGTERM");
   expect((await daemon.exited)[0]).toBe(0);
 });
+
+it("SIGTERM after endpoint discovery cleans up while optional initialization is still held", async () => {
+  const home = await mkdtemp(join(tmpdir(), "ace-startup-signal-"));
+  cleanups.push(() => rm(home, { recursive: true, force: true }));
+  const child = spawn(
+    process.execPath,
+    [
+      "--import",
+      new URL("./startup-gates.fixture.ts", import.meta.url).href,
+      fileURLToPath(new URL("./cli.ts", import.meta.url)),
+      "start",
+    ],
+    {
+      env: {
+        ...process.env,
+        ACE_HOME: home,
+        ACE_PORT: "0",
+        ACE_LISTEN: "local",
+        PATH: "",
+        ACE_LOG_LEVEL: "silent",
+        ACE_MAINTENANCE: "0",
+        ACE_WORKSPACE_ROOT: "",
+        ACE_HISTORY_INSTANCES: "[]",
+        ACE_MODEL_INSTANCES: "[]",
+        ACE_ACCOUNTS_DB: join(home, "accounts.sqlite"),
+        ACE_RELAY_URL: undefined,
+        ACE_SCREEN_HELPER: undefined,
+        ACE_APNS_KEY_FILE: "",
+        ACE_VAPID_KEY_FILE: "",
+        ACE_TEST_HOLD_NOTIFICATIONS: "1",
+      },
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+    },
+  );
+  const exited = once(child, "close");
+  cleanups.push(async () => {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    await exited;
+  });
+  let output = "";
+  child.stdout?.on("data", (chunk: Buffer) => {
+    output += chunk.toString();
+  });
+  const [message] = await once(child, "message");
+  z.object({ type: z.literal("startupBlocked") }).parse(message);
+  // This boundary is after endpoint publication, before startDaemon/CLI returns.
+  expect(output).not.toContain("ace daemon:");
+  const origin = await readFile(join(home, "daemon-endpoint"), "utf8");
+  const token = await readFile(join(home, "daemon-token"), "utf8");
+  expect(
+    Status.parse(await accessRequest(origin, "/v1/status", { token })).services,
+  ).toContainEqual({ name: "notifications", state: "starting" });
+  const stopped = once(child, "close", { signal: AbortSignal.timeout(2000) });
+  child.kill("SIGTERM");
+  expect(await stopped).toEqual([0, null]);
+  await expect(readFile(join(home, "daemon-endpoint"))).rejects.toMatchObject({ code: "ENOENT" });
+  // Reacquiring the same home through the public daemon API detects a leaked lock.
+  const { startDaemon, readConfig } = await import("./index.ts");
+  const daemon = await startDaemon({
+    config: readConfig({ ACE_HOME: home, ACE_PORT: "0" }),
+    handler: {
+      handle(command) {
+        return { commandId: command.id, ok: false };
+      },
+    },
+    history: { instances: [] },
+    modelInstances: [],
+  });
+  await daemon.close();
+}, 10_000);

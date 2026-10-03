@@ -8,7 +8,8 @@ export function warmup(
   run: () => Promise<void>,
 ): Promise<void> {
   let status: ServiceStatus = { name, state: "starting" };
-  context.readiness?.(() => status);
+  const report = () => context.readiness?.(() => status);
+  report();
   return Promise.resolve()
     .then(() => {
       context.signal.throwIfAborted();
@@ -17,10 +18,12 @@ export function warmup(
     .then(
       () => {
         status = { name, state: "ready" };
+        report();
       },
       (error: unknown) => {
         const message = error instanceof Error ? error.message : "Background initialization failed";
         status = { name, state: "degraded", error: `Service ${name}: ${message.slice(0, 8192)}` };
+        report();
         context.log.log("error", `Service ${name} warmup failed`, error);
       },
     );

@@ -19,6 +19,7 @@ export interface ServiceStatus {
 }
 export interface StartupRuntime {
   timeoutMs: number;
+  onStatus?(status: ServiceStatus): void;
   schedule(name: string, expire: () => void, milliseconds: number): () => void;
 }
 export const systemStartup: StartupRuntime = {
@@ -34,7 +35,14 @@ async function bounded<T>(
   name: string,
   run: () => Promise<T>,
   runtime: StartupRuntime,
+  signal?: AbortSignal,
 ): Promise<T> {
+  signal?.throwIfAborted();
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(signal?.reason ?? new Error("Daemon startup aborted"));
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
   let cancel: (() => void) | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
     cancel = runtime.schedule(
@@ -44,9 +52,17 @@ async function bounded<T>(
     );
   });
   try {
-    return await Promise.race([Promise.resolve().then(run), deadline]);
+    return await Promise.race([
+      Promise.resolve().then(() => {
+        signal?.throwIfAborted();
+        return run();
+      }),
+      deadline,
+      aborted,
+    ]);
   } finally {
     cancel?.();
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
   }
 }
 
@@ -83,9 +99,23 @@ export class ServiceStartup {
       if (error !== undefined) result.error = error;
       return result;
     });
+  private report(name: string): void {
+    if (!this.runtime.onStatus) return;
+    const status = this.status().find((entry) => entry.name === name);
+    if (!status) return;
+    try {
+      this.runtime.onStatus?.(status);
+    } catch (error) {
+      this.context.log.log("error", "Startup observer failed", error);
+    }
+  }
+  private record(name: string, status: ServiceStatus): void {
+    this.statuses.set(name, status);
+    this.report(name);
+  }
   private degraded(name: string, error: unknown): void {
     const message = `Service ${name}: ${error instanceof Error ? error.message : String(error)}`;
-    this.statuses.set(name, { name, state: "degraded", error: message });
+    this.record(name, { name, state: "degraded", error: message });
     this.context.log.log(
       "error",
       "Daemon service degraded",
@@ -108,13 +138,14 @@ export class ServiceStartup {
       else if (listenerPhase)
         throw new Error(`Core service ${definition.name} follows listener services`);
       seen.add(definition.name);
-      this.statuses.set(definition.name, { name: definition.name, state: "starting" });
+      this.record(definition.name, { name: definition.name, state: "starting" });
     }
     this.deferred = definitions.filter((definition) => definition.phase === "listener");
     for (const definition of definitions.filter((entry) => entry.phase === "core"))
       await this.startOne(definition);
   }
   private async startOne(definition: ServiceDefinition): Promise<void> {
+    this.context.signal.throwIfAborted();
     const { name } = definition;
     const unavailable = definition.requires.find(
       (dependency) => this.statuses.get(dependency)?.state !== "ready",
@@ -123,7 +154,7 @@ export class ServiceStartup {
       this.degraded(name, new Error(`Dependency ${unavailable} is unavailable`));
       return;
     }
-    this.statuses.set(name, { name, state: "starting" });
+    this.record(name, { name, state: "starting" });
     const resources = new Resources();
     const controller = new AbortController();
     const published: Partial<Services> = {};
@@ -157,10 +188,15 @@ export class ServiceStartup {
             services,
             onListen,
             signal: controller.signal,
-            readiness: (read) => this.readiness.set(name, read),
+            readiness: (read) => {
+              this.readiness.set(name, read);
+              this.report(name);
+            },
           }),
         this.runtime,
+        this.context.signal,
       );
+      this.context.signal.throwIfAborted();
       Object.assign(this.context.services, published);
       committed = true;
       const disable = () => {
@@ -173,7 +209,7 @@ export class ServiceStartup {
         );
       };
       this.listeners.push(...onListen.map((start) => ({ name, start, disable })));
-      this.statuses.set(name, { name, state: onListen.length ? "starting" : "ready" });
+      this.record(name, { name, state: onListen.length ? "starting" : "ready" });
     } catch (error) {
       resources.beginShutdown();
       this.degraded(name, error);
@@ -182,6 +218,7 @@ export class ServiceStartup {
         (failure: unknown) =>
           this.context.log.log("error", "Degraded service cleanup failed", failure),
       );
+      this.context.signal.throwIfAborted();
     }
   }
   async listening(server: Awaited<ReturnType<typeof startServer>>): Promise<void> {
@@ -195,11 +232,13 @@ export class ServiceStartup {
             await listener.start(server);
           },
           this.runtime,
+          this.context.signal,
         );
-        this.statuses.set(listener.name, { name: listener.name, state: "ready" });
+        this.record(listener.name, { name: listener.name, state: "ready" });
       } catch (error) {
         listener.disable();
         this.degraded(listener.name, error);
+        this.context.signal.throwIfAborted();
       }
     }
   }
