@@ -1,0 +1,7 @@
+{
+  "$id": "https://ace.local/protocol/v1/AppDeviceId.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maxLength": 256,
+  "pattern": "^(?:ios:[a-fA-F0-9-]{36}|android:[a-zA-Z0-9_.-]{1,200})$",
+  "type": "string"
+}

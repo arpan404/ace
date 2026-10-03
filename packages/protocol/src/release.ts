@@ -24,7 +24,13 @@ export const MaintenanceStatus = z.object({
   draining: z.boolean(),
   blockers: z.number().int().nonnegative(),
 });
-export const DaemonHealth = z.object({ running: z.literal(true), version: z.string() });
+export const DaemonHealth = z.object({
+  running: z.literal(true),
+  version: z.string(),
+  // Older daemons omit readiness. New daemons expose startup without declaring
+  // themselves ready for managed clients before listener controllers are attached.
+  ready: z.literal(true).optional(),
+});
 
 export const InstalledRelease = ReleaseManifest.pick({
   version: true,

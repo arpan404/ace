@@ -2,6 +2,13 @@
   "$id": "https://ace.local/protocol/v1/BrowserState.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "backend": {
+      "enum": [
+        "embedded",
+        "headless"
+      ],
+      "type": "string"
+    },
     "closed": {
       "type": "boolean"
     },
@@ -16,6 +23,21 @@
     "owner": {
       "maxLength": 256,
       "minLength": 1,
+      "type": "string"
+    },
+    "pageStateLost": {
+      "type": "boolean"
+    },
+    "reason": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "paused",
+        "recovering"
+      ],
       "type": "string"
     },
     "threadId": {

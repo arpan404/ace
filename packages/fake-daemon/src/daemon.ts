@@ -255,7 +255,9 @@ export class FakeDaemon implements Host {
         return { commandId, ok: true };
       }
       case "thread.send":
-        return this.run(commandId, payload.threadId, (host) => sendFacts(host, commandId, payload));
+        return this.run(commandId, payload.threadId, (host) =>
+          sendFacts(host, commandId, { ...payload, delivery: payload.delivery ?? "queue" }),
+        );
       case "thread.interrupt":
         return this.run(commandId, payload.threadId, (host) =>
           interruptFacts(host, payload.agentId, payload.cascade),

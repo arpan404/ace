@@ -8,6 +8,7 @@ export {
   outputStreamId,
   summarizeOutput,
   utf8Slice,
+  utf8Tail,
 } from "./delta.ts";
 export { applyItemsPage, trackItem } from "./window.ts";
 import type {
@@ -39,6 +40,7 @@ export function createThreadView(thread: Thread, seq = 0): ThreadView {
     interactions: {},
     backgroundTasks: {},
     usage: {},
+    contextMeters: {},
     usageSnapshots: {},
   };
 }
@@ -111,6 +113,10 @@ function advance(view: { seq: number }, event: DeliveryEvent): ApplyResult {
 export function updateThread(thread: Thread, event: Event): void {
   const payload = event.payload;
   if (payload.type === "thread.updated") {
+    if (payload.provider !== undefined) thread.provider = payload.provider;
+    if (payload.lineage !== undefined) thread.lineage = structuredCopy(payload.lineage);
+    if (payload.execution !== undefined) thread.execution = structuredCopy(payload.execution);
+    if (payload.switch !== undefined) thread.switch = structuredCopy(payload.switch);
     if (payload.title !== undefined) thread.title = payload.title;
     if (payload.effectiveCapabilities !== undefined)
       thread.effectiveCapabilities = structuredCopy(payload.effectiveCapabilities);
@@ -236,8 +242,20 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       }
       break;
     }
+    case "context.sampled":
+      break;
+    case "queue.updated": {
+      const { type: _type, ...queue } = p;
+      view.queue = queue;
+      break;
+    }
+    case "context_meter.updated":
+      view.contextMeters ??= {};
+      put(view.contextMeters, p.meter.agentId, structuredCopy(p.meter));
+      break;
     case "input.admitted":
       // Queue ownership is reconciled by the host; admission creates no transcript/run.
+
       break;
     case "usage.updated":
       if (p.usageScope === "provider_session" || p.usageScope === "model_session")

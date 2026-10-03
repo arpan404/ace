@@ -1,5 +1,8 @@
 import type { SettingsValues } from "@ace/protocol";
 export const defaults: SettingsValues = {
+  "threads.followUpBehavior": "queue",
+  "threads.continueAfterRestart": false,
+  "threads.limitPolicy": "manual",
   "providers.default": "codex",
   "providers.coder.provider": "codex",
   "providers.coder.model": "default",
@@ -13,6 +16,8 @@ export const defaults: SettingsValues = {
   "providers.planner.model": "default",
   "providers.planner.tier": "default",
   "providers.planner.reasoningEffort": "default",
+  "browser.backend": "auto",
+  "browser.backendLoss": "pause",
   "approvals.policy": "ask",
   "notifications.enabled": true,
   "notifications.sound": false,

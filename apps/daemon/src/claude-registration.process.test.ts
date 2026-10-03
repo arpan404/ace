@@ -107,7 +107,16 @@ test.each(["default", "registered"])(
       const status = await controls.status();
       expect(status).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ name: "ace", validAceConnection: true }),
+          expect.objectContaining({
+            name: "ace",
+            validAceConnection: true,
+            aceTools: expect.arrayContaining([
+              "delegate_task",
+              "ace_question_answer",
+              "ace_thread_message",
+              "ace_browser_open",
+            ]),
+          }),
         ]),
       );
       expect(JSON.stringify(status)).not.toMatch(/Bearer [a-f0-9]{64}/);
@@ -150,7 +159,16 @@ test.each(["default", "registered"])(
       expect(JSON.stringify(store.readEvents({ afterSeq: 0, limit: 256 }))).not.toMatch(
         /Bearer [a-f0-9]{64}/,
       );
-      expect(await controls.status()).toEqual([expect.objectContaining({ name: "ace" })]);
+      expect(await controls.status()).toEqual([
+        expect.objectContaining({
+          name: "ace",
+          aceTools: expect.arrayContaining([
+            "delegate_task",
+            "ace_thread_message",
+            "ace_browser_open",
+          ]),
+        }),
+      ]);
       await engine.close();
       expect(() => mcp.providers.require(thread.id)).toThrow("not live");
     } finally {

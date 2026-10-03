@@ -23,6 +23,9 @@ export const UsageCounter = z
       "If usageScope is provider_session or model_session, counterKey is required.",
   });
 export const UsageMetadata = UsageCounter.safeExtend({
+  /** Latest occupied context, including cached input, never lifetime totals. */
+  contextTokens: tokens.optional(),
+  contextSessionId: id.optional(),
   reasoningTokens: tokens.optional(),
   cacheWriteTokens: tokens.optional(),
   cacheWrite1hTokens: tokens.optional(),

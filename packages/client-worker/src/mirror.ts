@@ -11,7 +11,7 @@ import {
   type ThreadReader,
   type ThreadSource,
 } from "@ace/client";
-import type { Item, ThreadListEntry, ThreadView } from "@ace/protocol";
+import type { ContextMeter, Item, ThreadListEntry, ThreadView } from "@ace/protocol";
 import { splitKey, type AgentLinks, type Patch } from "./patches.ts";
 import { toError, trusted } from "./trusted.ts";
 import type { ErrorShape } from "./wire.ts";
@@ -31,6 +31,7 @@ export class MirrorThread implements ThreadSource {
   private notifications: Notifications;
   private failure: ClientError | undefined;
   private meta: ThreadView["thread"] | undefined;
+  private queued: ThreadView["queue"] | undefined;
   private ids: readonly string[] = none;
   private seq: number | undefined;
   private before: number | null | undefined;
@@ -43,6 +44,7 @@ export class MirrorThread implements ThreadSource {
   private interactions = new Map<string, View["interactions"][string]>();
   private tasks = new Map<string, View["backgroundTasks"][string]>();
   private usages = new Map<string, View["usage"][string]>();
+  private meters = new Map<string, ContextMeter>();
   private snapshots = new Map<string, View["usageSnapshots"][string]>();
   private cut = new Set<string>();
   constructor(listeners: number) {
@@ -53,6 +55,13 @@ export class MirrorThread implements ThreadSource {
   }
   get thread() {
     return this.meta;
+  }
+  get queue() {
+    return this.queued;
+  }
+  get context() {
+    const root = this.meta?.rootAgentId;
+    return root ? this.meters.get(root) : undefined;
   }
   get order() {
     return this.ids;
@@ -93,6 +102,9 @@ export class MirrorThread implements ThreadSource {
   usage(id: string) {
     return this.usages.get(id);
   }
+  contextMeter(id: string) {
+    return this.meters.get(id);
+  }
   usageSnapshot(key: string) {
     return this.snapshots.get(key);
   }
@@ -110,6 +122,7 @@ export class MirrorThread implements ThreadSource {
     const view = copy.view;
     this.failure = errorOf(copy.error);
     this.meta = view?.thread;
+    this.queued = view?.queue;
     this.ids = view?.itemOrder ?? none;
     this.seq = view?.seq;
     this.before = view?.itemsBefore;
@@ -123,6 +136,7 @@ export class MirrorThread implements ThreadSource {
     this.interactions = entries(view?.interactions);
     this.tasks = entries(view?.backgroundTasks);
     this.usages = entries(view?.usage);
+    this.meters = entries(view?.contextMeters);
     this.snapshots = entries(view?.usageSnapshots);
     this.cut = new Set(copy.truncated);
     this.notifications.emitAll();
@@ -144,6 +158,9 @@ export class MirrorThread implements ThreadSource {
         return;
       case "thread":
         this.meta = trusted<ThreadView["thread"] | undefined>(v);
+        return;
+      case "queue":
+        this.queued = trusted<ThreadView["queue"]>(v);
         return;
       case "order":
         this.ids = trusted<readonly string[] | undefined>(v) ?? none;
@@ -174,6 +191,8 @@ export class MirrorThread implements ThreadSource {
         return set(this.interactions, id, v);
       case "task":
         return set(this.tasks, id, v);
+      case "context":
+        return set(this.meters, id, v);
       case "usage":
         return set(this.usages, id, v);
       case "usageSnapshot":

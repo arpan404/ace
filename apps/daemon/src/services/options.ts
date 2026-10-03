@@ -1,3 +1,4 @@
+import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { DaemonCommandIntegration } from "./commands.ts";
 import type { Config } from "../config.ts";
@@ -14,9 +15,21 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  /** The host owns daemon cancellation, including initialization before endpoint discovery. */
+  signal?: AbortSignal;
+  files?: Pick<import("@ace/files").FilesOptions, "workspaceRuntime" | "maxReservedBytes">;
+  /** Startup deadlines and scheduler are injected at the timer boundary. */
+  startup?: Partial<import("./startup.ts").StartupRuntime>;
+  agentControl?: {
+    policy?: Partial<import("@ace/protocol").DelegationPolicy>;
+    /** Inject the host Git boundary; never exposed as MCP input. */
+    handoffGit?: () => import("../agent-control/handoffs.ts").HandoffGit;
+    extensions?: import("../agent-control/tools.ts").AgentControlExtensions;
+  };
   claude?: DaemonClaudeOptions;
   pi?: import("./pi.ts").PiDaemonOptions;
   screen?: ScreenManager;
+  devices?: DevicesService;
   commands?: DaemonCommandIntegration;
   config?: Config;
   /** Explicit owner-approved local bindings. Remote clients cannot send paths/argv. */
@@ -30,6 +43,10 @@ export type DaemonOptions = {
   handler?: CommandHandler | undefined;
   engine?: EngineOptions & { adapterDiscovery?: typeof discoverProviders };
   toolkits?: readonly Toolkit[];
+  /** Worker spawner is injectable without changing notification policy. */
+  notificationWorker?: ConstructorParameters<
+    typeof import("@ace/notify").NotificationWorker
+  >[0]["spawn"];
   notificationChannels?: Omit<NotificationChannels, "websocket">;
   modelInstances?: readonly InstanceInput[];
   workload?: HealthOptions["workload"];

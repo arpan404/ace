@@ -1,7 +1,11 @@
+import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
+import { AgentId } from "@ace/protocol";
+import { withDaemonMcp } from "./provider-mcp.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
+import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
@@ -21,10 +25,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       (adapters) => registerPi(context, adapters),
     ));
   if (!engineOptions.registry) resources.own(() => registry.close());
+  context.signal.throwIfAborted();
+  const capabilities = daemonMcpCapabilities(services);
   const acp =
     services.agentRegistry && services.models && services.mcp
       ? acpEngineOptions({
           registry,
+          capabilities,
           agents: services.agentRegistry,
           models: services.models,
           mcp: services.mcp,
@@ -37,38 +44,68 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       : {};
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
-  if (accounts && accountRegistry)
-    registry.bindSessions((adapter) => {
-      if (!AccountProvider.safeParse(adapter.provider).success) return adapter;
-      const bound = accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
-      return {
-        ...adapter,
-        openSession(session) {
-          return session.instanceId ||
-            accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
-            ? bound.openSession(session)
-            : adapter.openSession(session);
-        },
-      };
+  registry.bindSessions((adapter) => {
+    if (!accounts || !accountRegistry || !AccountProvider.safeParse(adapter.provider).success)
+      return withDaemonMcp(context, adapter);
+    const bound = accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
+    return withDaemonMcp(context, {
+      ...adapter,
+      openSession(session) {
+        return session.instanceId ||
+          accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
+          ? bound.openSession(session)
+          : adapter.openSession(session);
+      },
     });
+  });
+  const ports = recoveryPorts(context, (id) => engine.sessionMetadata(id));
   const engine = new Engine(store, {
     ...acp,
     ...engineOptions,
     registry,
+    mcp:
+      engineOptions.mcp ??
+      ((threadId, agentId, lifetime) => {
+        const mcp = services.mcp;
+        if (!mcp) throw new Error("MCP unavailable");
+        const lease = mcp.openSession(
+          {
+            sessionId: context.id(),
+            threadId,
+            agentId: AgentId.parse(agentId),
+            capabilities: daemonMcpCapabilities(context.services),
+          },
+          lifetime,
+        );
+        return {
+          url: mcp.url,
+          bearer: lease.bearer,
+          signal: lease.principal.signal,
+          end: lease.end,
+        };
+      }),
+    recovery: engineOptions.recovery ?? ports,
+    prepareInput: engineOptions.prepareInput ?? prepareQueuedInput(context),
+    ...((engineOptions.transitions ?? services.transitions)
+      ? { transitions: engineOptions.transitions ?? services.transitions }
+      : {}),
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());
+  await engine.ready();
   services.engine = engine;
   services.handler = engine.handler;
 }
 
 import { commandContext } from "../commands.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export function createEngineSession({ options, send }: SocketContext): SocketService {
+export function createEngineSession(context: SocketContext): SocketService {
+  const { options, send } = context;
   return {
     command: {
       types: [
         "thread.create",
+        "thread.prepare",
         "thread.send",
         "thread.interrupt",
         "thread.archive",
@@ -78,7 +115,9 @@ export function createEngineSession({ options, send }: SocketContext): SocketSer
         "background_task.stop",
       ],
       scope: () => "operate",
-      accept(command, device) {
+      async accept(command, device) {
+        await options.engine?.prepareCommand(command);
+        if (!context.connected() || !context.authorize("operate")) return;
         const result = options.store.recordCommand(command.id, device, () =>
           options.handler.handle(command, commandContext(options.store)),
         );

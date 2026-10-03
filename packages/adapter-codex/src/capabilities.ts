@@ -11,9 +11,13 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
     cli.installed && !!parts && (major > 0 || minor > 159 || (minor === 159 && patch >= 1));
   return {
     steer: supported,
+    launchOptions: supported ? ["effort", "serviceTier"] : [],
     interruptCascades: false,
     resume: supported,
     fork: supported,
+    forkSubagents: supported,
+    sessionOptions: supported,
+    forkPoints: supported ? ["turn", "end"] : [],
     subagentTranscripts: supported,
     backgroundTaskControl: supported,
     backgroundVisibility: supported ? "full" : "none",

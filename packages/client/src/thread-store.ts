@@ -38,6 +38,13 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   get thread() {
     return this.view?.thread;
   }
+  get queue() {
+    return this.view?.queue;
+  }
+  get context() {
+    const root = this.view?.thread.rootAgentId;
+    return root ? this.contextMeter(root) : undefined;
+  }
   get order(): readonly string[] {
     return this.view?.itemOrder ?? emptyOrder;
   }
@@ -74,6 +81,10 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   }
   task(id: string) {
     return this.own(this.view?.backgroundTasks, id);
+  }
+  contextMeter(id: string) {
+    const meters = this.view?.contextMeters;
+    return meters && Object.hasOwn(meters, id) ? meters[id] : undefined;
   }
   usage(id: string) {
     return this.own(this.view?.usage, id);
@@ -116,6 +127,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         backgroundTasks: view.backgroundTasks,
         usage: view.usage,
         usageSnapshots: view.usageSnapshots,
+        ...(view.queue && { queue: view.queue }),
+        ...(view.contextMeters && { contextMeters: view.contextMeters }),
       },
       truncated: [...this.clipped],
     };
@@ -142,6 +155,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       interactions: view.interactions,
       tasks: view.backgroundTasks,
       usage: view.usage,
+      contextMeters: view.contextMeters ?? {},
       usageSnapshots: view.usageSnapshots,
     })) {
       const size = Object.keys(record).length;
@@ -292,6 +306,14 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         case "background_task.updated":
           this.copy(view.backgroundTasks, p.taskId);
           keys.add(`task:${p.taskId}`);
+          break;
+        case "queue.updated":
+          keys.add("queue");
+          break;
+        case "context_meter.updated":
+          if (!keys.has(`context:${p.meter.agentId}`))
+            this.capacity("contextMeters", !!this.contextMeter(p.meter.agentId));
+          keys.add(`context:${p.meter.agentId}`);
           break;
         case "usage.updated": {
           if (p.usageScope === "provider_session" || p.usageScope === "model_session") {

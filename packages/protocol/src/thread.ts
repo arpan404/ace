@@ -1,3 +1,9 @@
+import {
+  ThreadLineage,
+  ExecutionSelection,
+  ThreadSwitch,
+  ExecutionSource,
+} from "./thread-transitions.ts";
 import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { z } from "zod";
 import { AgentId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
@@ -7,6 +13,8 @@ import { ProviderKind, Capabilities } from "./provider.ts";
 /** What started a run. Agents can start runs without anyone asking. */
 export const RunTrigger = z.enum([
   "user",
+  "restart",
+  "limit_resume",
   /** First run of a newly spawned subagent. */
   "spawn",
   /** A parent agent sent this agent more work (follow-up, message). */
@@ -33,6 +41,7 @@ export const Run = z.object({
   trigger: RunTrigger,
   /** Provider's turn id, when it has one. */
   nativeId: z.string().optional(),
+  executionSource: ExecutionSource.optional(),
   state: z.enum(["active", "completed", "interrupted", "failed"]),
   startedAt: Timestamp,
   endedAt: Timestamp.optional(),
@@ -50,6 +59,7 @@ export const ThreadStatus = z.discriminatedUnion("state", [
     state: z.literal("waiting"),
     on: z.enum(["background_task", "rate_limit", "network", "upstream", "queue"]),
   }),
+  z.object({ state: z.literal("limited"), until: Timestamp.optional() }),
   z.object({ state: z.literal("failed") }),
   z.object({ state: z.literal("unresponsive") }),
   /** Every agent idle, nothing pending, nothing running in the background. */
@@ -76,5 +86,8 @@ export const Thread = z.object({
   updatedAt: Timestamp,
   archivedAt: Timestamp.optional(),
   imported: ImportedProvenance.optional(),
+  lineage: ThreadLineage.optional(),
+  execution: ExecutionSelection.optional(),
+  switch: ThreadSwitch.optional(),
 });
 export type Thread = z.infer<typeof Thread>;

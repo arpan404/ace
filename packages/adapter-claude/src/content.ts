@@ -136,6 +136,9 @@ export function message(
         item,
         draft: {
           type: "message",
+          ...(list(m["content"]).length === 1 && string(data["uuid"])
+            ? { nativeId: string(data["uuid"]) }
+            : {}),
           role,
           parts: [{ type: "text", text: contentText }],
           complete: true,

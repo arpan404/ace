@@ -3,6 +3,326 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "$ref": "https://ace.local/protocol/v1/ThreadPrepareCommand.json"
+    },
+    {
+      "properties": {
+        "context": {
+          "$ref": "https://ace.local/protocol/v1/MessageContext.json"
+        },
+        "delivery": {
+          "$ref": "https://ace.local/protocol/v1/FollowUpBehavior.json"
+        },
+        "expectedRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "input": {
+          "$ref": "https://ace.local/protocol/v1/QueueInput.json"
+        },
+        "messageId": {
+          "$ref": "https://ace.local/protocol/v1/CommandId.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "queue.edit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "expectedRevision",
+        "messageId",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/CommandId.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expectedRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "messageId": {
+          "$ref": "https://ace.local/protocol/v1/CommandId.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "queue.move",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "expectedRevision",
+        "messageId",
+        "after"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expectedRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "messageId": {
+          "$ref": "https://ace.local/protocol/v1/CommandId.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "queue.remove",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "expectedRevision",
+        "messageId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expectedRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "queue.pause",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "expectedRevision"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expectedRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "queue.resume",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "expectedRevision"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "expectedRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.resume",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "expectedRevision"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "action": {
+          "enum": [
+            "resume_now",
+            "resume_at_reset",
+            "snooze_until_reset",
+            "migrate_now"
+          ],
+          "type": "string"
+        },
+        "expectedRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.limit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "expectedRevision",
+        "action"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "budgetBytes": {
+          "default": 16384,
+          "maximum": 65536,
+          "minimum": 2048,
+          "type": "integer"
+        },
+        "input": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        },
+        "point": {
+          "$ref": "https://ace.local/protocol/v1/ForkPoint.json"
+        },
+        "selection": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "title": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "type": {
+          "const": "thread.fork",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "point",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "citations": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/HandoffCitation.json"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "patch": {
+          "maxLength": 65536,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Patch is at most 65536 encoded UTF-8 bytes."
+        },
+        "summary": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.merge",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "summary",
+        "citations"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "selection": {
+          "properties": {
+            "instanceId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "model": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "options": {
+              "$ref": "https://ace.local/protocol/v1/ExecutionOptions.json"
+            },
+            "provider": {
+              "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+            }
+          },
+          "required": [
+            "provider"
+          ],
+          "type": "object"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.switch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "selection"
+      ],
+      "type": "object"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/DiagnosticsHealthCommand.json"
     },
     {
@@ -380,6 +700,11 @@
     },
     {
       "properties": {
+        "accountId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
         "acpAgentId": {
           "maxLength": 256,
           "minLength": 1,
@@ -408,11 +733,20 @@
         "model": {
           "type": "string"
         },
+        "options": {
+          "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
+        },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
         },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
         "title": {
           "type": "string"
+        },
+        "trigger": {
+          "$ref": "https://ace.local/protocol/v1/RunTrigger.json"
         },
         "type": {
           "const": "thread.create",
@@ -436,11 +770,7 @@
           "$ref": "https://ace.local/protocol/v1/MessageContext.json"
         },
         "delivery": {
-          "enum": [
-            "steer",
-            "queue"
-          ],
-          "type": "string"
+          "$ref": "https://ace.local/protocol/v1/FollowUpBehavior.json"
         },
         "input": {
           "items": {
@@ -452,6 +782,9 @@
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
         },
+        "trigger": {
+          "$ref": "https://ace.local/protocol/v1/RunTrigger.json"
+        },
         "type": {
           "const": "thread.send",
           "type": "string"
@@ -460,8 +793,7 @@
       "required": [
         "type",
         "threadId",
-        "input",
-        "delivery"
+        "input"
       ],
       "type": "object"
     },

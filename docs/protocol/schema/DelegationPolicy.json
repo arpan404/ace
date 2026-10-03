@@ -1,0 +1,49 @@
+{
+  "$id": "https://ace.local/protocol/v1/DelegationPolicy.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "coalesceMs": {
+      "default": 50,
+      "maximum": 1000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "cost": {
+      "default": 100,
+      "exclusiveMinimum": 0,
+      "type": "number"
+    },
+    "durationMs": {
+      "default": 3600000,
+      "exclusiveMinimum": 0,
+      "maximum": 86400000,
+      "type": "integer"
+    },
+    "maxChildren": {
+      "default": 64,
+      "maximum": 64,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "maxConcurrent": {
+      "default": 4,
+      "maximum": 64,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "maxDepth": {
+      "default": 4,
+      "maximum": 8,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "tokens": {
+      "default": 1000000,
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}

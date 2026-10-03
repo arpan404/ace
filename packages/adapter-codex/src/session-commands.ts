@@ -30,6 +30,7 @@ export type Pending = {
 };
 export type SessionCommandsContext = {
   nativeSessionId: string;
+  getLaunchOptions?(): Pick<TurnStartParams, "effort" | "serviceTier">;
   active: Map<string, string>;
   parents: Map<string, string>;
   shells: Map<string, string>;
@@ -81,7 +82,11 @@ export function createSessionCommands(
     else {
       await request(
         "turn/start",
-        { threadId, input: input(parts) } satisfies TurnStartParams,
+        {
+          threadId,
+          input: input(parts),
+          ...config.getLaunchOptions?.(),
+        } satisfies TurnStartParams,
         true,
       );
     }

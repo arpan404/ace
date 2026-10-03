@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/QueuedMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "context": {
+      "$ref": "https://ace.local/protocol/v1/MessageContext.json"
+    },
+    "delivery": {
+      "$ref": "https://ace.local/protocol/v1/FollowUpBehavior.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/CommandId.json"
+    },
+    "input": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ContentPart.json"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "state": {
+      "enum": [
+        "queued",
+        "uncertain"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "input",
+    "delivery",
+    "state"
+  ],
+  "type": "object"
+}

@@ -1,4 +1,8 @@
+import { createRecoverySession } from "./recovery.ts";
+import { createDevicesSession } from "./devices.ts";
+import { createThreadTransitionsSession } from "./thread-transitions.ts";
 import { createPiSocketSession } from "./pi.ts";
+
 import { createAgentRegistrySession } from "./agent-registry.ts";
 import { createScreenSession } from "./screen.ts";
 import { Simulators } from "@ace/screen";
@@ -6,7 +10,7 @@ import { createSearchSession } from "./search.ts";
 import { createAccountsSession } from "./accounts.ts";
 import { createCommandsSession } from "./commands.ts";
 import { createFilesSession } from "./files.ts";
-import { ClientMessage, BrowserClientMessage } from "@ace/protocol";
+import { ClientMessage, BrowserClientMessage, BrowserBackendClientMessage } from "@ace/protocol";
 import { PluginClientMessage } from "@ace/protocol/plugins";
 import { createNotificationsSession } from "./notifications.ts";
 import { createPluginsSession } from "./plugins.ts";
@@ -22,7 +26,10 @@ import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
+  createRecoverySession,
+  createDevicesSession,
   createPiSocketSession,
+
   createSearchSession,
   createAccountsSession,
   createCommandsSession,
@@ -38,6 +45,7 @@ export const socketServiceFactories = [
   createModelsSession,
   createAgentRegistrySession,
   createReviewSession,
+  createThreadTransitionsSession,
   createEngineSession,
   createDiagnosticsSession,
 ];
@@ -49,7 +57,12 @@ export function createSocketRegistry() {
   ];
 }
 export function parseSocketMessage(input: unknown): SocketMessage {
-  for (const schema of [ClientMessage, PluginClientMessage, BrowserClientMessage]) {
+  for (const schema of [
+    ClientMessage,
+    PluginClientMessage,
+    BrowserClientMessage,
+    BrowserBackendClientMessage,
+  ]) {
     const result = schema.safeParse(input);
     if (result.success) return result.data;
   }

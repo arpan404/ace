@@ -1,0 +1,37 @@
+{
+  "$id": "https://ace.local/protocol/v1/QueueGet.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "after": {
+      "$ref": "https://ace.local/protocol/v1/CommandId.json"
+    },
+    "expectedRevision": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "limit": {
+      "maximum": 32,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "queue.get",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "threadId"
+  ],
+  "type": "object"
+}

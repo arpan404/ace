@@ -21,7 +21,16 @@ export async function scan(
   catalog: Catalog,
   instances: ProviderHome[],
   signal: AbortSignal,
-  progress: (files: number) => void | Promise<void> = () => undefined,
+  progress: (
+    files: number,
+    result: {
+      files: number;
+      reads: number;
+      bytes: number;
+      skipped: number;
+      unsupported: { instanceId: string; reason: string }[];
+    },
+  ) => void | Promise<void> = () => undefined,
 ) {
   const result = {
     files: 0,
@@ -30,18 +39,19 @@ export async function scan(
     skipped: 0,
     unsupported: [] as { instanceId: string; reason: string }[],
   };
+  await catalog.cleanup(signal);
   for (const instance of instances) {
     signal.throwIfAborted();
     if (instance.provider === "cursor") {
-      result.unsupported.push({
-        instanceId: instance.id,
-        reason: "Cursor transcripts omit tool outputs; TUI chats cannot be loaded through ACP",
-      });
+      if (result.unsupported.length < 256)
+        result.unsupported.push({
+          instanceId: instance.id,
+          reason: "Cursor transcripts omit tool outputs; TUI chats cannot be loaded through ACP",
+        });
       continue;
     }
     const epoch = catalog.start(instance.id);
-    catalog.db.exec("BEGIN IMMEDIATE");
-    try {
+    {
       const roots =
         instance.provider === "claude"
           ? [join(instance.homeDir, "projects")]
@@ -55,6 +65,7 @@ export async function scan(
         if (!path.endsWith(isStorage ? ".json" : ".jsonl")) {
           if (
             path.endsWith(".zst") &&
+            result.unsupported.length < 256 &&
             !result.unsupported.some((r) => r.instanceId === instance.id)
           )
             result.unsupported.push({
@@ -65,13 +76,12 @@ export async function scan(
         }
         result.files++;
         if (result.files % 64 === 0) {
-          await progress(result.files);
+          await progress(result.files, { ...result });
           await setImmediate();
           signal.throwIfAborted();
         }
-        const fp = isStorage
-          ? await storageFingerprint(instance, path, signal)
-          : fingerprint(await lstat(path));
+        const info = await lstat(path);
+        const fp = isStorage ? await storageFingerprint(instance, path, signal) : fingerprint(info);
         if (catalog.touch(instance.id, path, fp, epoch)) {
           result.skipped++;
           return;
@@ -115,16 +125,25 @@ export async function scan(
           },
           epoch,
         );
+        catalog.remember(instance, path, info.size, info.mtimeMs, fp, epoch);
       };
       const flush = async () => {
-        const results = await Promise.allSettled(batch.map(processFile));
+        catalog.db.exec("BEGIN IMMEDIATE");
+        let results: PromiseSettledResult<void>[];
+        try {
+          results = await Promise.allSettled(batch.map(processFile));
+        } finally {
+          catalog.db.exec("COMMIT");
+        }
         batch = [];
+        await setImmediate();
+        signal.throwIfAborted();
         for (const outcome of results) if (outcome.status === "rejected") throw outcome.reason;
       };
       for (const root of roots)
         for await (const path of walkFiles(root, signal, budget)) {
           batch.push(path);
-          if (batch.length === 16) await flush();
+          if (batch.length === 4) await flush();
         }
       if (batch.length) await flush();
       // Only recognized database names in the home root are opened. No auth/config files.
@@ -145,7 +164,7 @@ export async function scan(
             if (++rows > 100000)
               throw new Error("Provider database session inventory limit exceeded");
             if (rows % 64 === 0) {
-              await progress(result.files);
+              await progress(result.files, { ...result });
               await setImmediate();
             }
             signal.throwIfAborted();
@@ -156,6 +175,8 @@ export async function scan(
           }
           if (fp !== (await databaseFingerprint(path)))
             throw new Error("Provider database changed during scan");
+          const info = await lstat(path);
+          catalog.remember(instance, path, info.size, info.mtimeMs, fp, epoch);
           catalog.db.exec("RELEASE provider_scan");
         } catch (error) {
           catalog.db.exec("ROLLBACK TO provider_scan; RELEASE provider_scan");
@@ -171,10 +192,8 @@ export async function scan(
         }
       }
       signal.throwIfAborted();
-      catalog.prune(instance.id, epoch);
-      catalog.summarizeTree(instance.id);
-    } finally {
-      catalog.db.exec("COMMIT");
+      await catalog.prune(instance.id, epoch, signal);
+      await catalog.summarizeTree(instance.id, signal, () => progress(result.files, { ...result }));
     }
   }
   return result;

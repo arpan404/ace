@@ -1,3 +1,5 @@
+import { startDevices } from "./devices.ts";
+import { startThreadTransitions } from "./thread-transitions.ts";
 import { startAgentRegistry } from "./agent-registry.ts";
 import { startScreen } from "./screen.ts";
 import { startAccounts } from "./accounts.ts";
@@ -14,82 +16,77 @@ import { startUsage } from "./usage.ts";
 import { startModels } from "./models.ts";
 import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
+import { startAgentControl } from "./agent-control.ts";
 import { startPi } from "./pi.ts";
 import { startEngine } from "./engine.ts";
 import type { ServiceContext, Services } from "./types.ts";
-/** Ordered composition: provider sessions are admitted only after their services open. */
-export const serviceFactories = [
-  startScreen,
-  startAccounts,
-  startCommands,
-  startFiles,
-  startRelayKeys,
-  startPlugins,
-  startBrowser,
-  startContext,
-  startSettings,
-  startReview,
-  startHistory,
-  startUsage,
-  startModels,
-  startMcp,
-  startNotifications,
-  startPi,
-  startAgentRegistry,
-  startEngine,
+import type { ServiceDefinition } from "./startup.ts";
+/** Dependencies are explicit; optional integration failures do not disable the engine. */
+export const serviceFactories: readonly ServiceDefinition[] = [
+  { name: "screen", phase: "core", requires: [], after: [], start: startScreen },
+  { name: "accounts", phase: "core", requires: [], after: [], start: startAccounts },
+  { name: "commands", phase: "core", requires: ["accounts"], after: [], start: startCommands },
+  { name: "files", phase: "core", requires: [], after: [], start: startFiles },
+  { name: "devices", phase: "core", requires: [], after: ["screen", "files"], start: startDevices },
+  { name: "relay", phase: "core", requires: ["files"], after: [], start: startRelayKeys },
+  { name: "plugins", phase: "core", requires: [], after: [], start: startPlugins },
+  { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
+  { name: "browser", phase: "core", requires: [], after: ["settings"], start: startBrowser },
+  { name: "models", phase: "core", requires: [], after: [], start: startModels },
+  {
+    name: "mcp",
+    phase: "core",
+    requires: [],
+    after: ["screen", "browser", "devices"],
+    start: startMcp,
+  },
+  {
+    name: "transitions",
+    phase: "core",
+    requires: [],
+    after: ["accounts"],
+    start: startThreadTransitions,
+  },
+  { name: "pi", phase: "core", requires: [], after: ["mcp"], start: startPi },
+  { name: "agentRegistry", phase: "core", requires: [], after: [], start: startAgentRegistry },
+  {
+    name: "engine",
+    phase: "core",
+    requires: [],
+    after: [
+      "accounts",
+      "plugins",
+      "settings",
+      "models",
+      "mcp",
+      "pi",
+      "agentRegistry",
+      "transitions",
+    ],
+    start: startEngine,
+  },
+  { name: "context", phase: "listener", requires: [], after: [], start: startContext },
+  { name: "review", phase: "listener", requires: [], after: [], start: startReview },
+  { name: "history", phase: "listener", requires: [], after: [], start: startHistory },
+  { name: "usage", phase: "listener", requires: [], after: [], start: startUsage },
+  { name: "notifications", phase: "listener", requires: [], after: [], start: startNotifications },
+  {
+    name: "agentControl",
+    phase: "listener",
+    requires: ["engine"],
+    after: ["accounts", "context", "notifications"],
+    start: startAgentControl,
+  },
 ];
-export function readyServices(services: Partial<Services>): Services {
-  const {
-    handler,
-    plugins,
-    preparePlugins,
-    launchPlugins,
-    browser,
-    context,
-    settings,
-    models,
-    mcp,
-    notifications,
-    review,
-    usage,
-  } = services;
-  if (
-    !handler ||
-    !plugins ||
-    !preparePlugins ||
-    !launchPlugins ||
-    !browser ||
-    !context ||
-    !settings ||
-    !models ||
-    !mcp ||
-    !notifications ||
-    !review ||
-    !usage
-  )
-    throw new Error("Incomplete daemon service composition");
-  return {
-    handler,
-    plugins,
-    preparePlugins,
-    launchPlugins,
-    browser,
-    context,
-    settings,
-    models,
-    mcp,
-    notifications,
-    review,
-    usage,
-    ...(services.agentRegistry ? { agentRegistry: services.agentRegistry } : {}),
-    ...(services.screen ? { screen: services.screen } : {}),
-    ...(services.accounts ? { accounts: services.accounts } : {}),
-    ...(services.commands ? { commands: services.commands } : {}),
-    ...(services.files ? { files: services.files } : {}),
-    ...(services.relay ? { relay: services.relay } : {}),
-    ...(services.pi ? { pi: services.pi } : {}),
-    ...(services.engine ? { engine: services.engine } : {}),
-    ...(services.history ? { history: services.history } : {}),
-  };
+/** Public daemon access fails explicitly when a feature could not be initialized. */
+export function requireService<T>(service: T | undefined, name: string): T {
+  if (service === undefined) throw new Error(`Service ${name} is degraded`);
+  return service;
+}
+/** Keep the command port required while optional features publish into the live registry. */
+export function readyServices(
+  services: Partial<Services>,
+): asserts services is Partial<Services> & Pick<Services, "handler"> {
+  requireService(services.handler, "engine");
 }
 export type { ServiceContext };

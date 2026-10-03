@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceInventory.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "devices": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AppDevice.json"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "issues": {
+      "default": [],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/DeviceFailure.json"
+      },
+      "maxItems": 2,
+      "type": "array"
+    }
+  },
+  "required": [
+    "devices"
+  ],
+  "type": "object"
+}

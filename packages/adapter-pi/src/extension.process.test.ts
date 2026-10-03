@@ -86,3 +86,73 @@ test("Pi extension forwards scoped tools, structured results and MCP errors acro
     await server.close();
   }
 });
+
+test("Pi executes authorized browser, screen and device tools and projects their errors", async () => {
+  const registry = new ToolRegistry({ scheduler: nodeScheduler });
+  const credentials = new CredentialRegistry(() => randomBytes(32).toString("hex"));
+  const effects: string[] = [];
+  for (const [name, capability] of [
+    ["ace_browser_click", "browser"],
+    ["screen_ui_act", "screen"],
+    ["device_tap", "devices"],
+  ] as const)
+    registry.register({
+      name,
+      description: name,
+      input: z.object({ value: z.string() }),
+      output: z.object({}),
+      capability,
+      timeoutMs: 1000,
+      async run(args) {
+        effects.push(`${name}:${args.value}`);
+        throw new Error("native operation rejected");
+      },
+    });
+  const server = await startMcpServer({ registry, credentials });
+  const lease = credentials.issue(
+    {
+      threadId: ThreadId.parse("thread"),
+      agentId: AgentId.parse("root"),
+      sessionId: "features",
+      capabilities: ["browser", "screen", "devices"],
+    },
+    new AbortController().signal,
+  );
+  const tools = new Map<string, Parameters<PiExtensionApi["registerTool"]>[0]>();
+  let shutdown: (() => Promise<void>) | undefined;
+  let project: ((event: { toolName: string; details: unknown }) => unknown) | undefined;
+  const pi: PiExtensionApi = {
+    appendEntry() {},
+    registerCommand() {},
+    registerTool(tool) {
+      tools.set(tool.name, tool);
+    },
+    on(event, handler) {
+      if (event === "session_shutdown") shutdown = () => Reflect.apply(handler, undefined, []);
+      else project = (result) => Reflect.apply(handler, undefined, [result]);
+    },
+  };
+  try {
+    await registerAcePiExtension(pi, {
+      ACE_PI_CONTROL_SECRET: "a".repeat(64),
+      ACE_PI_MCP_URL: server.url,
+      ACE_PI_MCP_BEARER: lease.bearer,
+    });
+    for (const name of ["ace_browser_click", "screen_ui_act", "device_tap"]) {
+      const tool = tools.get(name);
+      if (!tool) throw new Error(`Missing authorized feature tool: ${name}`);
+      const result = await tool.execute("native", { value: "input" }, undefined);
+      expect(project?.({ toolName: name, details: result.details })).toEqual({ isError: true });
+    }
+    expect(effects).toEqual(["ace_browser_click:input", "screen_ui_act:input", "device_tap:input"]);
+    lease.end();
+    const tap = tools.get("device_tap");
+    if (!tap) throw new Error("No device tool");
+    await expect(tap.execute("revoked", { value: "blocked" }, undefined)).rejects.toThrow();
+    expect(effects).toHaveLength(3);
+  } finally {
+    await shutdown?.();
+    lease.end();
+    await server.close();
+  }
+});

@@ -6,6 +6,9 @@
       "default": false,
       "type": "boolean"
     },
+    "childThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
     "createdAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
@@ -20,6 +23,9 @@
     },
     "id": {
       "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "lineage": {
+      "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
     },
     "model": {
       "type": "string"

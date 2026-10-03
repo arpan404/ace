@@ -64,6 +64,11 @@
           ],
           "type": "string"
         },
+        "durationMs": {
+          "maximum": 10000,
+          "minimum": 1,
+          "type": "integer"
+        },
         "kind": {
           "const": "pointer.drag",
           "type": "string"

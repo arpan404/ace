@@ -1,3 +1,4 @@
+import { parse as parseJsonc, type ParseError } from "jsonc-parser";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { ProviderKind } from "@ace/protocol";
@@ -29,10 +30,10 @@ export function developerInstructions(provider: ProviderKind): string {
     acp: "Use the ace MCP server for ace operations.",
     pi: "Use ace_* extension tools for ace operations.",
   };
-  return `${prefix[provider]} Inspect the thread and agent tree for live status. Spawn returns acceptance, not completion. Notify the user when their input is needed. Browser and preview tools appear only when authorized.`;
+  return `${prefix[provider]} Inspect the thread and agent tree for live status. Use delegate_task to start independent child threads on any available provider. Choose wait to await the outcome or continue working; completed children wake you in a batched turn. Creation returns acceptance, not completion. Agents may answer questions but must never resolve approvals. Notify the user when their input is needed. Browser, preview, screen and device tools appear only when authorized. Inspect semantic trees before using coordinate input.`;
 }
 export function codexInjection(input: AceMcpConnection) {
-  const { url, bearer } = AceMcpConnectionSchema.parse(input);
+  const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
   return {
     args: [
       "-c",
@@ -45,7 +46,7 @@ export function codexInjection(input: AceMcpConnection) {
   };
 }
 export function claudeInjection(input: AceMcpConnection) {
-  const { url, bearer } = AceMcpConnectionSchema.parse(input);
+  const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
   return {
     mcpServers: {
       ace: { type: "http" as const, url, headers: { Authorization: `Bearer ${bearer}` } },
@@ -53,12 +54,28 @@ export function claudeInjection(input: AceMcpConnection) {
     developerInstructions: developerInstructions("claude"),
   };
 }
-export function openCodeInjection(input: AceMcpConnection) {
-  const { url, bearer } = AceMcpConnectionSchema.parse(input);
+export function openCodeInjection(input: AceMcpConnection, previous?: string) {
+  const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
+  let configuration: Record<string, unknown> = {};
+  let servers: Record<string, unknown> = {};
+  if (previous !== undefined) {
+    if (Buffer.byteLength(previous) > 64 * 1024)
+      throw new Error("OpenCode MCP configuration exceeds limit");
+    const errors: ParseError[] = [];
+    const value: unknown = parseJsonc(previous, errors, { allowTrailingComma: true });
+    if (errors.length) throw new Error("Invalid OpenCode MCP configuration");
+    configuration = z.record(z.string(), z.json()).parse(value);
+    if (configuration["mcp"] !== undefined)
+      servers = z.record(z.string(), z.json()).parse(configuration["mcp"]);
+  }
+  if (Object.keys(servers).length >= 64) throw new Error("OpenCode MCP server limit exceeded");
+  if (Object.hasOwn(servers, "ace")) throw new Error("OpenCode MCP server name collision: ace");
   return {
     env: {
       OPENCODE_CONFIG_CONTENT: JSON.stringify({
+        ...configuration,
         mcp: {
+          ...servers,
           ace: {
             type: "remote",
             url,
@@ -76,7 +93,7 @@ export function acpInjection(
   input: AceMcpConnection,
   provider: "cursor" | "antigravity" | "acp" = "acp",
 ) {
-  const { url, bearer } = AceMcpConnectionSchema.parse(input);
+  const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
   return {
     mcpServers: [
       {
@@ -89,6 +106,11 @@ export function acpInjection(
     developerInstructions: developerInstructions(provider),
   };
 }
+
+/** Scrub before building a persisted provider payload, including echoed stderr. */
+export function redactMcpCredential(encoded: string, input?: AceMcpConnection): string {
+  return input ? encoded.replaceAll(input.bearer, "<ACE_MCP_CREDENTIAL>") : encoded;
+}
 /** The provider starts this child inside its supervised process group. Lease travels in env. */
 export function acpStdioInjection(
   input: AceMcpConnection,
@@ -97,7 +119,7 @@ export function acpStdioInjection(
     entrypoint: fileURLToPath(new URL("./stdio-entry.ts", import.meta.url)),
   },
 ) {
-  const { url, bearer } = AceMcpConnectionSchema.parse(input);
+  const { url, bearer } = AceMcpConnectionSchema.parse({ url: input.url, bearer: input.bearer });
   return {
     mcpServers: [
       {

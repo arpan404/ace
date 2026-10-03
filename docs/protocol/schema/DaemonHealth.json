@@ -2,6 +2,10 @@
   "$id": "https://ace.local/protocol/v1/DaemonHealth.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "ready": {
+      "const": true,
+      "type": "boolean"
+    },
     "running": {
       "const": true,
       "type": "boolean"

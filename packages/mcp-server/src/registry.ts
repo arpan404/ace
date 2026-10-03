@@ -90,8 +90,10 @@ export class ToolRegistry {
     output?: z.ZodObject,
   ): Tool {
     if (
-      (!/^ace_[a-z0-9_]{1,100}$/.test(name) &&
-        !(capability === "screen" && /^screen_[a-z0-9_]{1,100}$/.test(name))) ||
+      (name !== "delegate_task" &&
+        !/^ace_[a-z0-9_]{1,100}$/.test(name) &&
+        !(capability === "screen" && /^screen_[a-z0-9_]{1,100}$/.test(name)) &&
+        !(capability === "devices" && /^device_[a-z0-9_]{1,100}$/.test(name))) ||
       this.entries.has(name)
     )
       throw new Error("Invalid or duplicate tool name");

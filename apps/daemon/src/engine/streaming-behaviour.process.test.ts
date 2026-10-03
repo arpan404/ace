@@ -138,12 +138,7 @@ test("shell stream summaries survive cold engine recovery and preserve output re
     const cmd = Command.parse({
       id: "resume-shell",
       deviceId: "device",
-      payload: {
-        type: "thread.send",
-        threadId: id,
-        input: [{ type: "text", text: "next" }],
-        delivery: "queue",
-      },
+      payload: { type: "thread.resume", threadId: id, expectedRevision: engine.queue(id).revision },
     });
     store.recordCommand(cmd.id, cmd.deviceId, () => engine.handler.handle(cmd, store));
     await engine.flush();

@@ -50,6 +50,8 @@ export function threadValue(reader: ThreadReader, key: string): unknown {
       return reader.error && { code: reader.error.code, message: reader.error.message };
     case "thread":
       return reader.thread;
+    case "queue":
+      return reader.queue;
     case "order":
       return reader.order;
     case "cursor":
@@ -72,6 +74,8 @@ export function threadValue(reader: ThreadReader, key: string): unknown {
       return reader.interaction(id);
     case "task":
       return reader.task(id);
+    case "context":
+      return reader.contextMeter(id);
     case "usage":
       return reader.usage(id);
     case "usageSnapshot":

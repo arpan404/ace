@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/DeviceClientMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "operation": {
+      "$ref": "https://ace.local/protocol/v1/DeviceOperation.json"
+    },
+    "requestId": {
+      "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+    },
+    "type": {
+      "const": "devices.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "operation"
+  ],
+  "type": "object"
+}

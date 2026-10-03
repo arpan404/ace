@@ -36,8 +36,20 @@
         "effectiveCapabilities": {
           "$ref": "https://ace.local/protocol/v1/Capabilities.json"
         },
+        "execution": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"
+        },
+        "lineage": {
+          "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
         "status": {
           "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+        },
+        "switch": {
+          "$ref": "https://ace.local/protocol/v1/ThreadSwitch.json"
         },
         "title": {
           "type": "string"
@@ -96,6 +108,9 @@
         "background": {
           "type": "boolean"
         },
+        "childThreadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
         "cwd": {
           "type": "string"
         },
@@ -104,6 +119,9 @@
         },
         "fidelity": {
           "$ref": "https://ace.local/protocol/v1/AgentFidelity.json"
+        },
+        "lineage": {
+          "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
         },
         "model": {
           "type": "string"
@@ -403,6 +421,15 @@
         "status"
       ],
       "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/QueueUpdated.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ContextMeterUpdated.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ContextSampled.json"
     },
     {
       "$ref": "https://ace.local/protocol/v1/UsageUpdated.json"

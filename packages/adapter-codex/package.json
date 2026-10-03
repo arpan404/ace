@@ -13,9 +13,10 @@
   "dependencies": {
     "@ace/core": "workspace:*",
     "@ace/engine-api": "workspace:*",
+    "@ace/mcp-server": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",
-    "zod": "^4.3.6"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@ace/adapter-testkit": "workspace:*"

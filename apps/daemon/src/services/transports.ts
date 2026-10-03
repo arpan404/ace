@@ -9,6 +9,11 @@ const transportFactories = [
     const relay = await startFilesRelay({
       ...options.relay,
       files: options.files,
+      ...(options.devices ? { appDevices: options.devices } : {}),
+      ...(options.browser ? { browser: options.browser } : {}),
+      ...(options.screen ? { screen: options.screen } : {}),
+      ...(options.canReadThread ? { canReadThread: options.canReadThread } : {}),
+      store: options.store,
       auth,
       devices: options.store.devices,
       hostId: options.hostId,

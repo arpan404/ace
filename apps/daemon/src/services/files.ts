@@ -1,3 +1,4 @@
+import { warmup } from "./warmup.ts";
 import { FilesService, attachFilesSocket } from "@ace/files";
 import { mkdir, realpath } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -18,11 +19,13 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
   if (config.workspaceRoot) {
     const eventStore = store;
     const workspaceRoot = await realpath(config.workspaceRoot);
+    owner.signal.throwIfAborted();
     const workspaceId = store.createWorkspace(config.workspaceRoot, basename(workspaceRoot));
     const artifactsDirectory = join(config.dataDir, "artifacts");
     await mkdir(artifactsDirectory, { recursive: true, mode: 0o700 });
     const artifactsRoot = await realpath(artifactsDirectory);
     files = await FilesService.create({
+      ...owner.options.files,
       workspace: workspaceRoot,
       dataDir: join(config.dataDir, "files"),
       artifactRoots: [artifactsRoot],
@@ -47,7 +50,6 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
     resources.own(() => filesService.close());
     const filesService = files;
     services.files = filesService;
-    await files.sweep();
     artifacts = daemonArtifacts(
       files,
       artifactsRoot,
@@ -63,11 +65,16 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
     );
     const artifactsService = artifacts;
     resources.own(() => artifactsService.close());
-    await artifacts.support(loadHostId(config.dataDir));
+    const job = warmup(owner, "files", async () => {
+      await filesService.sweep(owner.signal);
+      owner.signal.throwIfAborted();
+      await artifactsService.support(loadHostId(config.dataDir));
+    });
+    resources.own(() => job);
     const ownedFiles = files;
     maintenance = setInterval(() => {
       void ownedFiles
-        .sweep()
+        .sweep(owner.signal)
         .catch((error: unknown) => log.log("error", "File retention failed", error));
     }, 60_000);
     maintenance.unref();

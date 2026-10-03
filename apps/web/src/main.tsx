@@ -1,11 +1,13 @@
 import type { ClientApi } from "@ace/client";
 import { frameBatch } from "@ace/client-react";
-import { StrictMode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, AppFrame } from "./app.tsx";
 import { ConnectionGate } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl } from "./boot/connection-settings.ts";
 import { createDaemonClient } from "./boot/daemon.ts";
+import { desktopTarget, hasDesktopBridge } from "./boot/desktop.ts";
+import { StartingScreen } from "./features/connect/index.ts";
 import { markSeen } from "./features/thread/index.ts";
 import { profileName, setProfileName } from "./lib/profile.ts";
 import "./styles/index.css";
@@ -36,10 +38,12 @@ async function content() {
     await client.start();
     return app(client);
   }
+  const desktop = await desktopTarget();
   return (
     <ConnectionGate
       stores={{ local: localStorage, session: sessionStorage }}
-      defaultUrl={import.meta.env.VITE_ACE_DAEMON_URL ?? defaultDaemonUrl}
+      defaultUrl={desktop?.url ?? import.meta.env.VITE_ACE_DAEMON_URL ?? defaultDaemonUrl}
+      handed={desktop}
       createClient={createDaemonClient}
       fragment={location.hash}
       onFragmentRead={forgetFragment}
@@ -49,10 +53,15 @@ async function content() {
   );
 }
 
-const root = document.getElementById("root");
-if (!root) throw new Error("Missing #root");
-createRoot(root).render(
-  <StrictMode>
-    <AppFrame environment={environment}>{await content()}</AppFrame>
-  </StrictMode>,
-);
+const element = document.getElementById("root");
+if (!element) throw new Error("Missing #root");
+const root = createRoot(element);
+const render = (children: ReactNode) =>
+  root.render(
+    <StrictMode>
+      <AppFrame environment={environment}>{children}</AppFrame>
+    </StrictMode>,
+  );
+// The desktop app hands over its daemon only once it answers; until then, say so calmly.
+if (hasDesktopBridge()) render(<StartingScreen />);
+render(await content());

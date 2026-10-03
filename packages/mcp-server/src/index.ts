@@ -21,6 +21,8 @@ export {
   type AutomationAdapter,
 } from "./toolkits.ts";
 export {
+  AceMcpConnectionSchema,
+  redactMcpCredential,
   codexInjection,
   claudeInjection,
   openCodeInjection,
@@ -45,4 +47,10 @@ export { runStdioBridge, type BridgeOptions } from "./stdio-bridge.ts";
 export { acpStdioInjection, appendAcpMcp } from "./injection.ts";
 
 export type { ContentToolDefinition } from "./content-tools.ts";
-export { builtinToolCatalog } from "./catalog.ts";
+export { builtinToolCatalog, handoffToolCatalog } from "./catalog.ts";
+
+export {
+  agentControlToolkit,
+  agentControlToolCatalog,
+  type AgentControlPort,
+} from "./agent-control.ts";

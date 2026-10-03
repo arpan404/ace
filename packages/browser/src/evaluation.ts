@@ -1,9 +1,9 @@
-import type { CDPSession } from "playwright-core";
+import type { BrowserCdp } from "./backend.ts";
 import { CallResult } from "./cdp.ts";
 import { decodeEvaluationValue, serializeEvaluationValue } from "./evaluation-value.ts";
 
 /** Return bounded text over CDP, then validate and decode at the trusted host. */
-export async function evaluatePage(cdp: CDPSession, expression: string): Promise<unknown> {
+export async function evaluatePage(cdp: BrowserCdp, expression: string): Promise<unknown> {
   const response = CallResult.parse(
     await cdp.send("Runtime.evaluate", {
       timeout: 10_000,

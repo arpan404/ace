@@ -16,11 +16,37 @@
     "fork": {
       "type": "boolean"
     },
+    "forkPoints": {
+      "items": {
+        "enum": [
+          "turn",
+          "item",
+          "end"
+        ],
+        "type": "string"
+      },
+      "maxItems": 2,
+      "type": "array"
+    },
+    "forkSubagents": {
+      "type": "boolean"
+    },
     "imageInput": {
       "type": "boolean"
     },
     "interruptCascades": {
       "type": "boolean"
+    },
+    "launchOptions": {
+      "items": {
+        "enum": [
+          "effort",
+          "serviceTier"
+        ],
+        "type": "string"
+      },
+      "maxItems": 2,
+      "type": "array"
     },
     "planMode": {
       "type": "boolean"
@@ -29,6 +55,9 @@
       "type": "boolean"
     },
     "rewindFiles": {
+      "type": "boolean"
+    },
+    "sessionOptions": {
       "type": "boolean"
     },
     "steer": {

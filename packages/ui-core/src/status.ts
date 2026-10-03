@@ -11,6 +11,8 @@ export function threadStatusLabel(status: ThreadStatus): { label: string; tone: 
       return { label: "Working", tone: "working" };
     case "waiting":
       return { label: `Waiting on ${status.on.replace("_", " ")}`, tone: "waiting" };
+    case "limited":
+      return { label: "Limited", tone: "waiting" };
     case "failed":
       return { label: "Failed", tone: "failed" };
     case "unresponsive":

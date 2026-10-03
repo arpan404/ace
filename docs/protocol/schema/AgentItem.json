@@ -13,8 +13,18 @@
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "mergedContext": {
+          "$ref": "https://ace.local/protocol/v1/MergedForkContext.json"
+        },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
         },
         "parts": {
           "items": {
@@ -70,8 +80,15 @@
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
         },
         "raw": {
           "default": [],
@@ -122,8 +139,15 @@
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
         },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
@@ -154,6 +178,9 @@
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
@@ -163,6 +190,10 @@
             "warning",
             "error"
           ],
+          "type": "string"
+        },
+        "nativeId": {
+          "maxLength": 256,
           "type": "string"
         },
         "raw": {
@@ -211,8 +242,15 @@
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
         },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"

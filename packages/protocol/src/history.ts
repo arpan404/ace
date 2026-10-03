@@ -30,14 +30,35 @@ export const HistorySession = z.object({
   ]),
 });
 export type HistorySession = z.infer<typeof HistorySession>;
+/** Progress counts only native content reads; unchanged files are statted, never sampled. */
+export const HistoryScanStats = z.object({
+  files: z.number().int().nonnegative(),
+  reads: z.number().int().nonnegative(),
+  bytes: z.number().int().nonnegative(),
+  skipped: z.number().int().nonnegative(),
+});
+export const HistoryScanStatus = z.object({
+  state: z.enum(["idle", "scanning", "ready", "failed"]),
+  stats: HistoryScanStats,
+  unsupported: z.array(z.object({ instanceId: z.string(), reason: z.string() })).max(256),
+  error: z.string().max(8192).optional(),
+});
+export type HistoryScanStatus = z.infer<typeof HistoryScanStatus>;
+export const HistoryScanUpdated = z.object({
+  type: z.literal("history.scan.updated"),
+  scan: HistoryScanStatus,
+});
 export const HistoryListRequest = z.object({
   type: z.literal("history.list"),
+  requestId: z.string().min(1).max(256).optional(),
   cwd: z.string(),
   limit: z.number().int().min(1).max(200).default(50),
   before: z.object({ lastActivity: Timestamp, id: z.string() }).optional(),
 });
 export const HistoryListResponse = z.object({
   type: z.literal("history.list"),
+  requestId: z.string().min(1).max(256).optional(),
+  scan: HistoryScanStatus.optional(),
   sessions: z.array(HistorySession).max(200),
   next: z.object({ lastActivity: Timestamp, id: z.string() }).nullable(),
 });
@@ -59,9 +80,15 @@ export const HistoryImportResponse = z.discriminatedUnion("status", [
   }),
 ]);
 
-export const HistoryScanRequest = z.object({ type: z.literal("history.scan") });
+export const HistoryScanRequest = z.object({
+  type: z.literal("history.scan"),
+  requestId: z.string().min(1).max(256).optional(),
+  action: z.enum(["start", "status"]).optional(),
+});
 export const HistoryScanResponse = z.object({
   type: z.literal("history.scan"),
+  requestId: z.string().min(1).max(256).optional(),
+  scan: HistoryScanStatus.optional(),
   files: z.number().int().nonnegative(),
   unsupported: z.array(z.object({ instanceId: z.string(), reason: z.string() })).max(256),
 });

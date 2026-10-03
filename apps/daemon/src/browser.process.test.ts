@@ -3,6 +3,7 @@ import { once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { z } from "zod";
 import { describe, expect, it } from "vitest";
@@ -11,7 +12,6 @@ import { BrowserFrame } from "@ace/protocol";
 import { startDaemon } from "./index.ts";
 import { readConfig } from "./config.ts";
 import { createDevThread } from "./commands.ts";
-import { daemonCli } from "./process-test-support.ts";
 import { BrowserClient } from "./browser-test-client.ts";
 import { ownedBrowserPids, waitForBrowserExit } from "./browser-test-process.ts";
 
@@ -19,26 +19,29 @@ const executablePath = await detectChromium();
 const exec = promisify(execFile);
 describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
   it("streams to two authenticated clients, scopes control to a connection, and persists recordings as thread artifacts", async () => {
+    if (!executablePath) throw new Error("Missing explicit test Chromium");
     const home = await mkdtemp(join(tmpdir(), "ace-browser-wire-"));
     const daemon = await startDaemon({
       config: readConfig({ ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent" }),
-      browser: { ffmpeg: "/nonexistent/ffmpeg" },
+      browser: { executablePath, ffmpeg: "/nonexistent/ffmpeg" },
     });
     const clients = [new BrowserClient(daemon.url), new BrowserClient(daemon.url)];
     try {
-      const workspace = daemon.store.createWorkspace("/repo", "Repo");
+      const workspace = daemon.store.createWorkspace(home, "Repo");
       const thread = createDevThread(daemon.store, workspace);
       const token = await readFile(daemon.tokenPath, "utf8");
       const first = clients[0],
         second = clients[1];
       if (!first || !second) throw new Error("Missing clients");
       await Promise.all(clients.map((client) => client.hello(token)));
+      const opened = await first.request({
+        type: "browser.open",
+        requestId: "open",
+        options: { threadId: thread.id, workspaceId: workspace },
+      });
       expect(
-        await first.request({
-          type: "browser.open",
-          requestId: "open",
-          options: { threadId: thread.id, workspaceId: workspace },
-        }),
+        opened,
+        opened.type === "browser.result" && !opened.ok ? opened.error : undefined,
       ).toMatchObject({ ok: true });
       expect(
         await second.request({
@@ -128,17 +131,22 @@ describe.skipIf(!executablePath)("authenticated daemon browser wire", () => {
     "leaves no owned Chromium after daemon exit on %s",
     async (signal) => {
       const home = await mkdtemp(join(tmpdir(), "ace-browser-exit-"));
-      const daemon = spawn(process.execPath, [daemonCli()], {
-        env: {
-          ...process.env,
-          ACE_HOME: home,
-          ACE_PORT: "0",
-          ACE_LOG_LEVEL: "silent",
-          ACE_DEV: "1",
-          ACE_HISTORY_INSTANCES: "[]",
+      if (!executablePath) throw new Error("Missing explicit test Chromium");
+      const daemon = spawn(
+        process.execPath,
+        [fileURLToPath(new URL("./testing/browser-daemon.ts", import.meta.url)), executablePath],
+        {
+          env: {
+            ...process.env,
+            ACE_HOME: home,
+            ACE_PORT: "0",
+            ACE_LOG_LEVEL: "silent",
+            ACE_DEV: "1",
+            ACE_HISTORY_INSTANCES: "[]",
+          },
+          stdio: ["ignore", "pipe", "pipe"],
         },
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+      );
       const exited = once(daemon, "close");
       let output = "",
         errors = "";

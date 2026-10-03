@@ -6,6 +6,9 @@ const name = z.string().min(1).max(256);
 const tier = z.enum(["default", "standard", "fast", "flex", "priority"]);
 const effort = z.enum(["default", "none", "minimal", "low", "medium", "high", "xhigh", "max"]);
 export const SettingsValues = z.object({
+  "threads.followUpBehavior": z.enum(["steer", "queue"]),
+  "threads.continueAfterRestart": z.boolean(),
+  "threads.limitPolicy": z.enum(["manual", "resume_at_reset", "snooze_until_reset", "migrate_now"]),
   "providers.default": ProviderKind,
   "providers.coder.provider": ProviderKind,
   "providers.coder.model": name,
@@ -19,6 +22,8 @@ export const SettingsValues = z.object({
   "providers.planner.model": name,
   "providers.planner.tier": tier,
   "providers.planner.reasoningEffort": effort,
+  "browser.backend": z.enum(["auto", "embedded", "headless"]),
+  "browser.backendLoss": z.enum(["pause", "headless"]),
   "approvals.policy": z.enum(["ask", "on-failure", "never"]),
   "notifications.enabled": z.boolean(),
   "notifications.sound": z.boolean(),

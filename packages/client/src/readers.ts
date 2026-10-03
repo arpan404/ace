@@ -1,10 +1,11 @@
-import type { Item, ThreadListEntry, ThreadView } from "@ace/protocol";
+import type { ContextMeter, Item, ThreadListEntry, ThreadView } from "@ace/protocol";
 import type { ClientError } from "./errors.ts";
 
 /** Change keys of a thread store; a selector lists every key it reads. */
 export type ThreadKey =
   | "error"
   | "thread"
+  | "queue"
   | "order"
   | "cursor"
   | "history"
@@ -16,11 +17,15 @@ export type ThreadKey =
   | `run:${string}`
   | `interaction:${string}`
   | `task:${string}`
+  | `context:${string}`
   | `usage:${string}`
   | `usageSnapshot:${string}`;
 export interface ThreadReader {
   readonly error: ClientError | undefined;
   readonly thread: ThreadView["thread"] | undefined;
+  readonly queue: ThreadView["queue"] | undefined;
+  /** The root agent's context meter; select with `context:<rootAgentId>`. */
+  readonly context: ContextMeter | undefined;
   readonly order: readonly string[];
   readonly cursor: number | undefined;
   readonly itemsBefore: number | null | undefined;
@@ -36,6 +41,7 @@ export interface ThreadReader {
   interaction(id: string): ThreadView["interactions"][string] | undefined;
   task(id: string): ThreadView["backgroundTasks"][string] | undefined;
   usage(id: string): ThreadView["usage"][string] | undefined;
+  contextMeter(id: string): ContextMeter | undefined;
   usageSnapshot(key: string): ThreadView["usageSnapshots"][string] | undefined;
   truncated(id: string): boolean;
 }
