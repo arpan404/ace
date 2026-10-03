@@ -1,4 +1,4 @@
-# 0050: Durable queues, continuation and usage-limit recovery
+# 0053: Durable queues, continuation and usage-limit recovery
 
 Date: 2026-10-02. Status: proposed, implemented for review.
 
@@ -27,7 +27,10 @@ The commit before provider I/O is the claim boundary. Exactly-once external
 delivery cannot be promised across a crash. Unacknowledged claimed messages
 become uncertain and stay visible; they are never replayed automatically.
 Unclaimed messages keep their order and wait for explicit resume after restart
-unless `threads.continueAfterRestart` is enabled.
+unless `threads.continueAfterRestart` is enabled. A persisted continuation counts
+as queued engine work even when no user messages remain; its thread waits on
+queue until resumed. Paginated reads use revision-checked command-ID cursors.
+New admissions are bounded; older stored input shapes remain readable.
 
 ## Continuation and limits
 
@@ -61,8 +64,13 @@ totals. Add explicit context token, epoch and compaction facts. A session change
 or compaction invalidates the old sample until a fresh one arrives. Prefer the
 reported context window, then the exact account/model catalog entry; missing
 data stays unknown. Persist one row per agent and expose bounded thread pages.
-Provider stream deltas bypass queue, recovery and context work. Changed usage
+Provider stream deltas bypass recovery and context sampling work. Queue counts
+use partial indexes over outstanding intents rather than completed history. Changed usage
 updates only the affected agent, without reading transcript history.
+
+See the [queue and recovery API](../queue-and-recovery.md). Codex occupancy uses
+its [last token usage](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/v2/ThreadTokenUsageUpdatedNotification.json);
+Claude occupancy includes the [cache read and cache creation buckets](https://platform.claude.com/docs/en/build-with-claude/prompt-caching).
 
 Add schema-only queue/recovery definitions and exports, authenticated service
 registry routes and client helpers. No edits to `server.ts`. Settings retain
