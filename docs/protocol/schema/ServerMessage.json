@@ -39,6 +39,9 @@
       "$ref": "https://ace.local/protocol/v1/DiagnosticsHealthResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/PermissionCapabilitiesResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ContextResult.json"
     },
     {

@@ -199,6 +199,73 @@
             "permissions": {
               "additionalProperties": false,
               "properties": {
+                "guarantees": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "gates": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "network": {
+                            "type": "boolean"
+                          },
+                          "protectedReads": {
+                            "type": "boolean"
+                          },
+                          "shell": {
+                            "type": "boolean"
+                          },
+                          "writes": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "writes",
+                          "network",
+                          "protectedReads",
+                          "shell"
+                        ],
+                        "type": "object"
+                      },
+                      "level": {
+                        "enum": [
+                          "tool-gate",
+                          "sandbox",
+                          "tool-selection",
+                          "permission-requests"
+                        ],
+                        "type": "string"
+                      },
+                      "limitations": {
+                        "items": {
+                          "maxLength": 2048,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 32,
+                        "type": "array"
+                      },
+                      "mode": {
+                        "enum": [
+                          "read-only",
+                          "ask",
+                          "auto-review",
+                          "full-access"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "level",
+                      "gates",
+                      "limitations"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 4,
+                  "type": "array"
+                },
                 "modes": {
                   "items": {
                     "enum": [
@@ -559,6 +626,73 @@
             "permissions": {
               "additionalProperties": false,
               "properties": {
+                "guarantees": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "gates": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "network": {
+                            "type": "boolean"
+                          },
+                          "protectedReads": {
+                            "type": "boolean"
+                          },
+                          "shell": {
+                            "type": "boolean"
+                          },
+                          "writes": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "writes",
+                          "network",
+                          "protectedReads",
+                          "shell"
+                        ],
+                        "type": "object"
+                      },
+                      "level": {
+                        "enum": [
+                          "tool-gate",
+                          "sandbox",
+                          "tool-selection",
+                          "permission-requests"
+                        ],
+                        "type": "string"
+                      },
+                      "limitations": {
+                        "items": {
+                          "maxLength": 2048,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        "maxItems": 32,
+                        "type": "array"
+                      },
+                      "mode": {
+                        "enum": [
+                          "read-only",
+                          "ask",
+                          "auto-review",
+                          "full-access"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "level",
+                      "gates",
+                      "limitations"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 4,
+                  "type": "array"
+                },
                 "modes": {
                   "items": {
                     "enum": [
