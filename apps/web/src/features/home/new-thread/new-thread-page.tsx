@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Screen } from "@/features/shell/screen.tsx";
-import { Composer, type Draft } from "@/features/thread/composer/composer.tsx";
+import { Screen } from "@/features/shell/index.ts";
+import { Composer, type Draft } from "@/features/thread/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useProjects } from "../use-home-threads.ts";
 import { useOrganizerState } from "../use-organizer.ts";

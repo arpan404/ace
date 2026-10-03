@@ -1,8 +1,7 @@
 import type { ThreadKey } from "@ace/client";
 import { useItemOrder, useThread } from "@ace/client-react";
 import { useMemo } from "react";
-import { countChanges } from "./diff.ts";
-import { collectTurns, fileDiffs, turnsEqual, type Turn } from "./turns.ts";
+import { countChanges, collectTurns, fileDiffs, turnsEqual, type Turn } from "@ace/ui-core";
 
 const noTurns: readonly Turn[] = [];
 

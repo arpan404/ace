@@ -3,7 +3,6 @@ import { cn } from "@/lib/cn.ts";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import {
   cardColumns,
   cardStatus,
@@ -11,7 +10,8 @@ import {
   type CardTone,
   type DeckCard,
   type DeckRun,
-} from "./deck-model.ts";
+} from "@ace/ui-core";
+import { Spinner } from "@/components/ui/spinner.tsx";
 
 interface Edge {
   key: string;

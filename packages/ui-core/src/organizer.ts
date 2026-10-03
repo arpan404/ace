@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { readJson, writeJson, type KeyValueStorage } from "@/lib/storage.ts";
+import { readJson, writeJson, type KeyValueStorage } from "./storage.ts";
 
 /*
  * TODO(train-2): wire to protocol when merged. Settle, snooze, pin, read state, rename and

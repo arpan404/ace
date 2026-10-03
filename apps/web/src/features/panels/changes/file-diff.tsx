@@ -2,9 +2,8 @@ import { CaretDownIcon, CodeIcon, PlusIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { Fragment, useState } from "react";
 import type { ReactNode } from "react";
-import { pairRows, type DiffLine, type DiffRow, type SplitRow } from "./diff.ts";
+import { pairRows, type DiffLine, type DiffRow, type SplitRow, type FileDiff } from "@ace/ui-core";
 import { DiffStat } from "./diff-stat.tsx";
-import type { FileDiff } from "./turns.ts";
 
 export interface LineTarget {
   side: "old" | "new";

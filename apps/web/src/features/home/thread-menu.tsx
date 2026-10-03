@@ -12,6 +12,7 @@ import {
   TrashIcon,
 } from "@phosphor-icons/react";
 import type { ThreadListEntry } from "@ace/protocol";
+import type { ThreadRowFlags } from "@ace/ui-core";
 import { useState } from "react";
 import type { KeyboardEvent, ReactElement } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -30,20 +31,13 @@ import {
 import { SnoozeItems } from "./snooze-items.tsx";
 import { useThreadActions } from "./use-thread-actions.ts";
 
-export interface RowState {
-  settled: boolean;
-  unread: boolean;
-  pinned: boolean;
-  snoozed: boolean;
-}
-
 /**
  * Right-click menu for a thread row. R renames and ⇧N starts a thread on main while it is
  * open, as the hints say.
  */
 export function ThreadMenu(props: {
   entry: ThreadListEntry;
-  state: RowState;
+  state: ThreadRowFlags;
   onRename(): void;
   children: ReactElement;
 }) {

@@ -6,7 +6,8 @@ import { buttonVariants } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
-import { formatAge, useNow } from "@/lib/time.ts";
+import { useNow } from "@/lib/time.ts";
+import { formatAge } from "@ace/ui-core";
 import { useActivityState } from "./activity-state.tsx";
 
 /**

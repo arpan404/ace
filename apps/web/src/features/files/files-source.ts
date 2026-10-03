@@ -4,11 +4,7 @@
  * Neither is on the wire on this branch, so both use the fake backend in fake mode.
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  UnavailableError,
-  useFakeBackend,
-  type FakeBackend,
-} from "@/features/more/fake-backend.ts";
+import { UnavailableError, useFakeBackend, type FakeBackend } from "@/boot/fake-backend.ts";
 
 export interface ChangedFile {
   threadId: string;

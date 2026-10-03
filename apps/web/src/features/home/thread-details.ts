@@ -2,15 +2,7 @@
 // machine facts, so the card's branch, PR, worktree, machine and diff come from this source.
 // Today it holds the fake daemon's Home list; components depend only on `ThreadDetailsSource`.
 
-export interface ThreadDetails {
-  branch: string;
-  pr?: number;
-  /** The thread runs in its own worktree rather than the project checkout. */
-  worktree?: boolean;
-  /** Set when the thread runs on another machine. */
-  machine?: string;
-  diff?: { added: number; removed: number };
-}
+import type { ThreadDetails } from "@ace/ui-core";
 
 export interface ThreadDetailsSource {
   details(threadId: string): ThreadDetails | undefined;

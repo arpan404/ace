@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn.ts";
 import { useCallback, type CSSProperties } from "react";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { providerNames } from "../sources/model-source.ts";
+import { providerNames } from "@ace/ui-core";
 
 const activities: Record<string, string> = {
   thinking: "Thinking",

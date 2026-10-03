@@ -1,9 +1,8 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
-import { ActivityNotifier } from "@/features/activity/activity-notifier.tsx";
-import { CommandPalette } from "@/features/palette/command-palette.tsx";
-import { GlobalHotkeys } from "./global-hotkeys.tsx";
-import { Rail } from "./rail.tsx";
+import { ActivityNotifier } from "@/features/activity/index.ts";
+import { CommandPalette } from "@/features/palette/index.ts";
+import { GlobalHotkeys, Rail } from "@/features/shell/index.ts";
 
 /** Wallpaper, the rail of views, and the selected view (its sidebar and main column). */
 export function AppShell() {

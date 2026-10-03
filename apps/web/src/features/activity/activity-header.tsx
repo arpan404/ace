@@ -12,10 +12,10 @@ import {
   MenuRadioItem,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { useAutomationRuns } from "@/features/automations/use-automations.ts";
+import { useAutomationRuns } from "@/features/automations/index.ts";
 import { useActivityState } from "./activity-state.tsx";
 import { useFeed, useFeedSource } from "./feed-source.ts";
-import { useWorkspaces } from "./use-workspaces.ts";
+import { useWorkspaces } from "@/features/shell/index.ts";
 
 const allProjects = "*";
 

@@ -1,4 +1,13 @@
-import { providerNames } from "@/components/ui/provider-glyph.tsx";
+import {
+  providerNames,
+  agentStatusLabel,
+  describeActivity,
+  formatSpan,
+  glyphOf,
+  isRunning,
+  taskState,
+  whyNotDone,
+} from "@ace/ui-core";
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import {
   arrayEqual,
@@ -21,10 +30,7 @@ import { Button } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { agentStatusLabel } from "@/lib/status.ts";
 import { useNow } from "@/lib/time.ts";
-import { describeActivity, formatDuration, glyphOf, isRunning, taskState } from "./describe.ts";
-import { whyNotDone } from "./why.ts";
 
 const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-subtle-foreground";
 
@@ -155,7 +161,7 @@ function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
         </Button>
       )}
       <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
-        {formatDuration(agent.createdAt, end)}
+        {formatSpan(agent.createdAt, end)}
       </span>
     </div>
   );
@@ -201,7 +207,7 @@ function TaskRow(props: { threadId: string; taskId: string }) {
         {task.title}
       </span>
       <span className="min-w-0 flex-1 truncate text-xs text-subtle-foreground">
-        {formatDuration(task.startedAt, end)} · {taskState(task)}
+        {formatSpan(task.startedAt, end)} · {taskState(task)}
       </span>
       {running && task.stoppable && (
         <Button

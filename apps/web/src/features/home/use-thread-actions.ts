@@ -3,8 +3,7 @@ import type { ThreadListEntry } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import type { ThreadMark } from "./organizer.ts";
-import { describeWake } from "./snooze.ts";
+import { type ThreadMark, describeWake } from "@ace/ui-core";
 import { useOrganizer } from "./use-organizer.ts";
 
 /** How long Undo stays on screen; an archive is sent to the daemon only after it. */

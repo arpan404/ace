@@ -6,7 +6,7 @@ import { render } from "@testing-library/react";
 import { afterEach } from "vitest";
 import { App, AppFrame, createQueryClient } from "@/app.tsx";
 import { memoryStorage } from "@/boot/client.ts";
-import type { KeyValueStorage } from "@/lib/storage.ts";
+import { type KeyValueStorage } from "@ace/ui-core";
 
 const running: Client[] = [];
 afterEach(async () => {

@@ -2,7 +2,7 @@ import { PlusIcon, TrashIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import type { PanelDefinition } from "@/features/shell/panels.tsx";
+import type { PanelDefinition } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { AgentsTab } from "./agents/agents-tab.tsx";
 import { ChangesTab } from "./changes/changes-tab.tsx";

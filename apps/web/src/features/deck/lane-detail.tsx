@@ -1,14 +1,14 @@
 import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { StatusPill } from "@/components/status-pill.tsx";
-import type { Tone } from "@/lib/status.ts";
 import {
+  type Tone,
   cardStatus,
   type CardTone,
   type DeckCard,
   type DeckRun,
   type LaneRole,
-} from "./deck-model.ts";
+} from "@ace/ui-core";
 
 const pillTone: Record<CardTone, Tone> = {
   idle: "idle",

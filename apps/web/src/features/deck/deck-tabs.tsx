@@ -2,8 +2,8 @@ import { ArrowRightIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
+import { cardStatus, type DeckRun, type Gate } from "@ace/ui-core";
 import { StatusMark } from "./card-graph.tsx";
-import { cardStatus, type DeckRun, type Gate } from "./deck-model.ts";
 
 /** Lanes: every card that has a worker, with its reviewer and latest round. */
 export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) {

@@ -2,7 +2,7 @@ import type { Client } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
-import { readJson, writeJson, type KeyValueStorage } from "@/lib/storage.ts";
+import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 
 /**
  * In-app toast preferences for this device. They decide which live changes surface as a

@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import { ToastProvider } from "@/components/ui/toast.tsx";
 import { TooltipProvider } from "@/components/ui/tooltip.tsx";
 import { LayoutProvider } from "@/lib/layout.tsx";
-import type { KeyValueStorage } from "@/lib/storage.ts";
+import { type KeyValueStorage } from "@ace/ui-core";
 import { ThemeProvider, type Environment } from "@/theme/theme-provider.tsx";
 import { createAppRouter } from "./router.ts";
 

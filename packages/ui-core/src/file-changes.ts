@@ -1,13 +1,13 @@
 import type { FileChange, Item } from "@ace/protocol";
 
-export interface DiffLine {
+export interface PatchLine {
   kind: "add" | "del" | "context" | "hunk";
   text: string;
 }
 
 /** Lines of a unified diff, without file headers. */
-export function diffLines(diff: string): DiffLine[] {
-  const lines: DiffLine[] = [];
+export function patchLines(diff: string): PatchLine[] {
+  const lines: PatchLine[] = [];
   for (const line of diff.split("\n")) {
     if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff ")) continue;
     if (line.startsWith("@@")) lines.push({ kind: "hunk", text: line });
@@ -31,7 +31,7 @@ export function changeStat(change: FileChange): DiffStat {
   if (change.diff) {
     let added = 0;
     let removed = 0;
-    for (const line of diffLines(change.diff)) {
+    for (const line of patchLines(change.diff)) {
       if (line.kind === "add") added++;
       else if (line.kind === "del") removed++;
     }

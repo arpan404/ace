@@ -66,6 +66,7 @@ Reviews reject PRs containing such tests.
 - `bun run typecheck`
 - `bun run test` (Vitest). Never run `bun test`; that is Bun's own runner.
 - `bun run check:size` fails if any source file exceeds 1,500 lines.
+- `bun run check:deps` checks module boundaries in the web app and client packages (dependency-cruiser).
 - `bun run check` runs all of the above. It must pass before a task is complete.
 
 ## Recording fixtures

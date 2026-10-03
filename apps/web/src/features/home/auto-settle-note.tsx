@@ -8,7 +8,7 @@ import {
   MenuRadioItem,
   MenuTrigger,
 } from "@/components/ui/menu.tsx";
-import { AutoSettle } from "./organizer.ts";
+import { AutoSettle } from "@ace/ui-core";
 import { useOrganizer, useOrganizerState } from "./use-organizer.ts";
 
 const choices: Record<AutoSettle, string> = {

@@ -10,7 +10,7 @@ import type { AutomationRun, ThreadStatus } from "@ace/protocol";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useAutomationRuns } from "@/features/automations/use-automations.ts";
+import { useAutomationRuns } from "@/features/automations/index.ts";
 import { useNotificationPrefs } from "./notification-prefs.ts";
 import { runToasts, threadToasts, type ToastCause } from "./toast-rules.ts";
 

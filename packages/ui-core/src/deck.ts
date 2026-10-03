@@ -83,9 +83,9 @@ export interface DeckRun {
   updatedAt: number;
 }
 
-export type RunGroup = "gated" | "active" | "finished";
+export type DeckGroup = "gated" | "active" | "finished";
 
-export function runGroup(run: DeckRun): RunGroup {
+export function deckGroup(run: DeckRun): DeckGroup {
   if (run.gate) return "gated";
   if (run.phase === "merged" || run.phase === "cancelled" || run.phase === "failed")
     return "finished";
@@ -93,7 +93,7 @@ export function runGroup(run: DeckRun): RunGroup {
 }
 
 /** "2 of 6 merged": work cards only; the final merge card is not counted. */
-export function progress(run: DeckRun): { merged: number; total: number } {
+export function deckProgress(run: DeckRun): { merged: number; total: number } {
   const cards = run.cards.filter((card) => card.kind === "work");
   return { merged: cards.filter((card) => card.state === "merged").length, total: cards.length };
 }
@@ -102,8 +102,8 @@ const busy = (card: DeckCard) =>
   card.state === "working" || card.state === "fixing" || card.state === "in_review";
 
 /** The second line of a deck in the sidebar. */
-export function runSummary(run: DeckRun): string {
-  const { merged, total } = progress(run);
+export function deckRunSummary(run: DeckRun): string {
+  const { merged, total } = deckProgress(run);
   const tally = `${merged} of ${total} merged`;
   if (run.gate) {
     const ask =
@@ -134,15 +134,15 @@ export function runSummary(run: DeckRun): string {
   }
 }
 
-export type StepState = "done" | "current" | "todo";
-export interface Step {
+export type DeckStepState = "done" | "current" | "todo";
+export interface DeckStep {
   label: string;
-  state: StepState;
+  state: DeckStepState;
 }
 
 /** Goal → Plan approved → Dealing · n of m merged → Merge. */
-export function steps(run: DeckRun): Step[] {
-  const { merged, total } = progress(run);
+export function deckSteps(run: DeckRun): DeckStep[] {
+  const { merged, total } = deckProgress(run);
   const finished = run.phase === "merged";
   const dealing = run.planApproved && !finished;
   return [
@@ -157,6 +157,20 @@ export function steps(run: DeckRun): Step[] {
     },
     { label: finished ? "Merged" : "Merge", state: finished ? "done" : "todo" },
   ];
+}
+
+/** The Deck stepper: its steps, and whether the current one is paused rather than moving. */
+export function deckStepper(run: DeckRun): { steps: DeckStep[]; paused: boolean } {
+  return { steps: deckSteps(run), paused: run.phase === "paused" || run.phase === "cancelled" };
+}
+
+/** The deck a Deck view opens on: gated first, then active, then the latest. */
+export function landingDeck(runs: readonly DeckRun[]): DeckRun | undefined {
+  return (
+    runs.find((run) => deckGroup(run) === "gated") ??
+    runs.find((run) => deckGroup(run) === "active") ??
+    runs[0]
+  );
 }
 
 /**
@@ -208,7 +222,7 @@ export function cardStatus(
     case "merged":
       return { label: "Merged", mark: "check", tone: "done" };
     case "merge":
-      return { label: `Needs all ${progress(run).total}`, mark: "lock", tone: "idle" };
+      return { label: `Needs all ${deckProgress(run).total}`, mark: "lock", tone: "idle" };
   }
 }
 

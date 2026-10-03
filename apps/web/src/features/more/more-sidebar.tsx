@@ -2,7 +2,7 @@ import { ChartBarIcon, FilesIcon, MagnifyingGlassIcon } from "@phosphor-icons/re
 import { Link } from "@tanstack/react-router";
 import type { IconGlyph } from "@/components/icon.tsx";
 import { Icon } from "@/components/icon.tsx";
-import { ViewSidebar } from "@/features/shell/view-frame.tsx";
+import { ViewSidebar } from "@/features/shell/index.ts";
 
 const pages: readonly {
   to: "/more/accounts" | "/more/files" | "/more/search";

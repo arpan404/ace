@@ -1,11 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { GeneralSettings } from "@/features/settings/general-page.tsx";
-import { SettingsBody } from "@/features/settings/settings-body.tsx";
+import { GeneralSettingsScreen } from "@/features/settings/index.ts";
 
-export const Route = createFileRoute("/settings/general")({
-  component: () => (
-    <SettingsBody page="General">
-      <GeneralSettings />
-    </SettingsBody>
-  ),
-});
+export const Route = createFileRoute("/settings/general")({ component: GeneralSettingsScreen });

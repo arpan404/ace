@@ -7,11 +7,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
-import {
-  UnavailableError,
-  useFakeBackend,
-  type FakeBackend,
-} from "@/features/more/fake-backend.ts";
+import { UnavailableError, useFakeBackend, type FakeBackend } from "@/boot/fake-backend.ts";
 
 export type SkillKind = "skill" | "plugin" | "command";
 export type SkillSource = "repo" | "user" | "plugin";

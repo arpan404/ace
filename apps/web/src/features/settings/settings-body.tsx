@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Screen } from "@/features/shell/screen.tsx";
+import { Screen } from "@/features/shell/index.ts";
 
 /** One settings page: header "Settings  <page>", 48px body, 20px title, optional lede. */
 export function SettingsBody(props: {

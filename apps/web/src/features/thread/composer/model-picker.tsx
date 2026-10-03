@@ -6,7 +6,8 @@ import { cn } from "@/lib/cn.ts";
 import { Fragment } from "react";
 import { Menu, MenuContent, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { menuItem } from "@/components/ui/menu-styles.ts";
-import { providerNames, type ModelChoice } from "../sources/model-source.ts";
+import { providerNames } from "@ace/ui-core";
+import type { ModelChoice } from "../sources/model-source.ts";
 import { useThreadSources } from "../sources/index.ts";
 
 /** The model catalog with each account's usage, grouped by provider. */

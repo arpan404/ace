@@ -8,12 +8,11 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { usePanelServices } from "../services.ts";
 import { useLocal } from "../store.ts";
-import { countChanges } from "./diff.ts";
+import { countChanges, fileDiffs } from "@ace/ui-core";
 import { DiffStat } from "./diff-stat.tsx";
 import { discardDraft, draftKey, saveDraft, sendDrafts, type ReviewDraft } from "./drafts.ts";
 import { FileDiffBlock, type LineTarget } from "./file-diff.tsx";
 import { CommentComposer, DraftCard } from "./line-comment.tsx";
-import { fileDiffs } from "./turns.ts";
 import { useTurns } from "./use-turns.ts";
 
 const all = "all";

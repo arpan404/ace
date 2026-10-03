@@ -4,7 +4,7 @@ import { cn } from "@/lib/cn.ts";
 import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { diffLines } from "../lib/diff.ts";
+import { patchLines } from "@ace/ui-core";
 
 /** The expanded body of a work-log row: command output, diffs, reasoning or the error. */
 export function StepDetail(props: { item: Item }) {
@@ -146,7 +146,7 @@ const sign = { add: "+", del: "−", context: " ", hunk: "" };
 export function ChangeDiff(props: { change: FileChange }) {
   const { change } = props;
   const lines = change.diff
-    ? diffLines(change.diff)
+    ? patchLines(change.diff)
     : (change.newText ?? "").split("\n").map((text) => ({ kind: "add" as const, text }));
   return (
     <figure className="overflow-hidden rounded-card shadow-[inset_0_0_0_1px_var(--border)]">

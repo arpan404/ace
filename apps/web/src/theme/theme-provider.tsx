@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { writeJson, type KeyValueStorage } from "@/lib/storage.ts";
+import { writeJson, type KeyValueStorage } from "@ace/ui-core";
 import {
   bootThemeKey,
   loadAppearance,

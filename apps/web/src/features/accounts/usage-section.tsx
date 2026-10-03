@@ -2,7 +2,7 @@ import type { UsageRow, UsageTotals } from "@ace/protocol";
 import { useMemo, useState } from "react";
 import { DataTable, type DataColumns } from "@/components/data-table.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
-import { providerNames } from "@/components/ui/provider-glyph.tsx";
+import { providerNames } from "@ace/ui-core";
 import { useNow } from "@/lib/time.ts";
 import { ProviderKind } from "@ace/protocol";
 import { useUsage } from "./accounts-source.ts";

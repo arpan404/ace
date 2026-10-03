@@ -1,8 +1,8 @@
 import type { Client } from "@ace/client";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { ConnectionScreen } from "@/features/connect/connection-screen.tsx";
-import { DaemonConnectionContext, type DaemonConnection } from "./connection.tsx";
+import { ConnectionScreen } from "@/features/connect/index.ts";
+import { DaemonConnectionContext, type DaemonConnection } from "@/boot/connection.tsx";
 import {
   forgetToken,
   loadTarget,
@@ -10,7 +10,7 @@ import {
   targetFromFragment,
   type ConnectionStores,
   type DaemonTarget,
-} from "./connection-settings.ts";
+} from "@/boot/connection-settings.ts";
 
 /**
  * Owns the daemon client. Without a usable target it shows the connection screen; with one it

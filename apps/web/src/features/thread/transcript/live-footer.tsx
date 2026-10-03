@@ -2,7 +2,7 @@ import type { ThreadReader } from "@ace/client";
 import { useInteractions, useThread, useThreadMeta } from "@ace/client-react";
 import { useCallback } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { formatClock } from "../lib/clock.ts";
+import { formatClock } from "@ace/ui-core";
 import { InteractionCard } from "../interactions/interaction-card.tsx";
 import { agentName } from "../items/agent-row.tsx";
 

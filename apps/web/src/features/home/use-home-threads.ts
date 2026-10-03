@@ -3,7 +3,7 @@ import { arrayEqual, useSidebar, useSidebarIds, type SidebarKey } from "@ace/cli
 import type { ThreadListEntry } from "@ace/protocol";
 import { useCallback, useMemo } from "react";
 import { useNow } from "@/lib/time.ts";
-import { arrange, projectCounts, type Arrangement, type ProjectCount } from "./arrange.ts";
+import { arrange, projectCounts, type Arrangement, type ProjectCount } from "@ace/ui-core";
 import { useOrganizerState } from "./use-organizer.ts";
 
 const none: readonly string[] = [];
