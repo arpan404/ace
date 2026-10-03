@@ -1,3 +1,4 @@
+import { PermissionMode } from "./permissions.ts";
 import { z } from "zod";
 import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
@@ -18,6 +19,7 @@ export const AgentLaunchOptions = z.strictObject({
 export type AgentLaunchOptions = z.infer<typeof AgentLaunchOptions>;
 export const AgentSelection = z.object({
   provider: ProviderKind,
+  permissionMode: PermissionMode.optional(),
   ...AcpIdentity.partial().shape,
   model: z.string().min(1).max(256).optional(),
   accountId: AccountInstanceId.optional(),

@@ -1,3 +1,4 @@
+import { ApprovalTarget, PermissionReview } from "./permissions.ts";
 import { z } from "zod";
 import { AgentId, DeviceId, InteractionId, ItemId, ThreadId, Timestamp } from "./ids.ts";
 import { RawPayload } from "./provider.ts";
@@ -26,6 +27,7 @@ export type Question = z.infer<typeof Question>;
 export const InteractionRequest = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("approval"),
+    target: ApprovalTarget.optional(),
     title: z.string(),
     description: z.string().optional(),
     options: z.array(ApprovalOption),
@@ -107,6 +109,7 @@ export const Interaction = z.object({
    */
   blocking: z.boolean(),
   request: InteractionRequest,
+  review: PermissionReview.optional(),
   state: InteractionState,
   resolution: InteractionResolution.optional(),
   /** Device that answered first. Later answers are rejected. */

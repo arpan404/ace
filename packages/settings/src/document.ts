@@ -4,6 +4,7 @@ export { MAX_DOCUMENT_BYTES, MAX_CLIENT_BYTES, SettingsError } from "./validatio
 import { applyEdits, modify } from "jsonc-parser";
 import { SettingsDocument, SettingsValues, SettingsKey } from "@ace/protocol";
 import { z } from "zod";
+import { legacyPermissionMode } from "./legacy-permissions.ts";
 
 export function validateAssignment(
   key: string,
@@ -78,6 +79,14 @@ export function decode(text: string): DecodedDocument {
     throw new SettingsError("validation", "Settings document has invalid known values");
   for (const key of ["clients.theme", "clients.keybindings"] as const) {
     if (Object.hasOwn(result.data.settings, key)) validateValue(key, result.data.settings[key]);
+  }
+  if (
+    result.data.settings["permissions.defaultMode"] === undefined &&
+    result.data.settings["approvals.policy"] !== undefined
+  ) {
+    const policy = result.data.settings["approvals.policy"];
+    text = edit(text, ["settings", "permissions.defaultMode"], legacyPermissionMode(policy));
+    return { ...decode(text), migrated: true };
   }
   // Unknown data stays in validated source text, never in the hot resolution cache.
   const document = { version: 2 as const, settings: knownValues.parse(result.data.settings) };

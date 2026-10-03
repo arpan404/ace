@@ -1,3 +1,4 @@
+import { PermissionMode } from "./permissions.ts";
 import { z } from "zod";
 import { ThreadId, WorkspaceId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
@@ -24,6 +25,8 @@ export const SettingsValues = z.object({
   "providers.planner.reasoningEffort": effort,
   "browser.backend": z.enum(["auto", "embedded", "headless"]),
   "browser.backendLoss": z.enum(["pause", "headless"]),
+  "permissions.defaultMode": PermissionMode,
+  /** Deprecated. Explicit values migrate to permissions.defaultMode. */
   "approvals.policy": z.enum(["ask", "on-failure", "never"]),
   "notifications.enabled": z.boolean(),
   "notifications.sound": z.boolean(),

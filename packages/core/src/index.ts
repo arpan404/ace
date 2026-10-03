@@ -7,3 +7,13 @@ export { nextDeadline } from "./deadlines.ts";
 export { isActionableInteraction } from "./human.ts";
 
 export { readyForChildResults } from "./external.ts";
+export {
+  limitPermissionMode,
+  resolvePermissionMode,
+  supportsPermissionMode,
+  reviewPermission,
+  containsSecretReference,
+  isPermissionOption,
+  permissionResolutionError,
+} from "./permissions.ts";
+export type { RiskDecision, PathRisk } from "./permissions.ts";
