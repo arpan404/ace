@@ -2,6 +2,7 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
   DotsThreeIcon,
+  DotsThreeVerticalIcon,
   SidebarSimpleIcon,
   SquareHalfBottomIcon,
   SquareSplitHorizontalIcon,
@@ -10,6 +11,8 @@ import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
+import { useMediaQuery } from "@/lib/media.ts";
 import { useHistoryNav } from "@/lib/history-nav.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useViewFrame } from "./view-frame.tsx";
@@ -40,6 +43,7 @@ export function AppHeader(
   const nav = useHistoryNav();
   const { layout, togglePanel } = useLayout();
   const hasPanels = props.panels.right || props.panels.bottom;
+  const wide = useMediaQuery("(min-width: 48rem)", true);
   return (
     <header
       className={cn(
@@ -76,7 +80,7 @@ export function AppHeader(
           {props.title}
         </h1>
         {props.subtitle && (
-          <span className="shrink-0 truncate text-base font-normal text-muted-foreground">
+          <span className="hidden shrink-0 truncate text-base font-normal text-muted-foreground md:inline">
             {props.subtitle}
           </span>
         )}
@@ -90,10 +94,23 @@ export function AppHeader(
         )}
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
-        {props.actions}
+        {/* On a phone-width window the actions fold into one button, so the title keeps room. */}
+        {props.actions &&
+          (wide ? (
+            props.actions
+          ) : (
+            <Popover>
+              <PopoverTrigger
+                render={<IconButton icon={DotsThreeVerticalIcon} label="Actions" />}
+              />
+              <PopoverContent align="end" className="flex flex-wrap items-center gap-1.5 p-1.5">
+                {props.actions}
+              </PopoverContent>
+            </Popover>
+          ))}
         {hasPanels && (
           <>
-            {props.actions && <span aria-hidden className="mx-1 h-4 w-px bg-border" />}
+            {props.actions && wide && <span aria-hidden className="mx-1 h-4 w-px bg-border" />}
             {props.panels.bottom && (
               <IconButton
                 icon={SquareHalfBottomIcon}

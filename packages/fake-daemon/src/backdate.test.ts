@@ -62,11 +62,11 @@ test("the panels thread's turns, subagents and background relay are minutes old 
   expect(runs.filter((ago) => ago === 7 * minute + 20_000)).toHaveLength(2);
   const [relay] = Object.values(view.backgroundTasks);
   expect(now - (relay?.startedAt ?? now)).toBe(5 * minute + 20_000);
-  // Every first-turn edit took time: none of the work is stamped at a single instant.
-  const edits = Object.values(view.items).flatMap((item) =>
-    item.type === "tool_call" && item.call.endedAt !== undefined
-      ? [item.call.endedAt - item.call.startedAt]
+  // The first turn's work spans minutes between its steps, so it never reads "Worked for 1s".
+  const turnOne = Object.values(view.items).flatMap((item) =>
+    item.type === "tool_call" && now - item.call.startedAt > 20 * minute
+      ? [item.call.startedAt]
       : [],
   );
-  expect(Math.min(...edits)).toBeGreaterThanOrEqual(20_000);
+  expect(Math.max(...turnOne) - Math.min(...turnOne)).toBeGreaterThan(minute);
 });

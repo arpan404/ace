@@ -96,7 +96,7 @@ export function ShellPanel(props: { side: PanelSide; panel: PanelDefinition }) {
           right ? "border-l" : "border-t",
           overlay &&
             (right
-              ? "absolute inset-y-0 right-0 z-20 bg-background shadow-[-12px_0_32px_rgb(0_0_0/0.18)]"
+              ? "absolute inset-y-0 right-0 z-20 max-w-[calc(100%-3rem)] bg-background shadow-[-12px_0_32px_rgb(0_0_0/0.18)]"
               : "absolute inset-x-0 bottom-0 z-20 bg-background shadow-[0_-12px_32px_rgb(0_0_0/0.18)]"),
           panelMotion(presence),
         )}

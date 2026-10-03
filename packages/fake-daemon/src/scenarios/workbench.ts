@@ -73,13 +73,19 @@ function retryBudget(): Scenario {
     steps: [
       {
         kind: "facts",
+        agoMs: 8 * 60_000,
         facts: [
           ...opening(
             "claude",
             "The relay restarts app-server forever when it crashes on boot. Give it a retry budget.",
             "/Users/dev/relay",
           ),
-          ...retryBudgetEdits(),
+        ],
+      },
+      ...retryBudgetEdits(),
+      {
+        kind: "facts",
+        facts: [
           message(
             "root",
             "plan",
@@ -175,13 +181,19 @@ function refundTax(): Scenario {
     steps: [
       {
         kind: "facts",
+        agoMs: 11 * 60_000,
         facts: [
           ...opening(
             "claude",
             "A partial refund on a taxed order refunds the tax twice. Fix it and add a regression test.",
             "/Users/dev/billing-api",
           ),
-          ...refundTaxEdits(),
+        ],
+      },
+      ...refundTaxEdits(),
+      {
+        kind: "facts",
+        facts: [
           message(
             "root",
             "plan",
@@ -213,13 +225,19 @@ function installPage(): Scenario {
     steps: [
       {
         kind: "facts",
+        agoMs: 7 * 60_000,
         facts: [
           ...opening(
             "opencode",
             "Rewrite the install page around `ace start` and the service install.",
             "/Users/dev/docs-site",
           ),
-          ...installPageEdits(),
+        ],
+      },
+      ...installPageEdits(),
+      {
+        kind: "facts",
+        facts: [
           message(
             "root",
             "draft",

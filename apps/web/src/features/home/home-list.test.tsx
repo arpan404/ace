@@ -33,10 +33,11 @@ test("Home lists what needs you first, then work in motion, then trouble; done w
     "Partial refunds double-count tax",
     "Approval sheet loses its state on rotate",
     "Retry budget for app-server restarts",
-    // Working and waiting rank together, most recent first.
+    // Working and waiting rank together, by when each last moved: the hero thread's
+    // subagent picked up work 35s ago, the install page has been drafting for minutes.
     "Backpressure on broadcast fan-out",
-    "Rewrite the install page for the daemon",
     "Dedupe thread events after reconnect",
+    "Rewrite the install page for the daemon",
     "Invoice PDF locale fallback",
   ]);
   // The finished thread is long quiet, so it has settled out of the way.

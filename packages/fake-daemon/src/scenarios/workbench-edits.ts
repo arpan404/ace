@@ -1,6 +1,12 @@
 import type { Fact } from "@ace/core";
 import type { FileChange } from "@ace/protocol";
+import type { Step } from "../scenario.ts";
 import { tool, toolDone } from "./facts.ts";
+
+const minute = 60_000;
+/** Each edit as its own step, `agoMs` apart, so the work log spans real minutes. */
+const spaced = (edits: readonly Fact[][], agoMs: readonly number[]): Step[] =>
+  edits.map((facts, index) => ({ kind: "facts", agoMs: agoMs[index] ?? 0, facts }));
 
 /**
  * The edits the workbench threads made before they stopped to ask, so their Changes tab, the
@@ -72,15 +78,18 @@ const supervisorDiff = `@@ -1,9 +1,11 @@
    }
  }`;
 
-export function retryBudgetEdits(): Fact[] {
-  return [
-    ...edit("edit-restart-budget", [
-      { path: "src/supervisor/restart-budget.ts", kind: "add", newText: restartBudget },
-    ]),
-    ...edit("edit-supervisor", [
-      { path: "src/supervisor/supervisor.ts", kind: "update", diff: supervisorDiff },
-    ]),
-  ];
+export function retryBudgetEdits(): Step[] {
+  return spaced(
+    [
+      edit("edit-restart-budget", [
+        { path: "src/supervisor/restart-budget.ts", kind: "add", newText: restartBudget },
+      ]),
+      edit("edit-supervisor", [
+        { path: "src/supervisor/supervisor.ts", kind: "update", diff: supervisorDiff },
+      ]),
+    ],
+    [7 * minute, 4 * minute],
+  );
 }
 
 const taxDiff = `@@ -18,12 +18,15 @@ export function refundLines(order: Order, refund: RefundRequest): RefundLine[] {
@@ -118,11 +127,14 @@ describe("partial refunds", () => {
 });
 `;
 
-export function refundTaxEdits(): Fact[] {
-  return [
-    ...edit("edit-tax", [{ path: "src/refunds/tax.ts", kind: "update", diff: taxDiff }]),
-    ...edit("edit-tax-test", [{ path: "src/refunds/tax.test.ts", kind: "add", newText: taxTest }]),
-  ];
+export function refundTaxEdits(): Step[] {
+  return spaced(
+    [
+      edit("edit-tax", [{ path: "src/refunds/tax.ts", kind: "update", diff: taxDiff }]),
+      edit("edit-tax-test", [{ path: "src/refunds/tax.test.ts", kind: "add", newText: taxTest }]),
+    ],
+    [9 * minute, 5 * minute],
+  );
 }
 
 const installBefore = `# Installing ace
@@ -167,13 +179,16 @@ const legacyInstall = `# Legacy installer
 The .pkg installer is no longer published. Use \`ace start\` instead.
 `;
 
-export function installPageEdits(): Fact[] {
-  return [
-    ...edit("edit-install", [
-      { path: "docs/install.md", kind: "update", oldText: installBefore, newText: installAfter },
-    ]),
-    ...edit("delete-legacy", [
-      { path: "docs/legacy-install.md", kind: "delete", oldText: legacyInstall },
-    ]),
-  ];
+export function installPageEdits(): Step[] {
+  return spaced(
+    [
+      edit("edit-install", [
+        { path: "docs/install.md", kind: "update", oldText: installBefore, newText: installAfter },
+      ]),
+      edit("delete-legacy", [
+        { path: "docs/legacy-install.md", kind: "delete", oldText: legacyInstall },
+      ]),
+    ],
+    [6 * minute, 2 * minute],
+  );
 }

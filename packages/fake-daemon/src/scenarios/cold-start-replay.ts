@@ -52,6 +52,24 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
             "user",
             "A phone that resumes with seq 0 gets every event since the thread began. Cap cold-start replay.",
           ),
+        ],
+      },
+      {
+        kind: "facts",
+        agoMs: 23 * m + 50 * s,
+        facts: [
+          tool("root", "read-replay-1", {
+            kind: "file.read",
+            title: `Read ${replayTs.path}`,
+            detail: { kind: "file.read", path: replayTs.path },
+          }),
+          toolDone("root", "read-replay-1"),
+        ],
+      },
+      {
+        kind: "facts",
+        agoMs: 22 * m + 40 * s,
+        facts: [
           tool("root", "edit-replay-1", {
             kind: "file.edit",
             title: `Edit ${replayTs.path}`,
