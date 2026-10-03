@@ -1,4 +1,5 @@
 import { ThreadTransitionView } from "@ace/protocol";
+import { ThreadProviderMetadata } from "@ace/protocol";
 import { setImmediate } from "node:timers/promises";
 import type { ArchiveReader } from "@ace/history-import";
 import { installArchive, readHistoryBlob } from "./history-storage.ts";
@@ -350,6 +351,7 @@ export class Store {
       workspaceId: row.workspace_id,
       title: row.title,
       provider: row.provider,
+      ...(row.acp == null ? {} : ThreadProviderMetadata.parse(JSON.parse(String(row.acp)))),
       status: JSON.parse(String(row.status)),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -416,6 +418,17 @@ export class Store {
           }),
           thread.id,
         );
+        if (
+          event.payload.type === "thread.created" ||
+          (event.payload.type === "thread.updated" &&
+            (event.payload.effectiveCapabilities !== undefined ||
+              event.payload.acpSupport !== undefined))
+        ) {
+          this.statement("UPDATE threads SET acp = ? WHERE id = ?").run(
+            JSON.stringify(ThreadProviderMetadata.parse(thread)),
+            thread.id,
+          );
+        }
         event.payload = this.payloads.cap(event.payload, threadId);
         this.payloads.persist(event);
         this.status.persist(event, thread);

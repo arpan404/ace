@@ -6,6 +6,94 @@
     "thread": {
       "additionalProperties": false,
       "properties": {
+        "acpAgentId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "acpSupport": {
+          "additionalProperties": false,
+          "properties": {
+            "capabilities": {
+              "additionalProperties": false,
+              "properties": {
+                "imageInput": {
+                  "type": "boolean"
+                },
+                "planMode": {
+                  "type": "boolean"
+                },
+                "resume": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "resume",
+                "imageInput",
+                "planMode"
+              ],
+              "type": "object"
+            },
+            "coverage": {
+              "enum": [
+                "source_profile",
+                "generic",
+                "legacy"
+              ],
+              "type": "string"
+            },
+            "mcp": {
+              "enum": [
+                "http",
+                "stdio",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            "modeSelection": {
+              "type": "boolean"
+            },
+            "modelSelection": {
+              "type": "boolean"
+            },
+            "raw": {
+              "additionalProperties": false,
+              "properties": {
+                "json": {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                "truncated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "json",
+                "truncated"
+              ],
+              "type": "object"
+            },
+            "subagentSessions": {
+              "default": false,
+              "type": "boolean"
+            },
+            "visibility": {
+              "const": "limited",
+              "type": "string"
+            }
+          },
+          "required": [
+            "capabilities",
+            "mcp",
+            "modelSelection",
+            "modeSelection",
+            "subagentSessions",
+            "coverage",
+            "visibility",
+            "raw"
+          ],
+          "type": "object"
+        },
         "archivedAt": {
           "maximum": 9007199254740991,
           "minimum": 0,
@@ -15,6 +103,81 @@
           "maximum": 9007199254740991,
           "minimum": 0,
           "type": "integer"
+        },
+        "effectiveCapabilities": {
+          "additionalProperties": false,
+          "properties": {
+            "backgroundTaskControl": {
+              "type": "boolean"
+            },
+            "backgroundVisibility": {
+              "enum": [
+                "full",
+                "partial",
+                "none"
+              ],
+              "type": "string"
+            },
+            "fork": {
+              "type": "boolean"
+            },
+            "forkPoints": {
+              "items": {
+                "enum": [
+                  "turn",
+                  "item",
+                  "end"
+                ],
+                "type": "string"
+              },
+              "maxItems": 2,
+              "type": "array"
+            },
+            "forkSubagents": {
+              "type": "boolean"
+            },
+            "imageInput": {
+              "type": "boolean"
+            },
+            "interruptCascades": {
+              "type": "boolean"
+            },
+            "planMode": {
+              "type": "boolean"
+            },
+            "resume": {
+              "type": "boolean"
+            },
+            "rewindFiles": {
+              "type": "boolean"
+            },
+            "sessionOptions": {
+              "type": "boolean"
+            },
+            "steer": {
+              "type": "boolean"
+            },
+            "subagentTranscripts": {
+              "type": "boolean"
+            },
+            "tokenUsage": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "steer",
+            "interruptCascades",
+            "resume",
+            "fork",
+            "subagentTranscripts",
+            "backgroundTaskControl",
+            "backgroundVisibility",
+            "planMode",
+            "tokenUsage",
+            "imageInput",
+            "rewindFiles"
+          ],
+          "type": "object"
         },
         "execution": {
           "additionalProperties": false,
@@ -92,6 +255,11 @@
             "native": {
               "additionalProperties": false,
               "properties": {
+                "acpAgentId": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
                 "aliases": {
                   "items": {
                     "type": "string"
@@ -100,6 +268,16 @@
                 },
                 "forkedFromNativeId": {
                   "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "installationId": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "instanceId": {
+                  "maxLength": 256,
                   "minLength": 1,
                   "type": "string"
                 },
@@ -138,6 +316,16 @@
             "importedAt"
           ],
           "type": "object"
+        },
+        "installationId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "instanceId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
         },
         "lineage": {
           "additionalProperties": false,

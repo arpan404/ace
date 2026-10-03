@@ -1,3 +1,4 @@
+import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
 import { FilesClientMessage, FilesServerMessage } from "./files.ts";
 import {
   CommandsList,
@@ -141,6 +142,7 @@ export const ItemsPage = z.object({
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  RegistryRequest,
   ContextRequest,
   SettingsGet,
   SettingsSet,
@@ -215,6 +217,7 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  RegistryResult,
   ContextResult,
   SettingsResult,
   SettingsChanged,

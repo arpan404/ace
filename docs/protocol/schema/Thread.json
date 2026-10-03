@@ -2,11 +2,22 @@
   "$id": "https://ace.local/protocol/v1/Thread.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "acpSupport": {
+      "$ref": "https://ace.local/protocol/v1/AcpSessionSupport.json"
+    },
     "archivedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
     "createdAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "effectiveCapabilities": {
+      "$ref": "https://ace.local/protocol/v1/Capabilities.json"
     },
     "execution": {
       "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"
@@ -16,6 +27,16 @@
     },
     "imported": {
       "$ref": "https://ace.local/protocol/v1/ImportedProvenance.json"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
     },
     "lineage": {
       "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"

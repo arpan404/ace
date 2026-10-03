@@ -5,6 +5,7 @@ import {
   type ThreadLineage,
   type ThreadId,
   type WorkspaceId,
+  type AcpIdentity,
 } from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 export function createEngineThread(
@@ -18,6 +19,7 @@ export function createEngineThread(
     at: number;
     silenceMs: number;
     lineage?: ThreadLineage;
+    acpIdentity?: AcpIdentity;
   },
 ): void {
   const { id, workspaceId, selection, cwd, at, lineage } = input;
@@ -28,6 +30,7 @@ export function createEngineThread(
     provider: selection.provider,
     execution: selection,
     lineage,
+    ...input.acpIdentity,
     status: { state: "new" },
     createdAt: at,
     updatedAt: at,
@@ -38,7 +41,7 @@ export function createEngineThread(
     rootAgent: {
       agent: "root",
       fidelity: "full",
-      native: { provider: selection.provider },
+      native: { provider: selection.provider, ...input.acpIdentity },
       cwd,
       ...(selection.model ? { model: selection.model } : {}),
       ...(lineage ? { lineage } : {}),

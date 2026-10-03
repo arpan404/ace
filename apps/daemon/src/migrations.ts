@@ -86,7 +86,8 @@ const migrations = [
    CREATE TABLE history_blobs(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,size INTEGER NOT NULL);
    CREATE TABLE history_blob_chunks(blob_id TEXT NOT NULL REFERENCES history_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));`,
   `CREATE TABLE usage_deletions (seq INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, at INTEGER NOT NULL);`,
-  `ALTER TABLE threads ADD COLUMN transitions JSON;`,
+  `ALTER TABLE threads ADD COLUMN acp JSON;`,
+  ensureThreadMetadataColumns,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");
@@ -100,7 +101,8 @@ export function migrate(db: DatabaseSync): void {
     for (let i = version; i < migrations.length; i++) {
       const sql = migrations[i];
       if (sql === undefined) throw new Error("Missing migration");
-      db.exec(sql);
+      if (typeof sql === "string") db.exec(sql);
+      else sql(db);
       db.prepare(
         "INSERT INTO schema_version VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version",
       ).run(i + 1);
@@ -109,5 +111,13 @@ export function migrate(db: DatabaseSync): void {
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
+  }
+}
+
+/** Both branches used migration 9; accept either installed metadata column. */
+function ensureThreadMetadataColumns(db: DatabaseSync): void {
+  for (const name of ["acp", "transitions"]) {
+    if (!db.prepare("SELECT name FROM pragma_table_info('threads') WHERE name=?").get(name))
+      db.exec(`ALTER TABLE threads ADD COLUMN ${name} JSON`);
   }
 }

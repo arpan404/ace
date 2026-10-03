@@ -24,6 +24,7 @@
         "@ace/adapter-claude": "workspace:*",
         "@ace/adapter-codex": "workspace:*",
         "@ace/adapter-opencode": "workspace:*",
+        "@ace/agent-registry": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/commands": "workspace:*",
         "@ace/context": "workspace:*",
@@ -81,14 +82,22 @@
         "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
       },
+      "devDependencies": {
+        "@ace/adapter-acp": "workspace:*",
+        "@ace/adapter-testkit": "workspace:*",
+        "@ace/agent-registry": "workspace:*",
+      },
     },
     "packages/adapter-acp": {
       "name": "@ace/adapter-acp",
       "dependencies": {
+        "@ace/agent-registry": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
+        "@agentclientprotocol/sdk": "1.7.0",
         "zod": "^4.4.3",
       },
       "devDependencies": {
@@ -144,6 +153,20 @@
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "zod": "^4.6.5",
+      },
+    },
+    "packages/agent-registry": {
+      "name": "@ace/agent-registry",
+      "dependencies": {
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "tar-stream": "3.2.1",
+        "yauzl": "3.4.0",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@types/tar-stream": "^3.1.4",
+        "@types/yauzl": "^2.10.3",
       },
     },
     "packages/automations": {
@@ -220,6 +243,7 @@
     "packages/engine-api": {
       "name": "@ace/engine-api",
       "dependencies": {
+        "@ace/agent-registry": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
@@ -275,6 +299,7 @@
       "name": "@ace/mcp-server",
       "dependencies": {
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "@modelcontextprotocol/node": "2.1.0",
         "@modelcontextprotocol/server": "2.2.0",
         "jsonc-parser": "^3.3.1",
@@ -290,6 +315,7 @@
       "name": "@ace/models",
       "dependencies": {
         "@ace/adapter-claude": "workspace:*",
+        "@ace/agent-registry": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
@@ -498,6 +524,8 @@
 
     "@ace/adapter-testkit": ["@ace/adapter-testkit@workspace:packages/adapter-testkit"],
 
+    "@ace/agent-registry": ["@ace/agent-registry@workspace:packages/agent-registry"],
+
     "@ace/automations": ["@ace/automations@workspace:packages/automations"],
 
     "@ace/browser": ["@ace/browser@workspace:packages/browser"],
@@ -575,6 +603,8 @@
     "@ace/usage": ["@ace/usage@workspace:packages/usage"],
 
     "@ace/workspace": ["@ace/workspace@workspace:packages/workspace"],
+
+    "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@1.7.0", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-ZORuxsuEnLjRly7t6Ad7zAsWitjWsyprswyPUHz/yycPb+tTm3DGa8XheaHhRXqX8LS9snuxaYavXSRA50TlHw=="],
 
     "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.3.288", "", { "optionalDependencies": { "@anthropic-ai/claude-agent-sdk-darwin-arm64": "0.3.288", "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.288", "@anthropic-ai/claude-agent-sdk-linux-arm64": "0.3.288", "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": "0.3.288", "@anthropic-ai/claude-agent-sdk-linux-x64": "0.3.288", "@anthropic-ai/claude-agent-sdk-linux-x64-musl": "0.3.288", "@anthropic-ai/claude-agent-sdk-win32-arm64": "0.3.288", "@anthropic-ai/claude-agent-sdk-win32-x64": "0.3.288" }, "peerDependencies": { "@anthropic-ai/sdk": ">=0.93.0", "@modelcontextprotocol/sdk": "^1.29.0", "zod": "^4.0.0" } }, "sha512-W0axvKSBKC8E1rMvriV8NVMFfNv8uwN3HnJxUiFLJOQcJLp1MDp0SoAugkAKTn3WLx3JnqCxxME6bGvfNJzJoA=="],
 
@@ -846,7 +876,11 @@
 
     "@types/plist": ["@types/plist@3.0.5", "", { "dependencies": { "@types/node": "*", "xmlbuilder": ">=11.0.1" } }, "sha512-E6OCaRmAe4WDmWNsL/9RMqdkkzDCY1etutkflWk4c+AcjDU07Pcz1fQwTX0TQz+Pxqn9i4L1TU3UFpjnrcDgxA=="],
 
+    "@types/tar-stream": ["@types/tar-stream@3.1.5", "", { "dependencies": { "@types/node": "*" } }, "sha512-zCUA6CSDw0t2cpQiZixpyzfubpeuVZmBr5wztvuCG4bhy7reX/9wGXdZxEzz2CjMFLQ32UPR/01jzUUSRJeCeQ=="],
+
     "@types/ws": ["@types/ws@8.18.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w=="],
+
+    "@types/yauzl": ["@types/yauzl@2.10.3", "", { "dependencies": { "@types/node": "*" } }, "sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q=="],
 
     "@typescript/typescript-aix-ppc64": ["@typescript/typescript-aix-ppc64@7.0.2", "", { "os": "aix", "cpu": "ppc64" }, "sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ=="],
 
@@ -1194,6 +1228,8 @@
 
     "path-to-regexp": ["path-to-regexp@8.4.2", "", {}, "sha512-qRcuIdP69NPm4qbACK+aDogI5CBDMi1jKe0ry5rSQJz8JVLsC7jV8XpiJjGRLLol3N+R5ihGYcrPLTno6pAdBA=="],
 
+    "pend": ["pend@1.2.0", "", {}, "sha512-F3asv42UuXchdzt+xXqfW1OGlVBe+mxa2mqI0pg5yAHZPvFmY3Y6drSf/GQ1A86WgWEN9Kzh/WrgKa6iGcHXLg=="],
+
     "picocolors": ["picocolors@1.1.1", "", {}, "sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA=="],
 
     "picomatch": ["picomatch@4.0.7", "", {}, "sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA=="],
@@ -1347,6 +1383,8 @@
     "yallist": ["yallist@5.0.0", "", {}, "sha512-YgvUTfwqyc7UXVMrB+SImsVYSmTS8X/tSrtdNZMImM+n7+QTriRXyXim0mBrTXNeqzVF0KWGgHPeiyViFFrNDw=="],
 
     "yaml": ["yaml@2.9.1", "", { "bin": { "yaml": "bin.mjs" } }, "sha512-3NxN8+78OdzbT7C/WjGsyfPAtJaN3FNDsWxv7Y7mcDsT/oOmgW8BpyQQFFBnvZE3j9Y2Sdz1ULFLezL7Eb2yFw=="],
+
+    "yauzl": ["yauzl@3.4.0", "", { "dependencies": { "pend": "~1.2.0" } }, "sha512-jIH9yLR9wqr0wOS0TpBvo/g/2UgZH5qePVbjgRliiF0BYvOZyaBknKsF+x9Iht0O6sqgnB93rCICdOZFecJuDw=="],
 
     "zod": ["zod@4.6.5", "", {}, "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q=="],
 

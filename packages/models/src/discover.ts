@@ -18,6 +18,8 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
   const spawn = options.spawn ?? spawnSupervised;
   return async (instance: ModelInstance, signal: AbortSignal): Promise<CatalogModel[]> => {
     signal.throwIfAborted();
+    // Unprofiled session/new is executable startup behavior, not a metadata query.
+    if (instance.provider === "acp") return [];
     if (instance.provider === "claude")
       return normalizeClaude(
         await discoverClaudeModels({
@@ -41,7 +43,6 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       case "cursor":
         args.push("acp");
         break;
-      case "acp":
       case "antigravity":
         break;
     }

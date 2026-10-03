@@ -497,6 +497,11 @@
     },
     {
       "properties": {
+        "acpAgentId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "context": {
           "$ref": "https://ace.local/protocol/v1/MessageContext.json"
         },
@@ -506,6 +511,16 @@
           },
           "minItems": 1,
           "type": "array"
+        },
+        "installationId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "instanceId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
         },
         "model": {
           "type": "string"
@@ -603,6 +618,50 @@
       "required": [
         "type",
         "threadId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "model": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.model.set",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "model"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "mode": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.mode.set",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "mode"
       ],
       "type": "object"
     },

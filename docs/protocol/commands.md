@@ -574,6 +574,9 @@ Example:
 | type | yes | `"thread.create"` |  |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | model | no | string |  |
 | title | no | string |  |
 | input | yes | array | {"minItems":1,"items":{"$ref":"https://ace.local/protocol/v1/ContentPart.json"}} |
@@ -583,6 +586,7 @@ Example:
 
 ```json
 {
+  "acpAgentId": "example",
   "input": [
     {
       "mimeType": "example",
@@ -590,7 +594,7 @@ Example:
       "url": "example"
     }
   ],
-  "model": "example",
+  "instanceId": "example",
   "provider": "opencode",
   "type": "thread.create",
   "workspaceId": "example"
@@ -611,11 +615,11 @@ Example:
 
 ```json
 {
-  "delivery": "steer",
+  "delivery": "queue",
   "input": [
     {
-      "path": "example",
-      "type": "file"
+      "text": "example",
+      "type": "text"
     }
   ],
   "threadId": "example",
@@ -636,6 +640,8 @@ Example:
 
 ```json
 {
+  "agentId": "example",
+  "cascade": false,
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -657,6 +663,42 @@ Example:
 }
 ```
 
+### thread.model.set
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.model.set"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| model | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "model": "example",
+  "threadId": "example",
+  "type": "thread.model.set"
+}
+```
+
+### thread.mode.set
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.mode.set"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| mode | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "mode": "example",
+  "threadId": "example",
+  "type": "thread.mode.set"
+}
+```
+
 ### interaction.resolve
 
 | Field | Required | Type | Constraints |
@@ -671,9 +713,8 @@ Example:
 {
   "interactionId": "example",
   "resolution": {
-    "decision": "approve",
-    "feedback": "example",
-    "kind": "plan_review"
+    "action": "accept",
+    "kind": "elicitation"
   },
   "type": "interaction.resolve"
 }
@@ -713,31 +754,6 @@ Example:
 ```json
 {
   "commandId": "example",
-  "health": {
-    "activeSessions": 6,
-    "at": 6,
-    "eventLoop": {
-      "maxMs": 6,
-      "meanMs": null,
-      "p99Ms": null
-    },
-    "logs": {
-      "dropped": 1,
-      "failed": 7,
-      "queued": 1
-    },
-    "memory": {
-      "heapTotalBytes": 5,
-      "heapUsedBytes": 7,
-      "rssBytes": 4
-    },
-    "openHandles": 2,
-    "queues": {},
-    "sqlite": {
-      "pageBytes": null,
-      "walBytes": null
-    }
-  },
   "ok": false
 }
 ```

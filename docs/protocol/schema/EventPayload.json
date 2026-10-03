@@ -20,6 +20,9 @@
     },
     {
       "properties": {
+        "acpSupport": {
+          "$ref": "https://ace.local/protocol/v1/AcpSessionSupport.json"
+        },
         "archivedAt": {
           "anyOf": [
             {
@@ -29,6 +32,9 @@
               "type": "null"
             }
           ]
+        },
+        "effectiveCapabilities": {
+          "$ref": "https://ace.local/protocol/v1/Capabilities.json"
         },
         "execution": {
           "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"

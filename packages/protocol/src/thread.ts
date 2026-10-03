@@ -1,8 +1,9 @@
 import { ThreadLineage, ExecutionSelection, ThreadSwitch } from "./thread-transitions.ts";
+import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { z } from "zod";
 import { AgentId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
 import { ImportedProvenance } from "./history.ts";
-import { ProviderKind } from "./provider.ts";
+import { ProviderKind, Capabilities } from "./provider.ts";
 
 /** What started a run. Agents can start runs without anyone asking. */
 export const RunTrigger = z.enum([
@@ -58,11 +59,18 @@ export const ThreadStatus = z.discriminatedUnion("state", [
 ]);
 export type ThreadStatus = z.infer<typeof ThreadStatus>;
 
+export const ThreadProviderMetadata = AcpIdentity.partial().extend({
+  effectiveCapabilities: Capabilities.optional(),
+  acpSupport: AcpSessionSupport.optional(),
+});
+export type ThreadProviderMetadata = z.infer<typeof ThreadProviderMetadata>;
+
 export const Thread = z.object({
   id: ThreadId,
   workspaceId: WorkspaceId,
   title: z.string(),
   provider: ProviderKind,
+  ...ThreadProviderMetadata.shape,
   rootAgentId: AgentId.optional(),
   status: ThreadStatus,
   createdAt: Timestamp,

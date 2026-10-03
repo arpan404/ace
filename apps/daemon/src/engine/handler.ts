@@ -2,7 +2,7 @@ import { realpathSync, statSync } from "node:fs";
 import { validResolution } from "./resolution.ts";
 import { createEngineThread } from "./create-thread.ts";
 import { acceptTransition } from "./transition-handler.ts";
-import { ThreadId, type Command, type CommandResult } from "@ace/protocol";
+import { AcpIdentity, ThreadId, type Command, type CommandResult } from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -27,6 +27,8 @@ export function engineHandler(
           "thread.send",
           "thread.interrupt",
           "thread.archive",
+          "thread.model.set",
+          "thread.mode.set",
           "interaction.resolve",
           "background_task.stop",
         ].includes(p.type)
@@ -36,7 +38,10 @@ export function engineHandler(
         let threadId: ThreadId | undefined;
         let resolutionId: string | undefined;
         if (p.type === "thread.create") {
-          if (!registry.has(p.provider)) return fail("provider_unavailable");
+          const identity = p.provider === "acp" ? AcpIdentity.safeParse(p) : undefined;
+          if (p.provider === "acp" && !identity?.success) return fail("acp_identity_required");
+          const acpIdentity = identity?.success ? identity.data : undefined;
+          if (!registry.has(p.provider, acpIdentity)) return fail("provider_unavailable");
           const path = repo.workspace(p.workspaceId);
           if (!path) return fail("workspace_not_found");
           let cwd: string;
@@ -53,6 +58,7 @@ export function engineHandler(
             id: threadId,
             workspaceId: p.workspaceId,
             title: p.title ?? "New thread",
+            ...(acpIdentity ? { acpIdentity } : {}),
             selection: {
               provider: p.provider,
               options: {},

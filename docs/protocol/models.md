@@ -17,10 +17,15 @@ Semantic rule: The parsed model with defaults filled and unknown fields stripped
 | id | yes | string | {"minLength":1,"maxLength":256} |
 | displayName | yes | string | {"minLength":1,"maxLength":256} |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | instance | yes | string | {"minLength":1,"maxLength":256} |
 | nativeProviderId | no | string | {"minLength":1,"maxLength":256} |
 | nativeModelId | yes | string | {"minLength":1,"maxLength":256} |
 | resolvedModelId | no | string | {"minLength":1,"maxLength":256} |
+| modelConfigId | no | string | {"minLength":1,"maxLength":256} |
+| selectorMethod | no | ["session/set_config_option","session/set_model"] |  |
 | contextWindow | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
 | reasoningEfforts | yes | array | {"maxItems":32,"items":{"type":"string","minLength":1,"maxLength":256}} |
 | defaultEffort | no | string | {"minLength":1,"maxLength":256} |
@@ -36,23 +41,23 @@ Example:
 
 ```json
 {
-  "defaultEffort": "example",
-  "deprecated": false,
+  "defaultTier": "example",
+  "deprecated": true,
   "displayName": "example",
   "hidden": true,
   "id": "example",
   "inputModalities": [],
+  "installationId": "example",
   "instance": "example",
-  "isDefault": true,
+  "instanceId": "example",
+  "isDefault": false,
   "nativeModelId": "example",
-  "nativeProviderId": "example",
-  "provider": "cursor",
+  "provider": "antigravity",
   "raw": {
     "json": "example",
     "truncated": true
   },
   "reasoningEfforts": [],
-  "resolvedModelId": "example",
   "serviceTiers": []
 }
 ```
@@ -63,6 +68,9 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | instance | no | string | {"minLength":1,"maxLength":256} |
 
@@ -70,7 +78,9 @@ Example:
 
 ```json
 {
-  "instance": "example"
+  "instance": "example",
+  "instanceId": "example",
+  "provider": "acp"
 }
 ```
 
@@ -80,6 +90,9 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | instance | yes | string | {"minLength":1,"maxLength":256} |
 | refreshedAt | no | number | {"minimum":0} |
@@ -91,8 +104,9 @@ Example:
 
 ```json
 {
+  "installationId": "example",
   "instance": "example",
-  "provider": "claude",
+  "provider": "codex",
   "refreshing": false,
   "stale": true
 }
@@ -104,6 +118,9 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | instance | no | string | {"minLength":1,"maxLength":256} |
 | offset | no | integer | {"default":0,"minimum":0,"maximum":32768} |
@@ -113,7 +130,10 @@ Example:
 
 ```json
 {
-  "offset": 6
+  "acpAgentId": "example",
+  "installationId": "example",
+  "instance": "example",
+  "instanceId": "example"
 }
 ```
 
@@ -133,7 +153,7 @@ Example:
 {
   "instances": [],
   "models": [],
-  "nextOffset": 1
+  "nextOffset": 6
 }
 ```
 
@@ -157,21 +177,23 @@ Example:
 ```json
 {
   "model": {
-    "defaultEffort": "example",
+    "acpAgentId": "example",
+    "defaultTier": "example",
     "deprecated": false,
     "displayName": "example",
-    "hidden": true,
+    "hidden": false,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
-    "isDefault": true,
+    "isDefault": false,
     "nativeModelId": "example",
-    "provider": "codex",
+    "provider": "opencode",
     "raw": {
       "json": "example",
-      "truncated": false
+      "truncated": true
     },
     "reasoningEfforts": [],
+    "resolvedModelId": "example",
     "serviceTiers": []
   },
   "ok": true,
@@ -202,6 +224,9 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
 | instance | no | string | {"minLength":1,"maxLength":256} |
 | role | yes | string | {"minLength":1,"maxLength":256} |
@@ -216,9 +241,9 @@ Example:
 
 ```json
 {
-  "model": "example",
-  "provider": "antigravity",
+  "effort": "example",
   "role": "example",
+  "selection": "strongest",
   "tier": "example"
 }
 ```
@@ -277,9 +302,10 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
+    "instance": "example",
     "model": "example",
+    "preferenceOrder": [],
     "role": "example",
-    "selection": "strongest",
     "tier": "example"
   },
   "type": "models.resolve"
@@ -302,8 +328,31 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "instances": [],
-    "models": []
+    "effort": "example",
+    "model": {
+      "acpAgentId": "example",
+      "defaultEffort": "example",
+      "defaultTier": "example",
+      "deprecated": false,
+      "displayName": "example",
+      "hidden": false,
+      "id": "example",
+      "inputModalities": [],
+      "instance": "example",
+      "isDefault": false,
+      "nativeModelId": "example",
+      "nativeProviderId": "example",
+      "provider": "codex",
+      "raw": {
+        "json": "example",
+        "truncated": true
+      },
+      "reasoningEfforts": [],
+      "serviceTiers": []
+    },
+    "ok": true,
+    "reason": "example",
+    "stale": true
   },
   "type": "models.result"
 }
@@ -325,6 +374,7 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example"
+  "name": "example",
+  "parameters": {}
 }
 ```

@@ -1,4 +1,5 @@
 import { ThreadLineage, ExecutionSelection, ThreadSwitch } from "./thread-transitions.ts";
+import { AcpSessionSupport } from "./agent-registry.ts";
 import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
 import { UsageMetadata } from "./usage.ts";
@@ -17,7 +18,7 @@ import {
 } from "./ids.ts";
 import { Interaction, InteractionResolution, InteractionState } from "./interactions.ts";
 import { Item } from "./items.ts";
-import { NativeRef } from "./provider.ts";
+import { NativeRef, Capabilities } from "./provider.ts";
 import { Run, RunTrigger, Thread, ThreadStatus } from "./thread.ts";
 
 export const UsageUpdated = UsageMetadata.safeExtend({
@@ -40,6 +41,8 @@ export const EventPayload = z.discriminatedUnion("type", [
     lineage: ThreadLineage.optional(),
     execution: ExecutionSelection.optional(),
     switch: ThreadSwitch.optional(),
+    effectiveCapabilities: Capabilities.optional(),
+    acpSupport: AcpSessionSupport.optional(),
     status: ThreadStatus.optional(),
     archivedAt: Timestamp.nullable().optional(),
   }),

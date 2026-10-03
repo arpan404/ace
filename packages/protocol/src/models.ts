@@ -1,3 +1,4 @@
+import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
 
@@ -17,10 +18,13 @@ export const CatalogModel = z
     id: label,
     displayName: label,
     provider: ProviderKind,
+    ...AcpIdentity.partial().shape,
     instance: label,
     nativeProviderId: label.optional(),
     nativeModelId: label,
     resolvedModelId: label.optional(),
+    modelConfigId: label.optional(),
+    selectorMethod: z.enum(["session/set_config_option", "session/set_model"]).optional(),
     contextWindow: z.number().int().positive().optional(),
     reasoningEfforts: z.array(label).max(32),
     defaultEffort: label.optional(),
@@ -49,6 +53,7 @@ export const CatalogModel = z
   });
 export type CatalogModel = z.infer<typeof CatalogModel>;
 export const ModelFilter = z.object({
+  ...AcpIdentity.partial().shape,
   provider: ProviderKind.optional(),
   instance: label.optional(),
 });
@@ -59,6 +64,7 @@ export const ModelListOptions = ModelFilter.extend({
 });
 export type ModelListOptions = z.input<typeof ModelListOptions>;
 export const ModelInstanceStatus = z.object({
+  ...AcpIdentity.partial().shape,
   provider: ProviderKind,
   instance: label,
   refreshedAt: z.number().nonnegative().optional(),
