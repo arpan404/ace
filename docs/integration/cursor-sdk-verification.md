@@ -3,15 +3,17 @@
 This branch contains the local SDK adapter, SDK-first daemon selection,
 backend/instance persistence, capabilities, bounded portable context, HTTP MCP
 injection, selected-instance model discovery, auth host seam and passive SDK
-recording support. It is **not ready to merge** until auth UI/lifecycle assembly and the
-runtime validation below are complete. No live Cursor turn, browser login,
+recording support. Browser auth backend/protocol and durable checkpoint recovery
+are now assembled; UI implementation is separately owned. The branch is ready
+for static review, with runtime validation deferred to merge under owner policy. No live Cursor turn, browser login,
 fixture recording, benchmark, mutation or test was executed.
 
 The owner explicitly permits only formatting, lint, typecheck and source-size
 checks before merge. Behavior tests are written for merge-time execution.
 
 Static validation: `bun run fmt`, `bun run lint`, `bun run typecheck` and
-`bun run check:size` passed. These do not establish runtime correctness.
+`bun run check:size` passed (1,626 tracked sources within the hard limit). These
+do not establish runtime correctness.
 
 ## Written behavior tests — needs run at merge
 
@@ -38,11 +40,26 @@ Static validation: `bun run fmt`, `bun run lint`, `bun run typecheck` and
 - SDK input is bounded before durable admission; the pending/queued/in-flight input backlog refuses excess commands.
 - Host open publishes its native identity before frames, and unknown terminal status fences subsequent sends.
 
+Additional continuation behavior guards (all need run at merge):
+
+- Remote paired clients receive and poll their own browser login URL; another device is refused, and completion clears the URL.
+- Login return keys stay out of socket results; credentials/challenges stay out of accounts SQLite and canonical event history.
+- Sign-out cancels a browser exchange before deleting credentials; expiration clears challenges without a timed test sleep.
+- Default SDK admission enters accounts ownership with its original home before thread/auth requests; configured SDK launch environment remains separate from ambient credentials.
+- Selected account identity survives registry restart; thread creation pins it before asynchronous dispatch and honors an explicit override.
+- Official SQLite checkpoints and native run identity survive close/reopen; existing SDK JSONL remains readable and conflicting/partial formats preserve their source.
+- A real killed daemon resumes its pinned native/account identity, recovers a journal delta that missed ace's commit, skips a repeated committed delta and preserves identical messages in separate turns.
+- Callback boundary offsets never become durable SDK ObserveRun offsets, including after journal recovery.
+- Native queued/running records become interrupted after restart without resending input or changing already completed outcomes.
+- Torn journals, torn legacy native records and cursors beyond their journal refuse recovery without truncating evidence; metadata without native conversation state requires explicit handoff.
+- Oversized native checkpoint writes visibly fence further writes while retaining the previous checkpoint.
+- Late failed tools settle their original call without splitting replacement text or ending the logical steering run.
+- An old segment's callback/checkpoint overflow fences the shared host instead of letting replacement execution continue.
+
 Existing engine restart tests cover committed input, acknowledged/pending intents
-and uncertain delivery without automatic resend. Combined SDK crash-before-send,
-crash-after-send, parent-death, slow-consumer, heap failure, admission/logout races
-and auth UI service behavior need additional assembly tests and execution. The
-written account factory test covers two homes and selected-instance fencing.
+and uncertain delivery without automatic resend. Parent-death, slow-consumer,
+heap failure and combined cancellation/admission races still need execution and
+live SDK evidence at merge; static review is not runtime proof.
 
 ## Mutation cases — not executed (tests run at merge)
 
@@ -73,14 +90,39 @@ written account factory test covers two homes and selected-instance fencing.
 25. Persist a key-bearing auth status: strict auth schema refusal.
 26. Stop the other selected instance or release its writer: live second-host send and migration refusal.
 
+27. Expose one device's login challenge to another device: forbidden poll assertion.
+28. Retain a login URL after completion/cancellation: terminal event exclusion assertions.
+29. Delete credentials before the login worker exits: ordered sign-out outcomes assertion.
+30. Remove login expiration: cancelled/not-found state and challenge exclusion assertions.
+31. Resolve the account at async dispatch instead of command acceptance: selected/explicit account edge assertions.
+32. Replay a committed journal delta again: killed-daemon transcript assertion.
+33. Skip the journal delta missing from ace's commit: recovered complete text assertion.
+34. Feed callback positions into SDK ObserveRun: native offset independence assertion.
+35. Mark finished native runs interrupted: completed native outcome assertion.
+36. Reuse a partial/conflicting native store as a fresh SQLite checkpoint: source-preservation refusal assertions.
+37. Admit an oversized native checkpoint blob: prior checkpoint preservation and visible fence assertions.
+38. Split replacement text on a late tool completion: one replacement message assertion.
+39. Ignore shared host overflow from an old segment: failed whole-tree status assertion.
+
+40. Substitute the current default account for an unpinned resume: refused resume assertion.
+
+41. Re-register the original default SDK identity under a new home or bypass accounts ownership: daemon composition/pinned native home assertions.
+42. Substitute ambient credentials for the configured SDK environment: synthetic host auth-source assertion.
+
+43. Let the SDK silently drop a torn legacy JSONL record: source-preserving malformed checkpoint refusal.
+44. Resume agent metadata without its native conversation checkpoint: missing native state refusal.
+
+45. Admit a linked or oversized SDK credential store: cross-home source-preservation refusal.
+
 These are designed mutation cases, not evidence that executed mutations were killed.
 
 ## Performance — needs run at merge
 
 `packages/adapter-cursor/bench/translate.ts` measures admitted delta translation
 without accumulated transcript scans; `bench/ipc.ts` covers payload admission and
-shared writer backpressure. Both report ops/s, microseconds/op and peak
-RSS. **No numbers are available:** the owner prohibits benchmark execution.
+shared writer backpressure. `bench/checkpoints.ts` measures callback journal
+fsync/replay and the public native SQLite metadata store. All report ops/s,
+microseconds/op and peak RSS. **No numbers are available:** the owner prohibits benchmark execution.
 Long-session identity eviction, terminal boundaries, IPC/backpressure throughput
 and SDK full-conversation/native-helper RSS still need measured coverage. The SDK
 can buffer internally; an old-space budget is not a total process RSS guarantee.
@@ -91,8 +133,8 @@ Approved SDK fixtures: **none**. Existing ACP fixtures remain intact.
 All SDK scenarios use **1.0.35**, **composer-2.5**, disposable workspaces and a fresh
 isolated fixture instance. Namespace:
 `fixtures/cursor-sdk/1.0.35/composer-2.5`. The passive capture sink cannot start a
-turn or sign in; recorder CLI/lifecycle orchestration and fixture expectation
-generation remain assembly work.
+turn or sign in. Actual recorder orchestration and fixture expectations will be
+completed with the owner-approved recordings, without changing runtime admission.
 
 1. Text/thinking/read: streaming order, channel overlap, identities and terminal result.
 2. Edit/shell success/failure: diffs, output, exit status and failed tool/root outcomes.
@@ -115,41 +157,48 @@ Actual browser login is a separate owner action; auth callbacks, challenge URLs,
 keys and raw auth results never belong in recordings. No artificial quota-spending
 rate-limit scenario is proposed.
 
-## Departures and open integration work
+## Deliberate limits and merge-time work
 
-- Train 2 and Claude changes are merged into this branch. Account SDK factories,
-  narrow environment inheritance, CLI sign-in/status and safe auth-source storage
-  are integrated. Browser login/logout socket UI and selected-instance auth lifecycle
-  composition still need product integration and multi-instance execution. Generated
-  protocol references for additive SDK fields need regeneration at merge.
+- Backend browser auth and selected-instance lifecycle are assembled through the
+  daemon service registry. Web/desktop auth views and other client control wiring
+  are separately owned. Generated protocol references need regeneration at merge;
+  the owner's allowed-command list excludes documentation generation/checking.
+- New SDK threads use the public transactional SQLite store. Existing SDK JSONL
+  stores keep their format. Redacted callback journals commit before IPC and ace
+  commits its cursor atomically with canonical facts. Pure translation hydration
+  and journal replay own canonical content; native durable observations and
+  positional snapshots remain bounded evidence, never text-equality guesses.
+- Native active runs reconcile before continuation, and ace marks crash-live runs
+  failed/interrupted with actionable uncertain-delivery notices. Input is retained
+  without automatic resend. Native store cancellation cannot prove that provider
+  inference or every helper stopped; explicit uncertainty remains visible.
 - Restricted admission defaults to refusal. A trusted availability flag is the
   current gate; no authoritative Auto-review availability probe exists here.
   Sandbox/MCP fail-closed behavior needs the approved live scenario.
 - SDK task children inherit MCP credentials without reliable caller attribution.
   The daemon grants a read-only lease to the entire SDK host, including root;
-  mutating ace MCP calls remain unavailable.
-- Snapshot revision/position validation refuses uncertain appends, but a complete
-  live/snapshot reconciliation index and checkpoint-native run recovery are not
-  implemented. Instance/native admission identities persist early; unclaimed
-  checkpoint stores refuse fresh creation. ace history remains canonical;
-  uncertain dispatch is never replayed.
+  mutating ace MCP calls remain unavailable. No privileged custom-tool bypass.
 - Raw bodies above 256 KiB fail visibly rather than streaming directly from the
   SDK callback into blobs. Admitted raw data uses the existing daemon blob owner.
-- JavaScript heap/checkpoint/IPC bounds are implemented. Native/helper memory,
-  mid-turn checkpoint growth, SDK-internal buffering and ancestor symlinks need
-  stronger containment/measurement before claiming total bounded resources.
+- Heap/checkpoint/IPC/callback limits, native write guards and ancestor-symlink
+  refusal are implemented. Auth workers also reject linked/oversized credential
+  stores before SDK import without reading their contents. The SDK may buffer internally; heap limits do not
+  establish total native/helper RSS. Post-write disk checks may retain oversized
+  evidence and fence recovery for explicit context handoff. Measurements need
+  run at merge; no unbounded resume or total RSS guarantee is claimed.
 - Windows home/sandbox/process ownership is unsupported. POSIX parent-death and
-  idle cleanup have source-level ownership guards but need execution at merge.
+  idle cleanup need execution at merge. Exact 1.0.35 remains the admission gate;
+  future SDK versions require explicit acceptance.
 - Deeper nested task and background completion evidence remains incomplete.
-  Late authoritative non-child tool completion across steering segments is not
-  fully reconciled; unresolved work stays uncertain.
-- SDK catalog parameter metadata is retained/normalized, but end-to-end selection
-  of arbitrary SDK model parameters still needs a shared model-selection contract.
-- Billed usage association and quota windows remain unknown, with no guessed cost.
-- Client policy helpers are available; desktop/web/mobile control wiring needs
-  product integration before all user surfaces expose these controls.
-- SDK version churn is a refusal until explicitly accepted; separate SDK sign-in
-  and environment API-key policy must remain visible. No native ACP-to-SDK
-  checkpoint conversion or cross-account checkpoint copy is claimed.
+  Late authoritative tool completion across steering now settles the original
+  call; incomplete or missing evidence remains uncertain. Children are read-only,
+  with no independent send/resume/stop.
+- SDK catalog parameters are retained/normalized. Arbitrary parameter selection
+  awaits the shared model-selection contract. Billed usage and quota windows stay
+  unknown rather than inferred from token totals.
+- Separate SDK sign-in and the launch API-key override remain visible. Logout
+  deletes only the selected SDK credential store and does not revoke a key or
+  remove the environment override. No native ACP-to-SDK checkpoint conversion
+  or cross-account checkpoint copying; bounded context handoff preserves source.
 
 Do not merge this branch without the orchestrator's instruction.

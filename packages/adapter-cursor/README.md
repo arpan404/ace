@@ -77,11 +77,27 @@ dispatch does not settle a child. Missing lifecycle evidence becomes visible
 uncertainty before a root turn ends. Deeper nested/tool/shell/edit visibility is
 incomplete; shell deltas without authoritative call association remain raw notices.
 
-SDK JSONL checkpoints live under the private SDK home, separately for each ace
-thread. Resume validates a revision/position snapshot in a bounded worker before
-opening the live host. Snapshots are retained as reconciliation evidence rather
-than appended as new transcript messages with positional UUIDs. Missing/oversized
-recovery refuses with a context-handoff action. Explicit `thread.create.handoffFrom`
+New threads use Cursor's public transactional SQLite checkpoint store under the
+private SDK home, separately for each ace thread. Existing SDK JSONL checkpoints
+retain their format. Partial or conflicting formats refuse recovery and preserve
+the source. CLI JSONL histories are never SDK checkpoints.
+
+A bounded, redacted callback journal is fsynced before IPC. ace commits each
+boundary offset in the same SQLite transaction as its canonical facts. Restart
+hydrates the pure translator from committed frames and replays only uncommitted
+journal entries. Identical text from separate turns remains distinct. SDK durable
+ObserveRun offsets have their own cursor; Send/onDelta positions never feed it.
+Native run records reconcile interrupted runs before `Agent.resume`; a daemon
+crash produces a clear interrupted/uncertain outcome, retaining input without an
+automatic resend. Unique unclaimed native agents can be recovered; ambiguous
+identity is refused. Native store cancellation is not proof of remote inference
+cancellation, so surviving execution remains visibly uncertain.
+
+Resume validates native checkpoint revision and positional snapshot identity in
+a bounded worker before opening the live host. Snapshots and missing native
+message observations remain reconciliation evidence, never guesses at new
+canonical content. Missing, torn or oversized recovery refuses with an explicit
+context-handoff action. Explicit `thread.create.handoffFrom`
 starts a fresh agent using bounded ace-owned text/file/tool context, preserving
 the source and exposing truncation. No opaque ACP/SDK store is copied.
 
@@ -100,11 +116,14 @@ cleanup hangs. Tool/unknown bodies exceeding admission fail visibly and cancel;
 admitted large raw data uses the daemon's existing ADR 0006 blob owner.
 
 Checkpoint inventory gates the SDK's full-conversation load before pagination.
-Old-space limits bound JS heap, not helper/native RSS or mid-turn checkpoint disk
-growth. The SDK can buffer internally. Those resource limits and parent-death
-behavior need run at merge; they are not measured guarantees.
+Native store writes and journal appends have byte/inventory gates and visible
+failure fences; symlink ancestors are refused. A failed budget stops the host and
+retains its checkpoint. Old-space limits bound JS heap, not helper/native RSS.
+The SDK can buffer internally, and disk admission can discover growth after a
+native write. Resource limits and parent-death behavior need run at merge; they
+are not measured guarantees.
 
-Behavior tests, a non-gating delta benchmark and synthetic process tests are
+Behavior tests, non-gating delta/IPC/checkpoint benchmarks and synthetic process tests are
 written but **not executed** under the owner's merge-only rule. No SDK model turn,
 login, recorder, fixture, benchmark or mutation was run. See
 [verification and pending recordings](../../docs/integration/cursor-sdk-verification.md).

@@ -22,9 +22,26 @@ Daemon account factories and catalogs share `CursorHostSlots`. Sign-out callers
 must pass the binding's `stopInstance` fence to the login driver; it fences new
 factories and drains selected hosts before credential deletion. Reservations
 release on confirmed exit. A successful later sign-in calls `rebindInstance`
-after hosts drain. Browser login/logout socket UI and that lifecycle composition
-remain product integration work; no authentication request is inferred from an
-ordinary model turn.
+after hosts drain. The daemon registers browser auth through its service registry; no auth
+request is inferred from an ordinary model turn. `CursorAuthService` owns bounded,
+expiring, device-scoped login jobs. The typed WebSocket start/poll/cancel protocol
+returns the SDK URL to the authorized client, which opens it on its own device.
+No daemon-local browser launch is needed. Successful login rebinds the fenced
+instance and invalidates its model catalog; logout cancels an in-flight browser
+exchange before deleting the SDK store. Login also drains cached live hosts before
+changing the selected credential store. Status returns only effective auth source,
+including the environment override.
+
+Default SDK admission registers its original private home when entering accounts
+ownership, preserving pre-accounts checkpoints. The configured SDK launch
+environment is shared by session/auth/catalog workers through narrow accounts
+inheritance.
+
+`cursor.auth.select` stores the default SDK account in accounts SQLite. New
+`thread.create` commands pin that account at acceptance, with an optional explicit
+`instanceId`. Changing the default never changes an existing thread's account or
+checkpoint home. See [browser auth protocol](cursor-sdk-auth.md). The separately
+owned UI can use this backend without receiving a provider key.
 
 Runtime guards and multi-instance assembly tests need run at merge. There is no
 native ACP-to-SDK checkpoint conversion or cross-account SDK checkpoint copying;
