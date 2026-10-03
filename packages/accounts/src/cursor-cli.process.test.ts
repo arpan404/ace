@@ -27,7 +27,9 @@ it.each(["status", "login"] as const)(
       operation === "status"
         ? driver.status(instance, new AbortController().signal)
         : driver.login(instance, new AbortController().signal, () => {}),
-    ).rejects.toThrow("unavailable");
+    ).rejects.toThrow(
+      `Daemon SDK ${operation === "status" ? "auth status" : "login"} failed: unavailable`,
+    );
   },
 );
 
