@@ -1,64 +1,112 @@
 import { useSidebarThread } from "@ace/client-react";
-import type { ThreadStatus } from "@ace/protocol";
+import { FolderSimpleIcon, GitBranchIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { cn } from "cn";
-import { Dot } from "@/components/ui/dot.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
-import { threadStatusLabel } from "@/lib/status.ts";
+import { useState } from "react";
+import { Icon } from "@/components/icon.tsx";
 import { formatAge, useNow } from "@/lib/time.ts";
+import { isSnoozed, isUnread } from "./arrange.ts";
+import { RenameField } from "./rename-field.tsx";
+import { RowActions } from "./row-actions.tsx";
+import { ProviderMark, RowGlyphs, StatusMark, runningSubagents } from "./row-parts.tsx";
+import { describeWake } from "./snooze.ts";
+import { useThreadDetails } from "./thread-details.ts";
+import { ThreadMenu, type RowState } from "./thread-menu.tsx";
+import { useOrganizer, useThreadMark } from "./use-organizer.ts";
 
 /**
- * One Home row: project and age, the title, and the status mark. Colour only for needs-you
- * and failed; working is a grey spinner; the status word is for assistive tech.
- * Subscribes to its own sidebar entry, so other threads' updates skip it.
+ * One Home card: project and machine on line one with the age, the title on line two (medium
+ * when it needs you, is unread or open), branch and PR on line three with the status mark and
+ * provider. Settle and Snooze appear on hover; right-click opens the full menu. Subscribes to
+ * its own entry and mark, so other threads' updates skip it.
  */
 export function ThreadRow(props: { threadId: string }) {
-  const thread = useSidebarThread(props.threadId);
+  const entry = useSidebarThread(props.threadId);
+  const mark = useThreadMark(props.threadId);
+  const details = useThreadDetails(props.threadId);
+  const organizer = useOrganizer();
   const now = useNow();
-  if (!thread) return null;
-  const status = threadStatusLabel(thread.status);
-  const needsYou = thread.status.state === "needs_you";
-  return (
-    <Link
-      to="/t/$threadId"
-      params={{ threadId: thread.id }}
-      className={cn(
-        "group grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 rounded-md px-[11px] pt-[9px] pb-2.5 outline-none transition-colors duration-150 hover:bg-sidebar-accent compact:py-1.5",
-        "data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
+  const [renaming, setRenaming] = useState(false);
+  if (!entry) return null;
+  // The baseline is fixed when the organizer is first created, so reading it once is enough.
+  const { baseline } = organizer.getState();
+  const title = mark?.title ?? entry.title;
+  const snoozed = isSnoozed(mark, now);
+  const state: RowState = {
+    settled: false,
+    unread: isUnread(entry, mark, baseline),
+    pinned: mark?.pinned === true,
+    snoozed,
+  };
+  const emphasis = entry.status.state === "needs_you" || state.unread;
+  const lines = (
+    <>
+      <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-subtle-foreground">
+        <span className="truncate">{entry.workspaceId}</span>
+        <RowGlyphs
+          machine={details?.machine}
+          pinned={state.pinned}
+          {...(snoozed && mark?.snoozedUntil ? { wake: describeWake(mark.snoozedUntil, now) } : {})}
+        />
+      </span>
+      <span className="self-center text-xs whitespace-nowrap text-subtle-foreground group-focus-within/row:invisible group-hover/row:invisible">
+        {formatAge(entry.updatedAt, now)}
+      </span>
+      {renaming ? (
+        <RenameField entry={entry} title={title} onDone={() => setRenaming(false)} />
+      ) : (
+        <span
+          className={cn(
+            "col-span-2 line-clamp-2 text-base leading-[1.3] tracking-[-0.005em] text-muted-foreground compact:line-clamp-1",
+            "group-data-[status=active]/link:font-medium group-data-[status=active]/link:text-foreground",
+            emphasis && "font-medium text-foreground",
+          )}
+        >
+          {title}
+          {state.unread && entry.status.state !== "needs_you" && (
+            <span className="sr-only">, unread</span>
+          )}
+        </span>
       )}
-    >
-      <span className="truncate text-[12px] text-subtle-foreground">{thread.workspaceId}</span>
-      <span className="self-center text-xs whitespace-nowrap text-subtle-foreground">
-        {formatAge(thread.updatedAt, now)}
-      </span>
-      <span
-        className={cn(
-          "col-span-2 line-clamp-2 text-base leading-[1.3] tracking-[-0.005em] text-muted-foreground compact:line-clamp-1",
-          "group-data-[status=active]:font-medium group-data-[status=active]:text-foreground",
-          needsYou && "font-medium text-foreground",
+      <span className="flex min-w-0 items-center gap-[5px] font-mono text-[11px] text-subtle-foreground">
+        {details && (
+          <>
+            <Icon icon={details.worktree ? FolderSimpleIcon : GitBranchIcon} size={12} />
+            <span className="truncate">{details.branch}</span>
+            {details.pr !== undefined && (
+              <span className="shrink-0 font-sans text-xs">#{details.pr}</span>
+            )}
+          </>
         )}
-      >
-        {thread.title}
       </span>
-      <span className="col-start-2 flex items-center justify-end gap-2">
-        <StatusMark status={thread.status} />
-        <span className="sr-only">{status.label}</span>
+      <span className="flex items-center justify-end gap-2 whitespace-nowrap">
+        <StatusMark status={entry.status} />
+        <ProviderMark provider={entry.provider} subagents={runningSubagents(entry.status)} />
       </span>
-    </Link>
+    </>
   );
-}
-
-function StatusMark(props: { status: ThreadStatus }) {
-  switch (props.status.state) {
-    case "needs_you":
-      return <Dot tone="needs-you" />;
-    case "failed":
-      return <Dot tone="failed" />;
-    case "unresponsive":
-      return <Dot tone="unresponsive" />;
-    case "working":
-      return <Spinner />;
-    default:
-      return null;
-  }
+  const grid =
+    "grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 rounded-md px-[11px] pt-[9px] pb-2.5 outline-none transition-colors duration-150 compact:pt-1.5 compact:pb-[7px]";
+  return (
+    <ThreadMenu entry={entry} state={state} onRename={() => setRenaming(true)}>
+      <div className="group/row relative" data-thread-row={entry.id}>
+        {renaming ? (
+          <div className={cn(grid, "bg-sidebar-accent")}>{lines}</div>
+        ) : (
+          <Link
+            to="/t/$threadId"
+            params={{ threadId: entry.id }}
+            className={cn(
+              grid,
+              "group/link group-hover/row:bg-sidebar-accent focus-visible:bg-sidebar-accent",
+              "data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
+            )}
+          >
+            {lines}
+          </Link>
+        )}
+        {!renaming && <RowActions entry={entry} settled={false} snoozed={snoozed} />}
+      </div>
+    </ThreadMenu>
+  );
 }

@@ -1,17 +1,26 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { NotePencilIcon } from "@phosphor-icons/react";
-import { EmptyState } from "@/components/ui/empty.tsx";
-import { Screen } from "@/features/shell/screen.tsx";
+import { z } from "zod";
+import { NewThreadPage } from "@/features/home/new-thread/new-thread-page.tsx";
 
-/** ⌘N. TODO(thread slice): project picker and composer that creates the thread on send. */
-export const Route = createFileRoute("/_home/new")({
-  component: () => (
-    <Screen title="New thread">
-      <EmptyState
-        icon={NotePencilIcon}
-        title="Start a thread"
-        description="Pick a project and describe the work. The thread is created when you send."
-      />
-    </Screen>
-  ),
+/** `/new?project=ace&base=main`: both optional; the page falls back to remembered choices. */
+const NewThreadSearch = z.object({
+  project: z.string().min(1).optional().catch(undefined),
+  base: z.string().min(1).optional().catch(undefined),
 });
+
+/** ⌘N. The thread is created when the first message is sent. */
+export const Route = createFileRoute("/_home/new")({
+  validateSearch: NewThreadSearch,
+  component: NewThreadRoute,
+});
+
+function NewThreadRoute() {
+  const search = Route.useSearch();
+  return (
+    <NewThreadPage
+      key={`${search.project ?? ""}:${search.base ?? ""}`}
+      project={search.project}
+      base={search.base}
+    />
+  );
+}

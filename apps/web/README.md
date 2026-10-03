@@ -28,8 +28,8 @@ Each slice owns `src/features/<slice>/` and the route files for its screens:
 
 | Slice                                         | Folder                                                                       | Routes                                                          |
 | --------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Home (thread list)                            | `features/home`                                                              | `_home.tsx` (its sidebar), `_home.index.tsx`                    |
-| Thread (transcript, composer, header actions) | `features/thread`, `features/agents`                                         | `_home.t.$threadId.tsx`, `_home.new.tsx`                        |
+| Home (thread list, New thread)                | `features/home`                                                              | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx`   |
+| Thread (transcript, composer, header actions) | `features/thread`, `features/agents`                                         | `_home.t.$threadId.tsx`                                         |
 | Review (Changes tab)                          | `features/review`                                                            | panel tab in the thread screen                                  |
 | Preview                                       | `features/preview`                                                           | panel tab in the thread screen                                  |
 | Terminal and logs                             | `features/terminal`                                                          | bottom panel tabs                                               |

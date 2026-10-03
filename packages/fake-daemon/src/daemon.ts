@@ -20,6 +20,7 @@ import { Connection, matches, type Host, type Wire } from "./connection.ts";
 import { fakeHealth } from "./health.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
+import { startedThread } from "./scenarios/started-thread.ts";
 
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
@@ -183,6 +184,22 @@ export class FakeDaemon implements Host {
           return { commandId, ok: true };
         }
         return { commandId, ok: false, error: "not_found" };
+      }
+      case "thread.create": {
+        // Never reaches a provider: the new thread reads the request and keeps "working".
+        const id = `thread-${commandId}`;
+        if (this.threads.has(id)) return { commandId, ok: true };
+        const started = startedThread(id, payload);
+        this.createThread(started.thread);
+        this.apply(id, started.facts);
+        return { commandId, ok: true };
+      }
+      case "thread.archive": {
+        const host = this.threads.get(payload.threadId);
+        if (!host) return { commandId, ok: false, error: "not_found" };
+        const now = this.options.clock();
+        this.append(host, [{ type: "thread.updated", archivedAt: now }], now);
+        return { commandId, ok: true };
       }
       default:
         return { commandId, ok: false, error: "unsupported_by_fake_daemon" };

@@ -1,0 +1,86 @@
+import { ArrowsClockwiseIcon, CheckIcon, MoonIcon } from "@phosphor-icons/react";
+import type { ThreadListEntry } from "@ace/protocol";
+import { cn } from "cn";
+import type { ComponentProps, ReactNode } from "react";
+import { Icon } from "@/components/icon.tsx";
+import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
+import { SnoozeItems } from "./snooze-items.tsx";
+import { useThreadActions } from "./use-thread-actions.ts";
+
+/**
+ * Settle and Snooze (or Unsettle on a settled row), floating at the row's top right while the
+ * pointer or keyboard focus is on the row. They cover the age, which hides meanwhile.
+ */
+export function RowActions(props: {
+  entry: ThreadListEntry;
+  settled: boolean;
+  snoozed: boolean;
+  className?: string;
+}) {
+  const actions = useThreadActions();
+  const title = props.entry.title;
+  return (
+    <div
+      className={cn(
+        "absolute top-1.5 right-2 hidden gap-0.5 rounded-md bg-popover p-0.5 shadow-[0_1px_3px_rgb(0_0_0/0.18),var(--glass-highlight),0_0_0_0.5px_var(--border)] group-focus-within/row:flex group-hover/row:flex has-[[data-popup-open]]:flex",
+        props.className,
+      )}
+    >
+      {props.settled ? (
+        <HoverButton
+          icon={<Icon icon={ArrowsClockwiseIcon} size={14} />}
+          aria-label={`Unsettle ${title}`}
+          onClick={() => actions.unsettle(props.entry)}
+        >
+          Unsettle
+        </HoverButton>
+      ) : (
+        <>
+          <HoverButton
+            icon={<Icon icon={CheckIcon} size={14} />}
+            aria-label={`Settle ${title}`}
+            onClick={() => actions.settle(props.entry)}
+          >
+            Settle
+          </HoverButton>
+          <Menu>
+            <MenuTrigger
+              render={
+                <HoverButton
+                  icon={<Icon icon={MoonIcon} size={14} />}
+                  aria-label={`Snooze ${title}`}
+                >
+                  Snooze
+                </HoverButton>
+              }
+            />
+            <MenuContent align="end" className="min-w-[200px]">
+              <SnoozeItems entry={props.entry} actions={actions} snoozed={props.snoozed} />
+            </MenuContent>
+          </Menu>
+        </>
+      )}
+    </div>
+  );
+}
+
+function HoverButton({
+  icon,
+  children,
+  className,
+  ...props
+}: ComponentProps<"button"> & { icon: ReactNode }) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        "inline-flex h-[22px] items-center gap-1 rounded-sm px-[7px] text-xs font-medium text-muted-foreground outline-none transition-colors duration-150 hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground",
+        className,
+      )}
+      {...props}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
