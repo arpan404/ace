@@ -1,6 +1,6 @@
 import { Item, type ToolCall } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { describeStep, summarizeWork, workCounts } from "./work-log.ts";
+import { describeStep, summarizeWork, workCounts, workLogHeadline } from "./work-log.ts";
 
 let ids = 0;
 const call = (
@@ -91,4 +91,23 @@ test("a shell step notes its exit code, and a declined one says so instead", () 
   expect(ran).toMatchObject({ verb: "Ran", target: "ls", note: "exit 2" });
   const declined = describeStep(call({ kind: "shell", command: "ls" }, "declined", 0, 1));
   expect(declined.note).toBe("Declined");
+});
+
+test("the headline counts the elapsed time live while running and freezes when done", () => {
+  const running = summarizeWork([call({ kind: "shell", command: "bun run build" }, "running", 0)]);
+  expect(workLogHeadline(running, 12_000)).toMatchObject({
+    label: "Working for 12s",
+    current: "shell call",
+  });
+  const done = summarizeWork([
+    call({ kind: "shell", command: "bun run build" }, "succeeded", 0, 4 * 60_000 + 12_000),
+  ]);
+  const headline = workLogHeadline(done, 99 * 60_000);
+  expect(headline.label).toBe("Worked for 4m 12s");
+  expect(headline.current).toBeUndefined();
+});
+
+test("an instant burst of work still reads as one second", () => {
+  const done = summarizeWork([call({ kind: "file.read", path: "a" }, "succeeded", 5, 5)]);
+  expect(workLogHeadline(done, 5).label).toBe("Worked for 1s");
 });

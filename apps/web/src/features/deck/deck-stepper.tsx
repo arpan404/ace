@@ -3,12 +3,11 @@ import { cn } from "@/lib/cn.ts";
 import { Fragment } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { deckSteps, type DeckRun } from "@ace/ui-core";
+import type { DeckStep } from "@ace/ui-core";
 
-/** Goal → Plan approved → Dealing · n of m merged → Merge. */
-export function DeckStepper(props: { run: DeckRun }) {
-  const list = deckSteps(props.run);
-  const paused = props.run.phase === "paused" || props.run.phase === "cancelled";
+/** Goal → Plan approved → Dealing · n of m merged → Merge. Pure: pass `deckStepper(run)`. */
+export function DeckStepper(props: { steps: readonly DeckStep[]; paused: boolean }) {
+  const { steps: list, paused } = props;
   return (
     <ol aria-label="Deck progress" className="mt-3.5 flex flex-wrap items-center gap-2.5 text-sm">
       {list.map((step, index) => (

@@ -10,7 +10,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import type { ConductorCommandPayload } from "@ace/protocol";
 import { CardGraph } from "./card-graph.tsx";
 import { DeckGate } from "./deck-gate.tsx";
-import { defaultCard, type DeckRun } from "@ace/ui-core";
+import { deckStepper, defaultCard, type DeckRun } from "@ace/ui-core";
 import { useDeckRun, useDeckSource } from "./deck-source.ts";
 import { DeckStepper } from "./deck-stepper.tsx";
 import { LanesTab, LogTab, PlanChanges } from "./deck-tabs.tsx";
@@ -126,7 +126,7 @@ function RunScreen(props: {
               <p className="mt-1 max-w-[62ch] text-base leading-normal text-muted-foreground">
                 {run.goal}
               </p>
-              <DeckStepper run={run} />
+              <DeckStepper {...deckStepper(run)} />
             </div>
             <SegmentedControl
               label="Deck view"

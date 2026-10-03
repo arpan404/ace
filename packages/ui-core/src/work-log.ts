@@ -1,5 +1,6 @@
 import type { Item, ToolCall } from "@ace/protocol";
 import { changeStat } from "./file-changes.ts";
+import { formatElapsed } from "./time.ts";
 
 export type StepIcon = "read" | "search" | "shell" | "edit" | "web" | "tool" | "think" | "note";
 
@@ -201,4 +202,29 @@ export function workCounts(summary: WorkSummary): string {
   if (summary.other) parts.push(`Used ${plural(summary.other, "tool", "tools")}`);
   if (summary.failed) parts.push(`${summary.failed} failed`);
   return parts.join(" · ");
+}
+
+/** The work log's one line at rest: "Worked for 4m 12s", the counts, and the step in flight. */
+export interface WorkLogHeadline {
+  label: string;
+  /** "Explored 6 files · Ran 3 commands"; empty when nothing countable ran. */
+  counts: string;
+  running: boolean;
+  /** The step in flight, while running. */
+  current: string | undefined;
+  /** A step waits for approval, so the log should open by itself. */
+  awaiting: boolean;
+}
+
+/** Headline for a work log. `now` only matters while it runs; a short burst reads as 1s. */
+export function workLogHeadline(summary: WorkSummary, now: number): WorkLogHeadline {
+  const end = summary.running ? now : summary.endedAt;
+  const elapsed = formatElapsed(Math.max(1000, end - summary.startedAt));
+  return {
+    label: summary.running ? `Working for ${elapsed}` : `Worked for ${elapsed}`,
+    counts: workCounts(summary),
+    running: summary.running,
+    current: summary.running ? summary.current : undefined,
+    awaiting: summary.awaiting,
+  };
 }
