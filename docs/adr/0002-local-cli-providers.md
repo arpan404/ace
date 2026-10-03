@@ -32,7 +32,7 @@ Key-bearing SDK return values remain inside the isolated SDK host and are
 discarded. Sign-out stops the instance's hosts and deletes its SDK credential
 store through the SDK. Provider-dashboard revocation is a separate user action.
 
-API keys may come only from the user's launch environment. ace provides no key
+User-supplied API keys may come only from the user's launch environment. ace provides no key
 entry field or key-bearing RPC and persists no key in account records. The SDK
 consumes the environment value directly. Environment authentication must remain
 visible as a source even after stored-login sign-out.
