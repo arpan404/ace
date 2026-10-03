@@ -28,16 +28,25 @@ export function daemonClaudeAdapter(
       const mcp = context.services.mcp;
       const agentId = context.store.getThread(ctx.threadId)?.rootAgentId;
       if (!mcp || !agentId) throw new Error("Claude MCP scope is unavailable");
-      const lease = mcp.openSession(
-        {
-          sessionId: context.id(),
-          threadId: ctx.threadId,
-          agentId,
-          capabilities: ["agents", "notify"],
-        },
-        ctx.signal,
-      );
-      const ace = claudeInjection({ url: mcp.url, bearer: lease.bearer }).mcpServers;
+      const lease = ctx.aceMcp
+        ? {
+            bearer: ctx.aceMcp.bearer,
+            principal: { signal: ctx.aceMcp.signal ?? ctx.signal },
+            end: () => ctx.aceMcp?.end?.(),
+          }
+        : mcp.openSession(
+            {
+              sessionId: context.id(),
+              threadId: ctx.threadId,
+              agentId,
+              capabilities: ["agents", "notify", "thread_control", "automations", "projects"],
+            },
+            ctx.signal,
+          );
+      const ace = claudeInjection({
+        url: ctx.aceMcp?.url ?? mcp.url,
+        bearer: lease.bearer,
+      }).mcpServers;
       const redact = createRedactor({ env: { ACE_MCP_BEARER_TOKEN: lease.bearer } });
       // Control traffic is cold; redact its credentials without copying stream deltas.
       const stored = (value: unknown): unknown =>

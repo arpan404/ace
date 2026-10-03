@@ -67,7 +67,12 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           },
           lifetime,
         );
-        return { url: mcp.url, bearer: lease.bearer };
+        return {
+          url: mcp.url,
+          bearer: lease.bearer,
+          signal: lease.principal.signal,
+          end: lease.end,
+        };
       }),
     prepareInput:
       engineOptions.prepareInput ??

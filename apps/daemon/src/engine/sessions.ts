@@ -13,7 +13,11 @@ interface SessionDependencies {
   wake(id: ThreadId): void;
   expireDelivery(actor: ThreadActor): void;
   released(id: ThreadId): void;
-  mcp?(threadId: ThreadId, agentId: string, lifetime: AbortSignal): { url: string; bearer: string };
+  mcp?(
+    threadId: ThreadId,
+    agentId: string,
+    lifetime: AbortSignal,
+  ): NonNullable<SessionContext["aceMcp"]>;
   context?(
     threadId: ThreadId,
     signal: AbortSignal,

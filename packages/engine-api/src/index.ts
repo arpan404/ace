@@ -64,7 +64,7 @@ export interface SessionContext {
   model?: string;
   options?: AgentLaunchOptions;
   /** Ephemeral ace capability, revoked with this session. Never persisted. */
-  aceMcp?: { url: string; bearer: string };
+  aceMcp?: { url: string; bearer: string; signal?: AbortSignal; end?(): void };
   acpIdentity?: AcpIdentity;
   /** Immutable daemon-local plan; wrappers retain it when replacing lifetime signals. */
   acpLaunch?: LaunchPlan;
