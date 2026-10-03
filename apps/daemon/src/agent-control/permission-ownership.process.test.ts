@@ -1,4 +1,5 @@
 import { expect, test } from "vitest";
+import { ThreadId } from "@ace/protocol";
 import { setup } from "./test-support.ts";
 
 test("Deck delegates retain display ownership and cannot widen their parent's permission mode", async () => {
@@ -7,6 +8,8 @@ test("Deck delegates retain display ownership and cannot widen their parent's pe
   const deck = { deckId: "deck", runId: "run", workspaceId: workspace, role: "root" as const };
   const created = h.service.command("deck-parent", {
     type: "thread.prepare",
+    threadId: ThreadId.parse("deck-parent-root"),
+    title: "Deck parent",
     workspaceId: workspace,
     provider: "codex",
     deck,
