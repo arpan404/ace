@@ -1,9 +1,12 @@
 // `@` mentions and uploads through the daemon's context service (`context.request`):
 // mention.complete over the thread's checkout, and the resumable upload sequence (begin, chunks at
 // the acknowledged offset, commit) that turns a file into an attachment the next message carries.
+// Before a thread exists (New thread) the same operations run in a device-owned draft scope
+// (`draft.create`), whose id the draft `ThreadRef` carries and `thread.create` adopts (ADR 0057).
 import type { ClientApi } from "@ace/client";
 import {
   ThreadId,
+  WorkspaceId,
   type Attachment,
   type ContextOperation,
   type ContextResult,
@@ -65,27 +68,32 @@ export function daemonContextSource(client: ClientApi): ContextSource {
     (await client.request({ type: "context.request", operation }, signal ? { signal } : {})).result;
   return {
     async complete(thread, query, signal) {
-      // TODO(client-gaps): feat/client-protocol-gaps adds a pre-thread draft scope; until then
-      // the New thread composer has no checkout to complete against.
-      if (thread.draft) return [];
+      // A draft whose scope the daemon hasn't granted yet has nothing to complete against.
+      if (thread.draft && !thread.id) return [];
       const result = await ask(
-        { op: "mention.complete", threadId: ThreadId.parse(thread.id), query, limit: 8 },
+        thread.draft
+          ? { op: "draft.mention.complete", draftId: thread.id, query, limit: 8 }
+          : { op: "mention.complete", threadId: ThreadId.parse(thread.id), query, limit: 8 },
         signal,
       );
       return expect(result, "completion").paths;
     },
     async upload(thread, file, progress) {
-      if (thread.draft) throw new ContextError("Attach files once the thread has started.");
+      if (thread.draft && !thread.id)
+        throw new ContextError("The daemon isn't ready for files yet. Try again in a moment.");
       const bytes = await file.arrayBuffer();
       if (!bytes.byteLength) throw new ContextError(`${file.name} is empty.`);
+      const target = {
+        sha256: await sha256(bytes),
+        bytes: bytes.byteLength,
+        name: file.name.slice(0, 255) || "file",
+      };
       const begun = expect(
-        await ask({
-          op: "upload.begin",
-          threadId: ThreadId.parse(thread.id),
-          sha256: await sha256(bytes),
-          bytes: bytes.byteLength,
-          name: file.name.slice(0, 255) || "file",
-        }),
+        await ask(
+          thread.draft
+            ? { op: "draft.upload.begin", draftId: thread.id, ...target }
+            : { op: "upload.begin", threadId: ThreadId.parse(thread.id), ...target },
+        ),
         "upload",
       );
       const view = new Uint8Array(bytes);
@@ -111,6 +119,29 @@ export function daemonContextSource(client: ClientApi): ContextSource {
       );
       progress(1);
       return committed.attachment;
+    },
+  };
+}
+
+/**
+ * A draft scope for a thread that doesn't exist yet: mentions complete and files upload into it
+ * before the first send, and `thread.create` adopts it through `context.draftId`. Released when
+ * the project changes or the page closes, unless a thread adopted it.
+ */
+export function draftScopes(client: ClientApi) {
+  const ask = async (operation: ContextOperation) =>
+    (await client.request({ type: "context.request", operation })).result;
+  return {
+    async create(workspaceId: string): Promise<string> {
+      return expect(
+        await ask({ op: "draft.create", workspaceId: WorkspaceId.parse(workspaceId) }),
+        "draft",
+      ).draftId;
+    },
+    release(draftId: string): void {
+      void ask({ op: "draft.release", draftId }).catch(() => {
+        // The daemon drops abandoned drafts on its own; nothing to tell the person.
+      });
     },
   };
 }

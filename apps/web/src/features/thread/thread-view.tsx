@@ -1,5 +1,6 @@
 import { useThreadError, useThreadMeta } from "@ace/client-react";
-import { useMemo, useState, useSyncExternalStore } from "react";
+import type { ForkPoint } from "@ace/protocol";
+import { useMemo, useState } from "react";
 import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
@@ -9,8 +10,9 @@ import { threadPanels } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import { GitButton, OpenButton, RunButton } from "./header/header-actions.tsx";
-import { RenameDialog, ThreadMenuItems } from "./header/thread-menu.tsx";
-import { useThreadSources, type ThreadRef } from "./sources/index.ts";
+import { DeleteDialog, RenameDialog, ThreadMenuItems } from "./header/thread-menu.tsx";
+import type { ThreadRef } from "./sources/index.ts";
+import { ForkDialog, ForkOpener } from "./transitions/fork-dialog.tsx";
 import { Transcript } from "./transcript/transcript.tsx";
 
 /**
@@ -20,13 +22,11 @@ import { Transcript } from "./transcript/transcript.tsx";
 export function ThreadView(props: { threadId: string }) {
   const meta = useThreadMeta(props.threadId);
   const error = useThreadError(props.threadId);
-  const sources = useThreadSources();
-  const renamed = useSyncExternalStore(sources.actions.subscribe, () =>
-    sources.actions.title(props.threadId),
-  );
   const [renaming, setRenaming] = useState(false);
+  const [forking, setForking] = useState<ForkPoint>();
+  const [deleting, setDeleting] = useState(false);
   const id = props.threadId;
-  const title = renamed ?? meta?.title;
+  const title = meta?.title;
   const thread = useMemo<ThreadRef | undefined>(
     () => (meta && title !== undefined ? { id, workspaceId: meta.workspaceId, title } : undefined),
     [id, meta, title],
@@ -35,7 +35,16 @@ export function ThreadView(props: { threadId: string }) {
     <Screen
       title={title ?? "Loading thread…"}
       subtitle={meta?.workspaceId}
-      menu={thread && <ThreadMenuItems thread={thread} onRename={() => setRenaming(true)} />}
+      menu={
+        thread && (
+          <ThreadMenuItems
+            thread={thread}
+            onRename={() => setRenaming(true)}
+            onFork={setForking}
+            onDelete={() => setDeleting(true)}
+          />
+        )
+      }
       actions={
         thread && (
           <>
@@ -63,16 +72,20 @@ export function ThreadView(props: { threadId: string }) {
       ) : !meta ? (
         <TranscriptSkeleton />
       ) : (
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="min-h-0 flex-1">
-            <Transcript threadId={id} />
+        <ForkOpener value={setForking}>
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="min-h-0 flex-1">
+              <Transcript threadId={id} />
+            </div>
+            {thread && <ThreadComposer thread={thread} status={meta?.status} />}
           </div>
-          {thread && (
-            <ThreadComposer thread={thread} status={meta?.status} provider={meta?.provider} />
-          )}
-        </div>
+        </ForkOpener>
       )}
       {renaming && thread && <RenameDialog thread={thread} onClose={() => setRenaming(false)} />}
+      {deleting && thread && <DeleteDialog thread={thread} onClose={() => setDeleting(false)} />}
+      {forking && thread && (
+        <ForkDialog thread={thread} point={forking} onClose={() => setForking(undefined)} />
+      )}
     </Screen>
   );
 }

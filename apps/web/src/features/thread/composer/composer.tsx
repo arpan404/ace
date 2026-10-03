@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { Tip } from "@/components/ui/tooltip.tsx";
+import { formatKeys } from "@/lib/keymap.ts";
 import type { ThreadRef } from "../sources/index.ts";
 import { AttachmentChips, useAttachments } from "./attachments.tsx";
 import { accept, mentionsIn, triggerAt, type Trigger } from "./draft.ts";
@@ -19,8 +20,8 @@ export interface Draft {
   text: string;
   mentions: Mention[];
   attachments: { sha256: string }[];
-  /** ⌘↵: deliver into the running turn instead of waiting for the agent to be free. */
-  steer: boolean;
+  /** ⌘↵ / Ctrl+↵: the opposite of the follow-up default (steer instead of queue, or back). */
+  opposite: boolean;
 }
 
 /**
@@ -30,8 +31,10 @@ export interface Draft {
  */
 export function Composer(props: {
   thread: ThreadRef;
-  /** The agent is busy: Enter queues, ⌘↵ steers, and an empty composer offers Stop. */
+  /** The agent is busy: an empty composer offers Stop and a message follows up. */
   busy: boolean;
+  /** What Enter does with a follow-up while busy; ⌘↵ does the other. Defaults to queue. */
+  followUp?: "queue" | "steer" | undefined;
   onSubmit(draft: Draft): Promise<boolean>;
   onStop?: (() => void) | undefined;
   /** Controls left of the send button, e.g. the model picker. */
@@ -40,6 +43,7 @@ export function Composer(props: {
   autoFocus?: boolean | undefined;
 }) {
   const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
   const [caret, setCaret] = useState(0);
   const [dismissed, setDismissed] = useState<number>();
   const [highlight, setActive] = useState({ key: "", index: 0 });
@@ -61,7 +65,7 @@ export function Composer(props: {
   const listKey = trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : "";
   const active = highlight.key === listKey ? highlight.index : 0;
   const empty = !text.trim() && !attachments.items.length;
-  const canSend = !empty && !attachments.uploading;
+  const canSend = !empty && !attachments.uploading && !sending;
 
   // Fit the input to its text and decide whether the text has outgrown one line, on every
   // edit and again when the layout changes the input's width. An empty composer is always one
@@ -122,19 +126,25 @@ export function Composer(props: {
     setCaret(next.caret);
     placeCaret.current = next.caret;
   };
-  const submit = async (steer: boolean) => {
+  // The draft stays until the daemon has it, so a refusal never loses the text or files.
+  const submit = async (opposite: boolean) => {
     if (!canSend) return;
     const draft: Draft = {
       text: text.trim(),
       mentions: mentionsIn(text, picked.current),
       attachments: attachments.ready,
-      steer,
+      opposite,
     };
-    setText("");
-    setCaret(0);
-    attachments.clear();
-    picked.current.clear();
-    if (!(await props.onSubmit(draft))) setText(draft.text);
+    setSending(true);
+    try {
+      if (!(await props.onSubmit(draft))) return;
+      setText("");
+      setCaret(0);
+      attachments.clear();
+      picked.current.clear();
+    } finally {
+      setSending(false);
+    }
   };
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (open && trigger) {
@@ -220,6 +230,7 @@ export function Composer(props: {
           ref={input}
           rows={1}
           value={text}
+          readOnly={sending}
           autoFocus={props.autoFocus}
           aria-label="Message"
           placeholder={placeholder}
@@ -260,13 +271,16 @@ export function Composer(props: {
               </button>
             </Tip>
           ) : (
-            <Tip
-              label={props.busy ? "Queue · sends when the agent is free" : "Send"}
-              keys={props.busy ? "enter" : "mod+enter"}
-            >
+            <Tip label={sendHint(props.busy, props.followUp)} keys="enter">
               <button
                 type="button"
-                aria-label={props.busy ? "Queue message" : "Send"}
+                aria-label={
+                  props.busy
+                    ? props.followUp === "steer"
+                      ? "Steer message"
+                      : "Queue message"
+                    : "Send"
+                }
                 disabled={!canSend}
                 onClick={() => void submit(false)}
                 className={cn(
@@ -284,4 +298,13 @@ export function Composer(props: {
       </div>
     </div>
   );
+}
+
+/** The send button's hint: what Enter does now, and what ⌘↵ does instead. */
+function sendHint(busy: boolean, followUp: "queue" | "steer" | undefined): string {
+  if (!busy) return "Send";
+  const mod = formatKeys("mod+enter");
+  return followUp === "steer"
+    ? `Steer into the running turn · ${mod} queues it instead`
+    : `Queue · sends when the agent is free · ${mod} steers it in now`;
 }

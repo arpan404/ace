@@ -1,44 +1,64 @@
-// TODO(client-gaps): feat/client-protocol-gaps. Only `thread.archive` is a daemon command on
-// main; rename, fork, settle, snooze, delete and removing a queued message are not.
+// Thread organization (ADR 0057) and transitions (ADR 0051) as daemon commands, the same in fake
+// mode, where the fake daemon answers them. Each resolves once the daemon has accepted it and
+// rejects with `CommandRefused` when it says no.
+import type { ClientApi } from "@ace/client";
+import { ThreadId, type CommandPayload, type ForkPoint } from "@ace/protocol";
+import { runCommand } from "@/lib/daemon-command.ts";
 import type { ThreadRef } from "./workspace-source.ts";
 
-export type SnoozeUntil = "1 hour" | "Tomorrow 9:00" | "Next Monday";
+/** Provider, model and account a thread continues on after a switch (or a fork starts on). */
+export type Selection = Extract<CommandPayload, { type: "thread.switch" }>["selection"];
 
 export interface ThreadActionsSource {
   rename(thread: ThreadRef, title: string): Promise<void>;
-  /** Returns the new thread's id. */
-  fork(thread: ThreadRef): Promise<string>;
+  /** A new thread continuing from `point` with `input` as its first message; its id. */
+  fork(
+    thread: ThreadRef,
+    fork: { point: ForkPoint; input: string; selection?: Selection | undefined },
+  ): Promise<string>;
+  /** Continue on another provider, model or account from the next turn. */
+  switchTo(thread: ThreadRef, selection: Selection): Promise<void>;
   settle(thread: ThreadRef): Promise<void>;
-  snooze(thread: ThreadRef, until: SnoozeUntil): Promise<void>;
+  unsettle(thread: ThreadRef): Promise<void>;
+  /** Absolute time, or null to wake now. */
+  snooze(thread: ThreadRef, until: number | null): Promise<void>;
+  pin(thread: ThreadRef, pinned: boolean): Promise<void>;
+  archive(thread: ThreadRef): Promise<void>;
+  unarchive(thread: ThreadRef): Promise<void>;
+  /** Permanent: the daemon keeps a tombstone and refuses further work. */
   remove(thread: ThreadRef): Promise<void>;
-  restore(thread: ThreadRef): Promise<void>;
-  /** Withdraw a message that is waiting for the agent to be free. */
-  unqueue(thread: ThreadRef, intentId: string): Promise<void>;
-  /** Titles renamed here, until the daemon reports renames itself. */
-  title(threadId: string): string | undefined;
-  subscribe(changed: () => void): () => void;
 }
 
-export function fakeThreadActionsSource(): ThreadActionsSource {
-  const titles = new Map<string, string>();
-  const listeners = new Set<() => void>();
-  let forks = 0;
+const id = (thread: ThreadRef) => ThreadId.parse(thread.id);
+
+export function daemonThreadActions(client: ClientApi): ThreadActionsSource {
+  const run = async (payload: CommandPayload) => {
+    await runCommand(client, payload);
+  };
   return {
-    rename: (thread, title) => {
-      titles.set(thread.id, title);
-      for (const listener of listeners) listener();
-      return Promise.resolve();
+    rename: (thread, title) => run({ type: "thread.rename", threadId: id(thread), title }),
+    async fork(thread, fork) {
+      const result = await runCommand(client, {
+        type: "thread.fork",
+        threadId: id(thread),
+        point: fork.point,
+        input: fork.input,
+        budgetBytes: 16384,
+        ...(fork.selection
+          ? { selection: { ...fork.selection, options: fork.selection.options ?? {} } }
+          : {}),
+      });
+      if (!result.forkThreadId) throw new Error("The daemon didn't say which thread it created.");
+      return result.forkThreadId;
     },
-    fork: (thread) => Promise.resolve(`${thread.id}-fork-${++forks}`),
-    settle: () => Promise.resolve(),
-    snooze: () => Promise.resolve(),
-    remove: () => Promise.resolve(),
-    restore: () => Promise.resolve(),
-    unqueue: () => Promise.resolve(),
-    title: (threadId) => titles.get(threadId),
-    subscribe: (changed) => {
-      listeners.add(changed);
-      return () => listeners.delete(changed);
-    },
+    switchTo: (thread, selection) =>
+      run({ type: "thread.switch", threadId: id(thread), selection }),
+    settle: (thread) => run({ type: "thread.settle", threadId: id(thread) }),
+    unsettle: (thread) => run({ type: "thread.unsettle", threadId: id(thread) }),
+    snooze: (thread, until) => run({ type: "thread.snooze", threadId: id(thread), until }),
+    pin: (thread, pinned) => run({ type: "thread.pin", threadId: id(thread), pinned }),
+    archive: (thread) => run({ type: "thread.archive", threadId: id(thread) }),
+    unarchive: (thread) => run({ type: "thread.unarchive", threadId: id(thread) }),
+    remove: (thread) => run({ type: "thread.delete", threadId: id(thread) }),
   };
 }
