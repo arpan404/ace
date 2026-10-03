@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap, type KeymapId } from "@/lib/keymap.ts";
 import { useLayout, type PanelSide } from "@/lib/layout.tsx";
+import { useMediaQuery } from "@/lib/media.ts";
 import { panelMotion, usePresence } from "@/lib/motion.ts";
 
 export interface PanelTab {
@@ -37,24 +38,32 @@ function useViewport() {
   );
 }
 
-const bounds = (side: PanelSide, viewport: string) => {
+/** Below this width the panels float over the content instead of squeezing the column. */
+export const overlayPanelsQuery = "(max-width: 72rem)";
+
+const bounds = (side: PanelSide, viewport: string, overlay: boolean) => {
   const [width = 1440, height = 900] = viewport.split("x").map(Number);
-  // Right: 320px .. viewport − 600. Bottom: 120px .. 60vh (DESIGN-fable.md 5b).
-  return side === "right"
-    ? { min: 320, max: Math.max(320, width - 600) }
-    : { min: 120, max: Math.max(120, Math.round(height * 0.6)) };
+  // Right: 320px .. viewport − 600. Bottom: 120px .. 60vh (DESIGN-fable.md 5b). Floating, the
+  // right panel may cover all but a 48px strip of the column.
+  if (side === "right")
+    return overlay
+      ? { min: Math.min(320, width - 48), max: Math.max(280, width - 48) }
+      : { min: 320, max: Math.max(320, width - 600) };
+  return { min: 120, max: Math.max(120, Math.round(height * 0.6)) };
 };
 
 /**
  * A resizable tabbed panel on the right of or below the content. Open state, active tab and
- * size live in the shell layout and persist; the content column reflows around it. Opening
- * slides it a short way in from its edge; closing fades it out before the column reflows.
+ * size live in the shell layout and persist; the content column reflows around it, or, on
+ * narrow windows, the panel floats over the content. Opening slides it a short way in from its
+ * edge; closing fades it out before the column reflows.
  */
 export function ShellPanel(props: { side: PanelSide; panel: PanelDefinition }) {
   const { layout, setTab, setPanelOpen, setPanelSize, toggleTab } = useLayout();
   const state = layout[props.side];
   const viewport = useViewport();
-  const { min, max } = bounds(props.side, viewport);
+  const overlay = useMediaQuery(overlayPanelsQuery, false);
+  const { min, max } = bounds(props.side, viewport, overlay);
   const size = clampSize(state.size, min, max);
   const right = props.side === "right";
   const active = props.panel.tabs.some((tab) => tab.id === state.tab)
@@ -81,9 +90,14 @@ export function ShellPanel(props: { side: PanelSide; panel: PanelDefinition }) {
         inert={closing}
         data-edge={right ? "right" : "bottom"}
         style={right ? { width: size } : { height: size }}
+        data-overlay={overlay || undefined}
         className={cn(
           "relative flex min-h-0 min-w-0 shrink-0 flex-col bg-panel",
           right ? "border-l" : "border-t",
+          overlay &&
+            (right
+              ? "absolute inset-y-0 right-0 z-20 bg-background shadow-[-12px_0_32px_rgb(0_0_0/0.18)]"
+              : "absolute inset-x-0 bottom-0 z-20 bg-background shadow-[0_-12px_32px_rgb(0_0_0/0.18)]"),
           panelMotion(presence),
         )}
       >

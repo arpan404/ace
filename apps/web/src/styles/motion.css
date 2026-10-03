@@ -87,7 +87,7 @@
   /* Rows of a list that is reordering slide to their new place. Set only while moving, so
      scrolling and re-measuring never animate. */
   .fx-list-moving > * {
-    transition: transform var(--dur-3) var(--ease);
+    transition: transform var(--dur-3) var(--spring);
   }
   /* A view's content when the route changes. */
   .fx-view-in {

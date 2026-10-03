@@ -178,3 +178,96 @@ for (const theme of ["dark", "light"] as const)
       await page.waitForTimeout(600);
       await page.screenshot({ path: `${out}/${name}-${theme}.png` });
     });
+
+/*
+ * Narrow windows, keyboard focus and reduced motion. At 390px the second sidebar is a sheet
+ * opened from the header; below 1152px the panels float over the transcript instead of
+ * squeezing it.
+ */
+const sized: Record<string, { width: number; height: number; setup: Setup }> = {
+  "mobile-thread": { width: 390, height: 844, setup: openThread("/t/thread-dedupe") },
+  "mobile-sidebar": {
+    width: 390,
+    height: 844,
+    setup: async (page) => {
+      await openThread("/t/thread-dedupe")(page);
+      await page.getByRole("button", { name: "Show sidebar" }).click();
+      await page.getByRole("dialog").getByRole("navigation", { name: "Threads" }).waitFor();
+    },
+  },
+  "mobile-panel": {
+    width: 390,
+    height: 844,
+    setup: rightTab("/t/thread-dedupe", "Agents"),
+  },
+  "tablet-thread": { width: 1024, height: 768, setup: openThread("/t/thread-dedupe") },
+  "tablet-panel": { width: 1024, height: 768, setup: rightTab("/t/thread-cold-start", /^Changes/) },
+  "tablet-activity": { width: 1024, height: 768, setup: visit("/activity", "Activity") },
+  // Keyboard only: Tab from the skip link into the rail, the list, the composer and the panel.
+  "focus-rail": {
+    width: 1440,
+    height: 900,
+    setup: async (page) => {
+      await openThread("/t/thread-dedupe")(page);
+      await page.locator("body").click({ position: { x: 700, y: 400 } });
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Tab");
+    },
+  },
+  "focus-list": {
+    width: 1440,
+    height: 900,
+    setup: async (page) => {
+      await openThread("/t/thread-dedupe")(page);
+      await threadList(page).getByRole("link").first().focus();
+      await page.keyboard.press("Tab");
+    },
+  },
+  "focus-composer": {
+    width: 1440,
+    height: 900,
+    setup: async (page) => {
+      await openThread("/t/thread-dedupe")(page);
+      await page.getByRole("combobox", { name: "Message" }).focus();
+      await page.keyboard.press("Shift+Tab");
+    },
+  },
+  "focus-panel": {
+    width: 1440,
+    height: 900,
+    setup: async (page) => {
+      await rightTab("/t/thread-cold-start", /^Changes/)(page);
+      await page.getByRole("region", { name: "Thread panel" }).getByRole("tab").first().focus();
+      await page.keyboard.press("ArrowRight");
+    },
+  },
+};
+
+for (const [name, { width, height, setup }] of Object.entries(sized))
+  test(`${name} at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.addInitScript(() => {
+      if (!localStorage.getItem("ace.appearance"))
+        localStorage.setItem("ace.appearance", JSON.stringify({ theme: "dark" }));
+    });
+    await setup(page);
+    await page.waitForTimeout(600);
+    // Keyboard captures must show a focus ring on what has focus.
+    if (name.startsWith("focus-"))
+      expect(await page.evaluate(() => document.activeElement?.matches(":focus-visible"))).toBe(
+        true,
+      );
+    await page.screenshot({ path: `${out}/${name}-dark.png` });
+  });
+
+test("reduced motion: panels and lists change without animating", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await rightTab("/t/thread-cold-start", "Agents")(page);
+  const durations = await page.evaluate(() =>
+    ["--dur-1", "--dur-2", "--dur-3", "--dur-4"].map((name) =>
+      getComputedStyle(document.documentElement).getPropertyValue(name).trim(),
+    ),
+  );
+  expect(durations).toEqual(["0ms", "0ms", "0ms", "0ms"]);
+  await page.screenshot({ path: `${out}/reduced-motion-dark.png` });
+});
