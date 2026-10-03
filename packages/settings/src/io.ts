@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { watch } from "node:fs";
-import { mkdir, open, rename, stat } from "node:fs/promises";
-import { dirname, basename, join, relative, sep } from "node:path";
+import { mkdir, open, rename } from "node:fs/promises";
+import { dirname, basename, join } from "node:path";
+import { createFileWatcher } from "./file-watch.ts";
 import { removeTemporary } from "./temporary.ts";
 import { MAX_DOCUMENT_BYTES, SettingsError } from "./document.ts";
 
@@ -97,26 +97,4 @@ export async function atomicWrite(
     }
   }
 }
-async function watchPath(
-  path: string,
-  changed: () => void,
-  failed: () => void,
-): Promise<() => void> {
-  let parent = dirname(path);
-  while (true) {
-    try {
-      await stat(parent);
-      break;
-    } catch (error) {
-      if (!missing(error) || dirname(parent) === parent) throw error;
-      parent = dirname(parent);
-    }
-  }
-  const child = relative(parent, path).split(sep)[0];
-  const watcher = watch(parent, (_event, filename) => {
-    if (!filename || filename.toString() === child) changed();
-  });
-  watcher.on("error", failed);
-  return () => watcher.close();
-}
-export const fileIO: FileIO = { read: readBounded, write: atomicWrite, watch: watchPath };
+export const fileIO: FileIO = { read: readBounded, write: atomicWrite, watch: createFileWatcher() };

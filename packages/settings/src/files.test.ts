@@ -1,7 +1,14 @@
 import { mkdir, readFile, readdir, writeFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, expect, test } from "vitest";
-import { atomicWrite, fileIO, scheduler, MAX_DOCUMENT_BYTES, type Notification } from "./index.ts";
+import {
+  atomicWrite,
+  fileIO,
+  scheduler,
+  createFileWatcher,
+  MAX_DOCUMENT_BYTES,
+  type Notification,
+} from "./index.ts";
 import { fixture } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -110,6 +117,27 @@ test("real watchers follow atomic replacements and a newly created workspace dir
   expect(notices.at(-1)).toMatchObject({
     type: "changed",
     entries: [{ value: false, provenance: "defaults" }],
+  });
+});
+
+test("a missing workspace directory is reconciled when native ancestor notifications are lost", async () => {
+  const f = await fixture({
+    io: { ...fileIO, watch: createFileWatcher(() => () => {}) },
+    scheduler,
+  });
+  cleanups.push(() => f.close());
+  const notice = Promise.withResolvers<Notification>();
+  await f.service.subscribe(
+    { keys: ["notifications.sound"], scope: { workspace: f.workspace } },
+    notice.resolve,
+  );
+  await atomicWrite(
+    join(f.workspace, ".ace", "settings.json"),
+    '{"version":2,"settings":{"notifications.sound":true}}',
+  );
+  expect(await notice.promise).toMatchObject({
+    type: "changed",
+    entries: [{ value: true, provenance: "workspace" }],
   });
 });
 
