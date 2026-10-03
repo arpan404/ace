@@ -21,6 +21,7 @@ export {
   type AutomationAdapter,
 } from "./toolkits.ts";
 export {
+  AceMcpConnectionSchema,
   redactMcpCredential,
   codexInjection,
   claudeInjection,

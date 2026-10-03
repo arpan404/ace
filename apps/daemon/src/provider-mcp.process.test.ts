@@ -5,15 +5,24 @@ import { expect, it, onTestFinished } from "vitest";
 import type { Frame, ProviderAdapter } from "@ace/engine-api";
 import { createClaudeAdapter } from "@ace/adapter-claude";
 import { createCodexAdapter } from "@ace/adapter-codex";
+import { createPiAdapter } from "@ace/adapter-pi";
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
 import { createAcpAdapter, antigravityQuirks, cursorQuirks, genericQuirks } from "@ace/adapter-acp";
 import { detectChromium } from "@ace/browser";
 import { providerFeatures } from "./testing/provider-features.ts";
-import { Agent, ThreadId } from "@ace/protocol";
+import { Agent, AgentId, ThreadId } from "@ace/protocol";
 import { createDevThread } from "./index.ts";
 import { bindMcpSession } from "./services/mcp-session.ts";
 
-for (const provider of ["claude", "codex", "opencode", "cursor", "antigravity", "acp"] as const)
+for (const provider of [
+  "claude",
+  "codex",
+  "opencode",
+  "cursor",
+  "antigravity",
+  "acp",
+  "pi",
+] as const)
   it(`${provider} receives scoped ace tools through its native session configuration without a prompt`, async (test) => {
     const chromium = await detectChromium();
     if (!chromium) {
@@ -67,16 +76,32 @@ for (const provider of ["claude", "codex", "opencode", "cursor", "antigravity", 
         ? createClaudeAdapter({ executable: binary })
         : provider === "codex"
           ? createCodexAdapter({ discovery })
-          : provider === "opencode"
-            ? createOpenCodeAdapter({ discovery })
-            : createAcpAdapter(
-                provider === "cursor"
-                  ? cursorQuirks
-                  : provider === "antigravity"
-                    ? antigravityQuirks
-                    : genericQuirks,
-                { command: binary, args: [] },
-              );
+          : provider === "pi"
+            ? createPiAdapter({
+                executable: binary,
+                openMcp(ctx, lifetime) {
+                  const lease = mcp.openSession(
+                    {
+                      threadId: ctx.threadId,
+                      agentId: AgentId.parse("root"),
+                      sessionId: "legacy-pi",
+                      capabilities: ["agents", "notify"],
+                    },
+                    lifetime,
+                  );
+                  return { url: mcp.url, bearer: lease.bearer, end: lease.end };
+                },
+              })
+            : provider === "opencode"
+              ? createOpenCodeAdapter({ discovery })
+              : createAcpAdapter(
+                  provider === "cursor"
+                    ? cursorQuirks
+                    : provider === "antigravity"
+                      ? antigravityQuirks
+                      : genericQuirks,
+                  { command: binary, args: [] },
+                );
     const observed = Promise.withResolvers<string>();
     const frames: Frame[] = [];
     let session;
@@ -109,7 +134,9 @@ for (const provider of ["claude", "codex", "opencode", "cursor", "antigravity", 
       expect(await observed.promise).toContain(thread.id);
       expect(session.nativeSessionId).toBeTruthy();
       expect(JSON.stringify(frames)).not.toMatch(/Bearer [a-f0-9]{64}/);
-      expect(JSON.stringify(frames)).toMatch(/<ACE_MCP_CREDENTIAL>|\[ace lease redacted\]/);
+      expect(JSON.stringify(frames)).toMatch(
+        /<ACE_MCP_CREDENTIAL>|<ACE_LEASE>|\[redacted\]|\[ace lease redacted\]/,
+      );
       expect(await features.effects(thread.id)).toEqual({
         browser: "provider-input",
         screen: '{"ref":"save","action":"press"}\n',

@@ -190,13 +190,11 @@
       "dependencies": {
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@modelcontextprotocol/client": "2.2.0",
         "zod": "^4.6.5",
-      },
-      "devDependencies": {
-        "@ace/mcp-server": "workspace:*",
       },
     },
     "packages/adapter-testkit": {
