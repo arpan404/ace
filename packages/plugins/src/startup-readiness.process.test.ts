@@ -1,15 +1,16 @@
-import { mkdtemp, mkdir, access, rm } from "node:fs/promises";
+import { mkdir, access } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { PluginManager } from "./index.ts";
+import { fixture } from "./test-support.ts";
 
 test("opening the plugin index does not wait for or acquire the maintenance lock", async () => {
-  const root = await mkdtemp(join(tmpdir(), "ace-plugin-ready-"));
-  const options = { root: join(root, "ace"), now: () => 0, id: () => "unused" };
-  const initial = await PluginManager.open(options);
-  initial.close();
+  const f = await fixture();
+  const options = { root: f.managerRoot, now: () => 123, id: () => "unused" };
+  const review = await f.prepare();
+  await f.manager.accept(review);
+  f.manager.close();
   const abandoned = join(options.root, "fetch", "abandoned");
   await mkdir(abandoned);
   const lock = new DatabaseSync(join(options.root, "operation.sqlite"));
@@ -21,9 +22,13 @@ test("opening the plugin index does not wait for or acquire the maintenance lock
     lock.exec("ROLLBACK");
     await manager.maintain(new AbortController().signal);
     await expect(access(abandoned)).rejects.toMatchObject({ code: "ENOENT" });
+    expect(manager.list()).toEqual([
+      { name: "sample", version: "1.0", commit: review.commit, hash: review.hash, acceptedAt: 123 },
+    ]);
+    expect((await manager.installed())[0]?.text["rules/style.md"]).toBe("Use TypeScript.");
   } finally {
     lock.close();
     manager.close();
-    await rm(root, { recursive: true, force: true });
+    await f.close();
   }
 });

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
 import { once } from "node:events";
 import { mkdtemp, mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -71,14 +72,18 @@ async function next(client: Client, predicate: (message: ServerMessage) => boole
     if (predicate(message)) return message;
   }
 }
-async function launch(root: string, providerHome: string) {
+async function launch(
+  root: string,
+  providerHome: string,
+  gate: "scanHeld" | "stdout" = "scanHeld",
+) {
   const home = join(root, "ace");
   const began = performance.now();
   const child = spawn(
     process.execPath,
     [
       "--import",
-      new URL("./history-memory.fixture.ts", import.meta.url).href,
+      new URL("./startup-gates.fixture.ts", import.meta.url).href,
       fileURLToPath(new URL("./cli.ts", import.meta.url)),
       "start",
     ],
@@ -86,6 +91,7 @@ async function launch(root: string, providerHome: string) {
       env: {
         ...process.env,
         ACE_HOME: home,
+        ACE_TEST_HOLD_HISTORY: gate === "scanHeld" ? "1" : "0",
         ACE_PORT: "0",
         ACE_LISTEN: "local",
         ACE_ACCOUNTS_DB: join(home, "accounts.sqlite"),
@@ -108,10 +114,20 @@ async function launch(root: string, providerHome: string) {
   );
   const exited = once(child, "close");
   const memory: number[] = [];
+  const held = Promise.withResolvers<void>();
   child.on("message", (value: unknown) => {
-    const sample = z.object({ type: z.literal("rss"), bytes: z.number().positive() }).parse(value);
+    const sample = z
+      .object({ type: z.enum(["rss", "scanHeld"]), bytes: z.number().positive() })
+      .parse(value);
     memory.push(sample.bytes);
+    if (sample.type === "scanHeld") held.resolve();
   });
+  const sample = async () => {
+    const response = once(child, "message");
+    child.send("sample-rss");
+    const [value] = await response;
+    return z.object({ type: z.literal("rss"), bytes: z.number().positive() }).parse(value).bytes;
+  };
   let errors = "";
   child.stderr?.on("data", (chunk: Buffer) => {
     errors += chunk.toString();
@@ -131,6 +147,7 @@ async function launch(root: string, providerHome: string) {
     }),
     8000,
   );
+  if (gate === "scanHeld") await bounded(held.promise, 1000);
   const origin = await readFile(join(home, "daemon-endpoint"), "utf8");
   const token = await readFile(join(home, "daemon-token"), "utf8");
   const client = new Client(origin.replace("http:", "ws:"));
@@ -146,7 +163,16 @@ async function launch(root: string, providerHome: string) {
     next(client, (message) => message.type === "welcome"),
     1000,
   );
-  return { child, exited, client, origin, token, elapsed: performance.now() - began, memory };
+  return {
+    child,
+    exited,
+    client,
+    origin,
+    token,
+    elapsed: performance.now() - began,
+    memory,
+    sample,
+  };
 }
 async function status(client: Client) {
   client.send({ type: "history.scan", action: "status", requestId: "scan-status" });
@@ -180,7 +206,7 @@ async function stop(daemon: Awaited<ReturnType<typeof launch>>) {
   expect({ code, signal }).toEqual({ code: 0, signal: null });
 }
 
-it("a daemon serves requests and creates every feature store while thousands of native sessions are still indexing", async () => {
+it("a daemon serves history, models, notifications and usage requests while thousands of native sessions are still indexing", async () => {
   const history = await nativeHistory();
   const daemon = await launch(history.root, history.providerHome);
   expect(daemon.elapsed).toBeLessThan(8000);
@@ -202,24 +228,88 @@ it("a daemon serves requests and creates every feature store while thousands of 
     running: true,
     services: expect.arrayContaining([{ name: "history", state: "starting" }]),
   });
-  for (const name of ["models.sqlite", "notifications.sqlite", "usage.sqlite"])
-    expect((await readFile(join(history.root, "ace", name))).length).toBeGreaterThan(0);
+  daemon.client.send({
+    type: "models.list",
+    requestId: "models",
+    options: { offset: 0, limit: 100 },
+  });
+  const models = await bounded(
+    next(daemon.client, (m) => m.type === "models.result" && m.requestId === "models"),
+    1000,
+  );
+  expect(models).toMatchObject({
+    type: "models.result",
+    requestId: "models",
+    result: { models: [], instances: [] },
+  });
+  daemon.client.send({
+    type: "usage.summary",
+    requestId: "usage",
+    query: {
+      from: "2026-01-01",
+      to: "2026-01-01",
+      groupBy: ["provider"],
+      filters: {},
+      limit: 100,
+      orderBy: "tokens",
+      equivalentApiCost: false,
+    },
+  });
+  const usage = await bounded(
+    next(daemon.client, (m) => m.type === "usage.result" && m.requestId === "usage"),
+    1000,
+  );
+  expect(usage).toMatchObject({
+    type: "usage.result",
+    kind: "summary",
+    result: { cursor: 0, rows: [], truncated: false },
+  });
+  daemon.client.send({
+    type: "notification.register",
+    device: { channel: "websocket", platform: "desktop" },
+  });
+  daemon.client.send({
+    type: "notification.preferences",
+    preferences: { includePreview: true, quietHours: null },
+  });
+  daemon.client.send({ type: "ping" });
+  expect(
+    await bounded(
+      next(daemon.client, (m) => m.type !== "history.scan.updated"),
+      1000,
+    ),
+  ).toEqual({ type: "pong" });
+  // Observe the durable effect of these authenticated requests, not a schema file.
+  const database = new DatabaseSync(join(history.root, "ace/notifications.sqlite"), {
+    readOnly: true,
+  });
+  try {
+    const row = database.prepare("SELECT body FROM devices WHERE id=?").get("history-startup");
+    const body = z.string().parse(row?.body);
+    expect(JSON.parse(body)).toMatchObject({
+      id: "history-startup",
+      preferences: { includePreview: true },
+    });
+  } finally {
+    database.close();
+  }
   await stop(daemon);
 }, 30_000);
 
 it("restarting serves the saved index during a scan and reads only new or changed native files", async () => {
   const history = await nativeHistory();
   const first = await launch(history.root, history.providerHome);
-  const baseline = first.memory.at(-1) ?? 0;
-  const observedAt = first.memory.length;
+  const baseline = await first.sample();
+  first.child.send("release-history");
   const initial = await completed(first.client);
   expect(baseline).toBeGreaterThan(0);
-  const later = first.memory.slice(observedAt);
-  expect(later.length).toBeGreaterThan(2);
-  expect(Math.max(...later) - baseline).toBeLessThan(160 * 1024 * 1024);
+  const finalRss = await first.sample();
+  expect(Math.max(finalRss, ...first.memory) - baseline).toBeLessThan(160 * 1024 * 1024);
   expect(initial.stats).toMatchObject({ files: count, reads: count, skipped: 0 });
   // Sampling eight 64 MiB files must remain bounded to head/tail windows.
-  expect(initial.stats.bytes).toBeLessThan(count * 128 * 1024);
+  expect(initial.stats.bytes).toBeLessThanOrEqual(
+    8 * 128 * 1024 + (count - 8) * Buffer.byteLength(record(count - 1)),
+  );
   await stop(first);
   await writeFile(join(history.directory, "1.jsonl"), record(1, "changed history prompt"));
   await writeFile(join(history.directory, "added.jsonl"), record(count));
@@ -239,6 +329,7 @@ it("restarting serves the saved index during a scan and reads only new or change
   });
   if (reply.type !== "history.list") throw new Error("Missing list response");
   expect(reply.sessions).toHaveLength(200);
+  second.child.send("release-history");
   const rescanned = await completed(second.client);
   expect(rescanned.stats).toMatchObject({ files: count + 1, reads: 2, skipped: count - 1 });
   expect(rescanned.stats.bytes).toBeLessThan(256 * 1024);
@@ -264,7 +355,7 @@ it("an unreadable native inventory degrades history without withholding the daem
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const providerHome = join(root, "not-a-directory");
   await writeFile(providerHome, "not a provider directory");
-  const daemon = await launch(root, providerHome);
+  const daemon = await launch(root, providerHome, "stdout");
   let scan = await status(daemon.client);
   if (scan.state === "scanning") {
     const event = await bounded(

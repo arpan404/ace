@@ -20,6 +20,7 @@ export type HistoryRequest = Extract<
 >;
 export interface DaemonHistoryOptions {
   signal?: AbortSignal;
+  spawnWorker?: Parameters<typeof openHistory>[1];
   instances: HistoryOptions["instances"];
   adapters?: HistoryAdapterPort;
   now?: () => number;
@@ -62,7 +63,10 @@ export async function openDaemonHistory(
 ): Promise<DaemonHistory> {
   options.signal?.throwIfAborted();
   const indexPath = join(dataDir, "history/index.sqlite");
-  const service = await openHistory({ indexPath, instances: options.instances });
+  const service = await openHistory(
+    { indexPath, instances: options.instances },
+    options.spawnWorker,
+  );
   try {
     options.signal?.throwIfAborted();
     const history = new DaemonHistory(store, service, dataDir, indexPath, options);

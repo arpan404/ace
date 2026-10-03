@@ -12,6 +12,11 @@ forward and duplicate dependency declarations are rejected before any start.
 Dependencies that need warmed data explicitly await its readiness in their own
 background initialization: commands wait for account-home validation.
 
+The CLI installs SIGINT/SIGTERM handling before initialization begins. Host callers
+can pass `DaemonOptions.signal`; abort interrupts bounded initialization, stops
+warmup, closes the listener/resources and removes the endpoint and lock. The
+process wrapper `runDaemonProcess(startDaemon, options)` owns signal handling.
+
 The daemon writes its private `daemon-endpoint` file after the listener accepts
 connections and the core initialization attempts finish. Optional context,
 review, history, usage and notification initialization then runs. Socket handlers
@@ -51,6 +56,9 @@ measurement. Filesystem streams, SQLite caches and native allocations also count
 toward RSS; the process regression records RSS growth for merge-time verification.
 
 A separate read-only WAL connection serves committed index pages during a scan.
+Each lineage batch updates SQL recency and JSON `lastActivity` in the same
+statement. List cursors use the selected SQL ordering columns, including when
+reading an index left inconsistent by an older interrupted scan.
 Up to eight list/get requests may overlap indexing; write/import operations remain
 exclusive. Cleanup, pruning and lineage aggregation yield in capped pages. An
 import or continuation cancels the current scan before using its exclusive lane.
@@ -82,6 +90,12 @@ waits for that validation in the background and publishes through the live regis
 Plugin registry opening is separate from cancellable directory maintenance, which
 streams directory entries. The original `PluginManager.open` convenience API still
 awaits maintenance; daemon composition uses `openIndex` instead.
+
+Files open their bounded resource catalog before starting retention cleanup and
+support-artifact registration as background warmup. Relocated-upload traversal
+receives the service abort signal. Cleanup debt keeps its count/byte reservation
+until the original inode is removed; cancellation never refunds that debt.
+Reads remain available while cleanup serializes with mutations.
 
 Usage opening only waits for its worker cursor. Event backfill already used yielded
 batches and now reports initial catch-up readiness. Model discovery remains lazy:
