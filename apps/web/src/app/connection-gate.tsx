@@ -79,8 +79,15 @@ export function ConnectionGate(props: {
     setState((previous) => ({ target: undefined, url: previous.url, remembered: false }));
   }, [stores]);
   const connection = useMemo<DaemonConnection>(
-    () => ({ mode: "daemon", url: state.url, remembered: state.remembered, connect, disconnect }),
-    [state.url, state.remembered, connect, disconnect],
+    () => ({
+      mode: "daemon",
+      url: state.url,
+      remembered: state.remembered,
+      connect,
+      disconnect,
+      endpoint: state.target && { kind: "daemon", target: state.target },
+    }),
+    [state.url, state.remembered, state.target, connect, disconnect],
   );
 
   return (

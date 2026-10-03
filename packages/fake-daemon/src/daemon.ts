@@ -29,6 +29,8 @@ import {
 } from "@ace/protocol";
 import { Connection, matches, type Host, type Wire } from "./connection.ts";
 import { fakeHealth } from "./health.ts";
+import { FakeAccess } from "./access.ts";
+import { FakeAppDevices } from "./app-devices.ts";
 import { FakeLimitRecovery } from "./limit-recovery.ts";
 import { FakeReviewDesk } from "./review-desk.ts";
 import { ThreadHost } from "./thread-host.ts";
@@ -84,8 +86,14 @@ export class FakeDaemon implements Host {
   readonly review: FakeReviewDesk;
   /** Accounts, usage, models, settings, search and slash commands, over the wire. */
   readonly services: FakeServices;
+  /** The HTTP access routes: paired devices, pairing and revoking. */
+  readonly access: FakeAccess;
+  /** iOS Simulators and Android emulators, over a dedicated devices channel. */
+  readonly appDevices: FakeAppDevices;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
+    this.access = new FakeAccess(options.clock);
+    this.appDevices = new FakeAppDevices(options.clock);
     this.services = new FakeServices({
       clock: options.clock,
       thread: (threadId) => {

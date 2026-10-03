@@ -3,8 +3,9 @@ import type { CatalogModel, Device, DeviceScope, ProviderKind } from "@ace/proto
 /**
  * Everything Settings reads from or writes to the daemon, behind one narrow seam
  * (daemon-backend.ts): values over `settings.subscribe` / `settings.set`, providers from
- * `accounts.list`, models from `models.list` / `models.refresh`. Machines, devices, pairing and
- * ACP agents added by command wait for access support (access-source.ts, TODO(client-gaps)).
+ * `accounts.list`, models from `models.list` / `models.refresh`, paired devices, pairing and
+ * revoking from the daemon's access routes (access-source.ts). Machines and ACP agents added by
+ * command wait for daemon support (access-gaps.ts).
  */
 export interface SettingsBackend {
   /** The daemon's settings as a live store (a mirror of `settings.subscribe`). */

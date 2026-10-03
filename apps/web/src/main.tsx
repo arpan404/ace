@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { App, AppFrame } from "./app.tsx";
 import { ConnectionGate } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl } from "./boot/connection-settings.ts";
+import { DaemonConnectionContext, fakeConnection } from "./boot/connection.tsx";
 import { createDaemonClient } from "./boot/daemon.ts";
 import { desktopTarget, hasDesktopBridge } from "./boot/desktop.ts";
 import { StartingScreen } from "./features/connect/index.ts";
@@ -30,7 +31,12 @@ async function content() {
     for (const mark of seen) markSeen(mark.threadId, mark.itemId);
     if (!profileName(localStorage)) setProfileName(localStorage, fake.profileName);
     await client.start();
-    return app(client);
+    const connection = fakeConnection(fake.daemon);
+    return (
+      <DaemonConnectionContext.Provider value={connection}>
+        {app(client)}
+      </DaemonConnectionContext.Provider>
+    );
   }
   // The endless-agent load test (tools/web-perf); only bundled in `vite --mode perf`.
   if (import.meta.env.MODE === "perf") {
