@@ -255,8 +255,7 @@ class AcpSession implements ProviderSession {
     if (!this.nativeSessionId) throw new Error("ACP server did not return a session id");
     this.configuration.setup(session, mcpTransport);
     if (this.ctx.permissionMode !== "full-access") {
-      const modes = this.configuration.selectors.mode?.values ?? [];
-      const restricted = ["read-only", "read_only", "plan"].find((mode) => modes.includes(mode));
+      const restricted = this.configuration.restrictedMode();
       if (restricted) await this.setMode(restricted);
     }
     if (this.ctx.model) await this.setModel(this.ctx.model);

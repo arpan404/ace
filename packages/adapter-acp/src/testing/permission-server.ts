@@ -6,8 +6,9 @@ let prompt: unknown;
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = object(JSON.parse(line));
   const result = (value: unknown) => write({ id: message["id"], result: value });
-  if (message["method"] === "initialize") result({ protocolVersion: 1, agentCapabilities: {} });
-  else if (message["method"] === "session/new")
+  if (message["method"] === "initialize")
+    result({ protocolVersion: 1, agentCapabilities: { loadSession: true } });
+  else if (message["method"] === "session/new" || message["method"] === "session/load")
     result({
       sessionId: "native",
       ...(process.argv.includes("--no-selectors")
@@ -22,6 +23,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
                 options: [
                   { value: "read-only", name: "Read only" },
                   { value: "build", name: "Build" },
+                  { value: "bypassPermissions", name: "Bypass" },
                 ],
               },
             ],
@@ -30,6 +32,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   else if (message["method"] === "session/set_config_option") result({});
   else if (message["method"] === "session/prompt") {
     prompt = message["id"];
+    if (process.argv.includes("--no-permission")) {
+      result({ stopReason: "end_turn" });
+      return;
+    }
     write({
       id: 100,
       method: "session/request_permission",

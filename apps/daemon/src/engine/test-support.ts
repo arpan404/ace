@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
 import type { Fact } from "@ace/core";
-import type { Frame, SessionContext } from "@ace/engine-api";
+import type { Frame, SessionContext, ProviderAdapter } from "@ace/engine-api";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import {
   Command,
@@ -91,6 +91,7 @@ export async function harness(
     resolveGate?: Promise<void>;
     provider?: ProviderKind;
     capabilities?: Capabilities;
+    nativeAdapter?: ProviderAdapter;
   } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-engine-"));
@@ -127,11 +128,11 @@ export async function harness(
   const registry = new AdapterRegistry();
   registry.register(
     {
-      ...adapter,
+      ...(options.nativeAdapter ?? adapter),
       ...(options.provider === "acp" ? { acceptsIdentity: () => true } : {}),
       async openSession(ctx) {
         contexts.push(ctx);
-        const session = await adapter.openSession(ctx);
+        const session = await (options.nativeAdapter ?? adapter).openSession(ctx);
         return {
           ...session,
           async resolve(interaction, resolution) {
