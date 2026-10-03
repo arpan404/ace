@@ -2,7 +2,7 @@ import type { ClientApi } from "@ace/client";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ConnectionScreen } from "@/features/connect/index.ts";
-import { deviceId } from "@/boot/client.ts";
+import { deviceId } from "@/boot/device-id.ts";
 import { DaemonConnectionContext, type DaemonConnection } from "@/boot/connection.tsx";
 import {
   forgetToken,
