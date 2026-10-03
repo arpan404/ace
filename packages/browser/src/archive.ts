@@ -1,9 +1,11 @@
+import { once } from "node:events";
 import { mkdir, symlink } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { Transform, type Readable } from "node:stream";
-import { open, type Entry, type ZipFile } from "yauzl";
+import { Transform, Writable, type Readable } from "node:stream";
+import type { Entry, ZipFile } from "yauzl";
+import { openArchive } from "./archive-reader.ts";
 
 function contained(root: string, path: string): string {
   const target = resolve(root, path);
@@ -57,16 +59,7 @@ export async function extractChromium(
   root: string,
   signal: AbortSignal,
 ): Promise<void> {
-  const zip = await new Promise<ZipFile>((accept, fail) =>
-    open(
-      archive,
-      { lazyEntries: true, autoClose: false, validateEntrySizes: true },
-      (error, result) => {
-        if (error || !result) fail(error ?? new Error("Invalid Chromium archive"));
-        else accept(result);
-      },
-    ),
-  );
+  const zip = await openArchive(archive, signal);
   let bytes = 0,
     entries = 0;
   const links: { target: string; value: string }[] = [];
@@ -92,22 +85,31 @@ export async function extractChromium(
       if ((mode & 0xf000) === 0xa000) {
         if (entry.uncompressedSize > 4096 || links.length >= 1024)
           throw new Error("Chromium archive symlink limit");
-        const stream = await entryStream(zip, entry);
-        const abort = () => stream.destroy(new Error("Chromium extraction cancelled"));
-        signal.addEventListener("abort", abort, { once: true });
-        let value = "";
-        try {
-          for await (const chunk of stream) {
-            signal.throwIfAborted();
-            if (!Buffer.isBuffer(chunk)) throw new Error("Invalid archive data");
-            bytes += chunk.length;
-            value += chunk.toString("utf8");
-            if (Buffer.byteLength(value) > 4096) throw new Error("Chromium symlink limit");
-          }
-        } finally {
-          signal.removeEventListener("abort", abort);
-          stream.destroy();
-        }
+        // Legacy ZIP streams do not emit the close event required by Node's async
+        // iterator cleanup. Pipeline drains them using the same path as regular files.
+        const contents = Buffer.alloc(entry.uncompressedSize);
+        let length = 0;
+        await pipeline(
+          await entryStream(zip, entry),
+          new Writable({
+            write(chunk: Buffer, _encoding, next) {
+              bytes += chunk.length;
+              if (
+                !Buffer.isBuffer(chunk) ||
+                length + chunk.length > contents.length ||
+                bytes > 2 * 1024 * 1024 * 1024
+              ) {
+                next(new Error("Chromium symlink limit"));
+                return;
+              }
+              chunk.copy(contents, length);
+              length += chunk.length;
+              next();
+            },
+          }),
+          { signal },
+        );
+        const value = contents.subarray(0, length).toString("utf8");
         const destination = resolve(dirname(target), value);
         if (isAbsolute(value) || !destination.startsWith(root + sep) || value.includes("\0"))
           throw new Error("Unsafe Chromium symlink");
@@ -141,7 +143,12 @@ export async function extractChromium(
       await symlink(link.value, link.target);
     }
   } finally {
-    zip.close();
-    zip.off("error", zipFailed);
+    try {
+      const closed = once(zip, "close");
+      zip.close();
+      await closed;
+    } finally {
+      zip.off("error", zipFailed);
+    }
   }
 }

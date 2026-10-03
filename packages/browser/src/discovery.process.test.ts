@@ -134,6 +134,35 @@ it.each(["traversal", "symlink"] as const)(
     expect(await readdir(join(f.home, "chromium"))).toEqual([]);
   },
 );
+it("streams deflated archive entries larger than the source and destination buffers", async () => {
+  const payload = Array.from({ length: 16384 }, (_, index) =>
+    createHash("sha256").update(String(index)).digest("hex"),
+  ).join("");
+  const f = await downloadFixture(
+    archive([
+      { name: "chrome/chrome", data: "browser executable" },
+      { name: "chrome/resources", data: payload, compressed: true },
+    ]),
+  );
+  const path = await installChromium(f.home, { artifact: f.artifact });
+  expect(await readFile(join(path, "..", "resources"), "utf8")).toBe(payload);
+});
+
+it.each([false, true])(
+  "publishes contained relative symlinks after their executable target has streamed to disk, deflated=%s",
+  async (compressed) => {
+    const f = await downloadFixture(
+      archive([
+        { name: "chrome/chrome", data: "browser executable" },
+        { name: "chrome/current", data: "chrome", mode: 0o120777, compressed },
+      ]),
+    );
+    const path = await installChromium(f.home, { artifact: f.artifact });
+    expect(await readFile(join(path, "..", "current"), "utf8")).toBe("browser executable");
+    expect(await readdir(join(f.home, "chromium"))).toHaveLength(1);
+  },
+);
+
 it("shutdown cancellation removes an interrupted streamed download instead of publishing it", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-chromium-abort-"));
   const entered = Promise.withResolvers<void>();
