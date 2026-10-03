@@ -91,6 +91,14 @@ export class FakeAppDevices {
       });
   }
 
+  /** Close every devices channel, as a daemon restart or a revoked token would. */
+  dropAll(): void {
+    for (const channel of [...this.channels]) {
+      this.channels.delete(channel);
+      channel.events.close();
+    }
+  }
+
   /** The thread a device is approved for, as tests check what a person allowed. */
   approval(deviceId: string): string | undefined {
     return this.sessions.get(deviceId)?.threadId;

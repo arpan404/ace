@@ -113,7 +113,13 @@ export function useDevices(threadId: string) {
 
   const view: DevicesView = {
     connected,
-    failure: !connected && snapshot.error ? problem(snapshot.error) : undefined,
+    failure: connected
+      ? undefined
+      : snapshot.error
+        ? problem(snapshot.error)
+        : snapshot.closed
+          ? { message: "The devices connection closed.", hint: "Reconnect to see them again." }
+          : undefined,
     enabled,
     rows,
     notes: snapshot.issues.map((issue) => ({ message: issue.message, hint: issue.hint })),

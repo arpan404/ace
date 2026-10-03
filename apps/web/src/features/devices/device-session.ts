@@ -58,23 +58,32 @@ function transportFor(endpoint: DaemonEndpoint): DeviceTransport {
   });
 }
 
+/** The client's snapshot, and whether its channel has closed since it was opened. */
+export interface DeviceSessionSnapshot extends DeviceClientSnapshot {
+  /** The channel closed (dropped, refused or timed out); only a reconnect opens it again. */
+  closed: boolean;
+}
+
 /** A DeviceClient's snapshot as a stable external store (getSnapshot builds a new object). */
 export interface DeviceSession {
   readonly client: DeviceClient;
   subscribe(listener: () => void): () => void;
-  get(): DeviceClientSnapshot;
+  get(): DeviceSessionSnapshot;
   close(): void;
 }
 
 function openSession(endpoint: DaemonEndpoint): DeviceSession {
   const client = new DeviceClient({ id: () => crypto.randomUUID(), schedule });
   const listeners = new Set<() => void>();
-  let snapshot = client.getSnapshot();
+  let opening = true;
+  let snapshot: DeviceSessionSnapshot = { ...client.getSnapshot(), closed: false };
   const stop = client.watch((next) => {
-    snapshot = next;
+    // `connect` itself reports a disconnected client first; later, disconnected means closed.
+    snapshot = { ...next, closed: !opening && !next.connected };
     for (const listener of listeners) listener();
   });
   client.connect(transportFor(endpoint));
+  opening = false;
   return {
     client,
     subscribe(listener) {
@@ -89,7 +98,13 @@ function openSession(endpoint: DaemonEndpoint): DeviceSession {
   };
 }
 
-const offline: DeviceClientSnapshot = { connected: false, devices: [], states: [], issues: [] };
+const offline: DeviceSessionSnapshot = {
+  connected: false,
+  closed: false,
+  devices: [],
+  states: [],
+  issues: [],
+};
 const none = () => () => {};
 
 /**

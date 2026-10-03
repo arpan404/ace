@@ -1,5 +1,5 @@
 import { flakyCheckout } from "@ace/fake-daemon";
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -116,4 +116,15 @@ test("revoking approval takes the device away from the thread's agents", async (
   expect(
     app.daemon.appDevices.approval("ios:7d1b2c4e-5a6f-4e8d-9b0a-1c2d3e4f5a6b"),
   ).toBeUndefined();
+});
+
+test("a dropped devices channel says so, and Reconnect opens a fresh one", async () => {
+  const { app, panel } = await openDevices();
+  await within(panel).findByRole("button", { name: "Enable devices" });
+
+  act(() => app.daemon.appDevices.dropAll());
+
+  expect(await within(panel).findByText("Devices disconnected")).toBeTruthy();
+  await userEvent.click(within(panel).getByRole("button", { name: "Reconnect" }));
+  expect(await within(panel).findByRole("button", { name: "Enable devices" })).toBeTruthy();
 });
