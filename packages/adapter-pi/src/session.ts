@@ -17,6 +17,7 @@ import {
   type SessionReference,
 } from "./session-header.ts";
 import { PiHistoryError } from "./history-errors.ts";
+import { requireDurableFork } from "./fork-admission.ts";
 export interface PiSession extends ProviderSession {
   readonly nativeSessionFile: string;
   fork(entryId?: string): Promise<{ nativeSessionId: string }>;
@@ -238,6 +239,12 @@ export async function openPiSession(
       throw new PiHistoryError("identity");
     await checkedSessionReference(encodeSessionReference(reference));
   }
+  async function savedNativeReference(): Promise<string> {
+    const state = State.parse(await rpc.request("get_state"));
+    const reference = encodeSessionReference({ path: state.sessionFile, id: state.sessionId });
+    await checkedSessionReference(reference);
+    return reference;
+  }
   try {
     note({ type: "started", processId: io.processKey() });
     await verifyExtension();
@@ -298,27 +305,25 @@ export async function openPiSession(
         const source = await idle();
         const sourceRef = { path: source.sessionFile, id: source.sessionId };
         await checkedSessionReference(encodeSessionReference(sourceRef));
+        requireDurableFork(await rpc.request("get_entries"), entryId);
         const result = Cancelled.parse(
           await rpc.request(entryId ? "fork" : "clone", entryId ? { entryId } : {}),
         );
         if (result.cancelled) throw new PiHistoryError("cancelledFork");
-        let fork: string;
-        try {
-          const state = State.parse(await rpc.request("get_state"));
-          fork = encodeSessionReference({ path: state.sessionFile, id: state.sessionId });
-          await checkedSessionReference(fork);
-        } catch (error) {
-          await close("shutdown", false);
-          throw error;
-        }
+        const fork = await savedNativeReference().then(
+          (reference) => ({ reference }),
+          (error: unknown) => ({ error }),
+        );
+        // Replacement succeeded: restore even when its new file was not persisted.
         try {
           await restore(sourceRef);
         } catch (error) {
           await close("shutdown", false);
           throw error;
         }
-        if (fork === encodeSessionReference(sourceRef)) throw new PiHistoryError("fork");
-        return { nativeSessionId: fork };
+        if ("error" in fork) throw fork.error;
+        if (fork.reference === encodeSessionReference(sourceRef)) throw new PiHistoryError("fork");
+        return { nativeSessionId: fork.reference };
       } finally {
         control = false;
       }

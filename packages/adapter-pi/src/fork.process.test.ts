@@ -5,11 +5,13 @@ import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 import { spawnTextSupervised } from "@ace/provider-kit/process";
 import { createPiAdapter, type PiOptions } from "./index.ts";
+import type { Frame } from "@ace/engine-api";
+import { obj, str, list } from "./native.ts";
 import { ThreadId } from "@ace/protocol";
 import { sessionFixture } from "./testing/native-history.ts";
 
 test.each([1, 3])(
-  "v%s cold native fork uses saved cwd, preserves source and never delivers input or MCP",
+  "v%s cold native fork uses saved cwd, preserves conversation context and never delivers input or MCP",
   async (version) => {
     const cwd = await mkdtemp(join(tmpdir(), "ace-pi-fork-"));
     const path = join(cwd, "source.jsonl");
@@ -48,21 +50,58 @@ test.each([1, 3])(
         nativeSessionId: path,
         signal: new AbortController().signal,
       });
+      const frames: Frame[] = [];
       const reopened = await createPiAdapter(adapterOptions).openSession({
         threadId: ThreadId.parse("cold-fork-reopen"),
         cwd,
         signal: new AbortController().signal,
         resume: { nativeSessionId },
-        onFrame() {},
+        onFrame(frame) {
+          frames.push(frame);
+        },
         onExit() {},
       });
       try {
         expect(reopened.nativeSessionFile).toBe(join(cwd, "fork.jsonl"));
+        await reopened.send([{ type: "text", text: "context-proof" }], "queue");
+        const final = frames.findLast(
+          (frame) => frame.dir === "recv" && obj(frame.data).type === "message_end",
+        );
+        expect(
+          list(obj(obj(final?.data).message).content)
+            .map((block) => str(obj(block).text))
+            .join(""),
+        ).toBe("first question|first answer|second question|abandoned answer");
       } finally {
         await reopened.close("idle");
       }
       expect(await readFile(join(cwd, "fork.jsonl"), "utf8")).toContain("abandoned answer");
-      expect(await readFile(path, "utf8")).toBe(source);
+      // Native v1 migration owns the rewrite; conversation continuity is the contract.
+      if (version === 3) expect(await readFile(path, "utf8")).toBe(source);
+      const sourceFrames: Frame[] = [];
+      const original = await createPiAdapter(adapterOptions).openSession({
+        threadId: ThreadId.parse("cold-source-reopen"),
+        cwd,
+        signal: new AbortController().signal,
+        resume: { nativeSessionId: path },
+        onFrame(frame) {
+          sourceFrames.push(frame);
+        },
+        onExit() {},
+      });
+      try {
+        await original.send([{ type: "text", text: "context-proof" }], "queue");
+        const final = sourceFrames.findLast(
+          (frame) => frame.dir === "recv" && obj(frame.data).type === "message_end",
+        );
+        expect(
+          list(obj(obj(final?.data).message).content)
+            .map((block) => str(obj(block).text))
+            .join(""),
+        ).toBe("first question|first answer|second question|abandoned answer");
+      } finally {
+        await original.close("idle");
+      }
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -83,7 +122,10 @@ test("unbounded or invalid native session headers fail before any cold process s
   try {
     await writeFile(path, "x".repeat(64 * 1024 + 1));
     await expect(adapter.forkSession(input)).rejects.toThrow("header");
-    await writeFile(path, JSON.stringify({ type: "session", version: 3, cwd: "relative" }) + "\n");
+    await writeFile(
+      path,
+      JSON.stringify({ type: "session", version: 3, id: "valid-id", cwd: "relative" }) + "\n",
+    );
     await expect(adapter.forkSession(input)).rejects.toThrow("header");
   } finally {
     await rm(cwd, { recursive: true, force: true });

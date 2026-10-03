@@ -44,7 +44,7 @@ test("native identity mismatches fail resume even when Pi returns the requested 
     await h.dispose();
   }
 });
-test.each(["first-answer", "root-user"])(
+test.each(["first-answer"])(
   "rollback to %s survives source restoration, fork resume and process reopen",
   async (target) => {
     const h = await sessionHarness();
@@ -53,7 +53,7 @@ test.each(["first-answer", "root-user"])(
     try {
       const original = h.session.nativeSessionId;
       await h.session.rollback(target);
-      const expected = target === "root-user" ? "" : "first question|first answer";
+      const expected = "first question|first answer";
       const clone = await h.session.fork();
       // Probe after fork restoration, then reopen the fork and source before any append.
       expect(await context(h)).toBe(expected);
@@ -135,3 +135,63 @@ test("extension confirmation remains answerable while a native fork is pending",
     await h.dispose();
   }
 });
+
+test.each(["root-clone", "before-first-user"])(
+  "%s is refused before native replacement and keeps source context live and resumable",
+  async (kind) => {
+    const h = await sessionHarness();
+    let reopened: Awaited<ReturnType<typeof sessionHarness>> | undefined;
+    try {
+      const saved = h.session.nativeSessionId;
+      if (kind === "root-clone") await h.session.rollback("root-user");
+      const before = await readFile(h.sourcePath, "utf8");
+      await expect(h.session.fork(kind === "root-clone" ? undefined : "root-user")).rejects.toThrow(
+        "assistant message",
+      );
+      expect(h.session.nativeSessionFile).toBe(h.sourcePath);
+      expect(await readFile(h.sourcePath, "utf8")).toBe(before);
+      expect(
+        h.frames.filter(
+          (frame) => frame.dir === "send" && ["clone", "fork"].includes(str(obj(frame.data).type)),
+        ),
+      ).toEqual([]);
+      const expected =
+        kind === "root-clone" ? "" : "first question|first answer|second question|abandoned answer";
+      expect(await context(h)).toBe(expected);
+      await h.session.close("idle");
+      reopened = await sessionHarness({}, saved, {}, h.home);
+      expect(await context(reopened)).toBe(expected);
+    } finally {
+      await reopened?.dispose();
+      await h.dispose();
+    }
+  },
+);
+test("an unexpected unflushed fork restores the source and leaves it usable", async () => {
+  const h = await sessionHarness({}, false, { FAKE_PI_DEFER_CLONE: "1" });
+  try {
+    await expect(h.session.fork()).rejects.toThrow("missing");
+    expect(await context(h)).toBe("first question|first answer|second question|abandoned answer");
+    expect(h.session.nativeSessionFile).toBe(h.sourcePath);
+  } finally {
+    await h.dispose();
+  }
+});
+
+test.each(["cycle", "oversized"])(
+  "%s fork metadata fails without replacing or closing the live source",
+  async (kind) => {
+    const h = await sessionHarness({}, false, { FAKE_PI_BAD_ENTRIES: kind });
+    try {
+      await expect(h.session.fork()).rejects.toThrow("control limit");
+      expect(await context(h)).toBe("first question|first answer|second question|abandoned answer");
+      expect(
+        h.frames.filter(
+          (frame) => frame.dir === "send" && ["clone", "fork"].includes(str(obj(frame.data).type)),
+        ),
+      ).toEqual([]);
+    } finally {
+      await h.dispose();
+    }
+  },
+);

@@ -113,7 +113,7 @@ test("native fork creates a resumable reference and preserves the source session
 test("cancelled native fork fails without submitting the selected prompt", async () => {
   const h = await sessionHarness({}, false, { FAKE_PI_CANCEL_FORK: "1" });
   try {
-    await expect(h.session.fork("entry")).rejects.toThrow("cancelled fork");
+    await expect(h.session.fork("second-user")).rejects.toThrow("cancelled fork");
     expect(h.frames.filter((f) => f.dir === "send" && obj(f.data).type === "prompt")).toEqual([]);
   } finally {
     await h.dispose();

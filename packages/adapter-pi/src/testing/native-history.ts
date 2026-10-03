@@ -1,38 +1,68 @@
 /** Small synthetic Pi tree. Mirrors documented persistence semantics, never imports Pi. */
 import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
 import { z } from "zod";
-const Header = z.looseObject({ type: z.literal("session"), id: z.string(), cwd: z.string() });
+const Header = z.looseObject({
+  type: z.literal("session"),
+  id: z.string(),
+  cwd: z.string(),
+  version: z.number().optional(),
+});
 const Entry = z.looseObject({
   type: z.string(),
   id: z.string(),
   parentId: z.string().nullable(),
-  message: z.looseObject({ role: z.string(), content: z.string() }).optional(),
+  message: z
+    .looseObject({
+      role: z.string(),
+      content: z.union([
+        z.string(),
+        z.array(z.looseObject({ type: z.string(), text: z.string().optional() })),
+      ]),
+    })
+    .optional(),
 });
 type Entry = z.infer<typeof Entry>;
+const assistant = (text: string) => ({
+  role: "assistant",
+  content: [{ type: "text", text }],
+  api: "openai-responses",
+  provider: "openai",
+  model: "synthetic",
+  stopReason: "stop",
+  timestamp: 0,
+  usage: {
+    input: 1,
+    output: 1,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 2,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  },
+});
 export const fixtureEntries = [
   {
     type: "message",
     id: "root-user",
     parentId: null,
-    message: { role: "user", content: "first question" },
+    message: { role: "user", content: "first question", timestamp: 0 },
   },
   {
     type: "message",
     id: "first-answer",
     parentId: "root-user",
-    message: { role: "assistant", content: "first answer" },
+    message: assistant("first answer"),
   },
   {
     type: "message",
     id: "second-user",
     parentId: "first-answer",
-    message: { role: "user", content: "second question" },
+    message: { role: "user", content: "second question", timestamp: 0 },
   },
   {
     type: "message",
     id: "entry",
     parentId: "second-user",
-    message: { role: "assistant", content: "abandoned answer" },
+    message: assistant("abandoned answer"),
   },
 ];
 export function sessionFixture(cwd: string, id = "native", version?: number): string {
@@ -46,7 +76,10 @@ export function sessionFixture(cwd: string, id = "native", version?: number): st
         ...(version === undefined ? {} : { version }),
       }),
       ...fixtureEntries.map((entry) =>
-        JSON.stringify({ ...entry, timestamp: "2026-10-03T00:00:00.000Z" }),
+        JSON.stringify({
+          ...(version === undefined ? { type: entry.type, message: entry.message } : entry),
+          timestamp: "2026-10-03T00:00:00.000Z",
+        }),
       ),
     ].join("\n") + "\n"
   );
@@ -58,6 +91,9 @@ export class NativeHistory {
   private entries = new Map<string, Entry>();
   private leaf: string | null = null;
   private seq = 0;
+  entriesResponse() {
+    return { entries: [...this.entries.values()], leafId: this.leaf };
+  }
   load(path: string) {
     this.path = path;
     this.entries.clear();
@@ -67,11 +103,28 @@ export class NativeHistory {
         header = Header.parse(JSON.parse(lines.shift() ?? ""));
       this.id = header.id;
       this.cwd = header.cwd;
+      const legacyVersion = header.version === undefined || header.version === 1;
+      let parent: string | null = null;
       for (const line of lines) {
-        const entry = Entry.parse(JSON.parse(line));
+        const value: unknown = JSON.parse(line);
+        const legacy = z.record(z.string(), z.unknown()).parse(value);
+        const entry = Entry.parse(
+          legacyVersion
+            ? { ...legacy, id: `legacy-${this.entries.size}`, parentId: parent }
+            : value,
+        );
         this.entries.set(entry.id, entry);
         this.leaf = entry.id;
+        parent = entry.id;
       }
+      if (legacyVersion)
+        writeFileSync(
+          path,
+          [
+            JSON.stringify({ ...header, version: 3 }),
+            ...[...this.entries.values()].map((entry) => JSON.stringify(entry)),
+          ].join("\n") + "\n",
+        );
     } catch {
       this.id = "fresh-empty";
     }
@@ -88,7 +141,16 @@ export class NativeHistory {
   }
   context(): string {
     return this.branch()
-      .flatMap((entry) => (entry.message ? [entry.message.content] : []))
+      .flatMap((entry) => {
+        const content = entry.message?.content;
+        return content === undefined
+          ? []
+          : [
+              typeof content === "string"
+                ? content
+                : content.map((block) => block.text ?? "").join(""),
+            ];
+      })
       .join("|");
   }
   navigate(id: string) {
@@ -110,9 +172,15 @@ export class NativeHistory {
     this.leaf = entry.id;
     return entry;
   }
-  clone(target: string, entryId?: string) {
+  clone(target: string, entryId?: string, defer = false) {
     if (entryId) this.navigate(entryId);
     const branch = this.branch();
+    if (defer || !branch.some((entry) => entry.message?.role === "assistant")) {
+      this.path = target;
+      this.id = "fork-native";
+      this.entries = new Map(branch.map((entry) => [entry.id, entry]));
+      return;
+    }
     writeFileSync(
       target,
       [

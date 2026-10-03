@@ -8,6 +8,8 @@ const messages = {
   entry: "Invalid Pi entry id",
   acknowledgement: "Pi navigation was not acknowledged",
   fork: "Pi fork did not create a new session",
+  unflushedFork: "Pi cannot save a fork without an assistant message on the selected branch",
+  forkState: "Pi fork history is invalid or exceeds the 4096-entry control limit",
 };
 export class PiHistoryError extends Error {
   constructor(code: keyof typeof messages) {

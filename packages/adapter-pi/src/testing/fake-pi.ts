@@ -54,6 +54,20 @@ async function handle(line: string) {
         pendingMessageCount: queue ? 1 : 0,
       });
       return;
+    case "get_entries":
+      if (process.env.FAKE_PI_BAD_ENTRIES === "cycle")
+        reply(c, { entries: [{ type: "custom", id: "loop", parentId: "loop" }], leafId: "loop" });
+      else if (process.env.FAKE_PI_BAD_ENTRIES === "oversized")
+        reply(c, {
+          entries: Array.from({ length: 4097 }, (_, i) => ({
+            type: "custom",
+            id: `entry-${i}`,
+            parentId: null,
+          })),
+          leafId: null,
+        });
+      else reply(c, history.entriesResponse());
+      return;
     case "switch_session":
       if (process.env.FAKE_PI_CANCEL_SWITCH) {
         reply(c, { cancelled: true });
@@ -100,6 +114,7 @@ async function handle(line: string) {
       history.clone(
         join(process.env.FAKE_PI_HOME ?? process.env.FAKE_PI_COLD_CWD ?? history.cwd, "fork.jsonl"),
         typeof c.entryId === "string" ? c.entryId : undefined,
+        process.env.FAKE_PI_DEFER_CLONE === "1",
       );
       reply(c, { cancelled: false, text: "original prompt" });
       return;
