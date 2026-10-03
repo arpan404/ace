@@ -51,6 +51,28 @@ export function interactionRequest(
       request = {
         kind: "approval",
         title: string(call["title"]),
+        target: {
+          tool: call["kind"] === "execute" ? "shell" : string(call["kind"]) || "acp-tool",
+          access:
+            call["kind"] === "read"
+              ? "read"
+              : call["kind"] === "edit"
+                ? "write"
+                : call["kind"] === "execute"
+                  ? "execute"
+                  : "unknown",
+          input: call["rawInput"],
+          ...(typeof object(call["rawInput"])["command"] === "string"
+            ? { command: object(call["rawInput"])["command"] }
+            : {}),
+          ...(typeof object(call["rawInput"])["cwd"] === "string"
+            ? { cwd: object(call["rawInput"])["cwd"] }
+            : {}),
+          paths: list(call["locations"])
+            .map(object)
+            .map((location) => string(location["path"]))
+            .filter(Boolean),
+        },
         options: options.map((o) => ({
           id: string(o["optionId"]),
           label: string(o["name"]),

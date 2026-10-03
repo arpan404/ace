@@ -17,9 +17,22 @@ export function piCapabilities(cli: DiscoveryResult): Capabilities {
   return {
     steer: supported,
     permissions: {
-      modes: supported ? ["full-access"] : [],
+      modes: supported ? ["read-only", "ask", "auto-review", "full-access"] : [],
       nativeAutoReview: false,
       toolGate: false,
+      guarantees: supported
+        ? [
+            {
+              mode: "auto-review",
+              level: "tool-selection",
+              gates: { writes: true, network: true, protectedReads: false, shell: true },
+              limitations: [
+                "Only read,grep,find,ls tools are enabled; ambient extensions and MCP tools are excluded.",
+                "Read tools can access secret files; Pi RPC has no tool permission callback.",
+              ],
+            },
+          ]
+        : [],
     },
     interruptCascades: false,
     resume: supported,

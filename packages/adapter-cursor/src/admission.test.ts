@@ -64,7 +64,7 @@ it("distinguishes absent SDK from a broken installation and refuses Windows supe
     }),
   ).toMatchObject({ installed: true, supported: false });
 });
-it("maps full access and verified restricted policy while failing closed without Auto-review", () => {
+it("maps full access explicitly and keeps restricted guards when classifier availability is unknown", () => {
   expect(localPolicy("full-access", false)).toMatchObject({
     sandboxOptions: { enabled: false },
     autoReview: false,
@@ -73,7 +73,10 @@ it("maps full access and verified restricted policy while failing closed without
     sandboxOptions: { enabled: true },
     autoReview: true,
   });
-  expect(() => localPolicy("restricted", false)).toThrow("Auto-review");
+  expect(localPolicy("restricted", false)).toMatchObject({
+    sandboxOptions: { enabled: true },
+    autoReview: true,
+  });
 });
 it("uses the isolated SDK default home and inherits only the Cursor SDK environment auth choice", () => {
   const env = cursorSdkEnvironment(

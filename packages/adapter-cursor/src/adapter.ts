@@ -45,10 +45,6 @@ export function createCursorAdapter(
         maxRetainedBytes: limits.maxPendingBytes,
       }),
     async openSession(context) {
-      if (context.permissionMode && context.permissionMode !== "full-access")
-        throw new Error(
-          "Cursor native autoReview cannot yet honor ace protected-action escalation and audit; mode unsupported",
-        );
       if (context.fork)
         throw new Error(
           "Cursor SDK does not support native forks; use a fresh ace portable context handoff",

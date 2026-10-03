@@ -1,30 +1,77 @@
 import { expect, test } from "vitest";
+import { fileURLToPath } from "node:url";
 import { ThreadId } from "@ace/protocol";
-import { openAcpSession } from "./index.ts";
+import type { Frame } from "@ace/engine-api";
+import { reviewPermission } from "@ace/core";
+import { openAcpSession, createAcpTranslator } from "./index.ts";
 import { genericQuirks } from "./quirks/generic.ts";
+import { object } from "./data.ts";
 
-test.each(["auto-review", "ask", "read-only"] as const)(
-  "unverified ACP %s cannot start a provider process",
-  async (permissionMode) => {
-    await expect(
-      openAcpSession(
-        {
-          threadId: ThreadId.parse("permission"),
-          cwd: "/synthetic",
-          permissionMode,
-          signal: new AbortController().signal,
-          onFrame() {},
-          onExit() {},
+test.each([false, true])(
+  "ACP auto-review launches with no full-access fallback, absent selectors: %s",
+  async (noSelectors) => {
+    const frames: Frame[] = [],
+      threadId = ThreadId.parse("permission");
+    const translator = createAcpTranslator({
+      threadId,
+      rootKey: "root",
+      identity: { generation: "test", cursor: 0 },
+    });
+    const approval =
+      Promise.withResolvers<Extract<import("@ace/core").Fact, { type: "interaction.opened" }>>();
+    const session = await openAcpSession(
+      {
+        threadId,
+        cwd: process.cwd(),
+        permissionMode: "auto-review",
+        signal: new AbortController().signal,
+        onFrame(frame) {
+          frames.push(frame);
+          for (const fact of translator.translate(frame, frame.t))
+            if (fact.type === "interaction.opened") approval.resolve(fact);
         },
-        genericQuirks,
-        { command: "must-not-start", args: [] },
-        {
-          now: () => 0,
-          spawn: () => {
-            throw new Error("process was incorrectly started");
-          },
-        },
-      ),
-    ).rejects.toThrow("no verified comprehensive approval gate");
+        onExit() {},
+      },
+      genericQuirks,
+      {
+        command: process.execPath,
+        args: [
+          fileURLToPath(new URL("./testing/permission-server.ts", import.meta.url)),
+          ...(noSelectors ? ["--no-selectors"] : []),
+        ],
+      },
+    );
+    try {
+      const selections = frames.filter(
+        (f) => f.dir === "send" && object(f.data)["method"] === "session/set_config_option",
+      );
+      expect(selections.map((f) => object(object(f.data)["params"])["value"])).toEqual(
+        noSelectors ? [] : ["read-only"],
+      );
+      const sending = session.send([{ type: "text", text: "scripted permission" }], "queue");
+      const fact = await approval.promise;
+      if (fact.request.kind !== "approval" || !fact.request.target)
+        throw new Error("Missing native approval");
+      const decision = reviewPermission({
+        mode: "auto-review",
+        target: fact.request.target,
+        paths: [],
+      });
+      expect(decision).toEqual({
+        decision: "approve",
+        reason: "Read-only workspace inspection command",
+      });
+      await session.resolve(fact.interaction, {
+        kind: "approval",
+        optionId: "once",
+        message: decision.reason,
+      });
+      await sending;
+      expect(
+        frames.some((f) => f.dir === "recv" && JSON.stringify(f.data).includes("selected")),
+      ).toBe(true);
+    } finally {
+      await session.close("shutdown");
+    }
   },
 );

@@ -40,10 +40,6 @@ export async function openAcpSession(
   launch: LaunchOptions,
   runtime: SessionRuntime = { spawn: spawnSupervised, now: () => performance.now() },
 ): Promise<ProviderSession> {
-  if (ctx.permissionMode && ctx.permissionMode !== "full-access") {
-    ctx.mcp?.end();
-    throw new Error("ACP has no verified comprehensive approval gate for this ace permission mode");
-  }
   if (ctx.signal.aborted) {
     ctx.mcp?.end();
     throw new Error("ACP session lifetime already ended");
@@ -258,6 +254,11 @@ class AcpSession implements ProviderSession {
     this.routing.bindRoot(this.nativeSessionId);
     if (!this.nativeSessionId) throw new Error("ACP server did not return a session id");
     this.configuration.setup(session, mcpTransport);
+    if (this.ctx.permissionMode !== "full-access") {
+      const modes = this.configuration.selectors.mode?.values ?? [];
+      const restricted = ["read-only", "read_only", "plan"].find((mode) => modes.includes(mode));
+      if (restricted) await this.setMode(restricted);
+    }
     if (this.ctx.model) await this.setModel(this.ctx.model);
   }
   async select(kind: "model" | "mode", value: string): Promise<void> {

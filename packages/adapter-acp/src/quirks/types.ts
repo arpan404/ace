@@ -12,7 +12,23 @@ export interface AcpQuirks {
   capabilities(version?: string): Capabilities;
 }
 export const baseCapabilities: Capabilities = {
-  permissions: { modes: ["full-access"], nativeAutoReview: false, toolGate: false },
+  permissions: {
+    modes: ["ask", "auto-review", "full-access"],
+    nativeAutoReview: false,
+    toolGate: true,
+    guarantees: [
+      {
+        mode: "auto-review",
+        level: "permission-requests",
+        gates: { writes: false, network: false, protectedReads: false, shell: false },
+        limitations: [
+          "ACP does not guarantee permission request coverage; unsurfaced operations receive no ace review.",
+          "Advertised read-only/plan selectors are selected when present; ACP provides no portable tool allowlist or sandbox.",
+          "Client filesystem and terminal operations are disabled.",
+        ],
+      },
+    ],
+  },
   steer: false,
   interruptCascades: false,
   resume: false,

@@ -24,9 +24,7 @@ export async function openCodexSession(
   ctx: SessionContext,
   options: CodexOptions = {},
 ): Promise<ProviderSession> {
-  if (ctx.permissionMode && ctx.permissionMode !== "full-access")
-    throw new Error("Codex lacks a verified comprehensive gate for this ace permission mode");
-  const permissionMode = ctx.permissionMode ?? "read-only";
+  const permissionMode = ctx.permissionMode ?? "auto-review";
   let selectedOptions = CodexSelectionOptions.parse(ctx.options ?? {});
   if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
   if (ctx.fork?.point.type === "item")
@@ -344,7 +342,7 @@ export async function openCodexSession(
     rpc.notify("initialized");
     const params = {
       cwd: ctx.cwd,
-      ...codexThreadPolicy(permissionMode),
+      ...codexThreadPolicy(permissionMode, ctx.cwd),
       ...(injection ? { developerInstructions: injection.developerInstructions } : {}),
       ...(ctx.model ? { model: ctx.model } : {}),
     } satisfies ThreadStartParams;
@@ -404,7 +402,7 @@ export async function openCodexSession(
     ...createSessionCommands({
       nativeSessionId,
       getLaunchOptions: () => ({
-        ...codexTurnPolicy(permissionMode),
+        ...codexTurnPolicy(permissionMode, ctx.cwd),
         ...(selectedOptions.effort !== undefined ? { effort: selectedOptions.effort } : {}),
         ...(selectedOptions.serviceTier !== undefined
           ? { serviceTier: selectedOptions.serviceTier }

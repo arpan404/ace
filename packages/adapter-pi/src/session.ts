@@ -40,8 +40,6 @@ export async function openPiSession(
   options: PiOptions = {},
 ): Promise<PiSession> {
   ctx.signal.throwIfAborted();
-  if (ctx.permissionMode && ctx.permissionMode !== "full-access")
-    throw new Error("Pi cannot enforce the requested ace permission mode or protected-read gate");
   const resume = ctx.resume ? await checkedSessionReference(ctx.resume.nativeSessionId) : undefined;
   const io = { ...runtime, ...options.runtime };
   const cli =
@@ -56,7 +54,9 @@ export async function openPiSession(
   const mode =
     ctx.permissionMode === "full-access"
       ? "unrestricted"
-      : (options.permissionMode ?? "unrestricted");
+      : ctx.permissionMode
+        ? "read_only"
+        : (options.permissionMode ?? "read_only");
   const permissionArgs = piPermissionArgs(mode);
   const lifetime = new AbortController();
   const controlSecret = io.secret();

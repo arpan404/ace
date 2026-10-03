@@ -40,7 +40,10 @@ export function openRequest(
           title: str(p["command"], method),
           target: (() => {
             const parsed = ApprovalTarget.safeParse({
-              tool: method,
+              tool:
+                p["networkApprovalContext"] || p["additionalPermissions"]
+                  ? "codex-permissions-escalation"
+                  : method,
               command: p["command"],
               cwd: p["cwd"],
               access: typeof p["command"] === "string" ? "execute" : "unknown",
