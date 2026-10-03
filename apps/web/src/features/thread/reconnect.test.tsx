@@ -18,21 +18,24 @@ test("after a dropped connection the transcript catches up by replay, without du
     script.runThrough("watcher-started");
   });
   await within(feed).findByText(/The payment poller retries/);
-  await within(feed).findByText("Run checkout tests in watch mode");
+  await within(feed).findByText("bun run test --watch checkout");
 
   // Live delivery after the reconnect is duplicated too.
   await act(async () => script.runThrough("approval-requested"));
-  await within(feed).findByText("Clear the test cache");
+  await within(feed).findByText("rm -rf node_modules/.cache/vitest");
 
   for (const text of [
     /checkout.spec.ts fails about one run in five/,
     "I'll look for timing assumptions in the checkout flow first.",
     /The payment poller retries/,
-    "Explore checkout timing",
-    "Run checkout tests in watch mode",
+    "Started 1 subagent",
+    "bun run test --watch checkout",
   ])
     expect(within(feed).getAllByText(text)).toHaveLength(1);
-  // ask, plan, spawn, search, finding, watcher, approval call
+  // ask, plan, subagents line, search, finding, watcher, approval call
   expect(within(feed).getAllByRole("article")).toHaveLength(7);
+  expect(
+    screen.getAllByRole("article", { name: "Run rm -rf node_modules/.cache/vitest?" }),
+  ).toHaveLength(1);
   expect(screen.getByRole("status", { name: "Daemon: Connected" })).toBeTruthy();
 });
