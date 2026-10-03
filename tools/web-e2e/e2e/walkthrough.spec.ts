@@ -21,9 +21,9 @@ test("walkthrough of the core journeys", async ({ page }) => {
       localStorage.setItem("ace.appearance", JSON.stringify({ theme: "dark" }));
   });
 
-  // Home, then a thread from the list.
+  // Home opens on the top thread; then another from the list.
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
+  await page.waitForURL(/\/t\//);
   await beat(1200);
   const threads = page.getByRole("navigation", { name: "Threads" });
   await threads.getByRole("link", { name: /Replay cursor resets on every resume/ }).click();
@@ -99,7 +99,7 @@ test("walkthrough of the core journeys", async ({ page }) => {
     localStorage.setItem("ace.appearance", JSON.stringify({ theme: "light" })),
   );
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
+  await page.getByRole("feed", { name: "Transcript" }).waitFor();
   await beat(1500);
 
   const video = page.video();

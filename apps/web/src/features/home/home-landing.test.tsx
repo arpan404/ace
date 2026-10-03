@@ -4,13 +4,20 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-test("Home shows a hint until a thread is opened, then comes back to that thread", async () => {
+test("Home opens on the top thread, then comes back to the thread last opened", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
   await app.open("/");
-  expect(await screen.findByText("Pick a thread")).toBeTruthy();
-
+  // The list's first row opens, and it is a thread that needs you.
   const threads = await screen.findByRole("navigation", { name: "Threads" });
+  const [top] = await within(threads).findAllByRole("link");
+  const title = (await screen.findAllByRole("heading", { level: 1 })).find(
+    (heading) => heading.textContent !== "Home",
+  );
+  expect(title?.textContent).toBeTruthy();
+  expect(top?.textContent).toContain(title?.textContent);
+  expect(top?.getAttribute("aria-current")).toBe("page");
+
   await userEvent.click(within(threads).getByRole("link", { name: /Backpressure/ }));
   await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" });
 
@@ -20,4 +27,9 @@ test("Home shows a hint until a thread is opened, then comes back to that thread
   expect(
     await screen.findByRole("heading", { level: 1, name: "Backpressure on broadcast fan-out" }),
   ).toBeTruthy();
+});
+
+test("with no threads at all, Home says how to start one", async () => {
+  await harness().open("/");
+  expect(await within(await screen.findByRole("main")).findByText("No threads yet")).toBeTruthy();
 });

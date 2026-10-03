@@ -1,7 +1,8 @@
-import { useInteractions } from "@ace/client-react";
+import { useInteractions, useSidebarLoaded } from "@ace/client-react";
 import { BellIcon } from "@phosphor-icons/react";
 import { useCallback, useRef } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { Page, PageTitle } from "@/features/shell/index.ts";
@@ -17,6 +18,7 @@ import { useNeedsYou } from "./use-needs-you.ts";
  */
 export function NeedsYouPage() {
   const needs = useNeedsYou();
+  const loaded = useSidebarLoaded();
   const { setFocused } = useActivityState();
   const empty = !needs.threadIds.length && !needs.escalations.length;
   const [watch, list] = useFocusFollowsCards();
@@ -29,6 +31,14 @@ export function NeedsYouPage() {
   };
   useHotkey("j", () => move(1));
   useHotkey("k", () => move(-1));
+  // Never say "nothing needs you" before the thread list has arrived.
+  if (!loaded)
+    return (
+      <Page>
+        <PageTitle title="Needs you" />
+        <ListSkeleton label="requests" shape="card" rows={3} className="mt-5" />
+      </Page>
+    );
   if (empty)
     return (
       <EmptyState

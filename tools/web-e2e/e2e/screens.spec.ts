@@ -38,6 +38,12 @@ const bottomTab =
       .getByRole("tab", { name: tab })
       .click();
   };
+/** Home lands on a thread (the last opened, else the top row). */
+const home: Setup = async (page) => {
+  await page.goto("/");
+  await page.waitForURL(/\/t\//);
+  await transcript(page);
+};
 const visit =
   (path: string, title: string | RegExp): Setup =>
   async (page) => {
@@ -55,13 +61,13 @@ async function heroWithQueue(page: Page) {
 }
 
 const screens: Record<string, Setup> = {
-  home: visit("/", "Home"),
+  home,
   "home-hover": async (page) => {
-    await visit("/", "Home")(page);
+    await home(page);
     await threadList(page).getByRole("link").nth(3).hover();
   },
   "home-settled": async (page) => {
-    await visit("/", "Home")(page);
+    await home(page);
     const settled = page.getByRole("button", { name: /^Settled \(\d+\)$/ });
     await settled.scrollIntoViewIfNeeded();
     await settled.click();
@@ -69,12 +75,12 @@ const screens: Record<string, Setup> = {
     await page.mouse.wheel(0, 2000);
   },
   "context-menu": async (page) => {
-    await visit("/", "Home")(page);
+    await home(page);
     await threadList(page).getByRole("link").nth(4).click({ button: "right" });
     await page.getByRole("menu").waitFor();
   },
   palette: async (page) => {
-    await visit("/", "Home")(page);
+    await home(page);
     await page.keyboard.press("ControlOrMeta+k");
     await page.getByRole("dialog").waitFor();
   },

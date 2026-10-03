@@ -159,3 +159,11 @@ test("ticking Always allow answers with the provider's wider grant", async () =>
   );
   expect(within(main()).queryByText("Always allow bun run in docs-site")).toBeNull();
 });
+
+test("Needs you shows placeholder cards until the thread list arrives, never a false all-clear", async () => {
+  const app = workbenchApp();
+  await app.open("/activity");
+  expect(screen.queryByText("Nothing needs you")).toBeNull();
+  expect(await card("How should the sheet recover after rotate?")).toBeTruthy();
+  expect(screen.queryByRole("status", { name: "Loading requests" })).toBeNull();
+});

@@ -49,8 +49,11 @@ test("picking a project narrows Home to it", async () => {
     "option",
   );
   await userEvent.click(project);
-  await screen.findByRole("heading", { level: 1, name: "Home" });
-  expect(screen.getByRole("button", { name: "Project filter: billing-api" })).toBeTruthy();
+  expect(await screen.findByRole("button", { name: "Project filter: billing-api" })).toBeTruthy();
+  // Home opens the filtered list's top thread.
+  expect(
+    await screen.findByRole("heading", { level: 1, name: /Partial refunds|Invoice PDF/ }),
+  ).toBeTruthy();
   const links = within(screen.getByRole("navigation", { name: "Threads" })).getAllByRole("link");
   expect(links.every((link) => link.textContent?.includes("billing-api"))).toBe(true);
 });
