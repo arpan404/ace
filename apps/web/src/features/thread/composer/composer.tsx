@@ -2,7 +2,6 @@ import type { Mention } from "@ace/protocol";
 import { ArrowUpIcon, PlusIcon, StopIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import {
-  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -93,16 +92,24 @@ export function Composer(props: {
     setStacked(stackedAt.current > 0);
   }, [text, narrow]);
   // The composer's own width (not the input's, which changes with the layout) picks the
-  // narrow layout: the input on its own line, the controls tucked under it.
+  // narrow layout: the input on its own line, the controls tucked under it. Measured before
+  // the first paint, then whenever the reading column changes (a panel opening, a resize).
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = box.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      setNarrow(el.clientWidth < 440);
+    if (!el) return;
+    const measure = () => {
+      // Layout width, so a panel's transform mid-animation never skews it.
+      const width = el.offsetWidth;
+      // Unlaid-out (hidden or not yet attached): keep the last decision.
+      if (width <= 0) return;
+      setNarrow(width < 440);
       // Beside the model picker the full hint would wrap; keep it to one line.
-      setTerse(el.clientWidth < 640);
-    });
+      setTerse(width < 640);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
@@ -235,7 +242,7 @@ export function Composer(props: {
             }
           }}
           className={cn(
-            "max-h-[40vh] min-h-9 w-full resize-none self-center overflow-y-auto bg-transparent text-[14.5px] leading-[1.4] text-foreground outline-none [grid-area:input] placeholder:text-subtle-foreground",
+            "max-h-[40vh] min-h-9 w-full resize-none self-center overflow-y-auto bg-transparent text-[14.5px] leading-[1.4] text-foreground outline-none [grid-area:input] placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground",
             layout ? (wrapped ? "px-2.5 pt-2.5 pb-1.5" : "px-2.5 pt-2 pb-0") : "py-2 pr-1.5 pl-2",
           )}
         />

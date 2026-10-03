@@ -1,10 +1,19 @@
 import { longHistory, replayCursor } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 beforeEach(() => localStorage.clear());
+
+/** jsdom has no layout; give every element this width (the setup file's default is 800). */
+function layoutWidth(width: number) {
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get: () => width,
+  });
+}
+afterEach(() => layoutWidth(800));
 
 async function open(scenario: "idle" | "busy") {
   const app = harness();
@@ -123,4 +132,16 @@ test("the context bar shows the checkout and switches branch", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Branch: fix/replay-cursor" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "main" }));
   expect(await screen.findByRole("button", { name: "Branch: main" })).toBeTruthy();
+});
+
+test("a composer squeezed by an open panel keeps its hint to one short line", async () => {
+  layoutWidth(500);
+  const { message } = await open("idle");
+  expect(message.getAttribute("placeholder")).toBe("Ask anything");
+});
+
+test("a wide composer spells out the @ and / hints", async () => {
+  layoutWidth(900);
+  const { message } = await open("idle");
+  expect(message.getAttribute("placeholder")).toBe("Ask anything, @ to mention, / for commands");
 });
