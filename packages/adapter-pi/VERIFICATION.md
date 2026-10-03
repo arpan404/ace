@@ -62,24 +62,51 @@ Further cases, all **not executed (tests run at merge)**:
 
 All cases are **not executed (tests run at merge)**. Runtime confirmation needs run at merge.
 
-| Mutation                                                                 | Public behaviour guard                                                                                         |
-| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| Emit turn.ended while native dialogs remain, or discard deferred failure | Translator pending-dialog, timeout-isolation and deferred-failed-outcome tests apply facts through core        |
-| Skip saved header validation or ignore its expected native ID            | Missing, empty and replaced saved histories fail public session reopen before input                            |
-| Accept a different native ID at the same pathname                        | Native identity mismatch process test rejects resume                                                           |
-| Forget navigation marker or append it before navigating                  | Earlier-user/assistant and root rollback retain actual context through clone, source restoration and reopen    |
-| Append a marker after cancelled navigation                               | Cancelled navigation preserves native file bytes and active context                                            |
-| Remove control-secret redaction                                          | Injected asserted secret is echoed on send, recv and stderr and must be absent in all three                    |
-| Repeat full raw per final block                                          | Public translator facts retain unknown metadata while aggregate serialized bytes stay below three input frames |
-| Remove final block cap                                                   | 257 final blocks cannot produce messages or successful completion                                              |
-| Repeat or misplace cumulative block separators/suffixes                  | Multi-block shell output yields exactly abc, def, ghi with two separators and eleven bytes                     |
-| Reject a legacy header without version                                   | Public cold-fork and reopen accept native v1 headers and preserve source                                       |
-| Discard known safe history diagnostics                                   | Public daemon socket returns navigation-not-acknowledged, without pointing at nonexistent notices              |
-| Block dialog answers with the native history-operation lock              | Fork confirmation can be answered while the fork is pending, and its returned reference resumes context        |
-| Await native control completion in serialized socket dispatch            | A pending control leaves the same socket able to receive ping and return pong before the control finishes      |
+| Mutation                                                                 | Public behaviour guard                                                                                                                             |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Emit turn.ended while native dialogs remain, or discard deferred failure | Translator pending-dialog, timeout-isolation and deferred-failed-outcome tests apply facts through core                                            |
+| Skip saved header validation or ignore its expected native ID            | Missing, empty and replaced saved histories fail public session reopen before input                                                                |
+| Accept a different native ID at the same pathname                        | Native identity mismatch process test rejects resume                                                                                               |
+| Forget navigation marker or append it before navigating                  | Earlier-user/assistant rollback retains context through clone/restore/reopen; root rollback retains empty context through refused clone and reopen |
+| Append a marker after cancelled navigation                               | Cancelled navigation preserves native file bytes and active context                                                                                |
+| Remove control-secret redaction                                          | Injected asserted secret is echoed on send, recv and stderr and must be absent in all three                                                        |
+| Repeat full raw per final block                                          | Public translator facts retain unknown metadata while aggregate serialized bytes stay below three input frames                                     |
+| Remove final block cap                                                   | 257 final blocks cannot produce messages or successful completion                                                                                  |
+| Repeat or misplace cumulative block separators/suffixes                  | Multi-block shell output yields exactly abc, def, ghi with two separators and eleven bytes                                                         |
+| Reject a legacy header without version                                   | Public cold-fork and reopen accept genuine ID-free native v1 entries and preserve conversation through migration                                   |
+| Discard known safe history diagnostics                                   | Public daemon socket returns navigation-not-acknowledged, without pointing at nonexistent notices                                                  |
+| Block dialog answers with the native history-operation lock              | Fork confirmation can be answered while the fork is pending, and its returned reference resumes context                                            |
+| Await native control completion in serialized socket dispatch            | A pending control leaves the same socket able to receive ping and return pong before the control finishes                                          |
 
 Additional scaling benchmarks in `bench/scaling.ts` include final-envelope persistence
 serialization at 16–256 blocks and cumulative multi-block output at 1–256 KiB prefixes.
 Ops/s, serialized bytes/frame, emitted bytes and peak RSS require a merge-time run.
 No measurements are claimed. Incoming cumulative frames must still be parsed in full;
 ace copies only their new output suffix.
+
+## Verifier follow-up
+
+All cases are **not executed (tests run at merge)**. Runtime confirmation needs run at merge.
+
+| Mutation                                                                                    | Public behaviour guard                                                                                                       |
+| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Skip no-assistant fork admission, or search abandoned branches instead of selected ancestry | Root clone and before-first-user fork fail before native replacement; the live source and its reopened context remain usable |
+| Close the process when fork-file validation fails, or omit source restoration on failure    | Unexpected unflushed native fork returns an error while the source still answers with its original context                   |
+| Ignore fork metadata bounds or ancestry cycles                                              | Oversized and cyclic native entry responses fail without replacement and the source remains live                             |
+| Require explicit legacy header version or discard ID-free legacy messages                   | Genuine native v1 cold clone and both source/fork reopen retain conversation through native migration                        |
+| Remove absolute-cwd validation                                                              | Invalid-header test now supplies a valid ID, isolating rejection of a relative cwd before any process launch                 |
+| Omit the Pi product-name mapping in the merged web client                                   | Public ProviderMark exposes Pi's accessible provider name                                                                    |
+
+The fake peer now defers clone persistence when the selected branch has no assistant
+message and migrates ID-free v1 entries on load. It still never imports or starts Pi.
+The old root-clone success expectation was replaced with refusal and source-continuity
+assertions, matching the inspected provider's deferred-save contract. Synthetic context
+requests do not append an assistant to manufacture persistence.
+
+The 4096-entry fork admission index is transient, allocated only for a history control
+and discarded before replacement. It scans the admitted response and selected parent
+chain; no accumulated history scan was added to frame translation. Existing final/raw
+and cumulative-output benchmarks remain unexecuted. No measured ops/s or RSS claims,
+no proven mutation kills, and no historical provenance proof are inferred from static
+checks. The verifier's O1–O4 and N1–N14 retain their existing public guards; the new
+cases above cover M1, F2, F3 and the merge integration failure.

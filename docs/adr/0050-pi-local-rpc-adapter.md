@@ -30,6 +30,14 @@ Resume validates a bounded existing header and matches the saved ID against both
 the file and the running process. Legacy raw file paths remain accepted and are
 upgraded to identity-bearing references. Missing header versions mean v1. Fork uses `clone`
 or `fork(entryId)`, reads the resulting file and switches back to the source.
+Before replacement, inspect a bounded `get_entries` response and the selected
+parent chain. Pi defers saving branches without an assistant message; reject
+these forks while leaving the source live, including a clone after root rollback
+and a fork before the first user entry. Admit at most 4096 entries within the
+existing 1 MiB frame bound. This transient check costs O(entries + branch depth),
+only during a cold history control, and retains no history index afterwards.
+If native replacement succeeds but its new file fails validation, restore the
+source before returning the error. Close the process only if restoration fails.
 Rollback uses an explicitly loaded ace extension command calling Pi's
 `navigateTree` without summarization. After successful navigation, `appendEntry("ace-navigation", {targetId})` persists
 a native custom entry on the new leaf before success is acknowledged. Reopening

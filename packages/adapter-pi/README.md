@@ -7,7 +7,11 @@ and [ADR 0050](../../docs/adr/0050-pi-local-rpc-adapter.md).
 The public API is `createPiAdapter`, `createPiTranslator`, `openPiSession`,
 `piCapabilities`, `piProfile` and `piPermissionArgs`. A `PiSession` implements
 ADR 0007 and adds `fork(entryId?)` and `rollback(entryId)`. Fork returns a native
-identity-bearing session reference and restores the source process.
+identity-bearing session reference and restores the source process. A selected
+branch must contain an assistant message: Pi otherwise defers saving the fork.
+A bounded native-entry preflight refuses root clones and forks before the first
+user while preserving the live source. Failed fork-file validation restores the
+source before returning the error.
 `nativeSessionFile` exposes its native path. Saved references retain the expected
 header ID; legacy raw paths are accepted and upgraded on reopen. Missing, empty
 and replaced history fails resume. Headers are limited to 64 KiB; missing versions
@@ -39,7 +43,7 @@ The adapter verifies the command's source path before using it.
 
 Caps are 1 MiB per native frame, 2 MiB queued writes, 64 pending RPC commands,
 256 live tools/final content blocks, 128 pending dialogs, 128 live daemon sessions,
-8 concurrent cold forks, 8 controls per socket and 128 replay receipts. Overflow terminates
+4096 transient entries per fork preflight, 8 concurrent cold forks, 8 controls per socket and 128 replay receipts. Overflow terminates
 transport or keeps completion uncertain; live state is never silently evicted.
 MCP forwarding has 16 calls, 256 tool descriptors, 64 KiB arguments and 1 MiB
 response bodies. No transcript/history buffer lives in the adapter. Final envelopes are retained
