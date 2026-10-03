@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewerComment.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "position": {
+      "$ref": "https://ace.local/protocol/v1/ReviewPosition.json"
+    },
+    "suggestion": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "position",
+    "text"
+  ],
+  "type": "object"
+}

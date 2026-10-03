@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/CommandsResolveResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "type": "string"
+    },
+    "result": {
+      "$ref": "https://ace.local/protocol/v1/CommandResolution.json"
+    },
+    "type": {
+      "const": "commands.resolve.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}

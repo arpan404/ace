@@ -4,7 +4,11 @@ export const PtyExitSchema = z.object({
   exitCode: z.number().int(),
   signal: z.number().int().nonnegative().optional(),
 });
-export const PtyBytesSchema = z.instanceof(Uint8Array);
+export const PtyBytesSchema = z.instanceof(Uint8Array).meta({
+  "x-ace-transport": "binary",
+  "x-ace-json-input": z.never(),
+  "x-ace-constraint": "Native PTY byte buffers use Uint8Array; no JSON value is accepted.",
+});
 export const PosixSessionsSchema = z.array(
   z.object({ pid: z.number().int().positive(), session: z.number().int().min(-1) }),
 );

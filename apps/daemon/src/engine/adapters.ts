@@ -4,19 +4,28 @@ import {
   createCursorAdapter,
   type CursorAdapterOptions,
 } from "@ace/adapter-cursor";
+import type { ProviderAdapter } from "@ace/engine-api";
+import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import { AdapterRegistry } from "./registry.ts";
 
 /** Metadata probes only; sessions still open after committed command admission. */
 export async function discoverAdapters(
   discover: typeof discoverProviders = discoverProviders,
-  cursorOptions: CursorAdapterOptions = {},
+  cursorOrClaude: CursorAdapterOptions | ((cli: DiscoveryResult) => ProviderAdapter) = {},
   sdkDiscovery: typeof discoverCursorSdk = discoverCursorSdk,
+  claudeFactory?: (cli: DiscoveryResult) => ProviderAdapter,
 ): Promise<AdapterRegistry> {
+  const cursorOptions = typeof cursorOrClaude === "function" ? {} : cursorOrClaude;
+  const claudeAdapter = typeof cursorOrClaude === "function" ? cursorOrClaude : claudeFactory;
   const registry = new AdapterRegistry();
   const { claude, codex, opencode, cursor } = await discover();
   if (claude.installed) {
     const { createClaudeAdapter } = await import("@ace/adapter-claude");
-    registry.register(createClaudeAdapter(claude.path ? { executable: claude.path } : {}), claude);
+    registry.register(
+      claudeAdapter?.(claude) ??
+        createClaudeAdapter(claude.path ? { executable: claude.path } : {}),
+      claude,
+    );
   }
   if (codex.installed) {
     const { createCodexAdapter } = await import("@ace/adapter-codex");

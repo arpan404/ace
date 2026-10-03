@@ -20,7 +20,11 @@ const Paths = z
           (p === "." || !p.split("/").some((segment) => segment === "" || segment === ".")) &&
           !/[*?[\]]/.test(p),
         "ownership must be a repository-relative path",
-      ),
+      )
+      .meta({
+        "x-ace-constraint":
+          "Must be a repository-relative path or .; no absolute path, backslash, .. segments, empty segments, . segments, C0 controls or glob characters * ? [ ].",
+      }),
   )
   .max(128);
 export const ConductorBrief = z.object({
@@ -33,7 +37,8 @@ export const ConductorBrief = z.object({
     .refine(
       (criteria) => new Set(criteria).size === criteria.length,
       "acceptance criteria must be distinct",
-    ),
+    )
+    .meta({ uniqueItems: true, "x-ace-constraint": "Acceptance criteria must be distinct." }),
   files: Paths,
   packages: Paths,
   risks: z.array(Text).max(32),
@@ -59,6 +64,29 @@ function planSchema(caseSensitivity: "sensitive" | "insensitive") {
     validatePlan(plan.workstreams, caseSensitivity, (message) =>
       ctx.addIssue({ code: "custom", message }),
     );
+  }).meta({
+    "x-ace-constraint": `The parsed compact JSON must be at most 1048576 UTF-8 bytes. Workstream ids and dependencies must be distinct, all dependencies must exist, and the dependency graph must be acyclic. Ownership paths may overlap only between dependency-ordered owners, using NFC normalization and ${caseSensitivity === "sensitive" ? "case-sensitive" : "locale-independent lower-then-upper case-insensitive"} comparison.`,
+    examples: [
+      {
+        summary: "Example plan",
+        workstreams: [
+          {
+            id: "lane",
+            title: "Example workstream",
+            brief: {
+              objective: "Example objective",
+              instructions: "Example instructions",
+              acceptance: ["Example acceptance"],
+              files: [],
+              packages: [],
+              risks: [],
+            },
+            dependencies: [],
+            priority: 0,
+          },
+        ],
+      },
+    ],
   });
 }
 export const ConductorPlan = planSchema("sensitive");
@@ -99,6 +127,40 @@ export const ConductorReview = z
         !report.performance.passed)
     )
       ctx.addIssue({ code: "custom", message: "passing review requires passing evidence" });
+  })
+  .meta({
+    "x-ace-constraint":
+      "The parsed compact JSON must be at most 65536 UTF-8 bytes. Mutation change strings must be distinct. A pass verdict requires all requirements, mutations, flakiness, design and performance evidence to pass.",
+    examples: [
+      {
+        verdict: "changes_required",
+        summary: "Synthetic review example",
+        requirements: [
+          { criterion: "Example criterion", passed: false, evidence: "Synthetic evidence" },
+        ],
+        probes: ["Synthetic probe"],
+        mutations: [
+          { change: "Change 1", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 2", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 3", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 4", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 5", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 6", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 7", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 8", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 9", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 10", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 11", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 12", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 13", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 14", caught: false, evidence: "Synthetic evidence" },
+          { change: "Change 15", caught: false, evidence: "Synthetic evidence" },
+        ],
+        flakiness: { runs: 2, passed: false, evidence: "Synthetic evidence" },
+        design: { passed: false, evidence: "Synthetic evidence" },
+        performance: { passed: false, evidence: "Synthetic evidence" },
+      },
+    ],
   });
 export type ConductorReview = z.infer<typeof ConductorReview>;
 export const ConductorModel = z.object({
@@ -149,6 +211,46 @@ export const ConductorSpec = z
       if (role === "reviewer" && choices.some((m) => m.tier !== "normal"))
         ctx.addIssue({ code: "custom", message: "reviewers must use normal tier" });
     }
+  })
+  .meta({
+    "x-ace-constraint":
+      "Every role must offer at least one model whose provider and model id are allowed by constraints. All reviewer choices must use the normal tier.",
+    examples: [
+      {
+        rootAgentId: "agent",
+        workspaceId: "workspace",
+        goal: "Example goal",
+        repositoryRules: "",
+        constraints: {
+          providers: ["claude"],
+          models: ["example"],
+          accounts: ["account"],
+          budget: 0,
+          maxParallel: 1,
+          deadline: null,
+          stallAfterMs: 1,
+        },
+        policies: {
+          planApproval: "required",
+          merge: "ask",
+          maxFixRounds: 1,
+          roles: {
+            planner: [
+              { provider: "claude", model: "example", tier: "normal", cost: 0.125, quota: 1 },
+            ],
+            worker: [
+              { provider: "claude", model: "example", tier: "normal", cost: 0.125, quota: 1 },
+            ],
+            reviewer: [
+              { provider: "claude", model: "example", tier: "normal", cost: 0.125, quota: 1 },
+            ],
+            integrator: [
+              { provider: "claude", model: "example", tier: "normal", cost: 0.125, quota: 1 },
+            ],
+          },
+        },
+      },
+    ],
   });
 export type ConductorSpec = z.infer<typeof ConductorSpec>;
 export const ConductorApproval = z.object({

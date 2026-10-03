@@ -1,0 +1,92 @@
+{
+  "$id": "https://ace.local/protocol/v1/LaneComparison.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifact": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationArtifact.json"
+    },
+    "checksPassed": {
+      "type": "boolean"
+    },
+    "durationMs": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "files": {
+      "items": {
+        "properties": {
+          "additions": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "binary": {
+            "type": "boolean"
+          },
+          "deletions": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "oldPath": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "path": {
+            "maxLength": 4096,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "A",
+              "M",
+              "D",
+              "R",
+              "C",
+              "T"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "status",
+          "additions",
+          "deletions",
+          "binary"
+        ],
+        "type": "object"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
+    "filesTruncated": {
+      "type": "boolean"
+    },
+    "laneId": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    },
+    "patch": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "patchTruncated": {
+      "type": "boolean"
+    },
+    "usage": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationUsage.json"
+    }
+  },
+  "required": [
+    "laneId",
+    "durationMs",
+    "usage",
+    "artifact",
+    "checksPassed",
+    "files",
+    "filesTruncated",
+    "patch",
+    "patchTruncated"
+  ],
+  "type": "object"
+}

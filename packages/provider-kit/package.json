@@ -4,8 +4,8 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    "./process": "./src/process.ts",
     "./payload": "./src/payload.ts",
+    "./process": "./src/process.ts",
     "./sdk": "./src/sdk.ts",
     "./ipc": "./src/ipc.ts",
     "./jsonrpc": "./src/jsonrpc.ts",

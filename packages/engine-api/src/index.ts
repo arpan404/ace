@@ -29,6 +29,7 @@ export type Frame = {
   /** Transport-specific channel, such as stdio, sse, http or sdk. */
   channel: string;
   data: unknown;
+  /** Immutable decoded value admitted from bounded encoded bytes; data must be payload.data. */
   payload?: ProviderPayload;
 };
 
@@ -39,6 +40,8 @@ export interface ProviderAdapter {
   capabilities(cli: DiscoveryResult): Capabilities;
   createTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator;
   openSession(ctx: SessionContext): Promise<ProviderSession>;
+  /** Idle provider history clone, bound to this adapter's private home. Never sends input. */
+  forkSession?(input: { nativeSessionId: string; signal: AbortSignal }): Promise<string>;
 }
 
 export interface Translator {
@@ -55,11 +58,13 @@ export interface SessionContext {
   rootKey?: Key;
   threadId: ThreadId;
   cwd: string;
-  model?: string;
+  /** Instance-specific environment; adapters must pass it to every owned provider process. */
+  env?: NodeJS.ProcessEnv;
+  /** Persist this assignment with the native session ID; resume must reuse the same instance. */
   instanceId?: string;
+  model?: string;
   /** Host-local selected account home, never a client-supplied credential selector. */
   instanceHomeDir?: string;
-  env?: NodeJS.ProcessEnv;
   runtimePolicy?: "restricted" | "full-access";
   resume?: { nativeSessionId: string; backend?: ProviderBackend; instanceId?: string };
   /** Persist selection before host admission and native identity before publishing its open frame. */
@@ -74,10 +79,19 @@ export interface SessionContext {
   signal: AbortSignal;
 }
 
+/** Configuration owners use these controls; no authentication operations are exposed. */
+export interface ProviderMcpControl {
+  status(): Promise<unknown>;
+  replace(servers: Record<string, unknown>): Promise<unknown>;
+  reconnect(name: string): Promise<void>;
+  enable(name: string): Promise<void>;
+  disable(name: string): Promise<void>;
+}
 export interface ProviderSession {
+  readonly mcp?: ProviderMcpControl;
+  readonly instanceId?: string;
   readonly nativeSessionId: string;
   readonly backend?: ProviderBackend;
-  readonly instanceId?: string;
   send(
     input: ContentPart[],
     delivery: "steer" | "queue",

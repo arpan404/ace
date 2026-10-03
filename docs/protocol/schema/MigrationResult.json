@@ -1,0 +1,107 @@
+{
+  "$id": "https://ace.local/protocol/v1/MigrationResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "action": {
+          "enum": [
+            "fork",
+            "resume"
+          ],
+          "type": "string"
+        },
+        "cleanupWarnings": {
+          "items": {
+            "enum": [
+              "lease_release_failed",
+              "staging_cleanup_failed",
+              "rollback_failed"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "type": "array"
+        },
+        "copiedFiles": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nativeSessionId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "status": {
+          "const": "migrated",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "nativeSessionId",
+        "action",
+        "copiedFiles"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "cleanupWarnings": {
+          "items": {
+            "enum": [
+              "lease_release_failed",
+              "staging_cleanup_failed",
+              "rollback_failed"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "type": "array"
+        },
+        "reason": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "status": {
+          "const": "unsupported",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "cleanupWarnings": {
+          "items": {
+            "enum": [
+              "lease_release_failed",
+              "staging_cleanup_failed",
+              "rollback_failed"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "type": "array"
+        },
+        "reason": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "status": {
+          "const": "refused",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

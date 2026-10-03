@@ -20,6 +20,11 @@ export const PreviewLaunch = z
     if (entry.url ? executables !== 0 || entry.autoPort : executables !== 1) {
       ctx.addIssue({ code: "custom", message: "Choose one executable or an attach URL" });
     }
+  })
+  .meta({
+    "x-ace-constraint":
+      "Choose exactly one executable, or an attach URL without an executable or autoPort.",
+    examples: [{ name: "example", command: "node" }],
   });
 export type PreviewLaunch = z.infer<typeof PreviewLaunch>;
 export const PreviewLaunchFile = z.object({ configurations: z.array(PreviewLaunch).max(64) });

@@ -1,0 +1,247 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_thread_info.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "thread": {
+      "additionalProperties": false,
+      "properties": {
+        "archivedAt": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "createdAt": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "imported": {
+          "additionalProperties": false,
+          "properties": {
+            "importedAt": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "instanceId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "native": {
+              "additionalProperties": false,
+              "properties": {
+                "aliases": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "forkedFromNativeId": {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "nativeId": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "provider": {
+                  "enum": [
+                    "claude",
+                    "codex",
+                    "opencode",
+                    "cursor",
+                    "antigravity",
+                    "acp"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "provider"
+              ],
+              "type": "object"
+            },
+            "sourceId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "sourceId",
+            "instanceId",
+            "native",
+            "importedAt"
+          ],
+          "type": "object"
+        },
+        "provider": {
+          "enum": [
+            "claude",
+            "codex",
+            "opencode",
+            "cursor",
+            "antigravity",
+            "acp"
+          ],
+          "type": "string"
+        },
+        "rootAgentId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "interactions": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                },
+                "state": {
+                  "const": "needs_you",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state",
+                "interactions"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "agents": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                },
+                "state": {
+                  "const": "working",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state",
+                "agents"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "on": {
+                  "enum": [
+                    "background_task",
+                    "rate_limit",
+                    "network",
+                    "upstream",
+                    "queue"
+                  ],
+                  "type": "string"
+                },
+                "state": {
+                  "const": "waiting",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state",
+                "on"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "failed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "unresponsive",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "done",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "new",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "workspaceId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "title",
+        "provider",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "thread"
+  ],
+  "type": "object"
+}

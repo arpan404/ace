@@ -1,0 +1,40 @@
+{
+  "$id": "https://ace.local/protocol/v1/HistoryScanResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "files": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "type": {
+      "const": "history.scan",
+      "type": "string"
+    },
+    "unsupported": {
+      "items": {
+        "properties": {
+          "instanceId": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instanceId",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "maxItems": 256,
+      "type": "array"
+    }
+  },
+  "required": [
+    "type",
+    "files",
+    "unsupported"
+  ],
+  "type": "object"
+}

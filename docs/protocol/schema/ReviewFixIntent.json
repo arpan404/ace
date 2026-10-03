@@ -1,0 +1,72 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewFixIntent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "comments": {
+      "items": {
+        "properties": {
+          "excerpt": {
+            "maxLength": 2048,
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "position": {
+            "$ref": "https://ace.local/protocol/v1/ReviewPosition.json"
+          },
+          "suggestion": {
+            "maxLength": 8192,
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "position",
+          "text",
+          "excerpt"
+        ],
+        "type": "object"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "type": "array"
+    },
+    "kind": {
+      "const": "review-fix",
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "sessionId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "source": {
+      "$ref": "https://ace.local/protocol/v1/ReviewExecutionSource.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "kind",
+    "requestId",
+    "sessionId",
+    "threadId",
+    "source",
+    "comments"
+  ],
+  "type": "object"
+}

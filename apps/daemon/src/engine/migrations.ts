@@ -25,7 +25,7 @@ export function migrateEngine(db: DatabaseSync): void {
   );
   CREATE TABLE engine_sessions (
     thread_id TEXT PRIMARY KEY REFERENCES threads(id), cwd TEXT NOT NULL,
-    model TEXT, native_session_id TEXT
+    model TEXT, native_session_id TEXT, instance_id TEXT
   );
   CREATE TABLE intents (
     id INTEGER PRIMARY KEY AUTOINCREMENT, command_id TEXT NOT NULL UNIQUE,

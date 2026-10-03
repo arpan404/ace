@@ -62,7 +62,10 @@ export type TodoEntry = z.infer<typeof TodoEntry>;
 export const OutputSummary = z.object({
   streamId: z.string().min(1),
   bytes: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
-  tail: z.string().refine((text) => new TextEncoder().encode(text).length <= 4096),
+  tail: z
+    .string()
+    .refine((text) => new TextEncoder().encode(text).length <= 4096)
+    .meta({ "x-ace-constraint": "UTF-8 encoding must be at most 4096 bytes." }),
   truncated: z.boolean(),
 });
 export type OutputSummary = z.infer<typeof OutputSummary>;

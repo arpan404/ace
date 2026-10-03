@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/ModelListResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "instances": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ModelInstanceStatus.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "models": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/CatalogModel.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "nextOffset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "models",
+    "instances"
+  ],
+  "type": "object"
+}

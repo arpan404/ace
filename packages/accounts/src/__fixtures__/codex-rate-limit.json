@@ -1,0 +1,26 @@
+{
+  "method": "account/rateLimits/updated",
+  "params": {
+    "rateLimits": {
+      "limitId": "codex",
+      "limitName": null,
+      "normalModelSlug": null,
+      "primary": {
+        "usedPercent": 33,
+        "windowDurationMins": 10080,
+        "resetsAt": 1791047640
+      },
+      "secondary": null,
+      "credits": {
+        "hasCredits": true,
+        "unlimited": false,
+        "balance": "62500"
+      },
+      "individualLimit": null,
+      "spendControlReached": null,
+      "planType": "pro",
+      "rateLimitReachedType": null
+    }
+  },
+  "emittedAtMs": 1790920147547
+}

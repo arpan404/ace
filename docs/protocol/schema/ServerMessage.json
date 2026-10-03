@@ -1,0 +1,660 @@
+{
+  "$id": "https://ace.local/protocol/v1/ServerMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/ContextResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SettingsResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SettingsChanged.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SettingsDiagnosticMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/HistoryListResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/HistoryImportResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/HistoryScanResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/HistoryContinueResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/McpProviderResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UsageMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UsageSessionTotalsMessage.json"
+    },
+    {
+      "properties": {
+        "channel": {
+          "type": "number"
+        },
+        "type": {
+          "const": "files.cancelled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "channel"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "files.result",
+          "type": "string"
+        },
+        "value": {}
+      },
+      "required": [
+        "type",
+        "requestId",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "type": "number"
+        },
+        "code": {
+          "type": "string"
+        },
+        "current": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "files.error",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "type": "number"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": {
+          "const": "files.ready",
+          "type": "string"
+        },
+        "validator": {
+          "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "channel",
+        "offset",
+        "size",
+        "validator"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "type": "number"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "files.end",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "channel",
+        "offset",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "type": "number"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "size": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "files.upload",
+          "type": "string"
+        },
+        "uploadId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "channel",
+        "uploadId",
+        "offset",
+        "size"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "change": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceFileChange.json"
+        },
+        "type": {
+          "const": "files.changed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "change"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/CommandsListResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/CommandsResolveResult.json"
+    },
+    {
+      "properties": {
+        "accounts": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/AccountSummary.json"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "accounts.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "accounts"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AccountSummary.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "accounts.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "account"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "result": {
+          "$ref": "https://ace.local/protocol/v1/MigrationResult.json"
+        },
+        "type": {
+          "const": "accounts.migrate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "result"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SearchQueryResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SearchStatusResponse.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SearchErrorResponse.json"
+    },
+    {
+      "properties": {
+        "state": {
+          "$ref": "https://ace.local/protocol/v1/ScreenState.json"
+        },
+        "type": {
+          "const": "screen.state",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "data": {},
+        "error": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "requestId": {
+          "$ref": "https://ace.local/protocol/v1/ScreenId.json"
+        },
+        "type": {
+          "const": "screen.result",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "ok"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ModelsResult.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/NotificationMessage.json"
+    },
+    {
+      "properties": {
+        "headSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hostId": {
+          "$ref": "https://ace.local/protocol/v1/HostId.json"
+        },
+        "protocolVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "type": {
+          "const": "welcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "hostId",
+        "protocolVersion",
+        "headSeq"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subscriptionId": {
+          "type": "string"
+        },
+        "type": {
+          "const": "snapshot",
+          "type": "string"
+        },
+        "view": {
+          "$ref": "https://ace.local/protocol/v1/SnapshotView.json"
+        }
+      },
+      "required": [
+        "type",
+        "subscriptionId",
+        "seq",
+        "view"
+      ],
+      "type": "object",
+      "x-ace-constraint": "seq must equal view.seq."
+    },
+    {
+      "properties": {
+        "afterSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "events": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/DeliveryEvent.json"
+          },
+          "type": "array"
+        },
+        "subscriptionId": {
+          "type": "string"
+        },
+        "throughSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "events",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "subscriptionId",
+        "afterSeq",
+        "throughSeq",
+        "events"
+      ],
+      "type": "object",
+      "x-ace-constraint": "throughSeq >= afterSeq; events are ordered with (firstSeq ?? seq) > previous seq and seq <= throughSeq."
+    },
+    {
+      "properties": {
+        "afterSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subscriptionId": {
+          "type": "string"
+        },
+        "throughSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "progress",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "subscriptionId",
+        "afterSeq",
+        "throughSeq"
+      ],
+      "type": "object",
+      "x-ace-constraint": "throughSeq must be >= afterSeq."
+    },
+    {
+      "properties": {
+        "commandId": {
+          "$ref": "https://ace.local/protocol/v1/CommandId.json"
+        },
+        "error": {
+          "type": "string"
+        },
+        "health": {
+          "$ref": "https://ace.local/protocol/v1/DiagnosticsHealth.json"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "review": {
+          "$ref": "https://ace.local/protocol/v1/ReviewData.json"
+        },
+        "type": {
+          "const": "commandResult",
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "ok",
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "subscriptionId": {
+          "type": "string"
+        },
+        "type": {
+          "const": "error",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "bytes": {
+          "type": "string"
+        },
+        "eof": {
+          "type": "boolean"
+        },
+        "nextOffset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "streamId": {
+          "type": "string"
+        },
+        "type": {
+          "const": "output.data",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "streamId",
+        "offset",
+        "nextOffset",
+        "bytes",
+        "eof"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "itemSeqs": {
+          "additionalProperties": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object",
+          "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+        },
+        "items": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/Item.json"
+          },
+          "maxItems": 200,
+          "type": "array"
+        },
+        "itemsBefore": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requestId": {
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "items.page",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "threadId",
+        "items",
+        "itemsBefore",
+        "type",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "pong",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    }
+  ]
+}

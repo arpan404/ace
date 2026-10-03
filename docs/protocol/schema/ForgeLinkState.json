@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeLinkState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "generation": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "link": {
+      "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+    }
+  },
+  "required": [
+    "link",
+    "generation"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,53 @@
+{
+  "$id": "https://ace.local/protocol/v1/Device.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "createdAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+    },
+    "lastSeenAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "name": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "revokedAt": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "scopes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/DeviceScope.json"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "scopes",
+    "createdAt",
+    "lastSeenAt",
+    "revokedAt"
+  ],
+  "type": "object"
+}

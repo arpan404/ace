@@ -386,3 +386,67 @@ test("large normalized model metadata cannot inflate picker wire pages past thei
     "8 KiB",
   );
 });
+
+test("Claude SDK discovery stops its synthetic CLI after success, malformed metadata and cancellation", async () => {
+  for (const mode of ["success", "malformed", "cancel"] as const) {
+    const { config } = await launch("claude", {
+      models:
+        mode === "malformed"
+          ? [{ value: 42 }]
+          : [{ value: "sonnet", displayName: "Sonnet", future: 42 }],
+    });
+    const controller = new AbortController();
+    const started = deferred<{ command: string; args: readonly string[] }>();
+    let exited: Promise<unknown> | undefined;
+    const discovery = createModelDiscovery({
+      spawn(options) {
+        const proc = spawnSupervised(options);
+        exited = proc.exited;
+        started.resolve({ command: options.command, args: options.args ?? [] });
+        return proc;
+      },
+    });
+    const rows = discovery(
+      mode === "cancel" ? { ...config, env: { FAKE_PROVIDER: "hang" } } : config,
+      controller.signal,
+    );
+    // Observe rejection immediately. A spawn failure must fail this test instead
+    // of leaving the startup barrier pending until the process timeout.
+    const outcome = rows.then(
+      (value) => ({ status: "fulfilled" as const, value }),
+      (error: unknown) => ({ status: "rejected" as const, error }),
+    );
+    try {
+      const options = await Promise.race([
+        started.promise,
+        outcome.then((result) => {
+          throw new Error("Discovery ended before spawning", {
+            cause: result.status === "rejected" ? result.error : undefined,
+          });
+        }),
+      ]);
+      expect(options.command).toBe(config.executable);
+      const index = options.args.findIndex(
+        (arg) => arg === "--setting-sources" || arg.startsWith("--setting-sources="),
+      );
+      const sources = options.args[index];
+      expect(index).toBeGreaterThanOrEqual(0);
+      expect(
+        sources === "--setting-sources" ? options.args[index + 1] : sources?.split("=")[1],
+      ).toBe("");
+      expect(options.args).toContain("--strict-mcp-config");
+      if (mode === "cancel") controller.abort();
+      const result = await outcome;
+      if (mode === "success") {
+        if (result.status !== "fulfilled") throw result.error;
+        expect(result.value[0]?.id).toBe("sonnet");
+      } else expect(result.status).toBe("rejected");
+      expect(exited).toBeDefined();
+      await exited;
+    } finally {
+      controller.abort();
+      await outcome;
+      await exited;
+    }
+  }
+});

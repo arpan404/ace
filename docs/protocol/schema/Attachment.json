@@ -1,0 +1,39 @@
+{
+  "$id": "https://ace.local/protocol/v1/Attachment.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "height": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "mimeType": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 255,
+      "type": "string"
+    },
+    "sha256": {
+      "$ref": "https://ace.local/protocol/v1/BlobHash.json"
+    },
+    "width": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "sha256",
+    "bytes",
+    "mimeType",
+    "name"
+  ],
+  "type": "object"
+}

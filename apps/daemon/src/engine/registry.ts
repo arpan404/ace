@@ -1,12 +1,16 @@
 import type { ProviderAdapter, ProviderBackend } from "@ace/engine-api";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { Capabilities, ProviderKind } from "@ace/protocol";
-type Entry = { adapter: ProviderAdapter & { close?(): Promise<void> }; capabilities: Capabilities };
+type Entry = {
+  source: ProviderAdapter & { close?(): Promise<void> };
+  adapter: ProviderAdapter & { close?(): Promise<void> };
+  capabilities: Capabilities;
+};
 export class AdapterRegistry {
   private entries = new Map<ProviderKind, Entry>();
   private backends = new Map<string, Entry>();
   register(adapter: ProviderAdapter & { close?(): Promise<void> }, cli: DiscoveryResult): void {
-    const entry = { adapter, capabilities: adapter.capabilities(cli) };
+    const entry = { adapter, source: adapter, capabilities: adapter.capabilities(cli) };
     this.entries.set(adapter.provider, entry);
     if (adapter.backend) this.backends.set(`${adapter.provider}:${adapter.backend}`, entry);
   }
@@ -16,7 +20,7 @@ export class AdapterRegistry {
     cli: DiscoveryResult,
     backend: ProviderBackend,
   ): void {
-    const entry = { adapter, capabilities: adapter.capabilities(cli) };
+    const entry = { adapter, source: adapter, capabilities: adapter.capabilities(cli) };
     this.backends.set(`${adapter.provider}:${backend}`, entry);
     if (!this.entries.has(adapter.provider)) this.entries.set(adapter.provider, entry);
   }
@@ -29,6 +33,16 @@ export class AdapterRegistry {
         `No adapter registered for ${provider}${backend ? ` backend ${backend}; install its original runtime to resume` : ""}`,
       );
     return entry;
+  }
+  bindSessions(bind: (adapter: ProviderAdapter) => ProviderAdapter): void {
+    for (const entry of new Set([...this.entries.values(), ...this.backends.values()])) {
+      const original = entry.source;
+      const bound = bind(original);
+      entry.adapter = {
+        ...bound,
+        ...(original.close ? { close: () => original.close?.() ?? Promise.resolve() } : {}),
+      };
+    }
   }
   async close(): Promise<void> {
     const adapters = new Set(

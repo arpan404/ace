@@ -1,4 +1,6 @@
 import { cursorHosts } from "./cursor-hosts.ts";
+import { daemonClaudeAdapter } from "./claude.ts";
+import { AccountProvider } from "@ace/protocol/accounts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
@@ -12,30 +14,51 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const engineOptions = options.engine ?? {};
   const registry =
     engineOptions.registry ??
-    (await discoverAdapters(engineOptions.adapterDiscovery, {
-      ...engineOptions.cursor,
-      slots: cursorHosts(context),
-      mcp:
-        engineOptions.cursor?.mcp ??
-        (async (session) => {
-          const mcp = services.mcp;
-          const root = store.getThread(session.threadId)?.rootAgentId;
-          if (!mcp || !root) throw new Error("Cursor MCP caller is not available");
-          // SDK task children inherit HTTP headers without caller attribution. Until
-          // native child leases exist, expose only read tools to this shared lease.
-          const lease = mcp.openSession(
-            {
-              sessionId: `${session.instanceId}:${session.threadId}`,
-              threadId: session.threadId,
-              agentId: root,
-              capabilities: [],
-            },
-            session.signal,
-          );
-          return { connection: { url: mcp.url, bearer: lease.bearer }, end: () => lease.end() };
-        }),
-    }));
+    (await discoverAdapters(
+      engineOptions.adapterDiscovery,
+      {
+        ...engineOptions.cursor,
+        slots: cursorHosts(context),
+        mcp:
+          engineOptions.cursor?.mcp ??
+          (async (session) => {
+            const mcp = services.mcp;
+            const root = store.getThread(session.threadId)?.rootAgentId;
+            if (!mcp || !root) throw new Error("Cursor MCP caller is not available");
+            // SDK task children inherit HTTP headers without caller attribution. Until
+            // native child leases exist, expose only read tools to this shared lease.
+            const lease = mcp.openSession(
+              {
+                sessionId: `${session.instanceId}:${session.threadId}`,
+                threadId: session.threadId,
+                agentId: root,
+                capabilities: [],
+              },
+              session.signal,
+            );
+            return { connection: { url: mcp.url, bearer: lease.bearer }, end: () => lease.end() };
+          }),
+      },
+      undefined,
+      (cli) => daemonClaudeAdapter(context, cli),
+    ));
   if (!engineOptions.registry) resources.own(() => registry.close());
+  const accounts = services.accounts;
+  const accountRegistry = services.accountRegistry;
+  if (accounts && accountRegistry)
+    registry.bindSessions((adapter) => {
+      if (!AccountProvider.safeParse(adapter.provider).success) return adapter;
+      const bound = accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
+      return {
+        ...adapter,
+        openSession(session) {
+          return session.instanceId ||
+            accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
+            ? bound.openSession(session)
+            : adapter.openSession(session);
+        },
+      };
+    });
   const engine = new Engine(store, {
     ...engineOptions,
     registry,

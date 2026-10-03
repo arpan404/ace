@@ -58,3 +58,10 @@ Provider-native queue counts and engine-owned queued input also share one core `
 Plan preview text streams through a companion notice with append-only `item.delta{text}` facts. The plan tool receives full markdown on completion, and review uses that authoritative native text. This uses the existing core API with linear emitted traffic. A native tool-markdown delta would let a future client render preview directly inside the plan tool.
 
 Historical measurements below were collected before the owner stopped tests and benchmarks. Current performance validation needs run at merge. That plan run emitted 464,013 / 927,013 / 1,853,013 bytes for 1k / 2k / 4k 100-byte chunks, including final markdown and two plan-tool upserts each. With host load above 250, measured wall times were 35.66 / 116.40 / 35.68 ms and CPU times 10.73 / 24.67 / 20.29 ms. The 10,000-frame 4-KiB probes retained 0.44 MiB for one unknown ID and 0.35 MiB for 10,000 distinct IDs after GC and a far-future tick. Closing 10,000 questions took 143.65 / 157.35 / 221.37 / 149.02 ms with 1k / 2k / 4k / 10k historical agents; CPU times were 22.66 / 48.58 / 21.27 / 29.18 ms. Timings vary under host load and never gate tests. Traffic growth, replay recovery and canonical state assertions guard behavior.
+
+Terminal cascade controls now parse lenient native pages with bounded page,
+process-id and cursor capacities. Repeated cursors reject visibly rather than
+hanging a Stop request. Unknown page/terminal fields remain in the raw control
+frames. The synthetic process regression is written but not executed; it needs
+run at merge. No native fork, review, tier or account-control behavior is changed
+by this pagination safeguard.

@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/AutomationInbox.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "before": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "runs": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/AutomationRun.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    }
+  },
+  "required": [
+    "runs",
+    "before"
+  ],
+  "type": "object"
+}

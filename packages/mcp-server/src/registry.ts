@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { executeContent, type ContentToolDefinition } from "./content-tools.ts";
 import type { McpAttribution, McpCapability } from "@ace/protocol";
 import { specTypeSchemas, type CallToolResult, type Tool } from "@modelcontextprotocol/server";
 import { withinJsonBudget, ResultBudgetExceeded } from "./json-budget.ts";
@@ -32,7 +33,7 @@ interface Entry {
   descriptor: Tool;
   capability: McpCapability | null;
   timeoutMs: number;
-  execute(input: unknown, context: ToolContext): Promise<Record<string, unknown>>;
+  execute(input: unknown, context: ToolContext): Promise<CallToolResult>;
 }
 const failure = (text: string): CallToolResult => ({
   isError: true,
@@ -52,19 +53,7 @@ export class ToolRegistry {
   }
   register<I extends z.ZodObject, O extends z.ZodObject>(definition: ToolDefinition<I, O>): void {
     const { name, description, input, output, capability, timeoutMs } = definition;
-    if (!/^ace_[a-z0-9_]{1,100}$/.test(name) || this.entries.has(name))
-      throw new Error("Invalid or duplicate tool name");
-    if (this.entries.size >= this.maxTools) throw new Error("Tool capacity reached");
-    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000)
-      throw new Error("Invalid tool timeout");
-    const parsed = specTypeSchemas.Tool["~standard"].validate({
-      name,
-      description,
-      inputSchema: { ...z.toJSONSchema(input, { io: "input" }), type: "object" },
-      outputSchema: { ...z.toJSONSchema(output, { io: "output" }), type: "object" },
-    });
-    if (parsed.issues) throw new Error("Invalid tool descriptor");
-    const descriptor = parsed.value;
+    const descriptor = this.descriptor(name, description, input, capability, timeoutMs, output);
     this.entries.set(name, {
       descriptor,
       capability,
@@ -75,9 +64,50 @@ export class ToolRegistry {
         context.signal.throwIfAborted();
         const result = await definition.run(args, context);
         if (!withinJsonBudget(result, 256 * 1024)) throw new ResultBudgetExceeded();
-        return output.parse(result);
+        const structuredContent = output.parse(result);
+        const text = JSON.stringify(structuredContent);
+        if (Buffer.byteLength(text) > 256 * 1024) throw new ResultBudgetExceeded();
+        return { content: [{ type: "text", text }], structuredContent };
       },
     });
+  }
+  registerContent<I extends z.ZodType>(definition: ContentToolDefinition<I>): void {
+    const { name, description, input, capability, timeoutMs } = definition;
+    const descriptor = this.descriptor(name, description, input, capability, timeoutMs);
+    this.entries.set(name, {
+      descriptor,
+      capability,
+      timeoutMs,
+      execute: (value, context) => executeContent(definition, value, context),
+    });
+  }
+  private descriptor(
+    name: string,
+    description: string,
+    input: z.ZodType,
+    capability: McpCapability | null,
+    timeoutMs: number,
+    output?: z.ZodObject,
+  ): Tool {
+    if (
+      (!/^ace_[a-z0-9_]{1,100}$/.test(name) &&
+        !(capability === "screen" && /^screen_[a-z0-9_]{1,100}$/.test(name))) ||
+      this.entries.has(name)
+    )
+      throw new Error("Invalid or duplicate tool name");
+    if (this.entries.size >= this.maxTools) throw new Error("Tool capacity reached");
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300_000)
+      throw new Error("Invalid tool timeout");
+    const parsed = specTypeSchemas.Tool["~standard"].validate({
+      name,
+      description,
+      inputSchema: { ...z.toJSONSchema(input, { io: "input" }), type: "object" },
+      ...(output
+        ? { outputSchema: { ...z.toJSONSchema(output, { io: "output" }), type: "object" } }
+        : {}),
+    });
+    if (parsed.issues) throw new Error("Invalid tool descriptor");
+    return parsed.value;
   }
   list(principal: Principal): Tool[] {
     if (principal.signal.aborted) return [];
@@ -122,12 +152,7 @@ export class ToolRegistry {
     const { sessionId, threadId, agentId } = principal.scope;
     const executing = entry
       .execute(input, { caller: { sessionId, threadId, agentId }, signal })
-      .then((structuredContent): CallToolResult => {
-        if (signal.aborted) return failure(reason);
-        const text = JSON.stringify(structuredContent);
-        if (Buffer.byteLength(text) > 256 * 1024) return failure("Tool result too large");
-        return { content: [{ type: "text", text }], structuredContent };
-      })
+      .then((result): CallToolResult => (signal.aborted ? failure(reason) : result))
       .catch((error: unknown) =>
         error instanceof ResultBudgetExceeded
           ? failure("Tool result too large")

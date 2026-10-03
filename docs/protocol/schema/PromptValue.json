@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/PromptValue.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "maxLength": 16384,
+      "type": "string"
+    },
+    {
+      "type": "number"
+    },
+    {
+      "type": "boolean"
+    }
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForgeAutoFixIntent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "context": {
+      "oneOf": [
+        {
+          "properties": {
+            "check": {
+              "$ref": "https://ace.local/protocol/v1/ForgeCheck.json"
+            },
+            "logTail": {
+              "maxLength": 65536,
+              "type": "string"
+            },
+            "logUnavailable": {
+              "type": "boolean"
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "ci",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "check",
+            "logTail",
+            "truncated",
+            "logUnavailable"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "comment": {
+              "$ref": "https://ace.local/protocol/v1/ForgeComment.json"
+            },
+            "type": {
+              "const": "review",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "comment"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "headSha": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "key": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "link": {
+      "$ref": "https://ace.local/protocol/v1/ForgeThreadLink.json"
+    },
+    "linkGeneration": {
+      "default": 1,
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "type": {
+      "const": "auto-fix",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "key",
+    "link",
+    "headSha",
+    "context"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,80 @@
+{
+  "$id": "https://ace.local/protocol/v1/AccountsResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "accounts": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/AccountSummary.json"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "accounts.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "accounts"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AccountSummary.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "accounts.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "account"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "result": {
+          "$ref": "https://ace.local/protocol/v1/MigrationResult.json"
+        },
+        "type": {
+          "const": "accounts.migrate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "result"
+      ],
+      "type": "object"
+    }
+  ]
+}

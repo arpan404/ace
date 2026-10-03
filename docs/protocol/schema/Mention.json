@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/Mention.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "lines": {
+      "properties": {
+        "end": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "start": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "type": "object",
+      "x-ace-constraint": "end >= start."
+    },
+    "path": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "type": "object"
+}

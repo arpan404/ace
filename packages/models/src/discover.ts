@@ -1,3 +1,5 @@
+import { CursorHostSlots } from "@ace/adapter-cursor";
+import { discoverClaudeModels } from "@ace/adapter-claude";
 import {
   spawnSupervised,
   type SpawnOptions,
@@ -5,7 +7,6 @@ import {
 } from "@ace/provider-kit/process";
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 import { z } from "zod";
-import { CursorHostSlots } from "@ace/adapter-cursor";
 import { cursorSessionOptions, isMissingMethod } from "./cursor.ts";
 import { OpenCodeParser } from "./open-code.ts";
 import { CodexPage } from "./native-schemas.ts";
@@ -17,61 +18,6 @@ export type DiscoveryOptions = {
   spawn?: (options: SpawnOptions) => SupervisedProcess;
   cursorSlots?: CursorHostSlots;
 };
-const ControlReply = z.object({
-  type: z.literal("control_response"),
-  response: z.object({
-    subtype: z.literal("success"),
-    request_id: z.literal("models-init"),
-    response: z.unknown(),
-  }),
-});
-function claudeInitialize(proc: SupervisedProcess, signal: AbortSignal): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const cleanup = () => {
-      proc.stdout.removeListener("line", receive);
-      signal.removeEventListener("abort", abort);
-    };
-    const abort = () => {
-      cleanup();
-      reject(new Error("Discovery aborted"));
-    };
-    const receive = (line: string) => {
-      try {
-        const value: unknown = JSON.parse(line);
-        const reply = ControlReply.safeParse(value);
-        if (reply.success) {
-          cleanup();
-          resolve(reply.data.response.response);
-        } else if (z.object({ type: z.literal("control_response") }).safeParse(value).success) {
-          cleanup();
-          reject(new Error("Malformed initialization response"));
-        }
-      } catch {
-        cleanup();
-        reject(new Error("Invalid initialization JSON"));
-      }
-    };
-    proc.stdout.on("line", receive);
-    signal.addEventListener("abort", abort, { once: true });
-    void proc.exited.then(() => {
-      cleanup();
-      reject(new Error("CLI exited before initialization"));
-    });
-    proc.stdin.write(
-      JSON.stringify({
-        type: "control_request",
-        request_id: "models-init",
-        request: { subtype: "initialize", hooks: {}, sdkMcpServers: [] },
-      }) + "\n",
-      (error) => {
-        if (error) {
-          cleanup();
-          reject(error);
-        }
-      },
-    );
-  });
-}
 export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverModels {
   const spawn = options.spawn ?? spawnSupervised;
   const cursorSlots = options.cursorSlots ?? new CursorHostSlots(2);
@@ -93,25 +39,22 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         instance,
       );
     }
+    if (instance.provider === "claude")
+      return normalizeClaude(
+        await discoverClaudeModels({
+          executable: instance.executable,
+          args: instance.args,
+          cwd: instance.cwd,
+          env: instance.env,
+          signal,
+          spawn,
+        }),
+        instance,
+      );
     const args = [...instance.args];
     switch (instance.provider) {
       case "codex":
         args.push("app-server");
-        break;
-      case "claude":
-        args.push(
-          "--print",
-          "--input-format",
-          "stream-json",
-          "--output-format",
-          "stream-json",
-          "--verbose",
-          "--setting-sources",
-          "",
-          "--strict-mcp-config",
-          "--mcp-config",
-          '{"mcpServers":{}}',
-        );
         break;
       case "opencode":
         args.push("models", "--verbose");
@@ -137,8 +80,6 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
     signal.addEventListener("abort", abort, { once: true });
     let rpc: JsonRpcPeer | undefined;
     async function readModels(): Promise<CatalogModel[]> {
-      if (instance.provider === "claude")
-        return normalizeClaude(await claudeInitialize(proc, signal), instance);
       if (instance.provider === "opencode") {
         const parser = new OpenCodeParser(instance);
         let failure: unknown;

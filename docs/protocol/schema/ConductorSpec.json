@@ -1,0 +1,237 @@
+{
+  "$id": "https://ace.local/protocol/v1/ConductorSpec.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    {
+      "constraints": {
+        "accounts": [
+          "account"
+        ],
+        "budget": 0,
+        "deadline": null,
+        "maxParallel": 1,
+        "models": [
+          "example"
+        ],
+        "providers": [
+          "claude"
+        ],
+        "stallAfterMs": 1
+      },
+      "goal": "Example goal",
+      "policies": {
+        "maxFixRounds": 1,
+        "merge": "ask",
+        "planApproval": "required",
+        "roles": {
+          "integrator": [
+            {
+              "cost": 0.125,
+              "model": "example",
+              "provider": "claude",
+              "quota": 1,
+              "tier": "normal"
+            }
+          ],
+          "planner": [
+            {
+              "cost": 0.125,
+              "model": "example",
+              "provider": "claude",
+              "quota": 1,
+              "tier": "normal"
+            }
+          ],
+          "reviewer": [
+            {
+              "cost": 0.125,
+              "model": "example",
+              "provider": "claude",
+              "quota": 1,
+              "tier": "normal"
+            }
+          ],
+          "worker": [
+            {
+              "cost": 0.125,
+              "model": "example",
+              "provider": "claude",
+              "quota": 1,
+              "tier": "normal"
+            }
+          ]
+        }
+      },
+      "repositoryRules": "",
+      "rootAgentId": "agent",
+      "workspaceId": "workspace"
+    }
+  ],
+  "properties": {
+    "constraints": {
+      "properties": {
+        "accounts": {
+          "items": {
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "budget": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "deadline": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxParallel": {
+          "maximum": 64,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "models": {
+          "items": {
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        "providers": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+          },
+          "maxItems": 6,
+          "minItems": 1,
+          "type": "array"
+        },
+        "stallAfterMs": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "providers",
+        "models",
+        "accounts",
+        "budget",
+        "maxParallel",
+        "deadline",
+        "stallAfterMs"
+      ],
+      "type": "object"
+    },
+    "goal": {
+      "maxLength": 16384,
+      "minLength": 1,
+      "type": "string"
+    },
+    "policies": {
+      "properties": {
+        "maxFixRounds": {
+          "maximum": 10,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "merge": {
+          "enum": [
+            "auto-after-verification",
+            "ask",
+            "PR-only"
+          ],
+          "type": "string"
+        },
+        "planApproval": {
+          "enum": [
+            "required",
+            "auto"
+          ],
+          "type": "string"
+        },
+        "roles": {
+          "properties": {
+            "integrator": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ConductorModel.json"
+              },
+              "maxItems": 16,
+              "minItems": 1,
+              "type": "array"
+            },
+            "planner": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ConductorModel.json"
+              },
+              "maxItems": 16,
+              "minItems": 1,
+              "type": "array"
+            },
+            "reviewer": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ConductorModel.json"
+              },
+              "maxItems": 16,
+              "minItems": 1,
+              "type": "array"
+            },
+            "worker": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ConductorModel.json"
+              },
+              "maxItems": 16,
+              "minItems": 1,
+              "type": "array"
+            }
+          },
+          "required": [
+            "planner",
+            "worker",
+            "reviewer",
+            "integrator"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "planApproval",
+        "merge",
+        "maxFixRounds",
+        "roles"
+      ],
+      "type": "object"
+    },
+    "repositoryRules": {
+      "maxLength": 65536,
+      "type": "string"
+    },
+    "rootAgentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "rootAgentId",
+    "workspaceId",
+    "goal",
+    "repositoryRules",
+    "constraints",
+    "policies"
+  ],
+  "type": "object",
+  "x-ace-constraint": "Every role must offer at least one model whose provider and model id are allowed by constraints. All reviewer choices must use the normal tier."
+}

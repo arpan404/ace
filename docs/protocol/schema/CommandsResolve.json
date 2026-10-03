@@ -1,0 +1,43 @@
+{
+  "$id": "https://ace.local/protocol/v1/CommandsResolve.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "arguments": {
+      "$ref": "https://ace.local/protocol/v1/PromptArguments.json",
+      "default": {}
+    },
+    "commandId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "positional": {
+      "default": [],
+      "items": {
+        "maxLength": 16384,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "commands.resolve",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requestId",
+    "threadId",
+    "type",
+    "commandId"
+  ],
+  "type": "object"
+}

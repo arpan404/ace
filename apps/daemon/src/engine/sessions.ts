@@ -46,6 +46,7 @@ export class Sessions {
         threadId: actor.id,
         rootKey,
         cwd: metadata.cwd,
+        ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
         ...(metadata.model === undefined ? {} : { model: metadata.model }),
         ...(metadata.nativeSessionId === undefined
           ? {}

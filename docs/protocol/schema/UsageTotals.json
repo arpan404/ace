@@ -1,0 +1,83 @@
+{
+  "$id": "https://ace.local/protocol/v1/UsageTotals.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cacheWrite1hTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "cacheWriteTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "cachedInputTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "equivalentApiUsd": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "estimatedUsd": {
+      "type": "number"
+    },
+    "inputTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "outputTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "overflow": {
+      "default": false,
+      "type": "boolean"
+    },
+    "providerReportedUsd": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "reasoningTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "subscriptionTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "unknownBillingTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "unpricedTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "inputTokens",
+    "outputTokens",
+    "cachedInputTokens",
+    "reasoningTokens",
+    "cacheWriteTokens",
+    "cacheWrite1hTokens",
+    "providerReportedUsd",
+    "estimatedUsd",
+    "equivalentApiUsd",
+    "unpricedTokens",
+    "subscriptionTokens",
+    "unknownBillingTokens"
+  ],
+  "type": "object"
+}

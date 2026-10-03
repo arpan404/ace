@@ -1,0 +1,17 @@
+[
+  {
+    "reviewMutation": 29,
+    "behavior": "decoded capture contains fixture pixels",
+    "killed": true
+  },
+  {
+    "reviewMutation": 30,
+    "behavior": "window target input changes the fixture",
+    "killed": true
+  },
+  {
+    "reviewMutation": 35,
+    "behavior": "overlapping application windows cannot receive captured-window input",
+    "killed": true
+  }
+]

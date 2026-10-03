@@ -1,0 +1,171 @@
+{
+  "$id": "https://ace.local/protocol/v1/ContextResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[\\w-]+$",
+      "type": "string"
+    },
+    "result": {
+      "oneOf": [
+        {
+          "properties": {
+            "code": {
+              "$ref": "https://ace.local/protocol/v1/ContextErrorCode.json"
+            },
+            "kind": {
+              "const": "error",
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "bytes": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "upload",
+              "type": "string"
+            },
+            "offset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "uploadId": {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[\\w-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "uploadId",
+            "offset",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "attachment": {
+              "$ref": "https://ace.local/protocol/v1/Attachment.json"
+            },
+            "kind": {
+              "const": "attachment",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "attachment"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "attachments": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/Attachment.json"
+              },
+              "maxItems": 256,
+              "type": "array"
+            },
+            "kind": {
+              "const": "attachments",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "attachments"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "diagnostics": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ContextDiagnostic.json"
+              },
+              "type": "array"
+            },
+            "entries": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/ResolvedMention.json"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "mentions",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "entries",
+            "diagnostics"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "completion",
+              "type": "string"
+            },
+            "paths": {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 50,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "paths"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "ok",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "context.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}

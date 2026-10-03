@@ -7,7 +7,11 @@ export const OrchestrationId = z
   .min(1)
   .max(128)
   .regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/)
-  .refine((id) => !["__proto__", "constructor", "prototype"].includes(id));
+  .refine((id) => !["__proto__", "constructor", "prototype"].includes(id))
+  .meta({
+    "x-ace-constraint": "Must not be __proto__, constructor or prototype.",
+    not: { enum: ["__proto__", "constructor", "prototype"] },
+  });
 export const LaneId = OrchestrationId;
 const text = z.string().max(8192);
 const ref = z.string().min(1).max(512);
@@ -22,7 +26,8 @@ export const OrchestrationChecks = z
   .refine(
     (c) => Boolean(c.command[0]) && c.command.every((arg) => !arg.includes("\0")),
     "Checks need an executable and NUL-free argv",
-  );
+  )
+  .meta({ "x-ace-constraint": "command[0] must be nonempty and every argument must be NUL-free." });
 export const OrchestrationBudget = z.object({
   maxLanes: z.number().int().min(1).max(64),
   maxDepth: z.number().int().min(0).max(8),
@@ -44,7 +49,11 @@ export const OrchestrationTemplate = z
     {
       message: "Initial lanes must fit the budget; coordinator needs one planner",
     },
-  );
+  )
+  .meta({
+    "x-ace-constraint":
+      "lanes.length must be <= budget.maxLanes; a coordinator must have exactly one lane.",
+  });
 export const OrchestrationCreate = z.object({
   workspaceId: WorkspaceId,
   prompt: z.string().min(1).max(32768),
