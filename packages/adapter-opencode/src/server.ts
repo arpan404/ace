@@ -14,9 +14,12 @@ export type ServerConsumer = {
   frame: Observe;
   disconnected(started: number): void;
   reconcile(data: unknown, watermark: number): void;
+  buffered(data: unknown, watermark: number): void;
   recovered(): void;
   resync(): Promise<void>;
   finalizeSnapshots(): void;
+  prepareReplay(): void;
+  close(): Promise<void>;
   exited(deliberate: boolean, message?: string): void;
 };
 export type ServerOptions = {
@@ -39,6 +42,7 @@ export class OpenCodeServer {
   private controller = new AbortController();
   private opening: Promise<void> | undefined;
   private closing: Promise<void> | undefined;
+  private stopping = false;
   private stream: Promise<void> | undefined;
   private base: URL | undefined;
   private authorization = "";
@@ -104,6 +108,7 @@ export class OpenCodeServer {
             .finally(() => signal.removeEventListener("abort", aborted));
           if (signal.aborted) aborted();
         });
+      this.controller.signal.throwIfAborted();
     } finally {
       this.readyWaiters--;
       if (signal?.aborted && !this.readyWaiters && !this.consumers.size) await this.close();
@@ -307,6 +312,10 @@ export class OpenCodeServer {
               if (this.process) void this.process.stop({ graceMs: 0 });
               throw new Error("OpenCode recovery overflow");
             }
+            for (const c of targets) {
+              c.buffered(data, watermark);
+              c.frame("note", "recovery.buffered", { id: event.id, type: event.type, watermark });
+            }
           } else for (const c of targets) c.receive(data);
         }
       } catch {
@@ -337,7 +346,8 @@ export class OpenCodeServer {
       try {
         await this.verify("2.0.22");
         for (let pass = 0; pass < 2; pass++) for (const c of this.consumers) await c.resync();
-        // Snapshot content already includes deltas. Replay only full work/interaction/outcome facts.
+        // Positive work must be established before newer terminal evidence is replayed.
+        for (const c of this.consumers) c.prepareReplay();
         for (const entry of this.buffered)
           for (const c of this.consumers) c.reconcile(entry.data, entry.watermark);
         for (const c of this.consumers) c.finalizeSnapshots();
@@ -359,13 +369,15 @@ export class OpenCodeServer {
     return this.recovery;
   }
   async release(): Promise<void> {
-    if (!this.consumers.size && !this.readyWaiters) await this.close();
+    if (!this.stopping && !this.consumers.size && !this.readyWaiters) await this.close();
   }
   close(): Promise<void> {
+    this.stopping = true;
     this.closing ??= (async () => {
       this.deliberate = true;
       this.controller.abort();
       this.process?.stdin.end();
+      await Promise.all([...this.consumers].map((c) => c.close()));
       await this.opening?.catch(() => {});
       await this.process?.stop({ graceMs: this.shutdownTimeoutMs });
       await this.stream;
@@ -376,6 +388,7 @@ export class OpenCodeServer {
       this.secrets = [];
     })().finally(() => {
       this.closing = undefined;
+      this.stopping = false;
     });
     return this.closing;
   }

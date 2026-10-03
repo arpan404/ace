@@ -25,7 +25,7 @@ export async function recoverSessions(p: RecoveryPorts): Promise<void> {
     visited.add(id);
     const info = SessionInfo.parse(await p.client.session.get({ sessionID: id }));
     p.ownership.verify(info);
-    p.frame("recv", "snapshot.info", { info });
+    p.frame("recv", "snapshot.info", { info, recovering: true });
     const cursors = new Set<string>();
     let cursor: string | undefined;
     for (let page = 0; page < 64; page++) {
@@ -50,8 +50,8 @@ export async function recoverSessions(p: RecoveryPorts): Promise<void> {
       cursors.add(children.cursor.next);
       cursor = children.cursor.next;
     }
-    for (const [known, owner] of p.ownership.sessions)
-      if (owner.parent === id && !visited.has(known)) await visit(known, depth + 1);
+    for (const known of p.ownership.directChildren(id))
+      if (!visited.has(known)) await visit(known, depth + 1);
     for (const messageID of p.liveMessages(id)) {
       const message = ProjectedMessage.parse(
         await p.client.session.message.get({ sessionID: id, messageID }),

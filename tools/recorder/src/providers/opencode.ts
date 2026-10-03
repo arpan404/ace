@@ -137,6 +137,11 @@ export const opencode: Driver = {
         frame: () => {},
         disconnected: () => rec.note("disconnected"),
         reconcile: () => {},
+        buffered: () => {},
+        prepareReplay: () => {},
+        close: async () => {
+          controller.abort();
+        },
         resync: async () => {
           throw new Error(
             "A disconnected recording is incomplete; approve a new attempt separately",

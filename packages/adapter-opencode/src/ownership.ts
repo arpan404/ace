@@ -9,6 +9,25 @@ export class SessionOwnership {
   sessions = new Map<string, { parent: string; directory: string; project: string }>();
   shells = new Map<string, string>();
   private children = new Map<string, Set<string>>();
+  private locations = new Map<string, Set<string>>();
+  private put(id: string, owner: { parent: string; directory: string; project: string }): void {
+    const previous = this.sessions.get(id);
+    if (previous?.directory !== owner.directory && previous) {
+      const old = this.locations.get(previous.directory);
+      old?.delete(id);
+      if (!old?.size) this.locations.delete(previous.directory);
+    }
+    const located = this.locations.get(owner.directory) ?? new Set<string>();
+    located.add(id);
+    this.locations.set(owner.directory, located);
+    this.sessions.set(id, owner);
+  }
+  atLocation(directory: string): ReadonlySet<string> {
+    return this.locations.get(directory) ?? new Set<string>();
+  }
+  directChildren(id: string): ReadonlySet<string> {
+    return this.children.get(id) ?? new Set<string>();
+  }
   constructor(directory: string, root: string) {
     this.directory = directory;
     this.root = root;
@@ -18,7 +37,7 @@ export class SessionOwnership {
     if ((this.root && info.id !== this.root) || info.location.directory !== this.directory)
       throw new Error("OpenCode root ownership mismatch");
     this.root = info.id;
-    this.sessions.set(info.id, {
+    this.put(info.id, {
       parent: string(info.parentID),
       directory: info.location.directory,
       project: info.projectID,
@@ -29,7 +48,7 @@ export class SessionOwnership {
     if (!owner || string(info.parentID) !== owner.parent || (info.id !== this.root && info.fork))
       throw new Error("Inconsistent OpenCode ancestry");
     // A GET for an already-owned ID confirms its new stored location/project.
-    this.sessions.set(info.id, {
+    this.put(info.id, {
       ...owner,
       directory: info.location.directory,
       project: info.projectID,
@@ -49,7 +68,7 @@ export class SessionOwnership {
       throw new Error("OpenCode child ownership mismatch");
     if (this.sessions.size >= 1024 && !this.sessions.has(info.id))
       throw new Error("OpenCode tree limit");
-    this.sessions.set(info.id, {
+    this.put(info.id, {
       parent,
       directory: info.location.directory,
       project: info.projectID,
@@ -63,6 +82,8 @@ export class SessionOwnership {
     if (!parsed.success) return false;
     const e = parsed.data,
       p = e.data;
+    if (e.type === "location.shutdown")
+      return !!e.location && this.atLocation(e.location.directory).size > 0;
     if (e.type === "session.created") {
       const candidate = SessionInfo.safeParse({ ...p, id: p.sessionID });
       if (!candidate.success) return false;

@@ -50,7 +50,14 @@ const operations = [
   "model.list",
 ];
 const publish = (type, data, directory = "/one", extra = {}) => {
-  const e = { id: `event-${++eventID}`, type, data, location: { directory }, ...extra };
+  const e = {
+    id: `event-${++eventID}`,
+    created: eventID,
+    type,
+    data,
+    location: { directory },
+    ...extra,
+  };
   for (const stream of streams) stream.write(`data: ${JSON.stringify(e)}\n\n`);
   return e;
 };
@@ -248,6 +255,11 @@ const server = createServer(async (req, res) => {
         res
           .writeHead(400, { "content-type": "application/json" })
           .end(JSON.stringify({ message: "Invalid input ID" }));
+        return;
+      }
+      if (fault.promptInvisible) {
+        fault.promptInvisible = false;
+        res.destroy();
         return;
       }
       const item = {

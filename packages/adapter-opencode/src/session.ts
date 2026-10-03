@@ -9,13 +9,14 @@ import { recoverSessions } from "./recovery.ts";
 import { HistoryReader } from "./history.ts";
 import { OpenCodeTranslator } from "./translator.ts";
 import { request, resolveNativeInteraction } from "./commands.ts";
-import { promptBody, messageId, selectedModel } from "./input.ts";
+import { selectedModel } from "./input.ts";
 import { OpenCodeServer } from "./server.ts";
 import { z } from "zod";
-import { AdmissionQueue } from "./admission.ts";
+import { SessionPrompts } from "./prompts.ts";
 import { AncestryProbe } from "./ancestry.ts";
 import { cleanupOwned } from "./cleanup.ts";
 import { SessionOwnership } from "./ownership.ts";
+import { RecoveryEvidence } from "./recovery-evidence.ts";
 export class OpenCodeSession implements ProviderSession {
   private ctx: SessionContext;
   private server: OpenCodeServer;
@@ -25,7 +26,6 @@ export class OpenCodeSession implements ProviderSession {
   private ownership: SessionOwnership;
   private history = new HistoryReader();
   private sequence = 0;
-  private promptSequence = 0;
   private started: number;
   private opening = true;
   private closed = false;
@@ -34,9 +34,8 @@ export class OpenCodeSession implements ProviderSession {
   private openingBuffer: unknown[] = [];
   private openingBytes = 0;
   private moves = new Set<string>();
-  private snapshotBytes = 0;
-  private snapshots: { channel: string; data: unknown; session: string; started: number }[] = [];
-  private latest = new Map<string, number>();
+  private evidence = new RecoveryEvidence();
+  private lostLocations = new Set<string>();
   private pending = new Map<
     string,
     { session: string; data: Record<string, unknown>; type: string }
@@ -44,9 +43,7 @@ export class OpenCodeSession implements ProviderSession {
   private waiters = new Set<{ resolve(): void; reject(error: Error): void }>();
   private unsubscribe: () => void = () => {};
   private abortListener: () => void;
-  private admission = new AdmissionQueue();
-  private requestStarted = false;
-  private admissionRejected = false;
+  private prompts: SessionPrompts;
   private executionObserved = new Set<string>();
   private recoveryRead: Promise<void> | undefined;
   private ancestry: AncestryProbe;
@@ -64,6 +61,21 @@ export class OpenCodeSession implements ProviderSession {
     });
     this.ownership = new SessionOwnership(ctx.cwd, ctx.resume?.nativeSessionId ?? "");
     this.client = server.scoped(ctx.cwd, this.emit, this.controller.signal);
+    this.prompts = new SessionPrompts({
+      client: this.client,
+      runtime: server.runtime,
+      signal: this.controller.signal,
+      session: () => this.nativeSessionId,
+      directory: () => this.ownership.sessions.get(this.nativeSessionId)?.directory ?? ctx.cwd,
+      frame: this.emit,
+      barrier: () => this.barrier(),
+      uncertain: () => {
+        if (this.closed) return;
+        this.recovering = true;
+        this.emit("note", "lifecycle", { type: "disconnected" });
+        void this.server.reconcileNow();
+      },
+    });
     this.ancestry = new AncestryProbe({
       client: this.client,
       ownership: this.ownership,
@@ -84,27 +96,28 @@ export class OpenCodeSession implements ProviderSession {
     }
     const s = new OpenCodeSession(ctx, server);
     s.unsubscribe = server.subscribe({
-      accepts: (data, watermark) => {
-        if (!s.owns(data)) return false;
-        const id = eventSession(data);
-        if (id) s.latest.set(id, watermark);
-        return true;
-      },
+      accepts: (data) => s.owns(data),
       receive: (data) => s.receive(data),
+      buffered: (data, watermark) => s.evidence.observe(data, watermark),
       frame: s.emit,
       disconnected: (started) => {
         s.recovering = true;
+        s.evidence.reset();
         s.recoveryStarted = started;
         s.emit("note", "lifecycle", { type: "disconnected" });
       },
-      reconcile: (data) => {
-        const type = string(object(data).type);
-        if (!type.endsWith(".delta")) s.receive(data);
+      reconcile: (data, watermark) => {
+        if (!s.evidence.covered(data, watermark)) s.receive(data);
       },
+      prepareReplay: () => {
+        for (const snap of s.evidence.positive()) s.emit("recv", snap.channel, snap.data);
+      },
+      close: () => s.close("shutdown"),
       resync: () => s.resync(),
       finalizeSnapshots: () => s.finalizeSnapshots(),
       recovered: () => {
         s.recovering = false;
+        s.evidence.reset();
         s.emit("note", "lifecycle", { type: "resynced" });
         for (const w of s.waiters) w.resolve();
         s.waiters.clear();
@@ -147,19 +160,20 @@ export class OpenCodeSession implements ProviderSession {
     }
   }
   private emit = (dir: Frame["dir"], channel: string, data: unknown): void => {
+    if (this.closed && !(channel === "lifecycle" && object(data).type === "exited")) return;
     const t = Math.round(this.server.runtime.monotonic() - this.started);
     const payload = new ProviderPayload(JSON.stringify(this.server.redact(data)));
     const frame: Frame = { seq: this.sequence++, t, dir, channel, data: payload.data, payload };
+    this.prompts.observe(dir, channel, data);
     if (
-      dir === "recv" &&
-      channel === "http" &&
-      String(object(data).path).endsWith("/prompt") &&
-      typeof object(data).status === "number" &&
-      Number(object(data).status) >= 400
+      channel.startsWith("snapshot.") &&
+      channel !== "snapshot.info" &&
+      this.lostLocations.has(
+        this.ownership.sessions.get(string(object(data).sessionID))?.directory ?? "",
+      )
     )
-      this.admissionRejected = true;
-    if (dir === "send" && channel === "http" && String(object(data).path).endsWith("/prompt"))
-      this.requestStarted = true;
+      return;
+    if (channel === "snapshot.message" && this.recovering) this.evidence.message(payload.data);
     this.translator.translate(frame, t);
     this.ctx.onFrame(frame);
   };
@@ -169,6 +183,19 @@ export class OpenCodeSession implements ProviderSession {
       const directory = string(object(object(data).location).directory);
       return directory === this.ctx.cwd;
     }
+    const envelope = object(data),
+      ownerID =
+        eventSession(data) || this.ownership.shells.get(string(object(envelope.data).id)) || "";
+    const directory = string(
+      object(envelope.location).directory,
+      this.ownership.sessions.get(ownerID)?.directory ?? "",
+    );
+    if (
+      envelope.type !== "session.moved" &&
+      envelope.type !== "location.shutdown" &&
+      this.lostLocations.has(directory)
+    )
+      return false;
     const accepted = this.ownership.accept(data);
     if (!accepted) this.ancestry.prove(data);
     if (accepted && object(data).type === "session.moved") {
@@ -181,6 +208,9 @@ export class OpenCodeSession implements ProviderSession {
         .then((value) => {
           const info = SessionInfo.parse(value);
           this.ownership.verify(info);
+          for (const lostDirectory of this.lostLocations)
+            if (!this.ownership.atLocation(lostDirectory).size)
+              this.lostLocations.delete(lostDirectory);
           this.emit("recv", "snapshot.info", { info });
         })
         .catch(() => {
@@ -201,7 +231,12 @@ export class OpenCodeSession implements ProviderSession {
     if (!this.owns(data)) return;
     const e = NativeEvent.parse(data),
       p = e.data;
-    if (!e.id.startsWith("snapshot:")) this.latest.set(eventSession(e), this.server.eventWatermark);
+    if (e.type === "location.shutdown" && e.location) {
+      this.lostLocations.add(e.location.directory);
+      const owners = this.ownership.atLocation(e.location.directory);
+      for (const [key, pending] of this.pending)
+        if (owners.has(pending.session)) this.pending.delete(key);
+    }
     if (e.type === "permission.asked" || e.type === "form.created") {
       const value = e.type === "form.created" ? object(p.form) : p,
         session = string(value.sessionID);
@@ -226,66 +261,21 @@ export class OpenCodeSession implements ProviderSession {
     if (e.type === "shell.created" && object(p.info).status !== "running")
       this.ownership.shells.delete(string(object(p.info).id));
   }
+  private requireLocation(id: string): void {
+    if (this.lostLocations.has(this.ownership.sessions.get(id)?.directory ?? ""))
+      throw new Error("OpenCode location is unavailable");
+  }
   private async barrier(): Promise<void> {
     if (this.closed) throw new Error("OpenCode session is closed");
+    this.requireLocation(this.nativeSessionId);
     if (!this.recovering) return;
     if (this.waiters.size >= 64) throw new Error("OpenCode recovery send limit");
     await new Promise<void>((resolve, reject) => this.waiters.add({ resolve, reject }));
     this.controller.signal.throwIfAborted();
+    this.requireLocation(this.nativeSessionId);
   }
-  async send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void> {
-    if (commandId !== undefined) z.string().min(1).max(512).parse(commandId);
-    const release = await this.admission.acquire(this.controller.signal);
-    try {
-      await this.barrier();
-      await this.admitInput(input, delivery, commandId);
-    } finally {
-      release();
-    }
-  }
-  private async admitInput(
-    input: ContentPart[],
-    delivery: "steer" | "queue",
-    commandId?: string,
-  ): Promise<void> {
-    this.admissionRejected = false;
-    this.requestStarted = false;
-    const id = messageId(
-      this.server.runtime.wallTime(),
-      ++this.promptSequence,
-      this.server.runtime.entropy(16),
-    );
-    try {
-      this.emit("note", "input.sending", { id, commandId });
-      // Engine owns waiting-to-send. Native inbox owns an input exactly once after admission.
-      const reply = z
-        .object({ id: z.literal(id), sessionID: z.literal(this.nativeSessionId) })
-        .passthrough()
-        .parse(
-          await this.client.session.prompt({
-            sessionID: this.nativeSessionId,
-            ...promptBody(
-              input,
-              this.ownership.sessions.get(this.nativeSessionId)?.directory ?? this.ctx.cwd,
-              id,
-            ),
-            delivery,
-          }),
-        );
-      this.emit("note", "input.accepted", reply);
-    } catch {
-      if (this.admissionRejected || !this.requestStarted) {
-        this.emit("note", "input.rejected", { id });
-        throw new Error("OpenCode rejected input admission");
-      }
-      // The server may have committed admission before the socket failed. Never retry.
-      this.recovering = true;
-      this.emit("note", "lifecycle", { type: "disconnected" });
-      void this.server.reconcileNow();
-      throw new Error(
-        "OpenCode input acknowledgement uncertain; reconcile inbox before sending again",
-      );
-    }
+  send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void> {
+    return this.prompts.send(input, delivery, commandId);
   }
   async interrupt(target: { agent?: Key; cascade: boolean }): Promise<void> {
     await this.barrier();
@@ -296,6 +286,7 @@ export class OpenCodeSession implements ProviderSession {
     if (!this.ownership.sessions.has(root)) throw new Error("Unknown OpenCode agent");
     const ids = target.cascade ? this.ownership.descendants(root).concat(root) : [root];
     for (const sessionID of ids) {
+      this.requireLocation(sessionID);
       const result = z
         .object({ interrupted: z.boolean() })
         .parse(
@@ -311,6 +302,7 @@ export class OpenCodeSession implements ProviderSession {
     await this.barrier();
     const pending = this.pending.get(key);
     if (!pending) throw new Error("OpenCode interaction is no longer pending");
+    this.requireLocation(pending.session);
     this.emit("note", "interaction.resolving", { key, resolution: choice });
     try {
       await resolveNativeInteraction(this.client, pending, choice);
@@ -322,6 +314,7 @@ export class OpenCodeSession implements ProviderSession {
   private async removeShell(id: string): Promise<void> {
     const owner = this.ownership.shells.get(id);
     if (!owner) throw new Error("Unknown OpenCode shell");
+    this.requireLocation(owner);
     const location = { directory: this.ownership.sessions.get(owner)?.directory ?? this.ctx.cwd };
     await request("shell removal", () => this.client.shell.remove({ id, location }));
   }
@@ -340,8 +333,7 @@ export class OpenCodeSession implements ProviderSession {
   }
   private async readSnapshots(): Promise<void> {
     if (this.closed || this.opening) return;
-    this.snapshots = [];
-    this.snapshotBytes = 0;
+    this.evidence.pass();
     await recoverSessions({
       client: this.client,
       ownership: this.ownership,
@@ -349,17 +341,8 @@ export class OpenCodeSession implements ProviderSession {
       watermark: () => this.server.eventWatermark,
       frame: this.emit,
       receive: (event) => this.receive(event),
-      stage: (channel, data, session, started) => {
-        this.snapshotBytes += Buffer.byteLength(JSON.stringify(data));
-        if (this.snapshotBytes > 8 * 1024 * 1024 || this.snapshots.length >= 4096)
-          throw new Error("OpenCode snapshot budget exceeded");
-        this.snapshots.push({
-          channel,
-          data,
-          session,
-          started: Math.min(started, this.recoveryStarted),
-        });
-      },
+      stage: (channel, data, session, started) =>
+        this.evidence.stage(channel, data, session, Math.min(started, this.recoveryStarted)),
       liveMessages: (id) => this.translator.liveMessages(id),
       executionObserved: this.executionObserved,
       shell: async (id, directory) => {
@@ -383,11 +366,10 @@ export class OpenCodeSession implements ProviderSession {
   }
 
   private finalizeSnapshots(): void {
-    for (const snap of this.snapshots.splice(0)) {
-      if ((this.latest.get(snap.session) ?? 0) > snap.started) continue;
+    for (const snap of [...this.evidence.positive(), ...this.evidence.finish()]) {
       this.emit("recv", snap.channel, snap.data);
       if (snap.channel === "snapshot.interactions") {
-        const keys = new Set(z.array(z.string()).parse(object(snap.data).keys));
+        const keys = this.evidence.interactionKeys(snap.data);
         for (const [key, pending] of this.pending)
           if (pending.session === snap.session && !keys.has(key)) this.pending.delete(key);
       }
