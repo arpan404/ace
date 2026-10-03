@@ -9,6 +9,12 @@ import {
   isOneWayMessage,
   Notifications,
   defaultLimits,
+  type TurnsPageInput,
+  type ItemsWindowInput,
+  type ThreadSearchInput,
+  type ThreadCatchUpInput,
+  type ThreadReadStateInput,
+  type ThreadMarkReadInput,
   type ClientApi,
   type ConnectionState,
   type Intent,
@@ -27,6 +33,11 @@ import {
   type ThreadSource,
 } from "@ace/client";
 import type {
+  TurnsPageResponse,
+  ItemsWindowResponse,
+  ThreadSearchResponse,
+  ThreadCatchUpResponse,
+  ThreadReadStateResponse,
   CommandPayload,
   CommandResult,
   ItemsPage,
@@ -237,6 +248,40 @@ export class RemoteClient implements ClientApi {
     options: RequestOptions = {},
   ): Promise<unknown> {
     return uploadFile(this, input, source, options);
+  }
+  turnsPage(input: TurnsPageInput, options: RequestOptions = {}) {
+    return this.invoke<TurnsPageResponse>("turnsPage", [input, timeout(options)], options.signal);
+  }
+  itemsWindow(input: ItemsWindowInput, options: RequestOptions = {}) {
+    return this.invoke<ItemsWindowResponse>(
+      "itemsWindow",
+      [input, timeout(options)],
+      options.signal,
+    );
+  }
+  threadSearch(input: ThreadSearchInput, options: RequestOptions = {}) {
+    return this.invoke<ThreadSearchResponse>(
+      "threadSearch",
+      [input, timeout(options)],
+      options.signal,
+    );
+  }
+  threadCatchUp(input: ThreadCatchUpInput, options: RequestOptions = {}) {
+    return this.invoke<ThreadCatchUpResponse>(
+      "threadCatchUp",
+      [input, timeout(options)],
+      options.signal,
+    );
+  }
+  threadReadState(input: ThreadReadStateInput, options: RequestOptions = {}) {
+    return this.invoke<ThreadReadStateResponse>(
+      "threadReadState",
+      [input, timeout(options)],
+      options.signal,
+    );
+  }
+  markThreadRead(input: ThreadMarkReadInput, options: RequestOptions = {}) {
+    return this.invoke<CommandResult>("markThreadRead", [input, timeout(options)], options.signal);
   }
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },

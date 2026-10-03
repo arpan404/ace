@@ -1,3 +1,12 @@
+import type {
+  TurnsPageInput,
+  ItemsWindowInput,
+  ThreadSearchInput,
+  ThreadCatchUpInput,
+  ThreadReadStateInput,
+  ThreadMarkReadInput,
+} from "./long-thread.ts";
+import { ReadMarkers } from "./read-markers.ts";
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import {
   HistoryScanStatus,
@@ -13,6 +22,8 @@ import {
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
+  ThreadId,
+  ThreadMarkReadCommand,
   CursorAuthRequest,
   CursorAuthEvent,
   QueueResult,
@@ -60,6 +71,7 @@ export class Client implements ClientApi {
   private notifications: Notifications;
   private historyState: HistoryScanStatus | undefined;
   private closed = false;
+  private readMarkers: ReadMarkers;
   private serviceListeners = new Set<(message: ServerMessage) => void>();
   private hostId: string | undefined;
   constructor(options: ClientOptions) {
@@ -71,6 +83,12 @@ export class Client implements ClientApi {
       throw new ClientError("limit", "Reserve one of 64 subscriptions for the sidebar");
     this.notifications = new Notifications(limits.listeners);
     this.requests = new Requests(options.scheduler, limits.requests, limits.requestMs);
+    this.readMarkers = new ReadMarkers(
+      options.scheduler,
+      limits.requests,
+      limits.requestMs,
+      (input) => this.command(ThreadMarkReadCommand.parse({ type: "thread.markRead", ...input })),
+    );
     this.connection = new Connection(
       options,
       limits,
@@ -151,6 +169,7 @@ export class Client implements ClientApi {
       },
       () => this.notifications.emit(["connection"]),
       () => {
+        this.readMarkers.disconnect();
         this.requests.clear(new ClientError("offline"));
         this.subscriptions.disconnect();
         this.sidebar.disconnect();
@@ -208,6 +227,7 @@ export class Client implements ClientApi {
   }
   close(): Promise<void> {
     this.closed = true;
+    this.readMarkers.close();
     this.serviceListeners.clear();
     this.connection.stop();
     return this.intents.settled();
@@ -429,6 +449,57 @@ export class Client implements ClientApi {
     const { uploadFile } = await import("./files.ts");
     return uploadFile(this, input, source, options);
   }
+  async turnsPage(input: TurnsPageInput, options: RequestOptions = {}) {
+    const response = await this.request(
+      { type: "turns.page", ...input, threadId: decodeThreadId(input.threadId) },
+      options,
+    );
+    if (response.threadId !== input.threadId)
+      throw new ClientError("protocol", "Unexpected thread reply");
+    return response;
+  }
+  async itemsWindow(input: ItemsWindowInput, options: RequestOptions = {}) {
+    const response = await this.request(
+      { type: "items.window", ...input, threadId: decodeThreadId(input.threadId) },
+      options,
+    );
+    if (response.threadId !== input.threadId)
+      throw new ClientError("protocol", "Unexpected thread reply");
+    return response;
+  }
+  async threadSearch(input: ThreadSearchInput, options: RequestOptions = {}) {
+    const response = await this.request(
+      { type: "thread.search", ...input, threadId: decodeThreadId(input.threadId) },
+      options,
+    );
+    if (response.threadId !== input.threadId)
+      throw new ClientError("protocol", "Unexpected thread reply");
+    return response;
+  }
+  async threadCatchUp(input: ThreadCatchUpInput, options: RequestOptions = {}) {
+    const response = await this.request(
+      { type: "thread.catchUp", ...input, threadId: decodeThreadId(input.threadId) },
+      options,
+    );
+    if (response.threadId !== input.threadId)
+      throw new ClientError("protocol", "Unexpected thread reply");
+    return response;
+  }
+  async threadReadState(input: ThreadReadStateInput, options: RequestOptions = {}) {
+    const response = await this.request(
+      { type: "thread.readState", ...input, threadId: decodeThreadId(input.threadId) },
+      options,
+    );
+    if (response.threadId !== input.threadId)
+      throw new ClientError("protocol", "Unexpected thread reply");
+    return response;
+  }
+  markThreadRead(input: ThreadMarkReadInput, options: RequestOptions = {}) {
+    if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
+    const parsed = ThreadMarkReadCommand.safeParse({ type: "thread.markRead", ...input });
+    if (!parsed.success) return Promise.reject(new ClientError("protocol", "Invalid read mark"));
+    return this.readMarkers.mark(parsed.data, options);
+  }
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },
     options: RequestOptions = {},
@@ -511,4 +582,10 @@ export class Client implements ClientApi {
       offset = result.nextOffset;
     }
   }
+}
+
+function decodeThreadId(id: string): ThreadId {
+  const result = ThreadId.safeParse(id);
+  if (!result.success) throw new ClientError("protocol", "Invalid thread id");
+  return result.data;
 }
