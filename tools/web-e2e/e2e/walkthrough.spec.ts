@@ -82,7 +82,7 @@ test("walkthrough of the core journeys", async ({ page }) => {
 
   // The palette, Activity, Deck and Settings, then Light.
   await page.keyboard.press("ControlOrMeta+k");
-  await page.getByRole("dialog").waitFor();
+  await page.getByRole("dialog", { name: "Command palette" }).waitFor();
   await page.keyboard.type("replay", { delay: 40 });
   await beat();
   await page.keyboard.press("Escape");
