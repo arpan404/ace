@@ -76,10 +76,16 @@ it("binds two private SDK homes and fences only the selected instance while reta
 const out = (v) => process.stdout.write(JSON.stringify(v)+'\\n');
 createInterface({input:process.stdin}).on('line',(line)=>{
  const v=JSON.parse(line);
- out({id:v.id,result:v.method==='open'?{agentId:process.env.HOME}:v.method==='send'?{runId:'synthetic-run'}:{disposed:true}});
+ out({id:v.id,result:v.method==='open'?{agentId:process.env.HOME+'|'+Boolean(process.env.CURSOR_API_KEY)}:v.method==='send'?{runId:'synthetic-run'}:{disposed:true}});
 });`,
   );
-  const service = new AccountService({ registry, now: () => 1, timeZone: "UTC", env: {} });
+  const service = new AccountService({
+    registry,
+    now: () => 1,
+    timeZone: "UTC",
+    env: { CURSOR_API_KEY: "ambient-sentinel" },
+    cursorEnv: {},
+  });
   const bound = bindCursorSdk(service, {
     entry,
     policy: "full-access",
@@ -108,10 +114,18 @@ createInterface({input:process.stdin}).on('line',(line)=>{
       onFrame: () => {},
       onExit: () => {},
     });
+    registry.selectCursorSdk("b");
+    const { instanceId: _unselected, ...withoutAccount } = context("a");
+    await expect(
+      bound.openSession({
+        ...withoutAccount,
+        resume: { backend: "cursor-sdk", nativeSessionId: "pinned-a", instanceId: "a" },
+      }),
+    ).rejects.toThrow("Resuming requires a pinned provider instance");
     const a = await bound.openSession(context("a"));
     const b = await bound.openSession(context("b"));
-    expect(a.nativeSessionId).toBe(join(home, "a", "user"));
-    expect(b.nativeSessionId).toBe(join(home, "b", "user"));
+    expect(a.nativeSessionId).toBe(join(home, "a", "user") + "|false");
+    expect(b.nativeSessionId).toBe(join(home, "b", "user") + "|false");
     await bound.stopInstance("a");
     await expect(a.send([{ type: "text", text: "must not deliver" }], "queue")).rejects.toThrow(
       "closed",

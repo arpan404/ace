@@ -7,6 +7,7 @@ import {
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { ProviderInstance } from "@ace/protocol/accounts";
 import type { AccountRegistry } from "./registry.ts";
+import { instanceEnv } from "./instances.ts";
 import type { AccountService } from "./service.ts";
 
 /** Accounts selects/reserves homes; one cached owner fences and drains each instance. */
@@ -39,6 +40,9 @@ export function bindCursorSdk(service: AccountService, options: CursorAdapterOpt
     },
   });
   return Object.assign(bound, {
+    isFenced(id: string): boolean {
+      return fenced.has(id);
+    },
     async stopInstance(id: string) {
       if (!fenced.has(id) && fenced.size >= 256)
         throw new Error("Cursor SDK instance fence capacity reached");
@@ -46,6 +50,7 @@ export function bindCursorSdk(service: AccountService, options: CursorAdapterOpt
       await owners.get(id)?.stopInstance(id);
     },
     async rebindInstance(id: string) {
+      if (!fenced.has(id)) return;
       await owners.get(id)?.close();
       owners.delete(id);
       fenced.delete(id);
@@ -62,7 +67,15 @@ export function cursorSdkLoginDriver(
   registry: AccountRegistry,
   options: Parameters<typeof createCursorAccountDriver>[0] & { now(): number },
 ) {
-  const driver = createCursorAccountDriver(options);
+  const driver = createCursorAccountDriver({
+    ...options,
+    environment(instance) {
+      const selected = registry.get(instance.id)?.instance;
+      if (!selected || selected.provider !== "cursor" || selected.homeDir !== instance.homeDir)
+        throw new Error("Cursor SDK auth must use its registered instance home");
+      return instanceEnv(selected, options.launchEnv, "cursor-sdk");
+    },
+  });
   const selected = (instance: ProviderInstance) => {
     const account = registry.get(instance.id);
     if (

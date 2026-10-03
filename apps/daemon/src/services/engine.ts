@@ -1,7 +1,9 @@
 import { cursorHosts } from "./cursor-hosts.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
-import { bindCursorSdk } from "@ace/accounts";
+import { defaultCursorInstance } from "@ace/adapter-cursor";
+import { homedir } from "node:os";
+import { bindCursorSdk, createInstance } from "@ace/accounts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
@@ -47,6 +49,20 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   if (!engineOptions.registry) resources.own(() => registry.close());
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
+  const defaultInstance = cursorOptions.instance ?? defaultCursorInstance(homedir());
+  if (
+    accounts &&
+    accountRegistry &&
+    registry.has("cursor") &&
+    registry.get("cursor").adapter.backend === "cursor-sdk" &&
+    !accountRegistry.get(defaultInstance.id) &&
+    !accountRegistry.list().some(({ instance }) => instance.provider === "cursor")
+  ) {
+    // Preserve the SDK adapter's original home when it first enters accounts ownership.
+    await accountRegistry.register(
+      createInstance({ ...defaultInstance, provider: "cursor", label: "Cursor SDK" }),
+    );
+  }
   if (accounts && accountRegistry)
     registry.bindSessions((adapter) => {
       if (!AccountProvider.safeParse(adapter.provider).success) return adapter;
@@ -61,7 +77,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         openSession(session) {
           if (
             adapter.backend === "cursor-sdk" &&
-            session.instanceId === "cursor-sdk-default" &&
+            session.instanceId === defaultInstance.id &&
             !accountRegistry.get(session.instanceId)
           )
             return adapter.openSession(session);
@@ -75,6 +91,12 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const engine = new Engine(store, {
     ...engineOptions,
     registry,
+    selectInstance:
+      engineOptions.selectInstance ??
+      ((_provider, backend) =>
+        backend === "cursor-sdk"
+          ? (accounts?.preferredCursorInstance() ?? defaultInstance.id)
+          : undefined),
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());

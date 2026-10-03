@@ -13,6 +13,7 @@ import { startUsage } from "./usage.ts";
 import { startModels } from "./models.ts";
 import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
+import { startCursorAuth } from "./cursor-auth.ts";
 import { startEngine } from "./engine.ts";
 import type { ServiceContext, Services } from "./types.ts";
 /** Ordered composition: provider sessions are admitted only after their services open. */
@@ -33,6 +34,7 @@ export const serviceFactories = [
   startMcp,
   startNotifications,
   startEngine,
+  startCursorAuth,
 ];
 export function readyServices(services: Partial<Services>): Services {
   const {
@@ -84,6 +86,7 @@ export function readyServices(services: Partial<Services>): Services {
     ...(services.relay ? { relay: services.relay } : {}),
     ...(services.engine ? { engine: services.engine } : {}),
     ...(services.cursorHosts ? { cursorHosts: services.cursorHosts } : {}),
+    ...(services.cursorAuth ? { cursorAuth: services.cursorAuth } : {}),
     ...(services.cursorAccounts ? { cursorAccounts: services.cursorAccounts } : {}),
     ...(services.history ? { history: services.history } : {}),
   };

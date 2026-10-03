@@ -17,6 +17,9 @@ import type { CatalogModel } from "@ace/protocol";
 export type DiscoveryOptions = {
   spawn?: (options: SpawnOptions) => SupervisedProcess;
   cursorSlots?: CursorHostSlots;
+  /** Selected launch environment stays local to supervised SDK workers, never catalog rows. */
+  cursorEnv?: NodeJS.ProcessEnv;
+  cursorEnvironment?(instance: ModelInstance): NodeJS.ProcessEnv;
 };
 export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverModels {
   const spawn = options.spawn ?? spawnSupervised;
@@ -27,8 +30,11 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
       const { createCursorAccountDriver } = await import("@ace/adapter-cursor");
       if (!instance.homeDir) throw new Error("Cursor SDK catalog needs its selected instance home");
       const driver = createCursorAccountDriver({
-        launchEnv: instance.env,
+        launchEnv: { ...options.cursorEnv, ...instance.env },
         slots: cursorSlots,
+        ...(options.cursorEnvironment
+          ? { environment: () => options.cursorEnvironment?.(instance) ?? {} }
+          : {}),
         ...(options.spawn ? { spawn: options.spawn } : {}),
         stopInstance: async () => {
           throw new Error("Catalog worker cannot sign out live sessions");

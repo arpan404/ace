@@ -1,4 +1,5 @@
 import type { ScreenManager } from "@ace/screen";
+import type { CursorAuthService } from "@ace/accounts";
 import type { AccountService } from "@ace/accounts";
 import type { CommandService } from "@ace/commands";
 import type { FilesService } from "@ace/files";
@@ -31,6 +32,7 @@ export interface ServerOptions {
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
   screen?: ScreenManager;
   accounts?: AccountService;
+  cursorAuth?: CursorAuthService;
   commands?: CommandService;
   files?: FilesService;
   relay?: { url: string; keys: KeyPair };

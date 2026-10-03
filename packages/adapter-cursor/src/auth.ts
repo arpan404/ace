@@ -5,14 +5,34 @@ import { SafeAuth } from "./contracts.ts";
 
 export interface CursorAccountDriverOptions extends Omit<HostOptions, "env" | "cwd"> {
   launchEnv: NodeJS.ProcessEnv;
+  /** Accounts owns credential-key filtering; this runs only for its selected home. */
+  environment?(instance: CursorInstance): NodeJS.ProcessEnv;
   /** Must fence sends, await admissions/hosts, and retain reservations on failed exit. */
   stopInstance(id: string): Promise<void>;
 }
+const reserve = (kind: "login" | "logout") => {
+  const completion = Promise.withResolvers<void>();
+  return {
+    kind,
+    controller: new AbortController(),
+    done: completion.promise,
+    finish: completion.resolve,
+  };
+};
+
 /** Official SDK auth seam for AccountService. It never handles a key-bearing value. */
 export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
   const slots = options.slots ?? new CursorHostSlots(2);
   let workers = 0;
-  const signingOut = new Set<string>();
+  const changingAuth = new Map<
+    string,
+    {
+      kind: "login" | "logout";
+      controller: AbortController;
+      done: Promise<void>;
+      finish(): void;
+    }
+  >();
   const operate = async (
     instance: CursorInstance,
     method: "status" | "login" | "logout" | "models",
@@ -22,8 +42,8 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
     signal.throwIfAborted();
     const installed = await discoverCursorSdk(options.discovery);
     if (!installed.supported) throw new Error(installed.error ?? "Cursor SDK missing");
-    if (method !== "logout" && signingOut.has(instance.id))
-      throw new Error("SDK sign-out is fencing this instance");
+    if (method !== "logout" && method !== "login" && changingAuth.has(instance.id))
+      throw new Error("SDK authentication change is fencing this instance");
     if (workers >= 2) throw new Error("SDK account worker capacity reached");
     workers++;
     let host: CursorHost | undefined;
@@ -33,7 +53,7 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
           ...options,
           slots,
           instanceId: instance.id,
-          env: cursorSdkEnvironment(instance, options.launchEnv),
+          env: cursorSdkEnvironment(instance, options.environment?.(instance) ?? options.launchEnv),
         },
         () => {
           throw new Error("Auth workers must not emit captured frames");
@@ -64,21 +84,44 @@ export function createCursorAccountDriver(options: CursorAccountDriverOptions) {
       signal: AbortSignal,
       authorizedEphemeralUrl: (url: string) => void,
     ) {
-      return SafeAuth.parse(
-        await operate(CursorInstance.parse(instance), "login", signal, authorizedEphemeralUrl),
-      );
+      const selected = CursorInstance.parse(instance);
+      if (changingAuth.has(selected.id) || changingAuth.size >= 2)
+        throw new Error("SDK authentication change already in flight or at capacity");
+      const change = reserve("login");
+      changingAuth.set(selected.id, change);
+      try {
+        await options.stopInstance(selected.id);
+        await slots.stopInstance(selected.id);
+        return SafeAuth.parse(
+          await operate(
+            selected,
+            "login",
+            AbortSignal.any([signal, change.controller.signal]),
+            authorizedEphemeralUrl,
+          ),
+        );
+      } finally {
+        if (changingAuth.get(selected.id) === change) changingAuth.delete(selected.id);
+        change.finish();
+      }
     },
     async logout(instance: CursorInstance, signal: AbortSignal) {
       const selected = CursorInstance.parse(instance);
-      if (signingOut.has(selected.id) || signingOut.size >= 2)
+      const previous = changingAuth.get(selected.id);
+      if (previous?.kind === "logout" || (!previous && changingAuth.size >= 2))
         throw new Error("SDK sign-out already in flight or at capacity");
-      signingOut.add(selected.id);
+      const change = reserve("logout");
+      changingAuth.set(selected.id, change);
       try {
+        // Abort the browser exchange and wait for its host exit before deleting the store.
+        previous?.controller.abort();
+        await previous?.done;
         await options.stopInstance(selected.id);
         await slots.stopInstance(selected.id);
         return SafeAuth.parse(await operate(selected, "logout", signal));
       } finally {
-        signingOut.delete(selected.id);
+        if (changingAuth.get(selected.id) === change) changingAuth.delete(selected.id);
+        change.finish();
       }
     },
     models(instance: CursorInstance, signal: AbortSignal) {

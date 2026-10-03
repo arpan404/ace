@@ -1,6 +1,7 @@
 import { createScreenSession } from "./screen.ts";
 import { Simulators } from "@ace/screen";
 import { createSearchSession } from "./search.ts";
+import { createCursorAuthSession } from "./cursor-auth.ts";
 import { createAccountsSession } from "./accounts.ts";
 import { createCommandsSession } from "./commands.ts";
 import { createFilesSession } from "./files.ts";
@@ -22,6 +23,7 @@ import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
   createSearchSession,
   createAccountsSession,
+  createCursorAuthSession,
   createCommandsSession,
   createFilesSession,
   createNotificationsSession,

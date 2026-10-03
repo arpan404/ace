@@ -155,6 +155,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       settings: services.settings,
       engine: services.engine,
       accounts: services.accounts,
+      cursorAuth: services.cursorAuth,
       commands: services.commands,
       models: services.models,
       notifications: services.notifications,

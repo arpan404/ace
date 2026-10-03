@@ -1,5 +1,6 @@
 import type { CursorHostSlots } from "@ace/adapter-cursor";
 import type { ScreenManager } from "@ace/screen";
+import type { CursorAuthService } from "@ace/accounts";
 import type { AccountService, AccountRegistry } from "@ace/accounts";
 import type { bindCursorSdk } from "@ace/accounts";
 import type { CommandLibrary } from "@ace/commands";
@@ -28,6 +29,7 @@ import type { Resources } from "./resources.ts";
 export interface Services {
   screen?: ScreenManager;
   accounts?: AccountService;
+  cursorAuth?: CursorAuthService;
   accountRegistry?: AccountRegistry;
   commands?: CommandLibrary;
   files?: FilesService;

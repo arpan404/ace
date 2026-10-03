@@ -41,6 +41,7 @@ export class AccountService {
   private timeZone: string;
   private safety: MigrationSafety;
   private env: NodeJS.ProcessEnv;
+  private cursorEnv: NodeJS.ProcessEnv;
   private writers = new Map<string, number>();
   private migrating = new Set<string>();
   constructor(options: {
@@ -48,13 +49,25 @@ export class AccountService {
     now: () => number;
     timeZone: string;
     env: NodeJS.ProcessEnv;
+    cursorEnv?: NodeJS.ProcessEnv;
     safety?: MigrationSafety;
   }) {
     this.registry = options.registry;
     this.now = options.now;
     this.timeZone = options.timeZone;
     this.env = options.env;
+    this.cursorEnv = options.cursorEnv ?? options.env;
     this.safety = options.safety ?? { acquire: async () => undefined };
+  }
+  preferredCursorInstance(): string | undefined {
+    return (
+      this.registry.selectedCursorSdk() ??
+      pickInstance(
+        { provider: "cursor", role: "worker", estimatedLoad: 1 },
+        this.registry.list().filter((a) => !this.migrating.has(a.instance.id)),
+        this.now(),
+      )?.id
+    );
   }
   /** Register this adapter with the engine instead of the unbound native adapter. */
   bindAdapter(
@@ -124,7 +137,14 @@ export class AccountService {
     context: SessionContext,
     selection: AccountAssignment,
   ): Promise<{ instanceId: string; session: ProviderSession }> {
-    const assignment = AccountAssignment.parse(selection);
+    const preferred =
+      adapter.backend === "cursor-sdk" && !context.resume
+        ? this.registry.selectedCursorSdk()
+        : undefined;
+    const assignment = AccountAssignment.parse({
+      ...selection,
+      instanceId: selection.instanceId ?? preferred,
+    });
     if (context.resume && !assignment.instanceId)
       throw new Error("Resuming requires a pinned provider instance");
     const provider = AccountProvider.parse(adapter.provider);
@@ -185,7 +205,11 @@ export class AccountService {
         instanceId: chosen.id,
         instanceHomeDir: chosen.homeDir,
         signal: lifetime.signal,
-        env: instanceEnv(chosen, { ...this.env, ...context.env }, adapter.backend),
+        env: instanceEnv(
+          chosen,
+          { ...(adapter.backend === "cursor-sdk" ? this.cursorEnv : this.env), ...context.env },
+          adapter.backend,
+        ),
         onFrame: (input) => {
           if (released || frameFailed) return;
           const frame = accountFrame(input);

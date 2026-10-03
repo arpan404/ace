@@ -11,3 +11,5 @@ export { AccountService, type AccountAdapterFactory } from "./service.ts";
 export { runAccountsCommand } from "./commands-cli.ts";
 
 export { bindCursorSdk, cursorSdkLoginDriver } from "./cursor-sdk.ts";
+
+export { CursorAuthService, type CursorAuthOptions } from "./cursor-auth.ts";

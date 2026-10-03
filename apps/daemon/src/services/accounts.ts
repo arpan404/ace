@@ -2,7 +2,7 @@ import { AccountService, openRegistry } from "@ace/accounts";
 import { join } from "node:path";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export async function startAccounts({ config, resources, services, now }: ServiceContext) {
+export async function startAccounts({ config, resources, services, now, options }: ServiceContext) {
   const registry = await openRegistry(
     process.env.ACE_ACCOUNTS_DB ?? join(config.dataDir, "accounts.sqlite"),
   );
@@ -13,6 +13,7 @@ export async function startAccounts({ config, resources, services, now }: Servic
     now,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     env: process.env,
+    cursorEnv: options.engine?.cursor?.env ?? process.env,
   });
 }
 export function createAccountsSession(context: SocketContext): SocketService {
