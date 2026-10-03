@@ -10,53 +10,56 @@ export type CardState =
   | "working"
   | "in_review"
   | "fixing"
+  | "merging"
   | "escalated"
-  | "merged"
-  | "merge";
-export interface Finding {
-  severity: "high" | "medium" | "low";
-  text: string;
-}
+  | "merged";
 export interface Round {
   label: string;
   verdict: string;
-  detail: string;
-  findings: readonly Finding[];
 }
 export interface LaneRole {
+  /** The account's label ("Claude Code · Work"), or its id when the daemon doesn't list it. */
   account: string;
-  provider: ProviderKind;
+  /** Unknown when the lane's account isn't one the daemon lists. */
+  provider: ProviderKind | undefined;
+  /** The model the lane runs. */
   detail: string;
 }
+export type LaneStatus =
+  | "starting"
+  | "working"
+  | "waiting"
+  | "done"
+  | "failed"
+  | "unresponsive"
+  | "limited"
+  | "migrating";
 export interface Lane {
-  worker: LaneRole;
-  reviewer: LaneRole;
-  threadId: string | null;
+  worker: LaneRole | null;
+  reviewer: LaneRole | null;
+  /** The agent working the card now: a delegated child thread when the daemon has one. */
+  agentId: string;
+  status: LaneStatus;
   rounds: readonly Round[];
 }
 export interface DeckCard {
   id: string;
-  kind: "work" | "merge";
   title: string;
   dependencies: readonly string[];
   state: CardState;
+  /** Review rounds so far, counting the current one; 0 before the card is dealt. */
   round: number;
   lane: Lane | null;
+  /** One sentence for a card without a lane: what it waits for, or how it merged. */
   note: string;
-}
-export interface PlanChange {
-  kind: "moved" | "added" | "removed" | "changed";
-  cardId: string;
-  title: string;
-  detail: string;
 }
 export interface Gate {
   id: string;
   kind: "plan" | "merge" | "escalation";
   title: string;
   body: string;
-  revision: number;
-  changes: readonly PlanChange[];
+  /** The card the gate is about, when it is about one. */
+  workstream: string | null;
 }
 export type DeckPhase =
   | "planning"
@@ -71,16 +74,18 @@ export interface DeckRun {
   title: string;
   goal: string;
   workspaceId: string;
-  branch: string;
   phase: DeckPhase;
   planApproved: boolean;
+  /** The decision the deck waits on first; `gates` counts every open one. */
   gate: Gate | null;
-  stages: readonly string[];
+  gates: number;
   cards: readonly DeckCard[];
-  log: readonly { at: number; text: string }[];
-  pullRequest: number | null;
-  createdAt: number;
-  updatedAt: number;
+  spent: number;
+  budget: number;
+  /** Why the deck stopped executing, when it did. */
+  error: string | undefined;
+  /** Details are loading: the run is known from the list only. */
+  partial: boolean;
 }
 
 export type DeckGroup = "gated" | "active" | "finished";
@@ -92,10 +97,10 @@ export function deckGroup(run: DeckRun): DeckGroup {
   return "active";
 }
 
-/** "2 of 6 merged": work cards only; the final merge card is not counted. */
+/** "2 of 6 merged". */
 export function deckProgress(run: DeckRun): { merged: number; total: number } {
-  const cards = run.cards.filter((card) => card.kind === "work");
-  return { merged: cards.filter((card) => card.state === "merged").length, total: cards.length };
+  const merged = run.cards.filter((card) => card.state === "merged").length;
+  return { merged, total: run.cards.length };
 }
 
 const busy = (card: DeckCard) =>
@@ -126,11 +131,11 @@ export function deckRunSummary(run: DeckRun): string {
     case "paused":
       return `Paused · ${tally}`;
     case "merged":
-      return `Merged ${total} cards${run.pullRequest ? ` · #${run.pullRequest}` : ""}`;
+      return `Merged ${total} ${total === 1 ? "card" : "cards"}`;
     case "cancelled":
       return `Cancelled · ${tally}`;
     case "failed":
-      return `Failed · ${tally}`;
+      return `Stopped · ${tally}`;
   }
 }
 
@@ -200,7 +205,7 @@ export function cardColumns(cards: readonly DeckCard[]): DeckCard[][] {
   return Array.from(columns, (column) => column ?? []);
 }
 
-export type CardMark = "check" | "spinner" | "dot" | "lock";
+export type CardMark = "check" | "spinner" | "dot";
 export type CardTone = "idle" | "waiting" | "needs-you" | "working" | "done";
 
 /** The status line under a card's title, and its pill tone in the lane. */
@@ -217,18 +222,22 @@ export function cardStatus(
       return { label: "In review", mark: "dot", tone: "waiting" };
     case "fixing":
       return { label: `Fixing, round ${card.round}`, mark: "spinner", tone: "working" };
+    case "merging":
+      return { label: "Merging", mark: "spinner", tone: "working" };
     case "escalated":
-      return { label: "Escalated", mark: "dot", tone: "needs-you" };
+      return {
+        label: run.gate?.workstream === card.id ? "Waiting for you" : "Escalated",
+        mark: "dot",
+        tone: "needs-you",
+      };
     case "merged":
       return { label: "Merged", mark: "check", tone: "done" };
-    case "merge":
-      return { label: `Needs all ${deckProgress(run).total}`, mark: "lock", tone: "idle" };
   }
 }
 
 /** The card a deck opens on: the one most likely to need a look. */
 export function defaultCard(run: DeckRun): DeckCard | undefined {
-  const order: CardState[] = ["fixing", "escalated", "in_review", "working"];
+  const order: CardState[] = ["escalated", "fixing", "in_review", "working", "merging"];
   for (const state of order) {
     const card = run.cards.find((c) => c.state === state && c.lane);
     if (card) return card;

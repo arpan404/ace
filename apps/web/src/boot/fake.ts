@@ -1,4 +1,10 @@
-import { FakeDaemon, ScenarioPlayer, devWorld, fakeTransport } from "@ace/fake-daemon";
+import {
+  FakeDaemon,
+  ScenarioPlayer,
+  devWorld,
+  fakeTransport,
+  workbenchServices,
+} from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
 import { createBrowserClient, memoryStorage } from "./client.ts";
 
@@ -31,6 +37,10 @@ export function bootFake(): {
     else if (!thread.live) player.runUntilBlocked();
     if (thread.live) player.autoplay(timer, thread.live.speed);
   }
+  // Decks, automations, plugins and linked pull requests, served over the wire like a daemon's.
+  daemon.seedServices(
+    workbenchServices(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
+  );
   const client = createBrowserClient({
     deviceId: "web-fake-device",
     transport: () => fakeTransport(daemon),

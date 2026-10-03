@@ -12,7 +12,7 @@ import { Select } from "@/components/ui/select.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { Textarea } from "@/components/ui/input.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useDeckRuns, useDeckSource } from "./deck-source.ts";
+import { useDeckRuns, useDeckSender } from "./deck-source.ts";
 import {
   NewDeckInput,
   deckId,
@@ -70,7 +70,7 @@ function message(errors: readonly unknown[]): string | undefined {
 /** ⌘⇧N: describe the goal, choose who works and who reviews, and how the deck may merge. */
 export function NewDeckForm() {
   const projects = useProjects();
-  const source = useDeckSource();
+  const send = useDeckSender();
   const navigate = useNavigate();
   const toast = useToast();
   const [error, setError] = useState<string>();
@@ -100,7 +100,7 @@ export function NewDeckForm() {
       const input = parsed.data;
       const runId = deckId(input.goal, Date.now().toString(36));
       try {
-        await source.send({
+        await send({
           type: "conductor.start",
           runId,
           spec: deckSpec(input, `deck-${runId}`),

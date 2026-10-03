@@ -33,7 +33,7 @@ import { FakeReviewDesk } from "./review-desk.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
-import { FakeServicesWire, type FakeWireSession } from "./services-wire.ts";
+import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
 import { startedThread } from "./scenarios/started-thread.ts";
 import {
   drainQueue,
@@ -115,6 +115,13 @@ export class FakeDaemon implements Host {
         },
       ]),
     );
+  }
+  /**
+   * Seed what a long-running daemon's services hold: decks, automations and their runs,
+   * installed plugins and the forge's pull requests. Threads a seed links to must exist.
+   */
+  seedServices(seed: ServicesSeed): void {
+    this.servicesWire.seed(seed);
   }
   session(send: (message: ServerMessage) => void): FakeWireSession {
     return this.servicesWire.session(send);

@@ -8,8 +8,7 @@ import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
-import { useNow } from "@/lib/time.ts";
-import { formatAge, deckGroup, deckRunSummary, type DeckRun, type DeckGroup } from "@ace/ui-core";
+import { deckGroup, deckRunSummary, type DeckRun, type DeckGroup } from "@ace/ui-core";
 import { useDeckRuns } from "./deck-source.ts";
 
 const groups: readonly { id: DeckGroup; label: string }[] = [
@@ -20,7 +19,7 @@ const groups: readonly { id: DeckGroup; label: string }[] = [
 
 /** Deck's second sidebar: New deck, then every deck grouped by what it needs. */
 export function DeckSidebar() {
-  const { ready, runs } = useDeckRuns();
+  const { ready, error, runs } = useDeckRuns();
   const [project, setProject] = useState("all");
   const projects = [...new Set(runs.map((run) => run.workspaceId))].toSorted();
   const shown = project === "all" ? runs : runs.filter((run) => run.workspaceId === project);
@@ -49,6 +48,8 @@ export function DeckSidebar() {
       </Link>
       {!ready ? (
         <ListSkeleton label="decks" shape="card" rows={4} />
+      ) : error && !runs.length ? (
+        <EmptyState icon={CardsIcon} title="Decks unavailable" description={error} />
       ) : !shown.length ? (
         <EmptyState
           icon={CardsIcon}
@@ -76,14 +77,12 @@ export function DeckSidebar() {
 }
 
 function DeckRow(props: { run: DeckRun }) {
-  const now = useNow();
   return (
     <Link to="/deck/$runId" params={{ runId: props.run.id }} className={viewRowClass}>
       <ViewRowBody
         icon={CardsIcon}
         title={props.run.title}
         description={deckRunSummary(props.run)}
-        meta={formatAge(props.run.updatedAt, now)}
       />
     </Link>
   );

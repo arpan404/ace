@@ -3,17 +3,8 @@ import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { cn } from "@/lib/cn.ts";
 import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
-import { cardStatus, type DeckRun, type Gate } from "@ace/ui-core";
+import { cardStatus, type DeckRun } from "@ace/ui-core";
 import { StatusMark } from "./card-graph.tsx";
-
-/** What a card without a lane yet is waiting for, for its row in Lanes. */
-function waitsOn(card: DeckRun["cards"][number], run: DeckRun): string {
-  const titles = card.dependencies.flatMap((id) => {
-    const dependency = run.cards.find((c) => c.id === id);
-    return dependency ? [dependency.title] : [];
-  });
-  return titles.length ? `Starts after ${titles.join(", ")}` : "Starts once the plan is approved";
-}
 
 /**
  * Lanes: every card of the plan as a table row, with its worker, reviewer and latest round.
@@ -38,9 +29,7 @@ export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) 
         const status = cardStatus(card, props.run);
         const lane = card.lane;
         const latest = lane?.rounds.at(-1);
-        const summary = latest
-          ? [latest.label, latest.verdict, latest.detail].filter(Boolean).join(" · ")
-          : waitsOn(card, props.run);
+        const summary = latest ? `${latest.label} · ${latest.verdict}` : card.note;
         return (
           <li key={card.id} className="col-span-3 grid grid-cols-subgrid border-t last:border-b">
             <button
@@ -62,14 +51,14 @@ export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) 
               <span className="flex items-center gap-1.5 text-sm whitespace-nowrap text-muted-foreground">
                 {lane ? (
                   <>
-                    <ProviderMark provider={lane.worker.provider} />
-                    <span>{lane.worker.account}</span>
+                    {lane.worker?.provider && <ProviderMark provider={lane.worker.provider} />}
+                    <span>{lane.worker?.account ?? "No worker"}</span>
                     <Icon icon={ArrowRightIcon} size={12} className="text-subtle-foreground" />
-                    <span>{lane.reviewer.account}</span>
+                    <span>{lane.reviewer?.account ?? "No reviewer yet"}</span>
                   </>
                 ) : (
                   <span className="text-subtle-foreground">
-                    {card.kind === "merge" ? "Merges once every lane passes" : "Not dealt yet"}
+                    {card.state === "merged" ? "Merged" : "Not dealt yet"}
                   </span>
                 )}
               </span>
@@ -81,7 +70,6 @@ export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) 
                 {latest ? (
                   <>
                     <span className="text-foreground">{latest.label}</span> · {latest.verdict}
-                    {latest.detail && ` · ${latest.detail}`}
                   </>
                 ) : (
                   summary
@@ -92,69 +80,5 @@ export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) 
         );
       })}
     </ul>
-  );
-}
-
-const time = new Intl.DateTimeFormat(undefined, {
-  month: "short",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-/** Log: what the deck did, newest first. */
-export function LogTab(props: { run: DeckRun }) {
-  const entries = props.run.log.toReversed();
-  return (
-    <ol aria-label="Deck log" className="mt-6">
-      {entries.map((entry) => (
-        <li
-          key={`${entry.at}-${entry.text}`}
-          className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 border-t py-2.5 text-ui last:border-b"
-        >
-          <time
-            dateTime={new Date(entry.at).toISOString()}
-            className="text-subtle-foreground tabular-nums"
-          >
-            {time.format(entry.at)}
-          </time>
-          <span>{entry.text}</span>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-const changeLabel: Record<Gate["changes"][number]["kind"], string> = {
-  moved: "Moved",
-  added: "Added",
-  removed: "Removed",
-  changed: "Changed",
-};
-
-/** Right-panel tab: what a plan revision changes, card by card. */
-export function PlanChanges(props: { gate: Gate | null }) {
-  if (!props.gate?.changes.length)
-    return (
-      <EmptyState
-        title="No plan changes"
-        description="When the deck proposes a new plan revision, its changes appear here."
-      />
-    );
-  return (
-    <div className="h-full overflow-auto px-4 py-3">
-      <h3 className="text-ui font-medium">Revision {props.gate.revision}</h3>
-      <ul aria-label="Plan changes" className="mt-2">
-        {props.gate.changes.map((change) => (
-          <li key={`${change.kind}-${change.cardId}`} className="border-t py-2.5 text-ui">
-            <span className="text-xs font-medium text-subtle-foreground">
-              {changeLabel[change.kind]}
-            </span>
-            <div className="font-medium">{change.title}</div>
-            <p className="mt-0.5 text-sm leading-[1.45] text-muted-foreground">{change.detail}</p>
-          </li>
-        ))}
-      </ul>
-    </div>
   );
 }

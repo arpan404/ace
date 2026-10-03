@@ -261,7 +261,21 @@ function mobileColdStart(now: number): FakeDeckRun {
     branch: "deck/cold-start",
     phase: "dealing",
     planApproved: true,
-    gate: null,
+    gate: {
+      id: "mobile-cold-start-escalation-1",
+      kind: "escalation",
+      title: "Defer the first relay sync failed review twice",
+      body: "Deferring the first sync leaves the inbox empty for about 3s after launch, and the reviewer rejects that both times. Approve to accept the delay and keep the lane going, or reject to keep the sync on the startup path.",
+      revision: 1,
+      changes: [
+        {
+          kind: "changed",
+          cardId: "defer-sync",
+          title: "Defer the first relay sync",
+          detail: "Accepts a short empty inbox after launch; the reviewer checks the rest.",
+        },
+      ],
+    },
     stages: ["Measure", "Build", "Ship"],
     cards: [
       card("trace", "Startup trace baseline", [], "merged", {
@@ -286,8 +300,8 @@ function mobileColdStart(now: number): FakeDeckRun {
         round: 1,
         lane: coldStartLane("Codex · personal", "codex", "GPT-5.3 Codex, worktree lanes/hermes"),
       }),
-      card("defer-sync", "Defer the first relay sync", ["trace"], "working", {
-        round: 1,
+      card("defer-sync", "Defer the first relay sync", ["trace"], "escalated", {
+        round: 2,
         lane: coldStartLane("OpenCode · personal", "opencode", "Worktree lanes/defer-sync"),
       }),
       card("merge", "Merge to main", ["lazy-fonts", "hermes-bytecode", "defer-sync"], "merge", {
