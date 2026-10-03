@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { EditAutomationScreen } from "@/features/automations/automation-editor-screen.tsx";
+import { EditAutomationScreen } from "@/features/automations/index.ts";
 
 export const Route = createFileRoute("/automations/$automationId/edit")({ component: Edit });
 

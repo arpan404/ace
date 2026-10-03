@@ -1,15 +1,17 @@
 import { ChatsIcon, MagnifyingGlassIcon, NotePencilIcon } from "@phosphor-icons/react";
-import { useSidebarThread } from "@ace/client-react";
+import { useSidebarLoaded, useSidebarThread } from "@ace/client-react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import { SidebarHeader } from "@/features/shell/view-frame.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
+import { SidebarHeader } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { ProjectFilter } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { useHomeArrangement } from "./use-home-threads.ts";
+import { rememberThread } from "./last-thread.ts";
 import { useOrganizer, useOrganizerState } from "./use-organizer.ts";
 
 /**
@@ -22,6 +24,7 @@ export function HomeSidebar() {
   const organizer = useOrganizer();
   const { setPaletteOpen } = useLayout();
   useSeenWhileOpen();
+  const loaded = useSidebarLoaded();
   const empty = !arrangement.active.length && !arrangement.settled.length;
   return (
     <>
@@ -29,7 +32,7 @@ export function HomeSidebar() {
       <Link
         to="/new"
         search={project ? { project } : {}}
-        className="mx-2 mb-1.5 flex h-8 shrink-0 items-center gap-[9px] rounded-md px-2.5 text-ui font-medium text-sidebar-foreground outline-none transition-colors duration-150 hover:bg-sidebar-accent focus-visible:bg-sidebar-accent [&_svg]:text-muted-foreground"
+        className="mx-2 mb-1.5 flex h-8 shrink-0 items-center gap-[9px] rounded-md px-2.5 text-ui font-medium text-sidebar-foreground outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent focus-visible:bg-sidebar-accent [&_svg]:text-muted-foreground"
       >
         <Icon icon={NotePencilIcon} />
         New thread
@@ -39,7 +42,7 @@ export function HomeSidebar() {
         <button
           type="button"
           onClick={() => setPaletteOpen(true)}
-          className="flex h-8 w-full items-center gap-2 rounded-[9px] bg-sidebar-accent pr-2 pl-2.5 text-ui text-subtle-foreground outline-none transition-[background-color,box-shadow] duration-150 hover:bg-[color-mix(in_oklab,var(--sidebar-accent),var(--foreground)_4%)] hover:shadow-[var(--glass-highlight)]"
+          className="flex h-8 w-full items-center gap-2 rounded-[9px] bg-sidebar-accent pr-2 pl-2.5 text-ui text-subtle-foreground outline-none transition-[background-color,box-shadow] duration-(--dur-1) hover:bg-[color-mix(in_oklab,var(--sidebar-accent),var(--foreground)_4%)] hover:shadow-[var(--glass-highlight)]"
         >
           <Icon icon={MagnifyingGlassIcon} />
           Search
@@ -47,7 +50,9 @@ export function HomeSidebar() {
         </button>
       </div>
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
-        {empty ? (
+        {!loaded ? (
+          <ListSkeleton label="threads" shape="card" className="px-2" />
+        ) : empty ? (
           <EmptyState
             icon={ChatsIcon}
             title={project ? `Nothing in ${project}` : "No threads yet"}
@@ -76,13 +81,20 @@ export function HomeSidebar() {
   );
 }
 
-/** The open thread counts as read: record what was seen, and again as it moves. */
+/**
+ * The open thread counts as read: record what was seen, and again as it moves. It is also the
+ * thread Home returns to.
+ */
 function useSeenWhileOpen() {
   const params = useParams({ strict: false });
   const threadId = params.threadId;
   const entry = useSidebarThread(threadId ?? "");
   const organizer = useOrganizer();
+  const { storage } = useLayout();
   const updatedAt = entry?.updatedAt;
+  useEffect(() => {
+    if (threadId) rememberThread(storage, threadId);
+  }, [storage, threadId]);
   useEffect(() => {
     if (!threadId || updatedAt === undefined) return;
     const mark = organizer.mark(threadId);

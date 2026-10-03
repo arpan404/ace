@@ -2,7 +2,7 @@ import { ChartBarIcon, FilesIcon, MagnifyingGlassIcon } from "@phosphor-icons/re
 import { Link } from "@tanstack/react-router";
 import type { IconGlyph } from "@/components/icon.tsx";
 import { Icon } from "@/components/icon.tsx";
-import { ViewSidebar } from "@/features/shell/view-frame.tsx";
+import { ViewSidebar } from "@/features/shell/index.ts";
 
 const pages: readonly {
   to: "/more/accounts" | "/more/files" | "/more/search";
@@ -39,7 +39,7 @@ export function MoreSidebar() {
           <li key={page.to}>
             <Link
               to={page.to}
-              className="group grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 rounded-card px-[11px] py-[9px] transition-colors duration-150 hover:bg-sidebar-accent data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]"
+              className="group grid w-full grid-cols-[auto_minmax(0,1fr)] gap-x-2.5 rounded-card px-[11px] py-[9px] transition-colors duration-(--dur-1) hover:bg-sidebar-accent data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]"
             >
               <span className="mt-px grid size-[26px] place-items-center rounded-[7px] bg-secondary text-muted-foreground group-data-[status=active]:text-foreground">
                 <Icon icon={page.icon} />

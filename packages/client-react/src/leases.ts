@@ -1,4 +1,4 @@
-import type { Sidebar, ThreadStore } from "@ace/client";
+import type { SidebarSource, ThreadSource } from "@ace/client";
 import { useMemo, useSyncExternalStore } from "react";
 import { useClient } from "./context.ts";
 
@@ -27,7 +27,7 @@ function lease<T>(acquire: () => { store: T; release(): void }): Lease<T> {
  * Hold a thread subscription while the component is mounted. The client shares one wire
  * subscription between every holder of the same thread. Undefined until the first commit.
  */
-export function useThreadStore(threadId: string | undefined): ThreadStore | undefined {
+export function useThreadStore(threadId: string | undefined): ThreadSource | undefined {
   const client = useClient();
   const held = useMemo(
     () => (threadId ? lease(() => client.thread(threadId)) : undefined),
@@ -35,7 +35,7 @@ export function useThreadStore(threadId: string | undefined): ThreadStore | unde
   );
   return useSyncExternalStore(held?.subscribe ?? noSubscribe, held?.get ?? noStore, noStore);
 }
-export function useSidebarStore(): Sidebar | undefined {
+export function useSidebarStore(): SidebarSource | undefined {
   const client = useClient();
   const held = useMemo(() => lease(() => client.threads()), [client]);
   return useSyncExternalStore(held.subscribe, held.get, noStore);

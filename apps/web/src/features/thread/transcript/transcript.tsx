@@ -2,17 +2,20 @@ import { useHistoryPager, useItemOrder } from "@ace/client-react";
 import { ArrowDownIcon } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn.ts";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { RefObject } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { scrollToEnd as glideToEnd, useListMotion } from "@/lib/motion.ts";
 import { BlockView } from "../items/block-view.tsx";
-import type { Block } from "./blocks.ts";
-import { LiveFooter } from "./live-footer.tsx";
+import { openWorkIndex, type Block } from "./blocks.ts";
+import { LiveFooter, useRootWorking } from "./live-footer.tsx";
 import { useBlocks } from "./use-blocks.ts";
 import { useNewActivity } from "./use-new-activity.ts";
 
 const none: readonly string[] = [];
+const blockKey = (block: Block) => block.key;
 const nearEdge = 64;
 const gap: Record<Block["kind"], string> = {
   user: "pb-7",
@@ -27,19 +30,33 @@ const gap: Record<Block["kind"], string> = {
 /**
  * The reading column: a virtualized feed of transcript blocks over the client's bounded item
  * window (ADR 0006). Older history pages in at the top, keeping the reader's place; new output
- * is followed while the reader is at the bottom, and a button brings them back otherwise.
+ * is followed while the reader is at the bottom, and a button glides them back otherwise.
+ * Blocks that arrive while the thread is open rise in; streaming text grows in place and the
+ * follow is instant, so the column never jitters.
  */
 export function Transcript(props: { threadId: string }) {
   const blocks = useBlocks(props.threadId);
   const order = useItemOrder(props.threadId) ?? none;
   const pager = useHistoryPager(props.threadId);
   const divider = useNewActivity(props.threadId, blocks, order);
+  const { rows: motionRows } = useListMotion(blocks, blockKey);
+  const entering = useMemo(
+    () => new Set(motionRows.flatMap((row) => (row.phase === "enter" ? [row.key] : []))),
+    [motionRows],
+  );
+  // The agent is still adding to the last work log: it reads "Working for …" and the footer
+  // doesn't repeat it.
+  const openWork = openWorkIndex(blocks);
+  const liveWork = useRootWorking(props.threadId) && openWork >= 0;
   const viewport = useRef<HTMLDivElement>(null);
   const feed = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
+  // Until this moment a glide to the end is in flight, and its scroll events don't unpin.
+  const glidingUntil = useRef(0);
   const [pinned, setPinned] = useState(true);
-  // React Compiler is not used; the virtualizer's unstable callbacks are fine here.
-  // oxlint-disable-next-line react/incompatible-library
+  // The compiler skips this component (the virtualizer's callbacks are unstable by design);
+  // the rows it renders are still compiled.
+  // oxlint-disable-next-line react-compiler/incompatible-library
   const virtualizer = useVirtualizer({
     count: blocks.length,
     getScrollElement: () => viewport.current,
@@ -54,6 +71,7 @@ export function Transcript(props: { threadId: string }) {
     if (el) el.scrollTop = el.scrollHeight;
   };
   useKeepPlace(blocks, virtualizer.scrollToIndex);
+  useStayPinned(viewport, pinnedRef, glidingUntil);
   // Follow streaming output and new blocks while the reader is at the bottom.
   useLayoutEffect(() => {
     if (pinnedRef.current) scrollToEnd();
@@ -72,15 +90,16 @@ export function Transcript(props: { threadId: string }) {
       <div
         ref={viewport}
         data-virtual-viewport=""
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+        className="scroll-fade-t min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-fade-t-6 [overflow-anchor:none]"
         onScroll={(event) => {
           const el = event.currentTarget;
           const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;
+          if (!atEnd && performance.now() < glidingUntil.current) return;
           pinnedRef.current = atEnd;
           setPinned(atEnd);
         }}
       >
-        <div className="mx-auto w-full max-w-(--column) px-8 pt-6 pb-16">
+        <div className="mx-auto w-full max-w-(--column) px-5 pt-6 pb-16 sm:px-8">
           <div className="flex justify-center pb-4">
             {hasOlder ? (
               <Button variant="ghost" size="sm" disabled={loading} onClick={() => void loadOlder()}>
@@ -120,13 +139,19 @@ export function Transcript(props: { threadId: string }) {
                   className={cn("absolute inset-x-0 top-0", gap[block.kind])}
                   style={{ transform: `translateY(${row.start - margin}px)` }}
                 >
-                  {divider === block.key && <NewActivity />}
-                  <BlockView threadId={props.threadId} block={block} />
+                  <div className={entering.has(block.key) ? "fx-rise-in" : undefined}>
+                    {divider === block.key && <NewActivity />}
+                    <BlockView
+                      threadId={props.threadId}
+                      block={block}
+                      live={liveWork && row.index === openWork}
+                    />
+                  </div>
                 </div>
               );
             })}
           </div>
-          <LiveFooter threadId={props.threadId} />
+          <LiveFooter threadId={props.threadId} quiet={liveWork} />
         </div>
       </div>
       {!pinned && (
@@ -135,10 +160,12 @@ export function Transcript(props: { threadId: string }) {
           onClick={() => {
             pinnedRef.current = true;
             setPinned(true);
-            virtualizer.scrollToIndex(blocks.length - 1, { align: "end" });
-            scrollToEnd();
+            const el = viewport.current;
+            if (!el) return;
+            glidingUntil.current = performance.now() + 800;
+            glideToEnd(el, true);
           }}
-          className="glass absolute bottom-3 left-1/2 inline-flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground"
+          className="fx-rise-in glass absolute bottom-3 left-1/2 inline-flex h-8 -translate-x-1/2 items-center gap-1.5 rounded-full px-3 text-sm font-medium text-muted-foreground transition-colors duration-(--dur-1) hover:text-foreground"
         >
           <ArrowDownIcon aria-hidden size={14} />
           Scroll to latest
@@ -158,6 +185,34 @@ function NewActivity() {
       New activity
     </div>
   );
+}
+
+/**
+ * The reading column changes height when a panel opens, the composer grows or the window
+ * resizes. A reader at the latest stays there: the end glides back into view (instantly under
+ * reduced motion) instead of the newest lines ending up under the composer or the terminal.
+ */
+function useStayPinned(
+  viewport: RefObject<HTMLDivElement | null>,
+  pinned: RefObject<boolean>,
+  glidingUntil: RefObject<number>,
+) {
+  useEffect(() => {
+    const el = viewport.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let height = el.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const next = el.clientHeight;
+      if (next === height) return;
+      height = next;
+      if (!pinned.current) return;
+      // The glide's own scroll events must not read as the reader scrolling away.
+      glidingUntil.current = performance.now() + 800;
+      glideToEnd(el, true);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [viewport, pinned, glidingUntil]);
 }
 
 /** After older history is prepended, keep the block the reader was looking at in place. */

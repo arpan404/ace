@@ -25,5 +25,33 @@
         "allow": ["**/*.css"]
       }
     ]
-  }
+  },
+  "overrides": [
+    {
+      "files": ["apps/web/src/**/*.{ts,tsx}", "packages/client-react/src/**/*.{ts,tsx}"],
+      "jsPlugins": [
+        {
+          "name": "react-compiler",
+          "specifier": "eslint-plugin-react-hooks"
+        }
+      ],
+      "rules": {
+        "react-compiler/static-components": "error",
+        "react-compiler/use-memo": "error",
+        "react-compiler/void-use-memo": "error",
+        "react-compiler/preserve-manual-memoization": "error",
+        "react-compiler/immutability": "error",
+        "react-compiler/globals": "error",
+        "react-compiler/refs": "error",
+        "react-compiler/set-state-in-effect": "error",
+        "react-compiler/error-boundaries": "error",
+        "react-compiler/purity": "error",
+        "react-compiler/set-state-in-render": "error",
+        "react-compiler/unsupported-syntax": "error",
+        "react-compiler/config": "error",
+        "react-compiler/gating": "error",
+        "react-compiler/incompatible-library": "error"
+      }
+    }
+  ]
 }

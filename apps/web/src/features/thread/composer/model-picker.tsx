@@ -1,33 +1,11 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import type { ProviderKind } from "@ace/protocol";
 import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/cn.ts";
 import { Fragment } from "react";
 import { Menu, MenuContent, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
 import { menuItem } from "@/components/ui/menu-styles.ts";
-import { providerNames, type ModelChoice } from "../sources/model-source.ts";
-import { useThreadSources } from "../sources/index.ts";
-
-/** The model catalog with each account's usage, grouped by provider. */
-export function useModelChoices(): readonly ModelChoice[] {
-  const sources = useThreadSources();
-  return (
-    useQuery({ queryKey: ["models", "choices"], queryFn: () => sources.models.choices() }).data ??
-    []
-  );
-}
-
-/** First usable choice for a provider: what a thread starts with until the person picks. */
-export function defaultChoice(
-  choices: readonly ModelChoice[],
-  provider: ProviderKind | undefined,
-): ModelChoice | undefined {
-  return (
-    choices.find((choice) => choice.provider === provider && !choice.resetsAt) ??
-    choices.find((choice) => !choice.resetsAt)
-  );
-}
+import { accountTag, providerNames } from "@ace/ui-core";
+import type { ModelChoice } from "@ace/ui-core";
 
 /** "Opus 4.6 personal ▾": model and account, with usage meters where the choice is made. */
 export function ModelPicker(props: {
@@ -40,14 +18,18 @@ export function ModelPicker(props: {
     <Menu>
       <MenuTrigger
         aria-label={
-          props.value ? `Model: ${props.value.model}, ${props.value.account}` : "Choose a model"
+          props.value
+            ? `Model: ${props.value.model}, ${accountTag(props.value.account)}`
+            : "Choose a model"
         }
-        className="inline-flex h-[30px] items-center gap-[5px] rounded-[9px] px-[9px] text-sm font-medium text-muted-foreground transition-colors duration-150 outline-none hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
+        className="inline-flex h-[30px] items-center gap-[5px] rounded-[9px] px-[9px] text-sm font-medium text-muted-foreground transition-colors duration-(--dur-1) outline-none hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
       >
         {props.value ? (
           <>
             {props.value.model}
-            <span className="font-normal text-subtle-foreground">{props.value.account}</span>
+            <span className="font-normal text-subtle-foreground">
+              {accountTag(props.value.account)}
+            </span>
           </>
         ) : (
           "Model"
@@ -81,14 +63,22 @@ export function ModelPicker(props: {
   );
 }
 
+const clock = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+const limitReached = (resetsAt: number | undefined) =>
+  resetsAt === undefined ? "Limit reached" : `Limit reached · resets ${clock.format(resetsAt)}`;
+
 function ChoiceItem(props: { choice: ModelChoice }) {
   const { choice } = props;
-  const exhausted = !!choice.resetsAt;
+  const exhausted = choice.exhausted;
   return (
     <MenuPrimitive.RadioItem
       value={choice.id}
       disabled={exhausted}
-      aria-label={`${choice.model} · ${choice.account}`}
+      aria-label={`${choice.model} · ${accountTag(choice.account)}`}
       className={cn(menuItem, "h-auto items-start py-[7px]")}
     >
       <span className="mt-px grid w-4 shrink-0 place-items-center">
@@ -98,15 +88,15 @@ function ChoiceItem(props: { choice: ModelChoice }) {
       </span>
       <span className="flex min-w-0 flex-col">
         <span>
-          {choice.model} · {choice.account}
+          {choice.model} · {accountTag(choice.account)}
         </span>
         <span className="mt-px text-xs text-subtle-foreground">
-          {exhausted ? `Limit reached · resets ${choice.resetsAt}` : choice.note}
+          {exhausted ? limitReached(choice.resetsAt) : choice.note}
         </span>
         {choice.used !== undefined && (
           <span
             role="meter"
-            aria-label={`${choice.account} usage`}
+            aria-label={`${accountTag(choice.account)} usage`}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(choice.used * 100)}

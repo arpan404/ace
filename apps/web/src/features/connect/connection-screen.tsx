@@ -1,4 +1,5 @@
 import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 import { DaemonForm } from "./daemon-form.tsx";
 
 /**
@@ -6,6 +7,7 @@ import { DaemonForm } from "./daemon-form.tsx";
  * daemon on the person's machine drives their installed CLIs.
  */
 export function ConnectionScreen() {
+  useDismissBootSplash();
   const connection = useDaemonConnection();
   return (
     <div className="relative grid h-full place-items-center overflow-auto p-6">

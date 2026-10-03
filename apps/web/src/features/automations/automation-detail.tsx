@@ -1,35 +1,50 @@
-import type { Automation, AutomationRun } from "@ace/protocol";
+import type { Automation } from "@ace/protocol";
 import { ClockIcon, PauseIcon, PencilSimpleIcon, PlayIcon, TrashIcon } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useMemo } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { SettingRow } from "@/components/setting-row.tsx";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { Page, Screen } from "@/features/shell/screen.tsx";
-import { formatAge, useNow } from "@/lib/time.ts";
-import { missedRunLabels, runSummary, runsOn } from "./labels.ts";
+import { useModelChoices } from "@/features/models/index.ts";
+import { Page, Screen } from "@/features/shell/index.ts";
+import { useNow } from "@/lib/time.ts";
+import { missedRunLabels, runsOn } from "./labels.ts";
+import { RecentRuns } from "./recent-runs.tsx";
 import { describeTrigger, formatNextRun } from "./schedule.ts";
-import { useAutomation, useAutomationActions, useAutomationRuns } from "./use-automations.ts";
+import { useAutomation, useAutomationActions } from "./use-automations.ts";
 
 /** One automation: what it does, where it runs, when next, and its recent runs. */
 export function AutomationScreen(props: { id: string }) {
-  const { entry, pending } = useAutomation(props.id);
+  const { entry, pending, error } = useAutomation(props.id);
   const actions = useAutomationControls(entry?.automation);
+  const choices = useModelChoices();
   const now = useNow();
   if (!entry)
     return (
       <Screen title="Automation">
-        <EmptyState
-          icon={ClockIcon}
-          title={pending ? "Loading automation" : "Automation not found"}
-          description={pending ? undefined : "It may have been deleted on another device."}
-        />
+        {pending ? (
+          <Page>
+            <LoadingRegion label="automation" className="flex flex-col gap-3">
+              <Skeleton className="h-6 w-72" />
+              <Skeleton className="h-3.5 w-48" />
+              <SkeletonText lines={4} className="mt-8" />
+            </LoadingRegion>
+          </Page>
+        ) : (
+          <EmptyState
+            icon={ClockIcon}
+            title={error ? "Couldn't load this automation" : "Automation not found"}
+            description={
+              error
+                ? "The daemon didn't answer. It will be read again once the connection is back."
+                : "It may have been deleted on another device."
+            }
+          />
+        )}
       </Screen>
     );
   const { automation, nextRunAt } = entry;
@@ -85,7 +100,7 @@ export function AutomationScreen(props: { id: string }) {
           <SettingRow title="Prompt" description={automation.prompt}>
             <EditLink id={automation.id} label="Edit" />
           </SettingRow>
-          <SettingRow title="Runs on" description={runsOn(automation)}>
+          <SettingRow title="Runs on" description={runsOn(automation, choices)}>
             <EditLink id={automation.id} label="Change" />
           </SettingRow>
           <SettingRow title="Next run" description={nextRunText(automation, nextRunAt, now)}>
@@ -160,62 +175,4 @@ function useAutomationControls(automation: Automation | undefined) {
       });
     },
   };
-}
-
-function RecentRuns(props: { automationId: string }) {
-  const runs = useAutomationRuns().data;
-  const mine = useMemo(
-    () => (runs ?? []).filter((run) => run.automationId === props.automationId),
-    [runs, props.automationId],
-  );
-  return (
-    <SettingSection label="Recent runs">
-      {mine.length ? (
-        <ul aria-label="Recent runs">
-          {mine.map((run) => (
-            <RunItem key={run.id} run={run} />
-          ))}
-        </ul>
-      ) : (
-        <p className="border-t py-3.5 text-sm text-muted-foreground">
-          No runs yet. Run it now to see what it does.
-        </p>
-      )}
-    </SettingSection>
-  );
-}
-
-function RunItem(props: { run: AutomationRun }) {
-  const { run } = props;
-  const now = useNow();
-  const summary = runSummary(run);
-  return (
-    <li className="flex items-center gap-4 border-t py-3.5 last:border-b">
-      {run.status === "running" ? (
-        <Spinner />
-      ) : (
-        <Dot
-          tone={run.status === "failed" ? "failed" : run.status === "skipped" ? "idle" : "done"}
-          label={run.status}
-        />
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="text-[13.5px] font-medium">{summary}</div>
-        <div className="mt-0.5 text-sm text-muted-foreground">
-          {formatAge(run.startedAt, now) === "now"
-            ? "Just now"
-            : `${formatAge(run.startedAt, now)} ago`}
-        </div>
-      </div>
-      {run.threadId && (
-        <Link
-          to="/t/$threadId"
-          params={{ threadId: run.threadId }}
-          className={buttonVariants({ variant: "ghost", size: "sm" })}
-        >
-          Open
-        </Link>
-      )}
-    </li>
-  );
 }

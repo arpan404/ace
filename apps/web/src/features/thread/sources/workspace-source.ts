@@ -1,4 +1,4 @@
-// TODO(train-2): wire to protocol when merged. Scripts, editors, git and forge have no
+// TODO(client-gaps): feat/client-protocol-gaps. Scripts, editors, git and forge have no
 // daemon messages on main yet (forge commands exist in @ace/protocol but are not routed).
 import { z } from "zod";
 
@@ -6,6 +6,8 @@ export interface ThreadRef {
   id: string;
   workspaceId: string;
   title: string;
+  /** The New thread composer: nothing exists on the daemon yet. */
+  draft?: boolean | undefined;
 }
 
 export interface Script {

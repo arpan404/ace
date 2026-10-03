@@ -1,4 +1,4 @@
-import type { ApprovalOption, Question } from "@ace/protocol";
+import type { ApprovalOption } from "@ace/protocol";
 
 /** The buttons an approval card shows, picked from whatever options the provider offered. */
 export interface ApprovalChoices {
@@ -64,16 +64,4 @@ export function commandRisk(command: string): RiskLevel | undefined {
   if (high.some((pattern) => pattern.test(command))) return "high";
   if (medium.some((pattern) => pattern.test(command))) return "medium";
   return undefined;
-}
-
-const recommended = /\s*\(recommended\)\s*$/i;
-
-/** Claude marks its suggested answer with "(Recommended)"; show it as a quiet tag instead. */
-export function questionOptions(question: Question) {
-  return question.options.map((option) => ({
-    id: option.id,
-    label: option.label.replace(recommended, ""),
-    description: option.description,
-    recommended: recommended.test(option.label),
-  }));
 }

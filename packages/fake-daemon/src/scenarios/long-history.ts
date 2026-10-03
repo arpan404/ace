@@ -12,7 +12,7 @@ export function longHistory(exchanges = 60, id = "thread-router"): Scenario {
     );
   facts.push(endTurn("root"));
   return {
-    thread: { id, workspaceId: "acme-web", title: "Document the router", provider: "opencode" },
+    thread: { id, workspaceId: "docs-site", title: "Document the router", provider: "opencode" },
     steps: [{ kind: "facts", label: "seeded", facts }],
   };
 }

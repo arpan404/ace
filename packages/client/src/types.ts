@@ -61,23 +61,7 @@ export const defaultLimits: Limits = {
   retryBaseMs: 250,
   retryCapMs: 30000,
 };
-export class ClientError extends Error {
-  readonly code:
-    | "stale"
-    | "offline"
-    | "timeout"
-    | "aborted"
-    | "limit"
-    | "protocol"
-    | "auth"
-    | "storage"
-    | "daemon";
-  constructor(code: ClientError["code"], message: string = code) {
-    super(message);
-    this.name = "ClientError";
-    this.code = code;
-  }
-}
+export { ClientError } from "./errors.ts";
 export interface RequestOptions {
   signal?: AbortSignal;
   timeoutMs?: number;

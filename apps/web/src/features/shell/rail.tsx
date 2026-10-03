@@ -5,14 +5,15 @@ import { Icon } from "@/components/icon.tsx";
 import { CountBadge } from "@/components/ui/dot.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { AccountMenu } from "./account-menu.tsx";
-import { useNeedsYouThreadIds } from "./use-threads.ts";
 import { activeView, railViews, type RailView } from "./views.ts";
 
-/** Slack-style rail of views: icon over label, Settings and the account at the foot. */
-export function Rail() {
+/**
+ * Slack-style rail of views: icon over label, Settings and the account at the foot. Counts come
+ * from the views that own them (Activity's needs-you total), composed in by the app layer.
+ */
+export function Rail(props: { badges?: Partial<Record<RailView["id"], number>> }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const current = activeView(pathname);
-  const needsYou = useNeedsYouThreadIds().length;
   return (
     <nav
       aria-label="Views"
@@ -24,7 +25,7 @@ export function Rail() {
             <RailItem
               view={view}
               active={current === view.id}
-              badge={view.id === "activity" ? needsYou : 0}
+              badge={props.badges?.[view.id] ?? 0}
             />
           </li>
         ))}
@@ -36,7 +37,7 @@ export function Rail() {
             to="/settings"
             aria-label="Settings"
             className={cn(
-              "grid size-[34px] place-items-center rounded-card text-muted-foreground transition-colors duration-150 hover:bg-sidebar-accent hover:text-foreground",
+              "grid size-[34px] place-items-center rounded-card text-muted-foreground transition-colors duration-(--dur-1) hover:bg-sidebar-accent hover:text-foreground",
               current === "settings" && "text-foreground",
             )}
           >
@@ -56,13 +57,13 @@ function RailItem(props: { view: RailView; active: boolean; badge: number }) {
       to={view.to}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "group relative flex w-full flex-col items-center gap-[3px] rounded-card pt-1.5 pb-[5px] text-muted-foreground outline-none hover:text-foreground",
+        "group relative flex w-full flex-col items-center gap-[3px] rounded-card pt-1.5 pb-[5px] text-muted-foreground outline-none hover:text-foreground focus-visible:text-foreground focus-visible:[&>span:first-child]:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_70%,transparent)]",
         active && "text-foreground",
       )}
     >
       <span
         className={cn(
-          "grid h-[26px] w-9 place-items-center rounded-[7px] transition-[background-color] duration-150 group-hover:bg-sidebar-accent",
+          "grid h-[26px] w-9 place-items-center rounded-[7px] transition-[background-color] duration-(--dur-1) group-hover:bg-sidebar-accent",
           active && "bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)]",
         )}
       >

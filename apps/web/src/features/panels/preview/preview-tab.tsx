@@ -5,8 +5,7 @@ import {
   HandIcon,
   LockSimpleIcon,
 } from "@phosphor-icons/react";
-import { cn } from "@/lib/cn.ts";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog.tsx";
@@ -15,13 +14,19 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { cn } from "@/lib/cn.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { usePanelServices } from "../services.ts";
 import { useVersion } from "../store.ts";
+import { useBrowserDriver } from "./use-browser-driver.ts";
+import { useViewportSync } from "./use-viewport-sync.ts";
 import type { BrowserView, PreviewSource, ScreenFrame } from "../sources.ts";
 
 function usePreview(source: PreviewSource, threadId: string) {
+  // The source's reads change whenever its version does; React Compiler would memoize them
+  // by their arguments, so this hook opts out and re-reads on every version.
+  "use no memo";
   useVersion(source);
   return {
     view: source.view(threadId),
@@ -59,14 +64,14 @@ function LiveBrowser(props: {
   const control = useControl(props.source, props.threadId, props.view);
   const frame = (
     <BrowserFrame url={props.view.url}>
-      <LiveFrame {...props} interactive={props.view.controller === "human"} />
+      <LiveFrame {...props} interactive={props.view.controller === "human"} active={!full} />
       <div className="glass absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full p-1">
         <ControlButton control={control} view={props.view} />
       </div>
     </BrowserFrame>
   );
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2.5 px-3.5 pt-3.5">
+    <div className="flex h-full min-h-0 flex-col gap-2.5 px-3.5 pt-3.5 pb-3">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <ControlStatus view={props.view} />
         <span className="flex-1" />
@@ -86,7 +91,7 @@ function LiveBrowser(props: {
           <DialogTitle className="sr-only">Live view of {props.view.url}</DialogTitle>
           <div className="min-h-0 flex-1">
             <BrowserFrame url={props.view.url}>
-              <LiveFrame {...props} interactive={props.view.controller === "human"} />
+              <LiveFrame {...props} interactive={props.view.controller === "human"} active />
             </BrowserFrame>
           </div>
           <div className="glass mx-auto flex items-center gap-3 rounded-full py-1.5 pr-1.5 pl-4 text-ui">
@@ -121,6 +126,7 @@ function useControl(source: PreviewSource, threadId: string, view: BrowserView) 
 }
 
 function ControlStatus(props: { view: BrowserView }) {
+  const driver = useBrowserDriver(props.view.threadId);
   if (props.view.controller === "human")
     return (
       <span className="flex min-w-0 items-center gap-2">
@@ -134,8 +140,8 @@ function ControlStatus(props: { view: BrowserView }) {
     <span className="flex min-w-0 items-center gap-2">
       <Spinner className="text-status-working" />
       <span className="truncate">
-        <b className="font-medium text-foreground">{props.view.owner ?? "An agent"}</b> is
-        controlling the browser
+        <b className="font-medium text-foreground">{driver ?? "An agent"}</b> is controlling the
+        browser
       </span>
     </span>
   );
@@ -189,14 +195,20 @@ function LiveFrame(props: {
   view: BrowserView;
   frame: ScreenFrame;
   interactive: boolean;
+  /** This pane sets the remote viewport (the full view takes over while it is open). */
+  active: boolean;
 }) {
   const { frame } = props;
+  const pane = useRef<HTMLDivElement>(null);
+  useViewportSync(props.source, props.threadId, pane, props.active);
+  // Pointer positions map back to page pixels through the picture's rendered box, which is
+  // 1:1 once the viewport follows the pane and scaled to fit when the backend can't resize.
   const point = (event: MouseEvent<HTMLElement>) => {
-    const box = event.currentTarget.getBoundingClientRect();
-    const scale = box.width ? frame.width / box.width : 1;
+    const box = event.currentTarget.querySelector("img")?.getBoundingClientRect();
+    const scale = box?.width ? frame.width / box.width : 1;
     return {
-      x: Math.round((event.clientX - box.left) * scale),
-      y: Math.round((event.clientY - box.top) * scale),
+      x: Math.round((event.clientX - (box?.left ?? 0)) * scale),
+      y: Math.round((event.clientY - (box?.top ?? 0)) * scale),
     };
   };
   const send = (event: "mousePressed" | "mouseReleased") => (mouse: MouseEvent<HTMLElement>) =>
@@ -216,12 +228,17 @@ function LiveFrame(props: {
       src={frame.src}
       alt={`Live view of ${props.view.url}`}
       draggable={false}
-      className="absolute inset-0 size-full object-contain object-top"
+      width={frame.width}
+      height={frame.height}
+      className="block h-auto max-h-full w-auto max-w-full object-contain"
     />
   );
-  if (!props.interactive) return image;
-  return (
+  // The page sits top-left like a browser's; any space a frame doesn't cover (scaled to fit,
+  // or the moment between a resize and its next frame) is letterboxed in --muted.
+  const className = "absolute inset-0 flex items-start justify-start overflow-hidden bg-muted";
+  return props.interactive ? (
     <div
+      ref={pane}
       role="application"
       aria-label={`Control ${props.view.url}`}
       tabIndex={0}
@@ -229,9 +246,14 @@ function LiveFrame(props: {
       onMouseUp={send("mouseReleased")}
       onKeyDown={onKeyDown}
       className={cn(
-        "absolute inset-0 cursor-default outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className,
+        "cursor-default outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
       )}
     >
+      {image}
+    </div>
+  ) : (
+    <div ref={pane} className={className}>
       {image}
     </div>
   );
@@ -248,7 +270,7 @@ function DevServer(props: {
   if (!server) return null;
   const url = server.origin ?? `http://localhost:${server.port}`;
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2.5 px-3.5 pt-3.5">
+    <div className="flex h-full min-h-0 flex-col gap-2.5 px-3.5 pt-3.5 pb-3">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
         {props.servers.length > 1 ? (
           <Select

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { ThreadView } from "@/features/thread/thread-view.tsx";
+import { ThreadView } from "@/features/thread/index.ts";
 
 export const Route = createFileRoute("/_home/t/$threadId")({ component: ThreadRoute });
 

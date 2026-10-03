@@ -5,7 +5,7 @@ export interface LogLine {
   /** Stable across re-derivations, for React keys. */
   key: string;
   at: number;
-  source: "session" | "agent" | "turn" | "shell" | "task" | "input" | "notice";
+  source: "daemon" | "session" | "agent" | "turn" | "shell" | "task" | "input" | "notice";
   level: "info" | "warn" | "error";
   text: string;
 }
@@ -15,8 +15,10 @@ const name = (agent: Agent | undefined, root: string | undefined) =>
 const provider = (kind: ProviderKind) => (kind === "claude" ? "claude-code" : kind);
 
 /**
- * The thread's operational log, derived from the live store: sessions and subagents starting
- * and ending, turns, background work, questions and provider notices. Sorted by time. Pure.
+ * The thread's operational log, derived from the live store: the thread's creation, sessions
+ * and subagents starting and ending, turns, shell commands and their exit codes, background
+ * work, questions and provider notices (rate-limit and quota warnings among them). Sorted by
+ * time. Pure.
  */
 export function threadLog(
   reader: Pick<
@@ -36,6 +38,15 @@ export function threadLog(
   const root = reader.thread?.rootAgentId;
   const lines: LogLine[] = [];
   const push = (line: LogLine) => lines.push(line);
+  const thread = reader.thread;
+  if (thread)
+    push({
+      key: `thread:${thread.id}`,
+      at: thread.createdAt,
+      source: "daemon",
+      level: "info",
+      text: `thread created in ${thread.workspaceId}`,
+    });
   for (const id of reader.agentIds()) {
     const agent = reader.agent(id);
     if (!agent) continue;
@@ -94,6 +105,7 @@ export function threadLog(
     }
     const notice = noticeOf(item);
     if (notice) push(notice);
+    for (const line of shellLines(item, (agentId) => reader.agent(agentId), root)) push(line);
   }
   for (const id of reader.taskIds()) {
     const task = reader.task(id);
@@ -137,6 +149,39 @@ export function threadLog(
       });
   }
   return lines.toSorted((a, b) => a.at - b.at);
+}
+
+/** A foreground shell command: when it ran, who ran it, and how it exited. */
+function shellLines(
+  item: Item,
+  agentOf: (id: string) => Agent | undefined,
+  root: string | undefined,
+): LogLine[] {
+  if (item.type !== "tool_call" || item.call.detail.kind !== "shell" || item.call.backgroundTaskId)
+    return [];
+  const { call } = item;
+  const agent = agentOf(call.agentId);
+  const command = call.detail.kind === "shell" ? call.detail.command : call.title;
+  const exit = call.detail.kind === "shell" ? call.detail.exitCode : undefined;
+  const who = agent && agent.id !== root ? ` (${name(agent, root)})` : "";
+  const lines: LogLine[] = [
+    {
+      key: `shell:${item.id}`,
+      at: call.startedAt,
+      source: "shell",
+      level: "info",
+      text: `$ ${command}${who}`,
+    },
+  ];
+  if (call.status === "failed" || call.status === "succeeded")
+    lines.push({
+      key: `shell-ended:${item.id}`,
+      at: call.endedAt ?? call.startedAt,
+      source: "shell",
+      level: call.status === "failed" ? "error" : "info",
+      text: `${command} · ${exit !== undefined && exit !== null ? `exit ${exit}` : call.status}`,
+    });
+  return lines;
 }
 
 function noticeOf(item: Item): LogLine | undefined {

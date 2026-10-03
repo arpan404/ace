@@ -1,8 +1,10 @@
 export { FakeDaemon } from "./daemon.ts";
 export type { FakeDaemonOptions, ThreadInit } from "./daemon.ts";
 export { fakeTransport } from "./transport.ts";
+export { SoakDaemon } from "./soak.ts";
+export type { SoakOptions } from "./soak.ts";
 export { ScenarioPlayer } from "./scenario.ts";
-export type { Scenario, Step, Timer } from "./scenario.ts";
+export type { PlayOptions, Scenario, Step, Timer } from "./scenario.ts";
 export { flakyCheckout } from "./scenarios/flaky-checkout.ts";
 export { failingSubagent } from "./scenarios/failing-subagent.ts";
 export { longHistory } from "./scenarios/long-history.ts";
@@ -10,8 +12,11 @@ export { workbench } from "./scenarios/workbench.ts";
 export { homeList } from "./scenarios/home-list.ts";
 export type { AgedScenario } from "./scenarios/home-list.ts";
 export { replayCursor } from "./scenarios/replay-cursor.ts";
+export { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";
 export { coldStartReplay } from "./scenarios/cold-start-replay.ts";
 export { panelServices } from "./scenarios/panels.ts";
+export { devWorld } from "./scenarios/dev-world.ts";
+export type { WorldThread } from "./scenarios/dev-world.ts";
 export { FakeReviewDesk } from "./review-desk.ts";
 export { FakeTerminals } from "./terminals.ts";
 export type { TerminalEvent, TerminalInfo, TerminalLink, OpenRequest } from "./terminals.ts";
@@ -39,3 +44,5 @@ export type {
   FakeProviderInstall,
   SettingsFixture,
 } from "./scenarios/settings.ts";
+export { FakeServices, FakeSettings } from "./services/index.ts";
+export { accountSummary } from "./services/accounts.ts";

@@ -4,7 +4,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { App, AppFrame } from "@/app.tsx";
-import { ConnectionGate } from "@/boot/connection-gate.tsx";
+import { ConnectionGate } from "@/app/connection-gate.tsx";
 import { fakeClient, memoryKeyValue } from "@/test/harness.tsx";
 
 const token = "ab".repeat(32);

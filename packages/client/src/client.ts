@@ -4,6 +4,11 @@ import {
   HistoryListRequest,
   HistoryListResponse,
 } from "@ace/protocol/history";
+import {
+  decodeServiceResponse,
+  type ServiceRequest,
+  type ServiceResponse,
+} from "./service-requests.ts";
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
@@ -23,6 +28,7 @@ import {
   type SettingsScope,
   type SettingsLayer,
 } from "@ace/protocol";
+import type { ClientApi, RegistryQuery } from "./api.ts";
 import { Connection } from "./connection.ts";
 import { Intents, type Intent } from "./intents.ts";
 import { Notifications, type Selection } from "./observable.ts";
@@ -37,11 +43,11 @@ import {
   type ConnectionState,
 } from "./types.ts";
 
+export type { RegistryQuery } from "./api.ts";
 type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
 export type CursorAuthQuery = WithoutRequestId<CursorAuthRequest>;
-export type RegistryQuery = WithoutRequestId<RegistryRequest>;
 
-export class Client {
+export class Client implements ClientApi {
   private options: ClientOptions;
   private connection: Connection;
   private requests: Requests;
@@ -51,6 +57,7 @@ export class Client {
   private notifications: Notifications;
   private historyState: HistoryScanStatus | undefined;
   private closed = false;
+  private serviceListeners = new Set<(message: ServerMessage) => void>();
   private hostId: string | undefined;
   constructor(options: ClientOptions) {
     this.options = options;
@@ -65,6 +72,15 @@ export class Client {
       options,
       limits,
       (message) => {
+        for (const listener of this.serviceListeners) {
+          try {
+            listener(message);
+          } catch {
+            // A consumer cannot break protocol delivery.
+          }
+        }
+        if ("requestId" in message && message.type !== "error" && message.requestId)
+          this.requests.resolve(message.requestId, message);
         switch (message.type) {
           case "welcome":
             if (this.hostId && this.hostId !== message.hostId)
@@ -92,7 +108,7 @@ export class Client {
               this.historyState = message.scan;
               this.notifications.emit(["historyScan"]);
             }
-            if (message.requestId) this.requests.resolve(message.requestId, message);
+            // The reply itself was resolved above with every other correlated reply.
             break;
           case "queue.result":
           case "settings.result":
@@ -102,7 +118,7 @@ export class Client {
           case "registry.result":
           case "items.page":
           case "output.data":
-            this.requests.resolve(message.requestId, message);
+            // Resolved above with every other correlated reply.
             break;
           case "error":
             if (message.requestId)
@@ -172,6 +188,7 @@ export class Client {
   }
   close(): Promise<void> {
     this.closed = true;
+    this.serviceListeners.clear();
     this.connection.stop();
     return this.intents.settled();
   }
@@ -205,6 +222,34 @@ export class Client {
         ),
       );
     });
+  }
+  /** One-off service operation. Never persisted or replayed after a disconnect. */
+  request<Q extends ServiceRequest>(
+    input: Q,
+    options: RequestOptions = {},
+  ): Promise<ServiceResponse<Q>> {
+    if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
+    const id = this.options.id();
+    const parsed = ClientMessage.safeParse({ ...input, requestId: id });
+    if (!parsed.success) return Promise.reject(new ClientError("protocol", "Invalid request"));
+    return this.requests.wait(
+      id,
+      (value) => decodeServiceResponse(input, id, value),
+      options,
+      () => {
+        if (!this.connection.send(parsed.data)) throw new ClientError("offline");
+      },
+    );
+  }
+  /** Uncorrelated service messages (such as `settings.changed`); the caller releases it. */
+  onMessage(listener: (message: ServerMessage) => void): () => void {
+    if (this.closed) throw new ClientError("offline");
+    if (this.serviceListeners.size >= (this.options.limits?.listeners ?? defaultLimits.listeners))
+      throw new ClientError("limit");
+    this.serviceListeners.add(listener);
+    return () => {
+      this.serviceListeners.delete(listener);
+    };
   }
   registry(input: RegistryQuery, options: RequestOptions = {}): Promise<RegistryResult> {
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
@@ -336,6 +381,13 @@ export class Client {
       },
       options,
     );
+  }
+  async loadOlder(threadId: string, limit: number, options: RequestOptions = {}): Promise<void> {
+    const store = this.subscriptions.held(threadId);
+    if (!store) throw new ClientError("offline", "Thread is not leased");
+    const before = store.itemsBefore;
+    if (before === null || before === undefined) return;
+    store.page(await this.itemsPage({ threadId, before, limit }, options));
   }
   outputRead(
     payload: { streamId: string; offset: number; limit: number },

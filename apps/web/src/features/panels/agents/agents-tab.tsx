@@ -1,4 +1,13 @@
-import { providerNames } from "@/components/ui/provider-glyph.tsx";
+import {
+  agentName,
+  agentStatusLabel,
+  describeActivity,
+  formatSpan,
+  glyphOf,
+  isRunning,
+  taskState,
+  whyNotDone,
+} from "@ace/ui-core";
 import type { ThreadKey, ThreadReader } from "@ace/client";
 import {
   arrayEqual,
@@ -21,10 +30,10 @@ import { Button } from "@/components/ui/button.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { agentStatusLabel } from "@/lib/status.ts";
 import { useNow } from "@/lib/time.ts";
-import { describeActivity, formatDuration, glyphOf, isRunning, taskState } from "./describe.ts";
-import { whyNotDone } from "./why.ts";
+import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
+import { useQueuedMessages } from "@/lib/queued-messages.ts";
+import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
 
 const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-subtle-foreground";
 
@@ -37,6 +46,8 @@ export function AgentsTab(props: { threadId: string }) {
   const tree = useAgentTree(props.threadId) ?? [];
   const tasks = useTaskIds(props.threadId) ?? [];
   const thread = useThreadMeta(props.threadId);
+  const { queued } = useQueuedMessages(props.threadId);
+  const queueWaiting = thread?.status.state === "waiting" && thread.status.on === "queue";
   if (!tree.length)
     return (
       <EmptyState
@@ -46,40 +57,65 @@ export function AgentsTab(props: { threadId: string }) {
       />
     );
   return (
-    <div className="px-2.5 pt-2 pb-5">
-      <ul aria-label="Agent tree">
-        <Branch threadId={props.threadId} nodes={tree} depth={0} />
-      </ul>
-      {(tasks.length > 0 || thread?.status.state === "waiting") && (
-        <section aria-labelledby="agents-background">
-          <h3 id="agents-background" className={heading}>
-            Background
-          </h3>
-          <ul>
-            {tasks.map((id) => (
-              <TaskRow key={id} threadId={props.threadId} taskId={id} />
-            ))}
-            {thread?.status.state === "waiting" && thread.status.on === "queue" && (
-              <li className="flex h-8 items-center gap-2 rounded-lg px-2 text-ui">
-                <ClockIcon aria-hidden size={14} className="text-subtle-foreground" />
-                <span className="font-medium">Queued messages</span>
-                <span className="truncate text-xs text-subtle-foreground">
-                  send when the agent is free
-                </span>
-              </li>
-            )}
-          </ul>
-        </section>
-      )}
-      <h3 className={heading}>Status</h3>
-      <Why threadId={props.threadId} />
-    </div>
+    <ArrivalScope>
+      <div className="px-2.5 pt-2 pb-5">
+        <ul aria-label="Agent tree">
+          <Branch threadId={props.threadId} nodes={tree} depth={0} />
+        </ul>
+        {(tasks.length > 0 || queued.length > 0 || queueWaiting) && (
+          <section aria-labelledby="agents-background">
+            <h3 id="agents-background" className={heading}>
+              Background
+            </h3>
+            <ul>
+              {tasks.map((id) => (
+                <TaskRow key={id} threadId={props.threadId} taskId={id} />
+              ))}
+              {(queued.length > 0 || queueWaiting) && <QueueRow count={queued.length} />}
+            </ul>
+          </section>
+        )}
+        <h3 className={heading}>Status</h3>
+        <Why threadId={props.threadId} queued={queued.length} />
+      </div>
+    </ArrivalScope>
+  );
+}
+
+/** "1 queued message · sends when the agent is free", the composer's queue in one line. */
+function QueueRow(props: { count: number }) {
+  const arrival = useArrival();
+  const label =
+    props.count > 1
+      ? `${props.count} queued messages`
+      : props.count === 1
+        ? "1 queued message"
+        : "Queued messages";
+  return (
+    <li
+      aria-label={`${label}: waiting for the agent`}
+      className={cn("flex h-8 items-center gap-2 rounded-lg px-2 text-ui", arrival)}
+    >
+      <ClockIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
+      <span className="font-medium">{label}</span>
+      <span className="truncate text-xs text-subtle-foreground">
+        {props.count > 1 ? "send" : "sends"} when the agent is free
+      </span>
+    </li>
   );
 }
 
 function Branch(props: { threadId: string; nodes: readonly AgentTreeNode[]; depth: number }) {
   return props.nodes.map((node) => (
-    <li key={node.id}>
+    <BranchNode key={node.id} threadId={props.threadId} node={node} depth={props.depth} />
+  ));
+}
+
+/** One agent and its subtree; a subagent spawned while the tab is open rises in. */
+function BranchNode(props: { threadId: string; node: AgentTreeNode; depth: number }) {
+  const { node } = props;
+  return (
+    <li className={useArrival()}>
       <AgentRow threadId={props.threadId} agentId={node.id} depth={props.depth} />
       {node.children.length > 0 && (
         <ul>
@@ -87,7 +123,7 @@ function Branch(props: { threadId: string; nodes: readonly AgentTreeNode[]; dept
         </ul>
       )}
     </li>
-  ));
+  );
 }
 
 function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
@@ -102,9 +138,7 @@ function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
   const stop = useIntentSender();
   if (!agent || !status) return null;
   const root = agent.origin === "root";
-  const name = root
-    ? providerNames[agent.native.provider]
-    : (agent.name ?? agent.role ?? "Subagent");
+  const name = agentName(agent);
   const label = agentStatusLabel(status).label;
   const activity = describeActivity(
     status,
@@ -155,8 +189,9 @@ function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
         </Button>
       )}
       <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
-        {formatDuration(agent.createdAt, end)}
+        {formatSpan(agent.createdAt, end)}
       </span>
+      <ProviderMark provider={agent.native.provider} className="shrink-0" />
     </div>
   );
 }
@@ -180,6 +215,7 @@ function StatusGlyph(props: { glyph: ReturnType<typeof glyphOf>; label: string }
 
 function TaskRow(props: { threadId: string; taskId: string }) {
   const task = useTask(props.threadId, props.taskId);
+  const arrival = useArrival();
   const now = useNow();
   const stop = useIntentSender();
   if (!task || task.ambient) return null;
@@ -189,7 +225,7 @@ function TaskRow(props: { threadId: string; taskId: string }) {
   return (
     <li
       aria-label={`${task.title}: ${taskState(task)}`}
-      className="flex h-8 items-center gap-2 rounded-lg px-2 text-ui hover:bg-accent"
+      className={cn("flex h-8 items-center gap-2 rounded-lg px-2 text-ui hover:bg-accent", arrival)}
     >
       <TerminalIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
       <span
@@ -201,7 +237,7 @@ function TaskRow(props: { threadId: string; taskId: string }) {
         {task.title}
       </span>
       <span className="min-w-0 flex-1 truncate text-xs text-subtle-foreground">
-        {formatDuration(task.startedAt, end)} · {taskState(task)}
+        {formatSpan(task.startedAt, end)} · {taskState(task)}
       </span>
       {running && task.stoppable && (
         <Button
@@ -238,7 +274,7 @@ const readFacts = (reader: ThreadReader): Facts => ({
 const readAgentIds = (reader: ThreadReader) => reader.agentIds();
 const none: readonly string[] = [];
 
-function Why(props: { threadId: string }) {
+function Why(props: { threadId: string; queued: number }) {
   const thread = useThreadMeta(props.threadId);
   const agentIds = useThread(props.threadId, ["agents"], readAgentIds, arrayEqual) ?? none;
   const taskIds = useTaskIds(props.threadId) ?? none;
@@ -260,6 +296,7 @@ function Why(props: { threadId: string }) {
     agents: facts.agents,
     tasks: facts.tasks,
     waitingOnYou,
+    queued: props.queued,
   });
   return (
     <section

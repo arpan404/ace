@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
-import { DeckRunPage } from "@/features/deck/deck-run-page.tsx";
+import { DeckRunPage } from "@/features/deck/index.ts";
 
 const Search = z.object({
   tab: z.enum(["plan", "lanes", "log"]).optional().catch(undefined),

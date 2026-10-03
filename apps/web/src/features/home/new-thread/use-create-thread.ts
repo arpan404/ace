@@ -64,7 +64,8 @@ export function useCreateThread(): {
         type: "thread.create",
         workspaceId: WorkspaceId.parse(request.project),
         provider: request.provider,
-        // TODO(train-2): account, worktree mode and base branch once thread.create carries them.
+        // TODO(client-gaps): feat/client-protocol-gaps adds account, mode and baseBranch to
+        // thread.create and returns the new thread id in the receipt.
         ...(request.model ? { model: request.model } : {}),
         input: [{ type: "text", text: request.text }],
         ...(request.context ? { context: request.context } : {}),

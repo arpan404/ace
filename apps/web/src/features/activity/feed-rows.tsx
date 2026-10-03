@@ -15,8 +15,9 @@ import { useNavigate } from "@tanstack/react-router";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { runSummary } from "@/features/automations/labels.ts";
-import { formatAge, useNow } from "@/lib/time.ts";
+import { automationRunSummary } from "@/features/automations/index.ts";
+import { useNow } from "@/lib/time.ts";
+import { formatAge } from "@ace/ui-core";
 import { eventKey, interactionKey, useActivityState } from "./activity-state.tsx";
 import { approvalChoices } from "./approval.ts";
 import { FeedRow } from "./feed-row.tsx";
@@ -155,7 +156,7 @@ export function RunRow(props: { run: AutomationRun; read: boolean }) {
         )
       }
       title={run.title}
-      description={runSummary(run)}
+      description={automationRunSummary(run)}
       age={formatAge(run.finishedAt ?? run.startedAt, now)}
       mark={props.read ? undefined : "unread"}
       onSelect={select}

@@ -3,10 +3,13 @@ import { arrayEqual, useSidebar, useSidebarIds, type SidebarKey } from "@ace/cli
 import type { ThreadListEntry } from "@ace/protocol";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { arrange, isSettled, isUnread, projectCounts } from "@/features/home/arrange.ts";
-import { threadDetailsSource } from "@/features/home/thread-details.ts";
-import { useThreadActions } from "@/features/home/use-thread-actions.ts";
-import { useOrganizer, useOrganizerState } from "@/features/home/use-organizer.ts";
+import { arrange, isSettled, isUnread, projectCounts } from "@ace/ui-core";
+import {
+  threadDetailsSource,
+  useThreadActions,
+  useOrganizer,
+  useOrganizerState,
+} from "@/features/home/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
@@ -52,7 +55,8 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
         {
           id: `thread-${id}`,
           label: state.marks[id]?.title ?? entry.title,
-          detail: branch ? `${entry.workspaceId} · ${branch}` : entry.workspaceId,
+          detail: entry.workspaceId,
+          ...(branch ? { more: branch } : {}),
           icon: "thread",
           run: run(() => void navigate({ to: "/t/$threadId", params: { threadId: id } })),
         },

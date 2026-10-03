@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
-import { railViews, type RailView } from "@/features/shell/views.ts";
+import { railViews, type RailView } from "@/features/shell/index.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { useTheme } from "@/theme/theme-provider.tsx";

@@ -21,9 +21,9 @@ const openThread =
     await transcript(page);
   };
 const rightTab =
-  (path: string, tab: string | RegExp): Setup =>
+  (path: string, tab: string | RegExp, navigate = true): Setup =>
   async (page) => {
-    await openThread(path)(page);
+    if (navigate) await openThread(path)(page);
     const panel = page.getByRole("region", { name: "Thread panel" });
     if (!(await panel.isVisible())) await page.getByRole("button", { name: "Right panel" }).click();
     await panel.getByRole("tab", { name: tab }).click();
@@ -38,6 +38,12 @@ const bottomTab =
       .getByRole("tab", { name: tab })
       .click();
   };
+/** Home lands on a thread (the last opened, else the top row). */
+const home: Setup = async (page) => {
+  await page.goto("/");
+  await page.waitForURL(/\/t\//);
+  await transcript(page);
+};
 const visit =
   (path: string, title: string | RegExp): Setup =>
   async (page) => {
@@ -45,14 +51,23 @@ const visit =
     await heading(page, title);
   };
 
+/** The design's hero thread with a message queued behind the busy agent. */
+async function heroWithQueue(page: Page) {
+  await openThread("/t/thread-dedupe")(page);
+  await page.getByRole("separator", { name: "New activity" }).waitFor();
+  await page.getByRole("combobox", { name: "Message" }).fill("Also check the iOS cold-start path");
+  await page.keyboard.press("Enter");
+  await page.getByRole("list", { name: "Queued messages" }).waitFor();
+}
+
 const screens: Record<string, Setup> = {
-  home: visit("/", "Home"),
+  home,
   "home-hover": async (page) => {
-    await visit("/", "Home")(page);
+    await home(page);
     await threadList(page).getByRole("link").nth(3).hover();
   },
   "home-settled": async (page) => {
-    await visit("/", "Home")(page);
+    await home(page);
     const settled = page.getByRole("button", { name: /^Settled \(\d+\)$/ });
     await settled.scrollIntoViewIfNeeded();
     await settled.click();
@@ -60,34 +75,62 @@ const screens: Record<string, Setup> = {
     await page.mouse.wheel(0, 2000);
   },
   "context-menu": async (page) => {
-    await visit("/", "Home")(page);
+    await home(page);
     await threadList(page).getByRole("link").nth(4).click({ button: "right" });
     await page.getByRole("menu").waitFor();
   },
   palette: async (page) => {
-    await visit("/", "Home")(page);
+    await home(page);
     await page.keyboard.press("ControlOrMeta+k");
     await page.getByRole("dialog").waitFor();
   },
   "new-thread": visit("/new", "New thread"),
-  thread: openThread("/t/thread-replay-cursor"),
+  // The design's hero: work log, answer, changed files, subagents, a background relay, the
+  // New activity divider and a message queued behind the busy agent.
+  thread: async (page) => {
+    await heroWithQueue(page);
+  },
   "thread-work-log": async (page) => {
-    await openThread("/t/thread-replay-cursor")(page);
+    await openThread("/t/thread-dedupe")(page);
     await page.getByRole("button", { name: /^Worked for/ }).click();
   },
-  "thread-changes": rightTab("/t/thread-cold-start", /^Changes/),
-  "thread-changes-split": async (page) => {
+  // With a line comment on the diff, as the design's hero state shows.
+  "thread-changes": async (page) => {
     await rightTab("/t/thread-cold-start", /^Changes/)(page);
-    await page.getByRole("button", { name: "Split" }).click();
+    const file = page.getByRole("region", { name: "apps/server/src/replay.ts" });
+    const line = file.getByText(/client.send\(\{ type: "resume.ack", headSeq/);
+    await line.hover();
+    await line.getByRole("button", { name: /^Comment on line \d+$/ }).click();
+    await file
+      .getByRole("textbox", { name: /Comment on line/ })
+      .fill("Should the ack also carry `coldStartWindow`?");
+    await file.getByRole("button", { name: "Comment", exact: true }).click();
+    // Send to agent appears under the pointer; move away so it shows at rest, not hovered.
+    await page.mouse.move(700, 880);
   },
-  "thread-agents": rightTab("/t/thread-replay-cursor", "Agents"),
+  // The same line comment, after switching the diff to Split.
+  "thread-changes-split": async (page) => {
+    await screens["thread-changes"]?.(page);
+    await page.getByRole("button", { name: "Split" }).click();
+    await page.getByRole("article", { name: /Comment on line/ }).waitFor();
+  },
+  // The same hero state as `thread`, queued message included, with the Agents tab open.
+  "thread-agents": async (page) => {
+    await heroWithQueue(page);
+    await rightTab("/t/thread-dedupe", "Agents", false)(page);
+  },
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
   "thread-terminal": bottomTab("/t/thread-cold-start", "Terminal"),
   "thread-logs": bottomTab("/t/thread-cold-start", "Logs"),
   activity: visit("/activity", "Activity"),
-  automations: visit("/automations", "Automations"),
+  // Automations opens on the first automation.
+  automations: async (page) => {
+    await page.goto("/automations");
+    await page.waitForURL(/\/automations\/(?!new)[^/]+$/);
+    await page.getByRole("main").waitFor();
+  },
   "automation-detail": async (page) => {
-    await visit("/automations", "Automations")(page);
+    await screens.automations!(page);
     await page
       .getByRole("complementary")
       .locator('a[href^="/automations/"]:not([href$="/new"])')
@@ -139,3 +182,97 @@ for (const theme of ["dark", "light"] as const)
       await page.waitForTimeout(600);
       await page.screenshot({ path: `${out}/${name}-${theme}.png` });
     });
+
+/*
+ * Narrow windows, keyboard focus and reduced motion. At 390px the second sidebar is a sheet
+ * opened from the header; below 1152px the panels float over the transcript instead of
+ * squeezing it.
+ */
+const sized: Record<string, { width: number; height: number; setup: Setup }> = {
+  "mobile-thread": { width: 390, height: 844, setup: openThread("/t/thread-dedupe") },
+  "mobile-sidebar": {
+    width: 390,
+    height: 844,
+    setup: async (page) => {
+      await openThread("/t/thread-dedupe")(page);
+      await page.getByRole("button", { name: "Show sidebar" }).click();
+      await page.getByRole("dialog").getByRole("navigation", { name: "Threads" }).waitFor();
+    },
+  },
+  "mobile-panel": {
+    width: 390,
+    height: 844,
+    setup: rightTab("/t/thread-dedupe", "Agents"),
+  },
+  "tablet-thread": { width: 1024, height: 768, setup: openThread("/t/thread-dedupe") },
+  "tablet-panel": { width: 1024, height: 768, setup: rightTab("/t/thread-cold-start", /^Changes/) },
+  "tablet-activity": { width: 1024, height: 768, setup: visit("/activity", "Activity") },
+  // Keyboard only: Tab through the rail, the list, the composer and the panel tabs.
+  "focus-rail": {
+    width: 1440,
+    height: 900,
+    setup: async (page) => {
+      await openThread("/t/thread-dedupe")(page);
+      await page.getByRole("navigation", { name: "Views" }).getByRole("link").first().focus();
+      await page.keyboard.press("Tab");
+    },
+  },
+  "focus-list": {
+    width: 1440,
+    height: 900,
+    setup: async (page) => {
+      await openThread("/t/thread-dedupe")(page);
+      // From the first row through its Settle and Snooze to the second row.
+      await threadList(page).getByRole("link").first().focus();
+      for (let step = 0; step < 3; step++) await page.keyboard.press("Tab");
+      await expect(threadList(page).getByRole("link").nth(1)).toBeFocused();
+    },
+  },
+  "focus-composer": {
+    width: 1440,
+    height: 900,
+    setup: async (page) => {
+      await openThread("/t/thread-dedupe")(page);
+      await page.getByRole("combobox", { name: "Message" }).focus();
+      await page.keyboard.press("Shift+Tab");
+    },
+  },
+  "focus-panel": {
+    width: 1440,
+    height: 900,
+    setup: async (page) => {
+      await rightTab("/t/thread-cold-start", /^Changes/)(page);
+      await page.getByRole("region", { name: "Thread panel" }).getByRole("tab").first().focus();
+      await page.keyboard.press("ArrowRight");
+    },
+  },
+};
+
+for (const [name, { width, height, setup }] of Object.entries(sized))
+  test(`${name} at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await page.addInitScript(() => {
+      if (!localStorage.getItem("ace.appearance"))
+        localStorage.setItem("ace.appearance", JSON.stringify({ theme: "dark" }));
+    });
+    await setup(page);
+    await page.waitForTimeout(600);
+    // Keyboard captures must show a focus ring on what has focus.
+    if (name.startsWith("focus-"))
+      expect(await page.evaluate(() => document.activeElement?.matches(":focus-visible"))).toBe(
+        true,
+      );
+    await page.screenshot({ path: `${out}/${name}-dark.png` });
+  });
+
+test("reduced motion: panels and lists change without animating", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await rightTab("/t/thread-cold-start", "Agents")(page);
+  const durations = await page.evaluate(() =>
+    ["--dur-1", "--dur-2", "--dur-3", "--dur-4"].map((name) =>
+      getComputedStyle(document.documentElement).getPropertyValue(name).trim(),
+    ),
+  );
+  expect(durations).toEqual(["0ms", "0ms", "0ms", "0ms"]);
+  await page.screenshot({ path: `${out}/reduced-motion-dark.png` });
+});

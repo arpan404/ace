@@ -2,8 +2,8 @@ import { MoonIcon } from "@phosphor-icons/react";
 import type { ThreadListEntry } from "@ace/protocol";
 import { Icon } from "@/components/icon.tsx";
 import { useNow } from "@/lib/time.ts";
+import { snoozePresets } from "@ace/ui-core";
 import { MenuItem, MenuLabel, MenuGroup, MenuSeparator } from "@/components/ui/menu.tsx";
-import { snoozePresets } from "./snooze.ts";
 import type { ThreadActions } from "./use-thread-actions.ts";
 
 /** "Snooze until": the three presets, plus Wake now on a snoozed thread. Menu or context menu. */

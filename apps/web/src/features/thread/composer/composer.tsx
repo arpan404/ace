@@ -2,7 +2,6 @@ import type { Mention } from "@ace/protocol";
 import { ArrowUpIcon, PlusIcon, StopIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import {
-  useEffect,
   useId,
   useLayoutEffect,
   useRef,
@@ -46,6 +45,7 @@ export function Composer(props: {
   const [highlight, setActive] = useState({ key: "", index: 0 });
   const [stacked, setStacked] = useState(false);
   const [narrow, setNarrow] = useState(false);
+  const [terse, setTerse] = useState(false);
   const picked = useRef(new Set<string>());
   // Where to put the caret once an accepted suggestion has rendered.
   const placeCaret = useRef<number | undefined>(undefined);
@@ -63,22 +63,53 @@ export function Composer(props: {
   const empty = !text.trim() && !attachments.items.length;
   const canSend = !empty && !attachments.uploading;
 
+  // Fit the input to its text and decide whether the text has outgrown one line, on every
+  // edit and again when the layout changes the input's width. An empty composer is always one
+  // line; once stacked it stays so until the text is shorter than when it wrapped, so the
+  // layout never flips back and forth while typing at the edge.
+  const stackedAt = useRef(0);
   useLayoutEffect(() => {
     const el = input.current;
     if (!el) return;
-    el.style.height = "auto";
-    const lineHeight = 14.5 * 1.4;
-    el.style.height = `${Math.min(el.scrollHeight, innerHeight * 0.4)}px`;
-    setStacked(text.includes("\n") || el.scrollHeight > lineHeight + 16 + 4);
     if (placeCaret.current !== undefined) {
       el.setSelectionRange(placeCaret.current, placeCaret.current);
       placeCaret.current = undefined;
     }
-  }, [text]);
-  useEffect(() => {
-    const el = input.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => setNarrow(el.clientWidth < 400));
+    if (!text) {
+      // One line from the stylesheet; a wrapped placeholder must not size it.
+      el.style.height = "";
+      stackedAt.current = 0;
+      return;
+    }
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, innerHeight * 0.4)}px`;
+    const lineHeight = 14.5 * 1.4;
+    // The narrow layout's one-line input has 8px of vertical padding, the pill 16px.
+    const padding = narrow ? 8 : 16;
+    const wraps = text.includes("\n") || el.scrollHeight > lineHeight + padding + 4;
+    if (wraps && !stackedAt.current) stackedAt.current = text.length;
+    else if (!wraps && stackedAt.current && text.length < stackedAt.current) stackedAt.current = 0;
+    setStacked(stackedAt.current > 0);
+  }, [text, narrow]);
+  // The composer's own width (not the input's, which changes with the layout) picks the
+  // narrow layout: the input on its own line, the controls tucked under it. Measured before
+  // the first paint, then whenever the reading column changes (a panel opening, a resize).
+  const box = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const measure = () => {
+      // Layout width, so a panel's transform mid-animation never skews it.
+      const width = el.offsetWidth;
+      // Unlaid-out (hidden or not yet attached): keep the last decision.
+      if (width <= 0) return;
+      setNarrow(width < 440);
+      // Beside the model picker the full hint would wrap; keep it to one line.
+      setTerse(width < 640);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
@@ -134,12 +165,14 @@ export function Composer(props: {
     }
   };
   const stopping = props.busy && empty && !!props.onStop;
-  const layout = stacked || attachments.items.length > 0;
+  // An empty composer is one line at rest, whatever it held before.
+  const wrapped = stacked && text !== "";
+  const layout = narrow || wrapped || attachments.items.length > 0;
   const placeholder =
-    props.placeholder ?? (narrow ? "Ask anything" : "Ask anything, @ to mention, / for commands");
+    props.placeholder ?? (terse ? "Ask anything" : "Ask anything, @ to mention, / for commands");
 
   return (
-    <div className="relative">
+    <div ref={box} className="relative">
       <SuggestionList id={listId} items={suggestions} active={active} onPick={pick} />
       <div
         style={{
@@ -154,7 +187,7 @@ export function Composer(props: {
           attachments.add(event.dataTransfer.files);
         }}
         className={cn(
-          "glass grid grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-1 py-[5px] pr-[5px] pl-1.5 transition-[box-shadow,border-color,border-radius] duration-200",
+          "glass grid grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-1 py-[5px] pr-[5px] pl-1.5 transition-[box-shadow,border-color,border-radius] duration-(--dur-2)",
           "focus-within:border-[color-mix(in_oklab,var(--foreground)_22%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_6%,transparent)]",
           layout ? "rounded-xl" : "rounded-full",
         )}
@@ -167,7 +200,7 @@ export function Composer(props: {
             type="button"
             aria-label="Attach files or images"
             onClick={() => file.current?.click()}
-            className="grid size-[34px] place-items-center rounded-card text-muted-foreground transition-colors duration-150 [grid-area:plus] hover:bg-accent hover:text-foreground"
+            className="grid size-[34px] place-items-center rounded-full text-muted-foreground transition-colors duration-(--dur-1) [grid-area:plus] hover:bg-accent hover:text-foreground"
           >
             <PlusIcon aria-hidden size={20} />
           </button>
@@ -209,8 +242,8 @@ export function Composer(props: {
             }
           }}
           className={cn(
-            "max-h-[40vh] min-h-9 w-full resize-none self-center overflow-y-auto bg-transparent text-[14.5px] leading-[1.4] text-foreground outline-none [grid-area:input] placeholder:text-subtle-foreground",
-            layout ? "px-2.5 pt-2.5 pb-1.5" : "py-2 pr-1.5 pl-2",
+            "max-h-[40vh] min-h-9 w-full resize-none self-center overflow-y-auto bg-transparent text-[14.5px] leading-[1.4] text-foreground outline-none [grid-area:input] placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground",
+            layout ? (wrapped ? "px-2.5 pt-2.5 pb-1.5" : "px-2.5 pt-2 pb-0") : "py-2 pr-1.5 pl-2",
           )}
         />
         <div className={cn("flex items-center gap-1 [grid-area:ctrls]", layout && "pt-0.5")}>
@@ -221,7 +254,7 @@ export function Composer(props: {
                 type="button"
                 aria-label="Stop the agent"
                 onClick={props.onStop}
-                className="grid size-8 place-items-center rounded-full bg-secondary text-foreground transition-[transform,background-color] duration-150 hover:scale-105 hover:bg-accent active:scale-95"
+                className="grid size-8 place-items-center rounded-full bg-secondary text-foreground transition-[transform,background-color] duration-(--dur-1) hover:scale-105 hover:bg-accent active:scale-95"
               >
                 <StopIcon aria-hidden size={12} weight="fill" />
               </button>
@@ -237,7 +270,7 @@ export function Composer(props: {
                 disabled={!canSend}
                 onClick={() => void submit(false)}
                 className={cn(
-                  "grid size-8 place-items-center rounded-full transition-[transform,background-color,opacity] duration-150",
+                  "grid size-8 place-items-center rounded-full transition-[transform,background-color,opacity] duration-(--dur-1)",
                   canSend
                     ? "bg-primary text-primary-foreground shadow-[0_1px_2px_rgb(0_0_0/0.18)] hover:scale-105 active:scale-95"
                     : "bg-secondary text-subtle-foreground",

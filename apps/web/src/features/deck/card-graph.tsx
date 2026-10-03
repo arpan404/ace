@@ -3,7 +3,6 @@ import { cn } from "@/lib/cn.ts";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import {
   cardColumns,
   cardStatus,
@@ -11,7 +10,8 @@ import {
   type CardTone,
   type DeckCard,
   type DeckRun,
-} from "./deck-model.ts";
+} from "@ace/ui-core";
+import { Spinner } from "@/components/ui/spinner.tsx";
 
 interface Edge {
   key: string;
@@ -134,7 +134,7 @@ function CardTile(props: { card: DeckCard; run: DeckRun; selected: boolean; onSe
       aria-pressed={props.selected}
       onClick={props.onSelect}
       className={cn(
-        "rounded-card bg-card px-3.5 py-3 text-left shadow-[inset_0_0_0_1px_var(--border)] outline-none transition-[box-shadow,background-color] duration-200",
+        "rounded-card bg-card px-3.5 py-3 text-left shadow-[inset_0_0_0_1px_var(--border)] outline-none transition-[box-shadow,background-color] duration-(--dur-2)",
         "hover:bg-[color-mix(in_oklab,var(--card),var(--foreground)_3%)] focus-visible:shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ring)_60%,transparent)]",
         props.selected &&
           "shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ring)_60%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_12%,transparent)]",

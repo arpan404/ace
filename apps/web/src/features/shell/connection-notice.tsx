@@ -20,7 +20,7 @@ export function ConnectionNotice() {
   return (
     <div
       role="status"
-      className="flex h-8 shrink-0 items-center justify-center gap-2 border-b text-sm text-muted-foreground"
+      className="fx-view-in flex h-8 shrink-0 items-center justify-center gap-2 border-b text-sm text-muted-foreground"
     >
       {state === "reconnecting" && (
         <>

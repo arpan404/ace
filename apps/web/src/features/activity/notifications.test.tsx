@@ -7,6 +7,8 @@ import { harness } from "@/test/harness.tsx";
 beforeEach(() => localStorage.clear());
 
 const toasts = () => screen.getByRole("region", { name: "Notifications" });
+const inList = async (title: string) =>
+  within(await screen.findByRole("navigation", { name: "Threads" })).findByText(title);
 
 function crashingBuild(): Scenario {
   return {
@@ -33,14 +35,14 @@ test("a thread that starts needing you raises a toast that leads to Activity", a
   const app = harness();
   const checkout = app.play(flakyCheckout());
   checkout.runThrough("watcher-started");
-  await app.open("/");
-  await screen.findByRole("heading", { level: 1, name: "Home" });
-  await screen.findByText("Fix flaky checkout test");
+  // New thread shows the thread list without opening a thread (whose own toasts stay quiet).
+  await app.open("/new");
+  await inList("Fix flaky checkout test");
 
   checkout.runThrough("approval-requested");
 
   await within(toasts()).findByText("Fix flaky checkout test");
-  expect(within(toasts()).getByText("acme-web · needs you")).toBeTruthy();
+  expect(within(toasts()).getByText("billing-api · needs you")).toBeTruthy();
   await userEvent.click(within(toasts()).getByRole("button", { name: "Answer" }));
   await screen.findByRole("heading", { level: 1, name: "Activity" });
   expect(
@@ -51,8 +53,8 @@ test("a thread that starts needing you raises a toast that leads to Activity", a
 test("threads already waiting when the app connects don't raise toasts", async () => {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
-  await app.open("/");
-  await screen.findByText("Retry budget for app-server restarts");
+  await app.open("/new");
+  await inList("Retry budget for app-server restarts");
   await new Promise((resolve) => setTimeout(resolve, 50));
   expect(within(toasts()).queryByText(/needs you/)).toBeNull();
 });
@@ -61,8 +63,8 @@ test("a thread that fails raises a toast that opens it", async () => {
   const app = harness();
   const build = app.play(crashingBuild());
   build.runThrough("working");
-  await app.open("/");
-  await screen.findByText("Cut the 0.9 release build");
+  await app.open("/new");
+  await inList("Cut the 0.9 release build");
 
   build.runThrough("failed");
 
@@ -92,14 +94,16 @@ test("turning a toast off in Activity's toast settings silences it", async () =>
   await userEvent.keyboard("{Escape}");
 
   await userEvent.click(
-    within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", { name: "Home" }),
+    within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", {
+      name: "Settings",
+    }),
   );
-  await screen.findByRole("heading", { level: 1, name: "Home" });
+  await screen.findByRole("heading", { level: 1, name: "Settings" });
   checkout.runThrough("approval-requested");
 
   const rail = screen.getByRole("navigation", { name: "Views" });
   await within(rail).findByLabelText("1 need you");
-  expect(within(toasts()).queryByText("acme-web · needs you")).toBeNull();
+  expect(within(toasts()).queryByText("billing-api · needs you")).toBeNull();
   expect(JSON.parse(localStorage.getItem("ace.notifications.toasts") ?? "{}")).toMatchObject({
     needsYou: false,
   });

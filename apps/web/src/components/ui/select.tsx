@@ -1,5 +1,5 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select";
-import { CaretUpDownIcon, CheckIcon } from "@phosphor-icons/react";
+import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { menuItem, popupSurface } from "./menu-styles.ts";
 
@@ -33,14 +33,14 @@ function Select<T extends string>(props: {
       <SelectPrimitive.Trigger
         aria-label={props.label}
         className={cn(
-          "inline-flex h-8 min-w-36 items-center justify-between gap-2 rounded-md bg-secondary pr-2 pl-2.5 text-ui text-foreground outline-none transition-colors duration-150",
+          "inline-flex h-8 min-w-36 items-center justify-between gap-2 rounded-md bg-secondary pr-2 pl-2.5 text-ui text-foreground outline-none transition-colors duration-(--dur-1)",
           "hover:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_5%)] data-popup-open:bg-[color-mix(in_oklab,var(--secondary),var(--foreground)_5%)] disabled:opacity-50",
           props.className,
         )}
       >
         <SelectPrimitive.Value className="truncate" />
-        <SelectPrimitive.Icon className="text-subtle-foreground">
-          <CaretUpDownIcon aria-hidden size={12} />
+        <SelectPrimitive.Icon className="text-subtle-foreground transition-transform duration-(--dur-2) ease-spring in-data-popup-open:rotate-180">
+          <CaretDownIcon aria-hidden size={12} />
         </SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>

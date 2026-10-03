@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { KeyValueStorage } from "@/lib/storage.ts";
+import { type KeyValueStorage } from "@ace/ui-core";
 import { basePreset, type Theme } from "./presets.ts";
 import { tokenNames, type ThemeTokens } from "./tokens.ts";
 

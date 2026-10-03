@@ -1,10 +1,10 @@
 import { fileURLToPath } from "node:url";
-import react from "@vitejs/plugin-react";
 import { defineProject } from "vitest/config";
+import { reactPlugins } from "./react-plugins.ts";
 
 // Tests use the committed route tree, so the generator plugin is not needed here.
 export default defineProject({
-  plugins: [react()],
+  plugins: reactPlugins(),
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   test: {
     name: "web",

@@ -1,11 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { KeyboardShortcuts } from "@/features/settings/keyboard-page.tsx";
-import { SettingsBody } from "@/features/settings/settings-body.tsx";
+import { KeyboardSettingsScreen } from "@/features/settings/index.ts";
 
-export const Route = createFileRoute("/settings/keyboard")({
-  component: () => (
-    <SettingsBody page="Keyboard">
-      <KeyboardShortcuts />
-    </SettingsBody>
-  ),
-});
+export const Route = createFileRoute("/settings/keyboard")({ component: KeyboardSettingsScreen });

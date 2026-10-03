@@ -1,0 +1,22 @@
+{
+  "name": "@ace/web-perf",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "check": "node src/bundle.ts && node --expose-gc src/soak.ts && node src/browser.ts",
+    "check:static": "node src/bundle.ts && node --expose-gc src/soak.ts",
+    "soak": "node --expose-gc src/soak.ts",
+    "bundle": "node src/bundle.ts",
+    "browser": "node src/browser.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ace/client": "workspace:*",
+    "@ace/client-worker": "workspace:*",
+    "@ace/fake-daemon": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "@playwright/test": "1.63.0",
+    "zod": "^4.6.5"
+  }
+}

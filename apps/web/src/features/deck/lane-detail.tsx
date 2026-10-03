@@ -1,14 +1,14 @@
 import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { StatusPill } from "@/components/status-pill.tsx";
-import type { Tone } from "@/lib/status.ts";
 import {
+  type Tone,
   cardStatus,
   type CardTone,
   type DeckCard,
   type DeckRun,
   type LaneRole,
-} from "./deck-model.ts";
+} from "@ace/ui-core";
 
 const pillTone: Record<CardTone, Tone> = {
   idle: "idle",
@@ -26,7 +26,7 @@ export function LaneDetail(props: { card: DeckCard; run: DeckRun }) {
   return (
     <section
       aria-label={`Lane: ${card.title}`}
-      className="mt-[26px] animate-in rounded-lg px-5 py-[18px] shadow-[inset_0_0_0_1px_var(--border)] fade-in-0"
+      className="fx-rise-in mt-[26px] rounded-lg px-5 py-[18px] shadow-[inset_0_0_0_1px_var(--border)]"
     >
       <div className="flex items-center gap-2.5">
         <h2 className="min-w-0 flex-1 text-md font-medium">{card.title}</h2>

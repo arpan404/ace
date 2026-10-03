@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn.ts";
 import { useCallback, type CSSProperties } from "react";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { providerNames } from "../sources/model-source.ts";
+import { agentName } from "@ace/ui-core";
 
 const activities: Record<string, string> = {
   thinking: "Thinking",
@@ -39,12 +39,6 @@ export function agentActivity(agent: Agent): string {
     case "unresponsive":
       return "Not responding";
   }
-}
-
-export function agentName(agent: Agent): string {
-  return agent.origin === "root"
-    ? providerNames[agent.native.provider]
-    : (agent.name ?? agent.role ?? "Subagent");
 }
 
 function StatusMark(props: { agent: Agent }) {

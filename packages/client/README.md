@@ -65,3 +65,5 @@ if (item?.type === "message") {
 ```
 
 `text(source)` reads the byte length captured by that descriptor and preserves surrogate pairs between chunks. An authoritative replacement invalidates the old source; obtain a fresh page after its typed daemon error. Append-only text retains the source ID. `store.truncated(id)` reports when a loaded item contains a prefix rather than its full text. Overlapping pages merge by creation cursor, preserving order and the known end of history under the window cap.
+
+UI code depends on `ClientApi` (with `ThreadSource` and `SidebarSource` stores), which `Client` implements in-process and `@ace/client-worker`'s `RemoteClient` implements in a tab whose client runs in a worker. `loadOlder(threadId, limit)` fetches and merges the page before a leased thread's window in one call. Stores expose `observe(tap)` (every emitted key, or `"all"` after a snapshot) and `export()` so a worker can mirror them into tabs.

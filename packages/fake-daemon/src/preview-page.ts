@@ -9,6 +9,12 @@ export function pairPhoneFrame(typed: string, width = 760, height = 900): string
   const nav = 170;
   const x = nav + 32;
   const field = Math.min(440, width - x - 32);
+  // The intro wraps like the page would in a narrow viewport.
+  const intro =
+    width - x - 24 >= 330
+      ? ["Phones paired with this Mac can approve, answer", "and watch threads from anywhere."]
+      : ["Phones paired with this Mac can", "approve, answer and watch threads", "from anywhere."];
+  const shift = (intro.length - 2) * 20;
   const items = ["General", "Accounts", "Devices", "Notifications", "Shortcuts"]
     .map((label, index) => {
       const y = 104 + index * 36;
@@ -21,8 +27,8 @@ export function pairPhoneFrame(typed: string, width = 760, height = 900): string
 <rect width="${nav}" height="${height}" fill="#F7F7F9"/><rect x="${nav}" width="1" height="${height}" fill="#E6E6EA"/>
 <text x="24" y="48" font-weight="600" fill="#1C1C22">ace</text>${items}
 <text x="${x}" y="64" font-size="21" font-weight="500" fill="#1C1C22">Pair a phone</text>
-<text x="${x}" y="92" fill="#55555E">Phones paired with this Mac can approve, answer</text>
-<text x="${x}" y="112" fill="#55555E">and watch threads from anywhere.</text>
+${intro.map((line, index) => `<text x="${x}" y="${92 + index * 20}" fill="#55555E">${line}</text>`).join("")}
+<g transform="translate(0 ${shift})">
 <text x="${x}" y="158" font-weight="500" fill="#1C1C22">Device name</text>
 <rect x="${x}" y="170" width="${field}" height="38" rx="8" fill="#FFFFFF" stroke="#3B74E0" stroke-width="2"/>
 <text x="${x + 12}" y="194" fill="#1C1C22">${escape(typed)}</text>
@@ -31,6 +37,7 @@ export function pairPhoneFrame(typed: string, width = 760, height = 900): string
 <text x="${x + 12}" y="280" font-family="ui-monospace, monospace" letter-spacing="4" fill="#1C1C22">7KQ2-M9XA</text>
 <rect x="${x}" y="320" width="112" height="38" rx="8" fill="#1C1C22"/>
 <text x="${x + 19}" y="344" font-weight="500" fill="#FFFFFF">Pair device</text>
+</g>
 </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }

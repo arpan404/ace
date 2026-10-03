@@ -1,14 +1,28 @@
 import { ArrowRightIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { cn } from "@/lib/cn.ts";
 import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
+import { cardStatus, type DeckRun, type Gate } from "@ace/ui-core";
 import { StatusMark } from "./card-graph.tsx";
-import { cardStatus, type DeckRun, type Gate } from "./deck-model.ts";
 
-/** Lanes: every card that has a worker, with its reviewer and latest round. */
+/** What a card without a lane yet is waiting for, for its row in Lanes. */
+function waitsOn(card: DeckRun["cards"][number], run: DeckRun): string {
+  const titles = card.dependencies.flatMap((id) => {
+    const dependency = run.cards.find((c) => c.id === id);
+    return dependency ? [dependency.title] : [];
+  });
+  return titles.length ? `Starts after ${titles.join(", ")}` : "Starts once the plan is approved";
+}
+
+/**
+ * Lanes: every card of the plan as a table row, with its worker, reviewer and latest round.
+ * Cards whose lane hasn't started are listed dimmed, so Lanes covers the same set as Plan. The
+ * columns live on the list and the rows are subgrids, so every row's columns line up.
+ */
 export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) {
-  const lanes = props.run.cards.filter((card) => card.lane);
-  if (!lanes.length)
+  const cards = props.run.cards;
+  if (!cards.length)
     return (
       <EmptyState
         title="No lanes yet"
@@ -16,17 +30,26 @@ export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) 
       />
     );
   return (
-    <ul aria-label="Lanes" className="mt-6 flex flex-col">
-      {lanes.map((card) => {
+    <ul
+      aria-label="Lanes"
+      className="mt-6 grid grid-cols-[minmax(0,1.2fr)_max-content_minmax(0,1.4fr)] gap-x-4"
+    >
+      {cards.map((card) => {
         const status = cardStatus(card, props.run);
         const lane = card.lane;
         const latest = lane?.rounds.at(-1);
+        const summary = latest
+          ? [latest.label, latest.verdict, latest.detail].filter(Boolean).join(" · ")
+          : waitsOn(card, props.run);
         return (
-          <li key={card.id} className="border-t last:border-b">
+          <li key={card.id} className="col-span-3 grid grid-cols-subgrid border-t last:border-b">
             <button
               type="button"
               onClick={() => props.onOpen(card.id)}
-              className="grid w-full grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.4fr)] items-center gap-4 rounded-md px-2 py-3 text-left transition-colors duration-150 hover:bg-accent"
+              className={cn(
+                "col-span-3 grid grid-cols-subgrid items-center rounded-md px-2 py-3 text-left transition-[background-color,opacity] duration-(--dur-1) hover:bg-accent",
+                !lane && "opacity-55 hover:opacity-100",
+              )}
             >
               <span className="min-w-0">
                 <span className="block truncate text-[13.5px] font-medium">{card.title}</span>
@@ -35,18 +58,33 @@ export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) 
                   {status.label}
                 </span>
               </span>
-              <span className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
-                {lane && <ProviderMark provider={lane.worker.provider} />}
-                <span className="truncate">{lane?.worker.account}</span>
-                <Icon icon={ArrowRightIcon} size={12} className="text-subtle-foreground" />
-                <span className="truncate">{lane?.reviewer.account}</span>
+              {/* Who works and who reviews, always in full; the round summary wraps instead. */}
+              <span className="flex items-center gap-1.5 text-sm whitespace-nowrap text-muted-foreground">
+                {lane ? (
+                  <>
+                    <ProviderMark provider={lane.worker.provider} />
+                    <span>{lane.worker.account}</span>
+                    <Icon icon={ArrowRightIcon} size={12} className="text-subtle-foreground" />
+                    <span>{lane.reviewer.account}</span>
+                  </>
+                ) : (
+                  <span className="text-subtle-foreground">
+                    {card.kind === "merge" ? "Merges once every lane passes" : "Not dealt yet"}
+                  </span>
+                )}
               </span>
-              <span className="truncate text-sm text-muted-foreground">
-                {latest && (
+              {/* The summary wraps to two lines; the full text is in the tooltip and the lane. */}
+              <span
+                title={summary}
+                className="line-clamp-2 text-sm leading-[1.4] text-muted-foreground"
+              >
+                {latest ? (
                   <>
                     <span className="text-foreground">{latest.label}</span> · {latest.verdict}
                     {latest.detail && ` · ${latest.detail}`}
                   </>
+                ) : (
+                  summary
                 )}
               </span>
             </button>

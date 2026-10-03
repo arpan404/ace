@@ -15,17 +15,68 @@ Import `cn` from `@/lib/cn.ts`, never from `cn` directly: the local one knows th
 
 ## Layout of `src/`
 
-| Path                | Owner      | What lives there                                                                                                                       |
-| ------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `theme/`            | foundation | Theme engine: presets from seeds, token list, CSS generation, contrast checks, custom theme files, `ThemeProvider` / `useTheme()`      |
-| `styles/`           | foundation | Static tokens (`tokens.css`), Tailwind mapping and base styles (`index.css`), vendored shadcn variants                                 |
-| `components/ui/`    | foundation | Owned primitives restyled to the design. Slices use them, never fork them                                                              |
-| `components/`       | foundation | `Icon`, `SettingRow` / `SettingSection`, `StatusPill`, `DataTable`                                                                     |
-| `lib/`              | foundation | `keymap.ts` (every shortcut), `hotkeys.ts` (`useHotkey`), `layout.tsx` (sidebar and panels), `history-nav.ts`, `storage.ts`, `time.ts` |
-| `boot/`             | foundation | Client construction, the connection gate, daemon URL and token handling, fake boot                                                     |
-| `features/shell/`   | foundation | Rail, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice                                                     |
-| `features/<slice>/` | the slice  | Everything for one slice: components, hooks, adapters, tests                                                                           |
-| `routes/`           | per route  | TanStack file routes. Each slice owns the route files of its screens                                                                   |
+| Path                | Owner      | What lives there                                                                                                                    |
+| ------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `theme/`            | foundation | Theme engine: presets from seeds, token list, CSS generation, contrast checks, custom theme files, `ThemeProvider` / `useTheme()`   |
+| `styles/`           | foundation | Static tokens (`tokens.css`), Tailwind mapping and base styles (`index.css`), vendored shadcn variants                              |
+| `components/ui/`    | foundation | Owned primitives restyled to the design. Slices use them, never fork them                                                           |
+| `components/`       | foundation | `Icon`, `SettingRow` / `SettingSection`, `StatusPill`, `DataTable`                                                                  |
+| `lib/`              | foundation | `keymap.ts` (every shortcut), `hotkeys.ts` (`useHotkey`), `layout.tsx` (sidebar and panels), `history-nav.ts`, `time.ts` (`useNow`) |
+| `boot/`             | foundation | Client construction, daemon URL and token handling, fake boot, the fake backend for features without protocol (`fake-backend.ts`)   |
+| `features/shell/`   | foundation | Rail, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice, `useWorkspaces`                                 |
+| `features/<slice>/` | the slice  | Everything for one slice: components, hooks, adapters, tests. Its `index.ts` is the only door in                                    |
+| `app/`              | app        | Composition of several slices: `AppShell` (rail, palette, notifier), `ConnectionGate`                                               |
+| `routes/`           | per route  | TanStack file routes: route definition, search schema and params only. Screens live in the slice                                    |
+
+Headless view logic (status wording, Home ordering and settling, thread cards, work-log and diff
+summaries, relative time, the Deck model) lives in `packages/ui-core` (`@ace/ui-core`) so the Expo
+app shares it. Put a pure rule there, with its tests, rather than in a slice.
+
+## Motion and states
+
+One motion system, in `styles/motion.css` (tokens `--dur-1..4`, `--dur-exit`, curves `--ease`,
+`--spring`, `--sheet`, `--leave`, distances `--rise`, `--slide`, all zeroed under
+`prefers-reduced-motion`) and `lib/motion.ts` (when things enter, leave or move). Animate
+transform and opacity only.
+
+- Popovers, menus, selects and tooltips use `popupMotion` from `components/ui/menu-styles.ts`.
+- Panels and the second sidebar: `usePresence(open)` keeps them mounted for their exit;
+  `panelMotion(presence)` plays `fx-panel-in` / `fx-panel-out` only after a toggle.
+- Virtualized lists: `useListMotion(items, keyOf)` gives each row a phase (`rowMotion`) and a
+  `moving` flag for `fx-list-moving`; put the class on an inner wrapper, never on the row that
+  carries the virtualizer's transform. The list choreography itself is `diffList` /
+  `withLeaving` in `@ace/ui-core`.
+- Plain lists: wrap in `ArrivalScope` and give rows `useArrival()`; rows that mount after the
+  list painted rise in.
+- Theme and accent switches cross-fade through `withViewTransition`.
+- Loading: `ListSkeleton`, `SkeletonText` and `LoadingRegion` from `components/ui/skeleton.tsx`,
+  shaped like the content. Never show an empty state before the data has arrived
+  (`useSidebarLoaded()` for the thread list, `query.data === undefined` for reads).
+- Boot: `index.html` paints a static, themed shell (`#boot`) before the script runs; the app
+  shell and the connection screen fade it out with `useDismissBootSplash()` (`lib/boot-splash.ts`).
+- Toasts stand clear of the composer: it registers with `useToastClearance` (`lib/toast-clearance.ts`).
+
+## Window sizes
+
+The widths the shell adapts at live in `lib/breakpoints.ts` (`usePhone`, `useSidebarInline`, ...),
+in line with Tailwind's `sm` and `md`. Below 640px the rail is a bottom tab bar (Home, Activity,
+Deck, More), the header folds its actions and ⋯ menu into one, and panels open as a sheet over the
+content. Below 768px the second sidebar is a sheet; below 1100px it steps aside while a right panel
+is open; below 1152px panels float over the content.
+
+## Module boundaries
+
+`bun run check:deps` (dependency-cruiser, config in `.dependency-cruiser.cjs`, part of `bun run check`) enforces:
+
+- A slice is imported only through `features/<x>/index.ts`; inside a slice, import files directly, never its own index.
+- `components/`, `lib/`, `theme/`, `styles/` and `boot/` never import `features/`, `app/` or `routes/`.
+- Slices never import `app/` or `routes/` (tests may mount the whole app).
+- No circular imports, type-only ones included, in `apps/web` and the client packages.
+- `@ace/ui-core` imports no React, DOM libraries, Node built-ins or app code.
+
+Inside a slice, keep the split: pure view-model mappers (in `@ace/ui-core` when the logic is
+platform-free), a data hook that reads `@ace/client-react` and returns the view model, and pure
+presentational components that render it (see `home/use-thread-card.ts` and `home/row-parts.tsx`).
 
 ## Feature-folder convention
 
@@ -40,6 +91,7 @@ Each slice owns `src/features/<slice>/` and the route files for its screens:
 | Deck (`@ace/conductor`)                                            | `features/deck`                                                              | `deck.tsx`, `deck.index.tsx`, `deck.new.tsx`, `deck.$runId.tsx` |
 | Automations                                                        | `features/automations`                                                       | `automations.tsx`, `automations.index.tsx`                      |
 | Skills                                                             | `features/skills`                                                            | `skills.tsx`, `skills.index.tsx`                                |
+| Model catalog (pickers)                                            | `features/models`                                                            | none; used by thread and Home                                   |
 | More: accounts, files, search                                      | `features/more` (+ `features/accounts`, `features/files`, `features/search`) | `more.*.tsx`                                                    |
 | Settings                                                           | `features/settings`                                                          | `settings.*.tsx`                                                |
 | Palette                                                            | `features/palette`                                                           | none; register commands in `commands.ts`                        |
@@ -54,19 +106,27 @@ Rules:
 - Colour only for diff +/− and the needs-you and failed dots. Use `text-muted-foreground` / `text-subtle-foreground` for hierarchy, and weights 400/500 (600 for titles only).
 - Keep files under ~400 lines (hard limit 1,500, `bun run check:size`).
 
-## Features whose protocol is not on `main` yet
+## Daemon services and protocol gaps
 
-Accounts (#25), file transfer (#44), search (#47), slash commands (#46) and screen/computer use (#29) are built against the fake daemon. Put the boundary in one file in your feature folder, for example `features/search/search-source.ts`:
+One-off daemon reads and writes go through `Client.request` (correlated, never queued while
+offline) with `useDaemonQuery` from `lib/daemon-query.ts`, which waits for a ready connection
+and reads again after a reconnect. Live state still comes only from `@ace/client-react`.
 
-```ts
-// TODO(train-2): wire to protocol when merged
-export interface SearchSource {
-  search(query: string, signal: AbortSignal): Promise<SearchHit[]>;
-}
-export function fakeSearchSource(): SearchSource { … }
-```
+Wired on the wire in every mode: accounts and usage (`accounts.list`, `usage.series`), search
+(`search.query`), models (`models.list`, `models.refresh`), settings (`settings.subscribe` /
+`settings.set`), slash commands (`commands.list`), mentions and uploads (`context.request`). In
+fake mode `@ace/fake-daemon` serves the same messages from its catalogs
+(`packages/fake-daemon/src/services/`), so a feature has one code path.
 
-Components depend on the interface only, so wiring the real protocol later changes that one file.
+What `main` cannot carry yet sits behind one adapter per feature marked
+`// TODO(client-gaps): feat/client-protocol-gaps`. In fake mode it serves the fake daemon's
+stand-in; against a real daemon it reports the feature empty or unavailable, never fixture data.
+Today: workspace and forge actions, scripts and editors, thread organization (rename, fork,
+settle, snooze, pin, delete, unqueue), card details, New thread's branches and pre-thread
+mentions, account details and the run-out policy, settings keys outside the protocol schema,
+machines, devices and pairing, ACP agents added by command, automations, the Activity feed,
+Deck runs, skills and plugins, changed files and transfers, and the terminal, browser and
+preview panels. When the backend lands, wiring a feature changes only its adapter.
 
 ## Fake-daemon scenarios
 
@@ -76,7 +136,24 @@ Components depend on the interface only, so wiring the real protocol later chang
 - Export it from `packages/fake-daemon/src/index.ts`.
 - To seed `dev:fake`, play it in `src/boot/fake.ts` (`runUntilBlocked()` for a static state, `autoplay(timer)` for a live one). `workbench()` is the realistic Home list from the design.
 - Use realistic content (projects, branches, commands, findings), not placeholder text.
+- Backdate seeded history: a step's `agoMs` stamps it that long before now, and
+  `new ScenarioPlayer(daemon, scenario, { agoMs })` plays a whole scenario earlier, so ages and
+  "Worked for" durations read as real time. `daemon.itemId(threadId, key)` gives the item id an
+  adapter key became (the fake boot uses it to seed where the reader left the hero thread).
+- `dedupeReconnect()` is the design's hero thread (work log, answer, changed files, subagents,
+  background relay, a finding after the reader left); `bun run web:screens` shoots it.
 - In tests, `harness()` (`src/test/harness.tsx`) gives you the real app, a real client and a `FakeDaemon`: `app.play(scenario)`, `await app.open(path)`.
+
+## Performance
+
+Read ADR 0056. In short:
+
+- The client runs in a SharedWorker (`boot/client-worker.ts`); the page holds mirrors of the stores it reads. Code takes `ClientApi` from `useClient()`, never the `Client` class.
+- Heavy derived work goes off the main thread through `lib/off-thread.ts` (see `markdown.worker.ts`, `diff.worker.ts`), and every cache is an `LruCache` from `@ace/ui-core`. Nothing may grow with a thread's history.
+- React Compiler memoizes everything. A hook that reads a mutable source by version must return that read as the `useSyncExternalStore` snapshot or opt out with `"use no memo"`.
+- Lists that can be long use TanStack Virtual (`components/virtual-rows.tsx` for rows inside a panel).
+- `localStorage["ace.flag.gpuText"] = "1"` draws diffs of 5,000+ rows with the GPU text renderer.
+- `bun run check:perf` runs the budgets; `bunx vite --mode perf` serves the app against an endless agent (`?rate=` events per second).
 
 ## Tests
 

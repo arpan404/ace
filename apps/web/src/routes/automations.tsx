@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { AutomationsSidebar } from "@/features/automations/automations-sidebar.tsx";
-import { ViewFrame } from "@/features/shell/view-frame.tsx";
+import { AutomationsSidebar } from "@/features/automations/index.ts";
+import { ViewFrame } from "@/features/shell/index.ts";
 
 export const Route = createFileRoute("/automations")({
   component: () => (

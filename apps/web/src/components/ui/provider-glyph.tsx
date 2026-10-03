@@ -1,18 +1,8 @@
 import type { ProviderKind } from "@ace/protocol";
+import { providerNames } from "@ace/ui-core";
 import { cn } from "@/lib/cn.ts";
 import type { ReactNode } from "react";
 import { Tip } from "./tooltip.tsx";
-
-/** The provider's product name, as people know it. */
-export const providerNames: Record<ProviderKind, string> = {
-  claude: "Claude Code",
-  codex: "Codex",
-  opencode: "OpenCode",
-  cursor: "Cursor",
-  antigravity: "Antigravity",
-  acp: "ACP agent",
-  pi: "Pi",
-};
 
 const marks: Record<ProviderKind, ReactNode> = {
   pi: (

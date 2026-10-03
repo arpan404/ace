@@ -15,6 +15,8 @@ const endTurn = (agent: string, id: string): Fact => ({
   nativeTurnId: id,
   outcome: "completed",
 });
+const s = 1000;
+const m = 60 * s;
 const activity = (agent: string, detail: string): Fact => ({
   type: "activity",
   agent,
@@ -25,8 +27,9 @@ const activity = (agent: string, detail: string): Fact => ({
 /**
  * The thread the right and bottom panels are designed around: two turns of edits (one with
  * full file text, one as a provider unified diff), two subagents, a background dev server
- * with live output, and a slow settle. Labels: `turn-1`, `turn-2`, `relay-output`,
- * `audit-done`, `test-done`, `root-replied`.
+ * with live output, and a slow settle. Both turns happened minutes before the page opened; the
+ * subagents report back live (`autoplay`), tens of seconds apart. Labels:
+ * `turn-1`, `turn-2`, `relay-output`, `audit-done`, `test-done`, `root-replied`.
  */
 export function coldStartReplay(id = "thread-cold-start"): Scenario {
   return {
@@ -39,7 +42,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
     steps: [
       {
         kind: "facts",
-        label: "turn-1",
+        agoMs: 24 * m,
         facts: [
           rootAgent("claude", "/Users/dev/ace"),
           turn("root", "t1"),
@@ -49,6 +52,24 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
             "user",
             "A phone that resumes with seq 0 gets every event since the thread began. Cap cold-start replay.",
           ),
+        ],
+      },
+      {
+        kind: "facts",
+        agoMs: 23 * m + 50 * s,
+        facts: [
+          tool("root", "read-replay-1", {
+            kind: "file.read",
+            title: `Read ${replayTs.path}`,
+            detail: { kind: "file.read", path: replayTs.path },
+          }),
+          toolDone("root", "read-replay-1"),
+        ],
+      },
+      {
+        kind: "facts",
+        agoMs: 22 * m + 40 * s,
+        facts: [
           tool("root", "edit-replay-1", {
             kind: "file.edit",
             title: `Edit ${replayTs.path}`,
@@ -64,7 +85,14 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
               ],
             },
           }),
-          toolDone("root", "edit-replay-1"),
+        ],
+      },
+      { kind: "facts", agoMs: 22 * m + 25 * s, facts: [toolDone("root", "edit-replay-1")] },
+      {
+        kind: "facts",
+        label: "turn-1",
+        agoMs: 22 * m + 10 * s,
+        facts: [
           message(
             "root",
             "reply-1",
@@ -76,8 +104,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
       },
       {
         kind: "facts",
-        delayMs: 1500,
-        label: "turn-2",
+        agoMs: 9 * m,
         facts: [
           turn("root", "t2"),
           message(
@@ -101,14 +128,42 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
               ],
             },
           }),
-          toolDone("root", "edit-replay-2"),
+        ],
+      },
+      { kind: "facts", agoMs: 7 * m + 40 * s, facts: [toolDone("root", "edit-replay-2")] },
+      {
+        // Both subagents start together, as one "Started 2 subagents".
+        kind: "facts",
+        agoMs: 7 * m + 20 * s,
+        facts: [
           tool("root", "spawn-audit", {
             kind: "agent.spawn",
-            title: "Audit every resume path",
-            detail: { kind: "agent.spawn", description: "Audit resume paths", childAgent: "audit" },
+            title: "Find every caller that resumes from seq 0",
+            detail: {
+              kind: "agent.spawn",
+              description: "Sweep the web and mobile resume callers",
+              childAgent: "audit",
+            },
           }),
-          subagent("claude", "audit", "reconnect-audit", "spawn-audit"),
+          tool("root", "spawn-test", {
+            kind: "agent.spawn",
+            title: "Test the client buffer against a late ack",
+            detail: {
+              kind: "agent.spawn",
+              description: "Hold resume.ack for 2s and assert the buffer survives",
+              childAgent: "test",
+            },
+          }),
+          subagent("claude", "audit", "resume-sweep", "spawn-audit"),
           turn("audit", "audit-1", "spawn"),
+          subagent("claude", "test", "ack-buffer-test", "spawn-test"),
+          turn("test", "test-1", "spawn"),
+        ],
+      },
+      {
+        kind: "facts",
+        agoMs: 6 * m + 30 * s,
+        facts: [
           tool("audit", "edit-outbox", {
             kind: "file.edit",
             title: `Edit ${outboxDiff.path}`,
@@ -117,48 +172,71 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
               changes: [{ path: outboxDiff.path, kind: "update", diff: outboxDiff.diff }],
             },
           }),
+        ],
+      },
+      {
+        kind: "facts",
+        agoMs: 5 * m + 50 * s,
+        facts: [
           toolDone("audit", "edit-outbox"),
-          activity("audit", "Reading apps/mobile/src/resume.ts"),
-          tool("root", "spawn-test", {
-            kind: "agent.spawn",
-            title: "Write the regression test",
-            detail: {
-              kind: "agent.spawn",
-              description: "Restart the daemon mid-stream and assert no duplicates",
-              childAgent: "test",
-            },
+          // resume-sweep checks pairing in the browser; the Preview tab names it as the driver.
+          tool("audit", "browse-pairing", {
+            kind: "browser",
+            title: "Pair a phone on localhost:5173/settings/devices",
+            detail: { kind: "browser" },
           }),
-          subagent("claude", "test", "regression-test", "spawn-test"),
-          turn("test", "test-1", "spawn"),
+          activity("audit", "Reading apps/mobile/src/resume.ts"),
           tool("test", "run-tests", {
             kind: "shell",
-            title: "Run the replay tests",
-            detail: { kind: "shell", command: "bun run test replay" },
+            title: "Run the outbox tests",
+            detail: { kind: "shell", command: "bun run test outbox" },
           }),
-          activity("test", "bun run test replay"),
+          activity("test", "bun run test outbox"),
+        ],
+      },
+      {
+        kind: "facts",
+        label: "turn-2",
+        agoMs: 5 * m + 20 * s,
+        facts: [
           tool("root", "relay", {
             kind: "shell",
-            title: "Run the relay in the background",
-            detail: { kind: "shell", command: "bun run dev:relay" },
+            title: "Soak the relay with two clients",
+            detail: { kind: "shell", command: "bun run relay:soak --clients 2" },
           }),
           {
             type: "background.started",
             agent: "root",
             task: "relay",
             kind: "shell",
-            title: "bun run dev:relay",
+            title: "bun run relay:soak --clients 2",
             item: "relay",
             stoppable: true,
           },
-          output("root", "relay", "$ bun run dev:relay\nrelay listening on ws://127.0.0.1:8787\n"),
+          output(
+            "root",
+            "relay",
+            "$ bun run relay:soak --clients 2\nsoak relay listening on ws://127.0.0.1:8790\n",
+          ),
           { type: "subagents.waiting", agent: "root", item: "spawn-test", targets: [] },
         ],
       },
       {
         kind: "facts",
-        delayMs: 2500,
+        agoMs: 3 * m + 5 * s,
         label: "relay-output",
         facts: [
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: "quota-warning",
+            draft: {
+              type: "notice",
+              complete: true,
+              level: "warning",
+              text: "Claude Code · personal has used 82% of its 5-hour window; new turns may wait for the reset.",
+            },
+          },
           output(
             "root",
             "relay",
@@ -168,25 +246,26 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
       },
       {
         kind: "facts",
-        delayMs: 6000,
+        delayMs: 45_000,
         label: "audit-done",
         facts: [
           message(
             "audit",
             "audit-report",
             "assistant",
-            "The mobile client also resumes with seq 0 when its cache is empty; the cap covers it.",
+            "Three callers resume from seq 0: the web tab after a cache wipe, the iOS cold launch and the share extension. The cap covers all three.",
           ),
+          toolDone("audit", "browse-pairing"),
           endTurn("audit", "audit-1"),
           toolDone("root", "spawn-audit"),
         ],
       },
       {
         kind: "facts",
-        delayMs: 4000,
+        delayMs: 20_000,
         label: "test-done",
         facts: [
-          output("test", "run-tests", "3 pass · 0 fail · 1 file  412ms\n"),
+          output("test", "run-tests", "5 pass · 0 fail · 2 files  1.38s\n"),
           toolDone("test", "run-tests"),
           endTurn("test", "test-1"),
           toolDone("root", "spawn-test"),
@@ -199,14 +278,14 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
       },
       {
         kind: "facts",
-        delayMs: 1500,
+        delayMs: 6_000,
         label: "root-replied",
         facts: [
           message(
             "root",
             "reply-2",
             "assistant",
-            "Both resume paths are covered and the regression test passes. The relay is still running for you to try.",
+            "All three seq-0 callers are capped and the late-ack test passes. The soak relay is still running if you want to poke at it.",
           ),
           endTurn("root", "t2"),
         ],

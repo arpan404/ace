@@ -1,8 +1,16 @@
 import { cn } from "@/lib/cn.ts";
-import { useCallback, useEffect, useEffectEvent, useRef, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ClipboardEvent, KeyboardEvent } from "react";
 import type { Row, Style } from "./screen.ts";
 import type { TerminalSessions } from "./sessions.ts";
+import { canUseXterm, XtermView } from "./xterm-view.tsx";
 
 const keys: Record<string, string> = {
   Enter: "\r",
@@ -88,9 +96,10 @@ function useSession(sessions: TerminalSessions, id: string) {
     (changed: () => void) => sessions.watch(id, changed),
     [sessions, id],
   );
-  useSyncExternalStore(subscribe, () => sessions.version(id));
+  // The screen caches its rows until the next write, so they are a stable snapshot.
+  const rows = useSyncExternalStore(subscribe, () => sessions.screen(id).rows());
   const exitCode = useSyncExternalStore(subscribe, () => sessions.exitCode(id));
-  return { screen: sessions.screen(id), exitCode };
+  return { rows, exitCode };
 }
 
 /**
@@ -98,11 +107,17 @@ function useSession(sessions: TerminalSessions, id: string) {
  * into PTY bytes. Click anywhere in it to type. Size follows the panel.
  */
 export function TerminalView(props: { sessions: TerminalSessions; id: string; name: string }) {
+  // xterm with WebGL where the browser has it; the accessible DOM screen otherwise.
+  const [xterm] = useState(canUseXterm);
+  return xterm ? <XtermView {...props} /> : <DomTerminalView {...props} />;
+}
+
+function DomTerminalView(props: { sessions: TerminalSessions; id: string; name: string }) {
   const { sessions, id } = props;
-  const { screen, exitCode } = useSession(sessions, id);
+  const { rows, exitCode } = useSession(sessions, id);
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
-  useResize(box, (cols, rows) => sessions.resize(id, cols, rows));
+  useResize(box, (cols, height) => sessions.resize(id, cols, height));
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const bytes = keyBytes(event);
     if (bytes === undefined) return;
@@ -123,7 +138,7 @@ export function TerminalView(props: { sessions: TerminalSessions; id: string; na
         if (!window.getSelection()?.toString()) input.current?.focus();
       }}
     >
-      <ScreenRows rows={screen.rows()} label={`${props.name} output`} />
+      <ScreenRows rows={rows} label={`${props.name} output`} />
       {exitCode !== null && (
         <p className="px-4 pb-3 font-sans text-xs text-subtle-foreground">
           Process exited with code {exitCode}.

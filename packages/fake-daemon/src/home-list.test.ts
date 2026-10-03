@@ -31,6 +31,21 @@ test("the Home list plays each thread at its age, with the finished history days
   expect(history.every((t) => t.status.state === "done")).toBe(true);
 });
 
+test("the hero thread moved last of the busy threads, so Home lists it right after needs-you", () => {
+  const now = 100 * 24 * hour;
+  let ago = 0;
+  const daemon = new FakeDaemon({ clock: () => now - ago });
+  for (const aged of homeList()) {
+    ago = aged.agoMs;
+    new ScenarioPlayer(daemon, aged.scenario).runUntilBlocked();
+  }
+  const busy = listView(daemon)
+    .filter((t) => t.status.state === "working" || t.status.state === "waiting")
+    .toSorted((a, b) => b.updatedAt - a.updatedAt);
+  expect(busy[0]?.title).toBe("Dedupe thread events after reconnect");
+  expect(now - (busy[0]?.updatedAt ?? 0)).toBeLessThan(60_000);
+});
+
 const command = (id: string, payload: Parameters<FakeDaemon["command"]>[0]["payload"]) => ({
   id: CommandId.parse(id),
   deviceId: DeviceId.parse("device"),

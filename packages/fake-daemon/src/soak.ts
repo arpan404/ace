@@ -1,0 +1,240 @@
+import type { Fact } from "@ace/core";
+import {
+  applyDelivery,
+  applyThreadListEvent,
+  createThreadListView,
+  createThreadView,
+} from "@ace/projection";
+import {
+  EventId,
+  HostId,
+  ThreadId,
+  WorkspaceId,
+  type Command,
+  type CommandResult,
+  type DeliveryEvent,
+  type EventPayload,
+  type ItemsPage,
+  type SubscriptionScope,
+  type Thread,
+  type ThreadListView,
+  type ThreadView,
+} from "@ace/protocol";
+import { Connection, type Host, type Wire } from "./connection.ts";
+import {
+  endTurn,
+  finish,
+  message,
+  output,
+  rootAgent,
+  stream,
+  tool,
+  toolDone,
+  turn,
+} from "./scenarios/facts.ts";
+import { ThreadHost } from "./thread-host.ts";
+import { historyPage, windowSnapshot } from "./window.ts";
+
+/*
+ * An endless agent for soak and load tests: one thread whose root agent answers forever, each
+ * exchange a user message, a streamed answer, a shell command with output and the turn's end.
+ * Exchanges are folded through @ace/core once and replayed with fresh ids, and the daemon keeps
+ * only a bounded window, so it can publish millions of events at a fixed memory cost; growth
+ * measured in a client is the client's own.
+ */
+
+export interface SoakOptions {
+  clock(): number;
+  threadId?: string;
+  /** Text deltas per streamed answer. */
+  deltas?: number;
+  /** Items the daemon keeps for snapshots and history pages. */
+  windowItems?: number;
+}
+
+const answer =
+  "The replay window now caps at 200 events, and the resume handshake carries lastAckedSeq so the server can drop frames the client already has. ";
+
+function exchange(deltas: number): Fact[] {
+  const facts: Fact[] = [
+    turn("root"),
+    message("root", "ask", "user", "Run the relay suite again and summarise what changed."),
+    message("root", "answer", "assistant", "", false),
+  ];
+  for (let n = 0; n < deltas; n++)
+    facts.push(
+      stream(
+        "root",
+        "answer",
+        answer.slice((n * 24) % answer.length, ((n * 24) % answer.length) + 24),
+      ),
+    );
+  facts.push(
+    finish("root", "answer"),
+    tool("root", "test", {
+      kind: "shell",
+      title: "bun run test apps/relay",
+      detail: { kind: "shell", command: "bun run test apps/relay" },
+    }),
+    output("root", "test", " ✓ relay/replay.test.ts (12 tests)\n"),
+    output("root", "test", " ✓ relay/outbox.test.ts (4 tests)\n"),
+    toolDone("root", "test"),
+    endTurn("root"),
+  );
+  return facts;
+}
+
+export class SoakDaemon implements Host {
+  readonly hostId = HostId.parse("soak-host");
+  readonly duplicateEvents = false;
+  readonly threadId: string;
+  private options: SoakOptions;
+  private seq = 0;
+  private view: ThreadView;
+  private list: ThreadListView = createThreadListView();
+  private creation = new Map<string, number>();
+  private connections = new Set<Connection>();
+  /** One exchange's payloads as JSON; ids made inside it are renumbered per cycle. */
+  private template: string;
+  private firstCycleId: number;
+  private cycle = 0;
+  private queued: EventPayload[] = [];
+  constructor(options: SoakOptions) {
+    this.options = options;
+    this.threadId = options.threadId ?? "thread-soak";
+    const now = options.clock();
+    const thread: Thread = {
+      id: ThreadId.parse(this.threadId),
+      workspaceId: WorkspaceId.parse("acme-relay"),
+      title: "Soak: relay replay under load",
+      provider: "claude",
+      status: { state: "new" },
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.view = createThreadView(thread);
+    const host = new ThreadHost(thread);
+    const setup: EventPayload[] = [
+      { type: "thread.created", thread },
+      ...host.fold(rootAgent("claude"), now),
+    ];
+    const cycle = exchange(options.deltas ?? 24).flatMap((fact) => host.fold(fact, now));
+    this.template = JSON.stringify(cycle);
+    // Ids core made during the exchange (items, runs, tools) are renumbered every cycle; ids
+    // made during setup (the root agent) stay.
+    const setupIds = new Set(this.ids(JSON.stringify(setup)));
+    this.firstCycleId = Math.min(
+      ...this.ids(this.template)
+        .filter((id) => !setupIds.has(id))
+        .map((id) => Number(id.split(".").pop())),
+    );
+    this.publish(setup);
+  }
+  /** Core-made ids (`<thread>.<kind>.<n>`) in a JSON text. */
+  private ids(json: string): string[] {
+    return json.match(new RegExp(`${this.threadId}\\.[a-z_]+\\.\\d+`, "g")) ?? [];
+  }
+  get head(): number {
+    return this.seq;
+  }
+  get token(): string {
+    return "soak-token";
+  }
+  /** Events published so far. */
+  get events(): number {
+    return this.seq;
+  }
+  accepts(credential: { token?: string | undefined }): boolean {
+    return credential.token === this.token;
+  }
+  connect(wire: Wire): Connection {
+    const connection = new Connection(this, wire);
+    this.connections.add(connection);
+    return connection;
+  }
+  release(connection: Connection): void {
+    this.connections.delete(connection);
+  }
+  /** The soak serves no request/response services; only the thread stream is under load. */
+  service(): boolean {
+    return false;
+  }
+  snapshot(scope: SubscriptionScope): ThreadView | ThreadListView | undefined {
+    if (scope.kind === "threads") return { ...structuredClone(this.list), seq: this.seq };
+    if (scope.threadId !== this.threadId) return undefined;
+    return windowSnapshot(this.view, this.creation, this.options.windowItems ?? 200, this.seq);
+  }
+  /** Soak clients never resume from an old cursor; a replay asks for a snapshot instead. */
+  replay(): DeliveryEvent[] {
+    return [];
+  }
+  page(threadId: string, before: number, limit: number): ItemsPage | undefined {
+    return threadId === this.threadId
+      ? historyPage(this.view, this.creation, before, limit, this.seq)
+      : undefined;
+  }
+  command(command: Command): CommandResult {
+    return { commandId: command.id, ok: false, error: "unsupported_by_soak_daemon" };
+  }
+  /** Publish the next `count` events, in batches of `batch` (one socket frame each). */
+  pump(count: number, batch = 64): void {
+    let left = count;
+    while (left > 0) {
+      const size = Math.min(batch, left);
+      while (this.queued.length < size) this.queued.push(...this.nextCycle());
+      this.publish(this.queued.splice(0, size));
+      left -= size;
+    }
+  }
+  private nextCycle(): EventPayload[] {
+    const cycle = ++this.cycle;
+    const pattern = new RegExp(`(${this.threadId}\\.[a-z_]+\\.)(\\d+)`, "g");
+    const json = this.template.replace(pattern, (whole, prefix: string, n: string) =>
+      Number(n) >= this.firstCycleId ? `${prefix}${n}~${cycle}` : whole,
+    );
+    const payloads: EventPayload[] = JSON.parse(json);
+    return payloads;
+  }
+  private publish(payloads: EventPayload[]): void {
+    const now = this.options.clock();
+    const events = payloads.map((payload): DeliveryEvent => {
+      const seq = ++this.seq;
+      return {
+        seq,
+        id: EventId.parse(`event-${seq}`),
+        at: now,
+        threadId: ThreadId.parse(this.threadId),
+        payload,
+      };
+    });
+    for (const event of events) {
+      applyDelivery(this.view, {
+        type: "events",
+        subscriptionId: "soak",
+        afterSeq: this.view.seq,
+        throughSeq: event.seq,
+        events: [event],
+      });
+      applyThreadListEvent(this.list, event);
+      if (event.payload.type === "item.created")
+        this.creation.set(event.payload.item.id, event.seq);
+    }
+    this.trim();
+    for (const connection of this.connections) connection.publish(events, this.seq);
+  }
+  /** Keep the daemon's own state bounded: the newest items and runs only. */
+  private trim(): void {
+    const keep = (this.options.windowItems ?? 200) * 2;
+    const view = this.view;
+    if (view.itemOrder.length > keep * 2) {
+      const dropped = view.itemOrder.slice(0, view.itemOrder.length - keep);
+      view.itemOrder = view.itemOrder.slice(-keep);
+      for (const id of dropped) {
+        delete view.items[id];
+        this.creation.delete(id);
+      }
+    }
+    const runs = Object.keys(view.runs);
+    if (runs.length > 128) for (const id of runs.slice(0, runs.length - 64)) delete view.runs[id];
+  }
+}

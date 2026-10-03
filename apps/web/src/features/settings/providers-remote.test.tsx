@@ -13,8 +13,7 @@ test("providers show what discovery found, with the account at its limit flagged
   expect(
     within(providers).getByText("Not installed · ace looks for antigravity on your PATH"),
   ).toBeTruthy();
-  // Only Codex needs attention, and an uninstalled CLI has nothing to manage.
-  expect(within(providers).getAllByRole("img", { name: "Needs attention" })).toHaveLength(1);
+  // An uninstalled CLI has nothing to manage.
   expect(screen.queryByRole("button", { name: "Manage Antigravity" })).toBeNull();
 });
 

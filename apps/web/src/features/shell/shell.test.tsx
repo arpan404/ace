@@ -52,11 +52,13 @@ test("the rail marks the current view and the header's back and forward follow h
   expect(button("Back").disabled).toBe(true);
   expect(button("Forward").disabled).toBe(true);
 
-  await userEvent.click(within(rail).getByRole("link", { name: "Activity" }));
+  await userEvent.click(within(rail).getByRole("link", { name: /^Activity/ }));
   await title("Activity");
-  expect(within(rail).getByRole("link", { name: "Activity" }).getAttribute("aria-current")).toBe(
-    "page",
-  );
+  expect(
+    within(rail)
+      .getByRole("link", { name: /^Activity/ })
+      .getAttribute("aria-current"),
+  ).toBe("page");
   expect(button("Back").disabled).toBe(false);
 
   await userEvent.click(button("Back"));
