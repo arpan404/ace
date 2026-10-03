@@ -6,6 +6,23 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
   const supported = cli.installed && version(cli.version);
   return {
     steer: supported,
+    permissions: {
+      modes: supported ? ["read-only", "ask", "auto-review", "full-access"] : [],
+      nativeAutoReview: false,
+      toolGate: supported,
+      guarantees: supported
+        ? [
+            {
+              mode: "auto-review",
+              level: "tool-gate",
+              gates: { writes: true, network: true, protectedReads: true, shell: true },
+              limitations: [
+                "Wildcard ask rules gate tools; incomplete permission targets escalate to the user.",
+              ],
+            },
+          ]
+        : [],
+    },
     interruptCascades: supported,
     resume: supported,
     fork: false,

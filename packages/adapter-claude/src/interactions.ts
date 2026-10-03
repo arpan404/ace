@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { InteractionResolution, type InteractionRequest, type Question } from "@ace/protocol";
+import {
+  ApprovalTarget,
+  InteractionResolution,
+  type InteractionRequest,
+  type Question,
+} from "@ace/protocol";
 import { list, object, string, type Data } from "./native.ts";
 export function requestFor(name: string, input: Data, options: Data): InteractionRequest {
   if (name === "AskUserQuestion")
@@ -52,6 +57,23 @@ export function requestFor(name: string, input: Data, options: Data): Interactio
   return {
     kind: "approval",
     title: string(options["title"], string(options["displayName"], name)),
+    target: (() => {
+      const path = input["file_path"] ?? input["path"];
+      const parsed = ApprovalTarget.safeParse({
+        tool: name,
+        input,
+        command: input["command"],
+        paths: typeof path === "string" ? [path] : undefined,
+        access: ["Read", "Glob", "Grep"].includes(name)
+          ? "read"
+          : ["Edit", "Write", "NotebookEdit"].includes(name)
+            ? "write"
+            : name === "Bash"
+              ? "execute"
+              : "unknown",
+      });
+      return parsed.success ? parsed.data : undefined;
+    })(),
     ...(typeof options["description"] === "string"
       ? { description: options["description"] }
       : typeof options["decisionReason"] === "string"

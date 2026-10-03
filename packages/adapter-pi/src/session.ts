@@ -51,8 +51,13 @@ export async function openPiSession(
     }));
   if (!cli.path || !piProfile(cli).supported)
     throw new Error(`Pi ${cli.version ?? "unknown"} unsupported; audited version is 0.85.1`);
-  const mode = options.permissionMode ?? "unrestricted",
-    permissionArgs = piPermissionArgs(mode);
+  const mode =
+    ctx.permissionMode === "full-access"
+      ? "unrestricted"
+      : ctx.permissionMode
+        ? "read_only"
+        : (options.permissionMode ?? "read_only");
+  const permissionArgs = piPermissionArgs(mode);
   const lifetime = new AbortController();
   const controlSecret = io.secret();
   // The daemon's existing session lease owns capabilities and revocation. Reuse it.

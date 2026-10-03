@@ -1,3 +1,4 @@
+import { PermissionCapabilities } from "./permissions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 
@@ -61,6 +62,7 @@ export type RawPayload = z.infer<typeof RawPayload>;
  * show, instead of checking provider names.
  */
 export const Capabilities = z.object({
+  permissions: PermissionCapabilities.optional(),
   /** Omitted by older backends. Clients must retain their existing control policy. */
   approvals: z.enum(["interactive", "sandbox-only", "none"]).optional(),
   steeringMode: z.enum(["native", "interrupt-restart", "queue"]).optional(),

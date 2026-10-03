@@ -18,6 +18,10 @@ import { PluginClientMessage, PluginServerMessage } from "./plugins.ts";
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
 import { DiagnosticsHealthRequest, DiagnosticsHealthResult } from "./diagnostics.ts";
 import { PiControlRequest, PiControlResult } from "./pi.ts";
+import {
+  PermissionCapabilitiesRequest,
+  PermissionCapabilitiesResult,
+} from "./permission-client.ts";
 import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
 import { FilesClientMessage, FilesServerMessage } from "./files.ts";
 import {
@@ -184,6 +188,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   TerminalCredit,
   PluginClientMessage,
   DiagnosticsHealthRequest,
+  PermissionCapabilitiesRequest,
   ContextRequest,
   SettingsGet,
   SettingsSet,
@@ -286,6 +291,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   TerminalOutput,
   PluginServerMessage,
   DiagnosticsHealthResult,
+  PermissionCapabilitiesResult,
   ContextResult,
   SettingsResult,
   SettingsChanged,

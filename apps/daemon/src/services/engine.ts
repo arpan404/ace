@@ -121,6 +121,18 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     ...acp,
     ...engineOptions,
     registry,
+    permissionSettings:
+      engineOptions.permissionSettings ??
+      (async (id) => {
+        const thread = store.getThread(id);
+        if (!thread) throw new Error("Thread unavailable");
+        const workspace = store.getWorkspace(thread.workspaceId);
+        const entry = await services.settings?.get("permissions.defaultMode", {
+          thread: id,
+          ...(workspace ? { workspace: workspace.path } : {}),
+        });
+        return entry?.value ?? "auto-review";
+      }),
     selectInstance:
       engineOptions.selectInstance ??
       ((_provider, backend) =>
@@ -190,6 +202,7 @@ export function createEngineSession(context: SocketContext): SocketService {
         "thread.interrupt",
         "thread.model.set",
         "thread.mode.set",
+        "thread.permission.set",
         "interaction.resolve",
         "background_task.stop",
       ],

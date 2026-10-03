@@ -1,3 +1,4 @@
+import { PermissionState } from "./permissions.ts";
 import { ThreadClientFields } from "./thread-client.ts";
 import {
   ThreadLineage,
@@ -87,6 +88,7 @@ export const Thread = z.object({
   provider: ProviderKind,
   backend: z.enum(["acp", "cursor-sdk"]).optional(),
   capabilities: Capabilities.optional(),
+  permission: PermissionState.optional(),
   handoff: z
     .object({
       sourceThreadId: ThreadId,

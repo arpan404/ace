@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
 import { ThreadId } from "@ace/protocol";
-import type { Frame, ProviderSession } from "@ace/engine-api";
+import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
 import { createOpenCodeAdapter, type ServerOptions } from "../index.ts";
 import { harness } from "../replay.ts";
 import { object } from "../data.ts";
@@ -79,11 +79,16 @@ export async function setup(extra: ServerOptions = {}) {
   owners.push(adapter);
   const controller = new AbortController(),
     exits: unknown[] = [];
-  const open = (cwd = "/one", resume?: string): Promise<ProviderSession> =>
+  const open = (
+    cwd = "/one",
+    resume?: string,
+    permissionMode?: SessionContext["permissionMode"],
+  ): Promise<ProviderSession> =>
     adapter.openSession({
       threadId: ThreadId.parse("thread_v2"),
       rootKey: "root",
       cwd,
+      ...(permissionMode ? { permissionMode } : {}),
       model: "opencode-go/muse-spark-1.3-contributor",
       signal: controller.signal,
       onFrame,

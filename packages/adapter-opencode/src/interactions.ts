@@ -1,4 +1,5 @@
 import type { Fact } from "@ace/core";
+import { ApprovalTarget } from "@ace/protocol";
 import type { InteractionRequest, InteractionResolution } from "@ace/protocol";
 import { array, object, raw, string, type Data } from "./data.ts";
 import { toolKey } from "./native-content.ts";
@@ -55,6 +56,25 @@ export function interaction(state: NativeState, type: string, p: Data, evidence:
         ? {
             kind: "approval",
             title: string(form.action),
+            target: (() => {
+              const metadata = object(form.metadata);
+              const input = object(metadata.input);
+              if (!Object.keys(input).length) return undefined;
+              const path = input.path ?? input.filePath;
+              const parsed = ApprovalTarget.safeParse({
+                tool: string(form.action),
+                command: input.command,
+                paths: typeof path === "string" ? [path] : undefined,
+                access:
+                  string(form.action) === "read"
+                    ? "read"
+                    : string(form.action) === "bash"
+                      ? "execute"
+                      : "unknown",
+                input,
+              });
+              return parsed.success ? parsed.data : undefined;
+            })(),
             description: array(form.resources)
               .map((v) => string(v))
               .join(", "),

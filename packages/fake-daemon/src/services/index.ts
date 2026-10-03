@@ -14,6 +14,7 @@ import { commandCatalog, listCommands } from "./commands.ts";
 import { search } from "./search.ts";
 import { listModels, resolveModel } from "./models.ts";
 import { FakeSettings, type Push } from "./settings.ts";
+import { fakePermissionCapabilities } from "../permissions.ts";
 
 type AccountSummary = z.infer<typeof Summary>;
 
@@ -147,6 +148,13 @@ export class FakeServices {
       case "settings.subscribe":
       case "settings.unsubscribe":
         return this.settings.handle(message, push);
+      case "permissions.capabilities":
+        return {
+          type: "permissions.capabilities.result",
+          requestId: message.requestId,
+          ok: true,
+          permissions: structuredClone(fakePermissionCapabilities.permissions),
+        };
       case "search.query":
         return {
           type: "search.results",

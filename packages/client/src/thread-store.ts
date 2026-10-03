@@ -295,6 +295,10 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           keys.add(`interaction:${p.interaction.id}`);
           keys.add("interactions");
           break;
+        case "permission.reviewed":
+          this.copy(view.interactions, p.review.interactionId);
+          keys.add(`interaction:${p.review.interactionId}`);
+          break;
         case "interaction.closed":
           this.copy(view.interactions, p.interactionId);
           keys.add(`interaction:${p.interactionId}`);

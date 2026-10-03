@@ -139,7 +139,12 @@ export async function openCursorSession(
               afterFrameOffset: context.resume.afterFrameOffset ?? 0,
             }
           : {}),
-        policy: context.runtimePolicy ?? options.policy ?? "restricted",
+        policy:
+          context.permissionMode === "full-access"
+            ? "full-access"
+            : context.permissionMode
+              ? "restricted"
+              : (context.runtimePolicy ?? options.policy ?? "restricted"),
         autoReviewAvailable: options.autoReviewAvailable ?? false,
         limits,
         ...(options.mcp ? { mcp: options.mcp } : {}),

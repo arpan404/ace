@@ -15,6 +15,7 @@ import type {
   ExecutionOptions,
   ExecutionSelection,
   Capabilities,
+  PermissionMode,
   AcpIdentity,
   AcpSessionSupport,
   ContentPart,
@@ -75,6 +76,8 @@ export interface SessionContext {
   model?: string;
   /** Host-local selected account home, never a client-supplied credential selector. */
   instanceHomeDir?: string;
+  /** Required by the engine; omitted only by legacy direct callers. */
+  permissionMode?: PermissionMode;
   runtimePolicy?: "restricted" | "full-access";
   resume?: {
     nativeSessionId: string;

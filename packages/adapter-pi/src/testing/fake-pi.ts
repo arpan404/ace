@@ -230,15 +230,20 @@ async function handle(line: string) {
         const allowed =
           toolsIndex < 0 ? undefined : (process.argv[toolsIndex + 1] ?? "").split(",");
         const responseText =
-          message === "write-proof"
-            ? allowed?.includes("write") || !allowed
-              ? "write available"
-              : "write unavailable"
-            : message === "env-proof"
-              ? (process.env.ACE_PI_MCP_BEARER ?? "")
-              : message === "context-proof"
-                ? history.context()
-                : "hello\u2028world\u2029!";
+          message === "tools-proof"
+            ? JSON.stringify({
+                tools: allowed ?? "all",
+                ambientExtensions: !process.argv.includes("--no-extensions"),
+              })
+            : message === "write-proof"
+              ? allowed?.includes("write") || !allowed
+                ? "write available"
+                : "write unavailable"
+              : message === "env-proof"
+                ? (process.env.ACE_PI_MCP_BEARER ?? "")
+                : message === "context-proof"
+                  ? history.context()
+                  : "hello\u2028world\u2029!";
         emit({ type: "message_start", message: { role: "assistant", content: [] } });
         emit({
           type: "message_update",
