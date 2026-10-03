@@ -49,6 +49,23 @@ test("the serialized handoff respects its byte budget with Unicode and escaped t
   expect(result.excerpts.map((entry) => entry.citation.itemId)).toEqual(["small"]);
   expect(result.omittedItems).toBe(2);
 });
+test("a Unicode excerpt whose character count fits is excluded when its encoded bytes exceed the budget", () => {
+  const source = {
+    threadId,
+    throughSeq: 8,
+    totalItems: 2,
+    items: [message("unicode", "🦊".repeat(500)), message("small", "bounded")],
+  };
+  const full = renderHandoff(selectHandoff(source, 4096));
+  expect(full.length).toBeLessThan(2048);
+  expect(Buffer.byteLength(full)).toBeGreaterThan(2048);
+  const result = selectHandoff(source, 2048);
+  expect(Buffer.byteLength(renderHandoff(result))).toBeLessThanOrEqual(2048);
+  expect(result.excerpts).toEqual([
+    { citation: { threadId, itemId: "small" }, text: "assistant: bounded" },
+  ]);
+  expect(result.omittedItems).toBe(1);
+});
 test("omitted historical pages remain reachable even when no excerpt fits", () => {
   const result = selectHandoff(
     { threadId, throughSeq: 900, totalItems: 999999, items: [message("large", "z".repeat(8000))] },

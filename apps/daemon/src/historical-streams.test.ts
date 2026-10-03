@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { Item, Thread } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { Store } from "@ace/daemon";
+import { shell } from "./payload-test-support.ts";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -185,4 +186,42 @@ test("startup rebuild restores retired shell chunks and masks output appended be
   expect(JSON.stringify(h.store.readHistoricalItemPage(id, through, through + 1, 1))).not.toContain(
     "future secret",
   );
+});
+
+test("historical shell tails preserve whole UTF-8 characters at the byte boundary across reopen", () => {
+  const h = setup();
+  const item = shell();
+  const output = "🦊".repeat(1025) + "x";
+  h.store.appendEvents(
+    h.thread.id,
+    [
+      { type: "item.created", item },
+      {
+        type: "item.delta",
+        itemId: item.id,
+        agentId: item.agentId,
+        field: "output",
+        append: output,
+      },
+    ],
+    2,
+  );
+  const through = h.store.headSeq();
+  const assertHistory = () => {
+    const historical = h.store.readHistoricalItemPage(h.thread.id, through, through + 1, 1)
+      .items[0];
+    if (historical?.type !== "tool_call" || historical.call.detail.kind !== "shell")
+      throw new Error("Missing historical shell");
+    const summary = historical.call.detail.output;
+    if (!summary) throw new Error("Missing output pointer");
+    expect(summary.tail).toBe("🦊".repeat(1023) + "x");
+    expect(summary.bytes).toBe(Buffer.byteLength(output));
+    expect(summary.truncated).toBe(true);
+    const chunk = h.store.readHistoricalStream(h.thread.id, summary.streamId, through, 0, 8192);
+    expect(chunk.bytes).toEqual(Buffer.from(output));
+    expect(chunk.eof).toBe(true);
+  };
+  assertHistory();
+  h.reopen();
+  assertHistory();
 });
