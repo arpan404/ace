@@ -84,7 +84,9 @@ export function acceptTransition(
           nativePoint
             ? { nativeSessionId: sourceNativeId, point: nativePoint }
             : undefined;
-        const portable = native ? undefined : handoff(repo, id, point.throughSeq, p.budgetBytes);
+        const portable = native
+          ? undefined
+          : handoff(repo, id, point.throughSeq, p.budgetBytes, inherited.provider);
         id = ThreadId.parse(nextId());
         if (!repo.reserve(id)) return fail("engine_capacity_exceeded");
         createEngineThread(repo, {

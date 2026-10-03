@@ -23,6 +23,8 @@ inferred from a process-namespaced or synthesized run ID.
 without replacing the native session. Without it, the engine closes and resumes
 the same native session, provided the adapter advertises resume.
 
-Cursor's portable fork uses the public `@ace/handoff` selector and renderer.
-The engine already routes Cursor's non-native forks through that package.
+The engine routes portable forks, including Cursor, and provider switches through
+`@ace/context.portableContext`, backed by the public `@ace/handoff` policy.
+It supplies a frozen cutoff/indexed count and installs scoped historical grants.
+
 `send(input, delivery, commandId?)` includes optional engine command correlation. A provider with durable admission echoes it as `input.admitted.commandId` when the native input is accepted or reconciled. This transfers the exact engine intent to provider queue ownership; it does not create or finish a turn. Keep the correlation local to ace unless the provider contract requires it.

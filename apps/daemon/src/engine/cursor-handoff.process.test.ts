@@ -77,7 +77,7 @@ test("Cursor portable forks deliver the shared manifest and retain scoped histor
   expect(item.parts[0].text).not.toContain("later Cursor secret");
   const responseChunk = await registry.call(
     manifest.history.chunkTool,
-    { sourceThreadId: source, streamId: item.parts[0].source.streamId, offset: 0, limit: 65536 },
+    { sourceThreadId: source, streamId: item.parts[0].source.streamId, offset: 0, limit: 32768 },
     principal,
     principal.signal,
   );

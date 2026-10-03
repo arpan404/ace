@@ -113,7 +113,7 @@ export class ThreadTransitions {
       throw new Error("Provider cannot continue its native session");
     this.repo.transitions.admitModel(actor.id, selection);
     const portable = crossProvider
-      ? handoff(this.repo, actor.id, this.repo.store.headSeq(), 16384)
+      ? handoff(this.repo, actor.id, this.repo.store.headSeq(), 16384, current.provider)
       : undefined;
     let nativeSessionId = metadata.nativeSessionId;
     let migratedFork: z.infer<typeof NativeFork> | undefined;

@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { Item, Run, type ForkPoint, type ThreadId } from "@ace/protocol";
-import { selectHandoff } from "@ace/handoff";
+import { Item, Run, type ForkPoint, type ThreadId, type ProviderKind } from "@ace/protocol";
+import { portableContext } from "@ace/context";
 import type { EngineRepository } from "./repository.ts";
 import type { ThreadState } from "@ace/core";
 
@@ -71,10 +71,20 @@ export function boundary(repo: EngineRepository, id: ThreadId, point: ForkPoint)
     };
   });
 }
-export function handoff(repo: EngineRepository, id: ThreadId, throughSeq: number, budget: number) {
+export function handoff(
+  repo: EngineRepository,
+  id: ThreadId,
+  throughSeq: number,
+  budget: number,
+  provider: ProviderKind,
+) {
   const totalItems = repo.store.historicalItemCount(id, throughSeq);
   const page = repo.store.readHistoricalItemPage(id, throughSeq, throughSeq + 1, 200, 1024 * 1024);
-  return selectHandoff({ threadId: id, throughSeq, totalItems, items: page.items }, budget);
+  return portableContext({ threadId: id, throughSeq, totalItems, provider }, page.items, {
+    maxBytes: budget,
+    maxItems: 200,
+    historyTruncated: page.items.length < totalItems,
+  }).handoff;
 }
 export function validateCitations(
   repo: EngineRepository,

@@ -1,6 +1,6 @@
 # Fork/switch integration contract after PR #69 review
 
-The branch merges `origin/main` at fd65555, preserving ACP registry metadata,
+The branch merges `origin/main` at 8fca9b38, preserving ACP registry metadata,
 dynamic capabilities and native coding configuration. Migration 10 accepts
 either migration-9 owner (`acp` or `transitions`), adding only missing columns.
 Migration 11 retains text revisions independently of the current item and uses
@@ -12,26 +12,30 @@ point cannot be guessed from the current native session. End snapshots guard
 and close the source through native opening. The new fork remains an independent
 execution root, with lineage stored separately from its parent relationship.
 
-Cursor #67 is still a parallel PR. This branch supplies
-`@ace/context.portableContext`, backed by `@ace/handoff`; retain this facade when
-combining the two branches and remove Cursor's independent selection policy.
-The facade requires `source.throughSeq` and `source.totalItems`, rather than
-inventing a cutoff or an omission count. Its caller should capture
-`store.headSeq()`, obtain `store.historicalItemCount(source.id, cutoff)` and a
-`readHistoricalItemPage` at that cutoff in the acceptance transaction. Grant the
-created recipient that source/cutoff through the existing `HandoffAccess` owner.
-For normal `thread.fork`, the engine already performs all of those steps; Cursor
-does not need its own fork selection path. Facade text is the cited JSON manifest,
-so Cursor's older tests expecting a prose footer should use manifest fields.
-The two facade tests here cover its byte budget, provenance, omissions, paging
-cutoff and bounded iterator consumption. Integration execution needs run at merge.
+Daemon portable forks and cross-provider switches now call
+`@ace/context.portableContext` in production, including Cursor forks. This
+facade delegates budget, selection and rendering to `@ace/handoff` and exposes
+its manifest for persistence without an extra render/parse round trip. Rendered
+text and byte count are evaluated only when requested. The caller supplies the
+selected run/item cutoff, indexed inventory and bounded historical page; fork
+acceptance grants the recipient that exact cutoff through `HandoffAccess`.
+Origin uses the historical execution provider for forks and the outgoing provider
+for switches. The public Cursor fake-provider regression follows the manifest's
+MCP pointers after delivery and engine restart, retrieves full history, excludes
+later source turns and denies unrelated history. Execution needs run at merge.
+
+Cursor #67's SDK adapter remains a parallel PR. During integration, retain this
+facade and use the daemon's `thread.fork` path for portable forks. Any SDK-specific
+`handoffFrom` convenience must use the same cutoff/count/grant owner; it must not
+restore an adapter-specific selection policy or invent a historical cutoff.
 
 Preserve the client-gaps worker's additive create receipt, account/mode/options/
 baseBranch fields and send model/options during its separate train merge. This
 branch does not replace the organization-command service or edit `server.ts`.
 
 Historical page/chunk access seeks immutable metadata and sequence-bounded byte
-lengths. Retired source bytes are retained until thread deletion. Missing legacy
+lengths. Historical shell suffixes use projection's shared whole-character UTF-8
+byte-tail decoder before constructing the summary. Retired source bytes are retained until thread deletion. Missing legacy
 prefixes fail visibly rather than substituting the current preview. Source
 counts seek incremental ordinals; stream deltas write one length row and use the
 existing chunk storage. Prepared statements have a fixed, constant query set;
@@ -44,3 +48,8 @@ count/page costs with 100 and 10,000 historical items. Ops/s, microseconds/op an
 peak RSS are **unmeasured: needs run at merge**. No runtime tests, probes,
 mutations, benchmarks, provider prompts, recorder or CI checks were executed.
 Only the owner's permitted static checks are development gates.
+
+The legacy SQLite fixture builder removes newer append targets, immutable history
+tables and their one-time marker before resetting the schema version. The
+oversized-text upgrade case also guards indexed historical reconstruction and
+subsequent appends. Genuine old database migrations remain unchanged.

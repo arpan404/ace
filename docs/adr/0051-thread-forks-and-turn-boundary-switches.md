@@ -45,7 +45,10 @@ recent complete items, keeps chronology, tags every excerpt with source IDs,
 and reports counts and paging pointers for everything omitted. Selection never
 exceeds its encoded byte budget. The daemon reads bounded pages, not an entire
 conversation. `@ace/context.portableContext` is Cursor's facade over the same
-policy and renderer, with explicit cutoff and indexed inventory. The engine wire
+policy and renderer, with explicit cutoff and indexed inventory. Daemon portable
+forks and cross-provider switches call this facade directly; the manifest is
+persisted and scoped historical grants are installed by the existing storage
+owner. The engine wire
 budget remains 2–64 KiB; the shared helper admits Cursor's 1–256 KiB budget.
 Scoped MCP tools expose pages and bounded text/output chunks. Durable grants
 retain the selected cutoff after prompt delivery; unrelated histories remain
@@ -53,7 +56,9 @@ outside the recipient's scope. Grants have an explicit per-recipient cap.
 
 SQLite retains immutable preview revisions and sequence-indexed stream lengths.
 Reads seek the revision at the grant's cutoff and mask chunks to that length;
-later updates, deletions and appended output cannot alter the handoff. Retired
+later updates, deletions and appended output cannot alter the handoff. Historical
+shell previews decode byte suffixes with the shared projection UTF-8 policy,
+skipping incomplete leading characters rather than fabricating replacements. Retired
 streams live until thread deletion. A one-time streamed log replay populates the
 index for installed databases. Historical text replay uses distinct revision
 tokens so a legacy live preview cannot masquerade as the original prefix.

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ThreadId, ProviderKind, type Item } from "@ace/protocol";
+import { ThreadId, ProviderKind, type Item, type PortableHandoff } from "@ace/protocol";
 import { renderHandoff, selectHandoff, handoffBytes } from "@ace/handoff";
 
 const Source = z.object({
@@ -32,7 +32,13 @@ export function portableContext(
   source: PortableSource,
   history: Iterable<Item>,
   options: { maxBytes: number; maxItems: number; historyTruncated: boolean },
-): { text: string; bytes: number; truncated: boolean; source: PortableSource } {
+): {
+  text: string;
+  bytes: number;
+  truncated: boolean;
+  source: PortableSource;
+  handoff: PortableHandoff;
+} {
   const origin = Source.parse(source);
   const limits = Options.parse(options);
   const items: Item[] = [];
@@ -69,5 +75,16 @@ export function portableContext(
           ((item.type === "reasoning" || item.type === "notice") &&
             (item.source !== undefined || item.text.length > 8000)),
     );
-  return { text: renderHandoff(handoff), bytes: handoffBytes(handoff), truncated, source: origin };
+  return {
+    // Engine transitions persist the manifest; adapters can request its rendered prompt lazily.
+    get text() {
+      return renderHandoff(handoff);
+    },
+    get bytes() {
+      return handoffBytes(handoff);
+    },
+    truncated,
+    source: origin,
+    handoff,
+  };
 }
