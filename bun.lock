@@ -227,12 +227,18 @@
     "packages/client": {
       "name": "@ace/client",
       "dependencies": {
+        "@ace/devices": "workspace:*",
+        "@ace/files": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/relay": "workspace:*",
         "zod": "^4.3.6",
       },
       "devDependencies": {
         "@ace/daemon": "workspace:*",
+        "@ace/secure-channel": "workspace:*",
+        "@types/ws": "^8.18.1",
+        "ws": "^8.18.3",
       },
     },
     "packages/client-react": {
@@ -285,6 +291,20 @@
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
         "zod": "^4.6.5",
+      },
+    },
+    "packages/devices": {
+      "name": "@ace/devices",
+      "dependencies": {
+        "@ace/browser": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "@ace/screen": "workspace:*",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/files": "workspace:*",
       },
     },
     "packages/diagnostics": {
@@ -569,17 +589,6 @@
         "node-gyp": "11.5.0",
       },
     },
-    "packages/devices": {
-      "name": "@ace/devices",
-      "dependencies": {
-        "@ace/browser": "workspace:*",
-        "@ace/mcp-server": "workspace:*",
-        "@ace/protocol": "workspace:*",
-        "@ace/provider-kit": "workspace:*",
-        "@ace/screen": "workspace:*",
-        "zod": "^4.6.5",
-      },
-    },
     "tools/web-e2e": {
       "name": "@ace/web-e2e",
       "dependencies": {
@@ -589,7 +598,6 @@
         "@ace/engine-api": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@playwright/test": "1.63.0",
-
       },
     },
   },
