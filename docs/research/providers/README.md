@@ -16,6 +16,16 @@ filters child transcripts and lacks interactive SDK controls.
 | Cursor      | [cursor.md](cursor.md)           | `cursor-agent` 2026.09.26-dd393fe; ACP schema v1.24.1                     |
 | Antigravity | [antigravity.md](antigravity.md) | `agy_acp_server` 1.2.1 (ACP registry); not installed locally              |
 
+| Provider    | File                                                    | Version inspected                                                         |
+| ----------- | ------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Claude Code | [claude-code.md](claude-code.md)                        | `@anthropic-ai/claude-agent-sdk` 0.3.287 (CLI 2.1.287), local CLI 2.1.286 |
+| Codex       | [codex.md](codex.md)                                    | `openai/codex` @ `7135b303`, local `codex-cli` 0.159.1                    |
+| OpenCode    | [opencode.md](opencode.md)                              | `anomalyco/opencode` v1.18.33 (`51ef4be1`), local 1.18.33                 |
+| Cursor      | [cursor.md](cursor.md) / [cursor-sdk.md](cursor-sdk.md) | `@cursor/sdk` 1.0.35; CLI 2026.09.26-dd393fe; ACP v1.24.1                 |
+| Antigravity | [antigravity.md](antigravity.md)                        | `agy_acp_server` 1.2.1 (ACP registry); not installed locally              |
+
+The [ACP registry research](acp-registry.md) extends this inventory to registry and custom ACP agents, compares the published SDK 1.7.0 with the supervised adapter, and records initialize-only Gemini 0.43.0 and Qwen 0.0.14 probes. It distinguishes current upstream releases from installed versions and proposes [ADR 0044](../../adr/0044-acp-agent-registry.md).
+
 No live agent sessions were run. Several key behaviours are marked **[unverified]** in the provider files and need recorded fixtures (see [Next step](#next-step-live-fixture-spike)).
 
 ## Recommended surface per provider
@@ -25,10 +35,10 @@ No live agent sessions were run. Several key behaviours are marked **[unverified
 | **Claude**      | Agent SDK `query()` in streaming-input mode. One long-lived `Query` per thread                                                                          | SDK session helpers (`listSessions`, `getSessionMessages`, `getSubagentMessages`) | Raw stream-json (re-implements the control protocol), user hooks, OTel                             |
 | **Codex**       | `codex app-server` JSON-RPC v2 over stdio with `experimentalApi`. One multiplexed process per daemon                                                    | app-server `thread/list` / `thread/read` / `thread/turns/list`                    | `codex exec --json` and the TS SDK (no approvals, drop subagents), rollout files (unstable format) |
 | **OpenCode**    | One `opencode serve` per machine (password set) + one `GET /global/event` SSE stream, via `@opencode-ai/sdk/v2` or our own client generated from `/doc` | HTTP list/read routes                                                             | ACP mode (drops subagents and questions), the root `@opencode-ai/sdk` (stale), direct DB reads     |
-| **Cursor**      | `agent acp` (hidden subcommand), one process per thread, with `clientCapabilities._meta.subagents`                                                      | `~/.cursor/projects/*/agent-transcripts/*.jsonl`                                  | Headless stream-json except for unattended runs (no human-in-the-loop)                             |
+| **Cursor**      | Official `@cursor/sdk` local runtime in supervised per-instance SDK hosts; [ADR 0043](../../adr/0043-cursor-sdk-local-runtime.md)                       | ace events plus SDK checkpoints/history; ACP continuation for existing threads    | SDK cloud mode, fake approval prompts, treating task projections as independent sessions           |
 | **Antigravity** | Google's `agy_acp_server` from the ACP registry, API-key auth by default                                                                                | `session/load` replay into a scratch connection                                   | On-disk `.db` files (unpublished protobuf). Gemini CLI is a different agent                        |
 
-Two transports cover everything: **three native adapters** (Claude SDK, Codex app-server, OpenCode HTTP+SSE) and **one ACP adapter with per-vendor quirk modules** (Cursor, Antigravity, and any future ACP agent).
+Four native adapters cover Claude SDK, Codex app-server, OpenCode HTTP+SSE and Cursor SDK. The generic ACP adapter covers registry agents, Antigravity, existing Cursor ACP threads and Cursor fallback when the SDK is absent. The matrix below retains the original **Cursor ACP** findings; see the [SDK comparison](cursor-sdk.md#comparison-with-the-findings-in-cursormd) for the accepted backend.
 
 ## Capability matrix
 
@@ -79,24 +89,24 @@ Two transports cover everything: **three native adapters** (Claude SDK, Codex ap
 
 ## Auth and terms of service
 
-**Decision (2026-10-02): ace drives the user's own locally installed CLIs, using whatever login the user set up in each one.** ace never offers provider login, never stores provider credentials, and is never hosted. Remote and mobile access means the user's own devices connecting to their own daemon. In practice:
+**Decision (2026-10-02): ace runs locally through the user's installed CLIs or an accepted official SDK local runtime.** ace never stores provider credentials and is never hosted. The [official SDK login amendment to ADR 0002](../../adr/0002-local-cli-providers.md#amendment-official-sdk-logins) permits SDK-owned browser login for local runtimes; [ADR 0043](../../adr/0043-cursor-sdk-local-runtime.md) selects it for Cursor. Remote and mobile access means the user's own devices connecting to their own daemon. In practice:
 
-- Spawn the binary found on the user's PATH, not a bundled copy. For Claude, point the SDK at the user's `claude` with `pathToClaudeCodeExecutable`; for Codex, run the user's `codex app-server`.
-- Detect whether each CLI is installed, its version, and its auth status. If the user isn't logged in, show the CLI's own login command (`claude /login`, `codex login`, `agent login`, …) instead of an ace login flow.
+- For the CLI paths, spawn the binary found on the user's PATH, not a bundled copy. For Claude, point the SDK at the user's `claude` with `pathToClaudeCodeExecutable`; for Codex, run the user's `codex app-server`.
+- For the CLI paths, detect whether each CLI is installed, its version, and its auth status. If the user isn't logged in, show the CLI's own login command (`claude /login`, `codex login`, `agent login`, …) instead of an ace login flow.
 - Because the installed version is whatever the user has, gate features on capability probes and generate schemas from the installed binary where possible (conclusion 12).
 - Antigravity remains a special case: its ACP server is a separate download, not the `agy` CLI, and the ToS clause about third-party software still needs Google's position for `oauth-personal`.
 
 The vendor positions that led to this decision:
 
-| Provider    | What the vendor says                                                                                             | Safe default                                                                      |
-| ----------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Claude      | Third parties may not offer claude.ai login or rate limits without approval (Agent SDK overview)                 | API key, or the user's own local CLI login behind explicit opt-in; ask Anthropic  |
-| Codex       | App-server auth "has never been permitted for commercial or hosted services"; local/open-source use is tolerated | Local daemon using the user's own `codex login`; never hosted                     |
-| Antigravity | Using third-party software with Antigravity OAuth is a breach of the ToS                                         | `gemini-api-key` / Vertex; get Google's position before enabling `oauth-personal` |
-| Cursor      | Nothing found that restricts ACP clients; ACP is documented                                                      | User's own `agent login` or API key                                               |
-| OpenCode    | Open source; users configure their own provider keys                                                             | User's own config                                                                 |
+| Provider    | What the vendor says                                                                                                                  | Safe default                                                                              |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Claude      | Third parties may not offer claude.ai login or rate limits without approval (Agent SDK overview)                                      | API key, or the user's own local CLI login behind explicit opt-in; ask Anthropic          |
+| Codex       | App-server auth "has never been permitted for commercial or hosted services"; local/open-source use is tolerated                      | Local daemon using the user's own `codex login`; never hosted                             |
+| Antigravity | Using third-party software with Antigravity OAuth is a breach of the ToS                                                              | `gemini-api-key` / Vertex; get Google's position before enabling `oauth-personal`         |
+| Cursor      | Official SDK browser login mints and persists a key in its own store; [SDK audit](cursor-sdk.md#authentication-and-process-ownership) | Isolated per-instance SDK login or environment-only `CURSOR_API_KEY`; ACP keeps CLI login |
+| OpenCode    | Open source; users configure their own provider keys                                                                                  | User's own config                                                                         |
 
-The common thread: ace running **locally**, driving the CLI the user installed and logged into, is the most defensible position. A hosted ace that holds users' subscription credentials is not.
+ace stays local. Provider authentication belongs to the installed CLI or the official SDK under the accepted amendment. ace does not hold provider credentials or operate a hosted credential service.
 
 ## Next step: live fixture spike
 
