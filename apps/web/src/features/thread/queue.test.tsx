@@ -143,6 +143,26 @@ test("a usage limit holds the queue, says when it resets and resumes on request"
   );
 });
 
+test("a rate-limited thread shows the hold banner, not a working spinner", async () => {
+  const app = harness();
+  app.play(longHistory(2)).runUntilBlocked();
+  app.daemon.apply("thread-router", [
+    { type: "turn.started", agent: "root", nativeTurnId: "limited", trigger: "user" },
+    {
+      type: "turn.ended",
+      agent: "root",
+      outcome: "failed",
+      error: { kind: "quota", message: "5-hour limit reached" },
+    },
+    { type: "retry", agent: "root", on: "rate_limit", until: Date.now() + 3_600_000 },
+  ]);
+  await app.open("/t/thread-router");
+  await screen.findByRole("region", { name: "Usage limit reached" });
+  // The banner says it once; the transcript doesn't add "Rate limited" or a moving spinner.
+  expect(screen.queryByText(/Rate limited/)).toBeNull();
+  expect(document.querySelector('[role="status"] [data-slot="spinner"]')).toBeNull();
+});
+
 test("the composer shows how full the agent's context is", async () => {
   const { app } = await openBusy();
   expect(screen.queryByRole("meter", { name: "Context used" })).toBeNull();

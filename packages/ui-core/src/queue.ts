@@ -102,6 +102,18 @@ export function queueNotice(
   }
 }
 
+/**
+ * The queue banner is already saying the account hit its limit (held, resuming at reset or
+ * snoozed until it), so the transcript shouldn't repeat it as a live line.
+ */
+export function limitHoldShown(
+  status: ThreadStatus | undefined,
+  queue: QueueHold | undefined,
+): boolean {
+  const kind = queueNotice(status, queue, 0)?.kind;
+  return kind === "limited" || kind === "resuming" || kind === "snoozed";
+}
+
 export interface ContextUsage {
   /** 0..100 when the window is known. */
   percent: number | undefined;
