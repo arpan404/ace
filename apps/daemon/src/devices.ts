@@ -92,6 +92,14 @@ export class Devices {
   }
   revoke(id: string, at: number): boolean {
     Device.shape.revokedAt.parse(at);
-    return this.revocation.run(at, id).changes !== 0;
+    if (this.revocation.run(at, id).changes === 0) return false;
+    for (const listener of this.revoked) {
+      try {
+        listener(id);
+      } catch {
+        /* One subscriber cannot preserve another's authority. */
+      }
+    }
+    return true;
   }
 }

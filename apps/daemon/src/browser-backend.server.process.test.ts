@@ -102,13 +102,23 @@ it("desktop credentials cannot be paired or converted to remote socket tickets",
   expect(() => auth.pairing(["desktop"])).toThrow("local only");
   expect(() => auth.ticket(f.credential.device)).toThrow("local only");
 });
-it("revoking a desktop credential closes its registered backend socket", async () => {
+it("HTTP revocation closes the desktop backend even when another revocation listener throws", async () => {
   const f = await setup();
+  const stopThrowing = f.store.devices.onRevoke(() => {
+    throw new Error("Unrelated listener failure");
+  });
+  cleanups.push(async () => stopThrowing());
   const desktop = await f.connect(f.credential.device.id);
   const registration = await f.register(desktop, f.credential.token);
   expect(registration).toMatchObject({ type: "browser.backend.registered" });
   const closed = once(desktop, "close");
-  f.store.devices.revoke(f.credential.device.id, 2);
+  const response = await fetch(`${f.server.httpUrl}/v1/devices/${f.credential.device.id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ revoked: true });
+  expect(f.store.devices.get(f.credential.device.id)?.revokedAt).not.toBeNull();
   await closed;
   const reconnect = await f.connect(f.credential.device.id);
   expect(await f.register(reconnect, f.credential.token)).toMatchObject({
