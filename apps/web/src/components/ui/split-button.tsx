@@ -22,6 +22,8 @@ function SplitButton(props: {
   variant?: "outline" | "ghost";
   shortcut?: string;
   disabled?: boolean;
+  /** Only the main action is unavailable; `actionLabel` (its tooltip) should say why. */
+  actionDisabled?: boolean;
   className?: string;
 }) {
   const outline = (props.variant ?? "outline") === "outline";
@@ -39,7 +41,9 @@ function SplitButton(props: {
       <Tip label={props.actionLabel} {...(props.shortcut ? { keys: props.shortcut } : {})}>
         <ButtonPrimitive
           aria-label={props.label ? undefined : props.actionLabel}
-          disabled={props.disabled}
+          aria-description={props.actionDisabled && props.label ? props.actionLabel : undefined}
+          disabled={props.disabled || props.actionDisabled}
+          focusableWhenDisabled={props.actionDisabled}
           onClick={props.onAction}
           className={cn(
             region,

@@ -213,6 +213,7 @@ export function GitButton(props: { thread: ThreadRef }) {
         actionLabel={actionLabel}
         menuLabel="Git actions"
         disabled={pending}
+        actionDisabled={step.kind === "create-pr" && !!step.blocked}
         onAction={() => {
           if (step.kind === "pr") {
             if (step.pr.url) openUrl(step.pr.url);

@@ -1,4 +1,4 @@
-import { flakyCheckout, replayCursor } from "@ace/fake-daemon";
+import { facts, flakyCheckout, replayCursor, type Scenario } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
@@ -92,6 +92,38 @@ test("the git control walks the branch from Commit to Push to Create PR to the P
     linkedPr: { number: 1, state: "open" },
   });
   opened.mockRestore();
+});
+
+test("Create PR says why it can't run when the checkout has no GitHub or GitLab remote", async () => {
+  const local: Scenario = {
+    thread: {
+      id: "thread-no-remote",
+      workspaceId: "scratch",
+      title: "Sketch a parser",
+      provider: "claude",
+      details: {
+        workspace: { id: "scratch", name: "scratch", path: "/Users/dev/scratch" },
+        mode: "local",
+        worktree: "/Users/dev/scratch",
+        branch: "sketch/parser",
+        head: "a".repeat(40),
+        ahead: 0,
+        behind: 0,
+        baseBranch: "main",
+      },
+    },
+    steps: [{ kind: "facts", facts: [facts.rootAgent("claude")] }],
+  };
+  const app = harness();
+  app.play(local).runUntilBlocked();
+  await app.open("/t/thread-no-remote");
+  const create = await screen.findByRole("button", { name: "Create PR" });
+  expect(create.getAttribute("aria-disabled")).toBe("true");
+  expect(create.getAttribute("aria-description")).toBe(
+    "The daemon found no GitHub or GitLab remote for this checkout.",
+  );
+  await userEvent.click(create);
+  expect(screen.queryByRole("dialog", { name: "Open a pull request" })).toBeNull();
 });
 
 test("View diff in the git menu shows the Changes tab", async () => {

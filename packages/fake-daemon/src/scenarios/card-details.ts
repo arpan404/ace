@@ -68,6 +68,8 @@ function details(seed: Seed, workspaceId: string): NonNullable<Thread["details"]
       ? { diff: { additions: seed.diff[0], deletions: seed.diff[1], files: seed.diff[2] } }
       : {}),
     workspace: { id: workspaceId, name: workspaceId, path: `/Users/dev/${workspaceId}` },
+    // Every seeded project has a GitHub origin, so Create PR has somewhere to go.
+    repository: { forge: "github", host: "github.com", owner: "acme", name: workspaceId },
   };
 }
 
