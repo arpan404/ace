@@ -5,7 +5,7 @@ import { loginStatus, instanceEnv, loginArgs } from "./instances.ts";
 import type { ProviderInstance } from "@ace/protocol/accounts";
 import type { AccountRegistry } from "./registry.ts";
 import type { DiscoveryOptions } from "@ace/provider-kit/discovery";
-import type { cursorSdkLoginDriver } from "./cursor-sdk.ts";
+import type { cursorDaemonDriver } from "./cursor-cli-auth.ts";
 
 /** The CLI owns credential entry and browser login; ace inherits terminal streams. */
 export async function addAccount(
@@ -18,7 +18,7 @@ export async function addAccount(
     signal?: AbortSignal;
     spawn?: typeof spawnInteractive;
     cancellationGraceMs?: number;
-    cursorSdk?: ReturnType<typeof cursorSdkLoginDriver>;
+    cursorSdk?: Pick<ReturnType<typeof cursorDaemonDriver>, "status" | "login">;
     loginUrl?: (url: string) => void;
   },
 ) {

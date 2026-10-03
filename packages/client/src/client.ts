@@ -1,6 +1,8 @@
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
+  CursorAuthRequest,
+  CursorAuthEvent,
   TextSource,
   RegistryRequest,
   RegistryResult,
@@ -25,6 +27,7 @@ import {
 } from "./types.ts";
 
 type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
+export type CursorAuthQuery = WithoutRequestId<CursorAuthRequest>;
 export type RegistryQuery = WithoutRequestId<RegistryRequest>;
 
 export class Client {
@@ -65,6 +68,9 @@ export class Client {
               .acknowledge(message)
               .catch(() => this.connection.fail(new ClientError("storage")));
             break;
+          case "cursor.auth.login":
+          case "cursor.auth.changed":
+          case "cursor.auth.error":
           case "registry.result":
           case "items.page":
           case "output.data":
@@ -181,6 +187,23 @@ export class Client {
         const response = RegistryResult.parse(value);
         if (response.requestId !== request.requestId) throw new ClientError("protocol");
         return response;
+      },
+      options,
+      () => {
+        if (!this.connection.send(request)) throw new ClientError("offline");
+      },
+    );
+  }
+  /** Ephemeral auth requests never enter the persistent intent outbox. */
+  cursorAuth(input: CursorAuthQuery, options: RequestOptions = {}): Promise<CursorAuthEvent> {
+    if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
+    const request = CursorAuthRequest.parse({ ...input, requestId: this.options.id() });
+    return this.requests.wait(
+      request.requestId,
+      (value) => {
+        const event = CursorAuthEvent.parse(value);
+        if (event.requestId !== request.requestId) throw new ClientError("protocol");
+        return event;
       },
       options,
       () => {
