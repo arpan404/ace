@@ -24,6 +24,7 @@
     "@ace/adapter-acp": "workspace:*",
     "@ace/adapter-claude": "workspace:*",
     "@ace/adapter-codex": "workspace:*",
+    "@ace/adapter-cursor": "workspace:*",
     "@ace/adapter-opencode": "workspace:*",
     "@ace/browser": "workspace:*",
     "@ace/context": "workspace:*",

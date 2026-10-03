@@ -1,0 +1,25 @@
+{
+  "name": "@ace/adapter-cursor",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@ace/core": "workspace:*",
+    "@ace/engine-api": "workspace:*",
+    "@ace/mcp-server": "workspace:*",
+    "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
+    "@ace/redaction": "workspace:*",
+    "@cursor/sdk": "1.0.35",
+    "zod": "^4.6.5"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

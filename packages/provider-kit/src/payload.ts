@@ -9,12 +9,14 @@ const object = z.custom<Record<string, unknown>>(
 /** Own a bounded, immutable JSON value. No object-to-JSON admission path exists. */
 export class ProviderPayload {
   #data: unknown;
+  readonly bytes: number;
   constructor(source: string | Uint8Array) {
     const input = encoded.parse(source);
     // UTF-16 length is an O(1) lower bound on UTF-8 bytes. Check it before byteLength.
     if (input.length > maxProviderPayloadBytes)
       throw new RangeError("Provider payload exceeds byte limit");
-    if (typeof input === "string" && Buffer.byteLength(input) > maxProviderPayloadBytes)
+    this.bytes = typeof input === "string" ? Buffer.byteLength(input) : input.byteLength;
+    if (this.bytes > maxProviderPayloadBytes)
       throw new RangeError("Provider payload exceeds byte limit");
     const text =
       typeof input === "string" ? input : new TextDecoder("utf-8", { fatal: true }).decode(input);

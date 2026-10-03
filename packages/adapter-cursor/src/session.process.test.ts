@@ -1,0 +1,74 @@
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, it } from "vitest";
+import { ThreadId } from "@ace/protocol";
+import { apply, createThreadState } from "@ace/core";
+import { createCursorAdapter, openCursorSession } from "./index.ts";
+
+const fakeHost = `
+import { createInterface } from 'node:readline';
+let options, sending, run=0;
+const out = (input) => process.stdout.write(JSON.stringify(input)+'\\n');
+const frame = (kind, body) => out({method:'frame',params:{schemaVersion:1,generation:options.generation,operationId:sending?.operationId??'open',segment:sending?.segment??0,agentId:'synthetic-agent',runId:'run-'+run,kind,body}});
+createInterface({input:process.stdin}).on('line',(line)=>{
+ const input=JSON.parse(line);
+ if(input.method==='open'){options=input.params;frame('open',{cwd:options.cwd});out({id:input.id,result:{agentId:'synthetic-agent'}});}
+ else if(input.method==='send'){sending=input.params;run++;frame('send',{input:sending.input});frame('segment',{nativeRunId:'run-'+run});frame('delta',{type:'text-delta',text:'segment-'+run});out({id:input.id,result:{runId:'run-'+run}});}
+ else if(input.method==='cancel'){frame('result',{status:'cancelled'});out({id:input.id,result:{settled:true}});}
+ else if(input.method==='close'){frame('result',{status:'finished'});out({id:input.id,result:{disposed:true}});}
+});
+`;
+it("supervises a real host, keeps steering in one ace run and rejects child controls", async () => {
+  const home = await mkdtemp(join(tmpdir(), "cursor-host-"));
+  try {
+    const entry = join(home, "host.mjs");
+    await writeFile(entry, fakeHost);
+    const threadId = ThreadId.parse("session-test");
+    const translator = createCursorAdapter().createTranslator({ threadId, rootKey: "root" });
+    const state = createThreadState({ threadId, config: { provider: "cursor", silenceMs: 90000 } });
+    let id = 0;
+    let exit: { deliberate: boolean } | undefined;
+    const session = await openCursorSession(
+      {
+        threadId,
+        cwd: home,
+        signal: new AbortController().signal,
+        onExit: (value) => {
+          exit = value;
+        },
+        onFrame: (frame) => {
+          for (const fact of translator.translate(frame, frame.t))
+            apply(state, fact, { now: frame.t, ids: { next: (kind) => `${kind}-${++id}` } });
+        },
+      },
+      {
+        env: { HOME: home },
+        instanceId: "instance",
+        entry,
+        policy: "full-access",
+        generation: () => "host1",
+        now: () => 1,
+      },
+    );
+    await session.send([{ type: "text", text: "first" }], "queue", {
+      operationId: "durable-command-1",
+    });
+    await session.send([{ type: "text", text: "replacement" }], "steer", {
+      operationId: "durable-command-2",
+    });
+    expect(Object.values(state.runs)).toHaveLength(1);
+    await expect(session.interrupt({ agent: "child", cascade: true })).rejects.toThrow("read-only");
+    await expect(session.stopTask("task")).rejects.toThrow("unsupported");
+    await expect(
+      session.resolve("question", { kind: "question", answers: {}, dismissed: true }),
+    ).rejects.toThrow("sandbox-only");
+    await session.close("shutdown");
+    expect(exit).toEqual({ deliberate: true });
+    expect(Object.values(state.runs)).toHaveLength(1);
+    expect(JSON.stringify(state.items)).toContain("durable-command-1");
+    expect(session.backend).toBe("cursor-sdk");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
