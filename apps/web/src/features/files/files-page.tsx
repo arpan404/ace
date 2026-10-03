@@ -8,7 +8,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { PageTitle, Screen } from "@/features/shell/screen.tsx";
+import { PageTitle, Screen } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
 import {

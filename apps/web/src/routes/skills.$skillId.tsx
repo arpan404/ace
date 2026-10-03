@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SkillPage } from "@/features/skills/skill-page.tsx";
+import { SkillPage } from "@/features/skills/index.ts";
 
 export const Route = createFileRoute("/skills/$skillId")({ component: Skill });
 

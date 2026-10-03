@@ -1,7 +1,7 @@
 import { useThreadError, useThreadMeta } from "@ace/client-react";
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { threadPanels } from "@/features/panels/thread-panels.tsx";
-import { Screen } from "@/features/shell/screen.tsx";
+import { threadPanels } from "@/features/panels/index.ts";
+import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import { GitButton, OpenButton, RunButton } from "./header/header-actions.tsx";
 import { RenameDialog, ThreadMenuItems } from "./header/thread-menu.tsx";

@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/menu.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { Screen } from "@/features/shell/screen.tsx";
+import { Screen } from "@/features/shell/index.ts";
 import { kinds } from "./skills-sidebar.tsx";
 import {
   availabilities,

@@ -6,11 +6,7 @@
  */
 import { ConductorCommandPayload } from "@ace/protocol";
 import { useMemo, useSyncExternalStore } from "react";
-import {
-  UnavailableError,
-  useFakeBackend,
-  type FakeBackend,
-} from "@/features/more/fake-backend.ts";
+import { UnavailableError, useFakeBackend, type FakeBackend } from "@/boot/fake-backend.ts";
 import { type DeckRun } from "@ace/ui-core";
 
 export interface DeckSource {

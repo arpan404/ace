@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { Screen } from "@/features/shell/screen.tsx";
+import { Screen } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { ConductorCommandPayload } from "@ace/protocol";
 import { CardGraph } from "./card-graph.tsx";

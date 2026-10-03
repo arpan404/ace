@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import { SidebarHeader } from "@/features/shell/view-frame.tsx";
+import { SidebarHeader } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { ProjectFilter } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";

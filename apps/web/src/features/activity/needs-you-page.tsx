@@ -4,7 +4,7 @@ import { useCallback, useRef } from "react";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
-import { Page, PageTitle } from "@/features/shell/screen.tsx";
+import { Page, PageTitle } from "@/features/shell/index.ts";
 import { useActivityState } from "./activity-state.tsx";
 import { EscalationCard } from "./escalation-card.tsx";
 import { InteractionCard } from "./interaction-card.tsx";

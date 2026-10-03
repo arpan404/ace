@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { fakeBackend } from "@/features/more/fake-backend.ts";
+import { fakeBackend } from "@/boot/fake-backend.ts";
 import { harness } from "@/test/harness.tsx";
 
 const card = (name: string) => screen.findByRole("article", { name });

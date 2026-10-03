@@ -3,7 +3,7 @@ import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useDaemonConnection } from "@/boot/connection.tsx";
-import { DaemonForm } from "@/features/connect/daemon-form.tsx";
+import { DaemonForm } from "@/features/connect/index.ts";
 import { DaemonHealth } from "./daemon-health.tsx";
 
 const stateLabels = {

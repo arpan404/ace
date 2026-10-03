@@ -2,7 +2,7 @@ import { ArrowsClockwiseIcon, ChartBarIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { PageTitle, Screen } from "@/features/shell/screen.tsx";
+import { PageTitle, Screen } from "@/features/shell/index.ts";
 import { AccountCard } from "./account-card.tsx";
 import { AddAccount } from "./add-account.tsx";
 import { useAccounts, useRefreshAccounts, type Account } from "./accounts-source.ts";

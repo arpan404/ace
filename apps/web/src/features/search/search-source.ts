@@ -6,7 +6,7 @@
  */
 import type { ProviderKind } from "@ace/protocol";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { UnavailableError, useFakeBackend } from "@/features/more/fake-backend.ts";
+import { UnavailableError, useFakeBackend } from "@/boot/fake-backend.ts";
 
 export type SearchKind = "thread" | "message" | "tool_call" | "artifact";
 export interface SearchHit {

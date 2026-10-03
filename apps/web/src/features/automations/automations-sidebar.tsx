@@ -17,7 +17,7 @@ import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
-import { ViewSidebar } from "@/features/shell/view-frame.tsx";
+import { ViewSidebar } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
 import { runSummary } from "./labels.ts";

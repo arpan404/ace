@@ -2,7 +2,7 @@ import type { Client } from "@ace/client";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, AppFrame } from "./app.tsx";
-import { ConnectionGate } from "./boot/connection-gate.tsx";
+import { ConnectionGate } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl } from "./boot/connection-settings.ts";
 import { createDaemonClient } from "./boot/daemon.ts";
 import "./styles/index.css";

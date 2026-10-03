@@ -7,11 +7,7 @@
  */
 import { UsageQuery, type UsageResult } from "@ace/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  UnavailableError,
-  useFakeBackend,
-  type FakeBackend,
-} from "@/features/more/fake-backend.ts";
+import { UnavailableError, useFakeBackend, type FakeBackend } from "@/boot/fake-backend.ts";
 
 export interface QuotaWindow {
   id: string;

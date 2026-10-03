@@ -4,9 +4,12 @@ import type { ThreadListEntry } from "@ace/protocol";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { arrange, isSettled, isUnread, projectCounts } from "@ace/ui-core";
-import { threadDetailsSource } from "@/features/home/thread-details.ts";
-import { useThreadActions } from "@/features/home/use-thread-actions.ts";
-import { useOrganizer, useOrganizerState } from "@/features/home/use-organizer.ts";
+import {
+  threadDetailsSource,
+  useThreadActions,
+  useOrganizer,
+  useOrganizerState,
+} from "@/features/home/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 

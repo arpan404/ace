@@ -12,7 +12,7 @@ import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-row.tsx";
-import { ViewSidebar } from "@/features/shell/view-frame.tsx";
+import { ViewSidebar } from "@/features/shell/index.ts";
 import { InstallPlugin } from "./install-plugin.tsx";
 import { useSkills, type Skill, type SkillKind, type SkillSource } from "./skills-source.ts";
 

@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
 import { formatAge } from "@ace/ui-core";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
-import { Screen } from "@/features/shell/screen.tsx";
+import { Screen } from "@/features/shell/index.ts";
 import { useNow } from "@/lib/time.ts";
 import { useSearch, type SearchHit, type SearchKind } from "./search-source.ts";
 
