@@ -1,26 +1,51 @@
-import { useDeckEscalations, type DeckEscalation } from "@/features/deck/index.ts";
-import type { FeedEvent } from "./feed-events.ts";
+import { useDeckDecisions, type DeckDecision, type DeckOwner } from "@/features/deck/index.ts";
+import type { FeedAction, FeedEvent } from "./feed-events.ts";
 
-/** A deck's escalated decision; it stays in Needs you until the deck reports it closed. */
-export function escalationEvent(escalation: DeckEscalation): FeedEvent {
+const approve: Record<"plan" | "merge" | "escalation", string> = {
+  plan: "Approve plan",
+  merge: "Approve merge",
+  escalation: "Approve",
+};
+
+/**
+ * A decision a deck waits on, as a feed event; it stays in Needs you until the deck reports it
+ * closed. A conductor gate is approved or rejected here; an agent's question carries its
+ * interaction and is answered like any other request.
+ */
+export function deckEvent(decision: DeckDecision): FeedEvent {
+  const { gate } = decision;
+  const actions: FeedAction[] | undefined =
+    gate.kind === "provider"
+      ? undefined
+      : [
+          { id: "reject", label: "Reject" },
+          { id: "approve", label: approve[gate.kind], primary: true },
+        ];
   return {
-    id: `escalation:${escalation.runId}:${escalation.gate.id}`,
+    id: `escalation:${decision.runId}:${gate.id}`,
     kind: "escalation",
-    title: escalation.gate.title,
-    project: escalation.workspaceId,
-    context: escalation.deck,
-    at: escalation.seenAt,
-    body: escalation.gate.body,
-    actions: [
-      { id: "reject", label: "Reject" },
-      { id: "approve", label: "Approve", primary: true },
-    ],
-    runId: escalation.runId,
-    gateId: escalation.gate.id,
+    title: gate.title,
+    project: decision.workspaceId,
+    context: decision.deck,
+    at: gate.gatedAt,
+    body: gate.body,
+    ...(actions ? { actions } : {}),
+    ...(gate.interaction ? { interaction: gate.interaction } : {}),
+    runId: decision.runId,
+    gateId: gate.id,
   };
 }
 
-/** Open Deck escalations, as feed events: what the rail counts beside open requests. */
+/** Open Deck decisions as feed events, and the threads whose requests they stand for. */
+export function useDeckEvents(): {
+  events: FeedEvent[];
+  threads: ReadonlyMap<string, DeckOwner>;
+} {
+  const { decisions, threads } = useDeckDecisions();
+  return { events: decisions.map(deckEvent), threads };
+}
+
+/** Open Deck decisions, as feed events. */
 export function useEscalations(): FeedEvent[] {
-  return useDeckEscalations().map(escalationEvent);
+  return useDeckEvents().events;
 }

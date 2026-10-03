@@ -115,7 +115,7 @@ export function engineHandler(
             accountId ??
             selectInstance?.(p.provider, entry.adapter.backend);
           let handoff: ReturnType<typeof portableContext> | undefined;
-          if (p.type === "thread.create" && p.handoffFrom) {
+          if (p.handoffFrom) {
             const source = repo.store.getThread(p.handoffFrom);
             if (!source) return fail("handoff_source_not_found");
             const page = repo.store.readItemPage(
@@ -137,10 +137,11 @@ export function engineHandler(
               page.items,
               { maxBytes: 65536, maxItems: 100, historyTruncated: page.itemsBefore !== null },
             );
-            deliveryCommand = {
-              ...command,
-              payload: { ...p, input: [{ type: "text", text: handoff.text }, ...p.input] },
-            };
+            if (p.type === "thread.create")
+              deliveryCommand = {
+                ...command,
+                payload: { ...p, input: [{ type: "text", text: handoff.text }, ...p.input] },
+              };
           }
           const at = now();
           if (entry.adapter.backend === "cursor-sdk") {
@@ -172,7 +173,7 @@ export function engineHandler(
             ...(acpIdentity ? { acpIdentity } : {}),
             capabilities: entry.capabilities,
             ...(entry.adapter.backend ? { backend: entry.adapter.backend } : {}),
-            ...(handoff && p.type === "thread.create" && p.handoffFrom
+            ...(handoff && p.handoffFrom
               ? {
                   handoff: {
                     sourceThreadId: p.handoffFrom,
@@ -191,6 +192,7 @@ export function engineHandler(
             at,
             silenceMs,
             client: {
+              ...(p.type === "thread.prepare" && p.deck ? { deck: p.deck } : {}),
               details: {
                 workspace: {
                   id: p.workspaceId,
@@ -212,9 +214,16 @@ export function engineHandler(
               },
             },
           });
-          if (handoff && p.type === "thread.create" && p.handoffFrom)
+          if (handoff && p.handoffFrom)
             repo.transitions.history.grant(threadId, p.handoffFrom, handoff.source.throughSeq);
           if (p.type === "thread.prepare") {
+            if (handoff) {
+              const previous = repo.transitions.get(threadId);
+              repo.transitions.set(threadId, {
+                ...previous,
+                context: [...previous.context, handoff.text],
+              });
+            }
             repo.release(threadId);
             return { commandId: command.id, ok: true, threadId };
           }

@@ -159,6 +159,7 @@ export function CardGraph(props: {
 function CardTile(props: { card: DeckCard; run: DeckRun; selected: boolean; onSelect(): void }) {
   const status = cardStatus(props.card, props.run);
   const provider = props.card.lane?.worker?.provider;
+  const helpers = props.card.agents.filter((agent) => agent.nested && agent.live).length;
   return (
     <button
       data-card-id={props.card.id}
@@ -178,7 +179,14 @@ function CardTile(props: { card: DeckCard; run: DeckRun; selected: boolean; onSe
       <span className="mt-2 flex items-center gap-1.5 text-[12px] text-muted-foreground">
         <StatusMark mark={status.mark} tone={status.tone} />
         <span>{status.label}</span>
-        {provider && <ProviderMark provider={provider} className="ml-auto" />}
+        <span className="ml-auto flex items-center gap-1.5">
+          {helpers > 0 && (
+            <span className="text-subtle-foreground tabular-nums">
+              +{helpers} {helpers === 1 ? "sub-agent" : "sub-agents"}
+            </span>
+          )}
+          {provider && <ProviderMark provider={provider} />}
+        </span>
       </span>
     </button>
   );

@@ -107,7 +107,10 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
   }
   // Interrupted filesystem work is never launched at startup. Cleanup precedes new handoff admission.
   const recovery = Promise.all(
-    delegations.journal.reservations().map((reservation) => cleanup(reservation)),
+    delegations.journal
+      .reservations()
+      .filter((reservation) => reservation.record.resultDelivery !== "owner")
+      .map((reservation) => cleanup(reservation)),
   );
   void recovery.catch((error) => log.log("error", "Handoff recovery requires cleanup", error));
   resources.onShutdown(async () => {
@@ -215,7 +218,13 @@ export function createHandoffs(context: ServiceContext, delegations: DelegationS
       signal.throwIfAborted();
       const result = store.atomic(() => {
         signal.throwIfAborted();
-        const workspace = store.createWorkspace(path, operation.branch);
+        const parentDeck = store.getThread(caller.threadId)?.deck;
+        const workspace = store.createWorkspace(
+          path,
+          operation.branch,
+          undefined,
+          parentDeck ? { ...parentDeck, role: "delegate" } : undefined,
+        );
         const child = delegations.prepareReserved(caller, reservation, workspace);
         signal.throwIfAborted();
         delegations.launch(child, child.request.task);

@@ -57,13 +57,19 @@ export class DelegationAdmission {
     )
       throw new Error("launch_options_unsupported");
   }
-  reserve(caller: McpAttribution, value: DelegationRequest): DelegationReservation {
+  reserve(
+    caller: McpAttribution,
+    value: DelegationRequest,
+    resultDelivery?: "owner",
+  ): DelegationReservation {
     const input = DelegationRequest.parse(value);
     return this.deps.store.atomic(() => {
       this.validate(caller, input);
       const existing = this.journal.reservation(caller.threadId, input.requestId);
       if (existing) {
         this.match(caller, input, existing.record);
+        if (existing.record.resultDelivery !== resultDelivery)
+          throw new Error("Reservation owner mismatch");
         return existing;
       }
       const now = this.deps.clock.now(),
@@ -109,6 +115,7 @@ export class DelegationAdmission {
           createdAt: now,
           phase: "created",
           generation: 0,
+          ...(resultDelivery ? { resultDelivery } : {}),
         },
         ...(selected ? { accountId: selected.id } : {}),
       };
@@ -127,7 +134,16 @@ export class DelegationAdmission {
     )
       throw new Error("Request identity conflict");
   }
-  commit(caller: McpAttribution, reservation: DelegationReservation, workspace: WorkspaceId) {
+  commit(
+    caller: McpAttribution,
+    reservation: DelegationReservation,
+    workspace: WorkspaceId,
+    ownership?: {
+      resultDelivery: "owner";
+      handoffFrom?: ThreadId;
+      deck?: import("@ace/protocol").DeckOwnership;
+    },
+  ) {
     return this.deps.store.atomic(() => {
       const requested = reservation.record;
       const current = this.journal.reservation(caller.threadId, requested.requestId);
@@ -135,6 +151,7 @@ export class DelegationAdmission {
         throw new Error("Reservation expired");
       this.match(caller, requested.request, current.record);
       const r = current.record;
+      if (ownership) r.resultDelivery = ownership.resultDelivery;
       this.validate(caller, r.request);
       const tree = this.journal.tree(caller.threadId, this.deps.clock.now());
       const rejection = tree.cancelled
@@ -156,8 +173,13 @@ export class DelegationAdmission {
           throw new Error("Account unavailable or quota exhausted");
       }
       const identity = r.request.provider === "acp" ? AcpIdentity.parse(r.request) : undefined;
+      const parentDeck = this.deps.store.getThread(r.parentId)?.deck;
+      const deck =
+        ownership?.deck ?? (parentDeck ? { ...parentDeck, role: "delegate" as const } : undefined);
       const result = this.command(controlCommandId(r.parentId, r.requestId, "create"), {
         type: "thread.prepare",
+        ...(deck ? { deck } : {}),
+        ...(ownership?.handoffFrom ? { handoffFrom: ownership.handoffFrom } : {}),
         threadId: r.childId,
         workspaceId: workspace,
         provider: r.request.provider,

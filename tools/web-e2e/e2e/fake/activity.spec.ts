@@ -11,5 +11,5 @@ test("an approval is answered from Activity and leaves the needs-you list", asyn
   await card.getByRole("button", { name: "Approve" }).click();
 
   await expect(card).toHaveCount(0);
-  await expect(page.getByRole("banner").getByText("3 need you")).toBeVisible();
+  await expect(page.getByRole("banner").getByText("5 need you")).toBeVisible();
 });

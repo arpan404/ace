@@ -1,8 +1,7 @@
 import type { ProviderKind } from "@ace/protocol";
 
 /*
- * The run view the fake conductor serves. The daemon does not publish a conductor run view
- * on the wire yet, so this is the fake's own shape; the web adapter maps it to its model.
+ * Seed and scenario state. FakePlanningWire maps it to the canonical ConductorRunView.
  */
 
 export type FakeCardState =
@@ -48,6 +47,12 @@ export interface FakeDeckCard {
   lane: FakeLane | null;
   /** One sentence for cards without a lane (planned, merged, merge). */
   note: string;
+  /** The worker's open question to the person: a provider gate until it is answered. */
+  question?: FakeQuestion | null;
+}
+export interface FakeQuestion {
+  text: string;
+  options: { id: string; label: string }[];
 }
 export interface FakePlanChange {
   kind: "moved" | "added" | "removed" | "changed";
@@ -94,4 +99,6 @@ export interface FakeDeckRun {
   pullRequest: number | null;
   createdAt: number;
   updatedAt: number;
+  /** Why the conductor couldn't run the deck's next step; cleared when it resumes. */
+  executionError?: string;
 }

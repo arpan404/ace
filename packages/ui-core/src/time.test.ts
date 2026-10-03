@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { formatAge, formatElapsed, formatSpan } from "./time.ts";
+import { formatAge, formatAgo, formatElapsed, formatSpan } from "./time.ts";
 
 const s = 1000;
 const m = 60 * s;
@@ -12,6 +12,11 @@ test("list ages read now, minutes, hours, days, then weeks", () => {
   expect(formatAge(0, 3 * h)).toBe("3h");
   expect(formatAge(0, 4 * d)).toBe("4d");
   expect(formatAge(0, 42 * d)).toBe("6w");
+});
+
+test("an age inside a sentence reads just now, then so long ago", () => {
+  expect(formatAgo(0, 10 * s)).toBe("just now");
+  expect(formatAgo(0, 12 * m)).toBe("12m ago");
 });
 
 test("an age in the future, from clock skew, reads now", () => {

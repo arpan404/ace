@@ -7,3 +7,5 @@ export { markSeen } from "./transcript/seen.ts";
 /** Fork from a thread's last finished turn, for menus outside the thread screen. */
 export { ForkDialog } from "./transitions/fork-dialog.tsx";
 export { useLatestForkPoint } from "./transitions/use-fork-point.ts";
+/** An agent's open request, answered in place (Deck shows its agents' questions with it). */
+export { InteractionCard as ThreadInteraction } from "./interactions/interaction-card.tsx";

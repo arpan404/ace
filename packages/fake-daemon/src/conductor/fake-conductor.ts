@@ -61,6 +61,11 @@ export class FakeConductor {
         this.replace(logged({ ...run, phase: "paused" }, now, "You paused the deck."));
         return { ok: true };
       case "conductor.resume": {
+        if (run.executionError) {
+          const { executionError: _, ...rest } = run;
+          this.replace(logged(rest, now, "You resumed the deck."));
+          return { ok: true };
+        }
         const phase = this.paused.get(run.id);
         if (run.phase !== "paused" || !phase) return { ok: false, error: "not_paused" };
         this.paused.delete(run.id);
@@ -75,6 +80,21 @@ export class FakeConductor {
         );
         return { ok: true };
     }
+  }
+  /** The conductor couldn't run the deck's next step; it stays stopped until resumed. */
+  fail(runId: string, code: string): void {
+    const run = this.find(runId);
+    if (run) this.replace({ ...run, executionError: code, updatedAt: this.clock() });
+  }
+  /** The person answered a worker's question: its card carries on. */
+  answer(runId: string, cardId: string): void {
+    const run = this.find(runId);
+    const card = run?.cards.find((entry) => entry.id === cardId);
+    if (!run || !card?.question) return;
+    const cards = run.cards.map((entry) =>
+      entry.id === cardId ? { ...entry, question: null } : entry,
+    );
+    this.replace(logged({ ...run, cards }, this.clock(), `You answered ${card.title}.`));
   }
   private find(id: string): FakeDeckRun | undefined {
     return this.list.find((run) => run.id === id);
