@@ -57,6 +57,8 @@ function summarize(
 
 export class AccountRegistry {
   private db: DatabaseSync;
+  private validating = false;
+  ready: Promise<void> = Promise.resolve();
   private select;
   private all;
   private upsert;
@@ -94,6 +96,10 @@ export class AccountRegistry {
     return { instance: ProviderInstance.parse(JSON.parse(parsed.instance)), quota };
   }
   get(id: string) {
+    if (this.validating) throw new Error("Account homes are still being validated");
+    return this.readAccount(id);
+  }
+  private readAccount(id: string) {
     const value = this.select.get(AccountInstanceId.parse(id));
     return value === undefined ? undefined : this.decode(value);
   }
@@ -123,6 +129,10 @@ export class AccountRegistry {
       .run(AccountId.parse(id));
   }
   list() {
+    if (this.validating) throw new Error("Account homes are still being validated");
+    return this.readAccounts();
+  }
+  private readAccounts() {
     const rows = this.all.all();
     if (rows.length > 256) throw new Error("Instance limit exceeded");
     return rows.map((value) => this.decode(value));
@@ -175,11 +185,21 @@ export class AccountRegistry {
     }
   }
   /** Upgrade old lexical identities before accepting assignments or writes. */
-  async canonicalizeHomes() {
-    const accounts = this.list();
+  canonicalizeHomes(signal?: AbortSignal): Promise<void> {
+    this.validating = true;
+    this.ready = this.normalizeHomes(signal);
+    // Consumers can use readiness later; prevent an unhandled failure meanwhile.
+    void this.ready.catch(() => undefined);
+    return this.ready;
+  }
+  private async normalizeHomes(signal?: AbortSignal): Promise<void> {
+    const accounts = this.readAccounts();
     const normalized = [];
-    for (const account of accounts)
+    for (const account of accounts) {
+      signal?.throwIfAborted();
       normalized.push({ ...account, instance: await canonicalInstance(account.instance) });
+    }
+    signal?.throwIfAborted();
     const roots = new Map<string, Set<string>>();
     for (const { instance } of normalized) {
       if (instance.provider === "acp") continue;
@@ -193,7 +213,7 @@ export class AccountRegistry {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       for (const { instance } of normalized) {
-        const current = this.get(instance.id);
+        const current = this.readAccount(instance.id);
         if (!current) throw new Error("Instance changed during canonicalization");
         this.upsert.run(
           instance.id,
@@ -202,6 +222,7 @@ export class AccountRegistry {
         );
       }
       this.db.exec("COMMIT");
+      this.validating = false;
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
@@ -253,7 +274,10 @@ export class AccountRegistry {
   }
 }
 
-export async function openRegistry(path: string): Promise<AccountRegistry> {
+export async function openRegistryIndex(
+  path: string,
+  signal?: AbortSignal,
+): Promise<AccountRegistry> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   try {
     const file = await open(path, "wx", 0o600);
@@ -265,8 +289,14 @@ export async function openRegistry(path: string): Promise<AccountRegistry> {
   if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Registry must be a regular file");
   await chmod(path, 0o600);
   const registry = new AccountRegistry(new DatabaseSync(path));
+  registry.canonicalizeHomes(signal);
+  return registry;
+}
+
+export async function openRegistry(path: string): Promise<AccountRegistry> {
+  const registry = await openRegistryIndex(path);
   try {
-    await registry.canonicalizeHomes();
+    await registry.ready;
     return registry;
   } catch (error) {
     registry.close();

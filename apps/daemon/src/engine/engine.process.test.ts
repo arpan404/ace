@@ -126,7 +126,7 @@ test("a snapshot write failure rolls back the events and client publication toge
   const recoveryStore = new Store(h.path);
   const recovery = new Engine(recoveryStore, { registry: h.registry, clock: h.clock });
   await recovery.flush();
-  expect(recoveryStore.getThread(id)?.status.state).toBe("failed");
+  expect(recoveryStore.getThread(id)?.status).toEqual({ state: "waiting", on: "queue" });
   await recovery.close();
   recoveryStore.close();
   stop();
@@ -229,7 +229,7 @@ test("startup expires interactions and ends work saved by a daemon that died", a
   const restartedStore = new Store(h.path);
   const recovered = new Engine(restartedStore, { registry: h.registry, clock: h.clock });
   await recovered.flush();
-  expect(restartedStore.getThread(id)?.status.state).toBe("failed");
+  expect(restartedStore.getThread(id)?.status).toEqual({ state: "waiting", on: "queue" });
   const recoveredView = view(restartedStore, id);
   expect(Object.values(recoveredView.interactions).map((item) => item.state)).toEqual(["expired"]);
   expect(Object.values(recoveredView.backgroundTasks).map((item) => item.status)).toEqual([

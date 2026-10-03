@@ -1,4 +1,4 @@
-import { codexInjection } from "@ace/mcp-server";
+import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
 import { CodexSelectionOptions } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { isInteractiveRequest } from "./interactions.ts";
@@ -23,7 +23,7 @@ export async function openCodexSession(
   ctx: SessionContext,
   options: CodexOptions = {},
 ): Promise<ProviderSession> {
-  const selectedOptions = CodexSelectionOptions.parse(ctx.options ?? {});
+  let selectedOptions = CodexSelectionOptions.parse(ctx.options ?? {});
   if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
   if (ctx.fork?.point.type === "item")
     throw new Error("Codex supports native turn boundaries only");
@@ -38,12 +38,12 @@ export async function openCodexSession(
     throw new Error(
       `Codex ${cli.version ?? "unknown version"} is unsupported; need 0.159.1 or newer.`,
     );
-  const ace = ctx.aceMcp ? codexInjection(ctx.aceMcp) : undefined;
+  const injection = ctx.aceMcp ? codexInjection(ctx.aceMcp) : undefined;
   const proc = io.spawn({
     command: cli.path,
-    args: ["app-server", ...(ace?.args ?? [])],
+    args: ["app-server", ...(injection?.args ?? [])],
     cwd: ctx.cwd,
-    env: { ...(ctx.env ?? options.discovery?.env), ...ace?.env },
+    env: { ...(ctx.env ?? options.discovery?.env), ...injection?.env },
     name: "ace-codex",
   });
   const started = io.now();
@@ -72,11 +72,7 @@ export async function openCodexSession(
   const recovering = new Set<string>();
   let unknownRecoveries = 0;
   const emit = (dir: "send" | "recv" | "stderr" | "note", data: unknown, channel = "stdio") => {
-    const encoded = JSON.stringify(data);
-    const bearer = ctx.aceMcp?.bearer;
-    const payload = new ProviderPayload(
-      bearer && encoded.includes(bearer) ? encoded.replaceAll(bearer, "[REDACTED]") : encoded,
-    );
+    const payload = new ProviderPayload(redactMcpCredential(JSON.stringify(data), ctx.aceMcp));
     ctx.onFrame({
       seq: sequence++,
       t: Math.round(io.now() - started),
@@ -344,7 +340,7 @@ export async function openCodexSession(
     rpc.notify("initialized");
     const params = {
       cwd: ctx.cwd,
-      ...(ace ? { developerInstructions: ace.developerInstructions } : {}),
+      ...(injection ? { developerInstructions: injection.developerInstructions } : {}),
       ...(ctx.model ? { model: ctx.model } : {}),
     } satisfies ThreadStartParams;
     const result = obj(
@@ -397,10 +393,17 @@ export async function openCodexSession(
         ...executionOptions,
       });
       model = selection.model ?? "";
+      selectedOptions = executionOptions;
     },
     close,
     ...createSessionCommands({
       nativeSessionId,
+      getLaunchOptions: () => ({
+        ...(selectedOptions.effort !== undefined ? { effort: selectedOptions.effort } : {}),
+        ...(selectedOptions.serviceTier !== undefined
+          ? { serviceTier: selectedOptions.serviceTier }
+          : {}),
+      }),
       active,
       parents,
       shells,

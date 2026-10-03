@@ -124,7 +124,7 @@ test("shutdown persists frames accepted immediately before close and output emit
   expect(h.errors).toEqual([]);
 });
 
-test("restart reports an unacknowledged delivered send and clears its durable queue without another command", async () => {
+test("restart reports an unacknowledged delivered send and holds it for review", async () => {
   const frames = scriptFrames();
   const h = track(
     await harness([{ on: "send", frames: [frames.frame(start, end)] }, { on: "send" }], frames),
@@ -143,7 +143,11 @@ test("restart reports an unacknowledged delivered send and clears its durable qu
         (item) => item.type === "notice" && item.text.includes("uncertain"),
       ),
     ).toBe(true);
-    expect(store.getThread(id)?.status.state).not.toBe("waiting");
+    expect(engine.queue(id)).toMatchObject({
+      paused: true,
+      reason: "uncertain",
+      messages: [{ state: "uncertain" }],
+    });
     expect(h.adapter.commands.filter((c) => c.type === "send")).toHaveLength(2);
   } finally {
     await engine.close();

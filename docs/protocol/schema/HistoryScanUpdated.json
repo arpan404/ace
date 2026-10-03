@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/HistoryScanUpdated.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "scan": {
+      "$ref": "https://ace.local/protocol/v1/HistoryScanStatus.json"
+    },
+    "type": {
+      "const": "history.scan.updated",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "scan"
+  ],
+  "type": "object"
+}

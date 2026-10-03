@@ -1,3 +1,4 @@
+import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import {
   createClaudeAdapter,
   type ClaudeOptions,
@@ -28,16 +29,25 @@ export function daemonClaudeAdapter(
       const mcp = context.services.mcp;
       const agentId = context.store.getThread(ctx.threadId)?.rootAgentId;
       if (!mcp || !agentId) throw new Error("Claude MCP scope is unavailable");
-      const lease = mcp.openSession(
-        {
-          sessionId: context.id(),
-          threadId: ctx.threadId,
-          agentId,
-          capabilities: ["agents", "notify", "browser"],
-        },
-        ctx.signal,
-      );
-      const ace = claudeInjection({ url: mcp.url, bearer: lease.bearer }).mcpServers;
+      const lease = ctx.aceMcp
+        ? {
+            bearer: ctx.aceMcp.bearer,
+            principal: { signal: ctx.aceMcp.signal ?? ctx.signal },
+            end: () => ctx.aceMcp?.end?.(),
+          }
+        : mcp.openSession(
+            {
+              sessionId: context.id(),
+              threadId: ctx.threadId,
+              agentId,
+              capabilities: daemonMcpCapabilities(context.services),
+            },
+            ctx.signal,
+          );
+      const ace = claudeInjection({
+        url: ctx.aceMcp?.url ?? mcp.url,
+        bearer: lease.bearer,
+      }).mcpServers;
       const redact = createRedactor({ env: { ACE_MCP_BEARER_TOKEN: lease.bearer } });
       // Control traffic is cold; redact its credentials without copying stream deltas.
       const stored = (value: unknown): unknown =>
@@ -57,7 +67,7 @@ export function daemonClaudeAdapter(
       let unbind: (() => void) | undefined;
       const end = () => {
         unbind?.();
-        lease.end();
+        lease?.end();
       };
       try {
         const adapter = createClaudeAdapter({
@@ -93,7 +103,11 @@ export function daemonClaudeAdapter(
           enable: (name) => safe(() => controls.enable(name)),
           disable: (name) => safe(() => controls.disable(name)),
         };
-        unbind = mcp.providers.bind(ctx.threadId, boundControls, lease.principal.signal);
+        unbind = mcp.providers.bind(
+          ctx.threadId,
+          boundControls,
+          lease?.principal.signal ?? ctx.signal,
+        );
         return {
           ...opened,
           mcp: boundControls,

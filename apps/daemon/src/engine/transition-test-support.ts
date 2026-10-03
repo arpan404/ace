@@ -13,7 +13,7 @@ import {
 } from "@ace/protocol";
 import type { Fact } from "@ace/core";
 import type { ProviderAdapter, SessionContext } from "@ace/engine-api";
-import { Engine, AdapterRegistry, Store } from "@ace/daemon";
+import { Engine, AdapterRegistry, Store, type EngineOptions } from "@ace/daemon";
 import { ManualClock, scriptFrames } from "./test-support.ts";
 import type { TransitionIO } from "./transitions.ts";
 
@@ -25,6 +25,8 @@ export function transitionHarness(
     outcome?: "completed" | "failed" | "interrupted";
     limited?: boolean;
     io?: TransitionIO;
+    recovery?: EngineOptions["recovery"];
+    preferences?: EngineOptions["preferences"];
     configure?: boolean;
     closeFails?: boolean;
     configureFails?: boolean;
@@ -204,6 +206,8 @@ export function transitionHarness(
     onError: (error: unknown) => errors.push(error),
     ...(options.maxActiveThreads ? { limits: { maxActiveThreads: options.maxActiveThreads } } : {}),
     ...(options.io ? { transitions: options.io } : {}),
+    ...(options.recovery ? { recovery: options.recovery } : {}),
+    ...(options.preferences ? { preferences: options.preferences } : {}),
   };
   let engine = new Engine(store, engineOptions);
   function command(payload: CommandPayload, commandId = `command-${++serial}`) {
@@ -264,6 +268,7 @@ export function transitionHarness(
     store,
     workspace,
     registry,
+    clock,
     sessions,
     inputs,
     histories,

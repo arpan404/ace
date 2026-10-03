@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/QueueResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "queue": {
+      "$ref": "https://ace.local/protocol/v1/QueuePage.json"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "type": {
+      "const": "queue.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "queue"
+  ],
+  "type": "object"
+}

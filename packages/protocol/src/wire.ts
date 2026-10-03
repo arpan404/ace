@@ -1,3 +1,4 @@
+import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
 import { PiControlRequest, PiControlResult } from "./pi.ts";
 import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
 import { FilesClientMessage, FilesServerMessage } from "./files.ts";
@@ -10,6 +11,8 @@ import {
 import { DiagnosticsHealth } from "./diagnostics.ts";
 import { ReviewData } from "./review.ts";
 import { z } from "zod";
+import { QueueGet, QueueResult, QueueState } from "./queue.ts";
+import { ContextMeter } from "./context-meter.ts";
 import { ContextRequest, ContextResult } from "./context.ts";
 import {
   HistoryListRequest,
@@ -18,6 +21,7 @@ import {
   HistoryImportResponse,
   HistoryScanRequest,
   HistoryScanResponse,
+  HistoryScanUpdated,
   HistoryContinueRequest,
   HistoryContinueResponse,
 } from "./history.ts";
@@ -31,6 +35,7 @@ import {
 } from "./usage.ts";
 import { CursorAuthRequest, CursorAuthEvent } from "./cursor-auth.ts";
 import { AccountsRequest, AccountsResponse } from "./accounts.ts";
+import { DeviceClientMessage, DeviceServerMessage } from "./devices.ts";
 import { ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
 import {
   ModelsListRequest,
@@ -92,6 +97,8 @@ const records = <T>(schema: z.ZodType<T>) =>
         "Plain JSON object with every own opaque ID, including __proto__, validated and retained.",
     });
 export const ThreadView = z.object({
+  queue: QueueState.optional(),
+  contextMeters: records(ContextMeter).optional(),
   kind: z.literal("thread"),
   seq,
   thread: Thread,
@@ -144,7 +151,9 @@ export const ItemsPage = z.object({
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  QueueGet,
   PiControlRequest,
+
   RegistryRequest,
   ContextRequest,
   SettingsGet,
@@ -166,6 +175,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
   SearchQueryRequest,
   SearchStatusRequest,
   ScreenClientMessage,
+  DeviceClientMessage,
+  ...BrowserClientMessage.options,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -177,6 +188,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("hello"),
+      channel: z.enum(["files", "devices", "browser", "screen"]).optional(),
       protocolVersion: z.literal(1),
       deviceId: DeviceId,
       token: z.string().optional(),
@@ -212,6 +224,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 export const CommandResult = z.object({
+  threadId: ThreadId.optional(),
   commandId: CommandId,
   ok: z.boolean(),
   forkThreadId: ThreadId.optional(),
@@ -221,7 +234,9 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  QueueResult,
   PiControlResult,
+
   RegistryResult,
   ContextResult,
   SettingsResult,
@@ -230,6 +245,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   HistoryListResponse,
   HistoryImportResponse,
   HistoryScanResponse,
+  HistoryScanUpdated,
   HistoryContinueResponse,
   McpProviderResult,
   UsageMessage,
@@ -243,6 +259,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
   SearchStatusResponse,
   SearchErrorResponse,
   ...ScreenServerMessage.options,
+  ...DeviceServerMessage.options,
+  ...BrowserServerMessage.options,
   ModelsResult,
   NotificationMessage,
   z.object({

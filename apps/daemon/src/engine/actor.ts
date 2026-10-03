@@ -1,6 +1,6 @@
 import { nextDeadline, type Fact } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
-import type { ThreadId, Capabilities } from "@ace/protocol";
+import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
 import { z } from "zod";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { boundedJson } from "@ace/provider-kit/ipc";
@@ -39,6 +39,7 @@ export class ThreadActor {
   poisoned = false;
   idleSince: number | undefined;
   idleDue = false;
+  private inputLeases = new Map<number, { release(): void; runId: string | undefined }>();
   private queued = 0;
   private queuedBytes = 0;
   private limits: EngineLimits;
@@ -66,6 +67,37 @@ export class ThreadActor {
     this.idleMs = idleMs;
     this.wake = wake;
     this.report = report;
+  }
+  retainInput(id: number, release: () => void, runId: string | undefined): void {
+    if (this.inputLeases.size >= 256) {
+      release();
+      throw new Error("Input lease capacity exceeded");
+    }
+    this.inputLeases.set(id, { release, runId });
+  }
+  releaseInput(id: number): void {
+    const lease = this.inputLeases.get(id);
+    this.inputLeases.delete(id);
+    lease?.release();
+  }
+  releaseInputs(): void {
+    for (const id of this.inputLeases.keys()) this.releaseInput(id);
+  }
+  observeInputs(events: EventPayload[]): void {
+    for (const event of events) {
+      if (
+        event.type === "run.started" &&
+        event.run.agentId ===
+          this.repo.requireState(this.id).agents[this.repo.requireState(this.id).rootKey ?? ""]
+            ?.agent.id
+      ) {
+        for (const lease of this.inputLeases.values())
+          if (lease.runId === undefined) lease.runId = event.run.id;
+      } else if (event.type === "run.ended") {
+        for (const [id, lease] of this.inputLeases)
+          if (lease.runId === event.runId) this.releaseInput(id);
+      }
+    }
   }
   enqueue(run: () => void): void {
     this.accept(run, 0);
@@ -156,13 +188,26 @@ export class ThreadActor {
       if (generation !== this.generation) return;
       if (this.repo.recovery.committed(this.id, decoded)) return;
       const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
+      const before = this.repo.requireState(this.id).status;
       this.repo.store.atomic(() => {
         const body = z.object({ kind: z.string(), body: z.unknown() }).safeParse(decoded.data);
         if (decoded.channel === "sdk" && body.success && body.data.kind === "blob")
           this.repo.store.appendRawChunk(this.id, body.data.body);
         this.repo.captureFrame(this.id, decoded);
         this.apply(facts);
-        this.syncQueue();
+        if (
+          facts.some(
+            (fact) =>
+              fact.type === "turn.started" ||
+              fact.type === "input.admitted" ||
+              fact.type === "turn.ended" ||
+              fact.type === "process.exited" ||
+              fact.type === "queue.changed" ||
+              fact.type === "limit.cleared" ||
+              (fact.type === "retry" && fact.on === "rate_limit"),
+          )
+        )
+          this.syncQueue();
         this.repo.recovery.commit(this.id, decoded);
       });
       if (
@@ -170,7 +215,20 @@ export class ThreadActor {
         facts.some((fact) => fact.type === "process.exited" && !fact.deliberate)
       )
         this.lifetime?.abort();
-      this.wake();
+      if (
+        before !== this.repo.requireState(this.id).status ||
+        facts.some(
+          (fact) =>
+            fact.type === "turn.started" ||
+            fact.type === "input.admitted" ||
+            fact.type === "turn.ended" ||
+            fact.type === "queue.changed" ||
+            fact.type === "process.exited" ||
+            fact.type === "background.ended" ||
+            fact.type === "interaction.closed",
+        )
+      )
+        this.wake();
     }, bytes);
   }
   private queueFact(): Extract<Fact, { type: "queue.changed" }> {
@@ -186,6 +244,8 @@ export class ThreadActor {
   }
   apply(facts: Fact[]): void {
     this.repo.apply(this.id, facts, this.clock.now());
+    if (facts.some((fact) => fact.type === "process.exited"))
+      for (const id of this.inputLeases.keys()) this.releaseInput(id);
     this.schedule();
   }
   schedule(): void {
@@ -228,6 +288,7 @@ export class ThreadActor {
   }
   stop(): void {
     this.stopped = true;
+    for (const id of this.inputLeases.keys()) this.releaseInput(id);
     this.cancelTimer?.();
   }
 }

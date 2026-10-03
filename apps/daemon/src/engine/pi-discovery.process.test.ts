@@ -38,11 +38,12 @@ test.each(["0.85.1", "1.0.0"])(
       },
     });
     const client = new Client(daemon.url);
+    const opened = once(client.socket, "open");
     try {
       const path = join(home, "file");
       await writeFile(path, "not a directory");
       const workspaceId = daemon.store.createWorkspace(path, "file");
-      await once(client.socket, "open");
+      await opened;
       client.send({
         type: "hello",
         protocolVersion: 1,

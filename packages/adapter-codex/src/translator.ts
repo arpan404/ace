@@ -317,15 +317,16 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     } else if (method === "error") {
       const error = turnError(p["error"]);
       facts.push(note(agent.key, method, frame.data, error?.message));
-      if (p["willRetry"] === true)
+      if (p["willRetry"] === true || error.kind === "quota")
         facts.push({
           type: "retry",
           agent: agent.key,
-          on: /rateLimit|serverOverloaded|usageLimit/.test(
-            JSON.stringify(obj(p["error"])["codexErrorInfo"]),
-          )
-            ? "rate_limit"
-            : "network",
+          on:
+            error.kind === "quota"
+              ? "rate_limit"
+              : error.kind === "network"
+                ? "network"
+                : "upstream",
           message: error?.message ?? "Codex retry",
         });
     } else if (method === "thread/status/changed") {
@@ -362,7 +363,24 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     else if (method.startsWith("thread/goal/")) agent.pendingTrigger = "goal";
     else if (method === "thread/queue/changed") agent.pendingTrigger = "queue";
     else if (method === "thread/tokenUsage/updated") {
-      const usage = obj(obj(p["tokenUsage"])["last"]);
+      const tokenUsage = obj(p["tokenUsage"]);
+      const usage = obj(tokenUsage["last"]);
+      if (
+        Number.isSafeInteger(usage["totalTokens"]) &&
+        typeof usage["totalTokens"] === "number" &&
+        usage["totalTokens"] >= 0
+      )
+        facts.push({
+          type: "context.sample",
+          agent: agent.key,
+          usedTokens: usage["totalTokens"],
+          ...(typeof tokenUsage["modelContextWindow"] === "number" &&
+          Number.isSafeInteger(tokenUsage["modelContextWindow"]) &&
+          tokenUsage["modelContextWindow"] > 0
+            ? { windowTokens: tokenUsage["modelContextWindow"] }
+            : {}),
+          sessionId: native,
+        });
       if (typeof usage["inputTokens"] === "number" && typeof usage["outputTokens"] === "number")
         facts.push({
           type: "usage",

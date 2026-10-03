@@ -51,6 +51,21 @@ export * from "./screen-v2.ts";
 export { ScreenAgentScope, ScreenUITree, ScreenUIBounds } from "./screen-ui.ts";
 
 export * from "./cursor-auth.ts";
+export * from "./agent-control.ts";
+export * from "./queue.ts";
+export * from "./context-meter.ts";
+export {
+  AppDevice,
+  AppDeviceId,
+  DeviceInput,
+  DeviceSettings,
+  DeviceFailure,
+  DeviceInventory,
+  DeviceState,
+  DeviceOperation,
+  DeviceClientMessage,
+  DeviceServerMessage,
+} from "./devices.ts";
 export * from "./thread-transitions.ts";
 export * from "./handoff-read.ts";
 export * from "./pi.ts";

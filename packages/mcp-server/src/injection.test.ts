@@ -90,12 +90,31 @@ it("injects Cursor HTTP lease credentials through the SDK MCP policy path", () =
   });
   expect(result.developerInstructions).toContain("live status");
 });
-it("keeps OpenCode user configuration and other MCP servers while replacing ace's credential", () => {
+it("OpenCode injection preserves configured servers and unknown native settings", () => {
+  const config = {
+    theme: "user-theme",
+    mcp: { notes: { type: "remote", url: "http://127.0.0.1:23456/mcp" } },
+  };
+  const result = openCodeInjection(connection, JSON.stringify(config));
+  expect(JSON.parse(result.env.OPENCODE_CONFIG_CONTENT)).toMatchObject(config);
+  expect(JSON.parse(result.env.OPENCODE_CONFIG_CONTENT).mcp.ace.headers.Authorization).toBe(
+    `Bearer ${connection.bearer}`,
+  );
+});
+it("OpenCode injection refuses an ace server collision instead of replacing user authority", () => {
+  expect(() =>
+    openCodeInjection(
+      connection,
+      JSON.stringify({ mcp: { ace: { url: "http://127.0.0.1:23456/mcp" } } }),
+    ),
+  ).toThrow("OpenCode MCP server name collision: ace");
+});
+it("keeps OpenCode user configuration and other MCP servers from JSONC", () => {
   const result = openCodeInjection(
     connection,
     `{
     // Existing user preferences and servers stay in the provider's overlay.
-    "model": "local/model", "mcp": { "user": { "type": "local", "command": ["node", "tool.js"] }, "ace": { "url": "old" } },
+    "model": "local/model", "mcp": { "user": { "type": "local", "command": ["node", "tool.js"] } },
   }`,
   );
   expect(JSON.parse(result.env.OPENCODE_CONFIG_CONTENT)).toMatchObject({

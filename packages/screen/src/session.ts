@@ -3,6 +3,12 @@ import { FrameHub, type Frame } from "./frames.ts";
 import type { Helper } from "./helper.ts";
 import { Pixels } from "./pixels.ts";
 import type { Recording } from "./recording.ts";
+export interface ControllerBinding {
+  /** The external controller authority must still be live at input dispatch. */
+  authorize(): void;
+  /** Replacing or terminating this controller invalidates its external authority. */
+  released(): void;
+}
 export type Session = {
   state: ScreenState;
   helper: Helper;
@@ -10,6 +16,7 @@ export type Session = {
   latest: Frame | undefined;
   epoch: number;
   owner: string | undefined;
+  controllerBinding: ControllerBinding | undefined;
   recording: Recording | undefined;
   completedRecording: Recording | undefined;
   actionTail: Promise<void>;
@@ -37,6 +44,7 @@ export function createSession(
     latest: undefined,
     epoch: 0,
     owner: undefined,
+    controllerBinding: undefined,
     recording: undefined,
     completedRecording: undefined,
     actionTail: Promise.resolve(),

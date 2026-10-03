@@ -32,7 +32,7 @@ export function createThreadTransitionsSession(context: SocketContext): SocketSe
       scope: () => "operate",
       accept(command, device) {
         const p = command.payload;
-        if (!("threadId" in p) || !context.canReadThread(p.threadId)) {
+        if (!("threadId" in p) || !p.threadId || !context.canReadThread(p.threadId)) {
           context.send({
             type: "commandResult",
             commandId: command.id,

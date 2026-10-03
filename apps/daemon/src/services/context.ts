@@ -1,15 +1,36 @@
+import { warmup } from "./warmup.ts";
 import { join } from "node:path";
-import { ContextService } from "@ace/context";
+import { ContextService, summarizeThreadReference } from "@ace/context";
 import { ThreadId } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 export async function startContext(runtime: ServiceContext): Promise<void> {
   const { config, store, now, id, resources, services, log, onListen } = runtime;
 
   const context = await ContextService.open({
+    signal: runtime.signal,
     root: join(config.dataDir, "context"),
     now,
     id,
+    retained: (thread, hash) =>
+      services.engine?.retainsAttachment(ThreadId.parse(thread), hash) ?? false,
     authorize: (_device, thread) => store.getThread(ThreadId.parse(thread)) !== undefined,
+    async threadReference(_device, owner, reference) {
+      const source = store.getThread(ThreadId.parse(owner));
+      const target = store.getThread(reference.threadId);
+      const journal = services.agentControl?.delegations.journal;
+      const family =
+        source &&
+        journal &&
+        (journal.get(source.id)?.rootId ?? source.id) ===
+          (journal.get(reference.threadId)?.rootId ?? reference.threadId);
+      if (!target || (target.workspaceId !== source?.workspaceId && !family))
+        throw new Error("Thread context access denied");
+      return summarizeThreadReference(
+        reference,
+        target,
+        store.readItemPage(target.id, store.headSeq() + 1, 20, 32768),
+      );
+    },
     workspace: (thread) => {
       const entity = store.getThread(ThreadId.parse(thread));
       return entity ? store.getWorkspacePath(entity.workspaceId) : undefined;
@@ -17,6 +38,7 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
   });
   resources.own(() => context.close());
   services.context = context;
+  void warmup(runtime, "context", () => context.uploads.ready);
   let pending: Promise<void> | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
   const maintain = () => {

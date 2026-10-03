@@ -27,7 +27,7 @@ const deliver = (context: SessionContext, value: CursorEnvelope) => {
   });
 };
 
-it("recovers a killed daemon's committed deltas once and resumes the pinned checkpoint with a new input", async () => {
+it("recovers a killed daemon's committed deltas once and holds new input until explicit pinned-checkpoint continuation", async () => {
   const root = await mkdtemp(join(tmpdir(), "cursor-daemon-recovery-"));
   const path = join(root, "state.sqlite");
   const child = fork(new URL("./cursor-recovery-child.ts", import.meta.url), [path, root], {
@@ -122,6 +122,14 @@ it("recovers a killed daemon's committed deltas once and resumes the pinned chec
     );
     engine = new Engine(store, { registry, selectInstance: () => "account-b" });
     expect(store.getThread(ThreadId.parse("crashed-thread"))?.status.state).toBe("failed");
+    const recoveryNotices = store
+      .readItems(ThreadId.parse("crashed-thread"), store.headSeq() + 1, 200)
+      .items.filter((item) => item.type === "notice");
+    expect(
+      recoveryNotices.some(
+        (item) => item.type === "notice" && item.text.includes("outcomes remain uncertain"),
+      ),
+    ).toBe(true);
     const command = Command.parse({
       id: "new-command",
       deviceId: "device",
@@ -134,15 +142,40 @@ it("recovers a killed daemon's committed deltas once and resumes the pinned chec
     });
     expect(engine.handler.handle(command, store)).toMatchObject({ ok: true });
     await engine.flush();
+    expect(after).toBe(-1);
+    expect(
+      engine.queue(
+        command.payload.type === "thread.send"
+          ? command.payload.threadId
+          : ThreadId.parse("crashed-thread"),
+      ),
+    ).toMatchObject({ paused: true, reason: "restart" });
+    const threadId = ThreadId.parse("crashed-thread");
+    expect(
+      engine.handler.handle(
+        Command.parse({
+          id: "resume-command",
+          deviceId: "device",
+          payload: {
+            type: "queue.resume",
+            threadId,
+            expectedRevision: engine.queue(threadId).revision,
+          },
+        }),
+        store,
+      ),
+    ).toMatchObject({ ok: true });
+    await engine.flush();
     expect(after).toBe(3);
     const items = store.readItems(ThreadId.parse("crashed-thread"), store.headSeq() + 1, 200).items;
     const answers = items.filter((item) => item.type === "message" && item.role === "assistant");
-    expect(answers).toHaveLength(2);
+    expect(answers).toHaveLength(3);
     expect(answers.map((item) => (item.type === "message" ? item.parts : []))).toEqual([
       [{ type: "text", text: "before after" }],
       [{ type: "text", text: "before after" }],
+      [{ type: "text", text: "before after" }],
     ]);
-    expect(new Set(answers.map((item) => item.runId)).size).toBe(2);
+    expect(new Set(answers.map((item) => item.runId)).size).toBe(3);
     expect(store.getThread(ThreadId.parse("crashed-thread"))?.status.state).toBe("done");
   } finally {
     if (child.exitCode === null && child.signalCode === null) {

@@ -27,10 +27,12 @@
         "@ace/adapter-opencode": "workspace:*",
         "@ace/adapter-pi": "workspace:*",
         "@ace/agent-registry": "workspace:*",
+        "@ace/automations": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/commands": "workspace:*",
         "@ace/context": "workspace:*",
         "@ace/core": "workspace:*",
+        "@ace/devices": "workspace:*",
         "@ace/diagnostics": "workspace:*",
         "@ace/engine-api": "workspace:*",
         "@ace/files": "workspace:*",
@@ -40,6 +42,7 @@
         "@ace/mcp-server": "workspace:*",
         "@ace/models": "workspace:*",
         "@ace/notify": "workspace:*",
+        "@ace/orchestrator": "workspace:*",
         "@ace/plugins": "workspace:*",
         "@ace/preview": "workspace:*",
         "@ace/projection": "workspace:*",
@@ -54,6 +57,7 @@
         "@ace/service": "workspace:*",
         "@ace/settings": "workspace:*",
         "@ace/usage": "workspace:*",
+        "@ace/workspace": "workspace:*",
         "qrcode-generator": "2.0.4",
         "ws": "^8.18.3",
         "zod": "^4.6.5",
@@ -173,6 +177,7 @@
       "dependencies": {
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@anthropic-ai/claude-agent-sdk": "0.3.288",
@@ -230,13 +235,11 @@
       "dependencies": {
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@modelcontextprotocol/client": "2.2.0",
         "zod": "^4.6.5",
-      },
-      "devDependencies": {
-        "@ace/mcp-server": "workspace:*",
       },
     },
     "packages/adapter-testkit": {
@@ -274,6 +277,7 @@
     "packages/browser": {
       "name": "@ace/browser",
       "dependencies": {
+        "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "playwright-core": "1.61.1",
         "yauzl": "3.2.0",
@@ -288,12 +292,18 @@
     "packages/client": {
       "name": "@ace/client",
       "dependencies": {
+        "@ace/devices": "workspace:*",
+        "@ace/files": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/relay": "workspace:*",
         "zod": "^4.3.6",
       },
       "devDependencies": {
         "@ace/daemon": "workspace:*",
+        "@ace/secure-channel": "workspace:*",
+        "@types/ws": "^8.18.1",
+        "ws": "^8.18.3",
       },
     },
     "packages/client-react": {
@@ -349,6 +359,20 @@
         "zod": "^4.6.5",
       },
     },
+    "packages/devices": {
+      "name": "@ace/devices",
+      "dependencies": {
+        "@ace/browser": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "@ace/screen": "workspace:*",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/files": "workspace:*",
+      },
+    },
     "packages/diagnostics": {
       "name": "@ace/diagnostics",
       "dependencies": {
@@ -364,6 +388,7 @@
       "dependencies": {
         "@ace/agent-registry": "workspace:*",
         "@ace/core": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
       },
@@ -709,6 +734,8 @@
     "@ace/desktop": ["@ace/desktop@workspace:apps/desktop"],
 
     "@ace/dev": ["@ace/dev@workspace:tools/dev"],
+
+    "@ace/devices": ["@ace/devices@workspace:packages/devices"],
 
     "@ace/diagnostics": ["@ace/diagnostics@workspace:packages/diagnostics"],
 
@@ -2247,6 +2274,8 @@
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
 
     "@ace/browser/yauzl": ["yauzl@3.2.0", "", { "dependencies": { "buffer-crc32": "~0.2.3", "pend": "~1.2.0" } }, "sha512-Ow9nuGZE+qp1u4JIPvg+uCiUr7xGQWdff7JQSk5VGYTAZMDe2q8lxJ10ygv10qmSj031Ty/6FNJpLO4o1Sgc+w=="],
+
+    "@ace/client/@types/ws": ["@types/ws@8.18.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w=="],
 
     "@ace/daemon/@types/ws": ["@types/ws@8.18.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w=="],
 

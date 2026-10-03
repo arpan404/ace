@@ -29,7 +29,7 @@ Example:
 
 ```json
 {
-  "concurrency": 9,
+  "concurrency": 4,
   "enabled": true,
   "id": "example",
   "jitterMs": 1,
@@ -38,13 +38,10 @@ Example:
   "provider": "antigravity",
   "title": "example",
   "trigger": {
-    "kind": "file",
-    "paths": [
-      "example"
-    ]
+    "kind": "manual"
   },
   "workspace": "example",
-  "worktree": true
+  "worktree": false
 }
 ```
 
@@ -79,7 +76,7 @@ Example:
 
 ```json
 {
-  "before": null,
+  "before": 9,
   "runs": []
 }
 ```
@@ -101,20 +98,19 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 5,
-    "enabled": true,
+    "concurrency": 10,
+    "enabled": false,
     "id": "example",
-    "jitterMs": 7,
+    "jitterMs": 6,
     "missedRun": "run_once",
-    "model": "example",
     "prompt": "example",
-    "provider": "acp",
+    "provider": "codex",
     "title": "example",
     "trigger": {
       "kind": "schedule",
       "schedule": {
         "expression": "example",
-        "kind": "rrule",
+        "kind": "cron",
         "startAt": 0,
         "timezone": "example"
       }
@@ -194,7 +190,7 @@ Example:
 
 ```json
 {
-  "limit": 7,
+  "limit": 4,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -218,24 +214,12 @@ Example:
 
 ```json
 {
-  "automations": [],
-  "error": "example",
   "inbox": {
-    "before": null,
+    "before": 10,
     "runs": []
   },
   "ok": false,
   "requestId": "example",
-  "run": {
-    "automationId": "example",
-    "eventKey": "example",
-    "id": "example",
-    "result": "example",
-    "startedAt": 0,
-    "status": "succeeded",
-    "title": "example",
-    "trigger": "file"
-  },
   "type": "automation.result"
 }
 ```
@@ -263,12 +247,12 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
+  "finishedAt": 4,
   "id": "example",
-  "startedAt": 0,
+  "startedAt": 9,
   "status": "failed",
-  "threadId": "example",
   "title": "example",
-  "trigger": "schedule"
+  "trigger": "manual"
 }
 ```
 
@@ -348,11 +332,10 @@ Example:
 
 ```json
 {
-  "event": "ci_failed",
+  "event": "pr_changed",
   "kind": "github",
-  "pollIntervalMs": 60004,
-  "pullRequest": 8,
-  "repository": "bf/nrXGcu"
+  "pollIntervalMs": 60006,
+  "repository": "OC5.71Odd/.E"
 }
 ```
 

@@ -27,7 +27,7 @@ export type { HistoryOptions, ImportSink, ProviderHome } from "./contracts.ts";
 export type { HistorySession } from "@ace/protocol/history";
 
 const Iteration = z.object({ done: z.boolean(), values: z.array(Packet).max(16) });
-/** One service owns one worker. Concurrent operations reject instead of growing a queue. */
+/** One worker owns writes; up to eight bounded reads may overlap its yielded scan. */
 export async function openHistory(
   options: HistoryOptions,
   spawnWorker: (url: URL, options: WorkerOptions) => Worker = (url, workerOptions) =>
@@ -35,6 +35,7 @@ export async function openHistory(
 ): Promise<HistoryService> {
   const worker = spawnWorker(new URL("./worker.ts", import.meta.url), {
     workerData: Options.parse(options),
+    resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
   });
   const service = new HistoryService(worker);
   try {
@@ -55,7 +56,11 @@ export class HistoryService {
   private closing: Promise<void> | undefined;
   private requestDone: Promise<unknown> | undefined;
   private importing = false;
-  private onProgress: ((files: number) => void | Promise<void>) | undefined;
+  private onProgress:
+    | ((files: number, result: z.infer<typeof ScanResult>) => void | Promise<void>)
+    | undefined;
+  private reads = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
+  private scanning = false;
   readonly ready: Promise<unknown>;
   constructor(worker: Worker) {
     this.worker = worker;
@@ -64,16 +69,27 @@ export class HistoryService {
     });
     worker.on("message", (value: unknown) => {
       const progress = z
-        .object({ progress: z.number().int().nonnegative(), progressId: z.number().int() })
+        .object({
+          progress: z.number().int().nonnegative(),
+          progressId: z.number().int(),
+          result: ScanResult,
+        })
         .safeParse(value).data;
       if (progress) {
         void Promise.resolve()
-          .then(() => this.onProgress?.(progress.progress))
+          .then(() => this.onProgress?.(progress.progress, progress.result))
           .finally(() => this.worker.postMessage({ progressAck: progress.progressId }))
           .catch(() => this.worker.postMessage("cancel"));
         return;
       }
       const reply = Reply.parse(value);
+      const read = this.reads.get(reply.id);
+      if (read) {
+        this.reads.delete(reply.id);
+        if (reply.error) read.reject(new Error(reply.error));
+        else read.resolve(reply.value);
+        return;
+      }
       if (this.pending?.id !== reply.id) return;
       const pending = this.pending;
       this.pending = undefined;
@@ -89,11 +105,21 @@ export class HistoryService {
     this.closed = true;
     this.pending?.reject(error);
     this.pending = undefined;
+    for (const read of this.reads.values()) read.reject(error);
+    this.reads.clear();
   }
   private async request(request: z.infer<typeof Request>, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
     if (this.closed || (this.closing && request.op !== "close"))
       throw new Error("History service is closed");
+    if (this.scanning && (request.op === "list" || request.op === "get")) {
+      if (this.reads.size >= 8) throw new Error("Too many history reads");
+      const id = ++this.seq;
+      return new Promise((resolve, reject) => {
+        this.reads.set(id, { resolve, reject });
+        this.worker.postMessage({ id, request });
+      });
+    }
     if (this.pending) throw new Error("History operation already in progress");
     const id = ++this.seq;
     const cancel = () => this.worker.postMessage("cancel");
@@ -112,14 +138,19 @@ export class HistoryService {
       signal?.removeEventListener("abort", cancel);
     }
   }
-  async scan(signal?: AbortSignal, onProgress?: (files: number) => void | Promise<void>) {
+  async scan(
+    signal?: AbortSignal,
+    onProgress?: (files: number, result: z.infer<typeof ScanResult>) => void | Promise<void>,
+  ) {
     if (this.importing) throw new Error("Import in progress");
     if (this.pending) throw new Error("History operation already in progress");
     this.onProgress = onProgress;
+    this.scanning = true;
     try {
       return ScanResult.parse(await this.request({ op: "scan" }, signal));
     } finally {
       this.onProgress = undefined;
+      this.scanning = false;
     }
   }
   private requireIdle(): void {

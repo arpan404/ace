@@ -13,8 +13,8 @@ checks before merge. Behavior tests are written for merge-time execution. CI is
 disabled by the owner; no CI run, rerun or watch was requested.
 
 Static validation: `bun run fmt`, `bun run lint`, `bun run typecheck` and
-`bun run check:size` passed, with 2,338 sources within the 1,500-line limit. These do not establish runtime correctness.
-Main through `6d9a0118` was merged without rebasing. Its browser and desktop
+`bun run check:size` passed, with 2,508 sources within the 1,500-line limit. These do not establish runtime correctness.
+Main through `bdc359e2` was merged without rebasing. Its browser and desktop
 integration was preserved without UI edits, and its shared handoff/transition
 owner now retains SDK backend and account metadata.
 
@@ -205,6 +205,11 @@ Merge integration guards, all need run at merge:
 88. Admit SDK auth/non-SDK channels into capture: no browser challenge may reach the artifact.
 89. Make capture close non-idempotent: public auth-exclusion cleanup closes twice without waiting for a nonexistent second finish.
 90. Send replacement after the steering trigger's root already finished: incomplete capture contains only the original ace run.
+91. Lose SDK backend/account on prepared-thread admission: the public queue-integration guard checks durable metadata before any dispatch.
+92. Accept conflicting account selectors: the public admission guard refuses without creating a second thread.
+93. Accept SDK queue migration or close before refusal: the live-session guard retains queue, native identity and account, then successfully steers that same session.
+94. Release new SDK input automatically after crash: the killed-daemon guard asserts a held restart queue before explicit continuation.
+95. Claim crash-live SDK work certainly stopped: the killed-daemon guard requires an unresolved native-outcome notice.
 
 These are designed mutation cases, not evidence that executed mutations were killed.
 
@@ -351,3 +356,7 @@ policy and uncertainty notices preserve these limits. No Integration rehearsal
 finding comment was present when PR comments were refreshed; mentions in earlier
 response comments are not rehearsal reports. All verifier mutation rows remain
 unexecuted; N7/N12/N13 now have the stronger guards named above.
+
+## Integration train 3
+
+Merged main `bdc359e2` without rebasing. Cursor auth remains a registered listener service in degraded startup. Prepared-thread `accountId` and direct creation `instanceId` select the same pinned SDK account; conflicting values refuse admission. Queue recovery retains its shared owner, while native frame offsets remain atomic with canonical facts/raw chunks. SDK account migration refuses before session disposal and remains fenced at execution for old durable intents. Crash-live SDK work gets an uncertainty notice, and pending new input stays held until explicit continuation. SDK leases grant no mutating MCP capabilities through either factory. No UI source was edited.

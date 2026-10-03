@@ -280,8 +280,17 @@ export class BrowserService {
   state(threadId: string): BrowserState {
     return this.get(threadId).state;
   }
-  execute(threadId: string, command: unknown, actor?: Actor): Promise<unknown> {
-    return this.get(threadId).execute(command, actor);
+  execute(
+    threadId: string,
+    command: unknown,
+    actor?: Actor,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return this.get(threadId).execute(command, actor, signal);
+  }
+  /** Bound JPEG bytes from the owned page, without interpreting an artifact path. */
+  screenshot(threadId: string, signal?: AbortSignal): Promise<Uint8Array> {
+    return this.get(threadId).screenshot(signal);
   }
   input(threadId: string, input: unknown, connectionId: string): Promise<void> {
     return this.get(threadId).input(input, connectionId);

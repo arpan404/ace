@@ -127,14 +127,7 @@ export function acceptTransition(
         if (native?.point.type === "end") repo.transitions.guard(thread.id, command.id);
         forkThreadId = id;
       } else if (p.type === "thread.merge") {
-        if (
-          repo
-            .intents(p.threadId)
-            .some(
-              (intent) =>
-                intent.awaiting || ["pending", "queued", "running"].includes(intent.status),
-            )
-        )
+        if (!repo.pending.headers(p.threadId)[Symbol.iterator]().next().done)
           return fail("fork_tree_is_live");
         const lineage = thread.lineage;
         if (!lineage) return fail("thread_is_not_a_fork");
@@ -148,11 +141,10 @@ export function acceptTransition(
         );
         id = lineage.parentThreadId;
         if (!repo.state(id)) return fail("source_thread_not_found");
-        if (
-          repo.intents(id).filter((intent) => intent.command.payload.type === "thread.merge")
-            .length >= 8
-        )
-          return fail("merge_queue_capacity_exceeded");
+        let merges = 0;
+        for (const intent of repo.pending.headers(id))
+          if (intent.kind === "thread.merge" && ++merges >= 8)
+            return fail("merge_queue_capacity_exceeded");
         if (repo.transitions.guarded(id)) return fail("thread_transition_in_progress");
         if (p.patch && !repo.quiescent(repo.requireState(id))) return fail("source_tree_is_live");
       } else {
@@ -179,8 +171,8 @@ export function acceptTransition(
         repo.transitions.remember(id, repo.transitions.get(id).selection ?? fallback);
         if (!repo.reserve(id)) return fail("engine_capacity_exceeded");
         // Last selection wins while queued; in-flight transitions cannot be overwritten.
-        for (const previous of repo.intents(id))
-          if (previous.command.payload.type === "thread.switch") {
+        for (const previous of repo.pending.headers(id))
+          if (previous.kind === "thread.switch") {
             if (previous.status === "running") return fail("switch_in_progress");
             repo.mark(previous, "done");
           }

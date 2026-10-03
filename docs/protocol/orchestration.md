@@ -31,20 +31,21 @@ Example:
     "diffRef": "example",
     "summary": "example",
     "tests": {
-      "failed": 3,
-      "passed": 0
+      "failed": 0,
+      "outputRef": "example",
+      "passed": 5
     }
   },
-  "checksPassed": false,
-  "durationMs": 7,
+  "checksPassed": true,
+  "durationMs": 1,
   "files": [],
   "filesTruncated": true,
-  "laneId": "SS",
+  "laneId": "Pc",
   "patch": "example",
   "patchTruncated": false,
   "usage": {
-    "cost": 4,
-    "tokens": 5
+    "cost": 9,
+    "tokens": 1
   }
 }
 ```
@@ -60,7 +61,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"8llNr"
+"zDNCEvHa"
 ```
 
 ## LanePhase
@@ -72,7 +73,7 @@ Type: ["queued","starting","working","waiting","collecting","checking","joining"
 Example:
 
 ```json
-"waiting"
+"joining"
 ```
 
 ## LaneSpec
@@ -89,7 +90,7 @@ Example:
 ```json
 {
   "model": "example",
-  "provider": "acp"
+  "provider": "codex"
 }
 ```
 
@@ -111,30 +112,30 @@ Example:
 
 ```json
 {
-  "baseRef": "7d0e093d65a766ad589648400640f4c56f906c13",
-  "currentRunId": "x_yibcH",
-  "id": "lrBBHc",
+  "baseRef": "3855247ca7e85d43a96fa225ee6e0911614a75f1",
+  "currentRunId": "qEK2P",
+  "id": "O5iRAqOdhhX",
   "prompt": "example",
   "targetBranch": "example",
   "template": {
     "budget": {
-      "cost": 1,
-      "durationMs": 6,
-      "maxAttempts": 5,
-      "maxDepth": 8,
-      "maxLanes": 7,
-      "tokens": 6
+      "cost": 6,
+      "durationMs": 5,
+      "maxAttempts": 3,
+      "maxDepth": 4,
+      "maxLanes": 8,
+      "tokens": 5
     },
     "checks": {
       "command": [
         "example"
       ]
     },
-    "kind": "pipeline",
+    "kind": "race",
     "lanes": [
       {
         "model": "example",
-        "provider": "antigravity"
+        "provider": "claude"
       }
     ]
   },
@@ -160,8 +161,8 @@ Example:
   "checkpoint": "example",
   "summary": "example",
   "tests": {
-    "failed": 8,
-    "passed": 8
+    "failed": 1,
+    "passed": 1
   }
 }
 ```
@@ -183,12 +184,12 @@ Example:
 
 ```json
 {
-  "cost": 5,
+  "cost": 6,
   "durationMs": 6,
-  "maxAttempts": 6,
-  "maxDepth": 3,
-  "maxLanes": 10,
-  "tokens": 4
+  "maxAttempts": 2,
+  "maxDepth": 1,
+  "maxLanes": 5,
+  "tokens": 7
 }
 ```
 
@@ -205,7 +206,7 @@ Example:
 
 ```json
 {
-  "orchestrationId": "ZDDzg5xgSW",
+  "orchestrationId": "w",
   "type": "orchestration.cancel"
 }
 ```
@@ -247,16 +248,16 @@ Example:
 
 ```json
 {
-  "baseRef": "442bee2e6c3aa36225f9abfa5545aabcb1e9b0c4",
+  "baseRef": "74a0b32baf7839b0c984f078d538f8760a9cfee6ac2b71fbc8367214b0c0ecc6",
   "prompt": "example",
   "targetBranch": "example",
   "template": {
     "budget": {
       "cost": 5,
-      "durationMs": 9,
-      "maxAttempts": 2,
-      "maxDepth": 1,
-      "maxLanes": 3,
+      "durationMs": 8,
+      "maxAttempts": 9,
+      "maxDepth": 5,
+      "maxLanes": 2,
       "tokens": 6
     },
     "checks": {
@@ -269,7 +270,7 @@ Example:
     "lanes": [
       {
         "model": "example",
-        "provider": "antigravity"
+        "provider": "claude"
       }
     ]
   },
@@ -291,28 +292,28 @@ Example:
 ```json
 {
   "input": {
-    "baseRef": "a91ea8e4a5c48499cdc4b6541109799c481d70e6",
+    "baseRef": "ecaf3e0781cd692b60e04f4fed49c987c5c5a101c506236dce5c4fb92bc3b8af",
     "prompt": "example",
     "targetBranch": "example",
     "template": {
       "budget": {
-        "cost": 3,
-        "durationMs": 7,
-        "maxAttempts": 7,
-        "maxDepth": 8,
-        "maxLanes": 9,
-        "tokens": 4
+        "cost": 7,
+        "durationMs": 5,
+        "maxAttempts": 5,
+        "maxDepth": 1,
+        "maxLanes": 4,
+        "tokens": 5
       },
       "checks": {
         "command": [
           "example"
         ]
       },
-      "kind": "pipeline",
+      "kind": "coordinator",
       "lanes": [
         {
           "model": "example",
-          "provider": "codex"
+          "provider": "claude"
         }
       ]
     },
@@ -341,21 +342,20 @@ Example:
 
 ```json
 {
-  "attempt": 10,
+  "attempt": 4,
   "input": {
     "checkpoint": "example",
-    "diffRef": "example",
     "summary": "example",
     "tests": {
-      "failed": 1,
-      "passed": 9
+      "failed": 7,
+      "passed": 4
     }
   },
-  "laneId": "9V6RUhUncj",
+  "laneId": "PgCU",
   "prompt": "example",
   "spec": {
     "model": "example",
-    "provider": "opencode"
+    "provider": "antigravity"
   },
   "type": "start"
 }
@@ -379,13 +379,13 @@ Example:
     "diffRef": "example",
     "summary": "example",
     "tests": {
-      "failed": 5,
+      "failed": 9,
       "outputRef": "example",
-      "passed": 9
+      "passed": 1
     }
   },
-  "attempt": 8,
-  "laneId": "lnVp8.asj",
+  "attempt": 2,
+  "laneId": "n2DeSBk3",
   "type": "check"
 }
 ```
@@ -402,8 +402,8 @@ Example:
 
 ```json
 {
-  "attempt": 3,
-  "laneId": "RmF8F",
+  "attempt": 9,
+  "laneId": "Ri4",
   "type": "cancel"
 }
 ```
@@ -421,9 +421,9 @@ Example:
 
 ```json
 {
-  "attempt": 9,
+  "attempt": 10,
   "checkpoint": "example",
-  "laneId": "J2ThNTQz_Kp",
+  "laneId": "dgI",
   "type": "merge"
 }
 ```
@@ -446,10 +446,10 @@ Example:
 
 ```json
 {
-  "laneId": "D6DMtmZht",
-  "orchestrationId": "MxF9c32",
-  "phase": "waiting",
-  "runId": "fT4",
+  "laneId": "ky4z",
+  "orchestrationId": "gGEf0",
+  "phase": "checking",
+  "runId": "ANp3RSH3",
   "type": "orchestration.lane"
 }
 ```
@@ -467,9 +467,9 @@ Example:
 
 ```json
 {
-  "orchestrationId": "6amcNUrN8",
-  "runId": "Ymd4T7aPk",
-  "status": "running",
+  "orchestrationId": "GpnM",
+  "runId": "8nR",
+  "status": "cancelled",
   "type": "orchestration.status"
 }
 ```
@@ -487,9 +487,9 @@ Example:
 
 ```json
 {
-  "laneId": "CfXC2gn1WL",
-  "orchestrationId": "T",
-  "runId": "Z4E-f3v",
+  "laneId": "beH4a1GMYvf",
+  "orchestrationId": "WFoEQOE",
+  "runId": "byeEq7L",
   "type": "orchestration.winner"
 }
 ```
@@ -507,9 +507,9 @@ Example:
 
 ```json
 {
-  "orchestrationId": "oN7mO",
+  "orchestrationId": "HcoH5qfPmm",
   "reason": "example",
-  "runId": "Bw6",
+  "runId": "1",
   "type": "orchestration.rejected"
 }
 ```
@@ -528,9 +528,9 @@ Example:
 
 ```json
 {
-  "laneId": "2Z",
-  "orchestrationId": "aRJQ8r.U",
-  "runId": "N5hjA",
+  "laneId": "xEWALj",
+  "orchestrationId": "3Rb3f",
+  "runId": "QkVrbc8K",
   "safetyCheckpoint": "example",
   "type": "orchestration.merged"
 }
@@ -554,8 +554,8 @@ Example:
 
 ```json
 {
-  "attempt": 10,
-  "laneId": "UgAKtoxd",
+  "attempt": 1,
+  "laneId": "j5L9ZPoM2Ir",
   "threadId": "example",
   "type": "bound",
   "worktree": "example"
@@ -575,10 +575,10 @@ Example:
 
 ```json
 {
-  "attempt": 3,
-  "laneId": "dHAJ",
+  "attempt": 7,
+  "laneId": "umRm",
   "status": {
-    "interactions": 6,
+    "interactions": 1,
     "state": "needs_you"
   },
   "type": "thread"
@@ -602,12 +602,12 @@ Example:
     "checkpoint": "example",
     "summary": "example",
     "tests": {
-      "failed": 1,
-      "passed": 7
+      "failed": 2,
+      "passed": 9
     }
   },
-  "attempt": 6,
-  "laneId": "lyU8hT1rju",
+  "attempt": 1,
+  "laneId": "KcPnD",
   "type": "artifact"
 }
 ```
@@ -627,10 +627,11 @@ Example:
 
 ```json
 {
-  "attempt": 5,
-  "commandPassed": true,
-  "intentId": "iRB",
-  "laneId": "w81M",
+  "attempt": 6,
+  "commandPassed": false,
+  "intentId": "lvAS",
+  "laneId": "MCKsip7GgoT",
+  "reviewPassed": true,
   "type": "checked"
 }
 ```
@@ -648,12 +649,12 @@ Example:
 
 ```json
 {
-  "attempt": 10,
-  "laneId": "8",
+  "attempt": 4,
+  "laneId": "O1Xt",
   "type": "usage",
   "usage": {
     "cost": 4,
-    "tokens": 9
+    "tokens": 0
   }
 }
 ```
@@ -671,9 +672,9 @@ Example:
 
 ```json
 {
-  "attempt": 10,
-  "intentId": "JB893u",
-  "laneId": "RUcj60hSSn",
+  "attempt": 2,
+  "intentId": "Euehe5rgLl",
+  "laneId": "ic8vxDq",
   "type": "stopped"
 }
 ```
@@ -693,11 +694,11 @@ Example:
 
 ```json
 {
-  "attempt": 3,
+  "attempt": 4,
   "error": "example",
-  "intentId": "pnAk-NDlP",
-  "laneId": "oYEF",
-  "operation": "start",
+  "intentId": "T1g",
+  "laneId": "w4RRfz5D",
+  "operation": "check",
   "type": "execution.failed"
 }
 ```
@@ -717,13 +718,13 @@ Example:
 
 ```json
 {
-  "attempt": 10,
-  "parentId": "YTUZP",
+  "attempt": 7,
+  "parentId": "XIY",
   "prompt": "example",
-  "requestId": "QWabipmTB9",
+  "requestId": "Ps",
   "spec": {
     "model": "example",
-    "provider": "pi"
+    "provider": "antigravity"
   },
   "type": "spawn"
 }
@@ -741,8 +742,8 @@ Example:
 
 ```json
 {
-  "laneId": "5KOLALF",
-  "merge": true,
+  "laneId": "JHZd79PHEW",
+  "merge": false,
   "type": "pick"
 }
 ```
@@ -761,9 +762,9 @@ Example:
 
 ```json
 {
-  "attempt": 1,
-  "intentId": "zSA.",
-  "laneId": "fn",
+  "attempt": 3,
+  "intentId": "ANi4vL3n34o",
+  "laneId": "vt0a",
   "safetyCheckpoint": "example",
   "type": "merged"
 }
@@ -780,7 +781,7 @@ Example:
 
 ```json
 {
-  "intentId": "mxOrpMHy",
+  "intentId": "L",
   "type": "ack"
 }
 ```
@@ -824,7 +825,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"8CpjUm0"
+"b0k1OB2H."
 ```
 
 ## OrchestrationIntent
@@ -841,16 +842,16 @@ Example:
 ```json
 {
   "effect": {
-    "attempt": 9,
-    "laneId": "WqS",
+    "attempt": 10,
+    "laneId": "3R_bPnP9pc2",
     "prompt": "example",
     "spec": {
       "model": "example",
-      "provider": "acp"
+      "provider": "opencode"
     },
     "type": "start"
   },
-  "id": "iZrpzFgnTzt"
+  "id": "rYdNq8d"
 }
 ```
 
@@ -886,36 +887,49 @@ Example:
 
 ```json
 {
-  "attempt": 9,
-  "attemptUsage": {
-    "cost": 4,
-    "tokens": 4
-  },
-  "children": 0,
-  "depth": 0,
-  "failedChildren": 5,
-  "id": "aW_qE",
-  "input": {
+  "artifact": {
     "checkpoint": "example",
+    "diffRef": "example",
     "summary": "example",
     "tests": {
       "failed": 5,
-      "passed": 9
+      "passed": 7
     }
   },
-  "phase": "failed",
+  "attempt": 4,
+  "attemptUsage": {
+    "cost": 5,
+    "tokens": 4
+  },
+  "children": 1,
+  "depth": 8,
+  "error": "example",
+  "failedChildren": 6,
+  "id": "D",
+  "input": {
+    "checkpoint": "example",
+    "diffRef": "example",
+    "summary": "example",
+    "tests": {
+      "failed": 8,
+      "passed": 6
+    }
+  },
+  "parentId": "Vo6xwW0VOk",
+  "phase": "checking",
   "prompt": "example",
   "spec": {
     "model": "example",
-    "provider": "codex"
+    "provider": "acp"
   },
-  "stage": 8,
-  "startedAt": 9,
+  "stage": 9,
+  "startedAt": 7,
   "threadDone": false,
   "usage": {
-    "cost": 5,
+    "cost": 1,
     "tokens": 5
-  }
+  },
+  "worktree": "example"
 }
 ```
 
@@ -934,8 +948,9 @@ Example:
 
 ```json
 {
-  "laneId": "0dT9P",
-  "orchestrationId": "W",
+  "laneId": "t2WTfsbwy",
+  "merge": false,
+  "orchestrationId": "ZR.Hlf.I",
   "type": "orchestration.pick"
 }
 ```
@@ -953,7 +968,6 @@ Example:
 
 ```json
 {
-  "before": "JxFciOLycO",
   "runs": []
 }
 ```
@@ -967,7 +981,7 @@ Type: ["running","waiting","cancelling","succeeded","failed","cancelled","budget
 Example:
 
 ```json
-"running"
+"succeeded"
 ```
 
 ## OrchestrationRunSummary
@@ -988,16 +1002,15 @@ Example:
 
 ```json
 {
-  "id": "Wr4t-5",
+  "id": "dXxqsEt",
   "laneIds": [],
-  "orchestrationId": "hja8",
-  "startedAt": 0,
+  "orchestrationId": "iXW",
+  "startedAt": 9,
   "status": "waiting",
   "usage": {
-    "cost": 0,
-    "tokens": 0
-  },
-  "winner": "cgKKytJ6"
+    "cost": 2,
+    "tokens": 8
+  }
 }
 ```
 
@@ -1030,31 +1043,31 @@ Example:
 
 ```json
 {
-  "failed": 7,
-  "id": "hwYQbaL2M",
+  "failed": 6,
+  "id": "VO7F",
   "input": {
-    "baseRef": "bd9e2ae0c7041311f2a3d053855247ca7e85d43a",
+    "baseRef": "563929273f6da541ae2f8258d9629eb6bb79b6fc",
     "prompt": "example",
     "targetBranch": "example",
     "template": {
       "budget": {
-        "cost": 3,
-        "durationMs": 8,
-        "maxAttempts": 6,
-        "maxDepth": 4,
-        "maxLanes": 1,
-        "tokens": 3
+        "cost": 7,
+        "durationMs": 2,
+        "maxAttempts": 1,
+        "maxDepth": 1,
+        "maxLanes": 5,
+        "tokens": 9
       },
       "checks": {
         "command": [
           "example"
         ]
       },
-      "kind": "coordinator",
+      "kind": "pipeline",
       "lanes": [
         {
           "model": "example",
-          "provider": "acp"
+          "provider": "cursor"
         }
       ]
     },
@@ -1062,20 +1075,21 @@ Example:
   },
   "intents": {},
   "lanes": {},
-  "mergeRequested": true,
-  "mergeStatus": "pending",
-  "open": 9,
-  "runId": "8VmWI8dS",
+  "mergeRequested": false,
+  "mergeStatus": "failed",
+  "open": 5,
+  "runId": "T2fX7QJwra-",
   "spawnReceipts": {},
-  "startedAt": 7,
-  "status": "cancelling",
-  "succeeded": 4,
+  "startedAt": 6,
+  "status": "waiting",
+  "stopReason": "winner",
+  "succeeded": 6,
   "usage": {
-    "cost": 6,
-    "tokens": 4
+    "cost": 3,
+    "tokens": 9
   },
-  "waiting": 4,
-  "winner": "0wDWiFZD"
+  "waiting": 8,
+  "winner": "TkLUg-orRI"
 }
 ```
 
@@ -1097,23 +1111,23 @@ Example:
 ```json
 {
   "budget": {
-    "cost": 7,
-    "durationMs": 5,
-    "maxAttempts": 7,
-    "maxDepth": 1,
-    "maxLanes": 9,
-    "tokens": 3
+    "cost": 6,
+    "durationMs": 7,
+    "maxAttempts": 1,
+    "maxDepth": 4,
+    "maxLanes": 3,
+    "tokens": 4
   },
   "checks": {
     "command": [
       "example"
     ]
   },
-  "kind": "race",
+  "kind": "fanout",
   "lanes": [
     {
       "model": "example",
-      "provider": "antigravity"
+      "provider": "pi"
     }
   ]
 }
@@ -1132,8 +1146,8 @@ Example:
 
 ```json
 {
-  "cost": 1,
-  "tokens": 0
+  "cost": 4,
+  "tokens": 9
 }
 ```
 
@@ -1152,10 +1166,10 @@ Example:
 ```json
 {
   "prompt": "example",
-  "requestId": "gryEK2PHm",
+  "requestId": "E",
   "spec": {
     "model": "example",
-    "provider": "codex"
+    "provider": "acp"
   }
 }
 ```
@@ -1174,8 +1188,7 @@ Example:
 
 ```json
 {
-  "failed": 4,
-  "outputRef": "example",
-  "passed": 4
+  "failed": 8,
+  "passed": 6
 }
 ```

@@ -1,6 +1,6 @@
 export { createInstance, instanceEnv, discoverHomes, loginStatus, loginArgs } from "./instances.ts";
 export { addAccount } from "./login.ts";
-export { AccountRegistry, openRegistry } from "./registry.ts";
+export { AccountRegistry, openRegistry, openRegistryIndex } from "./registry.ts";
 export { initialQuota, ingestQuota, availability, type QuotaFact } from "./quota.ts";
 export { parseLimitReset } from "./reset-time.ts";
 export { pickInstance, speedHint, type Candidate, type RolePolicy } from "./scheduler.ts";

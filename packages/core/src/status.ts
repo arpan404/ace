@@ -1,4 +1,5 @@
 import type { AgentStatus, EventPayload, Item, ThreadStatus } from "@ace/protocol";
+import { externalAgentStatus } from "./external.ts";
 import type { Key } from "./facts.ts";
 import { lookup, type AgentRecord, type ThreadState } from "./state.ts";
 import { emit } from "./emit.ts";
@@ -63,6 +64,7 @@ function completionRelevance(
     if (!record) return false;
     const status = statusOf(key);
     if (isSettled(status)) return false;
+    if (record.externalStatus) return true;
     if (
       key === state.rootKey ||
       status.state !== "unresponsive" ||
@@ -144,8 +146,10 @@ function statusResolver(state: ThreadState, now: number) {
     visiting.add(key);
     let status = derive(record, key);
     if (
+      !record.externalStatus &&
       state.config.liveness === "transport" &&
       !state.processExit &&
+      !record.limited &&
       !isSettled(status) &&
       now - lastTransportSignalAt > state.config.silenceMs
     ) {
@@ -158,7 +162,10 @@ function statusResolver(state: ThreadState, now: number) {
 
   function derive(record: AgentRecord, key: Key): AgentStatus {
     const { agent } = record;
+    if (record.externalStatus && agent.childThreadId)
+      return externalAgentStatus(record.externalStatus, agent.childThreadId);
     const exit = state.processExit;
+    if (record.limited) return { state: "blocked", on: "rate_limit", refs: [], ...record.limited };
     if (exit?.unsettled?.includes(key)) {
       return exit.deliberate
         ? { state: "interrupted" }
@@ -297,7 +304,14 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
   const pending = pendingInteractionKeys(state)
     .map((key) => lookup(state.interactions, key)!)
     .filter((interaction) => isActionableInteraction(interaction, byId.get(interaction.agentId)));
-  if (pending.length > 0) return { state: "needs_you", interactions: pending.length };
+  const externalHuman = records.reduce(
+    (count, record) =>
+      count +
+      (record.externalStatus?.state === "needs_you" ? record.externalStatus.interactions : 0),
+    0,
+  );
+  if (pending.length + externalHuman > 0)
+    return { state: "needs_you", interactions: pending.length + externalHuman };
   const working = records.filter((record) => {
     const status = record.agent.status;
     return (
@@ -311,6 +325,15 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
   if (working.length > 0) return { state: "working", agents: working.length };
   for (const reason of ["rate_limit", "network", "upstream"] as const) {
     if (statuses.some((status) => status.state === "blocked" && status.on === reason)) {
+      if (reason === "rate_limit") {
+        const limits = statuses.flatMap((status) =>
+          status.state === "blocked" && status.on === "rate_limit" ? [status.until] : [],
+        );
+        const until = limits.every((value) => value !== undefined)
+          ? Math.max(...limits.filter((value): value is number => value !== undefined))
+          : undefined;
+        return { state: "limited", ...(until === undefined ? {} : { until }) };
+      }
       return { state: "waiting", on: reason };
     }
   }
@@ -319,14 +342,22 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
   if (
     records.some(
       (record) =>
-        record.disconnectedAt !== undefined && record.agent.status.state === "unresponsive",
+        (record.disconnectedAt !== undefined || record.externalStatus?.state === "unresponsive") &&
+        record.agent.status.state === "unresponsive",
     )
   )
     return { state: "unresponsive" };
   if (statuses.some((status) => status.state === "blocked" && status.on === "background_task")) {
     return { state: "waiting", on: "background_task" };
   }
-  if (state.queueCount > 0) return { state: "waiting", on: "queue" };
+  if (
+    state.queueCount > 0 ||
+    records.some(
+      (record) =>
+        record.externalStatus?.state === "waiting" && record.externalStatus.on === "queue",
+    )
+  )
+    return { state: "waiting", on: "queue" };
   const holdsCompletion = completionRelevance(
     state,
     (key) => lookup(state.agents, key)!.agent.status,
@@ -348,7 +379,10 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
     )
   )
     return { state: "failed" };
-  if (!state.hasRun) return { state: "new" };
+  if (!state.hasRun)
+    return {
+      state: state.processExit ? (state.processExit.deliberate ? "done" : "failed") : "new",
+    };
   return { state: "done" };
 }
 

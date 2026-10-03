@@ -85,3 +85,6 @@ port.on("message", (input: unknown) => {
     }
   })();
 });
+
+// Publish readiness only after SQLite is open and the RPC handler is installed.
+port.postMessage({ type: "ready" });

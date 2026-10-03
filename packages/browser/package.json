@@ -11,6 +11,7 @@
     "bench": "node bench/fanout.ts && node bench/pipeline.ts && node bench/input-policy.ts && node bench/evaluation.ts && node bench/relay.ts && node bench/acquisition.ts"
   },
   "dependencies": {
+    "@ace/mcp-server": "workspace:*",
     "@ace/protocol": "workspace:*",
     "playwright-core": "1.61.1",
     "yauzl": "3.2.0",

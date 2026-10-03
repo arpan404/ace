@@ -1,4 +1,6 @@
 import { cursorHosts } from "./cursor-hosts.ts";
+import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
+import { AgentId } from "@ace/protocol";
 import { withDaemonMcp } from "./provider-mcp.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
@@ -8,6 +10,7 @@ import { defaultCursorInstance } from "@ace/adapter-cursor";
 import { homedir } from "node:os";
 import { bindCursorSdk, createInstance } from "@ace/accounts";
 import type { ProviderAdapter } from "@ace/engine-api";
+import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
@@ -53,10 +56,13 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       cursorOptions,
     ));
   if (!engineOptions.registry) resources.own(() => registry.close());
+  context.signal.throwIfAborted();
+  const capabilities = daemonMcpCapabilities(services);
   const acp =
     services.agentRegistry && services.models && services.mcp
       ? acpEngineOptions({
           registry,
+          capabilities,
           agents: services.agentRegistry,
           models: services.models,
           mcp: services.mcp,
@@ -110,6 +116,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     // Cursor SDK owns its read-only HTTP lease, including account identity.
     return adapter.backend === "cursor-sdk" ? wrapped : withDaemonMcp(context, wrapped);
   });
+  const ports = recoveryPorts(context, (id) => engine.sessionMetadata(id));
   const engine = new Engine(store, {
     ...acp,
     ...engineOptions,
@@ -120,27 +127,52 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         backend === "cursor-sdk"
           ? (accounts?.preferredCursorInstance() ?? defaultInstance.id)
           : undefined),
+    mcp:
+      engineOptions.mcp ??
+      ((threadId, agentId, lifetime) => {
+        const mcp = services.mcp;
+        if (!mcp) throw new Error("MCP unavailable");
+        const lease = mcp.openSession(
+          {
+            sessionId: context.id(),
+            threadId,
+            agentId: AgentId.parse(agentId),
+            capabilities:
+              store.getThread(threadId)?.backend === "cursor-sdk"
+                ? []
+                : daemonMcpCapabilities(context.services),
+          },
+          lifetime,
+        );
+        return {
+          url: mcp.url,
+          bearer: lease.bearer,
+          signal: lease.principal.signal,
+          end: lease.end,
+        };
+      }),
+    recovery: engineOptions.recovery ?? ports,
+    prepareInput: engineOptions.prepareInput ?? prepareQueuedInput(context),
     ...((engineOptions.transitions ?? services.transitions)
       ? { transitions: engineOptions.transitions ?? services.transitions }
       : {}),
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());
+  await engine.ready();
   services.engine = engine;
   services.handler = engine.handler;
 }
 
 import { commandContext } from "../commands.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export function createEngineSession({
-  options,
-  send,
-  canReadThread,
-}: SocketContext): SocketService {
+export function createEngineSession(context: SocketContext): SocketService {
+  const { options, send, canReadThread } = context;
   return {
     command: {
       types: [
         "thread.create",
+        "thread.prepare",
         "thread.send",
         "thread.interrupt",
         "thread.archive",
@@ -150,8 +182,23 @@ export function createEngineSession({
         "background_task.stop",
       ],
       scope: () => "operate",
-      accept(command, device) {
+      async accept(command, device) {
         const payload = command.payload;
+        if (
+          payload.type === "thread.create" &&
+          payload.handoffFrom &&
+          !canReadThread(payload.handoffFrom)
+        ) {
+          send({
+            type: "commandResult",
+            commandId: command.id,
+            ok: false,
+            error: "handoff_source_not_found",
+          });
+          return;
+        }
+        await options.engine?.prepareCommand(command);
+        if (!context.connected() || !context.authorize("operate")) return;
         if (
           payload.type === "thread.create" &&
           payload.handoffFrom &&

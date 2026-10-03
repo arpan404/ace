@@ -211,11 +211,21 @@ test("the latest queued switch wins and survives a daemon restart", async () => 
   });
   expect(h.finishedRun(id).state).toBe("interrupted");
   h.held.delete(id);
+  expect(h.engine.queue(id).paused).toBe(true);
+  expect(
+    h.command({
+      type: "thread.resume",
+      threadId: id,
+      expectedRevision: h.engine.queue(id).revision,
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
   follow(h, id);
   await h.engine.flush();
   expect(h.inputs.at(-1)?.provider).toBe("cursor");
   expect(h.inputs.at(-1)?.model).toBe("newest");
-  expect(h.inputs.at(-1)?.text).toContain("source history");
+  expect(h.inputs.at(-2)?.text).toContain("source history");
+  expect(h.inputs.at(-1)?.text).toBe("follow up");
 });
 test("account migration refusal preserves the original account and native session", async () => {
   const h = setup({

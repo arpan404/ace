@@ -24,6 +24,14 @@
         }
       ]
     },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "scan": {
+      "$ref": "https://ace.local/protocol/v1/HistoryScanStatus.json"
+    },
     "sessions": {
       "items": {
         "$ref": "https://ace.local/protocol/v1/HistorySession.json"

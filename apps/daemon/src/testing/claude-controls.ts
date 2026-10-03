@@ -16,6 +16,37 @@ let servers =
   index >= 0
     ? z.object({ mcpServers: object }).parse(JSON.parse(process.argv[index + 1] ?? "{}")).mcpServers
     : {};
+async function aceTools(config: unknown): Promise<string[]> {
+  const server = z
+    .object({ url: z.string(), headers: z.record(z.string(), z.string()) })
+    .parse(config);
+  const response = await fetch(server.url, {
+    method: "POST",
+    headers: {
+      ...server.headers,
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      "MCP-Protocol-Version": "2026-07-28",
+      "Mcp-Method": "tools/list",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: {
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { name: "synthetic", version: "1" },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    }),
+  });
+  const reply = z
+    .object({ result: z.object({ tools: z.array(z.object({ name: z.string() })).max(1024) }) })
+    .parse(await response.json());
+  return reply.result.tools.map((tool) => tool.name);
+}
 const write = (data: unknown) => console.log(JSON.stringify(data));
 for await (const line of createInterface({ input: process.stdin })) {
   const data = frame.parse(JSON.parse(line));
@@ -43,20 +74,23 @@ for await (const line of createInterface({ input: process.stdin })) {
             ? { commands: [], agents: [], models: [] }
             : request["subtype"] === "mcp_status"
               ? {
-                  mcpServers: Object.entries(servers).map(([name, config]) => ({
-                    name,
-                    config,
-                    configDir: process.env.CLAUDE_CONFIG_DIR,
-                    status: "connected",
-                    source: "dynamic",
-                    validAceConnection:
-                      name === "ace" &&
-                      /^Bearer [a-f0-9]{64}$/.test(
-                        String(
-                          object.parse(object.parse(config)["headers"] ?? {})["Authorization"],
+                  mcpServers: await Promise.all(
+                    Object.entries(servers).map(async ([name, config]) => ({
+                      aceTools: name === "ace" ? await aceTools(config) : [],
+                      name,
+                      config,
+                      configDir: process.env.CLAUDE_CONFIG_DIR,
+                      status: "connected",
+                      source: "dynamic",
+                      validAceConnection:
+                        name === "ace" &&
+                        /^Bearer [a-f0-9]{64}$/.test(
+                          String(
+                            object.parse(object.parse(config)["headers"] ?? {})["Authorization"],
+                          ),
                         ),
-                      ),
-                  })),
+                    })),
+                  ),
                 }
               : request["subtype"] === "mcp_set_servers"
                 ? { added: Object.keys(servers), removed: [], errors: {} }

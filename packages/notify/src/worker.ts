@@ -13,6 +13,9 @@ import { metadata, type MetadataEvent } from "./metadata.ts";
 
 export class NotificationWorker {
   private worker: Worker;
+  private readonly ready: Promise<void>;
+  private readyResolve: () => void = () => {};
+  private readyReject: (error: Error) => void = () => {};
   private sequence = 0;
   private pending = new Map<
     number,
@@ -27,15 +30,23 @@ export class NotificationWorker {
   private transport: NotificationTransport;
   private closing: Promise<void> | undefined;
   private failed: Error | undefined;
+  private stopOnAbort: (() => void) | undefined;
   private pendingBytes = 0;
   private pendingDisconnects = 0;
   constructor(options: {
     path: string;
     windowMs?: number;
     transport: NotificationTransport;
+    signal?: AbortSignal;
     spawn?: (entry: URL, options: WorkerOptions) => Worker;
   }) {
     this.transport = options.transport;
+    this.ready = new Promise((resolve, reject) => {
+      this.readyResolve = resolve;
+      this.readyReject = reject;
+    });
+    // Worker failure can precede the first RPC. Retain it without an unhandled rejection.
+    void this.ready.catch(() => {});
     const spawn =
       options.spawn ?? ((entry: URL, config: WorkerOptions) => new Worker(entry, config));
     this.worker = spawn(new URL("./worker-entry.ts", import.meta.url), {
@@ -45,6 +56,16 @@ export class NotificationWorker {
       this.fail(error instanceof Error ? error : new Error("Notification worker failed")),
     );
     this.worker.on("exit", () => this.fail(new Error("Notification worker exited")));
+    if (options.signal) {
+      const signal = options.signal;
+      const abort = () => {
+        this.fail(new Error("Notification worker aborted"));
+        void this.worker.terminate();
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      this.stopOnAbort = () => signal.removeEventListener("abort", abort);
+      if (signal.aborted) abort();
+    }
     this.worker.on("message", (input: unknown) => {
       const parsed = FromWorker.safeParse(input);
       if (!parsed.success) {
@@ -52,7 +73,9 @@ export class NotificationWorker {
         return;
       }
       const message = parsed.data;
-      if (message.type === "result") {
+      if (message.type === "ready") {
+        this.readyResolve();
+      } else if (message.type === "result") {
         const waiter = this.pending.get(message.id);
         this.pending.delete(message.id);
         this.pendingBytes -= waiter?.bytes ?? 0;
@@ -80,6 +103,7 @@ export class NotificationWorker {
   }
   private fail(error: Error): void {
     this.failed = error;
+    this.readyReject(error);
     for (const waiter of this.pending.values()) waiter.reject(error);
     this.pending.clear();
     this.pendingBytes = 0;
@@ -111,14 +135,18 @@ export class NotificationWorker {
       this.pending.set(id, { resolve, reject, bytes, disconnect });
       if (disconnect) this.pendingDisconnects++;
       this.pendingBytes += bytes;
-      try {
-        this.worker.postMessage(message, []);
-      } catch (error) {
-        this.pending.delete(id);
-        this.pendingBytes -= bytes;
-        if (disconnect) this.pendingDisconnects--;
-        reject(error);
-      }
+      void this.ready
+        .then(() => {
+          if (this.failed) throw this.failed;
+          this.worker.postMessage(message, []);
+        })
+        .catch((error: unknown) => {
+          if (this.pending.delete(id)) {
+            this.pendingBytes -= bytes;
+            if (disconnect) this.pendingDisconnects--;
+          }
+          reject(error);
+        });
     });
   }
   async cursor(): Promise<number> {
@@ -187,8 +215,9 @@ export class NotificationWorker {
   close(): Promise<void> {
     this.closing ??= (async () => {
       try {
-        await this.call({ method: "close" });
+        if (!this.failed) await this.call({ method: "close" });
       } finally {
+        this.stopOnAbort?.();
         await this.worker.terminate();
       }
     })();

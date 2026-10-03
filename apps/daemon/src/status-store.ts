@@ -1,5 +1,6 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import {
+  QueueState,
   Interaction,
   Event,
   ThreadView,
@@ -19,6 +20,7 @@ type Collection =
   | "interactions"
   | "backgroundTasks"
   | "usage"
+  | "contextMeters"
   | "usageSnapshots";
 function target(p: EventPayload): { collection: Collection; id: string } | undefined {
   switch (p.type) {
@@ -39,6 +41,8 @@ function target(p: EventPayload): { collection: Collection; id: string } | undef
       return { collection: "backgroundTasks", id: p.task.id };
     case "background_task.updated":
       return { collection: "backgroundTasks", id: p.taskId };
+    case "context_meter.updated":
+      return { collection: "contextMeters", id: p.meter.agentId };
     case "usage.updated":
       return p.usageScope === "provider_session" || p.usageScope === "model_session"
         ? { collection: "usageSnapshots", id: usageSnapshotKey(p) }
@@ -116,6 +120,15 @@ export class StatusStore {
     }
   }
   persist(event: Event, thread: Thread): void {
+    if (event.payload.type === "queue.updated") {
+      const { type: _type, ...queue } = event.payload;
+      this.db
+        .prepare(
+          "INSERT INTO view_entities VALUES (?, 'queue', 'thread', ?) ON CONFLICT(thread_id,collection,id) DO UPDATE SET value=excluded.value",
+        )
+        .run(thread.id, JSON.stringify(queue));
+      return;
+    }
     const address = target(event.payload);
     if (!address) return;
     const { collection, id } = address;
@@ -130,7 +143,7 @@ export class StatusStore {
         }),
       });
     applyEvent(view, event);
-    const value = Object.hasOwn(view[collection], id) ? view[collection][id] : undefined;
+    const value = Object.hasOwn(view[collection] ?? {}, id) ? view[collection]?.[id] : undefined;
     if (value !== undefined)
       this.db
         .prepare(
@@ -152,18 +165,21 @@ export class StatusStore {
       interactions: {},
       backgroundTasks: {},
       usage: {},
+      contextMeters: {},
       usageSnapshots: {},
     };
     for (const row of this.db
       .prepare("SELECT collection, id, value FROM view_entities WHERE thread_id = ?")
       .all(thread.id)) {
       const collection = String(row.collection);
+      if (collection === "queue") continue;
       if (
         collection !== "agents" &&
         collection !== "runs" &&
         collection !== "interactions" &&
         collection !== "backgroundTasks" &&
         collection !== "usage" &&
+        collection !== "contextMeters" &&
         collection !== "usageSnapshots"
       )
         throw new Error("Unknown entity collection");
@@ -175,6 +191,10 @@ export class StatusStore {
       });
     }
     const view = ThreadView.parse({ ...createThreadView(thread, seq), ...input });
+    const queue = this.db
+      .prepare("SELECT value FROM view_entities WHERE thread_id=? AND collection='queue'")
+      .get(thread.id);
+    if (queue) view.queue = QueueState.parse(JSON.parse(String(queue.value)));
     rebuildAgentChildren(view);
     return view;
   }

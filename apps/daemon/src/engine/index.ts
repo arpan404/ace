@@ -1,35 +1,56 @@
+import type { PrepareInput } from "./input.ts";
+import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
+import { ContextMeters } from "./context-meter.ts";
+import { recoverEngine } from "./restart.ts";
+import { IntentDelivery } from "./intent-delivery.ts";
 import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
-import { executeIntent } from "./delivery.ts";
 import { Sessions } from "./sessions.ts";
 import { randomUUID } from "node:crypto";
-import { deriveThreadStatus, type Fact, type IdSource } from "@ace/core";
+import { deriveThreadStatus, readyForChildResults, type IdSource } from "@ace/core";
 import type { CommandHandler } from "../commands.ts";
 import type { Store } from "../store.ts";
-import type { ThreadId } from "@ace/protocol";
+import type {
+  ThreadId,
+  AgentId,
+  Thread,
+  ProviderKind,
+  Command,
+  QueueSnapshot,
+  QueueGet,
+} from "@ace/protocol";
 import { ThreadActor, systemClock, type EngineClock } from "./actor.ts";
 import { engineLimits, type EngineLimits } from "./limits.ts";
 import { IntentWorkers } from "./workers.ts";
 import { engineHandler } from "./handler.ts";
 import { AdapterRegistry } from "./registry.ts";
-import { EngineRepository, type Intent } from "./repository.ts";
+import { EngineRepository, type IntentHeader } from "./repository.ts";
 export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
+  selectInstance?: (
+    provider: string,
+    backend?: import("@ace/engine-api").ProviderBackend,
+  ) => string | undefined;
   transitions?: TransitionIO;
+  prepareInput?: PrepareInput;
+  recovery?: RecoveryPorts;
+  preferences?: Partial<RecoveryPreferences>;
   limits?: Partial<EngineLimits>;
   sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
   ids?: IdSource;
   threadId?: () => string;
+  commandId?: () => string;
   registry?: AdapterRegistry;
   clock?: EngineClock;
   idleMs?: number;
   silenceMs?: number;
   onError?: (error: unknown) => void;
-  selectInstance?: (
-    provider: string,
-    backend?: import("@ace/engine-api").ProviderBackend,
-  ) => string | undefined;
+  mcp?: (
+    threadId: ThreadId,
+    agentId: string,
+    lifetime: AbortSignal,
+  ) => NonNullable<import("@ace/engine-api").SessionContext["aceMcp"]>;
 }
 export class Engine {
   readonly handler: CommandHandler;
@@ -44,12 +65,26 @@ export class Engine {
   private controls: IntentWorkers;
   private steering: IntentWorkers;
   private sessions: Sessions;
+  private recovery: Recovery;
+  private meters: ContextMeters;
+  private delivery: IntentDelivery;
   private transitions: ThreadTransitions;
+  private readyPromise: Promise<void>;
+  private readyState = false;
   private closing = false;
   private closePromise?: Promise<void>;
+  private commandPolicy?: (
+    command: Command,
+    accept: () => import("@ace/protocol").CommandResult,
+  ) => import("@ace/protocol").CommandResult;
   constructor(store: Store, options: EngineOptions = {}) {
     this.limits = engineLimits(options.limits);
-    this.repo = new EngineRepository(store, options.ids, this.limits.maxActiveThreads);
+    this.repo = new EngineRepository(
+      store,
+      options.ids,
+      this.limits.maxActiveThreads,
+      options.commandId,
+    );
     this.registry = options.registry ?? new AdapterRegistry();
     this.clock = options.clock ?? systemClock;
     this.idleMs = options.idleMs ?? 30 * 60_000;
@@ -61,18 +96,26 @@ export class Engine {
     this.steering = new IntentWorkers((id) => this.steer(this.actor(id)), this.report);
     this.controls = new IntentWorkers((id) => this.control(this.actor(id)), this.report);
     this.sessions = new Sessions({
+      ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
       repo: this.repo,
       registry: this.registry,
       clock: this.clock,
       closing: () => this.closing,
       wake: (id) => this.wake(id),
-      expireDelivery: (actor) => this.expireDelivery(actor),
+      expireDelivery: (actor) => this.delivery.expire(actor),
       released: (id) => {
-        const actor = this.actors.get(id);
-        if (actor) this.releaseUnused(actor);
+        this.releaseDormant(id);
+        this.wakeQueued();
       },
     });
+    this.recovery = new Recovery(
+      this.repo,
+      this.clock,
+      options.recovery ?? {},
+      RecoveryPreferences.parse(options.preferences ?? {}),
+      (id) => this.wake(id),
+    );
     this.transitions = new ThreadTransitions(
       this.repo,
       this.registry,
@@ -94,6 +137,44 @@ export class Engine {
           throw new Error("Transition tree has unsettled work");
       },
     );
+    this.delivery = new IntentDelivery({
+      repo: this.repo,
+      clock: this.clock,
+      registry: this.registry,
+      sessions: this.sessions,
+      recovery: this.recovery,
+      prepareInput: options.prepareInput,
+      transitions: this.transitions,
+      invalidateContext: (id) => this.meters.invalidate(id, this.clock.now()),
+      releaseGuards: (intent) => {
+        for (const id of this.repo.transitions.releaseGuards(intent.commandId)) {
+          this.releaseDormant(id);
+          queueMicrotask(() => this.wake(id));
+        }
+      },
+      isSteer: (intent) => this.isSteer(intent),
+    });
+    this.meters = new ContextMeters(store, options.recovery?.contextWindow);
+    this.repo.observe = (state, facts, events, at) => {
+      if (facts.some((fact) => fact.type === "process.started"))
+        this.meters.invalidate(state.threadId, at);
+      if (
+        events.some(
+          (event) =>
+            event.type === "usage.updated" ||
+            event.type === "context.sampled" ||
+            (event.type === "agent.updated" && event.model !== undefined) ||
+            ((event.type === "item.created" || event.type === "item.updated") &&
+              event.item.type === "compaction") ||
+            (event.type === "agent.status" &&
+              event.status.state === "working" &&
+              event.status.activity === "compacting"),
+        )
+      )
+        this.meters.observe(state, events, at, this.repo.session(state.threadId).instanceId);
+      this.actors.get(state.threadId)?.observeInputs(events);
+      this.recovery.observe(state, facts, events, at);
+    };
     const handler = engineHandler(
       this.repo,
       this.registry,
@@ -101,6 +182,7 @@ export class Engine {
       silenceMs,
       (id) => this.wake(id),
       options.threadId ?? randomUUID,
+      this.recovery,
       this.limits,
       options.selectInstance,
     );
@@ -108,9 +190,40 @@ export class Engine {
       handle: (command, context) =>
         this.closing
           ? { commandId: command.id, ok: false, error: "daemon_shutting_down" }
-          : handler.handle(command, context),
+          : !this.readyState
+            ? { commandId: command.id, ok: false, error: "engine_starting" }
+            : store.atomic(() =>
+                this.commandPolicy
+                  ? this.commandPolicy(command, () => handler.handle(command, context))
+                  : handler.handle(command, context),
+              ),
     };
-    this.recover();
+    const recover = () =>
+      recoverEngine(
+        this.repo,
+        this.recovery,
+        this.clock,
+        (intent, message) => this.delivery.fail(intent, message),
+        (id) => this.wake(id),
+      );
+    const recovery = this.recovery;
+    const repo = this.repo;
+    if (options.recovery?.preferences) {
+      this.readyPromise = (async () => {
+        await recovery.prepare();
+        for (const state of repo.states()) await recovery.prepare(state.threadId);
+        if (!this.closing) recover();
+        this.readyState = true;
+      })();
+    } else {
+      recover();
+      this.readyState = true;
+      this.readyPromise = Promise.resolve();
+    }
+  }
+  /** One trusted host policy for accepted commands, inside the receipt transaction. */
+  bindCommandPolicy(policy: NonNullable<Engine["commandPolicy"]>): void {
+    this.commandPolicy = policy;
   }
   private actor(id: ThreadId): ThreadActor {
     let actor = this.actors.get(id);
@@ -138,6 +251,59 @@ export class Engine {
     }
     return actor;
   }
+  capabilities(provider: ProviderKind) {
+    return this.registry.get(provider).capabilities;
+  }
+  /** Host-owned summary attachment. Child transcript and native session stay independent. */
+  attachChild(
+    parentId: ThreadId,
+    parentAgentId: AgentId,
+    child: Thread,
+    role: string,
+    background: boolean,
+  ): void {
+    const state = this.repo.requireState(parentId);
+    const parent = state.indexes.agentKeysById[parentAgentId];
+    if (!parent) throw new Error("Unknown parent agent");
+    this.repo.apply(
+      parentId,
+      [
+        {
+          type: "agent.seen",
+          agent: `ace-child:${child.id}`,
+          parent,
+          origin: "ace",
+          fidelity: "summary",
+          native: { provider: child.provider },
+          cwd: this.repo.session(child.id).cwd,
+          role,
+          background,
+        },
+        {
+          type: "agent.external",
+          agent: `ace-child:${child.id}`,
+          threadId: child.id,
+          status: child.status,
+        },
+      ],
+      this.clock.now(),
+    );
+  }
+  updateChild(parentId: ThreadId, child: Thread): void {
+    this.repo.apply(
+      parentId,
+      [
+        {
+          type: "agent.external",
+          agent: `ace-child:${child.id}`,
+          threadId: child.id,
+          status: child.status,
+        },
+      ],
+      this.clock.now(),
+    );
+    this.wake(parentId);
+  }
   /** On-demand metrics visit bounded live actors and indexed outstanding intents only. */
   workload(): { activeSessions: number; queues: Record<string, number> } {
     let activeSessions = 0;
@@ -151,121 +317,65 @@ export class Engine {
     }
     return { activeSessions, queues };
   }
-  private recover(): void {
-    this.repo.transitions.pruneGuards();
-    const uncertain = new Set<ThreadId>();
-    for (const state of this.repo.states()) {
-      const live =
-        state.queueSources.provider > 0 ||
-        Object.values(state.agents).some(
-          (record) =>
-            record.activeRun ||
-            record.wakeUntil !== undefined ||
-            !["idle", "failed", "interrupted"].includes(record.agent.status.state),
-        ) ||
-        Object.keys(state.indexes.pendingInteractions).length > 0 ||
-        Object.keys(state.indexes.runningTasks).length > 0;
-      if (live) {
-        const facts: Fact[] = [
-          {
-            type: "process.exited",
-            deliberate: false,
-            message: "Daemon restarted while provider work was live; execution is uncertain",
-          },
-          { type: "queue.changed", source: "provider", count: 0 },
-        ];
-        if (state.queueSources.provider > 0)
-          facts.push({
-            type: "item.upsert",
-            agent: state.rootKey ?? "root",
-            item: "engine:recovered-provider-queue",
-            draft: {
-              type: "notice",
-              level: "error",
-              complete: true,
-              text: "Provider queued work was interrupted by daemon restart; execution is uncertain",
-            },
-          });
-        this.repo.apply(state.threadId, facts, this.clock.now());
-      }
-    }
-    for (const intent of this.repo.intents()) {
-      if (
-        intent.status === "running" ||
-        intent.awaiting ||
-        (intent.status === "pending" &&
-          ![
-            "thread.send",
-            "thread.create",
-            "thread.fork",
-            "thread.switch",
-            "thread.merge",
-          ].includes(intent.command.payload.type))
-      ) {
-        uncertain.add(intent.threadId);
-        this.fail(
-          intent,
-          ["thread.switch", "thread.merge", "thread.fork"].includes(intent.command.payload.type)
-            ? "Thread transition was interrupted by daemon restart; delivery and patch effects are uncertain"
-            : this.repo.backend(intent.threadId) === "cursor-sdk"
-              ? "SDK dispatch was interrupted by daemon restart. Original input is retained; delivery is uncertain. Inspect recovery/history before explicitly retrying; no prompt was automatically resent."
-              : "Provider delivery was interrupted by daemon restart; execution is uncertain",
-        );
-      }
-    }
-    for (const state of this.repo.states()) {
-      const count = this.repo.queuedCount(state.threadId);
-      if (state.queueSources.engine > count && !uncertain.has(state.threadId))
-        this.repo.apply(
-          state.threadId,
-          [
-            {
-              type: "item.upsert",
-              agent: "root",
-              item: "engine:recovered-queue",
-              draft: {
-                type: "notice",
-                level: "error",
-                complete: true,
-                text: "Recovered untracked queue state after restart; execution is uncertain",
-              },
-            },
-          ],
-          this.clock.now(),
-        );
-      if (state.queueSources.engine !== count)
-        this.repo.apply(
-          state.threadId,
-          [{ type: "queue.changed", source: "engine", count }],
-          this.clock.now(),
-        );
-      if (
-        this.repo
-          .intents(state.threadId)
-          .some((intent) => ["pending", "queued"].includes(intent.status)) &&
-        this.repo.reserve(state.threadId)
+  sessionMetadata(id: ThreadId) {
+    return this.repo.session(id);
+  }
+  queuePage(request: Pick<QueueGet, "threadId" | "after" | "expectedRevision" | "limit">) {
+    return this.repo.queue.page(request);
+  }
+  retainsAttachment(id: ThreadId, hash: string): boolean {
+    return this.repo.queue.retains(id, hash);
+  }
+  ready(): Promise<void> {
+    return this.readyPromise;
+  }
+  async prepareCommand(command: Command): Promise<void> {
+    await this.readyPromise;
+    if (
+      !["thread.create", "thread.send", "thread.resume", "queue.resume", "thread.limit"].includes(
+        command.payload.type,
       )
-        this.wake(state.threadId);
-    }
+    )
+      return;
+    await this.recovery.prepare(
+      "threadId" in command.payload ? command.payload.threadId : undefined,
+    );
+  }
+  queue(id: ThreadId): QueueSnapshot {
+    return this.repo.queue.snapshot(id);
   }
 
   private wakeQueued(): void {
     if (this.closing) return;
-    for (const intent of this.repo.intents())
-      if (["pending", "queued"].includes(intent.status) && this.repo.reserve(intent.threadId))
-        this.wake(intent.threadId);
+    for (const id of this.repo.pending.runnableThreads(this.limits.maxActiveThreads))
+      if (this.repo.reserve(id)) this.wake(id);
   }
-  private releaseUnused(actor: ThreadActor): void {
-    if (actor.session || (actor.lifetime && !actor.lifetime.signal.aborted)) return;
-    if (this.repo.intents(actor.id).length) return;
-    this.repo.release(actor.id);
-    this.wakeQueued();
-  }
-  private releaseGuards(intent: Intent): void {
-    for (const id of this.repo.transitions.releaseGuards(intent.command.id)) this.wake(id);
+  private releaseDormant(id: ThreadId): void {
+    const actor = this.actors.get(id);
+    if (
+      actor?.session ||
+      this.sessions.isClosing(id) ||
+      this.repo.sessionOpening(id) ||
+      this.repo.pending.running(id)
+    )
+      return;
+    const queue = this.repo.queue.get(id);
+    if (
+      this.repo.pending.recovery(id) ||
+      this.repo.pending.transition(id) ||
+      this.repo.pending.controls(id).length ||
+      (!queue.paused && !queue.limited && this.repo.pending.message(id))
+    )
+      return;
+    if (this.repo.reservedSlot(id)) {
+      this.repo.release(id);
+      this.wakeQueued();
+    }
   }
   private wake(id: ThreadId): void {
     if (this.closing) return;
+    this.releaseDormant(id);
+    if (!this.repo.reservedSlot(id)) return;
     this.sends.wake(id);
     this.controls.wake(id);
     this.steering.wake(id);
@@ -276,103 +386,113 @@ export class Engine {
     if (actor.idleDue && actor.session) await this.sessions.close(actor, "idle");
     if (
       !actor.session &&
-      this.repo
-        .intents(actor.id)
-        .some((intent) =>
-          ["thread.create", "thread.send", "thread.fork", "thread.switch", "thread.merge"].includes(
-            intent.command.payload.type,
-          ),
-        )
+      (this.repo.pending.message(actor.id) || this.repo.pending.recovery(actor.id))
     )
       return;
-    for (const intent of this.repo.intents(actor.id)) {
+    const controls = this.repo.pending.controls(actor.id);
+    for (const intent of controls) {
       if (this.closing) return;
-      if (
-        intent.status !== "pending" ||
-        ["thread.create", "thread.send", "thread.fork", "thread.switch", "thread.merge"].includes(
-          intent.command.payload.type,
-        )
-      )
-        continue;
-      await this.runIntent(actor, intent);
+      const guard = this.repo.transitions.guardOwner(actor.id);
+      if (guard && guard !== intent.commandId) continue;
+      await this.delivery.run(actor, intent);
     }
+    this.releaseDormant(actor.id);
+    if (controls.length === 64) this.wake(actor.id);
   }
-  private queue(actor: ThreadActor): void {
+  private syncQueue(actor: ThreadActor): void {
     actor.syncQueue();
   }
   private async work(actor: ThreadActor): Promise<void> {
     await actor.flush();
     if (actor.poisoned) {
       if (actor.session) await this.sessions.close(actor, "user");
-      for (const intent of this.repo.intents(actor.id))
+      for (const intent of this.repo.pending.headers(actor.id))
         if (["pending", "queued"].includes(intent.status))
-          this.fail(
+          this.delivery.fail(
             intent,
             "Thread stopped after a persistence failure; restart the daemon before retrying",
           );
-      this.queue(actor);
+      this.syncQueue(actor);
       return;
     }
-    if (actor.idleDue && actor.session) await this.sessions.close(actor, "idle");
-    // A queued selection applies at the next boundary, even if input was queued first.
+    // Controls own idle retirement; sends must remain free to open a replacement.
+    if (this.closing || (actor.idleDue && actor.session)) return;
+    const guard = this.repo.transitions.guardOwner(actor.id);
+    const change = this.repo.pending.transition(actor.id);
     if (
-      !this.repo.transitions.guarded(actor.id) &&
+      change &&
+      (!guard || guard === change.commandId) &&
+      !this.repo.pending.awaiting(actor.id) &&
+      !this.repo.pending.recovering(actor.id) &&
       this.repo.quiescent(this.repo.requireState(actor.id))
     ) {
-      const pending = this.repo.intents(actor.id);
-      const change = pending.find(
-        (intent) =>
-          intent.command.payload.type === "thread.switch" &&
-          ["pending", "queued"].includes(intent.status),
-      );
-      if (change && !pending.some((intent) => intent.awaiting)) await this.runIntent(actor, change);
+      await this.delivery.run(actor, change);
+      this.wake(actor.id);
+      return;
     }
-    for (const intent of this.repo.intents(actor.id)) {
-      if (this.closing) return;
-      if (!["pending", "queued"].includes(intent.status)) continue;
-      const guard = this.repo.transitions.guardOwner(actor.id);
-      if (guard && guard !== intent.command.id) continue;
-      const p = intent.command.payload;
-      const send = [
-        "thread.send",
-        "thread.create",
-        "thread.fork",
-        "thread.switch",
-        "thread.merge",
-      ].includes(p.type);
-      if (!send) continue;
-      if (this.isSteer(intent)) continue;
+    const recovery = this.repo.pending.recovery(actor.id);
+    const queue = this.repo.queue.get(actor.id);
+    // Releasing a restart hold does not consume native history. Keep the fork or
+    // patch guard until its owning transition executes after this explicit resume.
+    if (
+      recovery &&
+      (!guard ||
+        guard === recovery.commandId ||
+        (!queue.continuation && ["thread.resume", "queue.resume"].includes(recovery.kind)))
+    ) {
+      await this.delivery.run(actor, recovery);
+      this.wake(actor.id);
+      return;
+    }
+    if (this.repo.pending.recoveryAcknowledgement(actor.id)) return;
+    if (queue.paused || queue.limited) {
+      this.releaseDormant(actor.id);
+      actor.schedule();
+      return;
+    }
+    const first = this.repo.pending.message(actor.id);
+    const intent =
+      first && ["thread.switch", "thread.merge"].includes(first.kind)
+        ? this.repo.pending.childResult(actor.id)
+        : first && this.isSteer(first)
+          ? this.repo.pending.queuedMessage(actor.id)
+          : first;
+    if (
+      intent &&
+      (!guard || guard === intent.commandId) &&
+      !["thread.switch", "thread.merge"].includes(intent.kind)
+    ) {
       this.repo.mark(intent, "queued");
-      this.queue(actor);
+      this.syncQueue(actor);
       const state = this.repo.requireState(actor.id);
-      if (this.repo.intents(actor.id).some((pending) => pending.awaiting)) continue;
-      if (p.type === "thread.switch" || p.type === "thread.merge") {
-        if (!this.repo.quiescent(state)) continue;
-      } else {
-        const status = deriveThreadStatus({ ...state, queueCount: state.queueSources.provider });
-        if (!["new", "done", "failed"].includes(status.state) && !this.repo.quiescent(state))
-          continue;
+      const status = deriveThreadStatus({ ...state, queueCount: state.queueSources.provider });
+      const ready =
+        intent.trigger === "subagent_result"
+          ? readyForChildResults(state)
+          : ["new", "done", "failed"].includes(status.state) || this.repo.quiescent(state);
+      if (!this.repo.pending.awaiting(actor.id) && ready) {
+        await this.delivery.run(actor, intent);
+        this.wake(actor.id);
+        return;
       }
-      await this.runIntent(actor, intent);
     }
+    this.releaseDormant(actor.id);
     actor.schedule();
   }
-  private isSteer(intent: Intent): boolean {
-    const payload = intent.command.payload;
-    if (payload.type !== "thread.send" || payload.delivery !== "steer") return false;
+  private isSteer(intent: IntentHeader): boolean {
+    if (intent.kind !== "thread.send" || intent.delivery !== "steer") return false;
     if (this.repo.transitions.guarded(intent.threadId)) return false;
     const state = this.repo.requireState(intent.threadId);
     if (
-      this.repo
-        .intents(intent.threadId)
-        .some(
-          (pending) =>
-            ["thread.switch", "thread.merge"].includes(pending.command.payload.type) &&
-            (pending.status === "running" || this.repo.quiescent(state)),
-        )
+      this.repo.pending.transition(intent.threadId) &&
+      (this.repo.pending.running(intent.threadId) || this.repo.quiescent(state))
     )
       return false;
     return (
+      Boolean(this.actors.get(intent.threadId)?.session) &&
+      !this.repo.queue.get(intent.threadId).paused &&
+      !this.repo.queue.get(intent.threadId).limited &&
+      !this.repo.pending.recovering(intent.threadId) &&
       this.registry.has(state.config.provider) &&
       (
         this.actors.get(intent.threadId)?.effectiveCapabilities ??
@@ -382,117 +502,14 @@ export class Engine {
   }
   private async steer(actor: ThreadActor): Promise<void> {
     await actor.flush();
-    if (actor.poisoned) return;
-    for (const intent of this.repo.intents(actor.id)) {
-      if (this.closing) return;
-      if (["pending", "queued"].includes(intent.status) && this.isSteer(intent)) {
-        if (
-          !actor.session &&
-          this.repo
-            .intents(actor.id)
-            .some(
-              (pending) =>
-                ["pending", "queued", "running"].includes(pending.status) &&
-                [
-                  "thread.create",
-                  "thread.send",
-                  "thread.fork",
-                  "thread.switch",
-                  "thread.merge",
-                ].includes(pending.command.payload.type) &&
-                !this.isSteer(pending),
-            )
-        )
-          return;
-        await this.runIntent(actor, intent);
-      }
+    if (actor.poisoned || this.closing || !actor.session) return;
+    const queue = this.repo.queue.get(actor.id);
+    if (queue.paused || queue.limited) return;
+    const intent = this.repo.pending.steerMessage(actor.id);
+    if (intent && this.isSteer(intent)) {
+      await this.delivery.run(actor, intent);
+      this.wake(actor.id);
     }
-  }
-  private async runIntent(actor: ThreadActor, intent: Intent): Promise<void> {
-    const send = ["thread.create", "thread.send", "thread.fork"].includes(
-      intent.command.payload.type,
-    );
-    this.repo.mark(intent, "running");
-    if (send) {
-      const state = this.repo.requireState(actor.id);
-      const active = state.agents[state.rootKey ?? ""]?.activeRun;
-      const outstanding = this.repo.intents(actor.id).find((pending) => pending.awaiting);
-      const target = this.isSteer(intent)
-        ? active
-          ? undefined
-          : (outstanding?.ackTarget ?? intent.id)
-        : intent.id;
-      this.repo.beginSend(intent, target);
-    }
-    this.queue(actor);
-    try {
-      const payload = intent.command.payload;
-      if (payload.type === "thread.switch" || payload.type === "thread.merge")
-        await this.transitions.execute(actor, intent);
-      else
-        await executeIntent(
-          actor,
-          intent,
-          this.repo,
-          this.registry,
-          this.sessions,
-          this.transitions,
-        );
-      await actor.flush();
-      if (actor.poisoned) throw new Error("Provider frames could not be persisted");
-      this.repo.mark(intent, "done");
-      this.releaseGuards(intent);
-    } catch (error) {
-      await actor.flush();
-      this.fail(intent, error instanceof Error ? error.message : String(error));
-    }
-    this.queue(actor);
-    actor.schedule();
-    this.releaseUnused(actor);
-  }
-  private fail(intent: Intent, message: string): void {
-    this.repo.store.atomic(() => {
-      this.repo.mark(intent, "failed", message);
-      this.releaseGuards(intent);
-      if (intent.command.payload.type === "thread.switch") {
-        const pending = this.repo.store.getThread(intent.threadId)?.switch;
-        if (pending)
-          this.repo.store.appendEvents(
-            intent.threadId,
-            [
-              {
-                type: "thread.updated",
-                switch: {
-                  ...pending,
-                  state: "failed",
-                  error: message.slice(0, 2048),
-                  at: this.clock.now(),
-                },
-              },
-            ],
-            this.clock.now(),
-          );
-      }
-      const fact: Fact = {
-        type: "item.upsert",
-        agent: "root",
-        item: `intent:${intent.id}`,
-        draft: {
-          type: "notice",
-          level: "error",
-          text: `${intent.command.payload.type}: ${message}`,
-          complete: true,
-          raw: [],
-        },
-      };
-      this.repo.apply(intent.threadId, [fact], this.clock.now());
-    });
-  }
-  private expireDelivery(actor: ThreadActor): void {
-    for (const intent of this.repo.intents(actor.id))
-      if (intent.awaiting)
-        this.fail(intent, "Provider exited before turn acknowledgement; execution is uncertain");
-    this.queue(actor);
   }
   /** Read the original JSON bytes of an oversized raw payload's data envelope. */
   readRawBlob(id: string): Uint8Array | undefined {
@@ -500,15 +517,23 @@ export class Engine {
   }
   /** Drain accepted commands and frames. Does not wait for queued work to become runnable. */
   async flush(): Promise<void> {
+    await this.readyPromise;
     await Promise.resolve();
     do {
       await Promise.all([this.sends.flush(), this.controls.flush(), this.steering.flush()]);
       await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
+      await this.recovery.flush();
     } while (this.sends.active || this.controls.active || this.steering.active);
   }
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
+      await this.readyPromise;
+      this.recovery.close();
+      for (const actor of this.actors.values()) {
+        await actor.flush();
+        this.recovery.capture(actor.id);
+      }
       this.sends.stop();
       this.controls.stop();
       this.steering.stop();

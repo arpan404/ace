@@ -68,6 +68,17 @@
     "interruptCascades": {
       "type": "boolean"
     },
+    "launchOptions": {
+      "items": {
+        "enum": [
+          "effort",
+          "serviceTier"
+        ],
+        "type": "string"
+      },
+      "maxItems": 2,
+      "type": "array"
+    },
     "planMode": {
       "type": "boolean"
     },

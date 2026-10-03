@@ -31,6 +31,7 @@ struct Input: Decodable {
     let toX: Double?
     let toY: Double?
     let button: String?
+    let durationMs: Int?
     let key: String?
     let modifiers: [String]?
     let text: String?

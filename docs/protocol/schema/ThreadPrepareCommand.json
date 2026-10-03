@@ -1,0 +1,58 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadPrepareCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "accountId": {
+      "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+    },
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "options": {
+      "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "title": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "thread.prepare",
+      "type": "string"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "type",
+    "threadId",
+    "workspaceId",
+    "title",
+    "provider"
+  ],
+  "type": "object"
+}

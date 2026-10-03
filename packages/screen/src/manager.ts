@@ -1,3 +1,4 @@
+import { ScreenStopError } from "./stop-error.ts";
 import { ScreenAgentScope } from "@ace/protocol";
 import { agentOwner } from "./agent-binding.ts";
 import {
@@ -23,7 +24,7 @@ import {
 } from "./policy.ts";
 import { readTree, findElements, actOnElement } from "./semantic.ts";
 import { HelperHost } from "./helper-host.ts";
-import { createSession, type Session } from "./session.ts";
+import { createSession, type Session, type ControllerBinding } from "./session.ts";
 import { nodeScheduler } from "./runtime.ts";
 import { Recording, type RecordingArtifact } from "./recording.ts";
 
@@ -321,16 +322,30 @@ export class ScreenManager {
       owner,
     );
   }
-  async uiAct(id: string, actor: "human" | "agent", options: unknown, owner = "local") {
+  async uiAct(
+    id: string,
+    actor: "human" | "agent",
+    options: unknown,
+    owner = "local",
+    beforeDispatch?: () => void,
+  ) {
     const action = ScreenUIActOptions.parse(options);
-    return this.execute(id, actor, owner, (session) =>
-      actOnElement(session.helper, session.state.target, this.policy.allowlist(), action),
-    );
+    return this.execute(id, actor, owner, (session) => {
+      beforeDispatch?.();
+      return actOnElement(session.helper, session.state.target, this.policy.allowlist(), action);
+    });
   }
-  async input(id: string, actor: "human" | "agent", options: unknown, owner = "local") {
+  async input(
+    id: string,
+    actor: "human" | "agent",
+    options: unknown,
+    owner = "local",
+    beforeDispatch?: () => void,
+  ) {
     const input = ScreenInput.parse(options);
     await this.execute(id, actor, owner, (session) => {
       if (!session.helper.capabilities) throw new Error("V2 input not supported by helper");
+      beforeDispatch?.();
       return session.helper.request({ op: "input", input });
     });
   }
@@ -359,6 +374,7 @@ export class ScreenManager {
         candidate.owner === owner,
     );
     if (!session) throw new Error("Screen delegation required");
+    session.controllerBinding?.authorize();
     this.authorize(session.state.target);
     return session.state.sessionId;
   }
@@ -370,9 +386,25 @@ export class ScreenManager {
   ): Promise<void> {
     await this.input(id, "agent", { kind: "key.press", key, modifiers }, owner);
   }
-  controller(id: string, controller: ScreenState["controller"], owner = "local"): void {
+  controller(
+    id: string,
+    controller: ScreenState["controller"],
+    owner = "local",
+    binding?: ControllerBinding,
+  ): void {
     const session = this.live(id);
+    if (session.controllerBinding) {
+      // No old input remains authorized if an external release callback fails.
+      Object.assign(session, takeControl(session, "none", owner));
+      const error = this.releaseBinding(session);
+      if (error) {
+        this.emit(session);
+        this.releaseUnused(session);
+        throw error;
+      }
+    }
     Object.assign(session, takeControl(session, controller, owner));
+    session.controllerBinding = controller === "none" ? undefined : binding;
     this.emit(session);
     this.releaseUnused(session);
   }
@@ -447,6 +479,7 @@ export class ScreenManager {
     const session = this.live(id);
     this.authorize(session.state.target);
     authorizeInput(session, actor, owner);
+    session.controllerBinding?.authorize();
     if (session.queuedActions >= 16) throw new Error("Input queue limit");
     session.queuedActions++;
     const epoch = session.epoch;
@@ -469,6 +502,7 @@ export class ScreenManager {
           session.state.lifecycle !== "live"
         )
           throw new Error("Controller changed");
+        session.controllerBinding?.authorize();
         return dispatch(session);
       })
       .catch(async (error: unknown) => {
@@ -546,10 +580,15 @@ export class ScreenManager {
     this.emit(session);
     session.pixels.stop();
     const errors: unknown[] = [];
+    const releaseError = this.releaseBinding(session);
+    if (releaseError) errors.push(releaseError);
+    let captureTerminated = false;
     try {
       if (session.state.error) await this.host.close();
       else await this.host.stopCapture(session.helper);
+      captureTerminated = true;
     } catch (error) {
+      captureTerminated = error instanceof ScreenStopError && error.captureTerminated;
       errors.push(error);
     }
     session.captureStopped.resolve();
@@ -563,13 +602,7 @@ export class ScreenManager {
     } finally {
       this.sessions.delete(session.state.sessionId);
     }
-    if (errors.length)
-      throw new AggregateError(
-        errors,
-        errors
-          .map((error) => (error instanceof Error ? error.message : "Screen stop failed"))
-          .join("; "),
-      );
+    if (errors.length) throw new ScreenStopError(errors, captureTerminated);
   }
   async close(): Promise<void> {
     await this.enable(false);
@@ -594,6 +627,16 @@ export class ScreenManager {
       }
     }
   }
+  private releaseBinding(session: Session): Error | undefined {
+    const binding = session.controllerBinding;
+    session.controllerBinding = undefined;
+    try {
+      binding?.released();
+    } catch (error) {
+      return error instanceof Error ? error : new Error("Controller release failed");
+    }
+    return undefined;
+  }
   private fail(session: Session, error: Error): void {
     if (
       session.state.lifecycle === "failed" ||
@@ -604,13 +647,18 @@ export class ScreenManager {
     session.epoch++;
     session.latest = undefined;
     session.hub.clear();
-    session.pixels.stop(error);
     session.state = {
       ...session.state,
       lifecycle: "stopping",
       controller: "none",
       error: error.message.slice(0, 1024),
     };
+    const releaseError = this.releaseBinding(session);
+    if (releaseError) {
+      error = new Error(`${error.message}; ${releaseError.message}`);
+      session.state = { ...session.state, error: error.message.slice(0, 1024) };
+    }
+    session.pixels.stop(error);
     this.emit(session);
     void session.recording?.stop().catch(() => {});
     session.recording = undefined;

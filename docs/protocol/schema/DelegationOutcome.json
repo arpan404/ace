@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/DelegationOutcome.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "before": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "outcome": {
+      "enum": [
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "type": "string"
+    },
+    "result": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "threadId",
+    "outcome",
+    "result",
+    "truncated",
+    "before"
+  ],
+  "type": "object"
+}

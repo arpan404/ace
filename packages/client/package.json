@@ -12,11 +12,17 @@
     "bench:reads": "node bench/reads.ts"
   },
   "dependencies": {
+    "@ace/devices": "workspace:*",
+    "@ace/files": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/relay": "workspace:*",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@ace/daemon": "workspace:*"
+    "@ace/daemon": "workspace:*",
+    "@ace/secure-channel": "workspace:*",
+    "@types/ws": "^8.18.1",
+    "ws": "^8.18.3"
   }
 }

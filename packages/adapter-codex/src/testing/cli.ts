@@ -2,7 +2,17 @@
 import { createInterface } from "node:readline";
 import { list, obj, str } from "../native.ts";
 if (process.env["ACE_FAKE_RESUME"] === "ignore-term") process.on("SIGTERM", () => {});
-const args = process.argv.slice(2);
+const args: string[] = [];
+const overrides = new Map<string, string>();
+for (let index = 2; index < process.argv.length; index++) {
+  const arg = process.argv[index];
+  if (arg === "-c") {
+    const value = process.argv[++index];
+    if (!value || !value.includes("=")) throw new Error("Invalid synthetic CLI override");
+    const at = value.indexOf("=");
+    overrides.set(value.slice(0, at), value.slice(at + 1));
+  } else if (arg) args.push(arg);
+}
 if (args.join(" ") === "--version") {
   process.stdout.write("codex-cli 0.159.1\n");
   process.exit(0);
@@ -55,6 +65,10 @@ for await (const line of createInterface({ input: process.stdin })) {
     else
       respond({
         userAgent: "ace/0.159.1",
+        aceConnection: {
+          url: overrides.get("mcp_servers.ace.url"),
+          authenticated: /^[a-f0-9]{64}$/.test(process.env["ACE_MCP_BEARER_TOKEN"] ?? ""),
+        },
         codexHome: "/fake",
         platformFamily: "unix",
         platformOs: "macos",

@@ -1,12 +1,19 @@
-import { AccountService, openRegistry } from "@ace/accounts";
+import { warmup } from "./warmup.ts";
+import { AccountService, openRegistryIndex } from "@ace/accounts";
 import { join } from "node:path";
 import type { ServiceContext } from "./types.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export async function startAccounts({ config, resources, services, now, options }: ServiceContext) {
-  const registry = await openRegistry(
+export async function startAccounts(context: ServiceContext) {
+  const { config, resources, services, now, options } = context;
+  const registry = await openRegistryIndex(
     process.env.ACE_ACCOUNTS_DB ?? join(config.dataDir, "accounts.sqlite"),
+    context.signal,
   );
-  resources.own(() => registry.close());
+  const validation = warmup(context, "accounts", () => registry.ready);
+  resources.own(async () => {
+    await validation;
+    registry.close();
+  });
   services.accountRegistry = registry;
   services.accounts = new AccountService({
     registry,

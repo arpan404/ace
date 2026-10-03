@@ -27,9 +27,9 @@ provides the authorized prepared schema for the SDK's validation hook.
 
 `Toolkit.register(registry)` is the extension point for browser, preview,
 terminal, notification, orchestration and forge owners. Browser and preview
-use `registerAutomationTool` with a typed `AutomationAdapter`. Missing
-workstreams register no fake tools. Pass daemon toolkits as the third
-`startDaemon` argument. Registration must finish before serving clients.
+may use `registerAutomationTool` with a typed `AutomationAdapter`; image tools
+use `registerContent`. Missing workstreams register no fake tools. Pass additional
+toolkits through `startDaemon({ toolkits })`. Registration must finish before serving clients.
 
 Built-ins read thread status and a page of agents, persist notification notices,
 and accept spawn intents. Spawn acceptance means queued work, not a new running
@@ -55,3 +55,21 @@ Run `bun run --filter @ace/mcp-server bench` for lookup, dispatch and real-clien
 HTTP throughput. Run `bun run --filter @ace/daemon bench:mcp` for incremental
 agent indexing, pages and atomic notification persistence. These measurements
 are non-gating.
+
+## Provider session composition
+
+The daemon issues a new in-memory credential after the engine creates the thread
+root, then supplies `SessionContext.aceMcp` to the selected account-bound adapter.
+Closing, exiting, failed startup or engine abort revokes that credential. Adapters
+scrub its exact bearer from provider payloads before persistence.
+
+The current adapters use Codex app-server configuration, Claude Agent SDK
+`mcpServers`, a session-owned OpenCode server configuration, and ACP session
+`mcpServers` for Cursor, Antigravity and generic ACP. ACP HTTP support must be
+advertised during initialization; an unsupported installed CLI fails with an
+update hint. This does not establish support for the separate Cursor SDK adapter
+or OpenCode v2 workstreams before they consume the same connection contract.
+
+The offline provider tests use real child processes and authenticated loopback
+HTTP without contacting a provider. They and the credential-redaction benchmark
+need run at merge. No runtime tests, probes or benchmarks ran during this change.
