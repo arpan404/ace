@@ -21,9 +21,9 @@ const openThread =
     await transcript(page);
   };
 const rightTab =
-  (path: string, tab: string | RegExp): Setup =>
+  (path: string, tab: string | RegExp, navigate = true): Setup =>
   async (page) => {
-    await openThread(path)(page);
+    if (navigate) await openThread(path)(page);
     const panel = page.getByRole("region", { name: "Thread panel" });
     if (!(await panel.isVisible())) await page.getByRole("button", { name: "Right panel" }).click();
     await panel.getByRole("tab", { name: tab }).click();
@@ -44,6 +44,15 @@ const visit =
     await page.goto(path);
     await heading(page, title);
   };
+
+/** The design's hero thread with a message queued behind the busy agent. */
+async function heroWithQueue(page: Page) {
+  await openThread("/t/thread-dedupe")(page);
+  await page.getByRole("separator", { name: "New activity" }).waitFor();
+  await page.getByRole("combobox", { name: "Message" }).fill("Also check the iOS cold-start path");
+  await page.keyboard.press("Enter");
+  await page.getByRole("list", { name: "Queued messages" }).waitFor();
+}
 
 const screens: Record<string, Setup> = {
   home: visit("/", "Home"),
@@ -73,13 +82,7 @@ const screens: Record<string, Setup> = {
   // The design's hero: work log, answer, changed files, subagents, a background relay, the
   // New activity divider and a message queued behind the busy agent.
   thread: async (page) => {
-    await openThread("/t/thread-dedupe")(page);
-    await page.getByRole("separator", { name: "New activity" }).waitFor();
-    await page
-      .getByRole("combobox", { name: "Message" })
-      .fill("Also check the iOS cold-start path");
-    await page.keyboard.press("Enter");
-    await page.getByRole("list", { name: "Queued messages" }).waitFor();
+    await heroWithQueue(page);
   },
   "thread-work-log": async (page) => {
     await openThread("/t/thread-dedupe")(page);
@@ -101,7 +104,11 @@ const screens: Record<string, Setup> = {
     await rightTab("/t/thread-cold-start", /^Changes/)(page);
     await page.getByRole("button", { name: "Split" }).click();
   },
-  "thread-agents": rightTab("/t/thread-dedupe", "Agents"),
+  // The same hero state as `thread`, queued message included, with the Agents tab open.
+  "thread-agents": async (page) => {
+    await heroWithQueue(page);
+    await rightTab("/t/thread-dedupe", "Agents", false)(page);
+  },
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
   "thread-terminal": bottomTab("/t/thread-cold-start", "Terminal"),
   "thread-logs": bottomTab("/t/thread-cold-start", "Logs"),

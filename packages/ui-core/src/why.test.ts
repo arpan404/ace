@@ -57,6 +57,26 @@ test("names running subagents and an open shell, and what settles them", () => {
   );
 });
 
+test("a message queued behind busy subagents is named with what settles it", () => {
+  const why = whyNotDone(
+    input(
+      { state: "working", agents: 3 },
+      {
+        agents: [
+          agent("root", { state: "blocked", on: "subagents", refs: [] }),
+          agent("a", working, "reconnect-audit"),
+          agent("b", working, "regression-test"),
+        ],
+        tasks: [shell("s", "running")],
+        queued: 1,
+      },
+    ),
+  );
+  expect(why.body).toBe(
+    "Two subagents are still running, one background shell is open and a queued message has not been sent yet. The thread settles when both report back, the shell is stopped or finishes and the queued message has been handled.",
+  );
+});
+
 test("a question waiting for you comes first", () => {
   const why = whyNotDone(input({ state: "needs_you", interactions: 1 }, { waitingOnYou: 1 }));
   expect(why.body).toBe("One question is waiting for you. The thread settles when you answer it.");

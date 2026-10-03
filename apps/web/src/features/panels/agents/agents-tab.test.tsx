@@ -89,3 +89,31 @@ test("Stop on a subagent interrupts only that subagent", async () => {
     "One subagent is still running",
   );
 });
+
+test("a message queued in the composer shows in the Agents tab and in why the thread isn't done", async () => {
+  const app = harness();
+  app.play(coldStartReplay()).runThrough("turn-2");
+  await app.open("/t/thread-cold-start");
+  await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
+  await userEvent.keyboard("{Meta>}j{/Meta}");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  await within(panel).findByRole("group", { name: "Main agent: Waiting on subagents" });
+  // Each agent row carries its provider.
+  const audit = within(panel).getByRole("group", { name: "reconnect-audit: Working" });
+  expect(within(audit).getByRole("img", { name: "Claude Code" })).toBeTruthy();
+  expect(within(panel).queryByRole("listitem", { name: /queued message/ })).toBeNull();
+
+  await userEvent.type(
+    screen.getByRole("combobox", { name: "Message" }),
+    "Also check the iOS cold-start path{Enter}",
+  );
+
+  // The pill above the composer and the Agents tab read the same queue.
+  expect(await screen.findByRole("list", { name: "Queued messages" })).toBeTruthy();
+  expect(
+    await within(panel).findByRole("listitem", { name: "1 queued message: waiting for the agent" }),
+  ).toBeTruthy();
+  expect(within(panel).getByRole("region", { name: "Why isn't this done?" }).textContent).toContain(
+    "a queued message has not been sent yet",
+  );
+});

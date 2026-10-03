@@ -32,6 +32,8 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useNow } from "@/lib/time.ts";
 import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
+import { useQueuedMessages } from "@/lib/queued-messages.ts";
+import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
 
 const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-subtle-foreground";
 
@@ -44,6 +46,8 @@ export function AgentsTab(props: { threadId: string }) {
   const tree = useAgentTree(props.threadId) ?? [];
   const tasks = useTaskIds(props.threadId) ?? [];
   const thread = useThreadMeta(props.threadId);
+  const { queued } = useQueuedMessages(props.threadId);
+  const queueWaiting = thread?.status.state === "waiting" && thread.status.on === "queue";
   if (!tree.length)
     return (
       <EmptyState
@@ -58,7 +62,7 @@ export function AgentsTab(props: { threadId: string }) {
         <ul aria-label="Agent tree">
           <Branch threadId={props.threadId} nodes={tree} depth={0} />
         </ul>
-        {(tasks.length > 0 || thread?.status.state === "waiting") && (
+        {(tasks.length > 0 || queued.length > 0 || queueWaiting) && (
           <section aria-labelledby="agents-background">
             <h3 id="agents-background" className={heading}>
               Background
@@ -67,22 +71,37 @@ export function AgentsTab(props: { threadId: string }) {
               {tasks.map((id) => (
                 <TaskRow key={id} threadId={props.threadId} taskId={id} />
               ))}
-              {thread?.status.state === "waiting" && thread.status.on === "queue" && (
-                <li className="flex h-8 items-center gap-2 rounded-lg px-2 text-ui">
-                  <ClockIcon aria-hidden size={14} className="text-subtle-foreground" />
-                  <span className="font-medium">Queued messages</span>
-                  <span className="truncate text-xs text-subtle-foreground">
-                    send when the agent is free
-                  </span>
-                </li>
-              )}
+              {(queued.length > 0 || queueWaiting) && <QueueRow count={queued.length} />}
             </ul>
           </section>
         )}
         <h3 className={heading}>Status</h3>
-        <Why threadId={props.threadId} />
+        <Why threadId={props.threadId} queued={queued.length} />
       </div>
     </ArrivalScope>
+  );
+}
+
+/** "1 queued message · sends when the agent is free", the composer's queue in one line. */
+function QueueRow(props: { count: number }) {
+  const arrival = useArrival();
+  const label =
+    props.count > 1
+      ? `${props.count} queued messages`
+      : props.count === 1
+        ? "1 queued message"
+        : "Queued messages";
+  return (
+    <li
+      aria-label={`${label}: waiting for the agent`}
+      className={cn("flex h-8 items-center gap-2 rounded-lg px-2 text-ui", arrival)}
+    >
+      <ClockIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
+      <span className="font-medium">{label}</span>
+      <span className="truncate text-xs text-subtle-foreground">
+        {props.count > 1 ? "send" : "sends"} when the agent is free
+      </span>
+    </li>
   );
 }
 
@@ -172,6 +191,7 @@ function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
       <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
         {formatSpan(agent.createdAt, end)}
       </span>
+      <ProviderMark provider={agent.native.provider} className="shrink-0" />
     </div>
   );
 }
@@ -254,7 +274,7 @@ const readFacts = (reader: ThreadReader): Facts => ({
 const readAgentIds = (reader: ThreadReader) => reader.agentIds();
 const none: readonly string[] = [];
 
-function Why(props: { threadId: string }) {
+function Why(props: { threadId: string; queued: number }) {
   const thread = useThreadMeta(props.threadId);
   const agentIds = useThread(props.threadId, ["agents"], readAgentIds, arrayEqual) ?? none;
   const taskIds = useTaskIds(props.threadId) ?? none;
@@ -276,6 +296,7 @@ function Why(props: { threadId: string }) {
     agents: facts.agents,
     tasks: facts.tasks,
     waitingOnYou,
+    queued: props.queued,
   });
   return (
     <section

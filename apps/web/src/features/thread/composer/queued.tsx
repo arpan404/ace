@@ -1,56 +1,9 @@
-import type { ThreadReader } from "@ace/client";
-import { arrayEqual, useIntent, useThread } from "@ace/client-react";
+import { useIntent } from "@ace/client-react";
 import { ClockIcon, XIcon } from "@phosphor-icons/react";
-import { useCallback, useState } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import type { QueuedMessage } from "@/lib/queued-messages.ts";
 
-export interface QueuedMessage {
-  intentId: string;
-  text: string;
-  /** How many times this text was already in the transcript when it was queued. */
-  before: number;
-}
-
-const recent = 50;
-function userTexts(reader: ThreadReader): string[] {
-  const texts: string[] = [];
-  for (const id of reader.order.slice(-recent)) {
-    const item = reader.item(id);
-    if (item?.type === "message" && item.role === "user")
-      texts.push(item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""));
-  }
-  return texts;
-}
-
-/**
- * Messages sent while the agent was busy, shown as pills above the composer until the daemon
- * delivers them into the transcript.
- */
-export function useQueue(threadId: string) {
-  const [queued, setQueued] = useState<QueuedMessage[]>([]);
-  const delivered = useThread(threadId, ["order"], userTexts, arrayEqual);
-  const count = useCallback(
-    (text: string) => (delivered ?? []).filter((candidate) => candidate === text).length,
-    [delivered],
-  );
-  // Delivered messages drop out as the transcript shows them; the list is pruned on change.
-  const pending = queued.filter((message) => count(message.text) <= message.before);
-  const add = useCallback(
-    (message: { intentId: string; text: string }) =>
-      setQueued((list) => [
-        ...list.filter((queuedMessage) => count(queuedMessage.text) <= queuedMessage.before),
-        { ...message, before: count(message.text) },
-      ]),
-    [count],
-  );
-  const remove = useCallback(
-    (intentId: string) =>
-      setQueued((list) => list.filter((message) => message.intentId !== intentId)),
-    [],
-  );
-  return { queued: pending, add, remove };
-}
-
+/** Messages sent while the agent was busy, as pills above the composer until delivered. */
 export function QueuedPills(props: {
   queued: readonly QueuedMessage[];
   onRemove(message: QueuedMessage): void;

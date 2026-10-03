@@ -9,7 +9,8 @@ import { useModelChoices } from "@/features/models/index.ts";
 import { Composer, type Draft } from "./composer.tsx";
 import { ContextBar } from "./context-bar.tsx";
 import { ModelPicker } from "./model-picker.tsx";
-import { QueuedPills, useQueue } from "./queued.tsx";
+import { useQueuedMessages } from "@/lib/queued-messages.ts";
+import { QueuedPills } from "./queued.tsx";
 
 /** The agent is mid-turn or held up: a new message waits unless the person steers. */
 export function isBusy(status: ThreadStatus | undefined): boolean {
@@ -31,7 +32,8 @@ export function ThreadComposer(props: {
   const client = useClient();
   const sources = useThreadSources();
   const toast = useToast();
-  const queue = useQueue(props.thread.id);
+  // The same queue the Agents tab lists.
+  const queue = useQueuedMessages(props.thread.id);
   const choices = useModelChoices();
   const [model, setModel] = useState<ModelChoice>();
   const busy = isBusy(props.status);

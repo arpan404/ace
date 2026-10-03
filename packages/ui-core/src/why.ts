@@ -12,6 +12,8 @@ export interface WhyInput {
   tasks: readonly BackgroundTask[];
   /** Pending interactions that wait for a person. */
   waitingOnYou: number;
+  /** Messages this client queued that the agent hasn't picked up yet. */
+  queued?: number;
 }
 
 const words = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"];
@@ -100,9 +102,16 @@ export function whyNotDone(input: WhyInput): { title: string; body: string } {
       settles.push("the provider recovers");
     }
   }
-  if (status.state === "waiting" && status.on === "queue") {
-    open.push("a queued message has not been sent yet");
-    settles.push("the queued message has been handled");
+  const queued = input.queued ?? 0;
+  if (queued > 0 || (status.state === "waiting" && status.on === "queue")) {
+    open.push(
+      queued > 1
+        ? `${count(queued)} queued messages have not been sent yet`
+        : "a queued message has not been sent yet",
+    );
+    settles.push(
+      queued > 1 ? "the queued messages have been handled" : "the queued message has been handled",
+    );
   }
   const quiet = input.agents.filter((agent) => agent.status.state === "unresponsive");
   if (quiet.length)
