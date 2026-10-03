@@ -1,6 +1,6 @@
-# 0052: Daemon-owned thread organization and client requests
+# 0056: Daemon-owned thread organization and client requests
 
-Date: 2026-10-02. Status: accepted.
+Date: 2026-10-03. Status: accepted.
 
 The web app needs authoritative organization, workspace details and service reads across devices. Keep organization in additive thread events and projections, separate from the whole-tree execution status in ADR 0004. Settle never changes execution status and auto-settle only applies to a fully done tree. Archive commits immediately and unarchive reverses it; delete is a durable tombstone that denies further execution and reads without removing replay coverage.
 
@@ -8,10 +8,12 @@ The web app needs authoritative organization, workspace details and service read
 
 Register thread organization and workspace actions through the daemon service registry. Resolve workspace roots on the host, use the public git and forge packages, and keep script process/output ownership with the terminal service. Open-in-editor returns a validated launch descriptor for the desktop bridge; the daemon does not launch an editor on a remote client's machine. Commands with asynchronous effects use persisted admission and receipts, and report failures explicitly.
 
-New thread creation carries account, workspace mode, base branch, model and execution options, and receipts carry its thread id. Next-turn selections reach the provider before that queued turn starts. Live metadata belongs to daemon projections, with incremental counters for agents and background work. Context-meter calculation and queue removal remain owned by queue/recovery; fork and merge and selection switching are covered by PR #69. Agent delegation/control, device streams and browser backends remain with their respective workers.
+New thread creation carries account, workspace mode, base branch, model and execution options, and receipts carry its thread id. Next-turn selections reach the provider before that queued turn starts. Live metadata belongs to daemon projections, with incremental counters for agents and background work. Context-meter calculation and queue removal remain owned by PR #72; fork and merge and selection switching are covered by PR #69. Agent delegation/control, device streams and browser backends remain with PR #70, PR #71 and PR #74 respectively. The ADR was first committed as 0052, then renumbered to 0056 above concurrently published ADRs through 0055.
 
 Auto-settle reads typed settings, tracks inactivity from execution events, and persists its decision. A snooze is an absolute daemon timestamp. Manual unsettle resets the inactivity deadline. PR terminal state can trigger settlement only after execution is done. Timers select indexed due rows in bounded batches and recheck current status before writing, including after restart. Clients display these persisted facts instead of evaluating their own clocks.
 
 Plugin requests and browser messages join the canonical wire unions additively. Existing plugin trust review remains mandatory. Conductor and automations reads use their public stores and bounded progress/list APIs; unavailable execution ports report unavailable rather than simulate work. Attachment preparation before creation uses a device-owned draft scope that is explicitly adopted into the created thread, retaining attachment authorization and lifecycle ownership.
 
 Tests cover public socket results, replay, restart, idempotency, selection delivery, organization and read correlation. They are written but not executed under the owner's merge-only test policy. Benchmarks are non-gating and unmeasured until merge.
+
+Stable turn ordinals and a paged `runs.list` read outlive the transcript window. The daemon snapshots the working tree through `@ace/git` before user delivery and after the root turn and its children finish. A following turn waits for the preceding snapshot. Checkpoint failures and interrupted boundaries are explicit; a restart never guesses a missing final revision. Existing review sources accept these checkpoint refs. Native automatic turns without a captured admission boundary report unavailable.
