@@ -160,6 +160,7 @@ const server = createServer(async (req, res) => {
         projectID: "project-one",
         location: body.location,
         time: { created: 1, updated: 1, idle: 1 },
+        transportDebug: process.env.OPENCODE_PASSWORD,
         ...body,
       };
     sessions.set(id, info);
@@ -206,6 +207,7 @@ const server = createServer(async (req, res) => {
           capabilities: { input: { text: true, image: true } },
           limit: { context: 200000, output: 8192 },
           headers: { authorization: "secret" },
+          transportDebug: process.env.OPENCODE_PASSWORD,
         },
       ],
     });
@@ -276,6 +278,12 @@ const server = createServer(async (req, res) => {
       return;
     }
     if (suffix === "/interrupt") {
+      if (fault.interruptFailure) {
+        res
+          .writeHead(500, { "content-type": "application/json" })
+          .end(JSON.stringify({ message: process.env.OPENCODE_PASSWORD }));
+        return;
+      }
       json({ interrupted: !fault.noopInterrupt });
       return;
     }

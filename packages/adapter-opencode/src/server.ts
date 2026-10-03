@@ -59,6 +59,9 @@ export class OpenCodeServer {
   get shutdownTimeoutMs(): number {
     return this.options.shutdownTimeoutMs ?? 1000;
   }
+  redact(value: unknown): unknown {
+    return sanitize(value, this.secrets);
+  }
   constructor(options: ServerOptions = {}) {
     this.options = options;
     this.runtime = runtime(options.runtime);

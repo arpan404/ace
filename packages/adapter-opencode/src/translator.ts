@@ -1,5 +1,6 @@
 import type { Fact, Key } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
+import { InteractionResolution } from "@ace/protocol";
 import type { Frame, Translator } from "@ace/engine-api";
 import { NativeEvent, eventSession } from "./boundaries.ts";
 import { object, array, string, number, retryReason } from "./data.ts";
@@ -26,6 +27,15 @@ export class OpenCodeTranslator implements Translator {
     const data = object(frame.data),
       state = this.state;
     if (frame.channel === "clock") return [];
+    if (frame.channel === "interaction.resolving" || frame.channel === "interaction.rejected") {
+      const pending = state.pending.get(string(data.key));
+      if (pending) {
+        if (frame.channel === "interaction.resolving")
+          pending.resolution = InteractionResolution.parse(data.resolution);
+        else delete pending.resolution;
+      }
+      return [];
+    }
     if (frame.channel === "transport.activity") return [{ type: "signal" }];
     if (frame.channel === "lifecycle") {
       if (data.type === "started") return [{ type: "process.started" }];

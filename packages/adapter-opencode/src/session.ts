@@ -8,7 +8,7 @@ import { object, string } from "./data.ts";
 import { recoverSessions } from "./recovery.ts";
 import { HistoryReader } from "./history.ts";
 import { OpenCodeTranslator } from "./translator.ts";
-import { nativeResolution } from "./interactions.ts";
+import { request, resolveNativeInteraction } from "./commands.ts";
 import { promptBody, messageId, selectedModel } from "./input.ts";
 import { OpenCodeServer } from "./server.ts";
 import { z } from "zod";
@@ -141,14 +141,14 @@ export class OpenCodeSession implements ProviderSession {
       }
       ctx.signal.throwIfAborted();
       return s;
-    } catch (error) {
+    } catch {
       await s.close("shutdown");
-      throw error;
+      throw new Error("OpenCode session opening failed");
     }
   }
   private emit = (dir: Frame["dir"], channel: string, data: unknown): void => {
     const t = Math.round(this.server.runtime.monotonic() - this.started);
-    const payload = new ProviderPayload(JSON.stringify(data));
+    const payload = new ProviderPayload(JSON.stringify(this.server.redact(data)));
     const frame: Frame = { seq: this.sequence++, t, dir, channel, data: payload.data, payload };
     if (
       dir === "recv" &&
@@ -298,7 +298,9 @@ export class OpenCodeSession implements ProviderSession {
     for (const sessionID of ids) {
       const result = z
         .object({ interrupted: z.boolean() })
-        .parse(await this.client.session.interrupt({ sessionID }));
+        .parse(
+          await request("interrupt request", () => this.client.session.interrupt({ sessionID })),
+        );
       if (!result.interrupted) throw new Error("OpenCode interrupt was not accepted");
     }
     if (target.cascade)
@@ -309,28 +311,19 @@ export class OpenCodeSession implements ProviderSession {
     await this.barrier();
     const pending = this.pending.get(key);
     if (!pending) throw new Error("OpenCode interaction is no longer pending");
-    const command = nativeResolution(choice, pending);
-    if (command.kind === "permission") await this.client.permission.reply(command);
-    else if (command.cancel)
-      await this.client.session.form.cancel({
-        sessionID: command.sessionID,
-        formID: command.formID,
-        ...(command.message === undefined ? {} : { message: command.message }),
-      });
-    else
-      await this.client.session.form.reply({
-        sessionID: command.sessionID,
-        formID: command.formID,
-        answer: z
-          .record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
-          .parse(command.answer),
-      });
+    this.emit("note", "interaction.resolving", { key, resolution: choice });
+    try {
+      await resolveNativeInteraction(this.client, pending, choice);
+    } catch {
+      this.emit("note", "interaction.rejected", { key });
+      throw new Error("OpenCode interaction response rejected or uncertain");
+    }
   }
   private async removeShell(id: string): Promise<void> {
     const owner = this.ownership.shells.get(id);
     if (!owner) throw new Error("Unknown OpenCode shell");
     const location = { directory: this.ownership.sessions.get(owner)?.directory ?? this.ctx.cwd };
-    await this.client.shell.remove({ id, location });
+    await request("shell removal", () => this.client.shell.remove({ id, location }));
   }
   async stopTask(task: Key): Promise<void> {
     await this.barrier();

@@ -1,6 +1,30 @@
 import { expect, it } from "vitest";
 import { setup, Clock } from "./testing/v2-session.ts";
 import { array, object } from "./data.ts";
+it("oversized projected content fails recovery before truncation can hide a live tool", async () => {
+  const h = await setup();
+  await h.publish("session.execution.started");
+  await h.control("/test/state", {
+    messages: {
+      [h.session.nativeSessionId]: [
+        {
+          id: "oversized",
+          type: "assistant",
+          content: [
+            ...Array.from({ length: 2048 }, () => ({ type: "text", text: "history" })),
+            { type: "tool", id: "live", name: "shell", state: { status: "running", input: {} } },
+          ],
+        },
+      ],
+    },
+  });
+  const exited = h.seen(
+    (frame) => frame.channel === "lifecycle" && object(frame.data).type === "exited",
+  );
+  await h.control("/test/drop", {});
+  await exited;
+  expect(h.projection.view.thread.status.state).not.toBe("done");
+});
 it.each(["data: {bad json}\n\n", `data: ${"x".repeat(1024 * 1024 + 1)}\n\n`])(
   "malformed or oversized SSE triggers bounded snapshot recovery",
   async (raw) => {

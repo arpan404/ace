@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { OpenCodeClient } from "@opencode/client";
-import { SessionInfo, PendingList, Page } from "./boundaries.ts";
+import { SessionInfo, PendingList, Page, ProjectedMessage } from "./boundaries.ts";
 import { object, string, number } from "./data.ts";
 import type { HistoryReader } from "./history.ts";
 import type { SessionOwnership } from "./ownership.ts";
@@ -53,7 +53,9 @@ export async function recoverSessions(p: RecoveryPorts): Promise<void> {
     for (const [known, owner] of p.ownership.sessions)
       if (owner.parent === id && !visited.has(known)) await visit(known, depth + 1);
     for (const messageID of p.liveMessages(id)) {
-      const message = await p.client.session.message.get({ sessionID: id, messageID });
+      const message = ProjectedMessage.parse(
+        await p.client.session.message.get({ sessionID: id, messageID }),
+      );
       p.frame("recv", "snapshot.message", { sessionID: id, message });
     }
     await p.history.read(

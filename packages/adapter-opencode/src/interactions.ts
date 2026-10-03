@@ -80,6 +80,15 @@ export function interaction(state: NativeState, type: string, p: Data, evidence:
   const pending = state.pending.get(key);
   if (!pending) return [];
   state.pending.delete(key);
+  const choice = pending.resolution;
+  const feedback =
+    typeof p.message === "string"
+      ? p.message
+      : choice?.kind === "question" && choice.dismissed
+        ? choice.feedback
+        : choice?.kind === "elicitation" && choice.action !== "accept"
+          ? string(object(choice.content).feedback) || undefined
+          : undefined;
   let resolution: InteractionResolution;
   if (type === "permission.replied")
     resolution = {
@@ -100,7 +109,7 @@ export function interaction(state: NativeState, type: string, p: Data, evidence:
       ...(type === "form.cancelled"
         ? {
             dismissed: true,
-            ...(typeof p.message === "string" ? { feedback: p.message.slice(0, 8192) } : {}),
+            ...(feedback === undefined ? {} : { feedback: feedback.slice(0, 8192) }),
           }
         : {}),
     };
@@ -108,12 +117,7 @@ export function interaction(state: NativeState, type: string, p: Data, evidence:
     resolution = {
       kind: "elicitation",
       action: type === "form.cancelled" ? "cancel" : "accept",
-      content:
-        type === "form.cancelled"
-          ? typeof p.message === "string"
-            ? { feedback: p.message }
-            : {}
-          : p.answer,
+      content: type === "form.cancelled" ? (feedback !== undefined ? { feedback } : {}) : p.answer,
     };
   return [
     {

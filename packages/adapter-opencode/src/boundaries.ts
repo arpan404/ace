@@ -35,6 +35,13 @@ export const Page = z
   })
   .passthrough();
 export const PendingList = z.array(z.record(z.string(), z.unknown())).max(1024);
+export const ProjectedMessage = z
+  .object({
+    id: z.string().min(1).max(512),
+    type: z.string().max(256),
+    content: z.array(z.unknown()).max(2048).optional(),
+  })
+  .passthrough();
 export function eventSession(value: unknown): string {
   const e = object(value),
     p = object(e.data);

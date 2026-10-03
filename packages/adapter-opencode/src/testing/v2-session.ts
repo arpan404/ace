@@ -51,7 +51,7 @@ export async function setup(extra: ServerOptions = {}) {
     runtime: {
       wallTime: () => 0,
       monotonic: () => 0,
-      entropy: () => "ephemeral-test-secret",
+      entropy: (bytes) => (bytes === 32 ? "ephemeral-test-secret" : "0123456789abcdef"),
       ...extra.runtime,
       discover: async () => ({
         opencode: {

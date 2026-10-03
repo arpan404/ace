@@ -1,4 +1,4 @@
-import { Page } from "./boundaries.ts";
+import { Page, ProjectedMessage } from "./boundaries.ts";
 import { object, string } from "./data.ts";
 /** Opaque pagination. Refresh the mutable head; stop at the previous immutable message. */
 export class HistoryReader {
@@ -19,7 +19,7 @@ export class HistoryReader {
         const key = string(object(message).id);
         if (!key) throw new Error("Invalid projected message identity");
         if (!newest) newest = key;
-        receive(message);
+        receive(ProjectedMessage.parse(message));
         if (key === head) {
           reached = true;
           break;

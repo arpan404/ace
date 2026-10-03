@@ -12,12 +12,14 @@ Static verification: formatting, lint, TypeScript and source size checks are the
 - Interrupt acknowledgement and a no-op interrupt leave cleanup work visible.
 - Child permissions reply on the owning session; always is explicitly a project grant.
 - Question forms retain q0/q1 keys and multi-select answers; generic forms and dismissal feedback survive translation.
+- IDs-only native cancellation acknowledgements retain the submitted feedback; SDK exceptions and projected snapshot metadata cannot expose transport secrets.
 - A transient disconnect retains pending interactions until scoped reconciliation.
 - Recovered full text reconciles prior deltas without duplicate appends.
 - JSON readiness, PID/version/spec gates and method-specific SDK return shapes govern observable startup.
 - Steer/queue admission uses distinct IDs; an uncertain acknowledgement reconciles the inbox without resending.
 - Concurrent admissions preserve HTTP order and exact engine command correlation without duplicating native inputs.
 - EOF, malformed JSON, oversized SSE and comment-only keepalives exercise transport recovery and liveness.
+- Oversized projected content fails recovery before bounded evidence truncation can hide work.
 - Recovery discovers missing children, permissions and owned shells while excluding foreign directories, forks, global forms and unowned shells.
 - Opaque child/history pagination retains filters; subsequent recovery refreshes the head rather than rescanning history, and never uses unretained logs.
 - Ephemeral transport/config secrets are absent from frames; location-scoped model metadata retains variants and limits under the models owner.
@@ -57,6 +59,9 @@ Each case is **not executed (tests run at merge)**:
 20. Discard correlation in the account session wrapper, or stop it after refusing idle closure: account lifecycle test must fail.
 21. Ignore injected discovery probes or their abort signals: standalone cancellation test must fail.
 22. Omit isolated account processes from adapter shutdown: account shutdown test must fail.
+23. Require cancellation events to echo feedback: IDs-only dismissal assertions must fail.
+24. Observe unredacted projected metadata or expose SDK error bodies: secret-boundary tests must fail.
+25. Truncate oversized projected content before validating it: incomplete projection recovery test must fail.
 
 ## Performance artifacts
 

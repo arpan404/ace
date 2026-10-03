@@ -1,4 +1,4 @@
-import type { RunTrigger } from "@ace/protocol";
+import type { RunTrigger, InteractionResolution } from "@ace/protocol";
 import type { Fact, Key } from "@ace/core";
 import type { Data } from "./data.ts";
 import { object, raw, string, number } from "./data.ts";
@@ -25,7 +25,10 @@ export class NativeState {
   commands = new Map<string, string>();
   admitted = new RecentSet();
   admissionPending = new Set<string>();
-  pending = new Map<string, { session: string; data: Data; type: string }>();
+  pending = new Map<
+    string,
+    { session: string; data: Data; type: string; resolution?: InteractionResolution }
+  >();
   shells = new Map<string, string>();
   wakeShells = new Set<string>();
   wakes = new Map<string, number>();

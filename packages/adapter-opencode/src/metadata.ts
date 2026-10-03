@@ -1,5 +1,4 @@
 import { OpenCodeServer, type ServerOptions } from "./server.ts";
-import { sanitize } from "./observation.ts";
 import { z } from "zod";
 /** Metadata-only, owned lifecycle. No session, prompt, login or credential APIs. */
 export async function discoverOpenCodeModels(
@@ -25,7 +24,7 @@ export async function discoverOpenCodeModels(
       })
       .passthrough()
       .parse(payload);
-    return sanitize(validated);
+    return server.redact(validated);
   } catch {
     throw new Error(
       signal.aborted ? "OpenCode model discovery cancelled" : "OpenCode model discovery failed",

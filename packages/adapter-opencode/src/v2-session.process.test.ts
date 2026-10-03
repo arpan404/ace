@@ -80,6 +80,15 @@ it("interrupt acknowledgement preserves work, and a no-op interrupt never settle
   await h.publish("session.execution.interrupted");
   expect(h.projection.view.thread.status).toEqual({ state: "waiting", on: "background_task" });
 });
+it("SDK command errors and projected snapshots cannot expose the transport password", async () => {
+  const h = await setup();
+  await h.control("/test/state", { fault: { interruptFailure: true } });
+  await expect(h.session.interrupt({ cascade: false })).rejects.toThrow(
+    "OpenCode interrupt request failed",
+  );
+  expect(JSON.stringify(h.frames)).not.toContain("ephemeral-test-secret");
+  expect(JSON.stringify(h.projection.view)).not.toContain("ephemeral-test-secret");
+});
 it("child permission replies use the owning session and always means a project grant", async () => {
   const h = await setup(),
     child = "child";
@@ -134,14 +143,31 @@ it("form answers keep field keys and multi-select values, generic dismissal keep
     kind: "question",
     answers: { q0: ["Tabs"], q1: ["a", "b"] },
   });
-  await h.session.resolve(`form:${root}:q`, {
+  await h.publish("form.replied", { id: "q", answer: { q0: "Tabs", q1: ["a", "b"] } });
+  expect(Object.values(h.projection.view.interactions)[0]?.resolution).toMatchObject({
+    answers: { q0: ["Tabs"], q1: ["a", "b"] },
+  });
+  await h.publish("form.created", {
+    form: {
+      id: "dismiss",
+      sessionID: root,
+      title: "Dismissal",
+      metadata: { kind: "question" },
+      fields: [{ key: "q0", type: "string" }],
+    },
+  });
+  await h.session.resolve(`form:${root}:dismiss`, {
     kind: "question",
     answers: {},
     dismissed: true,
     feedback: "Ask later",
   });
-  await h.publish("form.cancelled", { id: "q", message: "Ask later" });
-  expect(Object.values(h.projection.view.interactions)[0]?.resolution).toMatchObject({
+  await h.publish("form.cancelled", { id: "dismiss" });
+  expect(
+    Object.values(h.projection.view.interactions).find(
+      (interaction) => interaction.state === "cancelled",
+    )?.resolution,
+  ).toMatchObject({
     dismissed: true,
     feedback: "Ask later",
   });
@@ -153,12 +179,18 @@ it("form answers keep field keys and multi-select values, generic dismissal keep
     action: "cancel",
     content: { feedback: "Declined by owner" },
   });
+  await h.publish("form.cancelled", { id: "f" });
+  expect(
+    Object.values(h.projection.view.interactions).find(
+      (interaction) => interaction.request.kind === "elicitation",
+    )?.resolution,
+  ).toMatchObject({ action: "cancel", content: { feedback: "Declined by owner" } });
   const requests = array(await h.control("/test/requests")).map(object);
   expect(requests.find((r) => String(r.path).endsWith("/form/q/reply"))?.body).toEqual({
     answer: { q0: "Tabs", q1: ["a", "b"] },
   });
   expect(
-    requests.find((r) => r.method === "DELETE" && String(r.path).endsWith("/form/q"))?.query,
+    requests.find((r) => r.method === "DELETE" && String(r.path).endsWith("/form/dismiss"))?.query,
   ).toEqual({ message: "Ask later" });
   expect(requests.find((r) => String(r.path).endsWith("/form/f"))?.query).toEqual({
     message: "Declined by owner",
