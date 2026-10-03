@@ -6,12 +6,12 @@ import { plan } from "./test-artifacts.ts";
 
 afterEach(closeDeckFixtures);
 
-// Not executed (tests run at merge). Scripted adapters never call provider CLIs.
+// Scripted provider boundary; no installed provider CLIs are invoked. Scripted adapters never call provider CLIs.
 test("a Deck reaches done through attached real threads and integrates each card in its private branch", async () => {
   const h = await deckFixture({ cards: plan({ a: [], b: ["a"] }) });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
+  await h.waitFor((run) => run.phase === "done");
   const run = await h.read();
   expect(run.dag.map((node) => node.state)).toEqual(["integrated", "integrated"]);
   expect(run.delegations).toHaveLength(5);
@@ -39,16 +39,15 @@ test("a plan gate pushes needsUser and no worker starts until the human approves
   const h = await deckFixture({ planApproval: "required", hold: true });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect.poll(() => h.changes.at(-1)?.needsUser[0]?.kind).toBe("plan");
+  await h.waitFor((run) => run.needsUser[0]?.kind === "plan");
   const gated = await h.read();
   const gate = gated.needsUser[0];
   if (!gate) throw new Error("Plan gate missing");
   expect(gate.gatedAt).toBeGreaterThanOrEqual(gated.startedAt);
   const parent = gated.delegations[0]?.parentThreadId;
   if (!parent) throw new Error("Deck root missing");
-  await expect
-    .poll(() => h.daemon.store.getThread(ThreadId.parse(parent))?.status.state)
-    .toBe("needs_you");
+  await h.settle();
+  expect(h.daemon.store.getThread(ThreadId.parse(parent))?.status.state).toBe("needs_you");
   expect(h.sends.filter((entry) => entry.text.includes("Implement this workstream"))).toHaveLength(
     0,
   );
@@ -60,7 +59,7 @@ test("a plan gate pushes needsUser and no worker starts until the human approves
       approval: { gateId: gate.id, decision: "approve" },
     }),
   ).toMatchObject({ ok: true });
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
+  await h.waitFor((run) => run.phase === "done");
   expect((await h.read()).needsUser).toEqual([]);
 });
 
@@ -68,9 +67,7 @@ test("a provider question appears in needsUser and answering its real interactio
   const h = await deckFixture({ question: true });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect
-    .poll(() => h.changes.at(-1)?.needsUser.some((gate) => gate.kind === "provider"))
-    .toBe(true);
+  await h.waitFor((run) => run.needsUser.some((gate) => gate.kind === "provider"));
   const gate = (await h.read()).needsUser.find((entry) => entry.kind === "provider");
   if (!gate?.interactionId || !gate.threadId) throw new Error("Provider question missing");
   expect(h.daemon.store.getInteraction(gate.interactionId)?.state).toBe("pending");
@@ -82,7 +79,7 @@ test("a provider question appears in needsUser and answering its real interactio
       resolution: { kind: "question", answers: { choice: ["yes"] } },
     }),
   ).toMatchObject({ ok: true });
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
+  await h.waitFor((run) => run.phase === "done");
 });
 
 test("cancel stops a lane and its streaming delegate_task subtree before publishing cancelled", async () => {
@@ -90,9 +87,10 @@ test("cancel stops a lane and its streaming delegate_task subtree before publish
   const h = await deckFixture({ hold: true, stallAfterMs: 1500, clock });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect
-    .poll(() => h.sends.some((entry) => entry.text.includes("Implement this workstream")))
-    .toBe(true);
+  await h.waitFor((run) =>
+    run.lanes.some((lane) => lane.role === "worker" && lane.status === "working"),
+  );
+  await h.settle();
   const lane = (await h.read()).delegations.find((edge) => edge.workstream === "a");
   if (!lane?.agentId || !h.daemon.agentControl) throw new Error("Worker missing");
   const caller: McpAttribution = {
@@ -109,18 +107,15 @@ test("cancel stops a lane and its streaming delegate_task subtree before publish
     estimatedLoad: 0,
   });
   await h.daemon.engine?.flush();
-  await expect
-    .poll(() => h.changes.at(-1)?.delegations.some((edge) => edge.threadId === child.childId))
-    .toBe(true);
+  await h.waitFor((run) => run.delegations.some((edge) => edge.threadId === child.childId));
   await h.finish(ThreadId.parse(lane.threadId));
   await h.daemon.engine?.flush();
   expect(h.daemon.store.getThread(ThreadId.parse(lane.threadId))?.status.state).not.toBe("done");
   expect((await h.read()).phase).toBe("running");
   await h.beginStream(child.childId);
   for (let index = 0; index < 10; index++) {
-    clock.advance(clock.now() + 1000);
     await h.stream(child.childId, " still working");
-    await h.daemon.engine?.flush();
+    await h.advance();
     // Socket snapshot is a public reconciliation milestone; no wall-clock sleep.
     await h.read();
   }
@@ -128,7 +123,7 @@ test("cancel stops a lane and its streaming delegate_task subtree before publish
   expect(await h.commands({ type: "conductor.cancel", runId: h.runId })).toMatchObject({
     ok: true,
   });
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("cancelled");
+  await h.waitFor((run) => run.phase === "cancelled");
   expect(h.daemon.store.getThread(child.childId)?.status.state).toBe("done");
   expect(h.daemon.agentControl.delegations.journal.get(child.childId)?.outcome?.outcome).toBe(
     "cancelled",
@@ -149,16 +144,17 @@ test("restart recovers an in-flight Deck with an empty conductor outbox and pres
   const h = await deckFixture({ hold: true });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect
-    .poll(() => h.sends.some((entry) => entry.text.includes("Implement this workstream")))
-    .toBe(true);
+  await h.waitFor((run) =>
+    run.lanes.some((lane) => lane.role === "worker" && lane.status === "working"),
+  );
+  await h.settle();
   const before = await h.read();
   const lane = before.delegations.find((edge) => edge.workstream === "a");
   if (!lane) throw new Error("Worker missing");
   h.release();
   await h.restart();
   await h.subscribe();
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
+  await h.waitFor((run) => run.phase === "done");
   const after = await h.read();
   expect(after.startedAt).toBe(before.startedAt);
   expect(after.delegations.filter((edge) => edge.threadId === lane.threadId)).toHaveLength(1);
@@ -179,9 +175,11 @@ test("host capacity admits one live card at a time even when the Deck requests m
   });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect
-    .poll(() => h.changes.at(-1)?.lanes.filter((lane) => lane.role === "worker").length)
-    .toBe(1);
+  await h.waitFor(
+    (run) =>
+      run.lanes.filter((lane) => lane.role === "worker" && lane.status === "working").length === 1,
+  );
+  await h.settle();
   const first = h.sends.find((entry) => entry.text.includes("Implement this workstream"));
   if (!first) throw new Error("Worker missing");
   expect(h.sends.filter((entry) => entry.text.includes("Implement this workstream"))).toHaveLength(
@@ -189,7 +187,7 @@ test("host capacity admits one live card at a time even when the Deck requests m
   );
   h.release();
   await h.finish(first.thread);
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
+  await h.waitFor((run) => run.phase === "done");
   expect(h.sends.filter((entry) => entry.text.includes("Implement this workstream"))).toHaveLength(
     2,
   );
@@ -200,14 +198,16 @@ test("pausing preserves a lane continuation and resume does not leave subtree ca
   const h = await deckFixture({ hold: true });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect
-    .poll(() => h.sends.some((entry) => entry.text.includes("Implement this workstream")))
-    .toBe(true);
+  await h.waitFor((run) =>
+    run.lanes.some((lane) => lane.role === "worker" && lane.status === "working"),
+  );
+  await h.settle();
   const lane = (await h.read()).delegations.find((edge) => edge.workstream === "a");
   if (!lane) throw new Error("Worker missing");
   const thread = ThreadId.parse(lane.threadId);
   expect(await h.commands({ type: "conductor.pause", runId: h.runId })).toMatchObject({ ok: true });
-  await expect.poll(() => h.daemon.engine?.queuePage({ threadId: thread }).paused).toBe(true);
+  await h.settle();
+  expect(h.daemon.engine?.queuePage({ threadId: thread }).paused).toBe(true);
   await h.daemon.engine?.flush();
   expect((await h.read()).phase).toBe("paused");
   expect(h.daemon.agentControl?.delegations.journal.stopped(thread)).toBe(false);
@@ -215,15 +215,26 @@ test("pausing preserves a lane continuation and resume does not leave subtree ca
   expect(await h.commands({ type: "conductor.resume", runId: h.runId })).toMatchObject({
     ok: true,
   });
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
-  expect(h.sends.filter((entry) => entry.thread === thread && entry.resumed)).toHaveLength(1);
+  await h.waitFor((run) => run.phase === "done");
+  expect(
+    h.sends.filter(
+      (entry) =>
+        entry.thread === thread &&
+        entry.text.includes("Continue the interrupted task from native history"),
+    ),
+  ).toHaveLength(1);
+  expect(
+    h.sends.filter(
+      (entry) => entry.thread === thread && entry.text.includes("Implement this workstream"),
+    ),
+  ).toHaveLength(1);
 });
 
 test("restart restores a human gate without starting a worker or changing its timestamp", async () => {
   const h = await deckFixture({ planApproval: "required" });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect.poll(() => h.changes.at(-1)?.needsUser[0]?.kind).toBe("plan");
+  await h.waitFor((run) => run.needsUser[0]?.kind === "plan");
   const gate = (await h.read()).needsUser[0];
   if (!gate) throw new Error("Plan gate missing");
   await h.restart();
@@ -239,7 +250,7 @@ test("restart restores a human gate without starting a worker or changing its ti
       approval: { gateId: gate.id, decision: "approve" },
     }),
   ).toMatchObject({ ok: true });
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
+  await h.waitFor((run) => run.phase === "done");
 });
 
 test("PR-only waits for CI at the published revision and recovers a lost create response without a duplicate PR", async () => {
@@ -247,16 +258,17 @@ test("PR-only waits for CI at the published revision and recovers a lost create 
   h.forge.loseResponse();
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect.poll(() => h.forge.publications.length).toBe(1);
-  await expect.poll(() => h.changes.at(-1)?.executionError).toBeTruthy();
+
+  await h.waitFor((run) => !!run.executionError);
   expect((await h.read()).phase).not.toBe("done");
   await h.restart();
   await h.subscribe();
-  await expect.poll(() => h.changes.at(-1)?.dag[0]?.state).toBe("verifying");
+  await h.waitFor((run) => run.dag[0]?.state === "verifying");
   expect(h.forge.publications).toHaveLength(1);
   expect((await h.read()).phase).not.toBe("done");
   h.forge.pass();
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
+  await h.advance();
+  await h.waitFor((run) => run.phase === "done");
   expect(h.forge.publications).toHaveLength(1);
   expect(git(h.repo, "rev-parse", "HEAD")).toBe(h.original);
 });
@@ -265,9 +277,11 @@ test("an invalid review revision cannot pass or block the missing-artifact human
   const h = await deckFixture({ wrongReviewRevision: true, stallAfterMs: 100 });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect
-    .poll(() => h.changes.at(-1)?.needsUser.some((gate) => gate.kind === "escalation"))
-    .toBe(true);
+  await h.waitFor((run) =>
+    run.lanes.some((lane) => lane.role === "reviewer" && lane.status === "done"),
+  );
+  await h.advance();
+  await h.waitFor((run) => run.needsUser.some((gate) => gate.kind === "escalation"));
   expect((await h.read()).phase).not.toBe("done");
   expect((await h.read()).dag[0]?.state).not.toBe("integrated");
 });
@@ -276,7 +290,7 @@ test("a recoverable local quota hold resumes through the engine without resendin
   const h = await deckFixture({ quotaLimit: true });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
+  await h.waitFor((run) => run.phase === "done");
   const worker = (await h.read()).delegations.find(
     (edge) =>
       edge.workstream === "a" &&

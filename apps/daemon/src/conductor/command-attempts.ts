@@ -42,14 +42,14 @@ export class DeckCommands {
         .prepare("SELECT command FROM conductor_command_attempts WHERE operation=?")
         .get(operation);
       const previous = row ? Command.parse(JSON.parse(z.string().parse(row.command))) : undefined;
-      const receipt = previous && store.commandReceipt(previous.id, previous.deviceId);
+      const receipt = previous && this.delegations.commandReceipt(previous.id);
       const replace =
         previous &&
         replaceAttempt(receipt, previous.payload.type, engine.commandExecution(previous.id));
       if (previous && !replace) return previous;
       const next = Command.parse({
         id: previous ? `deck.attempt.${this.context.id()}` : operation,
-        deviceId: "ace-conductor",
+        deviceId: "ace-agent",
         payload,
       });
       db.prepare(
@@ -57,7 +57,7 @@ export class DeckCommands {
       ).run(operation, JSON.stringify(next));
       return next;
     });
-    const receipt = store.commandReceipt(command.id, command.deviceId);
+    const receipt = this.delegations.commandReceipt(command.id);
     if (receipt) return receipt;
     await engine.prepareCommand(command);
     return this.delegations.command(command.id, command.payload);

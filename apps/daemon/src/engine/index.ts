@@ -378,6 +378,9 @@ export class Engine {
       .map((value) => row.parse(value));
   }
   /** Host suspension captures the engine-owned continuation before interrupting work. */
+  discardRecovery(id: ThreadId): void {
+    this.recovery.discard(id);
+  }
   captureContinuation(id: ThreadId): void {
     this.recovery.capture(id);
   }

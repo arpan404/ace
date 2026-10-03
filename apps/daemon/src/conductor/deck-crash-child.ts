@@ -12,11 +12,15 @@ const h = await deckFixture({
   crossProvider: scenario === "switch",
   quotaLimit: scenario === "switch" && mode === "first",
   onSend: (entry) => process.send?.({ type: "send", ...entry }),
-  onSwitchClose: async (thread) => {
-    process.send?.({ type: "boundary", thread });
-    // A blocked provider close leaves a running switch with its old selection.
-    await new Promise<void>(() => {});
-  },
+  ...(mode === "first"
+    ? {
+        onSwitchClose: async (thread) => {
+          process.send?.({ type: "boundary", thread });
+          // A blocked provider close leaves a running switch with its old selection.
+          await new Promise<void>(() => {});
+        },
+      }
+    : {}),
 });
 if (mode === "first") {
   const result = await h.startRun();
@@ -24,6 +28,8 @@ if (mode === "first") {
 }
 await h.subscribe();
 if (mode === "recover") {
+  await h.settle();
+  await h.advance(); // Replay the recovered switch after engine execution settles.
   const run = await h.waitFor((view) => view.phase === "done");
   process.send?.({ type: "done", run, sends: h.sends });
 } else if (scenario === "work") {

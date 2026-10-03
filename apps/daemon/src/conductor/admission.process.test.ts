@@ -3,7 +3,7 @@ import { deckFixture, closeDeckFixtures } from "./test-support.ts";
 import { ManualClock } from "../engine/test-support.ts";
 import { plan } from "./test-artifacts.ts";
 afterEach(closeDeckFixtures);
-// Not executed (tests run at merge).
+// Scripted provider boundary; no installed provider CLIs are invoked.
 test("a complete plan beyond transcript preview size reaches workers with its final card", async () => {
   const cards = plan();
   const card = cards.workstreams[0];
@@ -14,7 +14,7 @@ test("a complete plan beyond transcript preview size reaches workers with its fi
   const h = await deckFixture({ cards });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
+  await h.waitFor((run) => run.phase === "done");
   expect((await h.read()).plan?.workstreams[0]?.brief.instructions).toBe(
     cards.workstreams[0]?.brief.instructions,
   );
@@ -34,7 +34,7 @@ test("a plan at the compact JSON size limit is accepted with its artifact envelo
   const h = await deckFixture({ cards, planApproval: "required" });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect.poll(() => h.changes.at(-1)?.needsUser[0]?.kind).toBe("plan");
+  await h.waitFor((run) => run.needsUser[0]?.kind === "plan");
   expect((await h.read()).plan).toEqual(cards);
 });
 
@@ -42,7 +42,7 @@ test("a complete review beyond transcript preview size is admitted and integrate
   const h = await deckFixture({ longReview: true });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
+  await h.waitFor((run) => run.phase === "done");
   expect((await h.read()).dag[0]?.state).toBe("integrated");
 });
 
@@ -51,15 +51,11 @@ test("missing worker worktree still observes completion and escalates the absent
   const h = await deckFixture({ removeWorkerTree: true, stallAfterMs: 100, clock });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect
-    .poll(async () =>
-      (await h.read()).lanes.some((lane) => lane.role === "worker" && lane.status === "done"),
-    )
-    .toBe(true);
-  clock.advance(clock.now() + 1000);
-  await expect
-    .poll(async () => (await h.read()).needsUser.some((gate) => gate.kind === "escalation"))
-    .toBe(true);
+  await h.waitFor((run) =>
+    run.lanes.some((lane) => lane.role === "worker" && lane.status === "done"),
+  );
+  await h.advance();
+  await h.waitFor((run) => run.needsUser.some((gate) => gate.kind === "escalation"));
   expect((await h.read()).dag[0]?.state).not.toBe("integrated");
 });
 
@@ -67,15 +63,15 @@ test("Deck resume retries a rejected queue revision after a concurrent human que
   const h = await deckFixture({ hold: true });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect
-    .poll(() => h.sends.some((send) => send.text.includes("Implement this workstream")))
-    .toBe(true);
+  await h.waitFor((run) =>
+    run.lanes.some((lane) => lane.role === "worker" && lane.status === "working"),
+  );
+  await h.settle();
   const worker = h.sends.find((send) => send.text.includes("Implement this workstream"));
   if (!worker || !h.daemon.engine) throw new Error("Worker missing");
   expect(await h.commands({ type: "conductor.pause", runId: h.runId })).toMatchObject({ ok: true });
-  await expect
-    .poll(() => h.daemon.engine?.queuePage({ threadId: worker.thread }).paused)
-    .toBe(true);
+  await h.settle();
+  expect(h.daemon.engine?.queuePage({ threadId: worker.thread }).paused).toBe(true);
   await h.daemon.engine.flush();
   const barrier = h.holdPreparation();
   h.release();
@@ -92,9 +88,21 @@ test("Deck resume retries a rejected queue revision after a concurrent human que
     }),
   ).toMatchObject({ ok: true });
   barrier.release();
-  await expect.poll(() => h.changes.some((run) => !!run.executionError)).toBe(true);
-  await expect.poll(() => h.changes.at(-1)?.phase).toBe("done");
-  expect(h.sends.filter((send) => send.thread === worker.thread && send.resumed)).toHaveLength(1);
+  await h.waitFor((run) => !!run.executionError);
+  await h.advance();
+  await h.waitFor((run) => run.phase === "done");
+  expect(
+    h.sends.filter(
+      (send) =>
+        send.thread === worker.thread &&
+        send.text.includes("Continue the interrupted task from native history"),
+    ),
+  ).toHaveLength(1);
+  expect(
+    h.sends.filter(
+      (send) => send.thread === worker.thread && send.text.includes("Implement this workstream"),
+    ),
+  ).toHaveLength(1);
 });
 
 test("root preparation retries capacity rejection once the occupying engine thread releases its slot", async () => {
@@ -115,16 +123,15 @@ test("root preparation retries capacity rejection once the occupying engine thre
   await h.daemon.engine?.flush();
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect.poll(() => h.changes.at(-1)?.executionError).toBeTruthy();
+  await h.waitFor((run) => !!run.executionError);
   expect(
     await h.commands({ type: "thread.interrupt", threadId: occupied.threadId, cascade: true }),
   ).toMatchObject({ ok: true });
   await h.daemon.engine?.flush();
   // The injected idle timer closes the provider before root admission retries.
-  clock.advance(clock.now() + 1000);
-  await h.daemon.engine?.flush();
-  clock.advance(clock.now() + 1000);
-  await expect.poll(() => h.changes.at(-1)?.needsUser[0]?.kind).toBe("plan");
+  await h.advance();
+  await h.advance();
+  await h.waitFor((run) => run.needsUser[0]?.kind === "plan");
   expect(h.sends.filter((send) => send.text.includes("Plan this project"))).toHaveLength(1);
 });
 
@@ -132,9 +139,10 @@ test("successful CI at a different PR head cannot verify the reviewed revision",
   const h = await deckFixture({ prOnly: true });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
-  await expect.poll(() => h.changes.at(-1)?.dag[0]?.state).toBe("verifying");
+  await h.waitFor((run) => run.dag[0]?.state === "verifying");
   h.forge.passAt("0".repeat(40));
-  await expect.poll(() => h.changes.at(-1)?.needsUser.length).toBeGreaterThan(0);
+  await h.advance();
+  await h.waitFor((run) => run.needsUser.length > 0);
   expect((await h.read()).phase).not.toBe("done");
   expect((await h.read()).dag[0]?.state).not.toBe("integrated");
 });

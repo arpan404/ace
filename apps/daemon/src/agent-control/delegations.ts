@@ -6,6 +6,8 @@ import { delegationCommandPolicy } from "./command-policy.ts";
 import { delegationBudget, childResultPrompt } from "@ace/orchestrator";
 import { type AccountRegistry } from "@ace/accounts";
 import {
+  CommandId,
+  DeviceId,
   Command,
   ThreadId,
   DelegationPolicy,
@@ -93,6 +95,9 @@ export class DelegationService {
   canFork(threadId: ThreadId) {
     const thread = this.deps.store.getThread(threadId);
     return !!thread && this.deps.engine.capabilities(thread.provider).fork;
+  }
+  commandReceipt(id: string) {
+    return this.deps.store.commandReceipt(CommandId.parse(id), DeviceId.parse("ace-agent"));
   }
   command(id: string, payload: CommandPayload) {
     const command = Command.parse({ id, deviceId: "ace-agent", payload });
@@ -216,6 +221,7 @@ export class DelegationService {
     this.deps.store.atomic(() => {
       const tree = this.journal.tree(thread, this.deps.clock.now());
       this.journal.cancel(thread);
+      if (this.deps.store.getThread(thread)) this.deps.engine.discardRecovery(thread);
       this.reservationLifetimes.cancel(thread, (target, ancestor) =>
         this.journal.isDescendant(target, ancestor),
       );
@@ -232,6 +238,8 @@ export class DelegationService {
         .toSorted((a, b) => b.depth - a.depth);
       for (const child of children) {
         this.journal.stop(child.childId);
+        if (this.deps.store.getThread(child.childId))
+          this.deps.engine.discardRecovery(child.childId);
         child.phase = "cancelling";
         this.journal.save(child);
         const result = this.command(

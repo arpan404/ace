@@ -34,13 +34,28 @@ function child(home: string, scenario: string, mode: string) {
   });
   const sends: z.infer<typeof Message>[] = [];
   const milestone = new Promise<z.infer<typeof Message>>((resolve, reject) => {
+    // Real Node bootstrap, SQLite recovery and Git I/O cannot use a manual clock.
+    // The IPC milestone has a bounded safety deadline; no progress polling.
+    const deadline = setTimeout(
+      () => reject(new Error(`Daemon ${scenario}/${mode} did not reach its IPC milestone`)),
+      30_000,
+    );
     process.on("message", (input) => {
       const message = Message.parse(input);
       sends.push(message);
-      if (message.type === "boundary" || message.type === "done") resolve(message);
+      if (message.type === "boundary" || message.type === "done") {
+        clearTimeout(deadline);
+        resolve(message);
+      }
     });
-    process.once("error", reject);
-    process.once("exit", () => reject(new Error("Daemon exited before committed milestone")));
+    process.once("error", (error) => {
+      clearTimeout(deadline);
+      reject(error);
+    });
+    process.once("exit", () => {
+      clearTimeout(deadline);
+      reject(new Error("Daemon exited before committed milestone"));
+    });
   });
   async function kill() {
     if (process.exitCode !== null || process.signalCode !== null) return;
@@ -50,7 +65,7 @@ function child(home: string, scenario: string, mode: string) {
   }
   return { milestone, sends, kill };
 }
-// Not executed (tests run at merge). The parent never calls daemon.close().
+// Scripted provider boundary; no installed provider CLIs are invoked. The parent never calls daemon.close().
 for (const scenario of ["work", "switch"] as const) {
   test(
     scenario === "work"
