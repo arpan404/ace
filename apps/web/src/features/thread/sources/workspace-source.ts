@@ -1,6 +1,18 @@
-// TODO(client-gaps): feat/client-protocol-gaps. Scripts, editors, git and forge have no
-// daemon messages on main yet (forge commands exist in @ace/protocol but are not routed).
-import { z } from "zod";
+// A thread's checkout through the daemon's workspace service (ADR 0057): reads go through
+// `workspace.request`, and running a script, opening an editor, committing, pushing and opening
+// a PR are durable commands with receipts. The fake daemon serves the same messages.
+import type { ClientApi } from "@ace/client";
+import {
+  ThreadId,
+  type CommandPayload,
+  type CommandResult,
+  type ForgePrStatus,
+  type ForgeRepository,
+  type ThreadDetails,
+  type WorkspaceActionRequest,
+  type WorkspaceActionResult,
+  type WorkspaceScript,
+} from "@ace/protocol";
 
 export interface ThreadRef {
   id: string;
@@ -10,179 +22,133 @@ export interface ThreadRef {
   draft?: boolean | undefined;
 }
 
-export interface Script {
-  name: string;
-  command: string;
-}
-export const EditorId = z.enum(["cursor", "vscode", "zed", "xcode", "finder", "terminal"]);
-export type EditorId = z.infer<typeof EditorId>;
-export interface Editor {
-  id: EditorId;
-  name: string;
-}
-export interface PullRequest {
-  number: number;
-  state: "open" | "draft" | "merged" | "closed";
-  url: string;
-}
-/** What the thread's checkout looks like, from git and the forge. */
-export interface GitState {
-  mode: "worktree" | "local";
+export type Script = WorkspaceScript;
+export type EditorLaunch = NonNullable<CommandResult["editor"]>;
+
+export interface PrInput {
+  repository: ForgeRepository;
   branch: string;
-  branches: readonly string[];
-  /** Files with uncommitted changes. */
-  changed: number;
-  /** Commits not on the remote. */
-  ahead: number;
-  pr?: PullRequest | undefined;
+  base: string;
+  title: string;
+  summary: string;
+  draft: boolean;
 }
-export type GitAction = "commit" | "commit-push" | "push" | "create-pr" | "create-draft-pr";
+
+/** What the daemon's codes mean to a person. Unknown codes fall back to a generic sentence. */
+const messages: Record<string, string> = {
+  forbidden: "This device may not change the checkout.",
+  workspace_preparing: "The thread's worktree is still being prepared.",
+  workspace_root_changed: "The thread's worktree moved. Try again.",
+  thread_not_found: "The thread is gone.",
+  script_not_found: "That script is no longer in the project.",
+  script_shell_unsupported: "Scripts can't run on this daemon's platform yet.",
+  editor_not_found: "That editor is no longer installed.",
+  head_changed: "The branch moved since you looked. Review the changes and try again.",
+  repository_mismatch: "The checkout's remote changed. Refresh and try again.",
+  terminal_limit: "Too many terminals are open. Close one and try again.",
+};
+
+export class WorkspaceError extends Error {
+  readonly code: string;
+  constructor(code: string) {
+    super(messages[code] ?? "The daemon couldn't do that.");
+    this.name = "WorkspaceError";
+    this.code = code;
+  }
+}
+
+type Operation = WorkspaceActionRequest["operation"];
+type Result = WorkspaceActionResult["result"];
 
 export interface WorkspaceSource {
-  scripts(thread: ThreadRef): Promise<readonly Script[]>;
-  /** Starts the script in a terminal in the thread's checkout. */
-  runScript(thread: ThreadRef, script: Script): Promise<void>;
-  editors(): Promise<{ editors: readonly Editor[]; defaultEditor: EditorId }>;
-  /** Opens the checkout in an editor and remembers it as the default. */
-  openIn(thread: ThreadRef, editor: EditorId): Promise<void>;
-  git(thread: ThreadRef): Promise<GitState>;
-  /** Commit messages and PR descriptions are written by the agent. */
-  gitAction(thread: ThreadRef, action: GitAction): Promise<GitState>;
-  switchBranch(thread: ThreadRef, branch: string): Promise<GitState>;
-  setMode(thread: ThreadRef, mode: GitState["mode"]): Promise<GitState>;
+  /** Reads the checkout again; the daemon also publishes it to the thread's live details. */
+  details(thread: ThreadRef, signal?: AbortSignal): Promise<ThreadDetails>;
+  /** The linked PR as the forge reports it now, or null when none is linked. */
+  prStatus(thread: ThreadRef, signal?: AbortSignal): Promise<ForgePrStatus | null>;
+  scripts(thread: ThreadRef, signal?: AbortSignal): Promise<readonly Script[]>;
+  /** Starts the script in a new terminal in the thread's checkout; returns that terminal. */
+  runScript(thread: ThreadRef, script: Script): Promise<string>;
+  /** The validated launch for opening the checkout in an installed editor. */
+  openIn(thread: ThreadRef, editorId: string): Promise<EditorLaunch>;
+  /** Commits every change; `expectedHead` guards against a branch that moved meanwhile. */
+  commit(thread: ThreadRef, message: string, expectedHead: string | null): Promise<string>;
+  push(thread: ThreadRef): Promise<void>;
+  /** Opens a pull request for the branch; returns its number. */
+  createPr(thread: ThreadRef, input: PrInput): Promise<number>;
 }
 
-/** The control the header shows for a checkout: the next step towards a merged PR. */
-export function nextGitStep(
-  git: GitState,
-): { action: GitAction; label: string } | { pr: PullRequest } {
-  if (git.pr) return { pr: git.pr };
-  if (git.changed > 0) return { action: "commit", label: "Commit" };
-  if (git.ahead > 0) return { action: "push", label: "Push" };
-  return { action: "create-pr", label: "Create PR" };
-}
+const is = <K extends Result["kind"]>(
+  result: Result,
+  kind: K,
+): result is Extract<Result, { kind: K }> => result.kind === kind;
 
-const editors: readonly Editor[] = [
-  { id: "cursor", name: "Cursor" },
-  { id: "vscode", name: "VS Code" },
-  { id: "zed", name: "Zed" },
-  { id: "xcode", name: "Xcode" },
-  { id: "finder", name: "Finder" },
-  { id: "terminal", name: "Terminal" },
-];
+const id = (thread: ThreadRef) => ThreadId.parse(thread.id);
 
-const scriptsByProject: Record<string, readonly Script[]> = {
-  relay: [
-    { name: "dev:relay", command: "bun run dev:relay" },
-    { name: "test", command: "bun run test" },
-    { name: "soak", command: "bun run soak --subscribers 500" },
-    { name: "typecheck", command: "bun run typecheck" },
-  ],
-};
-const defaultScripts: readonly Script[] = [
-  { name: "dev", command: "bun run dev" },
-  { name: "test", command: "bun run test" },
-  { name: "build", command: "bun run build" },
-  { name: "typecheck", command: "bun run typecheck" },
-];
-
-const knownCheckouts: Record<string, Partial<GitState>> = {
-  "thread-replay-cursor": {
-    branch: "fix/replay-cursor",
-    changed: 0,
-    ahead: 0,
-    pr: { number: 214, state: "open", url: "https://github.com/acme/relay/pull/214" },
-  },
-  "thread-dedupe": {
-    branch: "fix/replay-dedupe",
-    changed: 0,
-    ahead: 0,
-    pr: { number: 214, state: "open", url: "https://github.com/acme/ace/pull/214" },
-  },
-  "thread-retry-budget": {
-    branch: "fix/restart-retry",
-    pr: { number: 188, state: "open", url: "https://github.com/acme/relay/pull/188" },
-  },
-  "thread-checkout": { branch: "fix/checkout-flake", changed: 3, ahead: 0 },
-};
-
-function slug(title: string): string {
-  return title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .split("-")
-    .slice(0, 3)
-    .join("-");
-}
-
-function initialGit(thread: ThreadRef): GitState {
-  const known = knownCheckouts[thread.id] ?? {};
-  const branch = known.branch ?? `fix/${slug(thread.title) || "thread"}`;
+export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
+  const read = async <K extends Result["kind"]>(
+    operation: Operation,
+    kind: K,
+    signal?: AbortSignal,
+  ): Promise<Extract<Result, { kind: K }>> => {
+    const reply = await client.request(
+      { type: "workspace.request", operation },
+      signal ? { signal } : {},
+    );
+    const result = reply.result;
+    if (result.kind === "error") throw new WorkspaceError(result.code);
+    if (!is(result, kind)) throw new WorkspaceError("unexpected");
+    return result;
+  };
+  const run = async (payload: CommandPayload): Promise<CommandResult> => {
+    const result = await client.command(payload);
+    if (!result.ok) throw new WorkspaceError(result.error ?? "failed");
+    return result;
+  };
   return {
-    mode: "worktree",
-    branch,
-    branches: [branch, "main", "release/0.9"],
-    changed: 2,
-    ahead: 0,
-    ...known,
-  };
-}
-
-/** In-memory scripts, editors and checkouts with realistic content, for dev:fake and tests. */
-export function fakeWorkspaceSource(
-  options: { onRun?: (thread: ThreadRef, script: Script) => void } = {},
-): WorkspaceSource {
-  const checkouts = new Map<string, GitState>();
-  let defaultEditor: EditorId = "cursor";
-  let prs = 220;
-  const git = (thread: ThreadRef) => {
-    const existing = checkouts.get(thread.id);
-    if (existing) return existing;
-    const created = initialGit(thread);
-    checkouts.set(thread.id, created);
-    return created;
-  };
-  const update = (thread: ThreadRef, patch: Partial<GitState>) => {
-    const next = { ...git(thread), ...patch };
-    checkouts.set(thread.id, next);
-    return Promise.resolve(next);
-  };
-  const pr = (thread: ThreadRef, draft: boolean): PullRequest => ({
-    number: ++prs,
-    state: draft ? "draft" : "open",
-    url: `https://github.com/acme/${thread.workspaceId}/pull/${prs}`,
-  });
-  return {
-    scripts: (thread) => Promise.resolve(scriptsByProject[thread.workspaceId] ?? defaultScripts),
-    runScript: (thread, script) => {
-      options.onRun?.(thread, script);
-      return Promise.resolve();
+    details: async (thread, signal) =>
+      (await read({ op: "thread.details", threadId: id(thread) }, "details", signal)).details,
+    prStatus: async (thread, signal) =>
+      (await read({ op: "pr.status", threadId: id(thread) }, "pr", signal)).status,
+    scripts: async (thread, signal) =>
+      (await read({ op: "scripts.list", threadId: id(thread) }, "scripts", signal)).scripts,
+    async runScript(thread, script) {
+      const result = await run({
+        type: "workspace.script.run",
+        threadId: id(thread),
+        scriptId: script.id,
+      });
+      if (!result.terminalId) throw new WorkspaceError("unexpected");
+      return result.terminalId;
     },
-    editors: () => Promise.resolve({ editors, defaultEditor }),
-    openIn: (_thread, editor) => {
-      defaultEditor = editor;
-      return Promise.resolve();
+    async openIn(thread, editorId) {
+      const result = await run({ type: "workspace.editor.open", threadId: id(thread), editorId });
+      if (!result.editor) throw new WorkspaceError("unexpected");
+      return result.editor;
     },
-    git: (thread) => Promise.resolve(git(thread)),
-    gitAction: (thread, action) => {
-      const current = git(thread);
-      switch (action) {
-        case "commit":
-          return update(thread, { changed: 0, ahead: current.ahead + 1 });
-        case "commit-push":
-        case "push":
-          return update(thread, { changed: 0, ahead: 0 });
-        case "create-pr":
-        case "create-draft-pr":
-          return update(thread, {
-            changed: 0,
-            ahead: 0,
-            pr: pr(thread, action === "create-draft-pr"),
-          });
-      }
+    async commit(thread, message, expectedHead) {
+      const result = await run({ type: "git.commit", threadId: id(thread), message, expectedHead });
+      return result.commit ?? "";
     },
-    switchBranch: (thread, branch) => update(thread, { branch }),
-    setMode: (thread, mode) => update(thread, { mode }),
+    async push(thread) {
+      await run({ type: "git.push", threadId: id(thread), remote: "origin" });
+    },
+    async createPr(thread, input) {
+      const result = await run({
+        type: "forge.pr.create",
+        threadId: thread.id,
+        repository: input.repository,
+        input: {
+          branch: input.branch,
+          base: input.base,
+          title: input.title,
+          summary: input.summary,
+          // The forge fills these from the fields above.
+          template: { title: "{{title}}", body: "{{summary}}" },
+          draft: input.draft,
+        },
+      });
+      if (!result.pr) throw new WorkspaceError("unexpected");
+      return result.pr.number;
+    },
   };
 }

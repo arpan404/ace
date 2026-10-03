@@ -6,11 +6,16 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
-import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-row.tsx";
+import {
+  ViewRowBody,
+  ViewRowSection,
+  viewRowClass,
+  ViewSidebarError,
+} from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
-import { useNow } from "@/lib/time.ts";
-import { formatAge, deckGroup, deckRunSummary, type DeckRun, type DeckGroup } from "@ace/ui-core";
-import { useDeckRuns } from "./deck-source.ts";
+import { deckGroup, deckRunSummary, type DeckRun, type DeckGroup } from "@ace/ui-core";
+import { useDeckRetry, useDeckRuns } from "./deck-source.ts";
+import { useProjectName } from "@/lib/projects.ts";
 
 const groups: readonly { id: DeckGroup; label: string }[] = [
   { id: "gated", label: "Gated" },
@@ -20,8 +25,10 @@ const groups: readonly { id: DeckGroup; label: string }[] = [
 
 /** Deck's second sidebar: New deck, then every deck grouped by what it needs. */
 export function DeckSidebar() {
-  const { ready, runs } = useDeckRuns();
+  const { ready, error, runs } = useDeckRuns();
+  const retry = useDeckRetry();
   const [project, setProject] = useState("all");
+  const projectName = useProjectName();
   const projects = [...new Set(runs.map((run) => run.workspaceId))].toSorted();
   const shown = project === "all" ? runs : runs.filter((run) => run.workspaceId === project);
   return (
@@ -33,7 +40,7 @@ export function DeckSidebar() {
           value={project}
           options={[
             { value: "all", label: "All projects" },
-            ...projects.map((id) => ({ value: id, label: id })),
+            ...projects.map((id) => ({ value: id, label: projectName(id) })),
           ]}
           onValueChange={setProject}
         />
@@ -48,7 +55,9 @@ export function DeckSidebar() {
         <Kbd keys="shift+mod+n" variant="bare" className="ml-auto" />
       </Link>
       {!ready ? (
-        <ListSkeleton label="decks" shape="card" rows={4} />
+        <ListSkeleton label="decks" shape="tile" rows={4} />
+      ) : error && !runs.length ? (
+        <ViewSidebarError onRetry={retry} />
       ) : !shown.length ? (
         <EmptyState
           icon={CardsIcon}
@@ -76,14 +85,12 @@ export function DeckSidebar() {
 }
 
 function DeckRow(props: { run: DeckRun }) {
-  const now = useNow();
   return (
     <Link to="/deck/$runId" params={{ runId: props.run.id }} className={viewRowClass}>
       <ViewRowBody
         icon={CardsIcon}
         title={props.run.title}
         description={deckRunSummary(props.run)}
-        meta={formatAge(props.run.updatedAt, now)}
       />
     </Link>
   );

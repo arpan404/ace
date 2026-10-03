@@ -1,4 +1,4 @@
-import { flakyCheckout, seedIndex, workbench } from "@ace/fake-daemon";
+import { flakyCheckout, seedIndex, workbench, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -17,12 +17,13 @@ function workbenchApp() {
 test("answering an approval in Activity resolves it and takes it off the rail's needs-you count", async () => {
   const app = harness();
   app.play(flakyCheckout()).runThrough("approval-requested");
+  app.daemon.seedServices(workbenchServices(Date.now()));
   await app.open("/activity");
 
   const approval = await card(approvalTitle);
   const rail = screen.getByRole("navigation", { name: "Views" });
   // The approval and the Deck escalation the Activity feed also holds.
-  expect(within(rail).getByLabelText("2 need you")).toBeTruthy();
+  expect(await within(rail).findByLabelText("2 need you")).toBeTruthy();
 
   await userEvent.click(within(approval).getByRole("button", { name: "Approve" }));
 

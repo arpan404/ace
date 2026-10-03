@@ -40,6 +40,7 @@ Treat the pairing URL as a credential until redeemed or expired. A code lasts fi
 | `ACE_LISTEN`         | `local`                     | `local`, `lan` or `tailscale`                                           |
 | `ACE_REMOTE_PORT`    | local port plus one         | Separate HTTPS/WSS listener; ephemeral when `ACE_PORT=0` or `65535`     |
 | `ACE_ADVERTISE_HOST` | first external IPv4 address | LAN pairing URL address, useful with multiple network interfaces        |
+| `ACE_WEB_ORIGINS`    | none                        | Comma-separated http(s) origins of web apps that may manage devices     |
 
 LAN mode listens on IPv4 wildcard `0.0.0.0`. Tailscale mode runs `tailscale status --json`, requires a running backend and binds only its IPv4 address. A detection failure stops startup and prints setup guidance; it never switches to LAN exposure automatically.
 
@@ -58,7 +59,9 @@ OpenSSL creates an RSA-2048 self-signed certificate valid for ten years under `A
 
 ## HTTP API
 
-All JSON endpoints return HTTP 200 on success and `{ "error": "..." }` otherwise. Responses are `Cache-Control: no-store`; there are no redirects, CORS grants, cookies or query-string credentials. Requests are capped at 4 KiB. Bearer tokens go only in the `Authorization` header.
+All JSON endpoints return HTTP 200 on success and `{ "error": "..." }` otherwise. Responses are `Cache-Control: no-store`; there are no redirects, cookies or query-string credentials. Requests are capped at 4 KiB. Bearer tokens go only in the `Authorization` header.
+
+`GET /v1/devices`, `POST /v1/pairings` and `DELETE /v1/devices/<id>` accept cross-origin calls from an explicit allowlist: the desktop renderer (`app://ace`, ADR 0054) and the origins in `ACE_WEB_ORIGINS`. `bun run dev` and `dev:web` set it to their Vite origin. An allowed `Origin` is echoed in `Access-Control-Allow-Origin`; any other origin gets no CORS headers and its preflight gets 403. Every response carries `Vary: Origin`, and credentials mode is never allowed, so the token still has to be sent explicitly. Requests without an `Origin` (the CLI, same-origin) are unaffected. Pairing redemption and tickets stay same-origin.
 
 | Method and path           | Credential          | Request                                     | Response                                                     |
 | ------------------------- | ------------------- | ------------------------------------------- | ------------------------------------------------------------ |

@@ -97,6 +97,10 @@
   .fx-view-in {
     animation: fx-fade-in var(--dur-2) var(--ease) both;
   }
+  /* A progress bar that doesn't know how far along it is: a short segment sweeping across. */
+  .fx-indeterminate {
+    animation: fx-sweep 1.4s var(--ease) infinite;
+  }
   /* Placeholder blocks while something loads: a slow breath of opacity. */
   .fx-skeleton {
     background: color-mix(in oklab, var(--foreground) 6%, transparent);
@@ -145,6 +149,14 @@
   from {
     opacity: 0;
     transform: scale(0.6);
+  }
+}
+@keyframes fx-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
   }
 }
 @keyframes fx-breathe {

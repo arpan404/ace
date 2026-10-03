@@ -40,7 +40,7 @@ test("Home lists what needs you first, then work in motion, then trouble; done w
     "Rewrite the install page for the daemon",
     "Invoice PDF locale fallback",
   ]);
-  // The finished thread is long quiet, so it has settled out of the way.
+  // The finished thread's PR merged, so the daemon has settled it out of the way.
   const settled = screen.getByRole("button", { name: "Settled (1)" });
   expect(settled.getAttribute("aria-expanded")).toBe("false");
   await userEvent.click(settled);
@@ -62,18 +62,43 @@ test("a card carries project, branch and PR, the status in words and the running
   ).toBeTruthy();
 });
 
-test("Settle drops a thread into Settled and Undo puts it back where it was", async () => {
+test("Settle drops a finished thread into Settled on the daemon and Undo puts it back", async () => {
+  const app = workbenchApp();
+  await openHome(app);
+  await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
+  await userEvent.click(
+    screen.getByRole("button", { name: "Unsettle Bump Codex app-server to 0.48" }),
+  );
+  await waitFor(() => expect(order()[7]).toBe("Bump Codex app-server to 0.48"));
+  expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy();
+
+  await userEvent.click(
+    screen.getByRole("button", { name: "Settle Bump Codex app-server to 0.48" }),
+  );
+  expect(await screen.findByText("Settled · Bump Codex app-server to 0.48")).toBeTruthy();
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (1)" })).toBeTruthy());
+  const settledAt = () => {
+    const view = app.daemon.snapshot({ kind: "threads" });
+    return view?.kind === "threads" ? view.threads["thread-bump-codex"]?.settledAt : undefined;
+  };
+  expect(settledAt()).toBeDefined();
+
+  // This toast's Undo: the Unsettle before it offers one too.
+  const toast = screen.getByText("Settled · Bump Codex app-server to 0.48").closest("[role]");
+  if (!(toast instanceof HTMLElement)) throw new Error("no toast");
+  await userEvent.click(within(toast).getByRole("button", { name: "Undo" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy());
+  expect(settledAt()).toBeUndefined();
+});
+
+test("a thread that is still working offers no Settle", async () => {
   await openHome(workbenchApp());
-  await within(threads()).findByRole("link", { name: /Invoice PDF/ });
-  await userEvent.click(screen.getByRole("button", { name: "Settle Invoice PDF locale fallback" }));
-
-  await waitFor(() => expect(order()).not.toContain("Invoice PDF locale fallback"));
-  expect(screen.getByRole("button", { name: "Settled (2)" })).toBeTruthy();
-  expect(await screen.findByText("Settled · Invoice PDF locale fallback")).toBeTruthy();
-
-  await userEvent.click(screen.getByRole("button", { name: "Undo" }));
-  await waitFor(() => expect(order().at(-1)).toBe("Invoice PDF locale fallback"));
-  expect(screen.getByRole("button", { name: "Settled (1)" })).toBeTruthy();
+  expect(
+    screen.queryByRole("button", { name: "Settle Dedupe thread events after reconnect" }),
+  ).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Snooze Dedupe thread events after reconnect" }),
+  ).toBeTruthy();
 });
 
 test("a settled thread comes back to the list as soon as it moves again", async () => {
@@ -97,15 +122,16 @@ test("a settled thread comes back to the list as soon as it moves again", async 
   expect(within(card(/Bump Codex/)).getByText("Working")).toBeTruthy();
 });
 
-test("the auto-settle rule is stated under Settled and can be turned off", async () => {
-  await openHome(workbenchApp());
+test("the auto-settle rule under Settled is the daemon's setting", async () => {
+  const app = workbenchApp();
+  await openHome(app);
   await userEvent.click(await screen.findByRole("button", { name: "Settled (1)" }));
   expect(screen.getByText(/Threads that need you never settle/)).toBeTruthy();
 
-  await userEvent.click(screen.getByRole("button", { name: "When done threads settle" }));
+  await userEvent.click(await screen.findByRole("button", { name: "When done threads settle" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "Never" }));
-  await waitFor(() => expect(order()).toContain("Bump Codex app-server to 0.48"));
-  expect(screen.getByRole("button", { name: "Settled (0)" })).toBeTruthy();
+  expect(await screen.findByText(/Done threads stay until you settle them/)).toBeTruthy();
+  expect(app.daemon.services.settings.get("threads.autoSettleAfter")).toBe("never");
 });
 
 test("Snooze sinks a thread to the end with its wake time; Undo wakes it", async () => {
@@ -146,13 +172,11 @@ test("the project filter narrows Home to one project and is remembered", async (
   await waitFor(() => expect(order()).toHaveLength(2));
 });
 
-test("Tab walks a row's link, its Settle and Snooze, then the next row", async () => {
+test("Tab walks a row's link, its Snooze, then the next row", async () => {
   await openHome(workbenchApp());
   const [first, second] = within(threads()).getAllByRole("link");
   if (!first || !second) throw new Error("expected two rows");
   first.focus();
-  await userEvent.tab();
-  expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Settle /);
   await userEvent.tab();
   expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Snooze /);
   await userEvent.tab();

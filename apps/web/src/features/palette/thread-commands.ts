@@ -4,12 +4,7 @@ import type { ThreadListEntry } from "@ace/protocol";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { arrange, isSettled, isUnread, projectCounts } from "@ace/ui-core";
-import {
-  threadDetailsSource,
-  useThreadActions,
-  useOrganizer,
-  useOrganizerState,
-} from "@/features/home/index.ts";
+import { useThreadActions, useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 import { useNow } from "@/lib/time.ts";
 import type { PaletteCommand, PaletteGroup } from "./types.ts";
 
@@ -50,11 +45,11 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
     const threads = [...order.active, ...order.settled].flatMap((id): PaletteCommand[] => {
       const entry = byId.get(id);
       if (!entry) return [];
-      const branch = threadDetailsSource.details(id)?.branch;
+      const branch = entry.details?.branch;
       return [
         {
           id: `thread-${id}`,
-          label: state.marks[id]?.title ?? entry.title,
+          label: entry.title,
           detail: entry.workspaceId,
           ...(branch ? { more: branch } : {}),
           icon: "thread",
@@ -78,18 +73,22 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
     ];
     const open = current ? byId.get(current) : undefined;
     if (open) {
-      const mark = state.marks[open.id];
-      const settled = isSettled(open, mark, state.autoSettle, now);
-      const unread = isUnread(open, mark, state.baseline);
+      const settled = isSettled(open);
+      const unread = isUnread(open, state.baseline);
+      const pinned = open.pinned === true;
       groups.push({
         value: "This thread",
         items: [
-          {
-            id: "thread-settle",
-            label: settled ? "Unsettle this thread" : "Settle this thread",
-            icon: "settle",
-            run: run(() => (settled ? actions.unsettle(open) : actions.settle(open))),
-          },
+          ...(settled || open.status.state === "done"
+            ? [
+                {
+                  id: "thread-settle",
+                  label: settled ? "Unsettle this thread" : "Settle this thread",
+                  icon: "settle" as const,
+                  run: run(() => (settled ? actions.unsettle(open) : actions.settle(open))),
+                },
+              ]
+            : []),
           {
             id: "thread-unread",
             label: unread ? "Mark this thread read" : "Mark this thread unread",
@@ -98,9 +97,9 @@ export function useThreadCommands(close: () => void): PaletteGroup[] {
           },
           {
             id: "thread-pin",
-            label: mark?.pinned ? "Unpin this thread" : "Pin this thread",
+            label: pinned ? "Unpin this thread" : "Pin this thread",
             icon: "action",
-            run: run(() => actions.setPinned(open, !mark?.pinned)),
+            run: run(() => actions.setPinned(open, !pinned)),
           },
           {
             id: "thread-new-on-main",

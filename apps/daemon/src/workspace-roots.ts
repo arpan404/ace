@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import type { GitService } from "@ace/git";
+import { repositoryFromRemote } from "@ace/forge";
 import type { ThreadId, ThreadDetails } from "@ace/protocol";
 import type { Store } from "./store.ts";
 export type WorkspaceGit = Pick<GitService, keyof GitService>;
@@ -103,6 +104,7 @@ export class WorkspaceRoots {
       const project = this.store.getWorkspace(thread.workspaceId);
       if (!project) throw new Error("workspace_not_found");
       const projectPath = await realpath(project.path);
+      const repository = originRepository(info.remotes);
       // Never publish a read from an old binding. There is no await between comparison and write.
       if (this.root(id) !== root) continue;
       const current = this.store.getThread(id);
@@ -116,6 +118,7 @@ export class WorkspaceRoots {
         head: info.head,
         ahead: info.ahead,
         behind: info.behind,
+        ...(repository ? { repository } : {}),
         machine: this.machine,
         ...(diff
           ? {
@@ -140,5 +143,18 @@ export class WorkspaceRoots {
   async close(): Promise<void> {
     this.closing = true;
     await Promise.allSettled(this.preparations.values());
+  }
+}
+
+/** The forge repository of the origin remote (else the first), or undefined when unsupported. */
+function originRepository(
+  remotes: readonly { name: string; fetchUrls: readonly string[] }[],
+): ThreadDetails["repository"] {
+  const remote = (remotes.find((entry) => entry.name === "origin") ?? remotes[0])?.fetchUrls[0];
+  if (!remote) return undefined;
+  try {
+    return repositoryFromRemote(remote);
+  } catch {
+    return undefined;
   }
 }

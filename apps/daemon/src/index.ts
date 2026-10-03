@@ -163,6 +163,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       maintenance: process.env.ACE_MAINTENANCE === "1",
       version: process.env.ACE_VERSION ?? "development",
       port: config.port,
+      ...(config.webOrigins ? { webOrigins: config.webOrigins } : {}),
       token,
       hostId,
       store,

@@ -1,13 +1,31 @@
 import { apply, createThreadState, type Fact, type Key, type ThreadState } from "@ace/core";
 import { applyDelivery, createThreadView } from "@ace/projection";
 import type {
+  ContentPart,
   DeliveryEvent,
   EventPayload,
+  FollowUpBehavior,
   Interaction,
   InteractionId,
+  MessageContext,
+  QueueSnapshot,
   Thread,
   ThreadView,
+  TurnOptions,
 } from "@ace/protocol";
+
+/** A message waiting in the fake daemon's queue for the root agent to be free. */
+export interface FakeQueued {
+  /** The command id that queued it; the queue's message id. */
+  key: string;
+  text: string;
+  input: ContentPart[];
+  context?: MessageContext | undefined;
+  delivery: FollowUpBehavior;
+  state: "queued" | "uncertain";
+  model?: string;
+  options?: TurnOptions;
+}
 
 /** One scripted thread: core state for status derivation plus the complete projected view. */
 export class ThreadHost {
@@ -16,13 +34,17 @@ export class ThreadHost {
   /** Item id to creation sequence; the cursor that history pages are keyed by. */
   readonly creation = new Map<string, number>();
   /** Messages sent with `delivery: "queue"` while the root agent was busy, oldest first. */
-  readonly queued: {
-    key: string;
-    text: string;
-    model?: string;
-    options?: import("@ace/protocol").TurnOptions;
-  }[] = [];
-  nextSelection: { model?: string; options?: import("@ace/protocol").TurnOptions } | undefined;
+  queued: FakeQueued[] = [];
+  /** The queue's hold and revision, as `queue.get` and `queue.updated` report them. */
+  readonly queue: Omit<QueueSnapshot, "threadId" | "messages"> = {
+    revision: 0,
+    paused: false,
+    reason: null,
+    resumeAt: null,
+  };
+  /** The queue changed since the last `queue.updated` was published. */
+  queueDirty = false;
+  nextSelection: { model?: string; options?: TurnOptions } | undefined;
   runOrdinal = 0;
   private counter = 0;
   constructor(thread: Thread) {

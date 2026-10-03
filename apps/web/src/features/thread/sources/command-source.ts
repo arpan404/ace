@@ -35,8 +35,8 @@ export function matchCommands(list: readonly SlashCommand[], query: string): Sla
 export function daemonCommandSource(client: ClientApi): CommandSource {
   return {
     async commands(thread, signal) {
-      // TODO(client-gaps): feat/client-protocol-gaps. A thread that doesn't exist yet (New
-      // thread) has no scope to ask in until the daemon offers a pre-thread draft scope.
+      // `commands.list` is scoped to an existing thread (its provider and checkout); the context
+      // draft scope covers mentions and files only, so New thread offers no slash commands.
       if (thread.draft) return [];
       const reply = await client.request(
         { type: "commands.list", threadId: ThreadId.parse(thread.id), limit: 100 },

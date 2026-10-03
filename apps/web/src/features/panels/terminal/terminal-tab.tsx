@@ -1,5 +1,5 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useAgent, useItem, useTaskIds, useThread, useThreadMeta } from "@ace/client-react";
+import { useClient, useItem, useTaskIds, useThread } from "@ace/client-react";
 import type { BackgroundTask } from "@ace/protocol";
 import { TerminalWindowIcon, XIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { readOutputText } from "@/lib/output-read.ts";
 import { usePanelServices } from "../services.ts";
 import { useVersion } from "../store.ts";
 import { TerminalScreen } from "./screen.ts";
@@ -18,6 +19,16 @@ export function shellLabel(command: string): string {
   const script = /^(?:bun|npm|pnpm|yarn)\s+(?:run\s+)?(\S+)/.exec(command.trim());
   if (script?.[1]) return script[1];
   return command.trim().split(/\s+/)[0]?.split("/").pop() || command;
+}
+
+/** Two tabs never read the same: a repeated label gets " 2", " 3"... in tab order. */
+export function distinctLabels<T extends { label: string }>(tabs: readonly T[]): T[] {
+  const seen = new Map<string, number>();
+  return tabs.map((tab) => {
+    const count = (seen.get(tab.label) ?? 0) + 1;
+    seen.set(tab.label, count);
+    return count === 1 ? tab : { ...tab, label: `${tab.label} ${count}` };
+  });
 }
 
 const readShells = (reader: ThreadReader) =>
@@ -50,21 +61,19 @@ function useTerminalList(sessions: TerminalSessions, threadId: string) {
   const selected = useSyncExternalStore(sessions.watchSelection, () =>
     sessions.selection(threadId),
   );
-  return { list, selected, link: source.link, available: source.available };
+  return { list, selected, link: source.link };
 }
 
-/** Opens a terminal in the thread's working directory and shows it. */
+/** Opens a terminal in the thread's checkout and shows it. */
 export function useOpenTerminal(threadId: string) {
   const { terminals } = usePanelServices();
-  const thread = useThreadMeta(threadId);
-  const root = useAgent(threadId, thread?.rootAgentId ?? "");
+  const link = useVersion(terminals.source) >= 0 ? terminals.source.link : "disconnected";
   const [error, setError] = useState<string>();
   const open = useCallback(() => {
-    if (!root) return;
     setError(undefined);
-    terminals.open(threadId, root.cwd).catch(() => setError("Couldn't open a terminal."));
-  }, [terminals, threadId, root]);
-  return { open, error, ready: !!root && terminals.source.available };
+    terminals.open(threadId).catch(() => setError("Couldn't open a terminal."));
+  }, [terminals, threadId]);
+  return { open, error, ready: link === "connected" };
 }
 
 /** Terminal tab: the agents' background shells and your own terminals, each in its own tab. */
@@ -72,17 +81,18 @@ export function TerminalTab(props: { threadId: string }) {
   const { threadId } = props;
   const { terminals: sessions } = usePanelServices();
   const shells = useBackgroundShells(threadId);
-  const { list, selected, link, available } = useTerminalList(sessions, threadId);
+  const { list, selected, link } = useTerminalList(sessions, threadId);
+  const [closeError, setCloseError] = useState<string>();
   const opener = useOpenTerminal(threadId);
-  const tabs = [
+  const tabs = distinctLabels([
     ...shells.map((task) => ({
       id: `task:${task.id}`,
       label: shellLabel(task.title),
       live: task.status === "running",
       closable: false,
     })),
-    ...list.map((info) => ({ id: info.id, label: info.name, live: false, closable: true })),
-  ];
+    ...list.map((info) => ({ id: info.id, label: info.name, live: !info.exited, closable: true })),
+  ]);
   const active = tabs.find((tab) => tab.id === selected) ?? tabs[0];
   // Remember which tab is showing (not chosen), so Clear acts on it.
   const shown = active?.id;
@@ -92,11 +102,7 @@ export function TerminalTab(props: { threadId: string }) {
       <EmptyState
         icon={TerminalWindowIcon}
         title="No terminals"
-        description={
-          available
-            ? "Open a terminal in this thread's worktree, or watch the agents' background shells here."
-            : "This daemon doesn't share terminals with clients yet. Agents' background shells still show here."
-        }
+        description="Open a terminal in this thread's checkout, or watch the agents' background shells here."
         action={
           opener.ready ? (
             <Button size="sm" onClick={opener.open}>
@@ -135,7 +141,10 @@ export function TerminalTab(props: { threadId: string }) {
               <button
                 type="button"
                 aria-label={`Close ${tab.label}`}
-                onClick={() => sessions.close(tab.id)}
+                onClick={() => {
+                  setCloseError(undefined);
+                  sessions.close(tab.id).catch(() => setCloseError(`Couldn't close ${tab.label}.`));
+                }}
                 className="absolute top-1 right-1 hidden size-4 place-items-center rounded-[4px] text-subtle-foreground group-hover/tt:grid hover:bg-accent hover:text-foreground focus-visible:grid"
               >
                 <XIcon aria-hidden size={10} />
@@ -144,7 +153,7 @@ export function TerminalTab(props: { threadId: string }) {
           </span>
         ))}
       </div>
-      {available && link === "disconnected" && (
+      {link === "disconnected" && (
         <p
           role="status"
           className="flex items-center gap-2 px-4 pt-2 text-xs text-muted-foreground"
@@ -152,9 +161,9 @@ export function TerminalTab(props: { threadId: string }) {
           <Spinner /> Reconnecting to the terminal…
         </p>
       )}
-      {opener.error && (
+      {(opener.error ?? closeError) && (
         <p role="alert" className="px-4 pt-2 text-xs text-status-failed">
-          {opener.error}
+          {opener.error ?? closeError}
         </p>
       )}
       {shell && <BackgroundShell threadId={threadId} task={shell} />}
@@ -163,27 +172,47 @@ export function TerminalTab(props: { threadId: string }) {
   );
 }
 
-/** A background shell's output as the agent's tool call reports it (read-only). */
+/**
+ * A background shell's output as the agent's tool call reports it (read-only): the latest 4 KiB
+ * live, and the whole output from the daemon's stream store on request.
+ */
 function BackgroundShell(props: { threadId: string; task: BackgroundTask }) {
+  const client = useClient();
   const item = useItem(props.threadId, props.task.toolCallId ?? "");
-  const tail =
+  const output =
     item?.type === "tool_call" && item.call.detail.kind === "shell"
-      ? (item.call.detail.output?.tail ?? "")
-      : "";
-  const truncated =
-    item?.type === "tool_call" &&
-    item.call.detail.kind === "shell" &&
-    item.call.detail.output?.truncated;
+      ? item.call.detail.output
+      : undefined;
+  const [full, setFull] = useState<{ bytes: number; text: string }>();
+  const [loading, setLoading] = useState<"idle" | "loading" | "failed">("idle");
+  // A full read is replaced by the live tail as soon as the shell prints more.
+  const shown = full && full.bytes === output?.bytes ? full.text : (output?.tail ?? "");
   const rows = useMemo(() => {
     const screen = new TerminalScreen();
-    screen.write(tail.replace(/(?<!\r)\n/g, "\r\n"));
+    screen.write(shown.replace(/(?<!\r)\n/g, "\r\n"));
     return screen.rows();
-  }, [tail]);
+  }, [shown]);
+  const loadAll = () => {
+    if (!output) return;
+    const bytes = output.bytes;
+    setLoading("loading");
+    readOutputText(client, output.streamId).then(
+      (text) => {
+        setFull({ bytes, text });
+        setLoading("idle");
+      },
+      () => setLoading("failed"),
+    );
+  };
   return (
     <>
-      {truncated && (
-        <p className="px-4 pt-2 font-sans text-xs text-subtle-foreground">
+      {output?.truncated && shown !== full?.text && (
+        <p className="flex items-center gap-2 px-4 pt-2 font-sans text-xs text-subtle-foreground">
           Showing the latest output.
+          <Button size="sm" variant="ghost" disabled={loading === "loading"} onClick={loadAll}>
+            {loading === "loading" && <Spinner />}
+            {loading === "failed" ? "Couldn't load it. Retry" : "Show full output"}
+          </Button>
         </p>
       )}
       <ScreenRows rows={rows} label={`${shellLabel(props.task.title)} output`} />

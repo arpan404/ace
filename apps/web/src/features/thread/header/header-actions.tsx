@@ -1,112 +1,157 @@
 import {
-  CheckIcon,
+  ArrowSquareOutIcon,
   CodeIcon,
   CursorIcon,
-  FolderOpenIcon,
-  GitBranchIcon,
+  FileCodeIcon,
+  GitCommitIcon,
   GitDiffIcon,
   GitPullRequestIcon,
-  HammerIcon,
   LightningIcon,
   PaperPlaneTiltIcon,
-  PencilSimpleIcon,
   PlayIcon,
-  TerminalWindowIcon,
+  UploadSimpleIcon,
   type Icon as PhosphorIcon,
 } from "@phosphor-icons/react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useClient } from "@ace/client-react";
+import { nextGitStep, prBlocker, type GitStep } from "@ace/ui-core";
+import { useMutation } from "@tanstack/react-query";
+import { lazy, Suspense, useState } from "react";
+import { launchEditor } from "@/boot/editor-launch.ts";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
+import { revealRunningTerminal, revealTerminal } from "@/features/panels/index.ts";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { useEditors } from "@/lib/editors.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { useGit } from "../lib/use-git.ts";
+import { useCheckoutState, useGitActions, type GitChange } from "../lib/use-git.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
-import { nextGitStep, type EditorId, type GitAction } from "../sources/workspace-source.ts";
+import type { Script } from "../sources/workspace-source.ts";
+import type { GitDialogKind } from "./git-dialog.tsx";
 
-const editorIcons: Record<EditorId, PhosphorIcon> = {
-  cursor: CursorIcon,
-  vscode: CodeIcon,
-  zed: LightningIcon,
-  xcode: HammerIcon,
-  finder: FolderOpenIcon,
-  terminal: TerminalWindowIcon,
-};
+// Loaded on first open: the thread route's first paint doesn't need the commit or PR form.
+const GitDialog = lazy(() => import("./git-dialog.tsx").then((m) => ({ default: m.GitDialog })));
 
-/** Run ▶: the project's default script, or another from the picker, in the bottom terminal. */
+const failure = (error: unknown) =>
+  error instanceof Error ? error.message : "The daemon couldn't do that.";
+
+/**
+ * Run ▶: the project's first script, or another from the picker, in a bottom terminal. A script
+ * still running goes back to its terminal instead of starting a second copy. While the scripts
+ * load, fail to load or don't exist, the caret's menu says so.
+ */
 export function RunButton(props: { thread: ThreadRef }) {
   const sources = useThreadSources();
+  const client = useClient();
   const toast = useToast();
   const { setTab, setPanelOpen } = useLayout();
-  const scripts = useQuery({
-    queryKey: ["thread", "scripts", props.thread.workspaceId],
-    queryFn: () => sources.workspace.scripts(props.thread),
-  }).data;
+  const query = useDaemonQuery({
+    queryKey: ["thread", "scripts", props.thread.id],
+    staleTime: 60_000,
+    retry: false,
+    read: (_client, signal) => sources.workspace.scripts(props.thread, signal),
+  });
+  const scripts = query.data;
   const first = scripts?.[0];
-  const run = (script: { name: string; command: string }) => {
+  const show = (terminalId?: string) => {
     setTab("bottom", "terminal");
     setPanelOpen("bottom", true);
-    sources.workspace.runScript(props.thread, script).then(
-      () => toast.add({ title: `Running ${script.command}` }),
-      () => toast.add({ title: `Couldn't run ${script.command}` }),
-    );
+    // The bottom panel opening on the running tab is the confirmation.
+    if (terminalId) void revealTerminal(client, props.thread.id, terminalId);
   };
+  const run = async (script: Script) => {
+    try {
+      if (await revealRunningTerminal(client, props.thread.id, script.name)) return show();
+      show(await sources.workspace.runScript(props.thread, script));
+    } catch (error) {
+      toast.add({ title: `Couldn't run ${script.command}`, description: failure(error) });
+    }
+  };
+  // Loading, unreadable or none: the caret's menu says which, so a click always explains.
+  const note = query.isPending
+    ? ["Loading scripts", "They show here once the daemon has read them"]
+    : query.isError
+      ? ["Couldn't read this project's scripts", "Try again, or check the daemon's log"]
+      : first
+        ? undefined
+        : ["No scripts in this project", "Add one to package.json and it shows here"];
   return (
     <SplitButton
       variant="ghost"
       icon={<PlayIcon aria-hidden size={16} />}
-      actionLabel={first ? `Run ${first.command}` : "Run"}
+      actionLabel={first ? `Run ${first.command}` : (note?.[0] ?? "")}
       menuLabel="Choose a script"
-      disabled={!first}
-      onAction={() => first && run(first)}
+      actionDisabled={!first && !query.isPending}
+      onAction={() => first && void run(first)}
       menu={
-        <>
-          {scripts?.map((script, index) => (
+        note ? (
+          <>
+            <MenuItem disabled reason={note[1]}>
+              {note[0]}
+            </MenuItem>
+            {query.isError && <MenuItem onClick={() => void query.refetch()}>Try again</MenuItem>}
+          </>
+        ) : (
+          scripts?.map((script, index) => (
             <MenuItem
-              key={script.name}
+              key={script.id}
               icon={<PlayIcon aria-hidden size={16} />}
-              onClick={() => run(script)}
+              onClick={() => void run(script)}
             >
               <span className="font-mono text-[12px]">{script.command}</span>
               {index === 0 && <span className="ml-3 text-xs text-subtle-foreground">default</span>}
             </MenuItem>
-          ))}
-        </>
+          ))
+        )
       }
     />
   );
 }
 
-/** Open: the checkout in the default editor; the picker changes the default. */
+const editorIcons: Record<string, PhosphorIcon> = {
+  code: CodeIcon,
+  cursor: CursorIcon,
+  zed: LightningIcon,
+};
+
+/** Open: the checkout in this device's default editor; the picker changes the default. */
 export function OpenButton(props: { thread: ThreadRef }) {
   const sources = useThreadSources();
   const toast = useToast();
-  const queryClient = useQueryClient();
-  const editors = useQuery({
-    queryKey: ["editors"],
-    queryFn: () => sources.workspace.editors(),
-  }).data;
+  const { editors, current, choose } = useEditors();
   const open = useMutation({
-    mutationFn: (id: EditorId) => sources.workspace.openIn(props.thread, id),
-    onSuccess: (_result, id) => {
-      void queryClient.invalidateQueries({ queryKey: ["editors"] });
-      const name = editors?.editors.find((editor) => editor.id === id)?.name ?? id;
-      toast.add({ title: `Opened in ${name}` });
+    mutationFn: async (editorId: string) => {
+      const launch = await sources.workspace.openIn(props.thread, editorId);
+      await launchEditor({
+        editorId: launch.editor.id,
+        editorName: launch.editor.name,
+        path: launch.path,
+      });
+      return launch.editor;
     },
-    onError: () => toast.add({ title: "Couldn't open the editor" }),
+    onSuccess: (editor) => {
+      choose(editor.id);
+      toast.add({ title: `Opened in ${editor.name}` });
+    },
+    onError: (error) =>
+      toast.add({ title: "Couldn't open the editor", description: error.message }),
   });
-  const current = editors?.editors.find((editor) => editor.id === editors.defaultEditor);
-  const Glyph = editorIcons[current?.id ?? "cursor"];
+  const Glyph = editorIcons[current?.id ?? ""] ?? FileCodeIcon;
   return (
     <SplitButton
       icon={<Glyph aria-hidden size={16} className="text-foreground" />}
       label="Open"
-      actionLabel={`Open the checkout in ${current?.name ?? "your editor"}`}
+      actionLabel={
+        current
+          ? `Open the checkout in ${current.name}`
+          : "No editors found on the daemon's machine"
+      }
       menuLabel="Choose an editor"
-      disabled={!current}
+      disabled={!current || open.isPending}
       onAction={() => current && open.mutate(current.id)}
-      menu={editors?.editors.map((editor) => {
-        const Icon = editorIcons[editor.id];
+      menu={editors?.map((editor) => {
+        const Icon = editorIcons[editor.id] ?? FileCodeIcon;
         return (
           <MenuItem
             key={editor.id}
@@ -114,7 +159,7 @@ export function OpenButton(props: { thread: ThreadRef }) {
             onClick={() => open.mutate(editor.id)}
           >
             {editor.name}
-            {editor.id === editors.defaultEditor && (
+            {editor.id === current?.id && (
               <span className="ml-3 text-xs text-subtle-foreground">default</span>
             )}
           </MenuItem>
@@ -124,82 +169,186 @@ export function OpenButton(props: { thread: ThreadRef }) {
   );
 }
 
-function openPr(url: string) {
+function openUrl(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
-const done: Record<GitAction, string> = {
-  commit: "Committed · the agent wrote the message",
-  "commit-push": "Committed and pushed",
-  push: "Pushed",
-  "create-pr": "Pull request opened",
-  "create-draft-pr": "Draft pull request opened",
+const stepLabel = (step: GitStep) =>
+  step.kind === "commit"
+    ? "Commit"
+    : step.kind === "push"
+      ? "Push"
+      : step.kind === "create-pr"
+        ? "Create PR"
+        : `PR #${step.pr.number}`;
+
+const stepIcon = (step: GitStep) =>
+  step.kind === "commit" ? (
+    <GitCommitIcon aria-hidden size={16} />
+  ) : step.kind === "push" ? (
+    <UploadSimpleIcon aria-hidden size={16} />
+  ) : (
+    <GitPullRequestIcon aria-hidden size={16} />
+  );
+
+const ci: Record<string, string> = {
+  pending: "checks running",
+  success: "checks passed",
+  failure: "checks failed",
 };
+
+/**
+ * Commit, disabled, while the checkout loads or when there is none: the header keeps its shape
+ * instead of shifting when the read lands.
+ */
+function GitPlaceholder(props: { actionLabel: string }) {
+  return (
+    <SplitButton
+      icon={<GitCommitIcon aria-hidden size={16} />}
+      label="Commit"
+      actionLabel={props.actionLabel}
+      menuLabel="Git actions"
+      disabled
+      actionDisabled
+      onAction={() => undefined}
+      menu={null}
+    />
+  );
+}
 
 /** Commit → Push → Create PR → PR #N: the next step towards a merged change. */
 export function GitButton(props: { thread: ThreadRef }) {
-  const { git, change, pending } = useGit(props.thread);
+  const { checkout, state } = useCheckoutState(props.thread);
+  const { change, pending } = useGitActions(props.thread, checkout);
+  const [dialog, setDialog] = useState<GitDialogKind>();
   const toast = useToast();
   const { setTab, setPanelOpen } = useLayout();
-  if (!git) return null;
-  const step = nextGitStep(git);
-  const act = (action: GitAction) =>
-    change({ kind: "action", action }).then(
-      () => toast.add({ title: done[action] }),
-      () => toast.add({ title: "Git couldn't finish that", description: "Nothing was changed." }),
+  if (!checkout)
+    return (
+      <GitPlaceholder
+        actionLabel={
+          props.thread.draft
+            ? "Nothing to commit yet"
+            : state === "loading"
+              ? "Reading the checkout"
+              : "Not a git checkout"
+        }
+      />
     );
+  const step = nextGitStep(checkout);
+  const blocked = prBlocker(checkout);
+  const submit = async (next: GitChange) => {
+    const number = await change(next);
+    toast.add({
+      title:
+        next.kind === "commit"
+          ? next.push
+            ? "Committed and pushed"
+            : "Committed"
+          : next.kind === "push"
+            ? "Pushed"
+            : `${next.draft ? "Draft pull request" : "Pull request"} #${number ?? ""} opened`,
+    });
+  };
+  const push = () =>
+    void submit({ kind: "push" }).catch((error: unknown) =>
+      toast.add({ title: "Couldn't push", description: failure(error) }),
+    );
+  const pr = checkout.pr;
+  const draftBlocked =
+    blocked ??
+    (pr?.state === "open" || pr?.state === "draft"
+      ? `PR #${pr.number} is already open`
+      : undefined);
+  const actionLabel =
+    step.kind === "pr"
+      ? `Open PR #${step.pr.number}${step.pr.ci && ci[step.pr.ci] ? ` · ${ci[step.pr.ci]}` : ""}`
+      : step.kind === "create-pr" && step.blocked
+        ? step.blocked
+        : `${stepLabel(step)} this branch`;
   return (
-    <SplitButton
-      icon={
-        "pr" in step ? (
-          <GitPullRequestIcon aria-hidden size={16} />
-        ) : step.action === "create-pr" ? (
-          <CheckIcon aria-hidden size={16} />
-        ) : (
-          <GitBranchIcon aria-hidden size={16} />
-        )
-      }
-      label={"pr" in step ? `PR #${step.pr.number}` : step.label}
-      actionLabel={"pr" in step ? `Open PR #${step.pr.number}` : `${step.label} this branch`}
-      menuLabel="Git actions"
-      disabled={pending}
-      onAction={() => ("pr" in step ? openPr(step.pr.url) : void act(step.action))}
-      menu={
-        <>
-          <MenuItem
-            icon={<PencilSimpleIcon aria-hidden size={16} />}
-            disabled={git.changed === 0}
-            onClick={() => void act("commit")}
-          >
-            Commit
-          </MenuItem>
-          <MenuItem
-            icon={<PaperPlaneTiltIcon aria-hidden size={16} />}
-            disabled={git.changed === 0 && git.ahead === 0}
-            onClick={() => void act("commit-push")}
-          >
-            Commit &amp; push
-          </MenuItem>
-          <MenuItem
-            icon={<GitPullRequestIcon aria-hidden size={16} />}
-            disabled={!!git.pr}
-            onClick={() => void act("create-draft-pr")}
-          >
-            Create draft PR
-          </MenuItem>
-          <MenuSeparator />
-          <MenuItem
-            icon={<GitDiffIcon aria-hidden size={16} />}
-            keys={keymap.changes.keys}
-            onClick={() => {
-              setTab("right", "changes");
-              setPanelOpen("right", true);
-            }}
-          >
-            View diff
-          </MenuItem>
-        </>
-      }
-    />
+    <>
+      <SplitButton
+        icon={stepIcon(step)}
+        label={stepLabel(step)}
+        actionLabel={actionLabel}
+        menuLabel="Git actions"
+        disabled={pending}
+        actionDisabled={step.kind === "create-pr" && !!step.blocked}
+        onAction={() => {
+          if (step.kind === "pr") {
+            if (step.pr.url) openUrl(step.pr.url);
+          } else if (step.kind === "push") push();
+          else if (step.kind === "commit") setDialog("commit");
+          else if (!step.blocked) setDialog("pr");
+        }}
+        menu={
+          <>
+            <MenuItem
+              icon={<GitCommitIcon aria-hidden size={16} />}
+              disabled={checkout.changed === 0}
+              onClick={() => setDialog("commit")}
+            >
+              Commit…
+            </MenuItem>
+            <MenuItem
+              icon={<PaperPlaneTiltIcon aria-hidden size={16} />}
+              disabled={checkout.changed === 0}
+              onClick={() => setDialog("commit-push")}
+            >
+              Commit &amp; push…
+            </MenuItem>
+            <MenuItem
+              icon={<UploadSimpleIcon aria-hidden size={16} />}
+              disabled={!checkout.branch}
+              onClick={push}
+            >
+              Push
+            </MenuItem>
+            <MenuItem
+              icon={<GitPullRequestIcon aria-hidden size={16} />}
+              disabled={!!draftBlocked}
+              reason={draftBlocked}
+              onClick={() => setDialog("draft-pr")}
+            >
+              Create draft PR…
+            </MenuItem>
+            {pr && (
+              <MenuItem
+                icon={<ArrowSquareOutIcon aria-hidden size={16} />}
+                disabled={!pr.url}
+                reason={pr.url ? undefined : "The forge gave no address for it"}
+                onClick={() => pr.url && openUrl(pr.url)}
+              >
+                Open PR #{pr.number}
+              </MenuItem>
+            )}
+            <MenuSeparator />
+            <MenuItem
+              icon={<GitDiffIcon aria-hidden size={16} />}
+              keys={keymap.changes.keys}
+              onClick={() => {
+                setTab("right", "changes");
+                setPanelOpen("right", true);
+              }}
+            >
+              View diff
+            </MenuItem>
+          </>
+        }
+      />
+      {dialog && (
+        <Suspense fallback={null}>
+          <GitDialog
+            kind={dialog}
+            title={props.thread.title}
+            checkout={checkout}
+            pending={pending}
+            onSubmit={submit}
+            onClose={() => setDialog(undefined)}
+          />
+        </Suspense>
+      )}
+    </>
   );
 }

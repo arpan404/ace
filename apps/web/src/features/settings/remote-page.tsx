@@ -25,10 +25,12 @@ const platformNames: Record<Machine["platform"], string> = {
   windows: "Windows",
 };
 
-function lastSeen(at: number, now: number): string {
+function ago(at: number, now: number): string {
   const age = formatAge(at, now);
-  return age === "now" ? "last seen just now" : `last seen ${age} ago`;
+  return age === "now" ? "just now" : `${age} ago`;
 }
+
+const lastSeen = (at: number, now: number) => `last seen ${ago(at, now)}`;
 
 /** Machines running the daemon, paired phones and browsers, pairing and revoking. */
 export function RemoteDevices() {
@@ -96,7 +98,7 @@ function PairedDevices() {
           title={device.name}
           description={[
             device.scopes.includes("operate") ? "Can view and act" : "View only",
-            `paired ${formatAge(device.createdAt, now)} ago`,
+            `paired ${ago(device.createdAt, now)}`,
             lastSeen(device.lastSeenAt, now),
           ].join(" · ")}
         >

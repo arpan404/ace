@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { WebOrigins } from "./web-origins.ts";
 
 const LogLevelSchema = z.enum(["debug", "info", "warn", "error", "silent"]);
 export type LogLevel = z.infer<typeof LogLevelSchema>;
@@ -16,6 +17,7 @@ const Environment = z.object({
   ACE_WORKSPACE_ROOT: z.string().optional(),
   ACE_RELAY_URL: z.url().optional(),
   ACE_ADVERTISE_HOST: z.string().optional(),
+  ACE_WEB_ORIGINS: WebOrigins.optional(),
 });
 export interface Config {
   dataDir: string;
@@ -26,6 +28,8 @@ export interface Config {
   listen: "local" | "lan" | "tailscale";
   remotePort: number;
   advertiseHost?: string;
+  /** Origins of web apps served elsewhere that may manage devices with the token (ACE_WEB_ORIGINS). */
+  webOrigins?: readonly string[];
   logLevel: LogLevel;
   screenHelper?: string;
   /** The helper manifest when it does not sit beside the app (the desktop bundle). */
@@ -48,6 +52,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     listen: settings.ACE_LISTEN,
     remotePort,
     ...(settings.ACE_ADVERTISE_HOST ? { advertiseHost: settings.ACE_ADVERTISE_HOST } : {}),
+    ...(settings.ACE_WEB_ORIGINS ? { webOrigins: settings.ACE_WEB_ORIGINS } : {}),
     logLevel: settings.ACE_LOG_LEVEL,
   };
 }

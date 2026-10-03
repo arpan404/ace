@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { patchLines } from "@ace/ui-core";
+import { readOutputText } from "@/lib/output-read.ts";
 
 /** The expanded body of a work-log row: command output, diffs, reasoning or the error. */
 export function StepDetail(props: { item: Item }) {
@@ -105,17 +106,7 @@ function FullOutput(props: { streamId: string; onLoaded(text: string): void }) {
   const load = async () => {
     setState("loading");
     try {
-      const decoder = new TextDecoder();
-      let text = "";
-      for await (const bytes of client.output({
-        streamId: props.streamId,
-        offset: 0,
-        limit: 256 * 1024,
-      })) {
-        text += decoder.decode(bytes, { stream: true });
-        if (text.length > 1024 * 1024) break;
-      }
-      props.onLoaded(text + decoder.decode());
+      props.onLoaded(await readOutputText(client, props.streamId));
     } catch {
       setState("failed");
     }

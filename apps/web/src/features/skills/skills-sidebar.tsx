@@ -3,6 +3,8 @@ import {
   CubeIcon,
   MagnifyingGlassIcon,
   PlugIcon,
+  RobotIcon,
+  ScrollIcon,
   SparkleIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -12,23 +14,23 @@ import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
-import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-row.tsx";
+import {
+  ViewRowBody,
+  ViewRowSection,
+  viewRowClass,
+  ViewSidebarError,
+} from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
 import { InstallPlugin } from "./install-plugin.tsx";
-import { useSkills, type Skill, type SkillKind, type SkillSource } from "./skills-source.ts";
+import type { Skill, SkillKind } from "./skills-model.ts";
+import { useSkills } from "./skills-source.ts";
 
 export const kinds: readonly { kind: SkillKind; label: string; icon: IconGlyph }[] = [
   { kind: "skill", label: "Skills", icon: SparkleIcon },
-  { kind: "plugin", label: "Plugins", icon: PlugIcon },
   { kind: "command", label: "Slash commands", icon: CommandIcon },
-];
-
-type SourceFilter = "all" | SkillSource;
-const sources: readonly { value: SourceFilter; label: string }[] = [
-  { value: "all", label: "All sources" },
-  { value: "repo", label: "This repo" },
-  { value: "user", label: "Your home folder" },
-  { value: "plugin", label: "Plugins" },
+  { kind: "agent", label: "Agents", icon: RobotIcon },
+  { kind: "rule", label: "Rules", icon: ScrollIcon },
+  { kind: "plugin", label: "Plugins", icon: PlugIcon },
 ];
 
 function matches(skill: Skill, query: string): boolean {
@@ -40,13 +42,14 @@ function matches(skill: Skill, query: string): boolean {
   );
 }
 
-/** Skills' second sidebar: skills, plugins and slash commands, searchable and by source. */
+/** Skills' second sidebar: what installed plugins ship, searchable and by plugin. */
 export function SkillsSidebar() {
   const skills = useSkills();
   const [query, setQuery] = useState("");
-  const [source, setSource] = useState<SourceFilter>("all");
+  const [plugin, setPlugin] = useState("all");
+  const plugins = (skills.data ?? []).filter((skill) => skill.kind === "plugin");
   const shown = (skills.data ?? []).filter(
-    (skill) => (source === "all" || skill.source === source) && matches(skill, query),
+    (skill) => (plugin === "all" || skill.plugin === plugin) && matches(skill, query),
   );
   return (
     <ViewSidebar
@@ -54,10 +57,13 @@ export function SkillsSidebar() {
       actions={
         <>
           <FilterMenu
-            label="Source"
-            value={source}
-            options={sources}
-            onValueChange={(value) => setSource(value)}
+            label="Plugin"
+            value={plugin}
+            options={[
+              { value: "all", label: "All plugins" },
+              ...plugins.map((entry) => ({ value: entry.plugin, label: entry.name })),
+            ]}
+            onValueChange={setPlugin}
           />
           <InstallPlugin />
         </>
@@ -79,14 +85,14 @@ export function SkillsSidebar() {
       }
     >
       {skills.isError ? (
-        <EmptyState icon={CubeIcon} title="Skills unavailable" description={skills.error.message} />
+        <ViewSidebarError onRetry={() => void skills.refetch()} />
       ) : !skills.data ? (
-        <ListSkeleton label="skills" shape="card" rows={5} />
+        <ListSkeleton label="skills" shape="tile" rows={5} />
       ) : !shown.length ? (
         <EmptyState
           icon={CubeIcon}
-          title="No matching skills"
-          description="Skills and commands your agents can use appear here."
+          title={skills.data.length ? "No matching skills" : "No plugins yet"}
+          description="Skills, commands, agents and rules from installed plugins appear here."
         />
       ) : (
         <nav aria-label="Skills catalog">

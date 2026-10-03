@@ -2,9 +2,9 @@ import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import type { ReviewDraft } from "./changes/drafts.ts";
-import { unavailablePreview, unavailableTerminals, type PreviewSource } from "./sources.ts";
+import type { PreviewSource } from "./sources.ts";
 import { LocalStore } from "./store.ts";
-import { TerminalSessions } from "./terminal/sessions.ts";
+import type { TerminalSessions } from "./terminal/sessions.ts";
 
 export interface DiffPrefs {
   mode: "unified" | "split";
@@ -24,14 +24,8 @@ export interface PanelServices {
   logCleared: LocalStore<ReadonlyMap<string, ReadonlySet<string>>>;
 }
 
-async function load(): Promise<Pick<PanelServices, "terminals" | "preview">> {
-  // The fake services ship only in `vite --mode fake` and tests; Vite drops this branch from
-  // production builds the same way main.tsx drops the fake daemon.
-  if (import.meta.env.MODE === "fake" || import.meta.env.MODE === "test") {
-    const fake = (await import("@ace/fake-daemon")).panelServices();
-    return { terminals: new TerminalSessions(fake.terminals), preview: fake.browser };
-  }
-  return { terminals: new TerminalSessions(unavailableTerminals), preview: unavailablePreview };
+async function load(client: ClientApi): Promise<Pick<PanelServices, "terminals" | "preview">> {
+  return (await import("./panel-sources.ts")).createPanelSources(client);
 }
 
 const byClient = new WeakMap<ClientApi, Promise<PanelServices>>();
@@ -41,7 +35,7 @@ const ready = new WeakMap<ClientApi, PanelServices>();
 export function panelServices(client: ClientApi): Promise<PanelServices> {
   let services = byClient.get(client);
   if (!services) {
-    services = load().then((sources) => {
+    services = load(client).then((sources) => {
       const value: PanelServices = {
         ...sources,
         drafts: new LocalStore<readonly ReviewDraft[]>([]),
@@ -82,4 +76,24 @@ export function usePanelServices(): PanelServices {
   const services = useContext(PanelServicesContext);
   if (!services) throw new Error("usePanelServices needs the thread panels' services provider");
   return services;
+}
+
+/** Shows a terminal the daemon started for the thread (a script run) in the Terminal tab. */
+export async function revealTerminal(
+  client: ClientApi,
+  threadId: string,
+  terminalId: string,
+): Promise<void> {
+  const services = await panelServices(client);
+  await services.terminals.reveal(threadId, terminalId);
+}
+
+/** Shows the thread's running terminal called `name`; false when none is running. */
+export async function revealRunningTerminal(
+  client: ClientApi,
+  threadId: string,
+  name: string,
+): Promise<boolean> {
+  const services = await panelServices(client);
+  return services.terminals.revealRunning(threadId, name);
 }

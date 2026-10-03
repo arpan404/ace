@@ -1,10 +1,19 @@
+import { workbenchServices } from "@ace/fake-daemon";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
+/** A daemon with one project to deal decks in. */
+async function openNew() {
+  const app = harness();
+  app.daemon.createThread({ id: "thread-a", workspaceId: "ace", title: "A", provider: "codex" });
+  await app.open("/deck/new");
+  return app;
+}
+
 test("starting a deck drafts a plan behind a gate, and approving it deals the first card", async () => {
-  await harness().open("/deck/new");
+  await openNew();
   const form = await screen.findByRole("form", { name: "New deck" });
 
   await userEvent.type(
@@ -41,7 +50,7 @@ test("starting a deck drafts a plan behind a gate, and approving it deals the fi
 });
 
 test("a deck without plan approval starts dealing straight away", async () => {
-  await harness().open("/deck/new");
+  await openNew();
   const form = await screen.findByRole("form", { name: "New deck" });
 
   await userEvent.type(within(form).getByLabelText("Goal"), "Cache model lists per account.");
@@ -56,7 +65,7 @@ test("a deck without plan approval starts dealing straight away", async () => {
 });
 
 test("a goal too short to plan from is refused with a reason", async () => {
-  await harness().open("/deck/new");
+  await openNew();
   const form = await screen.findByRole("form", { name: "New deck" });
 
   await userEvent.type(within(form).getByLabelText("Goal"), "Fix it");
@@ -69,7 +78,9 @@ test("a goal too short to plan from is refused with a reason", async () => {
 });
 
 test("⌘⇧N opens New deck from anywhere", async () => {
-  await harness().open("/deck/relay-streams");
+  const app = harness();
+  app.daemon.seedServices(workbenchServices(Date.now()));
+  await app.open("/deck/relay-streams");
   await screen.findByRole("heading", { level: 1, name: "Resumable relay streams" });
 
   await userEvent.keyboard("{Meta>}{Shift>}n{/Shift}{/Meta}");

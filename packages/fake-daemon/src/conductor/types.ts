@@ -26,7 +26,7 @@ export interface FakeRound {
   findings: FakeFinding[];
 }
 export interface FakeRole {
-  /** "Codex · personal": provider and account label. */
+  /** An account id the fake `accounts.list` serves ("codex-personal"). */
   account: string;
   provider: ProviderKind;
   detail: string;

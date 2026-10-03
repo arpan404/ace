@@ -1,6 +1,6 @@
 import type { ThreadListEntry } from "@ace/protocol";
 import { useEffect, useRef } from "react";
-import { useThreadActions } from "./use-thread-actions.ts";
+import { useThreadActions } from "@/features/organize/index.ts";
 
 /** Inline rename in place of the title. Enter or leaving the field saves; Escape cancels. */
 export function RenameField(props: { entry: ThreadListEntry; title: string; onDone(): void }) {

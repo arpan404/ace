@@ -43,12 +43,20 @@ export class FakeSettings {
     workspaceOf: (threadId: string) => string | undefined = () => undefined,
   ) {
     this.workspaceOf = workspaceOf;
-    for (const [key, value] of Object.entries(initial))
+    this.seed(initial);
+  }
+  /** Global values as a long-running daemon holds them; unknown keys are ignored. */
+  seed(values: Readonly<Record<string, unknown>>): void {
+    for (const [key, value] of Object.entries(values))
       if (SettingsKey.safeParse(key).success) this.global.set(key, value);
   }
   /** The effective global value, as tests check what a page wrote. */
   get(key: string): unknown {
     return this.global.has(key) ? this.global.get(key) : Reflect.get(defaults, key);
+  }
+  /** One setting resolved for a scope (thread over workspace over global over defaults). */
+  resolve(key: string, scope: SettingsScope): unknown {
+    return this.entries([key], scope)[0]?.value;
   }
   /** The thread-settle settings the organization projection reads for this scope. */
   organizationEntries(scope: SettingsScope): SettingsEntry[] {

@@ -1,20 +1,15 @@
 import { expect, test } from "vitest";
-import { arrange, projectCounts } from "./arrange.ts";
-import type { OrganizerState, ThreadMark } from "./organizer.ts";
+import { arrange, homeMachine, isUnread, projectCounts } from "./arrange.ts";
+import type { OrganizerState } from "./organizer.ts";
 import { entry } from "./test-entries.fixture.ts";
 
 const hour = 3_600_000;
 const now = 10 * 24 * hour;
-const state = (
-  marks: Record<string, ThreadMark> = {},
-  patch: Partial<OrganizerState> = {},
-): OrganizerState => ({
+const state = (patch: Partial<OrganizerState> = {}): OrganizerState => ({
   baseline: 0,
-  autoSettle: "1d",
   project: null,
   settledOpen: false,
-  marks,
-  archiving: new Set(),
+  hiding: new Set(),
   ...patch,
 });
 
@@ -37,56 +32,51 @@ test("a thread held by a provider limit stays with the moving ones, above troubl
   expect(arrange(entries, state(), now).active).toEqual(["limited", "failed", "done"]);
 });
 
-test("within a group pinned threads lead, then the most recently active", () => {
+test("within a group the daemon's pinned threads lead, then the most recently active", () => {
   const entries = [
     entry("older", { state: "working", agents: 1 }, now - 3 * hour),
     entry("newer", { state: "working", agents: 1 }, now - hour),
-    entry("pinned", { state: "working", agents: 1 }, now - 5 * hour),
+    entry("pinned", { state: "working", agents: 1 }, now - 5 * hour, { pinned: true }),
   ];
-  const { active } = arrange(entries, state({ pinned: { pinned: true } }), now);
-  expect(active).toEqual(["pinned", "newer", "older"]);
+  expect(arrange(entries, state(), now).active).toEqual(["pinned", "newer", "older"]);
 });
 
-test("a snoozed thread sinks below everything until it wakes", () => {
+test("recency is the last work, so renaming or pinning a thread doesn't move it up", () => {
   const entries = [
-    entry("asks", { state: "needs_you", interactions: 1 }, now),
+    entry("worked", { state: "done" }, now - 2 * hour, { activityAt: now - 2 * hour }),
+    entry("renamed", { state: "done" }, now, { activityAt: now - 5 * hour }),
+  ];
+  expect(arrange(entries, state(), now).active).toEqual(["worked", "renamed"]);
+});
+
+test("a snoozed thread sinks below everything until its time passes", () => {
+  const entries = [
+    entry("asks", { state: "needs_you", interactions: 1 }, now, { snoozedUntil: now + hour }),
     entry("done", { state: "done" }, now),
   ];
-  const marks = { asks: { snoozedUntil: now + hour } };
-  expect(arrange(entries, state(marks), now).active).toEqual(["done", "asks"]);
-  expect(arrange(entries, state(marks), now + 2 * hour).active).toEqual(["asks", "done"]);
+  expect(arrange(entries, state(), now).active).toEqual(["done", "asks"]);
+  expect(arrange(entries, state(), now + 2 * hour).active).toEqual(["asks", "done"]);
 });
 
-test("a finished thread settles after a quiet day; one that needs you never does", () => {
+test("threads the daemon settled go to Settled, except one that needs you again", () => {
   const entries = [
-    entry("quiet", { state: "done" }, now - 2 * 24 * hour),
+    entry("settled", { state: "done" }, now - 2 * hour, { settledAt: now - hour }),
     entry("fresh", { state: "done" }, now - hour),
-    entry("asks", { state: "needs_you", interactions: 1 }, now - 5 * 24 * hour),
+    entry("asks", { state: "needs_you", interactions: 1 }, now, { settledAt: now - hour }),
   ];
   const result = arrange(entries, state(), now);
-  expect(result.settled).toEqual(["quiet"]);
+  expect(result.settled).toEqual(["settled"]);
   expect(result.active).toEqual(["asks", "fresh"]);
-  expect(arrange(entries, state({}, { autoSettle: "never" }), now).settled).toEqual([]);
 });
 
-test("a thread settled by hand comes back when it moves again", () => {
-  const settledAt = now - hour;
-  const marks = { t: { settledAt } };
-  expect(arrange([entry("t", { state: "done" }, settledAt)], state(marks), now).settled).toEqual([
-    "t",
-  ]);
-  const moved = entry("t", { state: "working", agents: 1 }, now);
-  expect(arrange([moved], state(marks), now).active).toEqual(["t"]);
-});
-
-test("archived, archiving and deleted threads leave Home and its project counts", () => {
+test("archived, deleted and hiding threads leave Home and its project counts", () => {
   const entries = [
     entry("kept", { state: "done" }, now, { workspaceId: "web" }),
     entry("archived", { state: "done" }, now, { archivedAt: now }),
-    entry("archiving", { state: "done" }, now),
-    entry("deleted", { state: "done" }, now),
+    entry("deleted", { state: "done" }, now, { deletedAt: now }),
+    entry("hiding", { state: "done" }, now),
   ];
-  const organised = state({ deleted: { deleted: true } }, { archiving: new Set(["archiving"]) });
+  const organised = state({ hiding: new Set(["hiding"]) });
   expect(arrange(entries, organised, now).active).toEqual(["kept"]);
   expect(projectCounts(entries, organised)).toEqual([{ id: "web", threads: 1 }]);
 });
@@ -96,5 +86,23 @@ test("the project filter keeps only that project's threads", () => {
     entry("a", { state: "done" }, now, { workspaceId: "ace" }),
     entry("w", { state: "done" }, now, { workspaceId: "web" }),
   ];
-  expect(arrange(entries, state({}, { project: "web" }), now).active).toEqual(["w"]);
+  expect(arrange(entries, state({ project: "web" }), now).active).toEqual(["w"]);
+});
+
+test("finished work is unread until read on any device, and a hand-set mark always is", () => {
+  const done = (extra: Parameters<typeof entry>[3]) =>
+    entry("t", { state: "done" }, now, { activityAt: now - hour, ...extra });
+  expect(isUnread(done({}), 0)).toBe(true);
+  expect(isUnread(done({}), now)).toBe(false);
+  expect(isUnread(done({ readAt: now - 2 * hour }), now)).toBe(true);
+  expect(isUnread(done({ readAt: now, unread: false }), 0)).toBe(false);
+  expect(isUnread(done({ readAt: now, unread: true }), 0)).toBe(true);
+  expect(isUnread(entry("w", { state: "working", agents: 1 }, now), 0)).toBe(false);
+});
+
+test("the home machine is where most threads run", () => {
+  const on = (id: string, host: string) =>
+    entry(id, { state: "done" }, now, { details: { machine: { host, name: host } } });
+  expect(homeMachine([on("a", "laptop"), on("b", "build-box"), on("c", "laptop")])).toBe("laptop");
+  expect(homeMachine([entry("x", { state: "done" }, now)])).toBeUndefined();
 });

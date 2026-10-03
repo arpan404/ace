@@ -38,3 +38,15 @@ export function runSummary(run: AutomationRun): string {
       return run.result ?? "Finished";
   }
 }
+
+/**
+ * A run that wants a look: it failed, or its result says a review asked for changes. The
+ * protocol has no verdict field, so a review's words are the signal.
+ */
+export function runNeedsAttention(run: AutomationRun): boolean {
+  if (run.status === "failed") return true;
+  return (
+    run.status === "succeeded" &&
+    /\b(requested changes|changes requested)\b/i.test(run.result ?? "")
+  );
+}

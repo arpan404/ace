@@ -61,6 +61,8 @@ export interface ServerOptions {
   runtime?: Partial<DeliveryRuntime>;
   entropy?: EntropySource;
   pairingAddress?: (request: IncomingMessage) => string;
+  /** Configured web app origins allowed to read the access routes; the desktop app is always allowed. */
+  webOrigins?: readonly string[];
   ticketLimits?: Partial<TicketLimits>;
   token: string;
   hostId: string;

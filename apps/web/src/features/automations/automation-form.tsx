@@ -36,6 +36,8 @@ const missed = (["run_once", "skip"] as const).map((value) => ({
 export function AutomationEditor(props: {
   initial: AutomationForm;
   workspaces: readonly string[];
+  /** A project's name by id. */
+  workspaceName(id: string): string;
   submitLabel: string;
   cancel: ReactNode;
   onSave(form: AutomationForm): Promise<void>;
@@ -53,7 +55,7 @@ export function AutomationEditor(props: {
   });
   const workspaceOptions = [...new Set([props.initial.workspace, ...props.workspaces])]
     .filter(Boolean)
-    .map((value) => ({ value, label: value }));
+    .map((value) => ({ value, label: props.workspaceName(value) }));
   return (
     <form
       noValidate

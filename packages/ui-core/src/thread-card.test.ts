@@ -1,10 +1,9 @@
 import { expect, test } from "vitest";
 import { entry } from "./test-entries.fixture.ts";
-import { threadCard, type ThreadCardInput } from "./thread-card.ts";
+import { cardDetails, threadCard, type ThreadCardInput } from "./thread-card.ts";
 
 const now = new Date("2026-10-01T15:00:00").getTime();
 const input = (patch: Partial<ThreadCardInput> & Pick<ThreadCardInput, "entry">) => ({
-  mark: undefined,
   baseline: 0,
   settled: false,
   now,
@@ -12,24 +11,37 @@ const input = (patch: Partial<ThreadCardInput> & Pick<ThreadCardInput, "entry">)
   ...patch,
 });
 
-test("a card shows the local rename, the project and a compact age", () => {
+test("a card shows the daemon's title, the project and how long ago it last worked", () => {
   const card = threadCard(
     input({
-      entry: entry("t", { state: "done" }, now - 3 * 60_000, { workspaceId: "web" }),
-      mark: { title: "Renamed here", seenAt: now },
+      entry: entry("t", { state: "done" }, now, {
+        workspaceId: "web",
+        title: "Renamed on the phone",
+        activityAt: now - 3 * 60_000,
+      }),
     }),
   );
-  expect(card).toMatchObject({ title: "Renamed here", project: "web", age: "3m" });
+  expect(card).toMatchObject({ title: "Renamed on the phone", project: "web", age: "3m" });
+});
+
+test("a card names its project when the daemon's name is known", () => {
+  const card = threadCard(
+    input({
+      entry: entry("t", { state: "done" }, now, { workspaceId: "6f1c2a9e-0d4b" }),
+      projectName: "relay",
+    }),
+  );
+  expect(card.project).toBe("relay");
 });
 
 test("finished work the person hasn't opened is emphasised and announced as unread", () => {
   const card = threadCard(input({ entry: entry("t", { state: "done" }, now - 1000) }));
   expect(card.emphasis).toBe(true);
   expect(card.announceUnread).toBe(true);
-  const seen = threadCard(
-    input({ entry: entry("t", { state: "done" }, now - 1000), mark: { seenAt: now } }),
+  const read = threadCard(
+    input({ entry: entry("t", { state: "done" }, now - 1000, { readAt: now, unread: false }) }),
   );
-  expect(seen.emphasis).toBe(false);
+  expect(read.emphasis).toBe(false);
 });
 
 test("a thread that needs you is emphasised without a second unread announcement", () => {
@@ -50,21 +62,36 @@ test("a working thread counts the subagents beside its main agent", () => {
 
 test("a snoozed card says when it wakes; an expired snooze says nothing", () => {
   const until = new Date("2026-10-02T09:00:00").getTime();
-  const done = entry("t", { state: "done" }, now);
-  const card = threadCard(input({ entry: done, mark: { snoozedUntil: until } }));
+  const card = threadCard(
+    input({ entry: entry("t", { state: "done" }, now, { snoozedUntil: until }) }),
+  );
   expect(card.flags.snoozed).toBe(true);
   expect(card.wake).toBe("tomorrow 9:00 AM");
-  const woke = threadCard(input({ entry: done, mark: { snoozedUntil: now - 1 } }));
+  const woke = threadCard(
+    input({ entry: entry("t", { state: "done" }, now, { snoozedUntil: now - 1 }) }),
+  );
   expect(woke.wake).toBeUndefined();
 });
 
-test("branch, pull request, worktree and machine come from the thread's details", () => {
-  const card = threadCard(
-    input({
-      entry: entry("t", { state: "done" }, now),
-      details: { branch: "fix/retry", pr: 188, worktree: true, machine: "build-box" },
-    }),
-  );
+test("branch, pull request, worktree and machine come from the daemon's details", () => {
+  const remote = entry("t", { state: "done" }, now, {
+    details: {
+      branch: "fix/retry",
+      mode: "worktree",
+      linkedPr: { number: 188, state: "open" },
+      machine: { host: "build-box.local", name: "build-box" },
+      diff: { files: 3, additions: 64, deletions: 12 },
+    },
+  });
+  const card = threadCard(input({ entry: remote, details: cardDetails(remote, "laptop.local") }));
   expect(card.branch).toEqual({ name: "fix/retry", pr: 188, worktree: true });
   expect(card.machine).toBe("build-box");
+  expect(cardDetails(remote, "build-box.local").machine).toBeUndefined();
+});
+
+test("a thread with no branch yet shows none rather than an empty one", () => {
+  const detached = entry("t", { state: "done" }, now, { details: { branch: null } });
+  expect(
+    threadCard(input({ entry: detached, details: cardDetails(detached, undefined) })).branch,
+  ).toBeUndefined();
 });

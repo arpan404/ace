@@ -63,6 +63,11 @@ export interface ListRow<T> {
   item: T;
   /** `enter`: arrived in the latest change. `exit`: gone, fading out where it was; draw inert. */
   phase: "enter" | "idle" | "exit";
+  /**
+   * Moved up past others in the latest change: while the list slides it is drawn above the
+   * rows it passes, so two rows never show through each other mid-swap.
+   */
+  rising: boolean;
 }
 
 export interface ListMotion<T> {
@@ -81,6 +86,7 @@ interface ListState<T> {
   items: readonly T[];
   keys: readonly string[];
   entering: ReadonlySet<string>;
+  rising: ReadonlySet<string>;
   ghosts: readonly Ghost<T>[];
   movedAt: number;
 }
@@ -97,6 +103,7 @@ export function useListMotion<T>(items: readonly T[], keyOf: (item: T) => string
     items,
     keys: items.map(keyOf),
     entering: noKeys,
+    rising: noKeys,
     ghosts: [],
     movedAt: 0,
   }));
@@ -116,6 +123,7 @@ export function useListMotion<T>(items: readonly T[], keyOf: (item: T) => string
         items,
         keys,
         entering: animate && change.entered.length ? new Set(change.entered) : noKeys,
+        rising: animate && change.reordered ? risingKeys(state.keys, keys) : noKeys,
         ghosts: animate ? [...state.ghosts.filter((g) => !present.has(g.key)), ...left] : [],
         movedAt: animate && moved ? state.movedAt + 1 : state.movedAt,
       });
@@ -136,7 +144,7 @@ export function useListMotion<T>(items: readonly T[], keyOf: (item: T) => string
     const timer = setTimeout(() => {
       setSettledAt(movedAt);
       // Played once: a row scrolled away and back must not rise in again.
-      setState((current) => ({ ...current, entering: noKeys }));
+      setState((current) => ({ ...current, entering: noKeys, rising: noKeys }));
     }, motionMs.slow + motionMs.exit);
     return () => clearTimeout(timer);
   }, [movedAt, settledAt]);
@@ -148,11 +156,18 @@ export function useListMotion<T>(items: readonly T[], keyOf: (item: T) => string
     return keys.flatMap((key): ListRow<T>[] => {
       const item = byKey.get(key);
       if (item !== undefined)
-        return [{ key, item, phase: state.entering.has(key) ? "enter" : "idle" }];
+        return [
+          {
+            key,
+            item,
+            phase: state.entering.has(key) ? "enter" : "idle",
+            rising: state.rising.has(key),
+          },
+        ];
       const ghost = leaving.get(key);
-      return ghost === undefined ? [] : [{ key, item: ghost, phase: "exit" }];
+      return ghost === undefined ? [] : [{ key, item: ghost, phase: "exit", rising: false }];
     });
-  }, [state.items, state.keys, state.entering, ghosts]);
+  }, [state.items, state.keys, state.entering, state.rising, ghosts]);
   return { rows, moving: settledAt !== movedAt };
 }
 
@@ -161,6 +176,21 @@ export function rowMotion(phase: ListRow<unknown>["phase"]): string | undefined 
   if (phase === "enter") return "fx-rise-in";
   if (phase === "exit") return "fx-fade-out";
   return undefined;
+}
+
+/** Rows that stayed and now sit higher among the rows that stayed. */
+function risingKeys(previous: readonly string[], next: readonly string[]): ReadonlySet<string> {
+  const after = new Set(next);
+  const before = new Set(previous);
+  const keptBefore = previous.filter((key) => after.has(key));
+  const was = new Map(keptBefore.map((key, index) => [key, index]));
+  const rising = new Set<string>();
+  next
+    .filter((key) => before.has(key))
+    .forEach((key, index) => {
+      if (index < (was.get(key) ?? index)) rising.add(key);
+    });
+  return rising;
 }
 
 function sameKeys(a: readonly string[], b: readonly string[]): boolean {

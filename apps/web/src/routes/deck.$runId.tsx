@@ -3,7 +3,7 @@ import { z } from "zod";
 import { DeckRunPage } from "@/features/deck/index.ts";
 
 const Search = z.object({
-  tab: z.enum(["plan", "lanes", "log"]).optional().catch(undefined),
+  tab: z.enum(["plan", "lanes"]).optional().catch(undefined),
   card: z.string().max(128).optional().catch(undefined),
 });
 

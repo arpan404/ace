@@ -1,4 +1,4 @@
-import { coldStartReplay } from "@ace/fake-daemon";
+import { coldStartReplay, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test } from "vitest";
@@ -33,6 +33,7 @@ const sidebar = () => screen.queryByRole("complementary", { name: "Threads" });
 async function openThread() {
   const app = harness();
   app.play(coldStartReplay()).runThrough("turn-2");
+  app.daemon.seedServices(workbenchServices(Date.now()));
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
   return app;

@@ -132,12 +132,17 @@ test("the model picker shows each account's usage and blocks an exhausted one", 
   expect(await screen.findByRole("button", { name: "Model: Sonnet 4.5, personal" })).toBeTruthy();
 });
 
-test("the context bar shows the checkout and switches branch", async () => {
+test("the context bar shows where the thread runs and follows its branch past a commit", async () => {
   await open("busy");
-  expect(await screen.findByRole("link", { name: /#214/ })).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Branch: fix/replay-cursor" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "main" }));
-  expect(await screen.findByRole("button", { name: "Branch: main" })).toBeTruthy();
+  const branch = await screen.findByLabelText("Branch: fix/replay-cursor");
+  expect(screen.getByText("Local")).toBeTruthy();
+  expect(branch.textContent).not.toContain("↑");
+  await userEvent.click(screen.getByRole("button", { name: "Commit" }));
+  const dialog = await screen.findByRole("dialog", { name: "Commit changes" });
+  await userEvent.click(within(dialog).getByRole("button", { name: "Commit" }));
+  await waitFor(() =>
+    expect(screen.getByLabelText("Branch: fix/replay-cursor").textContent).toContain("1↑"),
+  );
 });
 
 test("a composer squeezed by an open panel keeps its hint to one short line", async () => {

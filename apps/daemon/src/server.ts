@@ -12,6 +12,7 @@ import { defaultTicketLimits } from "./ticket-pool.ts";
 import { createServer as httpServer, type Server } from "node:http";
 import { createServer as httpsServer } from "node:https";
 import { accessHttp } from "./access-http.ts";
+import { webOriginAllowlist } from "./web-origins.ts";
 import { allows, type Device } from "./devices.ts";
 import { RemoteAuth } from "./remote-auth.ts";
 import { urlHost } from "./network.ts";
@@ -90,19 +91,23 @@ export async function startServer(options: ServerOptions): Promise<{
     ready = true;
   });
   if (options.maintenance) maintenance.enter();
+  const access = {
+    auth,
+    pairing,
+    allowedOrigins: webOriginAllowlist(options.webOrigins),
+    ...(options.pairingAddress ? { sourceAddress: options.pairingAddress } : {}),
+    ...(options.version === undefined ? {} : { version: options.version }),
+    ...(options.serviceStatus ? { serviceStatus: options.serviceStatus } : {}),
+    ready: () => ready,
+  };
   const local = httpServer(
     previewHttp(
       () => preview,
-      accessHttp(
-        auth,
-        auth.localBearer.bind(auth),
-        pairing,
-        options.pairingAddress,
+      accessHttp({
+        ...access,
+        authenticate: auth.localBearer.bind(auth),
         maintenance,
-        options.version,
-        options.serviceStatus,
-        () => ready,
-      ),
+      }),
     ),
   );
   const remote = options.remote
@@ -110,16 +115,7 @@ export async function startServer(options: ServerOptions): Promise<{
         { ...options.remote.identity, minVersion: "TLSv1.2" },
         previewHttp(
           () => preview,
-          accessHttp(
-            auth,
-            auth.deviceBearer.bind(auth),
-            pairing,
-            options.pairingAddress,
-            undefined,
-            options.version,
-            options.serviceStatus,
-            () => ready,
-          ),
+          accessHttp({ ...access, authenticate: auth.deviceBearer.bind(auth) }),
         ),
       )
     : undefined;
@@ -322,7 +318,9 @@ export async function startServer(options: ServerOptions): Promise<{
         }
         // Authentication may finish after disconnect, revocation or daemon shutdown.
         if (socket.readyState !== WebSocket.OPEN || !cleanups.has(socket)) return;
-        if (authorize("read")) {
+        // A dedicated channel (devices, files, browser, screen) speaks only its own frames, so
+        // notifications and broadcasts go to the device's main sockets.
+        if (message.channel === undefined && authorize("read")) {
           let connections = receivers.get(device);
           if (!connections) {
             connections = new Map();

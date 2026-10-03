@@ -10,6 +10,7 @@ import { usePanelServices } from "../services.ts";
 import { useLocal } from "../store.ts";
 import { countChanges, type FileDiff } from "@ace/ui-core";
 import { DiffStat } from "./diff-stat.tsx";
+import { WorkingTree } from "./working-tree.tsx";
 import { discardDraft, draftKey, saveDraft, sendDrafts, type ReviewDraft } from "./drafts.ts";
 import { FileDiffBlock, type LineTarget } from "./file-diff.tsx";
 import { CommentComposer, DraftCard } from "./line-comment.tsx";
@@ -105,6 +106,7 @@ export function ChangesTab(props: { threadId: string }) {
           onValueChange={(mode) => services.diffPrefs.set((value) => ({ ...value, mode }))}
         />
       </div>
+      <WorkingTree details={thread?.details} />
       {files.length > 1 && <FileList files={files} anchor={anchor} />}
       {pending > 0 && (
         <p role="status" className="px-3.5 py-2 text-xs text-subtle-foreground">

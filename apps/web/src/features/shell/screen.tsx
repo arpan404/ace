@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode, UIEvent } from "react";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { useToastAnchor } from "@/lib/toast-clearance.ts";
 import { AppHeader, type HeaderProps } from "./app-header.tsx";
 import { ConnectionNotice } from "./connection-notice.tsx";
 import { ShellPanel, type PanelDefinition } from "./panels.tsx";
@@ -21,6 +22,9 @@ export function Screen(
 ) {
   const [scrolled, setScrolled] = useState(false);
   const { togglePanel } = useLayout();
+  const pane = useRef<HTMLElement>(null);
+  // Toasts stand in this pane's bottom-right corner, clear of the panels beside and below it.
+  useToastAnchor(pane);
   useHotkey(keymap.bottomPanel.keys, () => togglePanel("bottom"), { enabled: !!props.bottom });
   // Any scroller inside the content draws the header hairline once it leaves the top.
   const onScroll = (event: UIEvent) => {
@@ -42,6 +46,7 @@ export function Screen(
       <div className="relative flex min-h-0 flex-1">
         <div className="relative flex min-w-0 flex-1 flex-col">
           <main
+            ref={pane}
             id="main"
             tabIndex={-1}
             onScrollCapture={onScroll}

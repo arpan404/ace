@@ -52,11 +52,30 @@ export class FakeBrowser {
   private watchers = new Set<() => void>();
   private revision = 0;
   readonly available = true;
+  /**
+   * The daemon's first browser needs Chromium downloaded (ADR 0055 acquisition). While set, the
+   * next `browser.open` reports download progress and waits for `finishDownload()`.
+   */
+  private download: { total: number; done: Promise<void>; finish(): void } | undefined;
   /** Input forwarded while a person had control: what the daemon received. */
   readonly inputs: { threadId: string; input: ForwardedInput }[] = [];
   readonly wireInputs: { threadId: string; input: BrowserInput }[] = [];
   get version(): number {
     return this.revision;
+  }
+  /** Make the next open wait on a Chromium download of `total` bytes. */
+  requireDownload(total: number): void {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    this.download = { total, done: promise, finish: resolve };
+  }
+  /** The pending download, if the next open has to wait on one. */
+  pendingDownload(): { total: number; done: Promise<void> } | undefined {
+    return this.download;
+  }
+  finishDownload(): void {
+    const download = this.download;
+    this.download = undefined;
+    download?.finish();
   }
   subscribe(listener: () => void): () => void {
     if (this.watchers.size >= 64) throw new Error("subscription_limit");

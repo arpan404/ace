@@ -32,6 +32,26 @@ test("a switched-off General setting stays off after leaving the page and coming
   ).toBe("false");
 });
 
+test("follow-ups and restart recovery are stored on the daemon", async () => {
+  const app = harness();
+  await app.open("/settings/general");
+  await pick("Messages sent while the agent works", "Steer");
+  await userEvent.click(
+    await screen.findByRole("switch", { name: "Continue threads after a restart" }),
+  );
+  await waitFor(() => {
+    expect(app.daemon.services.settings.get("threads.followUpBehavior")).toBe("steer");
+    expect(app.daemon.services.settings.get("threads.continueAfterRestart")).toBe(true);
+  });
+
+  await goTo("Notifications");
+  await goTo("General");
+  expect(
+    (await screen.findByRole("combobox", { name: "Messages sent while the agent works" }))
+      .textContent,
+  ).toContain("Steer");
+});
+
 test("the default provider lists only installed, signed-in CLIs and remembers the choice", async () => {
   await harness().open("/settings/general");
   const select = await screen.findByRole("combobox", { name: "Default provider for new threads" });

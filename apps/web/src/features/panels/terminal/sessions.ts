@@ -74,16 +74,37 @@ export class TerminalSessions {
     this.reset(entry);
     this.redraw(entry);
   }
-  async open(threadId: string, cwd: string): Promise<TerminalInfo> {
-    const info = await this.source.open({ threadId, cwd, cols: 100, rows: 24 });
+  /** Opens a terminal in the thread's checkout and shows it. */
+  async open(threadId: string): Promise<TerminalInfo> {
+    const info = await this.source.open(threadId, 100, 24);
     this.select(threadId, info.id);
     return info;
   }
-  close(id: string): void {
+  /** Shows a terminal started elsewhere (a script run), once the thread's list has it. */
+  async reveal(threadId: string, id: string): Promise<void> {
+    await this.source.refresh(threadId);
+    this.select(threadId, id);
+  }
+  /**
+   * Shows the thread's terminal called `name` if it is still running (a script started again
+   * goes back to its terminal rather than a second copy). False when there is none.
+   */
+  async revealRunning(threadId: string, name: string): Promise<boolean> {
+    await this.source.refresh(threadId);
+    const running = this.source
+      .list(threadId)
+      .find(
+        (terminal) =>
+          terminal.name === name && !terminal.exited && this.exitCode(terminal.id) === null,
+      );
+    if (running) this.select(threadId, running.id);
+    return running !== undefined;
+  }
+  close(id: string): Promise<void> {
     const entry = this.attached.get(id);
     entry?.detach?.();
     this.attached.delete(id);
-    this.source.close(id);
+    return this.source.close(id);
   }
   /** The terminal tab a thread is showing right now, chosen or by default. */
   shown(threadId: string): string | undefined {

@@ -1,93 +1,81 @@
-import type { SidebarReader } from "@ace/client";
-import { useClient, useIntent, useSidebar, useSidebarIds } from "@ace/client-react";
-import { WorkspaceId, type CommandPayload, type MessageContext } from "@ace/protocol";
+import { useClient } from "@ace/client-react";
+import {
+  AgentLaunchOptions,
+  WorkspaceId,
+  type CommandPayload,
+  type MessageContext,
+} from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
+import { failureMessage, runCommand } from "@/lib/daemon-command.ts";
 
 export interface CreateRequest {
   project: string;
   provider: Extract<CommandPayload, { type: "thread.create" }>["provider"];
   model: string | undefined;
+  /** The account (provider instance) to run on; the daemon picks one when omitted. */
+  account: string | undefined;
+  mode: "local" | "worktree";
+  /** Where a worktree starts; ignored for the local checkout. */
+  baseBranch: string | undefined;
+  effort: string | undefined;
   text: string;
   context?: MessageContext | undefined;
 }
 
-interface Pending {
-  intentId: string;
-  project: string;
-  /** Threads that existed when the request was sent; the new one is the first id after. */
-  before: ReadonlySet<string>;
+type CreatePayload = Extract<CommandPayload, { type: "thread.create" }>;
+
+/** The `thread.create` command for a request. Pure. */
+export function createPayload(request: CreateRequest): CreatePayload {
+  const effort = AgentLaunchOptions.shape.effort.safeParse(request.effort);
+  return {
+    type: "thread.create",
+    workspaceId: WorkspaceId.parse(request.project),
+    provider: request.provider,
+    mode: request.mode,
+    ...(request.model ? { model: request.model } : {}),
+    ...(request.account ? { accountId: request.account } : {}),
+    ...(request.mode === "worktree" && request.baseBranch
+      ? { baseBranch: request.baseBranch }
+      : {}),
+    ...(effort.success && effort.data ? { options: { effort: effort.data } } : {}),
+    input: [{ type: "text", text: request.text }],
+    ...(request.context ? { context: request.context } : {}),
+  };
 }
 
-const none: readonly string[] = [];
-
 /**
- * Send `thread.create` as a durable intent and open the thread once the daemon lists it. The
- * command result carries no thread id, so the new thread is the first one to appear in that
- * project after sending.
+ * Send `thread.create` and open the thread the daemon's receipt names. The request is not
+ * queued while offline: it fails at once, so the draft stays in the composer.
  */
 export function useCreateThread(): {
-  /** Resolves false when the request could not be sent, so the draft stays in the composer. */
+  /** Resolves false when the daemon didn't create the thread. */
   create(request: CreateRequest): Promise<boolean>;
   sending: boolean;
   error: string | undefined;
 } {
   const client = useClient();
   const navigate = useNavigate();
-  const ids = useSidebarIds() ?? none;
-  const [pending, setPending] = useState<Pending>();
-  const [failure, setFailure] = useState<string>();
-  const intent = useIntent(pending?.intentId);
-
-  const findCreated = useCallback(
-    (reader: SidebarReader) =>
-      pending
-        ? reader.ids.find(
-            (id) => !pending.before.has(id) && reader.thread(id)?.workspaceId === pending.project,
-          )
-        : undefined,
-    [pending],
-  );
-  const created = useSidebar(
-    useMemo(() => ["ids" as const], []),
-    findCreated,
-  );
-  useEffect(() => {
-    if (created)
-      void navigate({ to: "/t/$threadId", params: { threadId: created }, replace: true });
-  }, [created, navigate]);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string>();
 
   const create = useCallback(
     async (request: CreateRequest) => {
-      setFailure(undefined);
-      const payload: CommandPayload = {
-        type: "thread.create",
-        workspaceId: WorkspaceId.parse(request.project),
-        provider: request.provider,
-        // TODO(client-gaps): feat/client-protocol-gaps adds account, mode and baseBranch to
-        // thread.create and returns the new thread id in the receipt.
-        ...(request.model ? { model: request.model } : {}),
-        input: [{ type: "text", text: request.text }],
-        ...(request.context ? { context: request.context } : {}),
-      };
-      const before = new Set(ids);
+      setError(undefined);
+      setSending(true);
       try {
-        const intentId = await client.enqueue(payload);
-        setPending({ intentId, project: request.project, before });
+        const result = await runCommand(client, createPayload(request));
+        if (!result.threadId) throw new Error("The daemon didn't say which thread it started.");
+        void navigate({ to: "/t/$threadId", params: { threadId: result.threadId } });
         return true;
-      } catch {
-        setFailure("Couldn't send the request. Check the connection and try again.");
+      } catch (failure) {
+        setError(`The daemon didn't start the thread. ${failureMessage(failure)}`);
         return false;
+      } finally {
+        setSending(false);
       }
     },
-    [client, ids],
+    [client, navigate],
   );
-
-  const rejected = intent?.state === "failed";
-  const error =
-    failure ??
-    (rejected
-      ? `The daemon didn't start the thread${intent.error ? ` (${intent.error})` : ""}.`
-      : undefined);
-  return { create, sending: pending !== undefined && !rejected, error };
+  return { create, sending, error };
 }

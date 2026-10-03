@@ -1,197 +1,80 @@
-// TODO(client-gaps): feat/client-protocol-gaps routes ADR 0015's automation.put / remove / run /
-// list / inbox through the daemon wire; on main they are schema-only. Fake mode (dev:fake and
-// tests) serves them from memory with the approved design's content; a real daemon gets an
-// empty list and writes that report the service unavailable. Components depend only on
-// `AutomationsSource`; wiring the daemon replaces `useAutomationsSource` here and nothing else.
+/*
+ * Automations from the daemon (ADR 0015): `automation.list` (definitions and their next
+ * scheduled start), `automation.inbox` (recent runs), and the `automation.put`, `remove` and
+ * `run` writes. Each is a correlated request; a refusal rejects with the daemon's reason.
+ */
 import type { ClientApi } from "@ace/client";
-import { useClient } from "@ace/client-react";
-import { useDaemonConnection } from "@/boot/connection.tsx";
-import { UnavailableError } from "@/boot/fake-backend.ts";
-import { Automation, type AutomationRun } from "@ace/protocol";
-import { seedAutomations, seedRuns } from "./automations-seed.ts";
-import { localTimeZone, scheduleToPreset, weekdays, type SchedulePreset } from "./schedule.ts";
+import { Automation, type AutomationResponse, type AutomationRun } from "@ace/protocol";
 
 export interface AutomationEntry {
   automation: Automation;
-  /** Next scheduled start; undefined when paused or not on a schedule. */
+  /** Next scheduled start; undefined when paused, not on a schedule or the service is off. */
   nextRunAt: number | undefined;
 }
-export interface AutomationsSource {
-  list(): Promise<AutomationEntry[]>;
-  /** Recent runs across every automation, newest first. */
-  inbox(limit: number): Promise<AutomationRun[]>;
-  /** Create or replace. Rejects definitions the protocol schema refuses. */
-  put(automation: Automation): Promise<void>;
-  remove(id: string): Promise<void>;
-  /** Start a run now, whatever the trigger. Resolves with the run as admitted. */
-  run(id: string): Promise<AutomationRun>;
-  /** Fires after any committed change, as the daemon publishes run updates. */
-  onChange(listener: () => void): () => void;
-}
 
-export interface SourceDeps {
-  now(): number;
-  id(): string;
-  timer: { set(delayMs: number, callback: () => void): () => void };
-  /** How long a manual run takes in the fake. */
-  runMs: number;
-}
-
-const outcomes: Record<string, string> = {
-  "auto-dependency-audit": "No new advisories",
-  "auto-pr-review": "No open pull requests to review",
-  "auto-flaky-triage": "Nothing flaky across 3 runs",
-  "auto-changelog": "Draft posted to #releases",
-};
-
-export function memoryAutomationsSource(
-  deps: SourceDeps,
-  seed: { automations: Automation[]; runs: AutomationRun[] },
-): AutomationsSource {
-  const automations = new Map(seed.automations.map((a) => [a.id, a]));
-  let runs = seed.runs;
-  const listeners = new Set<() => void>();
-  const changed = () => {
-    for (const listener of listeners) listener();
-  };
-  const settle = (runId: string, automationId: string) => {
-    runs = runs.map((run) =>
-      run.id === runId
-        ? {
-            ...run,
-            status: "succeeded",
-            finishedAt: deps.now(),
-            result: outcomes[automationId] ?? "Finished with nothing to change",
-          }
-        : run,
-    );
-    changed();
-  };
-  return {
-    async list() {
-      const now = deps.now();
-      return [...automations.values()].map((automation) => ({
-        automation,
-        nextRunAt: nextRun(automation, now),
-      }));
-    },
-    async inbox(limit) {
-      return runs.toSorted((a, b) => b.startedAt - a.startedAt).slice(0, limit);
-    },
-    async put(automation) {
-      const parsed = Automation.parse(automation);
-      automations.set(parsed.id, parsed);
-      changed();
-    },
-    async remove(id) {
-      if (!automations.delete(id)) throw new Error("not_found");
-      changed();
-    },
-    async run(id) {
-      const automation = automations.get(id);
-      if (!automation) throw new Error("not_found");
-      const startedAt = deps.now();
-      const run: AutomationRun = {
-        id: `run-${deps.id()}`,
-        automationId: id,
-        title: automation.title,
-        eventKey: `manual:${startedAt}`,
-        trigger: "manual",
-        status: "running",
-        startedAt,
-      };
-      runs = [run, ...runs];
-      changed();
-      deps.timer.set(deps.runMs, () => settle(run.id, id));
-      return run;
-    },
-    onChange(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-  };
-}
-
-/** Fake scheduler for the presets the form produces; the daemon owns real recurrence. */
-function nextRun(automation: Automation, now: number): number | undefined {
-  if (!automation.enabled || automation.trigger.kind !== "schedule") return undefined;
-  const preset: SchedulePreset = scheduleToPreset(automation.trigger.schedule);
-  if (preset.kind === "custom") {
-    const daily = /^(\d+) (\d+) \* \* (\*|\d)$/.exec(preset.expression);
-    if (!daily) return undefined;
-    const day = daily[3] === "*" ? undefined : weekdays[(Number(daily[3]) + 6) % 7];
-    return nextAt(now, `${daily[2]}:${daily[1]}`, day ? [day] : undefined);
-  }
-  switch (preset.kind) {
-    case "hourly": {
-      const top = new Date(now);
-      top.setMinutes(0, 0, 0);
-      return top.getTime() + preset.every * 3_600_000;
-    }
-    case "daily":
-      return nextAt(now, preset.time, undefined);
-    case "weekdays":
-      return nextAt(now, preset.time, ["MO", "TU", "WE", "TH", "FR"]);
-    case "weekly":
-      return nextAt(now, preset.time, [preset.day]);
+export class AutomationError extends Error {
+  constructor(code: string | undefined) {
+    super(automationErrorMessage(code));
+    this.name = "AutomationError";
   }
 }
-function nextAt(now: number, time: string, days: readonly string[] | undefined): number {
-  const [hour = 0, minute = 0] = time.split(":").map(Number);
-  const candidate = new Date(now);
-  candidate.setHours(hour, minute, 0, 0);
-  for (let i = 0; i < 8; i++) {
-    const weekday = weekdays[(candidate.getDay() + 6) % 7];
-    if (candidate.getTime() > now && (!days || (weekday && days.includes(weekday))))
-      return candidate.getTime();
-    candidate.setDate(candidate.getDate() + 1);
+
+function automationErrorMessage(code: string | undefined): string {
+  switch (code) {
+    case "automation_unavailable":
+      return "This daemon's automation service isn't running.";
+    case "Automation service is stopped":
+      return "Automations are turned off. Turn on Run automations in Settings › General to run one.";
+    case "disabled_or_missing":
+      return "That automation is paused or no longer exists.";
+    case "forbidden":
+      return "This device isn't allowed to change automations.";
+    default:
+      return code ? `The daemon refused that (${code}).` : "The daemon refused that.";
   }
-  return candidate.getTime();
 }
 
-const timer = {
-  set(delayMs: number, callback: () => void) {
-    const handle = setTimeout(callback, delayMs);
-    return () => clearTimeout(handle);
-  },
-};
-
-// One source per daemon client, so each connection (and each test) starts from the seed.
-const sources = new WeakMap<ClientApi, AutomationsSource>();
-
-export function useAutomationsSource(): AutomationsSource {
-  const client = useClient();
-  const fake = useDaemonConnection().mode === "fake";
-  let source = sources.get(client);
-  if (!source) {
-    source = fake ? fakeAutomationsSource() : unavailableAutomationsSource();
-    sources.set(client, source);
-  }
-  return source;
+function checked(reply: AutomationResponse): AutomationResponse {
+  if (!reply.ok) throw new AutomationError(reply.error);
+  return reply;
 }
 
-/** A real daemon on main: nothing listed, and every write says the service isn't there. */
-const unavailable = () => Promise.reject(new UnavailableError("Automations"));
-
-function unavailableAutomationsSource(): AutomationsSource {
-  return {
-    list: async () => [],
-    inbox: async () => [],
-    put: unavailable,
-    remove: unavailable,
-    run: unavailable,
-    onChange: () => () => {},
-  };
+export async function listAutomations(
+  client: ClientApi,
+  signal: AbortSignal,
+): Promise<AutomationEntry[]> {
+  const reply = checked(await client.request({ type: "automation.list" }, { signal }));
+  const next = new Map(reply.schedules?.map((schedule) => [schedule.id, schedule.nextRunAt]));
+  return (reply.automations ?? []).map((automation) => ({
+    automation,
+    nextRunAt: next.get(automation.id) ?? undefined,
+  }));
 }
 
-/** The in-memory stand-in, seeded with the design's automations and runs at the wall clock. */
-function fakeAutomationsSource(): AutomationsSource {
-  const now = Date.now();
-  return memoryAutomationsSource(
-    { now: () => Date.now(), id: () => crypto.randomUUID(), timer, runMs: 1_500 },
-    {
-      automations: seedAutomations(Math.floor(now / 60_000) * 60_000, localTimeZone()),
-      runs: seedRuns(now),
-    },
+/** Recent runs across every automation, newest first. */
+export async function automationInbox(
+  client: ClientApi,
+  limit: number,
+  signal: AbortSignal,
+): Promise<AutomationRun[]> {
+  const reply = checked(await client.request({ type: "automation.inbox", limit }, { signal }));
+  return (reply.inbox?.runs ?? []).toSorted((a, b) => b.startedAt - a.startedAt);
+}
+
+/** Create or replace. Rejects definitions the protocol schema refuses before sending. */
+export async function putAutomation(client: ClientApi, automation: Automation): Promise<void> {
+  checked(
+    await client.request({ type: "automation.put", automation: Automation.parse(automation) }),
   );
+}
+
+export async function removeAutomation(client: ClientApi, id: string): Promise<void> {
+  checked(await client.request({ type: "automation.remove", id }));
+}
+
+/** Start a run now, whatever the trigger. Resolves with the run as the daemon admitted it. */
+export async function runAutomation(client: ClientApi, id: string): Promise<AutomationRun> {
+  const reply = checked(await client.request({ type: "automation.run", id, variables: {} }));
+  if (!reply.run) throw new AutomationError(undefined);
+  return reply.run;
 }

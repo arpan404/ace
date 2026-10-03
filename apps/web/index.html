@@ -16,6 +16,11 @@
        * in the theme replayed below (Dark defaults on a first visit). The app fades it out over
        * --dur-2 once the real shell has painted (src/lib/boot-splash.ts).
        */
+      /* Tailwind's preflight isn't loaded yet: size like the real shell, borders and padding in. */
+      #boot,
+      #boot * {
+        box-sizing: border-box;
+      }
       #boot {
         position: fixed;
         inset: 0;
