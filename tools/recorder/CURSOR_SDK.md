@@ -100,5 +100,10 @@ Offline public-API guards substitute only the SDK/provider service and catalog;
 they retain real disposable repositories, file streams, translator and core.
 They cover authorization refusal, fail-closed setup, selected home, redaction,
 checkpoint continuation, fresh portable identity and unresolved background work.
-They have **not been executed (tests run at merge)**. Neither the recorder nor
-any Cursor prompt was run during implementation.
+The owner-approved fixture task ran the scoped Cursor adapter/recorder tests and
+the CLI auth regression tests: 20 files, 85 tests passed. It recorded
+`full-access` once and skipped the fourteen restricted scenarios because
+Auto-review availability was unverified. See the committed batch report and
+`fixtures/cursor-sdk/1.0.35/composer-2.5/ANALYSIS.md` for outcomes, elapsed time,
+observations and remaining evidence gaps. The full merge gate was not run during
+this task; the owner's test exception covered these specific tests.

@@ -14,6 +14,8 @@ const TOKEN_COUNTERS = new Set([
   "cacheReadTokens",
   "cacheWriteTokens",
   "reasoningTokens",
+  "totalTokens",
+  "tokens",
 ]);
 function accountingCounter(key: string, value: unknown): boolean {
   return (

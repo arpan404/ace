@@ -19,6 +19,9 @@
     "@cursor/sdk": "1.0.35",
     "zod": "^4.6.5"
   },
+  "devDependencies": {
+    "@ace/adapter-testkit": "workspace:*"
+  },
   "engines": {
     "node": ">=24"
   }

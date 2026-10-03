@@ -12,12 +12,16 @@ it("preserves numeric SDK accounting counters while scrubbing credential-shaped 
           cacheReadTokens: 2,
           cacheWriteTokens: 3,
           reasoningTokens: 1,
+          totalTokens: 19,
         },
+        delta: { type: "token-delta", tokens: 4 },
         opaque: {
           inputTokens: "sentinel-secret",
           token: "sentinel-secret",
           apiKey: "sentinel-key",
           password: 123,
+          totalTokens: "sentinel-secret",
+          tokens: "sentinel-secret",
         },
       }),
     ),
@@ -29,12 +33,16 @@ it("preserves numeric SDK accounting counters while scrubbing credential-shaped 
       cacheReadTokens: 2,
       cacheWriteTokens: 3,
       reasoningTokens: 1,
+      totalTokens: 19,
     },
+    delta: { type: "token-delta", tokens: 4 },
     opaque: {
       inputTokens: "<SECRET>",
       token: "<SECRET>",
       apiKey: "<SECRET>",
       password: "<SECRET>",
+      totalTokens: "<SECRET>",
+      tokens: "<SECRET>",
     },
   });
 });

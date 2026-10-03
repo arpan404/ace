@@ -1,0 +1,97 @@
+{
+  "approval": "Owner-approved 2026-10-03: all 15 scenarios, once each, no retries",
+  "sdkVersion": "1.0.35",
+  "model": "composer-2.5",
+  "scenarioTimeCapMs": 180000,
+  "scenarios": [
+    {
+      "scenario": "text-thinking-read",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
+    },
+    {
+      "scenario": "edit-shell-results",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
+    },
+    {
+      "scenario": "restricted-mcp",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent. No thread/instance-scoped MCP lease was provisioned because the prerequisite Auto-review verification failed."
+    },
+    {
+      "scenario": "full-access",
+      "outcome": "complete",
+      "elapsedMs": 10995
+    },
+    {
+      "scenario": "plan-question",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
+    },
+    {
+      "scenario": "foreground-child",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
+    },
+    {
+      "scenario": "background-child",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
+    },
+    {
+      "scenario": "nested-task",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
+    },
+    {
+      "scenario": "background-shell",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
+    },
+    {
+      "scenario": "interrupt-work",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
+    },
+    {
+      "scenario": "steering-restart",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
+    },
+    {
+      "scenario": "checkpoint-resume",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
+    },
+    {
+      "scenario": "portable-fork",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
+    },
+    {
+      "scenario": "mcp-image",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent. No thread/instance-scoped MCP lease was provisioned because the prerequisite Auto-review verification failed."
+    },
+    {
+      "scenario": "usage",
+      "outcome": "skipped",
+      "elapsedMs": 0,
+      "reason": "Auto-review availability could not be verified for this account/backend. SDK 1.0.35 exposes autoReview as a request option, but no public capability query confirms the backend classifier feature. No restricted turn was sent."
+    }
+  ]
+}
