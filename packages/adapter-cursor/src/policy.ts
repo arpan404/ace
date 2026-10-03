@@ -3,6 +3,7 @@ import type { LocalAgentOptions } from "@cursor/sdk";
 
 export const cursorCapabilities: Capabilities = {
   approvals: "sandbox-only",
+  permissions: { modes: ["full-access"], nativeAutoReview: true, toolGate: false },
   steeringMode: "interrupt-restart",
   forkMode: "context-handoff",
   childControls: "read-only",

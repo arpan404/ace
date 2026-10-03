@@ -16,6 +16,11 @@ export function piCapabilities(cli: DiscoveryResult): Capabilities {
   const supported = piProfile(cli).supported;
   return {
     steer: supported,
+    permissions: {
+      modes: supported ? ["full-access"] : [],
+      nativeAutoReview: false,
+      toolGate: false,
+    },
     interruptCascades: false,
     resume: supported,
     fork: supported,

@@ -11,6 +11,11 @@ export function codexCapabilities(cli: DiscoveryResult): Capabilities {
     cli.installed && !!parts && (major > 0 || minor > 159 || (minor === 159 && patch >= 1));
   return {
     steer: supported,
+    permissions: {
+      modes: supported ? ["full-access"] : [],
+      nativeAutoReview: true,
+      toolGate: supported,
+    },
     launchOptions: supported ? ["effort", "serviceTier"] : [],
     interruptCascades: false,
     resume: supported,

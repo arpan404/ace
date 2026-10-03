@@ -40,6 +40,10 @@ export async function openAcpSession(
   launch: LaunchOptions,
   runtime: SessionRuntime = { spawn: spawnSupervised, now: () => performance.now() },
 ): Promise<ProviderSession> {
+  if (ctx.permissionMode && ctx.permissionMode !== "full-access") {
+    ctx.mcp?.end();
+    throw new Error("ACP has no verified comprehensive approval gate for this ace permission mode");
+  }
   if (ctx.signal.aborted) {
     ctx.mcp?.end();
     throw new Error("ACP session lifetime already ended");

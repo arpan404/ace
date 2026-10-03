@@ -1,6 +1,6 @@
 import { apply, createThreadState, type Fact } from "@ace/core";
 import { ThreadId } from "@ace/protocol";
-import type { Frame } from "@ace/engine-api";
+import type { Frame, SessionContext } from "@ace/engine-api";
 import { spawnTextSupervised } from "@ace/provider-kit/process";
 import { fileURLToPath } from "node:url";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
@@ -49,6 +49,7 @@ export async function sessionHarness(
   resume: boolean | string = false,
   env: NodeJS.ProcessEnv = {},
   existingHome?: string,
+  permissionMode?: SessionContext["permissionMode"],
 ) {
   const home = existingHome ?? (await mkdtemp(join(tmpdir(), "ace-pi-session-")));
   const sourcePath = join(home, "source.jsonl"),
@@ -71,6 +72,7 @@ export async function sessionHarness(
         threadId: h.threadId,
         rootKey: "root",
         cwd: process.cwd(),
+        ...(permissionMode ? { permissionMode } : {}),
         env: { ...env, FAKE_PI_HOME: home },
         signal: controller.signal,
         ...(resume

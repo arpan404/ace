@@ -23,6 +23,10 @@ export async function openCursorSession(
   context: SessionContext,
   options: CursorSessionOptions,
 ): Promise<ProviderSession> {
+  if (context.permissionMode && context.permissionMode !== "full-access")
+    throw new Error(
+      "Cursor cannot honor this ace permission mode without a complete audit and escalation gate",
+    );
   context.signal.throwIfAborted();
   if (context.resume && context.resume.backend !== "cursor-sdk")
     throw new Error("Cursor SDK cannot resume an ACP checkpoint; use explicit context handoff");
@@ -139,7 +143,10 @@ export async function openCursorSession(
               afterFrameOffset: context.resume.afterFrameOffset ?? 0,
             }
           : {}),
-        policy: context.runtimePolicy ?? options.policy ?? "restricted",
+        policy:
+          context.permissionMode === "full-access"
+            ? "full-access"
+            : (context.runtimePolicy ?? options.policy ?? "restricted"),
         autoReviewAvailable: options.autoReviewAvailable ?? false,
         limits,
         ...(options.mcp ? { mcp: options.mcp } : {}),

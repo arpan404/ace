@@ -30,7 +30,10 @@ export type Pending = {
 };
 export type SessionCommandsContext = {
   nativeSessionId: string;
-  getLaunchOptions?(): Pick<TurnStartParams, "effort" | "serviceTier">;
+  getLaunchOptions?(): Pick<
+    TurnStartParams,
+    "effort" | "serviceTier" | "approvalPolicy" | "sandboxPolicy" | "approvalsReviewer"
+  >;
   active: Map<string, string>;
   parents: Map<string, string>;
   shells: Map<string, string>;
