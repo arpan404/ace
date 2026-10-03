@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -67,7 +67,7 @@ it("inherits launch authentication only for the SDK backend and keeps registry s
 });
 
 it("binds two private SDK homes and fences only the selected instance while retaining the other writer", async () => {
-  const home = await mkdtemp(join(tmpdir(), "account-sdk-hosts-"));
+  const home = await realpath(await mkdtemp(join(tmpdir(), "account-sdk-hosts-")));
   const registry = await openRegistry(join(home, "accounts.sqlite"));
   const entry = join(home, "host.mjs");
   await writeFile(

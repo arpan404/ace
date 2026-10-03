@@ -1,4 +1,4 @@
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, realpath, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { expect, it } from "vitest";
@@ -6,6 +6,9 @@ import { CursorAuthService, openRegistry, createInstance, runAccountsCommand } f
 
 it("a fresh SDK account added through the CLI obtains its browser challenge from the daemon auth flow", async () => {
   const root = await mkdtemp(join(tmpdir(), "cursor-cli-login-"));
+  const canonicalRoot = await realpath(root);
+  const alias = join(root, "home-alias");
+  await symlink(canonicalRoot, alias, "dir");
   const path = join(root, "accounts.sqlite"),
     registry = await openRegistry(path);
   const browser = Promise.withResolvers<void>(),
@@ -27,13 +30,13 @@ it("a fresh SDK account added through the CLI obtains its browser challenge from
     },
     driver: {
       async status(instance) {
-        expect(instance.homeDir).toBe(join(root, "private-account"));
+        expect(instance.homeDir).toBe(join(canonicalRoot, "private-account"));
         return loggedIn
           ? { status: "logged-in", source: "sdk-store" }
           : { status: "logged-out", source: "none" };
       },
       async login(instance, _signal, url) {
-        expect(instance.homeDir).toBe(join(root, "private-account"));
+        expect(instance.homeDir).toBe(join(canonicalRoot, "private-account"));
         url("https://cursor.com/login?challenge=synthetic-cli");
         browser.resolve();
         await finish.promise;
@@ -47,7 +50,7 @@ it("a fresh SDK account added through the CLI obtains its browser challenge from
   });
   try {
     await runAccountsCommand(
-      ["accounts", "add", "cursor", "fresh", join(root, "private-account"), "Fresh"],
+      ["accounts", "add", "cursor", "fresh", join(alias, "private-account"), "Fresh"],
       {
         env: { ACE_ACCOUNTS_DB: path },
         now: () => 1,
@@ -79,7 +82,7 @@ it("a fresh SDK account added through the CLI obtains its browser challenge from
       "Cursor SDK sign-in: https://cursor.com/login?challenge=synthetic-cli\n",
     ]);
     expect(closed).toBe(true);
-    expect(registry.get("fresh")?.instance.homeDir).toBe(join(root, "private-account"));
+    expect(registry.get("fresh")?.instance.homeDir).toBe(join(canonicalRoot, "private-account"));
     expect((await readFile(path)).includes(Buffer.from("synthetic-cli"))).toBe(false);
   } finally {
     await auth.close();

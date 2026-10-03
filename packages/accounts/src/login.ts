@@ -25,14 +25,16 @@ export async function addAccount(
   if (instance.provider === "cursor" && options.cursorSdk) {
     options.signal?.throwIfAborted();
     await registry.register(instance);
+    const selected = registry.get(instance.id)?.instance;
+    if (!selected) throw new Error("Registered Cursor SDK instance is unavailable");
     const signal = options.signal ?? new AbortController().signal;
-    const before = await options.cursorSdk.status(instance, signal);
+    const before = await options.cursorSdk.status(selected, signal);
     if (before.status !== "logged-in") {
       if (!options.loginUrl)
         throw new Error("Cursor SDK login requires an authorized ephemeral URL callback");
-      await options.cursorSdk.login(instance, signal, options.loginUrl);
+      await options.cursorSdk.login(selected, signal, options.loginUrl);
     }
-    const after = await options.cursorSdk.status(instance, signal);
+    const after = await options.cursorSdk.status(selected, signal);
     return {
       code: after.status === "logged-in" ? 0 : 1,
       status: {

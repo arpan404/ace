@@ -518,7 +518,13 @@ export class EngineRepository {
     return this.requireState(id).config.provider === "cursor" ? "acp" : undefined;
   }
   captureFrame(id: ThreadId, frame: Frame): void {
-    if (frame.channel !== "sdk") return;
+    // The SDK channel is shared by providers. Only Cursor owns this checkpoint journal.
+    if (
+      frame.channel !== "sdk" ||
+      this.requireState(id).config.provider !== "cursor" ||
+      this.backend(id) !== "cursor-sdk"
+    )
+      return;
     const generation = z
       .object({ generation: z.string().min(1).max(512) })
       .parse(frame.data).generation;

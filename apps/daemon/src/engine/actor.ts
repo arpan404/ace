@@ -186,14 +186,18 @@ export class ThreadActor {
     }
     this.accept(() => {
       if (generation !== this.generation) return;
-      if (this.repo.recovery.committed(this.id, decoded)) return;
+      const cursorSdk =
+        decoded.channel === "sdk" &&
+        this.repo.requireState(this.id).config.provider === "cursor" &&
+        this.repo.backend(this.id) === "cursor-sdk";
+      if (cursorSdk && this.repo.recovery.committed(this.id, decoded)) return;
       const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
       const before = this.repo.requireState(this.id).status;
       this.repo.store.atomic(() => {
         const body = z.object({ kind: z.string(), body: z.unknown() }).safeParse(decoded.data);
-        if (decoded.channel === "sdk" && body.success && body.data.kind === "blob")
+        if (cursorSdk && body.success && body.data.kind === "blob")
           this.repo.store.appendRawChunk(this.id, body.data.body);
-        this.repo.captureFrame(this.id, decoded);
+        if (cursorSdk) this.repo.captureFrame(this.id, decoded);
         this.apply(facts);
         if (
           facts.some(
@@ -208,7 +212,7 @@ export class ThreadActor {
           )
         )
           this.syncQueue();
-        this.repo.recovery.commit(this.id, decoded);
+        if (cursorSdk) this.repo.recovery.commit(this.id, decoded);
       });
       if (
         decoded.channel === "sdk" &&

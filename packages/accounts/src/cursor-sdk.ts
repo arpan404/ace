@@ -63,6 +63,10 @@ export function bindCursorSdk(service: AccountService, options: CursorAdapterOpt
     },
   });
 }
+const cursorIdentity = (instance: ProviderInstance) => ({
+  id: instance.id,
+  homeDir: instance.homeDir,
+});
 export function cursorSdkLoginDriver(
   registry: AccountRegistry,
   options: Parameters<typeof createCursorAccountDriver>[0] & { now(): number },
@@ -104,7 +108,7 @@ export function cursorSdkLoginDriver(
   return {
     async status(instance: ProviderInstance, signal: AbortSignal) {
       const account = selected(instance);
-      return publish(account, await driver.status(account, signal));
+      return publish(account, await driver.status(cursorIdentity(account), signal));
     },
     async login(
       instance: ProviderInstance,
@@ -113,11 +117,11 @@ export function cursorSdkLoginDriver(
     ) {
       await registry.register(instance);
       const account = selected(instance);
-      return publish(account, await driver.login(account, signal, ephemeralUrl));
+      return publish(account, await driver.login(cursorIdentity(account), signal, ephemeralUrl));
     },
     async logout(instance: ProviderInstance, signal: AbortSignal) {
       const account = selected(instance);
-      return publish(account, await driver.logout(account, signal));
+      return publish(account, await driver.logout(cursorIdentity(account), signal));
     },
   };
 }
