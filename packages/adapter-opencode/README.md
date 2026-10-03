@@ -1,18 +1,15 @@
 # @ace/adapter-opencode
 
-OpenCode's v1 HTTP routes and `/global/event` SSE translated into `@ace/core` facts. Supported CLI versions are `>=1.18.33 <2`; the committed recordings cover 1.18.33. Unknown events and parts become raw notice items, and unknown tools remain custom calls with their original name and input.
+OpenCode CLI **2.0.22** through the official `@opencode/client@2.0.22` public Promise root. The adapter discovers the user's installed CLI and uses its existing login. It never invokes credential/login/config APIs, embeds a runtime, or hosts a provider service.
 
 ```ts
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
-
-// Create one adapter for the daemon. Every thread shares its server.
 const adapter = createOpenCodeAdapter();
-const translator = adapter.createTranslator({ threadId, rootKey });
 const session = await adapter.openSession({
   threadId,
-  rootKey, // same engine identity used to create the translator
+  rootKey,
   cwd,
-  model: "provider/model", // optional; otherwise the CLI chooses its default
+  model: "opencode-go/muse-spark-1.3-contributor",
   onFrame,
   onExit,
   signal,
@@ -21,38 +18,22 @@ await session.send([{ type: "text", text: input }], "queue");
 await session.close("idle");
 ```
 
-The factory implements ADR 0007's `ProviderAdapter` and adds a daemon-wide `close()`. `adapter` and `opencodeAdapter` export a default owner for consumers that use a module directly. Each factory owns at most one server, resolves the user's installed CLI through provider-kit discovery, sets a fresh local server password, selects an ephemeral port, and waits for the SSE handshake before opening threads. All HTTP requests carry `?directory=`. The last closed thread stops the server; a later open starts a new server and can resume a native session through REST.
+One adapter instance shares an ace-owned `serve --stdio --hostname 127.0.0.1 --port 0` process. Stdin remains open as its lease. Readiness must be JSON containing a credential-free loopback URL; `/api/info` must match the discovered version and owned PID, and `/openapi.json` must contain the required operation IDs. An injected ephemeral `OPENCODE_PASSWORD` authenticates transport. Passwords, authorization headers and process startup logs never become frames or stored evidence. Provider-kit owns spawning and bounded shutdown.
 
-Use `config: { provider: "opencode", liveness: "transport", silenceMs: 25_000 }` in core. Heartbeats keep the entire tree healthy during long tool calls and retries. A heartbeat gap closes and reconnects the SSE transport before resync. A disconnect expires current interactions and emits explicit `transport: "lost"` lifecycle evidence; successful recovery emits `transport: "restored"`. Reconnect reads session metadata, recursive children, messages and parts, pending permissions/questions and the status map. History is decoded value by value in pages of 128 using `limit` and `before`; later reconnects stop at the previous history head. Live and buffered events use the same directory, project and session-tree filter. Only owned events can request a second snapshot pass, and recovery has a two-pass bound. Snapshot-included deltas remain raw evidence on `sse.buffered`; snapshot coverage stops at each request-start ordinal for both live and terminal updates. Idle snapshots stay staged until final reconciliation. Newer events from both recovery passes reconcile before idle snapshots settle turns. Only the latest update per entity is replayed; a running tool is registered before its owner idles, and newer idle or tool completion cannot be discarded by an older snapshot. Queued input stays held throughout recovery. Recovery failure stops the owned process and reports exit.
+Only the inspected release is supported. V1, unreviewed future versions, HTML fallbacks and incomplete specs fail startup. This conservative gate can be widened after a contract review. ADR 0047 (the proposal originally called 0043) remains **Proposed**; implementation does not change its status.
 
-The translator uses core's shared `agent.disconnected` and `agent.reconnected` facts from PR #14. Disconnection immediately reports unresponsive for the affected agents, including children first discovered during recovery. Heartbeats and restored busy snapshots cannot clear that uncertainty; successful resync does. Core retains the owner's `needs_you > working > waiting > unresponsive > done` thread precedence. A live background task therefore keeps the thread waiting during transport loss, while the affected agents remain unresponsive.
+`ProviderAdapter` and `ProviderSession` remain the public engine boundary. Native execution boundaries define turns. Step completion, prompt admission, interrupt acknowledgement and root completion do not settle tools, descendants, interactions, inbox work or native background shells. Permission `always` means a persisted project grant. Known question forms retain field keys, multi-select answers and optional dismissal feedback; generic forms use canonical elicitation. Plan review, fork creation and file rewind remain disabled. Resume, steering, transcripts, usage, images and background control are implemented from the source-confirmed v2 contracts, but await owner-approved live certification. Cascade interrupts are ace's verified child-first traversal plus owned-shell removal; they are not a claim about native cascade behavior.
 
-The translator creates children before task metadata arrives, then links their spawn item. Background jobs stay live until the parent receives the injected task result. A session-owned three-second timer supplies the translator's fallback tick when a child idles without delivering a result. The shared `Translator.nextDeadline()` hook exposes this deadline to engine scheduling; `nextGraceDeadline()` remains a compatibility alias. Busy or retry cancels that deadline. Interrupted tools that remain running become background tasks before the turn ends; later terminal updates settle those tasks. Duplicate native idles do not create another run.
+The official event subscription owns parsing and its shared upstream connection. Ace supplies tighter byte limits, activity-based transport liveness and one reconnect owner. Comment activity refreshes transport without creating agent work. Transient loss retains interaction uncertainty. Replacement streams open before two bounded snapshot passes; sends wait behind recovery. Durable aggregate sequence gaps request snapshots, while the first observed sequence establishes a baseline, including inherited fork prefixes. Logs are never treated as retained replay evidence.
 
-OpenCode has no native steering. `send(..., "queue")` waits for the root, children, background results and human interactions to settle; `"steer"` rejects. The engine normally owns queueing, so this is a defensive queue for direct session consumers. Delivery uses the translator's pure settlement model, including live tools after abort. `interrupt` explicitly visits known descendants when cascade is requested. OpenCode's own abort can cascade even without that flag. `stopTask` aborts a native child session, or the owner of a surviving tool. Approval keys use native request IDs and options `once`, `always`, `reject`. Shutdown immediately cancels local requests, unsubscribes, and rejects queued work. It then attempts a cascade abort with a one-second bound before releasing the server. Question answers are keyed by `<requestId>#<index>`; dismissal uses `/reject`. Plan approval replies `Yes`, and rejection/cancellation use `/reject`.
+Recovery reads verified info/children, active metadata, opaque message pages, session permissions/forms/inbox and location-scoped shells. Foreign roots, forks, projects, global forms and shells without session metadata are excluded. A known location move requires a fresh ownership check. Newer scoped work beats staged idle/absence snapshots. Mutable live tool messages are refreshed alongside the incremental history head; replayed deltas are not appended over full snapshots. Full text boundaries repair buffered ephemeral content. Recovery overflow or inability to prove completeness fails closed; an external attachment is left disconnected and its process is never stopped.
 
-`plan_exit` becomes a plan review. The review includes the path and contents observed in successful writes or edits to `.opencode/plans/*.md`; when the CLI exposes no contents, markdown is empty. Background visibility is partial because detached shells are invisible to the provider. Experimental `session.next.*` frames are retained as raw data; this adapter drives the recorded v1 routes.
+Bounds include 128 consumers, 1,024 sessions/interactions/inputs, 2,048 live tools/shells/jobs, 1 MiB SSE records, 2 MiB JSON responses, and 4,096 events/8 MiB recovery buffering. Ownership evidence for unknown sessions is capped at eight concurrent ancestry lookups, 32 events per candidate and 1 MiB total. History reads at most 512 pages of 128, retains opaque cursor order and stops at its previous head. Maps at capacity reject further work rather than silently dropping live evidence.
 
-`ServerOptions.runtime` accepts replacements for wall and monotonic clocks, entropy, port allocation, discovery, process spawning, HTTP fetch, SSE transport, and timer scheduling. Defaults live in a separate I/O boundary. `startupTimeoutMs` and `shutdownTimeoutMs` configure process handshake and graceful abort bounds. Receipt clock frames convert epoch retry deadlines into the engine's supplied clock; historical message timestamps never set this offset.
+HTTP admissions serialize with at most 64 waiters; execution and work queues remain owned by the engine and native inbox. The optional engine command ID is correlated locally with the native input ID so a late admission cannot acknowledge a newer send. Uncertain network receipts trigger reconciliation without an automatic resend; empty inbox snapshots alone cannot prove rejection. Recovered idle outcomes must be newer than the active execution's idle baseline and creation time before settling it.
 
-The translator keeps compact routing descriptors for live parts and a 256-entry completed-part window, plus 1,024 message headers, sent/result IDs, and sync aggregate cursors. Event deduplication has a 10,000-ID window. It does not retain transcript strings or tool inputs/outputs in its caches. Core owns accumulated content. Delta translation and delivery settlement are independent of conversation length. Late deltas outside the completed-part window remain raw notices. Background jobs are indexed by child and tool item. An indexed heap keeps one entry per active grace deadline; status changes visit only the affected child's jobs, and ticks visit only due jobs.
+`discoverOpenCodeModels(options, directory, signal)` provides an owned metadata-only lifecycle to `@ace/models`; normalization, login revision and cache ownership remain there. `OpenCodeServer` and `SessionOwnership` are public utilities for the recorder, which uses the same transport and ownership rules. Explicit `attach` accepts a pre-discovered loopback URL and transport authorization; it never calls `Service.ensure`, replaces a user's service, or gains process ownership.
 
-Sent message IDs use the native time-prefix layout so REST history retains its order. This implementation was written from the [primary identifier contract at the recorded revision](https://github.com/anomalyco/opencode/blob/51ef4be1d3c122f18fefb510dca8d778571f4f18/packages/opencode/src/id/id.ts), the [provider research](../../docs/research/providers/opencode.md), and [fixture analysis](../../docs/research/fixtures/opencode.md). No legacy implementation was used.
+V1 recordings and their test-only implementation remain under `fixtures/opencode/1.18.33` and `src/testing/v1`. They are historical evidence, not v2 certification. See [VERIFICATION.md](VERIFICATION.md) for the merge gate and recording candidates.
 
-During authoring, run only `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size`. The owner defers tests, probes, mutations and benchmarks to merge. See [verification](VERIFICATION.md) for checkpoints, regression coverage, mutation plans, historical measurements and dependency integration.
-
-At merge, the live health/SSE handshake is opt-in:
-
-```sh
-ACE_LIVE_CLI=1 bun run test packages/adapter-opencode/src/live.test.ts
-```
-
-It never creates a session or sends a prompt.
-
-The merge-time benchmark scripts use only the pure translator or the boundary CLI double. Do not run them during authoring:
-
-```sh
-node --expose-gc packages/adapter-opencode/benchmarks/translator.ts
-node packages/adapter-opencode/benchmarks/recovery.ts
-node --expose-gc packages/adapter-opencode/benchmarks/live-tree.ts
-```
+The existing daemon registry already consumes this public factory. Review/verifier workers consume its version-gated capabilities; plan review stays off. The history importer already detects v2 `session_message` storage and reports it unsupported (ADR 0033); this migration does not relabel legacy SQLite transcripts as v2 imports.

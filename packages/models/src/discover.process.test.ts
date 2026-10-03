@@ -96,18 +96,22 @@ test("Claude discovery initializes only and keeps resolved aliases and supported
   expect(rows[0]?.raw.json).toContain("extraFutureCapability");
 });
 
-test("OpenCode verbose CLI metadata keeps provider/model IDs and image capability", async () => {
+test("OpenCode v2 metadata keeps provider/model IDs and image capability", async () => {
   const native = {
-    id: "some/model",
+    id: "local/some/model",
+    modelID: "some/model",
     providerID: "local",
     name: "Local model",
-    limit: { context: 131072 },
+    limit: { context: 131072, output: 8192 },
     capabilities: { input: { text: true, image: true, audio: false } },
-    variants: { high: { reasoningEffort: "high" } },
+    variants: [{ id: "high" }],
+    enabled: true,
     status: "deprecated",
   };
   const { config } = await launch("opencode", [native]);
-  const rows = await createModelDiscovery()(config, new AbortController().signal);
+  const rows = await createModelDiscovery({
+    opencode: async () => ({ location: { directory: config.cwd }, data: [native] }),
+  })(config, new AbortController().signal);
   expect(rows[0]).toMatchObject({
     id: "local/some/model",
     nativeProviderId: "local",

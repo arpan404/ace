@@ -202,3 +202,7 @@ The recorder now rejects only questions asked by `plan_exit` and answers every o
   - The bash part flips to `completed` at t=16669, after idle.
   - A second `idle` arrives at t=16725.
   - The status algorithm must accept tool completions after idle and must not treat the second idle as a new turn end.
+
+## V2 implementation status (no new recorded evidence)
+
+The CLI 2.0.22 implementation uses native `/api` events and the pinned official Promise client. The 1.18.33 timelines above remain historical v1 evidence. No v2 model turns or recordings were run for this migration, and no timeline here has been relabeled as v2. Source-confirmed contracts and authored fake-server checks are listed in [the adapter verification document](../../../packages/adapter-opencode/VERIFICATION.md). All runtime checks need run at merge; the nine v2 candidates are **to record after approval**, using `opencode-go/muse-spark-1.3-contributor` with a separately approved quota/time cap.
