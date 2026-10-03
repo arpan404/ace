@@ -1,10 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ProviderKind } from "@ace/protocol";
+import { useId } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
+import { Switch } from "@/components/ui/switch.tsx";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useProfileName } from "@/lib/profile.ts";
+import { useDesktopPreferences } from "./data/desktop-preferences.ts";
 import { settingKeys, type AutoSettle } from "./data/setting-keys.ts";
 import { settingsQueries, useSetting, useSettingsBackend } from "./data/use-settings.ts";
 import { DaemonSettings } from "./daemon-settings.tsx";
@@ -54,7 +57,7 @@ export function GeneralSettings() {
           />
         </SettingRow>
         <SettingSwitch setting={settingKeys.settleOnMerge} title="Settle when the PR merges" />
-        <SettingSwitch setting={settingKeys.openAtLogin} title="Open ace at login" />
+        <OpenAtLogin />
       </SettingSection>
       <RecoverySettings />
       <SettingSection label="Automations">
@@ -66,6 +69,22 @@ export function GeneralSettings() {
       </SettingSection>
       {!fake && <DaemonSettings />}
     </>
+  );
+}
+
+/** The desktop app's login item, which it registers itself. A browser has none to offer. */
+function OpenAtLogin() {
+  const id = useId();
+  const { value, update } = useDesktopPreferences();
+  if (!value) return null;
+  return (
+    <SettingRow title="Open ace at login" htmlFor={id}>
+      <Switch
+        id={id}
+        checked={value.openAtLogin}
+        onCheckedChange={(on) => void update({ openAtLogin: on })}
+      />
+    </SettingRow>
   );
 }
 
