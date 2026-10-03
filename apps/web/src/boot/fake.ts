@@ -1,6 +1,7 @@
 import {
   FakeDaemon,
   ScenarioPlayer,
+  coldStartReplay,
   failingSubagent,
   fakeTransport,
   flakyCheckout,
@@ -33,6 +34,8 @@ export function bootFake(): { client: Client; daemon: FakeDaemon } {
   const settings = new ScenarioPlayer(daemon, failingSubagent());
   checkout.autoplay(timer);
   new ScenarioPlayer(daemon, replayCursor()).autoplay(timer);
+  // The thread the right and bottom panels are designed around (features/panels).
+  new ScenarioPlayer(daemon, coldStartReplay()).autoplay(timer);
   settings.autoplay(timer, 0.5);
   const client = createBrowserClient({
     deviceId: "web-fake-device",

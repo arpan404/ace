@@ -1,10 +1,7 @@
 import { useThreadError, useThreadMeta } from "@ace/client-react";
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { AgentPanel } from "@/features/agents/agent-panel.tsx";
-import { ChangesPanel } from "@/features/review/changes-panel.tsx";
-import { PreviewPanel } from "@/features/preview/preview-panel.tsx";
+import { threadPanels } from "@/features/panels/thread-panels.tsx";
 import { Screen } from "@/features/shell/screen.tsx";
-import { LogsPanel, TerminalPanel } from "@/features/terminal/terminal-panel.tsx";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import { GitButton, OpenButton, RunButton } from "./header/header-actions.tsx";
 import { RenameDialog, ThreadMenuItems } from "./header/thread-menu.tsx";
@@ -43,31 +40,7 @@ export function ThreadView(props: { threadId: string }) {
           </>
         )
       }
-      right={{
-        label: "Thread panel",
-        tabs: [
-          {
-            id: "changes",
-            label: "Changes",
-            shortcut: "changes",
-            content: <ChangesPanel threadId={id} />,
-          },
-          { id: "preview", label: "Preview", content: <PreviewPanel threadId={id} /> },
-          {
-            id: "agents",
-            label: "Agents",
-            shortcut: "agents",
-            content: <AgentPanel threadId={id} />,
-          },
-        ],
-      }}
-      bottom={{
-        label: "Bottom panel",
-        tabs: [
-          { id: "terminal", label: "Terminal", content: <TerminalPanel threadId={id} /> },
-          { id: "logs", label: "Logs", content: <LogsPanel threadId={id} /> },
-        ],
-      }}
+      {...threadPanels(id)}
     >
       {error ? (
         <p role="alert" className="p-4 text-ui text-status-failed">

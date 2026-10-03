@@ -86,34 +86,27 @@ export function drainQueue(host: ThreadHost): Fact[] {
   ];
 }
 
-/** Stop the root agent's turn and, with `cascade`, every other agent mid-turn. */
+/** Stop the target agent's turn (root by default) and, with `cascade`, its running descendants. */
 export function interruptFacts(
   host: ThreadHost,
   agentId: string | undefined,
   cascade: boolean,
 ): ThreadCommandOutcome {
-  const target =
-    agentId === undefined ? host.state.rootKey : host.state.indexes.agentKeysById[agentId];
-  if (target === undefined) return { ok: false, error: "agent_not_found" };
-  const keys = cascade
-    ? Object.keys(host.state.agents).filter((key) => busy(host, key))
-    : busy(host, target)
-      ? [target]
-      : [];
-  // Children first, so no parent ends while a child it waits on still runs.
-  const ordered = keys.toSorted((a, b) => Number(a === target) - Number(b === target));
+  const target = agentId ?? host.view.thread.rootAgentId;
+  if (!Object.values(host.state.agents).some((record) => record.agent.id === target))
+    return { ok: false, error: "agent_not_found" };
+  const keys = host.interruptKeys(target, cascade);
   return {
     ok: true,
-    facts: ordered.map((agent) => ({ type: "turn.ended", agent, outcome: "interrupted" })),
+    facts: keys.map((agent) => ({ type: "turn.ended", agent, outcome: "interrupted" })),
   };
 }
 
 export function stopTaskFacts(host: ThreadHost, taskId: string): ThreadCommandOutcome | undefined {
-  for (const [key, task] of Object.entries(host.state.tasks)) {
-    if (task.id !== taskId) continue;
-    if (!task.stoppable) return { ok: false, error: "not_stoppable" };
-    if (task.status !== "running") return { ok: false, error: "not_running" };
-    return { ok: true, facts: [{ type: "background.ended", task: key, status: "stopped" }] };
-  }
-  return undefined;
+  const key = host.taskKey(taskId);
+  const task = key === undefined ? undefined : host.state.tasks[key];
+  if (key === undefined || !task) return undefined;
+  // The daemon's answer for both: nothing left to stop.
+  if (!task.stoppable || task.status !== "running") return { ok: false, error: "task_not_stoppable" };
+  return { ok: true, facts: [{ type: "background.ended", task: key, status: "stopped" }] };
 }

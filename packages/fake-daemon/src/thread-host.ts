@@ -57,6 +57,26 @@ export class ThreadHost {
   interaction(key: Key): Interaction | undefined {
     return Object.hasOwn(this.state.interactions, key) ? this.state.interactions[key] : undefined;
   }
+  /** Adapter keys of the agent with this id and, with `cascade`, its running descendants. */
+  interruptKeys(agentId: string | undefined, cascade: boolean): Key[] {
+    const entries = Object.entries(this.state.agents);
+    const start = entries.find(([, record]) => record.agent.id === agentId);
+    if (!start) return [];
+    const keys: Key[] = [];
+    const visit = (key: Key, id: string) => {
+      if (this.state.agents[key]?.activeRun) keys.push(key);
+      if (!cascade) return;
+      for (const [child, record] of entries)
+        if (record.agent.parentId === id) visit(child, record.agent.id);
+    };
+    visit(start[0], start[1].agent.id);
+    // Children first, so a parent never ends while a child it waits on is still running.
+    return keys.toReversed();
+  }
+  taskKey(id: string): Key | undefined {
+    for (const [key, task] of Object.entries(this.state.tasks)) if (task.id === id) return key;
+    return undefined;
+  }
   interactionKey(id: InteractionId): Key | undefined {
     for (const [key, interaction] of Object.entries(this.state.interactions))
       if (interaction.id === id) return key;

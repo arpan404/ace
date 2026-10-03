@@ -13,6 +13,7 @@ export const keymap = {
   agents: { keys: "mod+j", label: "Agents" },
   changes: { keys: "shift+mod+d", label: "Changes" },
   bottomPanel: { keys: "ctrl+`", label: "Terminal" },
+  takeControl: { keys: "ctrl+shift+c", label: "Take or hand back browser control" },
   settings: { keys: "mod+,", label: "Settings" },
   send: { keys: "mod+enter", label: "Send" },
   goHome: { keys: "g h", label: "Go to Home" },
