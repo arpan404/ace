@@ -1,3 +1,4 @@
+import { createRecoverySession } from "./recovery.ts";
 import { createScreenSession } from "./screen.ts";
 import { Simulators } from "@ace/screen";
 import { createSearchSession } from "./search.ts";
@@ -19,6 +20,7 @@ import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
+  createRecoverySession,
   createSearchSession,
   createAccountsSession,
   createCommandsSession,

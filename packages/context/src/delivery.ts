@@ -32,7 +32,7 @@ export async function deliverContext(
     await consume({
       threadId: payload.threadId,
       input: payload.input,
-      delivery: payload.delivery,
+      delivery: payload.delivery ?? "queue",
       context: prepared.projection,
     });
     return prepared.diagnostics;

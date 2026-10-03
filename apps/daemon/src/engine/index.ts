@@ -1,10 +1,14 @@
-import { executeIntent } from "./delivery.ts";
+import type { PrepareInput } from "./input.ts";
+import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
+import { ContextMeters } from "./context-meter.ts";
+import { recoverEngine } from "./restart.ts";
+import { IntentDelivery } from "./intent-delivery.ts";
 import { Sessions } from "./sessions.ts";
 import { randomUUID } from "node:crypto";
-import { deriveThreadStatus, type Fact, type IdSource } from "@ace/core";
+import { deriveThreadStatus, type IdSource } from "@ace/core";
 import type { CommandHandler } from "../commands.ts";
 import type { Store } from "../store.ts";
-import type { ThreadId } from "@ace/protocol";
+import type { Command, ThreadId, QueueSnapshot, QueueGet } from "@ace/protocol";
 import { ThreadActor, systemClock, type EngineClock } from "./actor.ts";
 import { engineLimits, type EngineLimits } from "./limits.ts";
 import { IntentWorkers } from "./workers.ts";
@@ -15,9 +19,13 @@ export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
+  prepareInput?: PrepareInput;
+  recovery?: RecoveryPorts;
+  preferences?: Partial<RecoveryPreferences>;
   limits?: Partial<EngineLimits>;
   ids?: IdSource;
   threadId?: () => string;
+  commandId?: () => string;
   registry?: AdapterRegistry;
   clock?: EngineClock;
   idleMs?: number;
@@ -37,11 +45,21 @@ export class Engine {
   private controls: IntentWorkers;
   private steering: IntentWorkers;
   private sessions: Sessions;
+  private recovery: Recovery;
+  private meters: ContextMeters;
+  private delivery: IntentDelivery;
+  private readyPromise: Promise<void>;
+  private readyState = false;
   private closing = false;
   private closePromise?: Promise<void>;
   constructor(store: Store, options: EngineOptions = {}) {
     this.limits = engineLimits(options.limits);
-    this.repo = new EngineRepository(store, options.ids, this.limits.maxActiveThreads);
+    this.repo = new EngineRepository(
+      store,
+      options.ids,
+      this.limits.maxActiveThreads,
+      options.commandId,
+    );
     this.registry = options.registry ?? new AdapterRegistry();
     this.clock = options.clock ?? systemClock;
     this.idleMs = options.idleMs ?? 30 * 60_000;
@@ -58,12 +76,49 @@ export class Engine {
       clock: this.clock,
       closing: () => this.closing,
       wake: (id) => this.wake(id),
-      expireDelivery: (actor) => this.expireDelivery(actor),
+      expireDelivery: (actor) => this.delivery.expire(actor),
       released: (id) => {
         this.repo.release(id);
         this.wakeQueued();
       },
     });
+    this.recovery = new Recovery(
+      this.repo,
+      this.clock,
+      options.recovery ?? {},
+      RecoveryPreferences.parse(options.preferences ?? {}),
+      (id) => this.wake(id),
+    );
+    this.delivery = new IntentDelivery({
+      repo: this.repo,
+      clock: this.clock,
+      registry: this.registry,
+      sessions: this.sessions,
+      recovery: this.recovery,
+      prepareInput: options.prepareInput,
+      isSteer: (intent) => this.isSteer(intent),
+    });
+    this.meters = new ContextMeters(store, options.recovery?.contextWindow);
+    this.repo.observe = (state, facts, events, at) => {
+      if (facts.some((fact) => fact.type === "process.started"))
+        this.meters.invalidate(state.threadId, at);
+      if (
+        events.some(
+          (event) =>
+            event.type === "usage.updated" ||
+            event.type === "context.sampled" ||
+            (event.type === "agent.updated" && event.model !== undefined) ||
+            ((event.type === "item.created" || event.type === "item.updated") &&
+              event.item.type === "compaction") ||
+            (event.type === "agent.status" &&
+              event.status.state === "working" &&
+              event.status.activity === "compacting"),
+        )
+      )
+        this.meters.observe(state, events, at, this.repo.session(state.threadId).instanceId);
+      this.actors.get(state.threadId)?.observeInputs(events);
+      this.recovery.observe(state, facts, events, at);
+    };
     const handler = engineHandler(
       this.repo,
       this.registry,
@@ -71,14 +126,38 @@ export class Engine {
       silenceMs,
       (id) => this.wake(id),
       options.threadId ?? randomUUID,
+      this.recovery,
     );
     this.handler = {
       handle: (command, context) =>
         this.closing
           ? { commandId: command.id, ok: false, error: "daemon_shutting_down" }
-          : handler.handle(command, context),
+          : !this.readyState
+            ? { commandId: command.id, ok: false, error: "engine_starting" }
+            : handler.handle(command, context),
     };
-    this.recover();
+    const recover = () =>
+      recoverEngine(
+        this.repo,
+        this.recovery,
+        this.clock,
+        (intent, message) => this.delivery.fail(intent, message),
+        (id) => this.wake(id),
+      );
+    const recovery = this.recovery;
+    const repo = this.repo;
+    if (options.recovery?.preferences) {
+      this.readyPromise = (async () => {
+        await recovery.prepare();
+        for (const state of repo.states()) await recovery.prepare(state.threadId);
+        if (!this.closing) recover();
+        this.readyState = true;
+      })();
+    } else {
+      recover();
+      this.readyState = true;
+      this.readyPromise = Promise.resolve();
+    }
   }
   private actor(id: ThreadId): ThreadActor {
     let actor = this.actors.get(id);
@@ -119,97 +198,36 @@ export class Engine {
     }
     return { activeSessions, queues };
   }
-  private recover(): void {
-    const uncertain = new Set<ThreadId>();
-    for (const state of this.repo.states()) {
-      const live =
-        state.queueSources.provider > 0 ||
-        Object.values(state.agents).some(
-          (record) =>
-            record.activeRun ||
-            record.wakeUntil !== undefined ||
-            !["idle", "failed", "interrupted"].includes(record.agent.status.state),
-        ) ||
-        Object.keys(state.indexes.pendingInteractions).length > 0 ||
-        Object.keys(state.indexes.runningTasks).length > 0;
-      if (live) {
-        const facts: Fact[] = [
-          {
-            type: "process.exited",
-            deliberate: false,
-            message: "Daemon restarted while provider work was live; execution is uncertain",
-          },
-          { type: "queue.changed", source: "provider", count: 0 },
-        ];
-        if (state.queueSources.provider > 0)
-          facts.push({
-            type: "item.upsert",
-            agent: state.rootKey ?? "root",
-            item: "engine:recovered-provider-queue",
-            draft: {
-              type: "notice",
-              level: "error",
-              complete: true,
-              text: "Provider queued work was interrupted by daemon restart; execution is uncertain",
-            },
-          });
-        this.repo.apply(state.threadId, facts, this.clock.now());
-      }
-    }
-    for (const intent of this.repo.intents()) {
-      if (
-        intent.status === "running" ||
-        intent.awaiting ||
-        (intent.status === "pending" &&
-          !["thread.send", "thread.create"].includes(intent.command.payload.type))
-      ) {
-        uncertain.add(intent.threadId);
-        this.fail(
-          intent,
-          "Provider delivery was interrupted by daemon restart; execution is uncertain",
-        );
-      }
-    }
-    for (const state of this.repo.states()) {
-      const count = this.repo.queuedCount(state.threadId);
-      if (state.queueSources.engine > count && !uncertain.has(state.threadId))
-        this.repo.apply(
-          state.threadId,
-          [
-            {
-              type: "item.upsert",
-              agent: "root",
-              item: "engine:recovered-queue",
-              draft: {
-                type: "notice",
-                level: "error",
-                complete: true,
-                text: "Recovered untracked queue state after restart; execution is uncertain",
-              },
-            },
-          ],
-          this.clock.now(),
-        );
-      if (state.queueSources.engine !== count)
-        this.repo.apply(
-          state.threadId,
-          [{ type: "queue.changed", source: "engine", count }],
-          this.clock.now(),
-        );
-      if (
-        this.repo
-          .intents(state.threadId)
-          .some((intent) => ["pending", "queued"].includes(intent.status)) &&
-        this.repo.reserve(state.threadId)
-      )
-        this.wake(state.threadId);
-    }
+  sessionMetadata(id: ThreadId) {
+    return this.repo.session(id);
+  }
+  queuePage(request: Pick<QueueGet, "threadId" | "after" | "expectedRevision" | "limit">) {
+    return this.repo.queue.page(request);
+  }
+  retainsAttachment(id: ThreadId, hash: string): boolean {
+    return this.repo.queue.retains(id, hash);
+  }
+  ready(): Promise<void> {
+    return this.readyPromise;
+  }
+  async prepareCommand(command: Command): Promise<void> {
+    await this.readyPromise;
+    await this.recovery.prepare(
+      "threadId" in command.payload ? command.payload.threadId : undefined,
+    );
+  }
+  queue(id: ThreadId): QueueSnapshot {
+    return this.repo.queue.snapshot(id);
   }
 
   private wakeQueued(): void {
     if (this.closing) return;
     for (const intent of this.repo.intents())
-      if (["pending", "queued"].includes(intent.status) && this.repo.reserve(intent.threadId))
+      if (
+        !this.repo.queue.get(intent.threadId).paused &&
+        ["pending", "queued"].includes(intent.status) &&
+        this.repo.reserve(intent.threadId)
+      )
         this.wake(intent.threadId);
   }
   private wake(id: ThreadId): void {
@@ -226,20 +244,30 @@ export class Engine {
       !actor.session &&
       this.repo
         .intents(actor.id)
-        .some((intent) => ["thread.create", "thread.send"].includes(intent.command.payload.type))
+        .some((intent) =>
+          [
+            "thread.create",
+            "thread.send",
+            "thread.resume",
+            "queue.resume",
+            "thread.limit",
+          ].includes(intent.command.payload.type),
+        )
     )
       return;
     for (const intent of this.repo.intents(actor.id)) {
       if (this.closing) return;
       if (
         intent.status !== "pending" ||
-        ["thread.create", "thread.send"].includes(intent.command.payload.type)
+        ["thread.create", "thread.send", "thread.resume", "queue.resume", "thread.limit"].includes(
+          intent.command.payload.type,
+        )
       )
         continue;
-      await this.runIntent(actor, intent);
+      await this.delivery.run(actor, intent);
     }
   }
-  private queue(actor: ThreadActor): void {
+  private syncQueue(actor: ThreadActor): void {
     actor.syncQueue();
   }
   private async work(actor: ThreadActor): Promise<void> {
@@ -248,11 +276,11 @@ export class Engine {
       if (actor.session) await this.sessions.close(actor, "user");
       for (const intent of this.repo.intents(actor.id))
         if (["pending", "queued"].includes(intent.status))
-          this.fail(
+          this.delivery.fail(
             intent,
             "Thread stopped after a persistence failure; restart the daemon before retrying",
           );
-      this.queue(actor);
+      this.syncQueue(actor);
       return;
     }
     if (actor.idleDue && actor.session) await this.sessions.close(actor, "idle");
@@ -260,11 +288,23 @@ export class Engine {
       if (this.closing) return;
       if (!["pending", "queued"].includes(intent.status)) continue;
       const p = intent.command.payload;
-      const send = p.type === "thread.send" || p.type === "thread.create";
+      const send = [
+        "thread.send",
+        "thread.create",
+        "thread.resume",
+        "queue.resume",
+        "thread.limit",
+      ].includes(p.type);
       if (!send) continue;
+      if (p.type === "thread.resume" || p.type === "queue.resume" || p.type === "thread.limit") {
+        await this.delivery.run(actor, intent);
+        this.wake(actor.id);
+        return;
+      }
+      if (this.repo.queue.get(actor.id).paused || this.repo.queue.get(actor.id).limited) continue;
       if (this.isSteer(intent)) continue;
       this.repo.mark(intent, "queued");
-      this.queue(actor);
+      this.syncQueue(actor);
       const state = this.repo.requireState(actor.id);
       const status = deriveThreadStatus({ ...state, queueCount: state.queueSources.provider });
       if (
@@ -272,7 +312,9 @@ export class Engine {
         !["new", "done", "failed"].includes(status.state)
       )
         continue;
-      await this.runIntent(actor, intent);
+      await this.delivery.run(actor, intent);
+      this.wake(actor.id);
+      return;
     }
     actor.schedule();
   }
@@ -281,6 +323,9 @@ export class Engine {
     if (payload.type !== "thread.send" || payload.delivery !== "steer") return false;
     const state = this.repo.requireState(intent.threadId);
     return (
+      Boolean(this.actors.get(intent.threadId)?.session) &&
+      !this.repo.queue.get(intent.threadId).paused &&
+      !this.repo.queue.get(intent.threadId).limited &&
       this.registry.has(state.config.provider) &&
       this.registry.get(state.config.provider).capabilities.steer
     );
@@ -291,72 +336,12 @@ export class Engine {
     for (const intent of this.repo.intents(actor.id)) {
       if (this.closing) return;
       if (["pending", "queued"].includes(intent.status) && this.isSteer(intent)) {
-        if (
-          !actor.session &&
-          this.repo
-            .intents(actor.id)
-            .some(
-              (pending) =>
-                ["pending", "queued", "running"].includes(pending.status) &&
-                ["thread.create", "thread.send"].includes(pending.command.payload.type) &&
-                !this.isSteer(pending),
-            )
-        )
-          return;
-        await this.runIntent(actor, intent);
+        if (!actor.session) return;
+        await this.delivery.run(actor, intent);
+        this.wake(actor.id);
+        return;
       }
     }
-  }
-  private async runIntent(actor: ThreadActor, intent: Intent): Promise<void> {
-    const send = ["thread.create", "thread.send"].includes(intent.command.payload.type);
-    this.repo.mark(intent, "running");
-    if (send) {
-      const state = this.repo.requireState(actor.id);
-      const active = state.agents[state.rootKey ?? ""]?.activeRun;
-      const outstanding = this.repo.intents(actor.id).find((pending) => pending.awaiting);
-      const target = this.isSteer(intent)
-        ? active
-          ? undefined
-          : (outstanding?.ackTarget ?? intent.id)
-        : intent.id;
-      this.repo.beginSend(intent, target);
-    }
-    this.queue(actor);
-    try {
-      await executeIntent(actor, intent, this.repo, this.registry, this.sessions);
-      await actor.flush();
-      if (actor.poisoned) throw new Error("Provider frames could not be persisted");
-      this.repo.mark(intent, "done");
-    } catch (error) {
-      await actor.flush();
-      this.fail(intent, error instanceof Error ? error.message : String(error));
-    }
-    this.queue(actor);
-    actor.schedule();
-  }
-  private fail(intent: Intent, message: string): void {
-    this.repo.store.atomic(() => {
-      this.repo.mark(intent, "failed", message);
-      const fact: Fact = {
-        type: "item.upsert",
-        agent: "root",
-        item: `intent:${intent.id}`,
-        draft: {
-          type: "notice",
-          level: "error",
-          text: `${intent.command.payload.type}: ${message}`,
-          complete: true,
-          raw: [],
-        },
-      };
-      this.repo.apply(intent.threadId, [fact], this.clock.now());
-    });
-  }
-  private expireDelivery(actor: ThreadActor): void {
-    for (const intent of this.repo.intents(actor.id))
-      if (intent.awaiting)
-        this.fail(intent, "Provider exited before turn acknowledgement; execution is uncertain");
-    this.queue(actor);
   }
   /** Read the original JSON bytes of an oversized raw payload's data envelope. */
   readRawBlob(id: string): Uint8Array | undefined {
@@ -364,15 +349,23 @@ export class Engine {
   }
   /** Drain accepted commands and frames. Does not wait for queued work to become runnable. */
   async flush(): Promise<void> {
+    await this.readyPromise;
     await Promise.resolve();
     do {
       await Promise.all([this.sends.flush(), this.controls.flush(), this.steering.flush()]);
       await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
+      await this.recovery.flush();
     } while (this.sends.active || this.controls.active || this.steering.active);
   }
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
+      await this.readyPromise;
+      this.recovery.close();
+      for (const actor of this.actors.values()) {
+        await actor.flush();
+        this.recovery.capture(actor.id);
+      }
       this.sends.stop();
       this.controls.stop();
       this.steering.stop();

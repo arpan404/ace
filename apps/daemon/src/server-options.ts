@@ -28,6 +28,7 @@ import type { CommandHandler } from "./commands.ts";
 import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
+  engine?: import("./engine/index.ts").Engine;
   screen?: ScreenManager;
   accounts?: AccountService;
   commands?: CommandService;

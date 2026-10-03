@@ -1,4 +1,5 @@
 import { AccountProvider } from "@ace/protocol/accounts";
+import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
@@ -29,19 +30,24 @@ export async function startEngine(context: ServiceContext): Promise<void> {
         },
       };
     });
+  const ports = recoveryPorts(context, (id) => engine.sessionMetadata(id));
   const engine = new Engine(store, {
     ...engineOptions,
     registry,
+    recovery: engineOptions.recovery ?? ports,
+    prepareInput: engineOptions.prepareInput ?? prepareQueuedInput(context),
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());
+  await engine.ready();
   services.engine = engine;
   services.handler = engine.handler;
 }
 
 import { commandContext } from "../commands.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export function createEngineSession({ options, send }: SocketContext): SocketService {
+export function createEngineSession(context: SocketContext): SocketService {
+  const { options, send } = context;
   return {
     command: {
       types: [
@@ -53,7 +59,9 @@ export function createEngineSession({ options, send }: SocketContext): SocketSer
         "background_task.stop",
       ],
       scope: () => "operate",
-      accept(command, device) {
+      async accept(command, device) {
+        await options.engine?.prepareCommand(command);
+        if (!context.connected() || !context.authorize("operate")) return;
         const result = options.store.recordCommand(command.id, device, () =>
           options.handler.handle(command, commandContext(options.store)),
         );

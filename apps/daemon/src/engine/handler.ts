@@ -1,3 +1,5 @@
+import { isSend, maxMessageBytes } from "./queue-store.ts";
+import type { Recovery } from "./recovery.ts";
 import { realpathSync, statSync } from "node:fs";
 import { validResolution } from "./resolution.ts";
 import { createThreadState } from "@ace/core";
@@ -13,10 +15,19 @@ export function engineHandler(
   silenceMs: number,
   wake: (id: ThreadId) => void,
   nextId: () => string,
+  recovery: Recovery,
 ): CommandHandler {
   return {
     handle(command: Command): CommandResult {
+      const result = recovery.handle(command);
+      if (result) return result;
       const p = command.payload;
+      if (
+        isSend(p) &&
+        (p.type === "thread.send" || p.type === "thread.create") &&
+        (p.input.length > 64 || Buffer.byteLength(JSON.stringify(command)) > maxMessageBytes)
+      )
+        return { commandId: command.id, ok: false, error: "message_too_large" };
       const fail = (error: string): CommandResult => ({ commandId: command.id, ok: false, error });
       if (
         ![
@@ -68,6 +79,7 @@ export function engineHandler(
           });
           repo.save(state, [{ type: "thread.created", thread }], at);
           repo.createSession(threadId, cwd, p.model);
+          repo.queue.ensure(threadId);
         } else if ("threadId" in p) {
           threadId = p.threadId;
           if (p.type === "thread.archive") {
@@ -109,8 +121,14 @@ export function engineHandler(
           if (!threadId)
             return fail(p.type === "interaction.resolve" ? "already_resolved" : "task_not_found");
         } else return fail("not_implemented");
+        const admitted = recovery.admit(command, threadId);
+        if (!admitted) return fail("queue_capacity_exceeded");
         if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
-        repo.add(command, threadId, resolutionId);
+        repo.add(admitted, threadId, resolutionId);
+        if (p.type === "thread.create" || p.type === "thread.send") {
+          repo.queue.set(threadId, {}, now());
+          recovery.sync(threadId);
+        }
         // Microtasks execute only after the enclosing receipt transaction commits.
         queueMicrotask(() => wake(threadId));
         return { commandId: command.id, ok: true };

@@ -1,9 +1,10 @@
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import { randomUUID } from "node:crypto";
-import { Command, ThreadId, type EventPayload } from "@ace/protocol";
+import { Command, CommandId, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
 import { capFact, readRawBlob } from "./raw.ts";
+import { QueueStore } from "./queue-store.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
 
@@ -18,15 +19,49 @@ export interface Intent {
 }
 export class EngineRepository {
   readonly store: Store;
+  readonly queue: QueueStore;
+  observe?: (state: ThreadState, facts: Fact[], events: EventPayload[], at: number) => void;
   private ids: IdSource;
   private capacity: number;
+  private commandId: () => string;
+  private opening = new Set<ThreadId>();
   private snapshots = new Map<ThreadId, Snapshot>();
-  constructor(store: Store, ids: IdSource = { next: () => randomUUID() }, capacity = 64) {
+  constructor(
+    store: Store,
+    ids: IdSource = { next: () => randomUUID() },
+    capacity = 64,
+    commandId: () => string = randomUUID,
+  ) {
     this.capacity = capacity;
+    this.commandId = commandId;
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    this.queue = new QueueStore(store);
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
+  }
+  nextCommandId() {
+    return CommandId.parse(this.commandId());
+  }
+  beginSessionOpen(id: ThreadId): void {
+    this.opening.add(id);
+  }
+  finishSessionOpen(id: ThreadId): void {
+    this.opening.delete(id);
+  }
+  private recoveryAcknowledgement(id: ThreadId): boolean {
+    return (
+      !this.opening.has(id) &&
+      this.store.atomic((db) =>
+        Boolean(
+          db
+            .prepare(
+              "SELECT 1 FROM intents WHERE thread_id=? AND kind IN ('thread.resume','queue.resume','thread.limit') AND awaiting=1 LIMIT 1",
+            )
+            .get(id),
+        ),
+      )
+    );
   }
   state(id: ThreadId): ThreadState | undefined {
     return this.store.atomic((db) => {
@@ -89,7 +124,16 @@ export class EngineRepository {
         const state = this.state(id);
         if (!state) throw new Error("Missing engine state");
         this.snapshots.get(id)?.begin();
+        let continuationStarted = false;
         const events = facts.flatMap((input) => {
+          const queue = input.type === "turn.started" ? this.queue.get(id) : undefined;
+          if (
+            input.type === "turn.started" &&
+            input.agent === (state.rootKey ?? "root") &&
+            queue?.trigger &&
+            this.recoveryAcknowledgement(id)
+          )
+            input = { ...input, trigger: queue.trigger };
           let fact = capFact((raw) => this.store.capRaw(raw, id), input);
           if (fact.type === "interaction.closed" && fact.state === "resolved") {
             const interaction = Object.hasOwn(state.interactions, fact.interaction)
@@ -107,6 +151,12 @@ export class EngineRepository {
           const finish = snapshot?.prepare(fact) ?? (() => {});
           try {
             const emitted = apply(state, fact, { now, ids: this.ids });
+            if (
+              fact.type === "turn.started" &&
+              (fact.trigger === "restart" || fact.trigger === "limit_resume") &&
+              emitted.some((event) => event.type === "run.started")
+            )
+              continuationStarted = true;
             if (fact.type === "item.delta" && emitted.some((event) => event.type === "item.delta"))
               snapshot?.delta(fact);
             snapshot?.remember(fact, emitted);
@@ -118,17 +168,22 @@ export class EngineRepository {
         for (const event of events)
           if (
             event.type === "run.started" &&
-            ["user", "queue", "unknown"].includes(event.run.trigger) &&
+            !this.opening.has(id) &&
+            ["user", "queue", "unknown", "restart", "limit_resume"].includes(event.run.trigger) &&
             event.run.agentId === state.agents[state.rootKey ?? ""]?.agent.id
           )
-            this.store.atomic((db) =>
-              db
+            this.store.atomic((db) => {
+              const acknowledged = db
                 .prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND awaiting=1 AND ack_target=(
-          SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
-        )`)
-                .run(id, id),
-            );
+                SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
+              ) RETURNING id`)
+                .all(id, id);
+              for (const row of acknowledged) this.queue.prune(Number(row.id));
+            });
+        if (continuationStarted && this.queue.get(id).trigger)
+          this.queue.set(id, { continuation: null, trigger: null }, now);
         this.save(state, events, now);
+        this.observe?.(state, facts, events, now);
         return state;
       });
     } catch (error) {
@@ -138,12 +193,20 @@ export class EngineRepository {
   }
 
   add(command: Command, id: ThreadId, resolutionId?: string): void {
-    this.store.atomic((db) =>
-      db
+    this.store.atomic((db) => {
+      const row = db
         .prepare(`INSERT INTO intents
-      (command_id, thread_id, kind, payload, status, resolution_id) VALUES (?, ?, ?, ?, 'pending', ?)`)
-        .run(command.id, id, command.payload.type, JSON.stringify(command), resolutionId ?? null),
-    );
+        (command_id,thread_id,kind,payload,status,resolution_id,position) VALUES (?,?,?,?,'pending',?,?)`)
+        .run(
+          command.id,
+          id,
+          command.payload.type,
+          JSON.stringify(command),
+          resolutionId ?? null,
+          this.queue.position(id),
+        );
+      this.queue.track(Number(row.lastInsertRowid), id, command);
+    });
   }
   reserve(id: ThreadId): boolean {
     return this.store.atomic((db) => {
@@ -182,12 +245,12 @@ export class EngineRepository {
         id === undefined
           ? db
               .prepare(
-                "SELECT * FROM intents WHERE status IN ('pending', 'queued', 'running') UNION ALL SELECT * FROM intents WHERE awaiting=1 AND status NOT IN ('pending', 'queued', 'running') ORDER BY id",
+                "SELECT * FROM intents WHERE status IN ('pending', 'queued', 'running') UNION ALL SELECT * FROM intents WHERE awaiting=1 AND status NOT IN ('pending', 'queued', 'running') ORDER BY position,id",
               )
               .all()
           : db
               .prepare(
-                "SELECT * FROM intents WHERE thread_id=? AND status IN ('pending', 'queued', 'running') UNION ALL SELECT * FROM intents WHERE thread_id=? AND awaiting=1 AND status NOT IN ('pending', 'queued', 'running') ORDER BY id",
+                "SELECT * FROM intents WHERE thread_id=? AND status IN ('pending', 'queued', 'running') UNION ALL SELECT * FROM intents WHERE thread_id=? AND awaiting=1 AND status NOT IN ('pending', 'queued', 'running') ORDER BY position,id",
               )
               .all(id, id);
       return rows.map((row) => ({
@@ -206,11 +269,26 @@ export class EngineRepository {
       Number(
         db
           .prepare(
-            "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND status='queued') + (SELECT COUNT(DISTINCT ack_target) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') AS count",
+            "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND (status IN ('pending','queued') OR uncertain=1) AND kind IN ('thread.send','thread.create')) + (SELECT COUNT(DISTINCT ack_target) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') + (SELECT COUNT(*) FROM engine_queue q WHERE q.thread_id=? AND q.continuation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM intents i WHERE i.thread_id=q.thread_id AND i.kind IN ('thread.resume','queue.resume','thread.limit') AND i.awaiting=1)) AS count",
           )
-          .get(id, id)?.count,
+          .get(id, id, id)?.count,
       ),
     );
+  }
+  claim(intent: Intent): Intent | undefined {
+    return this.store.atomic((db) => {
+      const row = db
+        .prepare("SELECT payload,status FROM intents WHERE id=? AND status IN ('pending','queued')")
+        .get(intent.id);
+      if (!row) return undefined;
+      const fresh = {
+        ...intent,
+        command: Command.parse(JSON.parse(String(row.payload))),
+        status: String(row.status),
+      };
+      this.mark(fresh, "running");
+      return fresh;
+    });
   }
   beginSend(intent: Intent, target: number | undefined): void {
     this.store.atomic((db) =>
@@ -220,12 +298,17 @@ export class EngineRepository {
     );
   }
   mark(intent: Intent, status: string, error?: string): void {
-    this.store.atomic((db) =>
-      db
-        .prepare(`UPDATE intents SET status = ?, error = ?, awaiting = CASE WHEN ? = 'failed' THEN 0 ELSE awaiting END,
-      attempts = attempts + ? WHERE id = ?`)
-        .run(status, error ?? null, status, status === "running" ? 1 : 0, intent.id),
-    );
+    this.store.atomic((db) => {
+      db.prepare(`UPDATE intents SET status = ?, error = ?, awaiting = CASE WHEN ? = 'failed' THEN 0 ELSE awaiting END,
+      attempts = attempts + ? WHERE id = ?`).run(
+        status,
+        error ?? null,
+        status,
+        status === "running" ? 1 : 0,
+        intent.id,
+      );
+      if (status === "done" || status === "failed") this.queue.prune(intent.id);
+    });
   }
   workspace(id: string): string | undefined {
     return this.store.atomic((db) => {

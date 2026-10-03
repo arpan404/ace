@@ -9,6 +9,8 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
     root: join(config.dataDir, "context"),
     now,
     id,
+    retained: (thread, hash) =>
+      services.engine?.retainsAttachment(ThreadId.parse(thread), hash) ?? false,
     authorize: (_device, thread) => store.getThread(ThreadId.parse(thread)) !== undefined,
     workspace: (thread) => {
       const entity = store.getThread(ThreadId.parse(thread));

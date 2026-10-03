@@ -19,6 +19,7 @@ export class Sessions {
   }
   async open(actor: ThreadActor): Promise<void> {
     if (actor.session) return;
+    this.dependencies.repo.beginSessionOpen(actor.id);
     const lifetime = new AbortController();
     actor.lifetime = lifetime;
     const generation = ++actor.generation;
@@ -82,6 +83,8 @@ export class Sessions {
         }
       }
       throw error;
+    } finally {
+      this.dependencies.repo.finishSessionOpen(actor.id);
     }
   }
 
@@ -111,6 +114,7 @@ export class Sessions {
           this.dependencies.clock.now(),
         );
       }
+      if (ownsGeneration) actor.releaseInputs();
       actor.schedule();
       if (ownsGeneration && !actor.session && !actor.poisoned) this.dependencies.released(actor.id);
     }

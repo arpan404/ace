@@ -1,7 +1,11 @@
+import type { PrepareInput } from "./input.ts";
+import { Command } from "@ace/protocol";
 import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { Sessions } from "./sessions.ts";
+
+export class DeliveryDeferred extends Error {}
 
 export async function executeIntent(
   actor: ThreadActor,
@@ -9,6 +13,7 @@ export async function executeIntent(
   repo: EngineRepository,
   registry: AdapterRegistry,
   sessions: Sessions,
+  prepare?: PrepareInput,
 ): Promise<void> {
   const p = intent.command.payload;
   if (p.type === "thread.create" || p.type === "thread.send") {
@@ -16,10 +21,53 @@ export async function executeIntent(
     const capabilities = registry.get(repo.requireState(actor.id).config.provider).capabilities;
     const session = actor.session;
     if (!session) throw new Error("Provider session exited before send");
-    await session.send(
-      p.input,
-      p.type === "thread.send" && p.delivery === "steer" && capabilities.steer ? "steer" : "queue",
-    );
+    const state = repo.requireState(actor.id);
+    const generation = actor.generation;
+    const prepared = p.context
+      ? await prepare?.(
+          p.type === "thread.create"
+            ? Command.parse({
+                ...intent.command,
+                payload: {
+                  type: "thread.send",
+                  threadId: actor.id,
+                  input: p.input,
+                  context: p.context,
+                  delivery: "queue",
+                },
+              })
+            : intent.command,
+          state.config.provider,
+          capabilities,
+        )
+      : undefined;
+    if (
+      generation !== actor.generation ||
+      actor.session !== session ||
+      repo.queue.get(actor.id).paused
+    ) {
+      prepared?.release();
+      throw new DeliveryDeferred("Delivery was superseded before provider consumption");
+    }
+    if (prepared)
+      actor.retainInput(
+        intent.id,
+        prepared.release,
+        p.type === "thread.send" && p.delivery === "steer"
+          ? state.agents[state.rootKey ?? ""]?.activeRun
+          : undefined,
+      );
+    try {
+      await session.send(
+        prepared?.input ?? p.input,
+        p.type === "thread.send" && p.delivery === "steer" && capabilities.steer
+          ? "steer"
+          : "queue",
+      );
+    } catch (error) {
+      actor.releaseInput(intent.id);
+      throw error;
+    }
     return;
   }
   if (!actor.session) throw new Error("Provider session is not live");
