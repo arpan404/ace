@@ -3,7 +3,7 @@
 This branch contains the local SDK adapter, SDK-first daemon selection,
 backend/instance persistence, capabilities, bounded portable context, HTTP MCP
 injection, selected-instance model discovery, auth host seam and passive SDK
-recording support. It is **not ready to merge** until accounts assembly and the
+recording support. It is **not ready to merge** until auth UI/lifecycle assembly and the
 runtime validation below are complete. No live Cursor turn, browser login,
 fixture recording, benchmark, mutation or test was executed.
 
@@ -15,6 +15,7 @@ Static validation: `bun run fmt`, `bun run lint`, `bun run typecheck` and
 
 ## Written behavior tests — needs run at merge
 
+- Account SDK auth source survives restart and quota updates, rejects key-bearing status and leaves another instance unchanged.
 - SDK catalog normalization retains authenticated parameters and redacts unknown key-bearing metadata without guessing ACP defaults.
 - SDK discovery admits CLI-free installation, refuses wrong versions/helpers and Windows, and distinguishes absence from broken installation.
 - Backend registry selects SDK for new threads, permits ACP only on SDK absence and retains old native IDs through additive SQLite migration.
@@ -40,7 +41,8 @@ Static validation: `bun run fmt`, `bun run lint`, `bun run typecheck` and
 Existing engine restart tests cover committed input, acknowledged/pending intents
 and uncertain delivery without automatic resend. Combined SDK crash-before-send,
 crash-after-send, parent-death, slow-consumer, heap failure, admission/logout races
-and multi-instance service behavior need additional assembly tests and execution.
+and auth UI service behavior need additional assembly tests and execution. The
+written account factory test covers two homes and selected-instance fencing.
 
 ## Mutation cases — not executed (tests run at merge)
 
@@ -66,6 +68,10 @@ and multi-instance service behavior need additional assembly tests and execution
 20. Remove durable input admission bounds: oversized input and queue-full command results.
 21. Accept further sends after unknown terminal status: uncertain-delivery refusal.
 22. Publish the open frame before native identity: frame callback checks the pinned native ID.
+23. Mask SDK environment auth or inherit it into ACP: selected backend environment assertions.
+24. Lose safe auth-source metadata on quota updates/restart: SQLite registry status assertions.
+25. Persist a key-bearing auth status: strict auth schema refusal.
+26. Stop the other selected instance or release its writer: live second-host send and migration refusal.
 
 These are designed mutation cases, not evidence that executed mutations were killed.
 
@@ -111,10 +117,11 @@ rate-limit scenario is proposed.
 
 ## Departures and open integration work
 
-- Accounts PR #25 is absent from this `main` baseline. The focused public seams
-  and a patch against its fetched head are supplied; daemon accounts login routes,
-  registry safe auth source and factory/worker reservation wiring are not installed
-  here. The patch includes ADR 0018's SDK amendment and needs assembly typecheck.
+- Train 2 and Claude changes are merged into this branch. Account SDK factories,
+  narrow environment inheritance, CLI sign-in/status and safe auth-source storage
+  are integrated. Browser login/logout socket UI and selected-instance auth lifecycle
+  composition still need product integration and multi-instance execution. Generated
+  protocol references for additive SDK fields need regeneration at merge.
 - Restricted admission defaults to refusal. A trusted availability flag is the
   current gate; no authoritative Auto-review availability probe exists here.
   Sandbox/MCP fail-closed behavior needs the approved live scenario.

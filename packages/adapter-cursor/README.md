@@ -36,7 +36,7 @@ writer reservations on failure. The auth worker then calls SDK logout and checks
 file absence without reading credentials. It preserves checkpoint/history data.
 Logout does not revoke a key in Cursor's dashboard, and environment authentication
 remains active until removed from the launch environment. Rebuild the signed-out
-adapter owner after successful sign-in. See the [accounts assembly handoff](../../docs/integration/cursor-sdk-accounts.md).
+adapter owner after successful sign-in. See the [accounts integration](../../docs/integration/cursor-sdk-accounts.md).
 
 ## Policy and controls
 

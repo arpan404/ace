@@ -1,30 +1,31 @@
-# Cursor SDK accounts handoff
+# Cursor SDK accounts integration
 
-The accounts package is absent on this implementation worktree's `main` baseline.
-This patch targets `origin/feat/accounts` at `a30aa2c85849b92ee471f0ccc6147f0b3a6f6492`. Apply it after the accounts
-train lands using `git apply --unidiff-zero`, then run static checks. Its runtime guards need run at merge.
+This branch refreshes onto train 2 and Claude SDK changes at `6a26d03`.
+Accounts PR #25 is now merged. The earlier handoff patch has been applied and
+adapted directly through the accounts package public exports.
 
-The SDK adapter exports the official login driver, safe auth status/source,
-selected-home environment composition, host disposal, authenticated model worker
-and shared `CursorHostSlots`. Accounts remains the owner of registry selection,
-writer reservations and quota status. No SDK credentials are copied into ace.
+`bindCursorSdk` constructs bounded per-instance owners only after account
+assignment. Account wrappers preserve backend, command identity, instance ID,
+private home and bounded frame certificates. `instanceEnv(instance, base, backend)`
+inherits `CURSOR_API_KEY` only for Cursor SDK; ACP and other backends keep masking
+provider credentials. Registry environment entries remain directory selectors.
 
-The patch adds a narrow `instanceEnv(instance, base, backend)` exception only for
-Cursor SDK. ACP and every other backend continue masking environment credentials.
-Factory and session wrappers preserve the backend, private home, instance ID and
-durable command operation ID. `bindCursorSdk` consumes those public contracts.
-`cursorSdkLoginDriver` publishes safe auth facts after official SDK operations;
-its login URL callback must be an authorized ephemeral UI and never a frame log.
+`cursorSdkLoginDriver` uses official SDK login/status/logout hosts. Safe status
+and source persist in `quota.cursorSdkAuth`; login key returns stay in the worker.
+`ace accounts add cursor` selects SDK when installed, refuses unsupported SDKs,
+and uses its browser URL callback in the caller's terminal. SDK absence keeps the
+ACP login path. API key entry through `--console` is unavailable for SDK; the
+user configures their launch environment. SDK `accounts status` does not use CLI
+login as evidence of SDK authentication.
 
-The train still needs to route its CLI login command through this SDK driver,
-persist safe auth source in account summaries, and provide the selected factory's
-`stopInstance` fence to logout. Share one `CursorHostSlots` across all selected
-factories, catalog workers and auth drivers. Reservations release after confirmed
-host exit, never after issuing cancellation. If hosts fail to exit, retain the
-reservation. Successful sign-in must rebuild/rebind an adapter after its logout
-fence; this implementation intentionally does not reopen a signed-out owner.
+Daemon account factories and catalogs share `CursorHostSlots`. Sign-out callers
+must pass the binding's `stopInstance` fence to the login driver; it fences new
+factories and drains selected hosts before credential deletion. Reservations
+release on confirmed exit. A successful later sign-in calls `rebindInstance`
+after hosts drain. Browser login/logout socket UI and that lifecycle composition
+remain product integration work; no authentication request is inferred from an
+ordinary model turn.
 
-This is an integration dependency, not a claim that the accounts daemon routes
-are available on this branch. The patch was not executed or typechecked against
-an assembled train, and the package was not imported wholesale from the other
-worker's branch.
+Runtime guards and multi-instance assembly tests need run at merge. There is no
+native ACP-to-SDK checkpoint conversion or cross-account SDK checkpoint copying;
+use the shared bounded context handoff, preserving source provenance and loss.
