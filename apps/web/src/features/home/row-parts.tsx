@@ -100,7 +100,8 @@ export function CardLines(props: { card: ThreadCard; title: ReactNode }) {
   const { card } = props;
   return (
     <>
-      <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-subtle-foreground">
+      {/* Settle and Snooze float over this line's end on hover; it fades under them. */}
+      <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-subtle-foreground [--under:6.75rem] group-focus-within/row:fade-under-actions group-hover/row:fade-under-actions">
         <span className="truncate">{card.project}</span>
         <RowGlyphs machine={card.machine} pinned={card.flags.pinned} wake={card.wake} />
       </span>
@@ -138,7 +139,10 @@ export function CardLines(props: { card: ThreadCard; title: ReactNode }) {
 export function SettledLine(props: { card: ThreadCard }) {
   return (
     <>
-      <span className="min-w-0 flex-1 truncate">{props.card.title}</span>
+      {/* Unsettle covers the title's end on hover; fade it rather than cut it. */}
+      <span className="min-w-0 flex-1 truncate [--under:2.25rem] group-focus-within/row:fade-under-actions group-hover/row:fade-under-actions">
+        {props.card.title}
+      </span>
       <StatusMark mark={props.card.status.mark} label={props.card.status.label} />
       <span className="text-[11px] group-focus-within/row:invisible group-hover/row:invisible">
         {props.card.age}

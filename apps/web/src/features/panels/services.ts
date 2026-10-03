@@ -17,8 +17,11 @@ export interface PanelServices {
   preview: PreviewSource;
   drafts: LocalStore<readonly ReviewDraft[]>;
   diffPrefs: LocalStore<DiffPrefs>;
-  /** Per thread: hide log lines at or before this time (the Clear button). */
-  logCutoffs: LocalStore<ReadonlyMap<string, number>>;
+  /**
+   * Per thread: the log lines Clear hid, by key. Keys rather than a time, because backdated or
+   * replayed events can arrive stamped earlier than lines already shown.
+   */
+  logCleared: LocalStore<ReadonlyMap<string, ReadonlySet<string>>>;
 }
 
 async function load(): Promise<Pick<PanelServices, "terminals" | "preview">> {
@@ -43,7 +46,7 @@ export function panelServices(client: ClientApi): Promise<PanelServices> {
         ...sources,
         drafts: new LocalStore<readonly ReviewDraft[]>([]),
         diffPrefs: new LocalStore<DiffPrefs>({ mode: "unified", wrap: false }),
-        logCutoffs: new LocalStore<ReadonlyMap<string, number>>(new Map()),
+        logCleared: new LocalStore<ReadonlyMap<string, ReadonlySet<string>>>(new Map()),
       };
       ready.set(client, value);
       return value;

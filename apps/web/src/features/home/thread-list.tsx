@@ -1,7 +1,8 @@
 import { CaretDownIcon } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn.ts";
-import { useMemo, useRef } from "react";
+import { useParams } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef } from "react";
 import { rowMotion, useListMotion } from "@/lib/motion.ts";
 import { type Arrangement } from "@ace/ui-core";
 import { AutoSettleNote } from "./auto-settle-note.tsx";
@@ -53,6 +54,7 @@ export function ThreadList(props: { arrangement: Arrangement }) {
     overscan: 6,
     getItemKey: (index) => drawn[index]?.key ?? index,
   });
+  useRevealOpenThread(drawn, virtualizer.scrollToIndex);
   return (
     <div
       ref={viewport}
@@ -109,4 +111,23 @@ export function ThreadList(props: { arrangement: Arrangement }) {
       </div>
     </div>
   );
+}
+
+/**
+ * When a thread opens (from a link, the palette, history or a reload), bring its row into view
+ * once, without fighting the person's own scrolling afterwards.
+ */
+function useRevealOpenThread(
+  drawn: readonly { key: string }[],
+  scrollToIndex: (index: number, options: { align: "auto" }) => void,
+) {
+  const threadId = useParams({ strict: false, select: (params) => params.threadId });
+  const revealed = useRef<string>(undefined);
+  useEffect(() => {
+    if (!threadId || revealed.current === threadId) return;
+    const index = drawn.findIndex((row) => row.key === threadId);
+    if (index < 0) return;
+    revealed.current = threadId;
+    scrollToIndex(index, { align: "auto" });
+  }, [threadId, drawn, scrollToIndex]);
 }

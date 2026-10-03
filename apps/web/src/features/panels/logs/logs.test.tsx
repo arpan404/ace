@@ -49,6 +49,27 @@ test("the log records sessions, subagents, background work and turns as they hap
   ).toBe(true);
 });
 
+test("shell commands with their exit, the thread's creation and quota warnings are logged in order", async () => {
+  const { script } = await openLogs("relay-output");
+  const panel = await showLogs("Cap cold-start replay at 200 events");
+  await waitFor(() =>
+    expect(
+      lines(panel).some((line) => line.includes("$ bun run test replay (regression-test)")),
+    ).toBe(true),
+  );
+  expect(lines(panel)[0]).toMatch(/daemon\s*thread created in ace/);
+  expect(lines(panel).find((line) => line.includes("82% of its 5-hour window"))).toMatch(/warn/);
+  // A background shell is logged as background work, not as a command.
+  expect(lines(panel).some((line) => line.includes("$ bun run dev:relay"))).toBe(false);
+
+  await act(async () => script.runThrough("test-done"));
+  await waitFor(() =>
+    expect(lines(panel).some((line) => line.includes("bun run test replay · succeeded"))).toBe(
+      true,
+    ),
+  );
+});
+
 test("a failed subagent is logged as an error with its reason", async () => {
   await openLogs("tester-failed", failingSubagent(), "/t/thread-settings");
   const panel = await showLogs("Migrate settings schema");

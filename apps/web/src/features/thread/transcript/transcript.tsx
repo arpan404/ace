@@ -8,7 +8,7 @@ import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { scrollToEnd as glideToEnd, useListMotion } from "@/lib/motion.ts";
 import { BlockView } from "../items/block-view.tsx";
-import type { Block } from "./blocks.ts";
+import { openWorkIndex, type Block } from "./blocks.ts";
 import { LiveFooter, useRootWorking } from "./live-footer.tsx";
 import { useBlocks } from "./use-blocks.ts";
 import { useNewActivity } from "./use-new-activity.ts";
@@ -45,7 +45,8 @@ export function Transcript(props: { threadId: string }) {
   );
   // The agent is still adding to the last work log: it reads "Working for …" and the footer
   // doesn't repeat it.
-  const liveWork = useRootWorking(props.threadId) && blocks.at(-1)?.kind === "work";
+  const openWork = openWorkIndex(blocks);
+  const liveWork = useRootWorking(props.threadId) && openWork >= 0;
   const viewport = useRef<HTMLDivElement>(null);
   const feed = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
@@ -141,7 +142,7 @@ export function Transcript(props: { threadId: string }) {
                     <BlockView
                       threadId={props.threadId}
                       block={block}
-                      live={liveWork && row.index === blocks.length - 1}
+                      live={liveWork && row.index === openWork}
                     />
                   </div>
                 </div>

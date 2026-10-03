@@ -2,6 +2,7 @@ import { ThreadId } from "@ace/protocol";
 import { expect, test } from "vitest";
 import { FakeDaemon } from "./daemon.ts";
 import { ScenarioPlayer } from "./scenario.ts";
+import { coldStartReplay } from "./scenarios/cold-start-replay.ts";
 import { dedupeReconnect } from "./scenarios/dedupe-reconnect.ts";
 
 const minute = 60_000;
@@ -48,4 +49,24 @@ test("a script's adapter key resolves to the daemon's item id, for seeding what 
   const item = relay ? itemsOf(daemon, "thread-dedupe").items[relay] : undefined;
   expect(item?.type === "tool_call" && item.call.title).toBe("Run the relay in the background");
   expect(daemon.itemId("thread-dedupe", "no-such-key")).toBeUndefined();
+});
+
+test("the panels thread's turns, subagents and background relay are minutes old when the page opens", () => {
+  const daemon = new FakeDaemon({ clock: () => now });
+  new ScenarioPlayer(daemon, coldStartReplay()).runThrough("relay-output");
+  const view = itemsOf(daemon, "thread-cold-start");
+  const runs = Object.values(view.runs).map((run) => now - run.startedAt);
+  // Turn one 24 minutes ago, turn two 9; the subagents 7m 20s.
+  expect(Math.max(...runs)).toBe(24 * minute);
+  expect(runs.filter((ago) => ago === 9 * minute)).toHaveLength(1);
+  expect(runs.filter((ago) => ago === 7 * minute + 20_000)).toHaveLength(2);
+  const [relay] = Object.values(view.backgroundTasks);
+  expect(now - (relay?.startedAt ?? now)).toBe(5 * minute + 20_000);
+  // Every first-turn edit took time: none of the work is stamped at a single instant.
+  const edits = Object.values(view.items).flatMap((item) =>
+    item.type === "tool_call" && item.call.endedAt !== undefined
+      ? [item.call.endedAt - item.call.startedAt]
+      : [],
+  );
+  expect(Math.min(...edits)).toBeGreaterThanOrEqual(20_000);
 });

@@ -1,6 +1,6 @@
 import type { Fact } from "@ace/core";
 import type { Scenario, Step } from "../scenario.ts";
-import { message, output, rootAgent, subagent, tool, toolDone, turn } from "./facts.ts";
+import { endTurn, message, output, rootAgent, subagent, tool, toolDone, turn } from "./facts.ts";
 
 /*
  * The approved design's hero thread, "Dedupe thread events after reconnect", as it looks a few
@@ -294,14 +294,30 @@ export function dedupeReconnect(id = "thread-dedupe"): Scenario {
         label: "finding",
         agoMs: 1 * m + 30 * s,
         facts: [
+          // reconnect-audit reports its finding and stops; the root relays it.
+          endTurn("audit"),
           message("root", "finding", "assistant", finding),
+          { type: "subagents.waiting", agent: "root", item: "spawn-test", targets: [] },
+        ],
+      },
+      {
+        kind: "facts",
+        label: "follow-up",
+        agoMs: 35 * s,
+        facts: [
+          // The root sends it back to check the mobile cache path, so the thread moved just now.
+          {
+            type: "turn.started",
+            agent: "audit",
+            nativeTurnId: "audit-turn-2",
+            trigger: "parent_agent",
+          },
           {
             type: "activity",
             agent: "audit",
             activity: "tool",
             detail: "Reading apps/mobile/src/cache.ts",
           },
-          { type: "subagents.waiting", agent: "root", item: "spawn-test", targets: [] },
         ],
       },
     ],

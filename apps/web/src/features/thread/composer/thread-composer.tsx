@@ -59,8 +59,10 @@ export function ThreadComposer(props: {
       .catch(() => toast.add({ title: "Couldn't stop the agent" }));
 
   return (
-    <div className="relative flex-none px-8 pb-3.5 before:pointer-events-none before:absolute before:inset-x-0 before:-top-10 before:h-10 before:bg-reading before:[mask-image:linear-gradient(to_bottom,transparent,black_85%)]">
-      <div className="mx-auto max-w-(--column)">
+    // The backdrop runs from 2.5rem above the composer to the bottom edge and fades in over
+    // its first 2.5rem, so transcript text dissolves under it with no band edge.
+    <div className="relative flex-none px-8 pb-3.5 before:pointer-events-none before:absolute before:inset-x-0 before:-top-10 before:bottom-0 before:bg-reading before:[mask-image:linear-gradient(to_bottom,transparent,black_2.5rem)]">
+      <div className="relative mx-auto max-w-(--column)">
         <QueuedPills
           queued={queue.queued}
           onRemove={(message) => {

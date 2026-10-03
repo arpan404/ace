@@ -15,6 +15,8 @@ const endTurn = (agent: string, id: string): Fact => ({
   nativeTurnId: id,
   outcome: "completed",
 });
+const s = 1000;
+const m = 60 * s;
 const activity = (agent: string, detail: string): Fact => ({
   type: "activity",
   agent,
@@ -25,7 +27,8 @@ const activity = (agent: string, detail: string): Fact => ({
 /**
  * The thread the right and bottom panels are designed around: two turns of edits (one with
  * full file text, one as a provider unified diff), two subagents, a background dev server
- * with live output, and a slow settle. The first turn happened minutes earlier. Labels:
+ * with live output, and a slow settle. Both turns happened minutes before the page opened; the
+ * subagents report back live (`autoplay`), tens of seconds apart. Labels:
  * `turn-1`, `turn-2`, `relay-output`, `audit-done`, `test-done`, `root-replied`.
  */
 export function coldStartReplay(id = "thread-cold-start"): Scenario {
@@ -39,8 +42,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
     steps: [
       {
         kind: "facts",
-        label: "turn-1",
-        agoMs: 9 * 60_000,
+        agoMs: 24 * m,
         facts: [
           rootAgent("claude", "/Users/dev/ace"),
           turn("root", "t1"),
@@ -65,7 +67,14 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
               ],
             },
           }),
-          toolDone("root", "edit-replay-1"),
+        ],
+      },
+      { kind: "facts", agoMs: 22 * m + 25 * s, facts: [toolDone("root", "edit-replay-1")] },
+      {
+        kind: "facts",
+        label: "turn-1",
+        agoMs: 22 * m + 10 * s,
+        facts: [
           message(
             "root",
             "reply-1",
@@ -77,8 +86,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
       },
       {
         kind: "facts",
-        delayMs: 1500,
-        label: "turn-2",
+        agoMs: 9 * m,
         facts: [
           turn("root", "t2"),
           message(
@@ -102,24 +110,19 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
               ],
             },
           }),
-          toolDone("root", "edit-replay-2"),
+        ],
+      },
+      { kind: "facts", agoMs: 7 * m + 40 * s, facts: [toolDone("root", "edit-replay-2")] },
+      {
+        // Both subagents start together, as one "Started 2 subagents".
+        kind: "facts",
+        agoMs: 7 * m + 20 * s,
+        facts: [
           tool("root", "spawn-audit", {
             kind: "agent.spawn",
             title: "Audit every resume path",
             detail: { kind: "agent.spawn", description: "Audit resume paths", childAgent: "audit" },
           }),
-          subagent("claude", "audit", "reconnect-audit", "spawn-audit"),
-          turn("audit", "audit-1", "spawn"),
-          tool("audit", "edit-outbox", {
-            kind: "file.edit",
-            title: `Edit ${outboxDiff.path}`,
-            detail: {
-              kind: "file.edit",
-              changes: [{ path: outboxDiff.path, kind: "update", diff: outboxDiff.diff }],
-            },
-          }),
-          toolDone("audit", "edit-outbox"),
-          activity("audit", "Reading apps/mobile/src/resume.ts"),
           tool("root", "spawn-test", {
             kind: "agent.spawn",
             title: "Write the regression test",
@@ -129,14 +132,45 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
               childAgent: "test",
             },
           }),
+          subagent("claude", "audit", "reconnect-audit", "spawn-audit"),
+          turn("audit", "audit-1", "spawn"),
           subagent("claude", "test", "regression-test", "spawn-test"),
           turn("test", "test-1", "spawn"),
+        ],
+      },
+      {
+        kind: "facts",
+        agoMs: 6 * m + 30 * s,
+        facts: [
+          tool("audit", "edit-outbox", {
+            kind: "file.edit",
+            title: `Edit ${outboxDiff.path}`,
+            detail: {
+              kind: "file.edit",
+              changes: [{ path: outboxDiff.path, kind: "update", diff: outboxDiff.diff }],
+            },
+          }),
+        ],
+      },
+      {
+        kind: "facts",
+        agoMs: 5 * m + 50 * s,
+        facts: [
+          toolDone("audit", "edit-outbox"),
+          activity("audit", "Reading apps/mobile/src/resume.ts"),
           tool("test", "run-tests", {
             kind: "shell",
             title: "Run the replay tests",
             detail: { kind: "shell", command: "bun run test replay" },
           }),
           activity("test", "bun run test replay"),
+        ],
+      },
+      {
+        kind: "facts",
+        label: "turn-2",
+        agoMs: 5 * m + 20 * s,
+        facts: [
           tool("root", "relay", {
             kind: "shell",
             title: "Run the relay in the background",
@@ -157,9 +191,20 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
       },
       {
         kind: "facts",
-        delayMs: 2500,
+        agoMs: 3 * m + 5 * s,
         label: "relay-output",
         facts: [
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: "quota-warning",
+            draft: {
+              type: "notice",
+              complete: true,
+              level: "warning",
+              text: "Claude Code · personal has used 82% of its 5-hour window; new turns may wait for the reset.",
+            },
+          },
           output(
             "root",
             "relay",
@@ -169,7 +214,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
       },
       {
         kind: "facts",
-        delayMs: 6000,
+        delayMs: 45_000,
         label: "audit-done",
         facts: [
           message(
@@ -184,7 +229,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
       },
       {
         kind: "facts",
-        delayMs: 4000,
+        delayMs: 20_000,
         label: "test-done",
         facts: [
           output("test", "run-tests", "3 pass · 0 fail · 1 file  412ms\n"),
@@ -200,7 +245,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
       },
       {
         kind: "facts",
-        delayMs: 1500,
+        delayMs: 6_000,
         label: "root-replied",
         facts: [
           message(

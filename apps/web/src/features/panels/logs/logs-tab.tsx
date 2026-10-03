@@ -58,9 +58,9 @@ const time = new Intl.DateTimeFormat(undefined, {
 export function LogsTab(props: { threadId: string }) {
   const lines = useThreadLog(props.threadId);
   const services = usePanelServices();
-  const cutoffs = useLocal(services.logCutoffs, (value) => value);
-  const cutoff = cutoffs.get(props.threadId);
-  const shown = cutoff === undefined ? lines : lines.filter((line) => line.at > cutoff);
+  const clearedByThread = useLocal(services.logCleared, (value) => value);
+  const cleared = clearedByThread.get(props.threadId);
+  const shown = cleared === undefined ? lines : lines.filter((line) => !cleared.has(line.key));
   const hidden = lines.length - shown.length;
   if (!lines.length)
     return (
@@ -79,7 +79,7 @@ export function LogsTab(props: { threadId: string }) {
             type="button"
             className="underline-offset-2 hover:text-foreground hover:underline"
             onClick={() =>
-              services.logCutoffs.set((previous) => {
+              services.logCleared.set((previous) => {
                 const next = new Map(previous);
                 next.delete(props.threadId);
                 return next;

@@ -108,9 +108,10 @@ function BottomActions(props: { threadId: string }) {
   const terminal = layout.bottom.tab !== "logs";
   const clear = () => {
     if (!terminal) {
-      const last = lines.at(-1);
-      if (last)
-        services.logCutoffs.set((previous) => new Map(previous).set(props.threadId, last.at));
+      if (lines.length)
+        services.logCleared.set((previous) =>
+          new Map(previous).set(props.threadId, new Set(lines.map((line) => line.key))),
+        );
     } else {
       const shown = sessions.shown(props.threadId);
       if (shown && !shown.startsWith("task:")) sessions.clear(shown);
