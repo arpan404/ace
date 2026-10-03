@@ -176,11 +176,21 @@ it("keeps notifications, badge and tray working when the daemon refuses the brow
   if (!daemon) throw new Error("no daemon");
   const token = (await readFile(daemon.tokenPath, "utf8")).trim();
 
-  // A credential in the daemon's home makes the desktop try to register. This daemon either
-  // does not know `browser.backend.*` (an older daemon) or refuses this credential.
+  // Replace the daemon's desktop credential with one it never issued: the desktop tries to
+  // register and the daemon refuses it (an older daemon would not parse the frame at all).
   await writeFile(
     join(t.home, "browser-desktop.json"),
-    JSON.stringify({ device: { id: "desktop-browser" }, token: "c".repeat(64) }),
+    JSON.stringify({
+      device: {
+        id: "desktop-browser",
+        name: "ace desktop browser",
+        scopes: ["desktop"],
+        createdAt: 1,
+        lastSeenAt: 1,
+        revokedAt: null,
+      },
+      token: "c".repeat(64),
+    }),
   );
   const connection = new BackendConnection(
     new BrowserBackend(fakeViews().host, { log: () => {} }),

@@ -50,7 +50,7 @@ Approve, Deny and inline Reply become durable intents whose ids derive from the 
 
 ### Embedded browser backend
 
-With a window open, agents browse in the app's own Chromium. The contract is the daemon's, version 1 of ADR 0055 (`feat/browser-backends`, PR #74). Until that branch is on main, `apps/desktop/src/main/browser/protocol.ts` mirrors its schemas verbatim, with a TODO to import them from `@ace/protocol` instead.
+With a window open, agents browse in the app's own Chromium. The contract is the daemon's, version 1 of ADR 0055, and the desktop imports its schemas from `@ace/protocol`.
 
 - **Its own socket.** The backend never uses the notification link. It connects with the host token and the device id from the daemon's private `browser-desktop.json`, then registers with that credential. A daemon that does not know the frames, refuses the credential or drops the relay can only close this socket. Notifications, badge and tray carry on. An older daemon is marked unsupported until it restarts.
 - **Requests.** `open`, `cdp`, `navigate`, `press`, `resize`, `controller` and `close` each get one response with the same ids. CDP results go back exactly as Chromium returned them, and events are forwarded as they arrive. A result over 1 MiB gets an error response.

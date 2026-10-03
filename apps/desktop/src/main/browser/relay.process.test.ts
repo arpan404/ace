@@ -4,50 +4,31 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer, WebSocket as ServerSocket } from "ws";
+import { EmbeddedBackend } from "@ace/browser";
+import { BrowserOpen } from "@ace/protocol";
 import { BrowserBackend } from "./backend.ts";
 import { BackendConnection } from "./connection.ts";
 import { readDesktopCredential } from "./credential.ts";
 import { fakeViews, screencastFrame } from "./test-support.ts";
 
 /**
- * The desktop backend against the daemon's own relay: `EmbeddedBackend` from `@ace/browser`
- * (PR #74, `feat/browser-backends`), over a real local socket. The socket server below only
- * does what the daemon's socket service does around the relay (hello, credential check,
- * `registered`, routing); every request, response, event and ack is the relay's own.
- *
- * TODO(feat/browser-backends): until PR #74 is on main, `@ace/browser` has no relay and this
- * suite is skipped. After it merges, replace the dynamic lookup with a static import.
+ * The desktop backend against the daemon's own relay, `EmbeddedBackend` from `@ace/browser`,
+ * over a real local socket. The socket server below only does what the daemon's socket
+ * service does around the relay (hello, credential check, `registered`, routing); every
+ * request, response, event and ack is the relay's own.
  */
-const browser: Record<string, unknown> = await import("@ace/browser");
-
-interface RelayTransport {
-  send(message: unknown, serialized?: string): boolean;
-  close(reason: string): void;
-}
-interface RelaySession {
-  cdp: {
-    send(method: string, params?: Record<string, unknown>): Promise<unknown>;
-    on(method: string, listener: (params: unknown) => void): unknown;
-  };
-  url(): string;
-  navigate(url: string, timeout: number): Promise<void>;
-  controller(lease: { generation: number; controller: string; owner?: string }): Promise<void>;
-  close(): Promise<void>;
-}
-interface Relay {
-  handle(raw: unknown): void;
-  disconnect(reason: string): void;
-  open(request: unknown): Promise<RelaySession>;
-}
-type RelayClass = new (id: string, transport: RelayTransport, lost: () => void) => Relay;
-
-function isRelayClass(value: unknown): value is RelayClass {
-  return typeof value === "function";
-}
-const EmbeddedBackend = browser["EmbeddedBackend"];
-
 const token = "a".repeat(64);
-const credential = { device: { id: "desktop-browser" }, token: "b".repeat(64) };
+const credential = {
+  device: {
+    id: "desktop-browser",
+    name: "ace desktop browser",
+    scopes: ["desktop"],
+    createdAt: 1,
+    lastSeenAt: 1,
+    revokedAt: null,
+  },
+  token: "b".repeat(64),
+};
 
 /** Real sockets and a real daemon: give them time, then fail with the last assertion. */
 const eventually = (check: () => void) => vi.waitFor(check, { timeout: 10_000, interval: 20 });
@@ -57,17 +38,17 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).toReversed()) await cleanup();
 });
 
-async function relayDaemon(Relay: RelayClass) {
+async function relayDaemon() {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await new Promise((resolve) => server.once("listening", resolve));
   const address = server.address();
   if (typeof address !== "object" || !address) throw new Error("no address");
-  const relays: Relay[] = [];
+  const relays: EmbeddedBackend[] = [];
   const takeovers: string[] = [];
   let connections = 0;
   server.on("connection", (socket) => {
     const connectionId = `connection-${++connections}`;
-    let relay: Relay | undefined;
+    let relay: EmbeddedBackend | undefined;
     const reply = (message: unknown) => socket.send(JSON.stringify(message));
     socket.on("message", (data) => {
       const message: unknown = JSON.parse(String(data));
@@ -87,7 +68,7 @@ async function relayDaemon(Relay: RelayClass) {
       if (message.type === "browser.backend.register") {
         if (!("credential" in message) || message.credential !== credential.token)
           return reply({ type: "error", code: "browser_backend_denied", message: "denied" });
-        relay = new Relay(
+        relay = new EmbeddedBackend(
           `backend-${connections}`,
           {
             send: (outgoing, serialized) => {
@@ -115,8 +96,8 @@ async function relayDaemon(Relay: RelayClass) {
   return { url: `ws://127.0.0.1:${address.port}/`, relays, takeovers };
 }
 
-async function setup(Relay: RelayClass) {
-  const daemon = await relayDaemon(Relay);
+async function setup() {
+  const daemon = await relayDaemon();
   const home = await mkdtemp(join(tmpdir(), "ace-desktop-relay-"));
   cleanups.push(() => rm(home, { recursive: true, force: true }));
   await writeFile(join(home, "browser-desktop.json"), JSON.stringify(credential));
@@ -147,7 +128,7 @@ async function setup(Relay: RelayClass) {
   const abort = new AbortController();
   cleanups.push(() => abort.abort());
   const session = await relay.open({
-    options: { threadId: "t-1", workspaceId: "w-1", profile: "ephemeral", headed: false },
+    options: BrowserOpen.parse({ threadId: "t-1", workspaceId: "w-1", profile: "ephemeral" }),
     profileDir: home,
     signal: abort.signal,
     allowed: async () => true,
@@ -158,12 +139,8 @@ async function setup(Relay: RelayClass) {
   return { daemon, views, connection, relay, session, lost, page: views.only() };
 }
 
-describe.skipIf(!isRelayClass(EmbeddedBackend))("embedded backend against the daemon relay", () => {
-  const Relay = isRelayClass(EmbeddedBackend) ? EmbeddedBackend : undefined;
-  const start = () => {
-    if (!Relay) throw new Error("relay unavailable");
-    return setup(Relay);
-  };
+describe("embedded backend against the daemon relay", () => {
+  const start = setup;
 
   it("registers with the daemon's desktop credential and opens a view the relay drives over CDP", async () => {
     const { session, page } = await start();

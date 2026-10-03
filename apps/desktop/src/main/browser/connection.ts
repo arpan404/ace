@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { BrowserBackend } from "./backend.ts";
-import { BrowserBackendServerMessage, type DesktopCredential } from "./protocol.ts";
+import { BrowserBackendServerMessage, type DeviceCredential } from "@ace/protocol";
 
 /**
  * - `off`: no window to draw views in, so this app is not offering a backend;
@@ -22,7 +22,7 @@ export interface ConnectionPorts {
   /** The local daemon's address and host token; undefined when there is none. */
   daemon(): Promise<{ url: string; token: string } | undefined>;
   /** The daemon's `browser-desktop.json`, or undefined when it publishes none. */
-  credential(): Promise<DesktopCredential | undefined>;
+  credential(): Promise<DeviceCredential | undefined>;
   socket(url: string): WebSocket;
   timers: { set(delayMs: number, callback: () => void): () => void };
   id(): string;
@@ -137,7 +137,7 @@ export class BackendConnection {
     this.open(daemon, credential);
   }
 
-  private open(daemon: { url: string; token: string }, credential: DesktopCredential): void {
+  private open(daemon: { url: string; token: string }, credential: DeviceCredential): void {
     const socket = this.ports.socket(daemon.url);
     this.socket = socket;
     const requestId = this.ports.id();

@@ -4,7 +4,7 @@ import {
   BrowserBackendClientMessage,
   BrowserBackendOperation,
   BrowserBackendServerMessage,
-} from "./protocol.ts";
+} from "@ace/protocol";
 import { fakeViews, screencastFrame } from "./test-support.ts";
 
 /**

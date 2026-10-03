@@ -1,13 +1,21 @@
 import { z } from "zod";
-import type { BrowserOpen } from "@ace/protocol";
 import {
-  relayLimits,
+  type BrowserOpen,
   type BrowserBackendClientMessage,
   type BrowserBackendOperation,
   type BrowserBackendRequest,
   type BrowserBackendServerMessage,
   type BrowserControllerLease,
-} from "./protocol.ts";
+} from "@ace/protocol";
+
+/** Relay limits from ADR 0055; the daemon's relay disconnects a backend that exceeds them. */
+const relayLimits = {
+  /** Any one command, result or event, serialized. */
+  messageBytes: 1024 * 1024,
+  /** One encoded screencast frame. */
+  frameBytes: 768 * 1024,
+  sessions: 8,
+} as const;
 
 /** One embedded browser view, as the backend sees it (a WebContentsView in the app). */
 export interface ViewPage {
