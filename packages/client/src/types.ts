@@ -63,6 +63,8 @@ export const defaultLimits: Limits = {
 };
 export { ClientError } from "./errors.ts";
 export interface RequestOptions {
+  /** Optional service correlation selected by the caller, also carried by progress events. */
+  requestId?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
 }

@@ -1,3 +1,4 @@
+import { GitError } from "@ace/git";
 import type { Command, CommandResult } from "@ace/protocol";
 import type { Store } from "./store.ts";
 
@@ -31,7 +32,13 @@ export class AsyncCommands {
     const flight = Promise.resolve()
       .then(async (): Promise<CommandResult> => {
         const outcome = reserved
-          ? await effect().catch(() => ({ ok: false, error: "action_failed" }))
+          ? await effect().catch((error: unknown) => ({
+              ok: false,
+              error:
+                error instanceof GitError
+                  ? `git_${error.code.replace(/^git_/, "")}`
+                  : "action_failed",
+            }))
           : { ok: false, error: "action_outcome_uncertain" };
         return this.store.completeAsyncCommand(command.id, { commandId: command.id, ...outcome });
       })

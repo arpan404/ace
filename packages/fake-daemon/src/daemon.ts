@@ -463,7 +463,7 @@ export class FakeDaemon implements Host {
   private execute(command: Command): CommandResult {
     const payload = command.payload;
     const commandId = command.id;
-    const service = this.servicesWire.command(payload);
+    const service = this.servicesWire.command(payload, commandId);
     if (service) return { commandId, ...service };
     if (
       organizationCommands.some((type) => type === payload.type) &&
@@ -589,6 +589,26 @@ export class FakeDaemon implements Host {
         }
         return { commandId, ok: false, error: "not_found" };
       }
+      case "thread.prepare": {
+        if (this.threads.has(payload.threadId))
+          return { commandId, ok: false, error: "thread_exists" };
+        this.createThread({
+          id: payload.threadId,
+          workspaceId: payload.workspaceId,
+          title: payload.title,
+          provider: payload.provider,
+          details: {
+            mode: payload.mode ?? "local",
+            worktree:
+              payload.mode === "worktree"
+                ? `/fake/worktrees/${payload.threadId}`
+                : `/fake/${payload.workspaceId}`,
+            branch: payload.baseBranch ?? "main",
+            ...(payload.baseBranch ? { baseBranch: payload.baseBranch } : {}),
+          },
+        });
+        return { commandId, ok: true, threadId: payload.threadId };
+      }
       case "thread.create": {
         // Never reaches a provider: the new thread reads the request and keeps "working".
         const id = `thread-${commandId}`;
@@ -610,7 +630,10 @@ export class FakeDaemon implements Host {
               path: `/fake/${payload.workspaceId}`,
             },
             mode: payload.mode ?? "local",
-            worktree: `/fake/${payload.workspaceId}`,
+            worktree:
+              payload.mode === "worktree"
+                ? `/fake/worktrees/${id}`
+                : `/fake/${payload.workspaceId}`,
             branch: payload.baseBranch ?? "main",
             ...(payload.baseBranch ? { baseBranch: payload.baseBranch } : {}),
             machine: { host: "fake-host", name: "Fake machine" },

@@ -2,6 +2,11 @@
   "$id": "https://ace.local/protocol/v1/HistoryImportRequest.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
     "sourceId": {
       "minLength": 1,
       "type": "string"

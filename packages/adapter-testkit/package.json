@@ -15,6 +15,7 @@
     "@ace/engine-api": "workspace:*",
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "zod": "^4.6.5"
   }
 }

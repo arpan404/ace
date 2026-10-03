@@ -10,6 +10,11 @@
       "minLength": 1,
       "type": "string"
     },
+    "baseBranch": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "type": "string"
+    },
     "deck": {
       "$ref": "https://ace.local/protocol/v1/DeckOwnership.json"
     },
@@ -24,6 +29,13 @@
     "instanceId": {
       "maxLength": 256,
       "minLength": 1,
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "local",
+        "worktree"
+      ],
       "type": "string"
     },
     "model": {

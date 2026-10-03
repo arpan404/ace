@@ -5,6 +5,49 @@
     {
       "properties": {
         "channel": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "data": {
+          "maxLength": 87384,
+          "type": "string"
+        },
+        "eof": {
+          "type": "boolean"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "files.data",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "channel",
+        "offset",
+        "data",
+        "eof"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
           "type": "number"
         },
         "type": {

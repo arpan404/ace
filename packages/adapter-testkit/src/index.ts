@@ -11,3 +11,6 @@ export type {
   ScriptedSession,
   ScriptedAdapter,
 } from "./scripted.ts";
+
+export { createTurnProvider, ScriptedTurnConfig } from "./turn-provider.ts";
+export type { ScriptedTurnResponse } from "./turn-provider.ts";

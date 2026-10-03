@@ -2,12 +2,10 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { delimiter, join } from "node:path";
-import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
-import type { Fact } from "@ace/core";
-import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
-import type { Frame, SessionContext } from "@ace/engine-api";
-import { Capabilities, ServerMessage, type ContentPart, type ProviderKind } from "@ace/protocol";
+import { createTurnProvider, ScriptedTurnConfig } from "@ace/adapter-testkit";
 import { deckTurn } from "./deck-script.ts";
+import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
+import { ServerMessage, type ProviderKind } from "@ace/protocol";
 import {
   deckStepMs,
   daemonHome,
@@ -40,160 +38,48 @@ import {
  * @ace/adapter-testkit registered in place of discovery, so no provider CLI is ever started.
  * Each message a thread receives is answered with `scriptedReply` and the turn ends.
  */
-const replies = 20;
-
-const message = (item: string, role: "user" | "assistant", text: string): Fact => ({
-  type: "item.upsert",
-  agent: "root",
-  item,
-  draft: { type: "message", role, complete: true, parts: [{ type: "text", text }] },
+const scriptedConfig = ScriptedTurnConfig.parse({
+  delayMs: Number(process.env.ACE_E2E_TURN_DELAY_MS ?? 0),
+  limitAfterTurns: Number(process.env.ACE_E2E_LIMIT_AFTER_TURNS ?? 0),
+  resetMs: Number(process.env.ACE_E2E_LIMIT_RESET_MS ?? 1000),
 });
-
-const end = (outcome: "completed" | "interrupted") =>
-  ({ type: "turn.ended", agent: "root", outcome }) satisfies Fact;
-
-/**
- * The testkit's scripted adapter, with each message answered by one turn: the person's text
- * (providers echo user input; the engine does not), the scripted reply, then the turn ends.
- */
 function scriptedProvider(provider: ProviderKind) {
-  const bundles = new Map<string, Fact[]>();
-  let seq = 0;
-  const frame = (...facts: Fact[]): Frame => {
-    const channel = `facts-${++seq}`;
-    bundles.set(channel, facts);
-    return { seq, t: seq, dir: "recv", channel, data: { scripted: true } };
-  };
-  const adapter = createScriptedAdapter({
+  return createTurnProvider({
     provider,
-    nativeSessionId: `scripted-${provider}`,
-    capabilities: Capabilities.parse({
-      steer: true,
-      interruptCascades: false,
-      resume: true,
-      fork: false,
-      subagentTranscripts: true,
-      backgroundTaskControl: true,
-      backgroundVisibility: "full",
-      planMode: false,
-      tokenUsage: false,
-      imageInput: true,
-      rewindFiles: false,
-    }),
-    createTranslator: () => ({
-      translate: (incoming) => structuredClone(bundles.get(incoming.channel) ?? []),
-      tick: () => [],
-    }),
-    steps: Array.from({ length: replies }, (): ScriptedStep => ({ on: "send" })),
-  });
-  return {
-    ...adapter,
-    async openSession(ctx: SessionContext) {
-      const session = await adapter.openSession(ctx);
-      // A turn started by a message carrying `holdMarker` keeps working until the person
-      // steers into it or stops it, so the server queue has a running turn to queue behind.
-      let holding = false;
-      // A Deck worker's open question, answered through `resolve`.
-      let asking: { turn: number; answer(): string } | undefined;
+    reply: scriptedReply,
+    config: scriptedConfig,
+    markers: { hold: holdMarker, limit: limitMarker, notice: limitNotice },
+    respond(text, cwd) {
+      const deck = deckTurn(text, cwd);
+      if (!deck) return;
+      if (deck.kind === "reply") return { ...deck, delayMs: deckStepMs };
       return {
-        ...session,
-        async send(input: ContentPart[], delivery: "steer" | "queue") {
-          await session.send(input, delivery);
-          const text = input
-            .flatMap((part) => (part.type === "text" ? [part.text] : []))
-            .join("\n");
-          const turn = ++seq;
-          const ask = message(`ask-${turn}`, "user", text);
-          const reply = message(`reply-${turn}`, "assistant", scriptedReply);
-          const deck = deckTurn(text, ctx.cwd);
-          if (deck) {
-            // A Deck lane works for a moment, then returns its role's artifact (or asks first).
-            ctx.onFrame(frame({ type: "turn.started", agent: "root", trigger: "user" }, ask));
-            setTimeout(() => {
-              if (deck.kind === "reply") {
-                ctx.onFrame(
-                  frame(message(`reply-${turn}`, "assistant", deck.text), end("completed")),
-                );
-                return;
-              }
-              asking = { turn, answer: deck.answer };
-              ctx.onFrame(
-                frame({
-                  type: "interaction.opened",
-                  agent: "root",
-                  interaction: `ask-${turn}`,
-                  blocking: true,
-                  request: {
-                    kind: "question",
-                    questions: [
-                      {
-                        id: "where",
-                        text: deck.question,
-                        options: [
-                          { id: "root", label: "Yes, at the root" },
-                          { id: "docs", label: "No, under docs/" },
-                        ],
-                        multiSelect: false,
-                        allowOther: false,
-                      },
-                    ],
-                  },
-                }),
-              );
-            }, deckStepMs);
-            return;
-          }
-          if (holding) {
-            // Steered into the held turn: answer it and finish.
-            holding = false;
-            ctx.onFrame(frame(ask, reply, end("completed")));
-          } else if (text.includes(holdMarker)) {
-            holding = true;
-            ctx.onFrame(frame({ type: "turn.started", agent: "root", trigger: "user" }, ask));
-          } else if (text.includes(limitMarker)) {
-            ctx.onFrame(
-              frame({ type: "turn.started", agent: "root", trigger: "user" }, ask, {
-                type: "retry",
-                agent: "root",
-                on: "rate_limit",
-                message: limitNotice,
-              }),
-            );
-          } else {
-            ctx.onFrame(
-              frame(
-                { type: "turn.started", agent: "root", trigger: "user" },
-                ask,
-                reply,
-                end("completed"),
-              ),
-            );
-          }
-        },
-        async resolve() {
-          // The testkit's script has no resolve step. The engine closes the question; the
-          // worker then finishes its card.
-          const open = asking;
-          if (!open) return;
-          asking = undefined;
-          ctx.onFrame(
-            frame(message(`reply-${open.turn}`, "assistant", open.answer()), end("completed")),
-          );
-        },
-        async close(reason: Parameters<typeof session.close>[0]) {
-          // The testkit's script has no close step; the session still exits, which is all a
-          // restart or a resume after a limit needs.
-          await session.close(reason).catch(() => {});
-        },
-        async interrupt() {
-          // Stop ends a held turn; the testkit's script never sees it, so it can't run out.
-          if (!holding) return;
-          holding = false;
-          ctx.onFrame(frame(end("interrupted")));
+        kind: "question",
+        delayMs: deckStepMs,
+        answer: deck.answer,
+        request: {
+          kind: "question",
+          questions: [
+            {
+              id: "where",
+              text: deck.question,
+              options: [
+                { id: "root", label: "Yes, at the root" },
+                { id: "docs", label: "No, under docs/" },
+              ],
+              multiSelect: false,
+              allowOther: false,
+            },
+          ],
         },
       };
     },
-  };
+    now: Date.now,
+    schedule(delayMs, callback) {
+      const timer = setTimeout(callback, delayMs);
+      return () => clearTimeout(timer);
+    },
+  });
 }
 
 rmSync(daemonHome, { recursive: true, force: true });

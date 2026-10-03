@@ -29,6 +29,11 @@ export function acceptTransition(
     return repo.store.atomic(() => {
       const state = repo.state(p.threadId);
       const thread = repo.store.getThread(p.threadId);
+      if (
+        thread?.details?.workspaceChange?.state === "preparing" ||
+        thread?.details?.workspaceChange?.uncertain
+      )
+        return fail("workspace_change_in_progress");
       if (!state || !thread) return fail("thread_not_found");
       if (repo.transitions.guarded(p.threadId)) return fail("thread_transition_in_progress");
       let id = p.threadId;

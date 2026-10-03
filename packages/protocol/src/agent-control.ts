@@ -182,6 +182,8 @@ export const ThreadPrepareCommand = z.object({
   deck: DeckOwnership.optional(),
   type: z.literal("thread.prepare"),
   handoffFrom: ThreadId.optional(),
+  mode: z.enum(["local", "worktree"]).optional(),
+  baseBranch: z.string().min(1).max(1024).optional(),
   threadId: ThreadId,
   workspaceId: WorkspaceId,
   title: z.string().min(1).max(256),

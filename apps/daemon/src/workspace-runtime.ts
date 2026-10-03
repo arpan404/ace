@@ -23,6 +23,12 @@ import type { Store } from "./store.ts";
 
 export interface WorkspaceRuntimeOptions {
   git?: GitOptions;
+  changeWorkspace?(
+    id: ThreadId,
+    commandId: string,
+    effect: () => Promise<ThreadDetails>,
+    reservation: { roots: readonly string[]; hasOwnedWork(id: ThreadId): boolean },
+  ): Promise<void>;
   forgeRunner?: (cwd: string) => CommandRunner;
   gitService?: WorkspaceGit;
   terminal?: TerminalManagerOptions;
@@ -182,6 +188,23 @@ export class WorkspaceRuntime {
       const id = "threadId" in p ? p.threadId : "link" in p ? p.link.threadId : undefined;
       if (!id) throw new Error("invalid_command");
       const threadId = ThreadId.parse(id);
+      if (p.type === "thread.workspace.set") {
+        if (!this.options.changeWorkspace) return { ok: false, error: "engine_unavailable" };
+        if (this.hasOwnedWork(threadId)) return { ok: false, error: "terminal_owned" };
+        const roots = await this.roots.changeRoots(threadId, p.mode);
+        await this.options.changeWorkspace(
+          threadId,
+          command.id,
+          async () => {
+            if (!allowed()) throw new Error("forbidden");
+            const details = await this.roots.change(threadId, p);
+            if (!allowed()) throw new Error("forbidden");
+            return details;
+          },
+          { roots, hasOwnedWork: (owner) => this.hasOwnedWork(owner) },
+        );
+        return { ok: true, threadId };
+      }
       const cwd = this.root(threadId);
       if (p.type === "git.commit")
         return {
