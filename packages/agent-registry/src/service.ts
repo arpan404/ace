@@ -81,7 +81,7 @@ export class AgentRegistry {
     return { command, args: [...login.args], env: { ...plan.env } };
   }
   /** Owner-approved installed command binding. Resolves and hashes without executing it. */
-  async bind(input: LocalBinding): Promise<void> {
+  async bind(input: LocalBinding): Promise<{ durability?: "uncertain" }> {
     if (this.#closed || this.#binding || this.#active) throw new Error("Registry busy");
     this.#binding = true;
     try {
@@ -89,8 +89,15 @@ export class AgentRegistry {
       if (this.#closed) throw new Error("Registry closed");
       const next = new LocalInventory(this.inventory.all());
       next.add(installation);
-      await this.#options.storage.save(next.all());
+      let durability: "uncertain" | undefined;
+      try {
+        await this.#options.storage.save(next.all());
+      } catch (error) {
+        if (!(error instanceof CommittedWriteError)) throw error;
+        durability = "uncertain";
+      }
       this.inventory.add(installation);
+      return durability ? { durability } : {};
     } finally {
       this.#binding = false;
     }
@@ -108,7 +115,7 @@ export class AgentRegistry {
         case "registry.bind": {
           if (!request.acpAgentId.startsWith("local:"))
             return reply({ ok: false, reason: "Local commands require a local: agent identity" });
-          await this.bind({
+          const durability = await this.bind({
             acpAgentId: request.acpAgentId,
             installationId: request.installationId,
             instanceId: request.instanceId,
@@ -121,7 +128,7 @@ export class AgentRegistry {
             .list()
             .find((entry) => entry.installationId === request.installationId);
           if (!installation) throw new Error("Binding not persisted");
-          return reply({ ok: true, installation });
+          return reply({ ok: true, installation, ...durability });
         }
         case "registry.list":
           return reply({
