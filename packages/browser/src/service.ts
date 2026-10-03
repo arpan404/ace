@@ -2,7 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 
-import { BrowserOpen, type BrowserState, type BrowserFrame } from "@ace/protocol";
+import {
+  BrowserOpen,
+  type BrowserArtifact,
+  type BrowserState,
+  type BrowserFrame,
+} from "@ace/protocol";
 import { recoverHeadless } from "./recovery.ts";
 import { detectFfmpeg } from "./discovery.ts";
 import { HeadlessBackend } from "./headless.ts";
