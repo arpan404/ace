@@ -47,13 +47,40 @@ it.each(["output", "items"])(
           type: "output.data",
           bytes: Buffer.from("private output").toString("base64"),
         });
-      else
+      else {
         expect(response).toMatchObject({
           type: "items.page",
           items: expect.arrayContaining([
-            expect.objectContaining({ id: "m", parts: [{ type: "text", text: "private" }] }),
+            expect.objectContaining({
+              id: "m",
+              parts: [
+                expect.objectContaining({
+                  type: "text",
+                  text: "private",
+                  source: expect.objectContaining({ bytes: 14, encoding: "utf-16le" }),
+                }),
+              ],
+            }),
           ]),
         });
+        if (response.type !== "items.page") throw new Error("Missing indexed page");
+        const returned = response.items.find((entry) => entry.id === "m");
+        if (returned?.type !== "message") throw new Error("Missing private message");
+        const part = returned.parts[0];
+        if (part?.type !== "text" || !part.source) throw new Error("Missing private text source");
+        client.send({
+          type: "output.read",
+          requestId: "text",
+          streamId: part.source.streamId,
+          offset: 0,
+          limit: 100,
+        });
+        expect(await client.next()).toMatchObject({
+          type: "output.data",
+          streamId: part.source.streamId,
+          bytes: Buffer.from("private", "utf16le").toString("base64"),
+        });
+      }
       client.send({ type: "ping" });
       expect(await client.next()).toEqual({ type: "pong" });
     }

@@ -83,6 +83,7 @@ The first full gate exposed integration regressions and invalid fixtures. Focuse
 - Recover missing-directory settings changes with bounded stat polling until the actual parent can be watched. A deterministic native-notification-loss regression and the existing real watcher assertions keep the original timeout.
 - Keep read-only diagnostics available while draining. Prevent revoked commands from passing an asynchronous admission boundary.
 - Stage Playwright and the Claude SDK intact, with license inputs. Bundle the integrated review, history, usage, browser encoding and workspace helper processes at their runtime paths. The standalone daemon smoke test runs without a checkout.
+- Update the remote paging fixture for indexed text source descriptors while retaining exact private text assertions and checking the advertised source bytes over the authenticated socket.
 - Align fixtures with the settled interaction-close, empty-child-bucket and native MCP cwd contracts. Preserve every legacy MCP argument at the JSON byte limit. Inject invalid cache stdout through base64 arguments so NUL bytes reach the decoder.
 - Preserve printf escapes through nested terminal scripts and disable history expansion in their controlled Bash profile. Keeper, shell and pinned background-job exit assertions remain unchanged.
 
