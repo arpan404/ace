@@ -249,7 +249,11 @@ test("failed configuration and rollback prevent turns on an uncertain native ses
   const h = setup({ configureFails: true });
   const id = await h.create();
   const sent = h.inputs.length;
-  h.command({ type: "thread.switch", threadId: id, selection: { provider: "codex", model: "model-b" } });
+  h.command({
+    type: "thread.switch",
+    threadId: id,
+    selection: { provider: "codex", model: "model-b" },
+  });
   await h.engine.flush();
   expect(h.store.getThread(id)?.switch).toMatchObject({
     state: "failed",

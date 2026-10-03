@@ -245,7 +245,9 @@ export async function openSession(
       const executionOptions = ClaudeSelectionOptions.parse(selection.options);
       ensureOpen();
       await q.setModel(selection.model);
-      await q.setPermissionMode(executionOptions.permissionMode ?? configuration.permissionMode ?? "default");
+      await q.setPermissionMode(
+        executionOptions.permissionMode ?? configuration.permissionMode ?? "default",
+      );
       await q.applyFlagSettings({ effortLevel: executionOptions.effort ?? null });
     },
     async send(parts, delivery) {

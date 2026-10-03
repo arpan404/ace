@@ -58,6 +58,8 @@ export const PortableHandoff = z.object({
   omittedItems: z.number().int().nonnegative(),
   history: z.object({
     type: z.literal("items.page"),
+    tool: z.literal("ace_read_handoff").default("ace_read_handoff"),
+    chunkTool: z.literal("ace_read_handoff_chunk").default("ace_read_handoff_chunk"),
     threadId: ThreadId,
     before: z.number().int().positive(),
     limit: z.literal(50),
@@ -82,7 +84,13 @@ export const TransitionCommands = [
     threadId: ThreadId,
     summary: z.string().min(1).max(16384),
     citations: z.array(HandoffCitation).min(1).max(100),
-    patch: z.string().min(1).max(65536).optional(),
+    patch: z
+      .string()
+      .min(1)
+      .max(65536)
+      .refine((value) => new TextEncoder().encode(value).byteLength <= 65536)
+      .meta({ "x-ace-constraint": "Patch is at most 65536 encoded UTF-8 bytes." })
+      .optional(),
   }),
   z.object({
     type: z.literal("thread.switch"),

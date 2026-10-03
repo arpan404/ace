@@ -9,8 +9,8 @@
       "sha256": "b422710b80e86e6b9ff1120835732f18f8cbbd76a82b8d68b502d54eba2cbf9b"
     },
     "commands.md": {
-      "bytes": 16392,
-      "sha256": "807503c35b4dd116dd0097cc142a00740f74527c832d2557ce5c2e4ddfccd50a"
+      "bytes": 16457,
+      "sha256": "ca3c145c397e9000cc16944df3779df5942633daff944fd46d618de54f4f598c"
     },
     "conductor.md": {
       "bytes": 17184,
@@ -25,8 +25,8 @@
       "sha256": "ff9b63dec5047ac9b9ec874103eb654c38564989436cfae3784197ac5b7a1af9"
     },
     "mcp.md": {
-      "bytes": 12579,
-      "sha256": "7fde5bdc97733c8837fa987477c5e532169d3c076d47fb0cdbe8222466664ed1"
+      "bytes": 27268,
+      "sha256": "88a1c2c7cdd1522c53977bbaf7fabee8466fa90c050119771562625c874f0f80"
     },
     "models.md": {
       "bytes": 9142,
@@ -225,8 +225,8 @@
       "sha256": "b65cdd57e3595d55d32fdb9bce3c5498945bfac9be2f122383582635ed9ad4ec"
     },
     "schema/CommandPayload.json": {
-      "bytes": 13971,
-      "sha256": "27c0c8babcedb976180422b9274b85a2fac119030d1d369a7fb91a04a8a20b0e"
+      "bytes": 14048,
+      "sha256": "72aa4a85598f987c122d712f4c79f5e469a1448af579958ecef9e3b36823ba98"
     },
     "schema/CommandPlan.json": {
       "bytes": 1803,
@@ -440,9 +440,25 @@
       "bytes": 743,
       "sha256": "1764e56ab99522e647caae41cb727e909c4b3615c7ec7146e22da3f9a6bcaf07"
     },
+    "schema/HandoffChunk.json": {
+      "bytes": 574,
+      "sha256": "03d83df9d31471d8928d8f960d55942502d8af8407d1d8eefa9c1fc7e81fa203"
+    },
+    "schema/HandoffChunkInput.json": {
+      "bytes": 684,
+      "sha256": "a80fc6adb59891c6f3a5a4a64873215f19385edfb985d49207629b748a13e4b7"
+    },
     "schema/HandoffCitation.json": {
       "bytes": 385,
       "sha256": "fb3abe373249b694179ced81c8fbd07bbaeb92b485f20031ffe1bb9925af8844"
+    },
+    "schema/HandoffPage.json": {
+      "bytes": 687,
+      "sha256": "3066ae8cb7dc2cd6ab29af3b1d34c355f171b79e9bba3e202525e0ea9fd47307"
+    },
+    "schema/HandoffPageInput.json": {
+      "bytes": 555,
+      "sha256": "cf8c411ca55331fd42cce6b945d4c2ef58193078784dfe7292d6e90c8c2a1d8c"
     },
     "schema/HistoryContinueRequest.json": {
       "bytes": 804,
@@ -853,8 +869,8 @@
       "sha256": "b534ccd8dfceae99475520309154320287db33d921bfe8d808d6cdded1bbdbc9"
     },
     "schema/PortableHandoff.json": {
-      "bytes": 2052,
-      "sha256": "29dd4a059a2835a1f62c6e1329c9b28f349ea1f813184eaa4496619f59a1f355"
+      "bytes": 2341,
+      "sha256": "03af61a216217747012bd87f80ef7bee234b55373da702b2cc86562d428a10bc"
     },
     "schema/PosixSessionsSchema.json": {
       "bytes": 501,
@@ -1520,6 +1536,22 @@
       "bytes": 425,
       "sha256": "6bb766504472cd8569ae7bac291c8bc53df1239113ba9388b0d07ce6c2113ace"
     },
+    "schema/ace_read_handoff.input.json": {
+      "bytes": 199,
+      "sha256": "59f40bf437c0bfc8bc6b87a7746fa8632de1926e6e924b2cd3c643ddb47e4eec"
+    },
+    "schema/ace_read_handoff.output.json": {
+      "bytes": 41264,
+      "sha256": "852e64417400658cfcb8c4a5e990c3dbf936c9dde8b80d2a5b618214cbf277f3"
+    },
+    "schema/ace_read_handoff_chunk.input.json": {
+      "bytes": 206,
+      "sha256": "61e5aa51fcea32494ee71294d4a8c037d6728d39207945eb7ee9510d7f9a7073"
+    },
+    "schema/ace_read_handoff_chunk.output.json": {
+      "bytes": 624,
+      "sha256": "115ef7493c7423f398918e48b61e5467fc96efdde240005fe8a91f516452203f"
+    },
     "schema/ace_spawn_agent.input.json": {
       "bytes": 195,
       "sha256": "ed27d2c8171bcb985de2d75986bf1a766ea29cc567f51cfea45cc001ed63a658"
@@ -1537,10 +1569,10 @@
       "sha256": "ed4faae5da073ace71d2aea539c9cd4c20ce230543f5a0f01b2c983ba37c6731"
     },
     "types.md": {
-      "bytes": 256402,
-      "sha256": "34081acef46d201a206bb0f399cac80822f803f7512e34c5dba84a04583c18c3"
+      "bytes": 259035,
+      "sha256": "0842a049bf2031f461214d9bf92950fd8a7ff2cdecc40a83657fa9d9a8b5cd7b"
     }
   },
-  "input": "7045301b8d4c8397f0dad18c9cbfd9f0c8f6d0591ac47f12f68bb017dc2bc607",
+  "input": "15eccca9815618d3eed6c7812499d78d632f4b11cb37722ccf9fc46086233124",
   "version": 1
 }

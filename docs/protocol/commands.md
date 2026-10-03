@@ -71,7 +71,7 @@ Example:
 | threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
 | summary | yes | string | {"minLength":1,"maxLength":16384} |
 | citations | yes | array | {"minItems":1,"maxItems":100,"items":{"$ref":"https://ace.local/protocol/v1/HandoffCitation.json"}} |
-| patch | no | string | {"minLength":1,"maxLength":65536} |
+| patch | no | string | {"minLength":1,"maxLength":65536,"x-ace-constraint":"Patch is at most 65536 encoded UTF-8 bytes."} |
 
 Example:
 

@@ -87,6 +87,7 @@ export function acceptTransition(
           ...(native ? { fork: native } : {}),
           ...(portable ? { handoff: portable } : {}),
         });
+        repo.transitions.history.grant(id, thread.id, point.throughSeq);
         forkThreadId = id;
       } else if (p.type === "thread.merge") {
         if (

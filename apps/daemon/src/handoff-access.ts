@@ -1,0 +1,66 @@
+import { z } from "zod";
+import type { ThreadId } from "@ace/protocol";
+import type { Store } from "./store.ts";
+
+/** Durable capabilities for paged conversation reads, independent of prompt delivery. */
+export class HandoffAccess {
+  private store: Store;
+  constructor(store: Store) {
+    this.store = store;
+    store.atomic((db) =>
+      db.exec(`CREATE TABLE IF NOT EXISTS engine_handoff_grants (
+      recipient TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      source TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      through_seq INTEGER NOT NULL, PRIMARY KEY(recipient, source)
+    )`),
+    );
+  }
+  admit(recipient: ThreadId, source: ThreadId): void {
+    this.store.atomic((db) => {
+      if (
+        db
+          .prepare("SELECT source FROM engine_handoff_grants WHERE recipient=? AND source=?")
+          .get(recipient, source)
+      )
+        return;
+      const count = Number(
+        db
+          .prepare("SELECT COUNT(*) AS n FROM engine_handoff_grants WHERE recipient=?")
+          .get(recipient)?.n,
+      );
+      if (count >= 8) throw new Error("Handoff history grant capacity exceeded");
+    });
+  }
+  grant(recipient: ThreadId, source: ThreadId, throughSeq: number): void {
+    this.admit(recipient, source);
+    this.store.atomic((db) =>
+      db
+        .prepare(`INSERT INTO engine_handoff_grants VALUES (?, ?, ?)
+      ON CONFLICT(recipient,source) DO UPDATE SET through_seq=MAX(through_seq,excluded.through_seq)`)
+        .run(recipient, source, throughSeq),
+    );
+  }
+  boundary(recipient: ThreadId, source: ThreadId): number {
+    if (recipient === source) return this.store.headSeq();
+    return this.store.atomic((db) => {
+      const row = db
+        .prepare("SELECT through_seq FROM engine_handoff_grants WHERE recipient=? AND source=?")
+        .get(recipient, source);
+      if (!row) throw new Error("Source history is outside this handoff");
+      return z.number().int().nonnegative().parse(row.through_seq);
+    });
+  }
+  stream(recipient: ThreadId, source: ThreadId, streamId: string): "utf-16le" | "utf-8" {
+    const cutoff = this.boundary(recipient, source);
+    return this.store.atomic((db) => {
+      const allowed = (table: "item_text_streams" | "output_streams") =>
+        db
+          .prepare(`SELECT s.id FROM ${table} s
+        JOIN item_heads h ON h.id=s.item_id WHERE s.id=? AND h.thread_id=? AND h.created_seq<=?`)
+          .get(streamId, source, cutoff);
+      if (allowed("item_text_streams")) return "utf-16le";
+      if (allowed("output_streams")) return "utf-8";
+      throw new Error("Stream is outside this handoff");
+    });
+  }
+}

@@ -43,4 +43,4 @@ export {
 } from "./discovery-apis.ts";
 
 export type { ContentToolDefinition } from "./content-tools.ts";
-export { builtinToolCatalog } from "./catalog.ts";
+export { builtinToolCatalog, handoffToolCatalog } from "./catalog.ts";

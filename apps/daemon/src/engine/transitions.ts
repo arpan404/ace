@@ -56,6 +56,7 @@ export class ThreadTransitions {
         citations: p.citations,
       });
       const previous = this.repo.transitions.get(actor.id);
+      this.repo.transitions.history.admit(actor.id, p.threadId);
       const next = { ...previous, context: [...previous.context, text] };
       // Capacity admission precedes external git writes.
       if (next.context.length > 8 || Buffer.byteLength(JSON.stringify(next)) > 131072)
@@ -66,6 +67,7 @@ export class ThreadTransitions {
         await this.io.applyPatch({ worktree: this.repo.session(actor.id).cwd, patch: p.patch });
       }
       this.repo.store.atomic(() => {
+        this.repo.transitions.history.grant(actor.id, p.threadId, this.repo.store.headSeq());
         this.repo.transitions.set(actor.id, next);
         actor.apply([
           {

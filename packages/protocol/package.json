@@ -10,7 +10,8 @@
     "./history": "./src/history.ts",
     "./forge": "./src/forge.ts",
     "./accounts": "./src/accounts.ts",
-    "./thread-transitions": "./src/thread-transitions.ts"
+    "./thread-transitions": "./src/thread-transitions.ts",
+    "./handoff-read": "./src/handoff-read.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

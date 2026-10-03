@@ -7,7 +7,8 @@ establish runtime correctness.
 
 The behavioural suites are `thread-fork.process.test.ts`,
 `thread-switch.process.test.ts`, `thread-merge-account.process.test.ts`, Codex's
-`fork-selection.process.test.ts`, and `packages/handoff/src/index.test.ts`.
+`fork-selection.process.test.ts`, Claude's `fork-selection.process.test.ts`,
+`handoff-read.process.test.ts`, and `packages/handoff/src/index.test.ts`.
 They use fake providers, temporary SQLite, native account rollouts and real git
 patch application. Synchronisation uses engine flushes, frame delivery and
 explicit I/O barriers, with no sleeps or wall-clock performance assertions.
@@ -30,6 +31,9 @@ explicit I/O barriers, with no sleeps or wall-clock performance assertions.
 | Drop queued switches during restart recovery             | Latest queued selection survives restart                        | Not executed, tests run at merge |
 | Release session ownership after a failed close           | Failed close preserves old native session and refuses switch    | Not executed, tests run at merge |
 | Remove patch-merge guards                                | Both trees reject racing sends until patch completion           | Not executed, tests run at merge |
+| Continue after configuration and rollback fail           | Uncertain configuration prevents a later turn                   | Not executed, tests run at merge |
+| Ignore recipient grants or their sequence cutoff         | Handoff tools deny unrelated threads and later source streams   | Not executed, tests run at merge |
+| Delete history grants after prompt delivery              | Portable fork can page and reconstruct full text after delivery | Not executed, tests run at merge |
 
 The non-gating benchmarks are `packages/handoff/bench/selection.ts` and
 `apps/daemon/bench/thread-transitions.ts`. The first selects 200 previews over a

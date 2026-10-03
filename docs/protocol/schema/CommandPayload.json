@@ -54,7 +54,8 @@
         "patch": {
           "maxLength": 65536,
           "minLength": 1,
-          "type": "string"
+          "type": "string",
+          "x-ace-constraint": "Patch is at most 65536 encoded UTF-8 bytes."
         },
         "summary": {
           "maxLength": 16384,

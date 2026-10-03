@@ -8,6 +8,13 @@ fork with citations and explicit omitted-history pointers. Forking a finished
 point does not stop later source work. Forks inherit the source workspace; they
 do not automatically create an isolated git worktree.
 
+`ace_read_handoff` pages those pointers through MCP. `ace_read_handoff_chunk`
+reads full text, reasoning and shell output in chunks of at most 32 KiB.
+Cross-thread reads require a durable grant to the fork's chosen cutoff or a
+merged fork's history. Grants survive prompt delivery and restart, with eight
+source grants per recipient and explicit capacity errors. Unrelated threads and
+streams created after a fork's cutoff are denied.
+
 The fork thread and its root agent expose `lineage`, with the parent thread,
 parent agent, chosen point, mode and `lossy` flag. `parentId` continues to describe
 live execution ownership. An independent fork does not hold its source open.

@@ -29,12 +29,22 @@
           "maximum": 9007199254740991,
           "type": "integer"
         },
+        "chunkTool": {
+          "const": "ace_read_handoff_chunk",
+          "default": "ace_read_handoff_chunk",
+          "type": "string"
+        },
         "limit": {
           "const": 50,
           "type": "number"
         },
         "threadId": {
           "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "tool": {
+          "const": "ace_read_handoff",
+          "default": "ace_read_handoff",
+          "type": "string"
         },
         "type": {
           "const": "items.page",

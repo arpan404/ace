@@ -36,6 +36,9 @@ recent complete items, keeps chronology, tags every excerpt with source IDs,
 and reports counts and paging pointers for everything omitted. Selection never
 exceeds its encoded byte budget. The daemon reads bounded pages, not an entire
 conversation. Cursor can import the same package for portable forks.
+Scoped MCP tools expose pages and bounded text/output chunks. Durable grants
+retain the selected cutoff after prompt delivery; unrelated histories remain
+outside the recipient's scope. Grants have an explicit per-recipient cap.
 
 A merge supplies a human/agent-authored summary with validated citations into
 the fork. It becomes a synthetic context message in the source and is delivered

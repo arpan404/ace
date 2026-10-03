@@ -1,10 +1,12 @@
 import { screenToolkit } from "@ace/screen";
+import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startMcp(context: ServiceContext): Promise<void> {
   const { options, store, resources, services } = context;
 
   const mcp = await startDaemonMcp(store, [
+    handoffToolkit(store),
     ...(options.toolkits ?? []),
     ...(services.screen ? [screenToolkit(services.screen)] : []),
   ]);

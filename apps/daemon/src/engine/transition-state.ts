@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { HandoffAccess } from "../handoff-access.ts";
 import type { Store } from "../store.ts";
 import {
   ExecutionSelection,
@@ -21,8 +22,10 @@ export type TransitionMetadata = z.infer<typeof Metadata>;
 /** Durable bounded metadata, read only at command/turn boundaries. */
 export class TransitionState {
   private store: Store;
+  readonly history: HandoffAccess;
   constructor(store: Store) {
     this.store = store;
+    this.history = new HandoffAccess(store);
     store.atomic((db) =>
       db.exec(`
       CREATE TABLE IF NOT EXISTS engine_transitions (
