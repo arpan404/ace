@@ -20,6 +20,7 @@ import { CursorJournal } from "./journal.ts";
 import { recoverCursorCheckpoint } from "./recovery.ts";
 import { localPolicy } from "./policy.ts";
 import { sdkFailure } from "./sdk-failure.ts";
+import { sdkInput } from "./sdk-input.ts";
 
 export type { SdkModule } from "./runtime-boundary.ts";
 import type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";
@@ -305,23 +306,13 @@ export class HostRuntime {
     try {
       await checkCheckpointBudget(this.root, this.options.limits.maxCheckpointBytes);
       await this.frame("send", { input: input.input });
-      const texts: string[] = [];
-      const images: { url: string }[] = [];
-      for (const part of input.input) {
-        if (part.type === "text") texts.push(part.text);
-        else if (part.type === "image") images.push({ url: part.url });
-        else texts.push(`Referenced workspace file: ${part.path}`);
-      }
       let segmentRun: SdkRunBoundary | undefined;
-      segmentRun = await this.agent.send(
-        { text: texts.join("\n"), ...(images.length ? { images } : {}) },
-        {
-          idempotencyKey: `${input.commandId ?? input.operationId}:${input.segment}`,
-          onDelta: async ({ update }) => {
-            await this.frame("delta", update, input, segmentRun);
-          },
+      segmentRun = await this.agent.send(sdkInput(input.input), {
+        idempotencyKey: `${input.commandId ?? input.operationId}:${input.segment}`,
+        onDelta: async ({ update }) => {
+          await this.frame("delta", update, input, segmentRun);
         },
-      );
+      });
       this.run = segmentRun;
       await this.frame("segment", { nativeRunId: segmentRun.id }, input, segmentRun);
       const run = segmentRun;

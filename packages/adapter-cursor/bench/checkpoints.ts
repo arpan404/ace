@@ -48,6 +48,21 @@ try {
       body: { type: "text-delta", text: "delta" },
     });
   report("sdk-boundary-journal-fsync", 1000, performance.now() - start);
+  start = performance.now();
+  for (let i = 0; i < 1000; i += 8)
+    await Promise.all(
+      Array.from({ length: 8 }, (_, j) =>
+        journal?.append({
+          schemaVersion: 1,
+          generation: "bench",
+          operationId: "operation",
+          segment: 0,
+          kind: "delta",
+          body: { type: "text-delta", text: `group-${i + j}` },
+        }),
+      ),
+    );
+  report("sdk-boundary-journal-group-commit", 1000, performance.now() - start);
   let replayed = 0;
   start = performance.now();
   await journal.close();

@@ -32,3 +32,23 @@ console.log(
     peakRssBytes: process.resourceUsage().maxRSS * 1024,
   }),
 );
+
+for (const type of ["text-delta", "thinking-delta"]) {
+  const childStart = performance.now();
+  for (let i = 0; i < count; i++)
+    await streamSdkBody(
+      { type: "tool-call-delta", callId: "task", taskUpdate: { type, text: output } },
+      `child-${type}-${i}`,
+      async () => {},
+      {},
+    );
+  const elapsed = performance.now() - childStart;
+  console.log(
+    JSON.stringify({
+      path: `sdk-child-${type}-stream`,
+      opsPerSecond: (count * 1000) / elapsed,
+      microsPerOp: (elapsed * 1000) / count,
+      peakRssBytes: process.resourceUsage().maxRSS * 1024,
+    }),
+  );
+}

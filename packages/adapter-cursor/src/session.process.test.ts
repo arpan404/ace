@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { expect, it } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import { apply, createThreadState } from "@ace/core";
-import { createCursorAdapter, openCursorSession, CursorHost } from "./index.ts";
+import { createCursorAdapter, openCursorSession } from "./index.ts";
+import { spawnSupervised, type SupervisedProcess } from "@ace/provider-kit/process";
+import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 
 const fakeHost = `
 import { createInterface } from 'node:readline';
@@ -100,31 +102,57 @@ createInterface({input:process.stdin}).on('line',line=>{
  else if(input.method==='send') { pending=input.id;out({id:'host:1',method:'frame',params:{schemaVersion:1,generation:options.generation,operationId:'intent',segment:0,kind:'delta',body:{type:'text-delta',text:'await storage'}}}); }
  else if(input.id==='host:1') { if(input.error)process.exit(1);acknowledged=true;out({id:pending,result:{runId:'native-run'}}); }
  else if(input.method==='probe') out({id:input.id,result:{acknowledged}});
+ else if(input.method==='close') out({id:input.id,result:{disposed:true}});
 });
 `,
   );
-  const host = new CursorHost(
-    { env: { HOME: root }, entry, generation: () => "host" },
-    async () => {
-      received.resolve();
-      await commit.promise;
+  let process: SupervisedProcess | undefined;
+  let probe: JsonRpcPeer | undefined;
+  const session = await openCursorSession(
+    {
+      threadId: ThreadId.parse("ack-thread"),
+      cwd: root,
+      signal: new AbortController().signal,
+      onExit: () => {},
+      onFrame: async (frame) => {
+        if (frame.dir === "recv") {
+          received.resolve();
+          await commit.promise;
+        }
+      },
+    },
+    {
+      env: { HOME: root },
+      entry,
+      instanceId: "instance",
+      policy: "full-access",
+      generation: () => "host",
+      now: () => 1,
+      spawn: (options) => {
+        process = spawnSupervised(options);
+        return process;
+      },
     },
   );
   try {
-    await host.request("open", { generation: host.generation });
-    const sending = host.request("send");
+    const sending = session.send([{ type: "text", text: "synthetic" }], "queue", "intent");
     await received.promise;
+    if (!process) throw new Error("Synthetic host unavailable");
+    // Attach the independent peer after the sole frame request was delivered.
+    // provider-kit's shared pipe owner reserves distinct request identities.
+    probe = new JsonRpcPeer(process);
     // The first round trip drains ACK-producing parent microtasks. The second
     // crosses the child's FIFO input after any prematurely queued ACK. Both
     // happen with storage blocked; no immediate promise-state/timing assertion.
-    await host.request("probe");
-    expect(await host.request("probe")).toEqual({ acknowledged: false });
+    await probe.request("probe");
+    expect(await probe.request("probe")).toEqual({ acknowledged: false });
     commit.resolve();
-    expect(await sending).toEqual({ runId: "native-run" });
-    expect(await host.request("probe")).toEqual({ acknowledged: true });
+    await sending;
+    expect(await probe.request("probe")).toEqual({ acknowledged: true });
   } finally {
     commit.resolve();
-    await host.stop();
+    probe?.close();
+    await session.close("shutdown");
     await rm(root, { recursive: true, force: true });
   }
 });

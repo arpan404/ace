@@ -193,3 +193,19 @@ it("retains large surviving child text from an old segment without settling its 
   ).toMatchObject({ agentId: child.agent.id, complete: false, parts: [{ type: "text", text }] });
   expect(r.state.agents.root?.activeRun).toBeDefined();
 });
+
+it("retains large deeper task data as raw evidence without claiming an attributed transcript", async () => {
+  const r=replay();
+  r.frame("delta",{type:"tool-call-started",callId:"parent",toolCall:{type:"task",args:{}}});
+  r.frame("delta",{type:"tool-call-delta",callId:"parent",taskUpdate:{type:"tool-call-started",
+    callId:"grandchild",toolCall:{type:"task",args:{}}}});
+  const p=await streamSdkBody({type:"tool-call-delta",callId:"parent",taskUpdate:{
+    type:"tool-call-delta",callId:"grandchild",taskUpdate:{type:"text-delta",text:"x".repeat(70000)},
+  }},"deep-child",async(kind,body)=>{r.frame(kind,body);},{});
+  r.frame("delta",p.body);
+  expect(p.raw?.size).toBeGreaterThan(70000);
+  expect(Object.values(r.state.items).filter((item)=>item.type === "message" && item.role === "assistant"))
+    .toHaveLength(0);
+  expect(Object.values(r.state.items).some((item)=>item.type === "notice" && item.text.includes("beyond one level")))
+    .toBe(true);
+});
