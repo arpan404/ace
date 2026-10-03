@@ -9,7 +9,10 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
   if (item?.type !== "message") return null;
   const text = item.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("");
   const files = item.parts.flatMap((part) => (part.type === "file" ? [part.path] : []));
-  const images = item.parts.flatMap((part) => (part.type === "image" ? [part] : []));
+  // Images come from the daemon; only inline data, blobs and web URLs are loaded.
+  const images = item.parts.flatMap((part) =>
+    part.type === "image" && /^(data:image\/|blob:|https?:)/.test(part.url) ? [part] : [],
+  );
   return (
     <div className="flex flex-col items-end">
       <div className="max-w-[82%] rounded-[16px_16px_4px_16px] bg-bubble px-[15px] py-2.5 text-[15px] leading-[1.55] tracking-[-0.005em] wrap-break-word whitespace-pre-wrap">

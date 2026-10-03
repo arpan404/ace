@@ -1,5 +1,6 @@
 import { useItem } from "@ace/client-react";
 import { ArchiveIcon, InfoIcon, WarningIcon } from "@phosphor-icons/react";
+import { memo } from "react";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import type { Block } from "../transcript/blocks.ts";
 import { BackgroundTaskLine } from "./background-task.tsx";
@@ -8,8 +9,11 @@ import { AssistantMessage, UserMessage } from "./messages.tsx";
 import { Subagents } from "./subagents.tsx";
 import { WorkLog } from "./work-log.tsx";
 
-/** One transcript block. Each child subscribes to its own items, so streaming stays local. */
-export function BlockView(props: { threadId: string; block: Block }) {
+/**
+ * One transcript block. Each child subscribes to its own items, so streaming stays local, and
+ * the block itself skips re-rendering when the virtualizer re-measures its neighbours.
+ */
+export const BlockView = memo(function BlockView(props: { threadId: string; block: Block }) {
   const { threadId, block } = props;
   switch (block.kind) {
     case "user":
@@ -27,7 +31,7 @@ export function BlockView(props: { threadId: string; block: Block }) {
     case "item":
       return <QuietItem threadId={threadId} itemId={block.itemId} />;
   }
-}
+});
 
 /** Notices, compaction, artifacts and messages ace did not send: one quiet line each. */
 function QuietItem(props: { threadId: string; itemId: string }) {

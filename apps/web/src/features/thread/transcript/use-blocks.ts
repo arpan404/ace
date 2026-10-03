@@ -1,6 +1,7 @@
-import { useThread } from "@ace/client-react";
 import type { ThreadReader } from "@ace/client";
-import { buildBlocks, blocksEqual, type Block } from "./blocks.ts";
+import { useThread } from "@ace/client-react";
+import { useState } from "react";
+import { blockItems, buildBlocks, blocksEqual, type Block } from "./blocks.ts";
 
 function readBlocks(reader: ThreadReader): Block[] {
   const background = new Map<string, string>();
@@ -11,12 +12,35 @@ function readBlocks(reader: ThreadReader): Block[] {
   return buildBlocks({ order: reader.order, item: (id) => reader.item(id), background });
 }
 
+/** Keep each unchanged block's object, so memoized rows skip re-rendering. */
+function reuse(previous: readonly Block[], next: Block[]): Block[] {
+  const byKey = new Map(previous.map((block) => [block.key, block]));
+  return next.map((block) => {
+    const old = byKey.get(block.key);
+    if (!old || old.kind !== block.kind) return block;
+    const a = blockItems(old);
+    const b = blockItems(block);
+    return a.length === b.length && a.every((id, index) => id === b[index]) ? old : block;
+  });
+}
+
 const none: readonly Block[] = [];
+
+/** A selector that remembers its last result, so unchanged blocks keep their objects. */
+function createBlockReader(): (reader: ThreadReader) => readonly Block[] {
+  let last: readonly Block[] = none;
+  return (reader) => {
+    last = reuse(last, readBlocks(reader));
+    return last;
+  };
+}
 
 /**
  * Transcript blocks. Re-derived only when items are added or background tasks start, never on
- * a streamed delta, and the list keeps its identity unless its shape changed.
+ * a streamed delta; the list and each unchanged block keep their identity. The thread screen
+ * remounts per thread, so one reader serves one thread.
  */
 export function useBlocks(threadId: string): readonly Block[] {
-  return useThread(threadId, ["order", "tasks"], readBlocks, blocksEqual) ?? none;
+  const [read] = useState(createBlockReader);
+  return useThread(threadId, ["order", "tasks"], read, blocksEqual) ?? none;
 }
