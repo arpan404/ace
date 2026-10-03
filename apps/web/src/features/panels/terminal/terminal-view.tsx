@@ -103,7 +103,7 @@ export function TerminalView(props: { sessions: TerminalSessions; id: string; na
   const { rows, exitCode } = useSession(sessions, id);
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
-  useResize(box, (cols, rows) => sessions.resize(id, cols, rows));
+  useResize(box, (cols, height) => sessions.resize(id, cols, height));
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     const bytes = keyBytes(event);
     if (bytes === undefined) return;
