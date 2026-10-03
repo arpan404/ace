@@ -118,7 +118,10 @@ durable storage acknowledgements; the terminal envelope carries a blob reference
 and semantic preview. Explicitly associated shell deltas and final-only output
 use canonical output streams; opaque shell events remain evidence. Live/final
 output overlap has no shared cursor and is disclosed without appending twice.
-Larger text/thinking deltas retain full content through ordered chunks. Depth,
+Larger root and one-level child text/thinking deltas retain full content through
+ordered chunks with task-call attribution and a preview marker. Surviving child
+chunks from older steering segments retain their original ownership; deeper
+content remains raw evidence with an incomplete-transcript notice. Depth,
 node, redaction, callback and byte overflow still fence execution visibly.
 
 Checkpoint inventory gates the SDK's full-conversation load before pagination.
@@ -126,7 +129,10 @@ Native writes and journal appends share a serialized aggregate quota. Writes
 reserve conservative growth before SDK I/O, including SQLite pages/WAL and
 allocation slack; rejection leaves the prior store untouched. One startup
 inventory initializes incremental accounting, and only known changed paths are
-rechecked. Journals retain one handle and fsync each durable callback. Failed I/O
+rechecked. Journals retain one handle and group concurrently admitted callbacks
+into one ordered fsync, with no timer window. Sequential callbacks still await
+durability before IPC. Close fences new admission and drains accepted groups.
+Failed I/O
 fences further writes rather than releasing uncertain allocations. Conservative
 headroom can refuse before the raw disk ceiling, requiring explicit handoff or
 an owner-configured larger recovery budget. Unexpected SDK allocation/format
@@ -138,6 +144,8 @@ Behavior tests, non-gating delta/IPC/checkpoint benchmarks and synthetic process
 written but **not executed** under the owner's merge-only rule. No SDK model turn,
 login, recorder, fixture, benchmark or mutation was run. See
 [verification and pending recordings](../../docs/integration/cursor-sdk-verification.md).
+The approval-gated SDK recorder driver and setup/observation contract are
+documented in [SDK recordings](../../tools/recorder/CURSOR_SDK.md).
 
 The merged engine thread transitions use `@ace/handoff` for bounded, cited
 portable context. A portable fork creates a fresh SDK agent and persists its

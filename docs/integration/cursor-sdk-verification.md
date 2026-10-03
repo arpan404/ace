@@ -2,8 +2,8 @@
 
 This branch contains the local SDK adapter, SDK-first daemon selection,
 backend/instance persistence, capabilities, bounded portable context, HTTP MCP
-injection, selected-instance model discovery, auth host seam and passive SDK
-recording support. Browser auth backend/protocol and durable checkpoint recovery
+injection, selected-instance model discovery, auth host seam and approval-gated SDK
+scenario recording support. Browser auth backend/protocol and durable checkpoint recovery
 are now assembled; UI implementation is separately owned. The branch is ready
 for static review, with runtime validation deferred to merge under owner policy. No live Cursor turn, browser login,
 fixture recording, benchmark, mutation or test was executed.
@@ -13,7 +13,7 @@ checks before merge. Behavior tests are written for merge-time execution. CI is
 disabled by the owner; no CI run, rerun or watch was requested.
 
 Static validation: `bun run fmt`, `bun run lint`, `bun run typecheck` and
-`bun run check:size` passed, with 2,329 sources within the 1,500-line limit. These do not establish runtime correctness.
+`bun run check:size` passed, with 2,338 sources within the 1,500-line limit. These do not establish runtime correctness.
 Main through `6d9a0118` was merged without rebasing. Its browser and desktop
 integration was preserved without UI edits, and its shared handoff/transition
 owner now retains SDK backend and account metadata.
@@ -71,6 +71,18 @@ Review-round behavior guards, all need run at merge:
 - Large text deltas retain complete content through ordered chunks; raw redaction excludes cross-chunk sentinel secrets and numeric secret fields while preserving usage counters and refusing getters.
 - A real synthetic host waits for the engine's durable frame acknowledgement before completing send.
 - Typed client auth errors stay outside the durable command outbox.
+
+Verifier-round behavior guards, all **not executed (tests run at merge)**:
+
+- Large one-level child text and thinking retain every chunk under the observed task identity, with no appended preview or root contamination.
+- Surviving child chunks from an older steering segment remain attributed while the replacement root stays active; deeper data remains raw evidence with a visibility notice.
+- Text-only child completion closes its message before the root result, independently of shell/tool boundaries.
+- Public session send waits across two independent host round trips with the engine commit blocked; only a durable ACK releases send.
+- Concurrent journal callbacks reach one blocked durability barrier together; neither resolves early, backlog is refused, and shutdown drains/recovery retains both ordered offsets.
+- Oversized journal groups refuse before any write, fence later admission and preserve the previous recoverable bytes.
+- The SDK recorder rejects absent approval, unverified Auto-review and missing MCP setup before capture/provider admission.
+- Approved synthetic recorder workflows retain selected HOME/policy/model, redact catalog sentinel keys, resume the same checkpoint and fork a fresh identity while preserving source observations.
+- Root result alone cannot complete a recording with unresolved background work; auth challenges/channels are excluded, repeated close is safe, and an already-finished root cannot spend another steering turn automatically.
 
 Existing engine restart tests cover committed input, acknowledged/pending intents
 and uncertain delivery without automatic resend. Parent-death, slow-consumer,
@@ -152,7 +164,7 @@ Merge integration guards, all need run at merge:
 52. Restore the CLI's always-throwing login fence: public account-add browser challenge and completion assertions.
 53. Bypass SDK body streaming or terminate on a normal megabyte result: public host and engine output/raw completeness assertions.
 54. Duplicate final stdout after live output: exactly one incremental output stream assertion before and after terminal success.
-55. Remove storage acknowledgement waiting: a real synthetic host's send must remain pending before the commit barrier.
+55. Remove storage acknowledgement waiting: two independent host round trips must observe no ACK while the public session commit is blocked, then observe ACK after commit.
 56. Leak numeric or cross-chunk secrets, or execute payload getters: raw reconstruction, sentinel exclusion and untouched getter assertions.
 57. Render a large text preview as fresh content: one complete assistant message must contain every original chunk.
 58. Append raw bytes to another thread: cross-thread storage refusal.
@@ -172,6 +184,28 @@ Merge integration guards, all need run at merge:
 
 69. Remove source-thread authorization from socket handoff creation: denied history creates no recipient, while authorized history still creates one.
 
+70. Render a large child text preview instead of chunks: full child-attributed text assertion.
+71. Drop child thinking chunks or render the preview twice: complete reasoning text and one-item assertion.
+72. Omit the task call from child chunks: child ownership and no root message assertion.
+73. Fence surviving old-segment child chunks: complete child text with the replacement root still active.
+74. Remove child-terminal transcript closure: text-only message becomes complete before the root result.
+75. Restore per-callback fsync for concurrent admission: both real file rows must reach the first blocked durability barrier.
+76. Resolve a journal group before fsync: no callback may release across the independent file-I/O round trip.
+77. Check group quota after writing: prior journal bytes and recovery remain unchanged.
+78. Drop accepted callbacks during close: both commits and reopened offsets must survive shutdown drain.
+79. Skip host/session storage ACK waiting: the second independent host probe must still report no ACK while the engine commit is blocked.
+80. Bypass recorder approval: public API must return the authorization schema error and create no capture.
+81. Reuse ambient HOME or omit recorder policy/model: synthetic provider output must report the selected home, composer-2.5 and effective policy.
+82. Start a fresh agent instead of checkpoint continuation: resumed capture retains one native agent and two distinct ace runs.
+83. Resume the source during portable fork: source/recipient native identities must differ and source status remain preserved.
+84. Complete recorder on root result with surviving background work: capture must be incomplete with a non-done tree.
+85. Remove recorder Auto-review setup refusal: the public refusal must name Auto-review before any capture.
+86. Bypass required fixture MCP setup: the public refusal must name the missing lease before any capture.
+87. Append deeper task previews or remove fidelity warning: no attributed assistant text and an explicit beyond-one-level notice.
+88. Admit SDK auth/non-SDK channels into capture: no browser challenge may reach the artifact.
+89. Make capture close non-idempotent: public auth-exclusion cleanup closes twice without waiting for a nonexistent second finish.
+90. Send replacement after the steering trigger's root already finished: incomplete capture contains only the original ace run.
+
 These are designed mutation cases, not evidence that executed mutations were killed.
 
 ## Performance — needs run at merge
@@ -179,11 +213,12 @@ These are designed mutation cases, not evidence that executed mutations were kil
 `packages/adapter-cursor/bench/translate.ts` measures admitted delta translation
 without accumulated transcript scans; `bench/ipc.ts` covers payload admission and
 shared writer backpressure. `bench/checkpoints.ts` measures callback journal
-fsync/replay with a retained handle and the production `boundedCheckpointStore`
+sequential/group-commit fsync/replay with a retained handle and the production `boundedCheckpointStore`
 decorator, sharing its quota with the journal. `bench/body-stream.ts` measures
-redacted raw JSON and output chunk preparation. `bench/children.ts` exercises
+redacted raw JSON, output and one-level child text/thinking preparation. `bench/children.ts` exercises
 owner-indexed child terminal preservation; `apps/daemon/bench/cursor-raw.ts`
-measures the shared SQLite append/read path. All report ops/s,
+measures the shared SQLite append/read path. `tools/recorder/bench/cursor-sdk.ts`
+measures the bounded canonical recording evidence fold. All report ops/s,
 microseconds/op and peak RSS. **No numbers are available:** the owner prohibits benchmark execution.
 Long-session identity eviction, terminal boundaries, IPC/backpressure throughput
 and SDK full-conversation/native-helper RSS still need measured coverage. The SDK
@@ -194,9 +229,16 @@ can buffer internally; an old-space budget is not a total process RSS guarantee.
 Approved SDK fixtures: **none**. Existing ACP fixtures remain intact.
 All SDK scenarios use **1.0.35**, **composer-2.5**, disposable workspaces and a fresh
 isolated fixture instance. Namespace:
-`fixtures/cursor-sdk/1.0.35/composer-2.5`. The passive capture sink cannot start a
-turn or sign in. Actual recorder orchestration and fixture expectations will be
-completed with the owner-approved recordings, without changing runtime admission.
+`fixtures/cursor-sdk/1.0.35/composer-2.5`. The passive sink remains separately
+available; `recordCursorSdkScenario` from `@ace/recorder/cursor-sdk` now provides explicit
+per-scenario approval-gated orchestration, selected-instance catalog capture,
+interrupt/steer/resume/fresh portable workflows and bounded canonical tree
+analysis. It never signs in or automatically retries/promotes artifacts. MCP
+scenarios require a fixture thread/instance lease and storage owner; restricted
+scenarios require established Auto-review availability. Observed analysis is not
+a conformance verdict: approved live observations need owner review before
+fixture expectations become authoritative. See
+[recorder setup/contract](../../tools/recorder/CURSOR_SDK.md).
 
 1. Text/thinking/read: streaming order, channel overlap, identities and terminal result.
 2. Edit/shell success/failure: diffs, output, exit status and failed tool/root outcomes.
@@ -290,3 +332,22 @@ environment override after sign-out. Thread creation can specify `instanceId`;
 `handoffFrom` preserves source context. Existing `@ace/client` provider controls
 expose sandbox-only approvals, interrupt/restart steering, context-handoff fork
 and read-only task children. Recovery/uncertain-delivery notices must stay visible.
+
+## Independent verifier response
+
+The report at PR comment `5967107620` identified R1 nested preview truncation and
+R2 an immediate-promise-state ACK guard. Complete one-level chunk routing and
+markers fix R1; a public session with an independent second JSON-RPC peer now
+crosses two real-process round trips while commit remains blocked for R2.
+Foreground text-only closure isolates F2. F1 uses bounded concurrent group
+commits while preserving sequential durability; F4 extracts pure SDK input and
+failure mapping, leaving a 393-line host. SDK recording orchestration is now
+written behind explicit approval. No fixture or model operation was executed.
+
+MCP child caller attribution, unknown positional snapshot/live association,
+credential/cancellation/parent-death observations, SDK/helper RSS and benchmark
+numbers still need merge-time or owner-approved live evidence. Current read-only
+policy and uncertainty notices preserve these limits. No Integration rehearsal
+finding comment was present when PR comments were refreshed; mentions in earlier
+response comments are not rehearsal reports. All verifier mutation rows remain
+unexecuted; N7/N12/N13 now have the stronger guards named above.
