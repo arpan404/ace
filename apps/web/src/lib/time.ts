@@ -12,14 +12,20 @@ interface Ticker {
 
 const hidden = () => typeof document === "object" && document.visibilityState === "hidden";
 
-function ticker(periodMs: number): Ticker {
-  const round = () => Math.floor(Date.now() / periodMs) * periodMs;
+/**
+ * `exact` clocks read the wall time at each tick; the others read it rounded down to the period,
+ * so a snapshot stays the same until the period turns.
+ */
+function ticker(periodMs: number, exact: boolean): Ticker {
+  const round = () => (exact ? Date.now() : Math.floor(Date.now() / periodMs) * periodMs);
   let current = round();
   const listeners = new Set<() => void>();
   let timer: ReturnType<typeof setInterval> | undefined;
   const tick = () => {
     const next = round();
-    if (next === current) return;
+    // An exact clock moves only once it is half a period stale, so a new reader rarely
+    // re-renders the others, and a timer firing a little early still moves it.
+    if (next === current || (exact && next - current < periodMs / 2)) return;
     current = next;
     for (const listener of listeners) listener();
   };
@@ -54,8 +60,8 @@ function ticker(periodMs: number): Ticker {
   };
 }
 
-const minutes = ticker(60_000);
-const seconds = ticker(1_000);
+const minutes = ticker(60_000, true);
+const seconds = ticker(1_000, false);
 const none = () => () => {};
 const wallClock = () => Math.floor(Date.now() / 1_000) * 1_000;
 
