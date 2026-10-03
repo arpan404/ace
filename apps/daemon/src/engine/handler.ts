@@ -21,6 +21,7 @@ export function engineHandler(
       if (
         ![
           "thread.create",
+          "thread.prepare",
           "thread.send",
           "thread.interrupt",
           "thread.archive",
@@ -32,7 +33,7 @@ export function engineHandler(
       return repo.store.atomic(() => {
         let threadId: ThreadId | undefined;
         let resolutionId: string | undefined;
-        if (p.type === "thread.create") {
+        if (p.type === "thread.create" || p.type === "thread.prepare") {
           if (!registry.has(p.provider)) return fail("provider_unavailable");
           const path = repo.workspace(p.workspaceId);
           if (!path) return fail("workspace_not_found");
@@ -43,9 +44,19 @@ export function engineHandler(
           } catch {
             return fail("workspace_unavailable");
           }
+          if (
+            p.options &&
+            Object.keys(p.options).some(
+              (option) =>
+                !registry
+                  .get(p.provider)
+                  .capabilities.launchOptions?.some((supported) => supported === option),
+            )
+          )
+            return fail("launch_options_unsupported");
           const at = now();
           const thread = Thread.parse({
-            id: nextId(),
+            id: p.threadId ?? nextId(),
             workspaceId: p.workspaceId,
             title: p.title ?? "New thread",
             provider: p.provider,
@@ -67,7 +78,11 @@ export function engineHandler(
             },
           });
           repo.save(state, [{ type: "thread.created", thread }], at);
-          repo.createSession(threadId, cwd, p.model);
+          repo.createSession(threadId, cwd, p.model, p.accountId, p.options);
+          if (p.type === "thread.prepare") {
+            repo.release(threadId);
+            return { commandId: command.id, ok: true, threadId };
+          }
         } else if ("threadId" in p) {
           threadId = p.threadId;
           if (p.type === "thread.archive") {
@@ -110,10 +125,13 @@ export function engineHandler(
             return fail(p.type === "interaction.resolve" ? "already_resolved" : "task_not_found");
         } else return fail("not_implemented");
         if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
+        if (p.type === "thread.interrupt") repo.cancelPending(threadId);
         repo.add(command, threadId, resolutionId);
         // Microtasks execute only after the enclosing receipt transaction commits.
-        queueMicrotask(() => wake(threadId));
-        return { commandId: command.id, ok: true };
+        queueMicrotask(() => {
+          if (repo.state(threadId)) wake(threadId);
+        });
+        return { commandId: command.id, ok: true, threadId };
       });
     },
   };

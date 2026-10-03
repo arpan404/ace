@@ -1,6 +1,6 @@
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import { randomUUID } from "node:crypto";
-import { Command, ThreadId, type EventPayload } from "@ace/protocol";
+import { AgentLaunchOptions, Command, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
 import { capFact, readRawBlob } from "./raw.ts";
@@ -20,6 +20,7 @@ export class EngineRepository {
   readonly store: Store;
   private ids: IdSource;
   private capacity: number;
+  private snapshotSeq = new WeakMap<Snapshot, number>();
   private snapshots = new Map<ThreadId, Snapshot>();
   constructor(store: Store, ids: IdSource = { next: () => randomUUID() }, capacity = 64) {
     this.capacity = capacity;
@@ -30,13 +31,16 @@ export class EngineRepository {
   }
   state(id: ThreadId): ThreadState | undefined {
     return this.store.atomic((db) => {
-      const row = db.prepare("SELECT state FROM thread_state WHERE thread_id = ?").get(id);
+      const row = db.prepare("SELECT state,seq FROM thread_state WHERE thread_id = ?").get(id);
       if (!row) {
         this.snapshots.delete(id);
         return undefined;
       }
       let snapshot = this.snapshots.get(id);
-      if (!snapshot) snapshot = new Snapshot(db, decodeSnapshot(String(row.state)));
+      if (!snapshot || this.snapshotSeq.get(snapshot) !== Number(row.seq)) {
+        snapshot = new Snapshot(db, decodeSnapshot(String(row.state)));
+        this.snapshotSeq.set(snapshot, Number(row.seq));
+      }
       this.snapshots.delete(id);
       this.snapshots.set(id, snapshot);
       this.trim();
@@ -73,6 +77,7 @@ export class EngineRepository {
         this.store.headSeq(),
       );
       snapshot.flush();
+      this.snapshotSeq.set(snapshot, this.store.headSeq());
       this.snapshots.set(state.threadId, snapshot);
       this.trim();
     });
@@ -91,6 +96,28 @@ export class EngineRepository {
         this.snapshots.get(id)?.begin();
         const events = facts.flatMap((input) => {
           let fact = capFact((raw) => this.store.capRaw(raw, id), input);
+          if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
+            const pending = this.intents(id).find((intent) => intent.awaiting);
+            const payload = pending?.command.payload;
+            if (
+              payload &&
+              (payload.type === "thread.create" || payload.type === "thread.send") &&
+              payload.trigger
+            )
+              fact = { ...fact, trigger: payload.trigger };
+          }
+          if (fact.type === "turn.ended" && fact.agent === (state.rootKey ?? "root")) {
+            const record = state.agents[fact.agent];
+            const runId = fact.nativeTurnId
+              ? record?.nativeRuns?.[fact.nativeTurnId]
+              : record?.activeRun;
+            const run = runId ? state.runs[runId] : undefined;
+            if (
+              run &&
+              ["spawn", "parent_agent", "subagent_result", "schedule"].includes(run.trigger)
+            )
+              fact = { ...fact, trigger: run.trigger };
+          }
           if (fact.type === "interaction.closed" && fact.state === "resolved") {
             const interaction = Object.hasOwn(state.interactions, fact.interaction)
               ? state.interactions[fact.interaction]
@@ -118,7 +145,6 @@ export class EngineRepository {
         for (const event of events)
           if (
             event.type === "run.started" &&
-            ["user", "queue", "unknown"].includes(event.run.trigger) &&
             event.run.agentId === state.agents[state.rootKey ?? ""]?.agent.id
           )
             this.store.atomic((db) =>
@@ -137,6 +163,25 @@ export class EngineRepository {
     }
   }
 
+  cancelPending(id: ThreadId): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE intents SET status='failed', awaiting=0, error='Cancelled before delivery' WHERE thread_id=? AND kind IN ('thread.send','thread.create') AND (status IN ('pending','queued','running') OR awaiting=1)",
+        )
+        .run(id),
+    );
+  }
+  cancelled(intentId: number): boolean {
+    return this.store.atomic(
+      (db) =>
+        db
+          .prepare(
+            "SELECT 1 FROM intents WHERE id=? AND status='failed' AND error='Cancelled before delivery'",
+          )
+          .get(intentId) !== undefined,
+    );
+  }
   add(command: Command, id: ThreadId, resolutionId?: string): void {
     this.store.atomic((db) =>
       db
@@ -238,12 +283,16 @@ export class EngineRepository {
     model?: string;
     nativeSessionId?: string;
     instanceId?: string;
+    options?: AgentLaunchOptions;
   } {
     return this.store.atomic((db) => {
       const row = db.prepare("SELECT * FROM engine_sessions WHERE thread_id = ?").get(id);
       if (!row) throw new Error("Missing engine session metadata");
       return {
         cwd: String(row.cwd),
+        ...(row.options == null
+          ? {}
+          : { options: AgentLaunchOptions.parse(JSON.parse(String(row.options))) }),
         ...(typeof row.instance_id === "string" ? { instanceId: row.instance_id } : {}),
         ...(row.model === null ? {} : { model: String(row.model) }),
         ...(row.native_session_id === null
@@ -252,13 +301,19 @@ export class EngineRepository {
       };
     });
   }
-  createSession(id: ThreadId, cwd: string, model?: string): void {
+  createSession(
+    id: ThreadId,
+    cwd: string,
+    model?: string,
+    instanceId?: string,
+    options?: AgentLaunchOptions,
+  ): void {
     this.store.atomic((db) =>
       db
         .prepare(
-          "INSERT INTO engine_sessions (thread_id, cwd, model, native_session_id) VALUES (?, ?, ?, NULL)",
+          "INSERT INTO engine_sessions (thread_id, cwd, model, native_session_id, instance_id, options) VALUES (?, ?, ?, NULL, ?, ?)",
         )
-        .run(id, cwd, model ?? null),
+        .run(id, cwd, model ?? null, instanceId ?? null, options ? JSON.stringify(options) : null),
     );
   }
   nativeSession(id: ThreadId, nativeId: string, instanceId?: string): void {

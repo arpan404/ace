@@ -1,3 +1,4 @@
+import type { Command, ThreadId, ContentPart } from "@ace/protocol";
 import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -9,20 +10,40 @@ export async function executeIntent(
   repo: EngineRepository,
   registry: AdapterRegistry,
   sessions: Sessions,
+  prepareInput?: (
+    command: Command,
+    threadId: ThreadId,
+    signal: AbortSignal,
+  ) => Promise<ContentPart[]>,
 ): Promise<void> {
   const p = intent.command.payload;
   if (p.type === "thread.create" || p.type === "thread.send") {
     await sessions.open(actor);
+    if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
     const capabilities = registry.get(repo.requireState(actor.id).config.provider).capabilities;
     const session = actor.session;
     if (!session) throw new Error("Provider session exited before send");
+    if ((p.context?.items?.length ?? 0) > 0 && !prepareInput)
+      throw new Error("Thread context unavailable");
+    const input = prepareInput
+      ? await prepareInput(intent.command, actor.id, actor.lifetime?.signal ?? AbortSignal.abort())
+      : p.input;
+    actor.lifetime?.signal.throwIfAborted();
+    if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
     await session.send(
-      p.input,
+      input,
       p.type === "thread.send" && p.delivery === "steer" && capabilities.steer ? "steer" : "queue",
     );
     return;
   }
-  if (!actor.session) throw new Error("Provider session is not live");
+  if (!actor.session) {
+    if (p.type === "thread.interrupt") {
+      if (actor.lifetime) actor.lifetime.abort();
+      else actor.apply([{ type: "process.exited", deliberate: true }]);
+      return;
+    }
+    throw new Error("Provider session is not live");
+  }
   const state = repo.requireState(actor.id);
   if (p.type === "thread.interrupt") {
     const agent = p.agentId === undefined ? undefined : state.indexes.agentKeysById[p.agentId];
@@ -30,9 +51,9 @@ export async function executeIntent(
     if (p.cascade && !capabilities.interruptCascades) {
       const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
       const descendants = (id: string): string[] =>
-        Object.keys(state.indexes.childrenByParent[id] ?? {}).flatMap((key) =>
-          descendants(state.agents[key]?.agent.id ?? "").concat(key),
-        );
+        Object.keys(state.indexes.childrenByParent[id] ?? {})
+          .filter((key) => !state.agents[key]?.externalStatus)
+          .flatMap((key) => descendants(state.agents[key]?.agent.id ?? "").concat(key));
       for (const key of target ? descendants(target) : [])
         await actor.session.interrupt({ agent: key, cascade: false });
     }

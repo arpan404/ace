@@ -24,6 +24,11 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  agentControl?: {
+    previews: import("../agent-control/owners.ts").AgentPreviews;
+    delegations: import("../agent-control/delegations.ts").DelegationService;
+    port: import("@ace/mcp-server").AgentControlPort;
+  };
   screen?: ScreenManager;
   accounts?: AccountService;
   accountRegistry?: AccountRegistry;

@@ -11,6 +11,7 @@ interface SessionDependencies {
   wake(id: ThreadId): void;
   expireDelivery(actor: ThreadActor): void;
   released(id: ThreadId): void;
+  mcp?(threadId: ThreadId, agentId: string, lifetime: AbortSignal): { url: string; bearer: string };
 }
 export class Sessions {
   private dependencies: SessionDependencies;
@@ -31,7 +32,13 @@ export class Sessions {
       const rootKey = state.rootKey ?? "root";
       actor.translator = adapter.createTranslator({ threadId: actor.id, rootKey });
       actor.apply([{ type: "process.started" }]);
+      const rootAgent = state.agents[rootKey]?.agent;
+      const aceMcp = rootAgent
+        ? this.dependencies.mcp?.(actor.id, rootAgent.id, lifetime.signal)
+        : undefined;
       const session = await adapter.openSession({
+        ...(aceMcp ? { aceMcp } : {}),
+        ...(metadata.options ? { options: metadata.options } : {}),
         threadId: actor.id,
         rootKey,
         cwd: metadata.cwd,
@@ -58,7 +65,12 @@ export class Sessions {
           }),
       });
       await actor.flush();
-      if (generation !== actor.generation || actor.poisoned || this.dependencies.closing()) {
+      if (
+        generation !== actor.generation ||
+        actor.poisoned ||
+        lifetime.signal.aborted ||
+        this.dependencies.closing()
+      ) {
         await session.close("shutdown");
         throw new Error("Provider session closed while opening");
       }

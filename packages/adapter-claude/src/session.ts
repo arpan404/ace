@@ -1,3 +1,5 @@
+import { claudeInjection } from "@ace/mcp-server";
+import { z } from "zod";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { randomUUID } from "node:crypto";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
@@ -36,6 +38,11 @@ export async function openSession(
   options: ClaudeOptions = {},
 ): Promise<ProviderSession> {
   ctx.signal.throwIfAborted();
+  const effort =
+    ctx.options?.effort === undefined
+      ? undefined
+      : z.enum(["low", "medium", "high", "xhigh", "max"]).parse(ctx.options.effort);
+  const injection = ctx.aceMcp ? claudeInjection(ctx.aceMcp) : undefined;
   const env = { ...process.env, ...options.env, ...ctx.env };
   const executable = await findExecutable(options.executable ?? "claude", env);
   if (!executable) throw new Error("Claude CLI is not installed");
@@ -67,7 +74,11 @@ export async function openSession(
   let q: Query;
   const processId = randomUUID();
   const frame = (dir: Frame["dir"], channel: string, data: unknown) => {
-    const payload = new ProviderPayload(JSON.stringify(data));
+    const payload = new ProviderPayload(
+      ctx.aceMcp
+        ? JSON.stringify(data).replaceAll(ctx.aceMcp.bearer, "[ace credential redacted]")
+        : JSON.stringify(data),
+    );
     ctx.onFrame({
       seq: sequence++,
       t: Math.round(performance.now() - started),
@@ -113,6 +124,17 @@ export async function openSession(
     prompt: input,
     options: {
       cwd: ctx.cwd,
+      ...(effort ? { effort } : {}),
+      ...(injection
+        ? {
+            mcpServers: injection.mcpServers,
+            systemPrompt: {
+              type: "preset",
+              preset: "claude_code",
+              append: injection.developerInstructions,
+            },
+          }
+        : {}),
       ...(ctx.model ? { model: ctx.model } : {}),
       ...(ctx.resume ? { resume: sessionId } : { sessionId }),
       pathToClaudeCodeExecutable: executable,

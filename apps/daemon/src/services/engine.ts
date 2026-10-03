@@ -1,3 +1,4 @@
+import { AgentId } from "@ace/protocol";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
@@ -32,6 +33,44 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const engine = new Engine(store, {
     ...engineOptions,
     registry,
+    mcp:
+      engineOptions.mcp ??
+      ((threadId, agentId, lifetime) => {
+        const mcp = services.mcp;
+        if (!mcp) throw new Error("MCP unavailable");
+        const lease = mcp.openSession(
+          {
+            sessionId: context.id(),
+            threadId,
+            agentId: AgentId.parse(agentId),
+            capabilities: ["agents", "thread_control", "notify", "automations", "projects"],
+          },
+          lifetime,
+        );
+        return { url: mcp.url, bearer: lease.bearer };
+      }),
+    prepareInput:
+      engineOptions.prepareInput ??
+      (async (command, threadId, signal) => {
+        const payload = command.payload;
+        if (payload.type !== "thread.create" && payload.type !== "thread.send") return [];
+        if (!payload.context?.items?.length) return payload.input;
+        const contextService = services.context;
+        if (!contextService) throw new Error("Context unavailable");
+        const references = await contextService.resolveThreadReferences(
+          command.deviceId,
+          threadId,
+          payload.context,
+        );
+        signal.throwIfAborted();
+        return [
+          ...payload.input,
+          ...references.map((reference) => ({
+            type: "text" as const,
+            text: `${reference.summary}\nPointer: ${JSON.stringify(reference.pointer)}`,
+          })),
+        ];
+      }),
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());
@@ -46,6 +85,7 @@ export function createEngineSession({ options, send }: SocketContext): SocketSer
     command: {
       types: [
         "thread.create",
+        "thread.prepare",
         "thread.send",
         "thread.interrupt",
         "thread.archive",

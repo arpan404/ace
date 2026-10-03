@@ -13,6 +13,7 @@ import { startUsage } from "./usage.ts";
 import { startModels } from "./models.ts";
 import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
+import { startAgentControl } from "./agent-control.ts";
 import { startEngine } from "./engine.ts";
 import type { ServiceContext, Services } from "./types.ts";
 /** Ordered composition: provider sessions are admitted only after their services open. */
@@ -33,6 +34,7 @@ export const serviceFactories = [
   startMcp,
   startNotifications,
   startEngine,
+  startAgentControl,
 ];
 export function readyServices(services: Partial<Services>): Services {
   const {
@@ -77,6 +79,7 @@ export function readyServices(services: Partial<Services>): Services {
     notifications,
     review,
     usage,
+    ...(services.agentControl ? { agentControl: services.agentControl } : {}),
     ...(services.screen ? { screen: services.screen } : {}),
     ...(services.accounts ? { accounts: services.accounts } : {}),
     ...(services.commands ? { commands: services.commands } : {}),

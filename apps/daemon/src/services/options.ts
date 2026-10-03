@@ -13,6 +13,10 @@ import type { DaemonPreviewOptions } from "../preview.ts";
 import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 export type DaemonOptions = {
+  agentControl?: {
+    policy?: Partial<import("@ace/protocol").DelegationPolicy>;
+    extensions?: import("../agent-control/tools.ts").AgentControlExtensions;
+  };
   screen?: ScreenManager;
   commands?: DaemonCommandIntegration;
   config?: Config;

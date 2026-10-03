@@ -1,3 +1,5 @@
+import { openCodeInjection } from "@ace/mcp-server";
+import { z } from "zod";
 import type { Key } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
 import type { SessionContext, ProviderAdapter } from "@ace/engine-api";
@@ -19,10 +21,24 @@ export function createOpenCodeAdapter(
     capabilities,
     createTranslator: (init: { threadId: ThreadId; rootKey: Key }) => new OpenCodeTranslator(init),
     async openSession(ctx: SessionContext) {
-      if (!ctx.env) return OpenCodeSession.open(ctx, server);
+      if (!ctx.env && !ctx.aceMcp) return OpenCodeSession.open(ctx, server);
+      const env = { ...process.env, ...options.discovery?.env, ...ctx.env };
+      if (ctx.aceMcp) {
+        const injected = z
+          .record(z.string(), z.unknown())
+          .parse(JSON.parse(openCodeInjection(ctx.aceMcp).env.OPENCODE_CONFIG_CONTENT));
+        const prior = env.OPENCODE_CONFIG_CONTENT
+          ? z.record(z.string(), z.unknown()).parse(JSON.parse(env.OPENCODE_CONFIG_CONTENT))
+          : {};
+        const mcp = z.record(z.string(), z.unknown()).parse(prior.mcp ?? {});
+        env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
+          ...prior,
+          mcp: { ...mcp, ...z.record(z.string(), z.unknown()).parse(injected.mcp) },
+        });
+      }
       const isolated = new OpenCodeServer({
         ...options,
-        discovery: { ...options.discovery, env: ctx.env },
+        discovery: { ...options.discovery, env },
       });
       const onAbort = () => {
         void isolated.close();
