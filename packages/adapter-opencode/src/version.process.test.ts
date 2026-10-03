@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { ThreadId } from "@ace/protocol";
-import { createOpenCodeAdapter } from "./index.ts";
+import { createOpenCodeAdapter } from "./testing/v1/index.ts";
 const cli = fileURLToPath(new URL("./testing/cli.mjs", import.meta.url));
 for (const version of ["1.18.32", "2.0.0", "unrecognized"]) {
   it(`refuses to start sessions with unsupported CLI version ${version}`, async () => {
