@@ -46,6 +46,8 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
   let version = 0;
   let link: TerminalSource["link"] = client.state === "ready" ? "connected" : "disconnected";
   let subscriptions = 0;
+  // Tabs behind one shared-worker connection each run a source; the daemon keys streams by id.
+  const prefix = `terminal-${crypto.randomUUID().slice(0, 8)}`;
   const changed = () => {
     version++;
     for (const listener of listeners) listener();
@@ -72,7 +74,7 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
     }
   };
   const subscribe = (stream: Stream, fromOffset: number): string => {
-    const subscriptionId = `terminal-${++subscriptions}`;
+    const subscriptionId = `${prefix}-${++subscriptions}`;
     const threadId = threadOf.get(stream.terminalId);
     streams.set(subscriptionId, stream);
     if (!threadId) return subscriptionId;
