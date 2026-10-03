@@ -34,6 +34,8 @@ import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import { FakeServicesWire, type FakeWireSession } from "./services-wire.ts";
+import type { FakeBrowser } from "./browser.ts";
+import type { FakeTerminals } from "./terminals.ts";
 import { startedThread } from "./scenarios/started-thread.ts";
 import {
   drainQueue,
@@ -115,6 +117,14 @@ export class FakeDaemon implements Host {
         },
       ]),
     );
+  }
+  /** The PTYs clients reach through `terminal.request`, for seeding a scenario's terminals. */
+  get terminals(): FakeTerminals {
+    return this.servicesWire.workspace.terminals;
+  }
+  /** The browser and previews clients reach through `browser.*` and `preview.request`. */
+  get browser(): FakeBrowser {
+    return this.servicesWire.browser;
   }
   session(send: (message: ServerMessage) => void): FakeWireSession {
     return this.servicesWire.session(send);

@@ -11,6 +11,7 @@ import {
   toolDone,
   turn,
 } from "./facts.ts";
+import { checkout } from "./checkouts.ts";
 
 /**
  * A Claude thread with a subagent, a background test watcher and an approval.
@@ -23,6 +24,13 @@ export function flakyCheckout(id = "thread-checkout"): Scenario {
       workspaceId: "billing-api",
       title: "Fix flaky checkout test",
       provider: "claude",
+      details: checkout({
+        workspaceId: "billing-api",
+        branch: "fix/checkout-flake",
+        path: "/Users/dev/.ace/worktrees/billing-api-checkout-flake",
+        head: "8a41d2",
+        diff: { files: 3, additions: 27, deletions: 11 },
+      }),
     },
     steps: [
       {
