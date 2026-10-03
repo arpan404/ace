@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { type Effect, type State, type Fact, type Account } from "@ace/conductor";
 import {
-  Command,
   ThreadId,
   AgentId,
   type ConductorRunView,
@@ -15,15 +14,18 @@ import type { DelegationService } from "../agent-control/delegations.ts";
 import { ExecutionJournal, type RootBinding, type LaneBinding } from "./journal.ts";
 import { DeckWorktrees } from "./worktrees.ts";
 import { integrateCard, verifyCard } from "./integration.ts";
+import { DeckCommands } from "./command-attempts.ts";
 import { artifactInstructions } from "./artifacts.ts";
 
 export class NativeConductorExecutor {
   readonly journal: ExecutionJournal;
   readonly worktrees: DeckWorktrees;
   private context: ServiceContext;
+  private commands: DeckCommands;
   readonly delegations: DelegationService;
   constructor(context: ServiceContext, delegations: DelegationService) {
     this.context = context;
+    this.commands = new DeckCommands(context, delegations);
     this.delegations = delegations;
     this.journal = new ExecutionJournal(context.store);
     this.worktrees = new DeckWorktrees(context.config.dataDir, context.now);
@@ -56,7 +58,7 @@ export class NativeConductorExecutor {
     );
     let threadId = ThreadId.parse(existing?.id ?? id());
     if (!existing) {
-      const result = this.delegations.command(key, {
+      const result = await this.commands.run(key, {
         type: "thread.prepare",
         threadId,
         workspaceId: state.spec.workspaceId,
@@ -226,28 +228,33 @@ export class NativeConductorExecutor {
       throw new Error("deck_lane_binding_missing");
     }
     if (effect.type === "migrate") {
-      const result = this.delegations.command(effect.id, {
-        type: "thread.switch",
-        threadId: binding.thread,
-        selection: {
-          provider: effect.lane.model.provider,
-          model: effect.lane.model.model,
-          ...(effect.lane.account === `local.${effect.lane.model.provider}`
-            ? {}
-            : { instanceId: effect.lane.account }),
-        },
-      });
-      if (!result.ok) throw new Error(result.error);
-      await this.context.services.engine?.flush();
-      const selected = this.context.store.getThread(binding.thread)?.execution;
-      if (
-        (selected?.instanceId ?? `local.${selected?.provider}`) !== effect.lane.account ||
-        selected?.provider !== effect.lane.model.provider
-      )
-        throw new Error("deck_migration_pending");
-      this.journal.save({ ...binding, generation: effect.lane.generation });
       const engine = this.context.services.engine;
       if (!engine) throw new Error("deck_engine_unavailable");
+      const matches = () => {
+        const selected = this.context.store.getThread(binding.thread)?.execution;
+        return (
+          (selected?.instanceId ?? `local.${selected?.provider}`) === effect.lane.account &&
+          selected?.provider === effect.lane.model.provider &&
+          selected?.model === effect.lane.model.model
+        );
+      };
+      if (!matches()) {
+        const result = await this.commands.run(effect.id, {
+          type: "thread.switch",
+          threadId: binding.thread,
+          selection: {
+            provider: effect.lane.model.provider,
+            model: effect.lane.model.model,
+            ...(effect.lane.account === `local.${effect.lane.model.provider}`
+              ? {}
+              : { instanceId: effect.lane.account }),
+          },
+        });
+        if (!result.ok) throw new Error(result.error);
+        await engine.flush();
+      }
+      if (!matches()) throw new Error("deck_migration_pending");
+      this.journal.save({ ...binding, generation: effect.lane.generation });
       const queue = engine.queuePage({ threadId: binding.thread });
       if (queue.paused) {
         const key = this.key(effect.id, "resume");
@@ -256,8 +263,7 @@ export class NativeConductorExecutor {
           threadId: binding.thread,
           expectedRevision: queue.revision,
         };
-        await engine.prepareCommand(Command.parse({ id: key, deviceId: "ace-conductor", payload }));
-        const resumed = this.delegations.command(key, payload);
+        const resumed = await this.commands.run(key, payload);
         if (!resumed.ok) throw new Error(resumed.error);
       }
       return [{ type: "migrated", laneId: effect.lane.id, generation: effect.lane.generation }];
@@ -320,11 +326,7 @@ export class NativeConductorExecutor {
           effect.action === "pause"
             ? { type: "queue.pause" as const, threadId, expectedRevision: queue.revision }
             : { type: "thread.resume" as const, threadId, expectedRevision: queue.revision };
-        if (effect.action === "resume") {
-          const command = Command.parse({ id: key, deviceId: "ace-conductor", payload });
-          await engine.prepareCommand(command);
-        }
-        const result = this.delegations.command(key, payload);
+        const result = await this.commands.run(key, payload);
         if (!result.ok) throw new Error(result.error);
         if (effect.action === "pause") {
           const interrupted = this.delegations.suspend(

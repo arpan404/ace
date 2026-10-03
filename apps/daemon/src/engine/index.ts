@@ -368,6 +368,9 @@ export class Engine {
   sessionMetadata(id: ThreadId) {
     return this.repo.session(id);
   }
+  commandExecution(commandId: import("@ace/protocol").CommandId) {
+    return this.repo.pending.commandStatus(commandId);
+  }
   queuePage(request: Pick<QueueGet, "threadId" | "after" | "expectedRevision" | "limit">) {
     return this.repo.queue.page(request);
   }
