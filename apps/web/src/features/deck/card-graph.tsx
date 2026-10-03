@@ -1,4 +1,4 @@
-import { CheckIcon } from "@phosphor-icons/react";
+import { CheckIcon, GitMergeIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -6,12 +6,18 @@ import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
 import {
   cardColumns,
   cardStatus,
+  deckMerge,
+  planEnds,
   type CardMark,
   type CardTone,
   type DeckCard,
   type DeckRun,
 } from "@ace/ui-core";
 import { Spinner } from "@/components/ui/spinner.tsx";
+
+/** Edges stop this far short of a card, so they meet its edge rather than run over its border. */
+const edgeGap = 4;
+const mergeId = "deck:merge";
 
 interface Edge {
   key: string;
@@ -29,7 +35,9 @@ export function CardGraph(props: {
   onSelect(cardId: string): void;
 }) {
   const columns = cardColumns(props.run.cards);
-  const count = Math.max(columns.length, 1);
+  const merge = deckMerge(props.run);
+  const showMerge = props.run.cards.length > 0;
+  const count = Math.max(columns.length, 1) + (showMerge ? 1 : 0);
   const container = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState<Edge[]>([]);
   const { cards } = props.run;
@@ -44,14 +52,18 @@ export function CardGraph(props: {
       for (const node of root.querySelectorAll<HTMLElement>("[data-card-id]"))
         if (node.dataset.cardId) nodes.set(node.dataset.cardId, node);
       const next: Edge[] = [];
-      for (const card of cards) {
+      const targets = [
+        ...cards.map((card) => ({ id: card.id, dependencies: card.dependencies })),
+        { id: mergeId, dependencies: planEnds(cards) },
+      ];
+      for (const card of targets) {
         const to = nodes.get(card.id)?.getBoundingClientRect();
         for (const dependency of card.dependencies) {
           const from = nodes.get(dependency)?.getBoundingClientRect();
           if (!from || !to) continue;
-          const x1 = from.right - box.left;
+          const x1 = from.right - box.left + edgeGap;
           const y1 = from.top + from.height / 2 - box.top;
-          const x2 = to.left - box.left;
+          const x2 = to.left - box.left - edgeGap;
           const y2 = to.top + to.height / 2 - box.top;
           const mid = (x1 + x2) / 2;
           next.push({
@@ -96,7 +108,7 @@ export function CardGraph(props: {
             />
           ))}
         </svg>
-        {Array.from({ length: count }, (_, index) => (
+        {Array.from({ length: columns.length || 1 }, (_, index) => (
           <section
             key={index}
             aria-label={`Stage ${index + 1}`}
@@ -119,6 +131,26 @@ export function CardGraph(props: {
             {index === 0 && <div aria-hidden className="flex-1" />}
           </section>
         ))}
+        {showMerge && (
+          <section aria-label="Merge" className="relative z-[1] flex flex-col gap-3">
+            <h3 className="px-0.5 pb-0.5 text-xs font-medium text-subtle-foreground">Merge</h3>
+            <div aria-hidden className="flex-1" />
+            <div
+              data-card-id={mergeId}
+              className="rounded-card bg-card px-3.5 py-3 shadow-[inset_0_0_0_1px_var(--border)]"
+            >
+              <span className="flex items-center gap-1.5 text-[13.5px] leading-[1.3] font-medium">
+                <Icon icon={GitMergeIcon} size={14} className="text-muted-foreground" />
+                Merge
+              </span>
+              <span className="mt-2 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+                {merge.done && <Icon icon={CheckIcon} size={14} />}
+                {merge.detail}
+              </span>
+            </div>
+            <div aria-hidden className="flex-1" />
+          </section>
+        )}
       </div>
     </div>
   );

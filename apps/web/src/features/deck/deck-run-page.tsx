@@ -133,7 +133,13 @@ function RunScreen(props: {
               couldn't run its next step ({run.error}); resume it to try again.
             </p>
           )}
-          {run.gate && <DeckGate run={run} gate={run.gate} />}
+          {run.gate && (
+            <DeckGate
+              run={run}
+              gate={run.gate}
+              onOpenCard={(card) => props.onNavigate({ tab: "plan", card })}
+            />
+          )}
           {props.tab === "plan" && (
             <section aria-label="Cards" className="mt-[30px]">
               <h2 className="flex items-baseline gap-2.5 text-md font-medium">

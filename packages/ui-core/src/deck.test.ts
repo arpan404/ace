@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { cardColumns, deckStepper, landingDeck, type DeckCard, type DeckRun } from "./deck.ts";
+import {
+  cardColumns,
+  deckMerge,
+  deckStepper,
+  landingDeck,
+  type DeckCard,
+  type DeckRun,
+} from "./deck.ts";
 
 const card = (id: string, dependencies: string[] = []): DeckCard => ({
   id,
@@ -49,6 +56,7 @@ const run = (patch: Partial<DeckRun>): DeckRun => ({
   budget: 0,
   error: undefined,
   partial: false,
+  plan: null,
   ...patch,
 });
 const labels = (r: DeckRun) => deckStepper(r).steps.map((s) => `${s.state}:${s.label}`);
@@ -84,4 +92,14 @@ test("Deck lands on a gated deck first, then an active one, then the latest", ()
   expect(landingDeck([finished, active])?.id).toBe("active");
   expect(landingDeck([finished])?.id).toBe("finished");
   expect(landingDeck([])).toBeUndefined();
+});
+
+test("the plan ends in one merge after every card nothing else waits on", () => {
+  const cards = [card("a"), { ...card("b"), dependencies: ["a"] }, card("c")];
+  expect(deckMerge(run({ phase: "dealing", cards }))).toEqual({
+    detail: "Needs all 3",
+    done: false,
+    dependencies: ["b", "c"],
+  });
+  expect(deckMerge(run({ phase: "merged", cards })).detail).toBe("Merged");
 });

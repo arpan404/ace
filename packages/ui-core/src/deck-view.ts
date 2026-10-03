@@ -156,6 +156,7 @@ export function deckFromSummary(summary: ConductorSummary): DeckRun {
     cards: [],
     error: undefined,
     partial: true,
+    plan: null,
   };
 }
 
@@ -170,6 +171,16 @@ export function deckFromView(view: View, accounts: DeckAccounts): DeckRun {
     cards: view.dag.map((node) => cardOf(node, view, accounts)),
     error: view.executionError,
     partial: false,
+    plan: view.plan && {
+      summary: view.plan.summary,
+      workstreams: view.plan.workstreams.map((workstream) => ({
+        id: workstream.id,
+        title: workstream.title,
+        objective: workstream.brief.objective,
+        acceptance: workstream.brief.acceptance,
+        dependencies: workstream.dependencies,
+      })),
+    },
   };
 }
 

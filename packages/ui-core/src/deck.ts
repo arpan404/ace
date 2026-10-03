@@ -86,6 +86,40 @@ export interface DeckRun {
   error: string | undefined;
   /** Details are loading: the run is known from the list only. */
   partial: boolean;
+  /** The plan the gate asks about: each workstream's objective and how it is judged. */
+  plan: DeckPlan | null;
+}
+
+export interface DeckPlan {
+  summary: string;
+  workstreams: readonly {
+    id: string;
+    title: string;
+    objective: string;
+    acceptance: readonly string[];
+    dependencies: readonly string[];
+  }[];
+}
+
+/** The cards nothing else waits on: the last of each line of work, which the merge follows. */
+export function planEnds(cards: readonly Pick<DeckCard, "id" | "dependencies">[]): string[] {
+  const needed = new Set(cards.flatMap((card) => card.dependencies));
+  return cards.filter((card) => !needed.has(card.id)).map((card) => card.id);
+}
+
+/**
+ * Where the plan ends: one merge after every card that nothing else waits on. "Needs all 6"
+ * until the deck merges.
+ */
+export function deckMerge(run: DeckRun): { detail: string; done: boolean; dependencies: string[] } {
+  const dependencies = planEnds(run.cards);
+  const done = run.phase === "merged";
+  const detail = done
+    ? "Merged"
+    : run.phase === "merging"
+      ? "Merging"
+      : `Needs all ${run.cards.length}`;
+  return { detail, done, dependencies };
 }
 
 export type DeckGroup = "gated" | "active" | "finished";

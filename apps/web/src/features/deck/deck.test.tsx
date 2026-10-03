@@ -33,6 +33,33 @@ test("Deck opens on a gated deck and approving its plan deals the split card", a
   expect(within(section("Active")).getByText("Resumable relay streams")).toBeTruthy();
 });
 
+test("a plan gate's Review changes shows the plan, and Reject asks before it sends", async () => {
+  await open("/deck/relay-streams");
+  const gate = await screen.findByRole("region", { name: planGate });
+
+  await userEvent.click(within(gate).getByRole("button", { name: "Review changes" }));
+  const review = await screen.findByRole("dialog", { name: "The deck's plan" });
+  const cards = within(within(review).getByRole("list", { name: "Cards in this plan" }));
+  const titles = cards.getAllByRole("listitem").map((item) => item.firstChild?.textContent);
+  expect(titles).toContain("Client ack and buffer flush");
+  await userEvent.click(within(review).getByRole("button", { name: "Close" }));
+
+  await userEvent.click(within(gate).getByRole("button", { name: "More decisions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Reject…" }));
+  const confirm = await screen.findByRole("dialog", { name: "Reject this plan?" });
+  await userEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+  // Nothing was sent: the gate stays open.
+  expect(screen.queryByText("Rejected · the deck keeps its current course")).toBeNull();
+  expect(screen.getByRole("region", { name: planGate })).toBeTruthy();
+});
+
+test("the plan ends in the merge, which waits for every card", async () => {
+  await open("/deck/relay-streams");
+  await screen.findByRole("region", { name: planGate });
+  const merge = screen.getByRole("region", { name: "Merge" });
+  expect(merge.textContent).toMatch(/Needs all \d+/);
+});
+
 test("a card's lane names its accounts from the daemon and lists its review rounds", async () => {
   await open("/deck/relay-streams");
   await screen.findByRole("region", { name: planGate });
