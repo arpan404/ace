@@ -1,3 +1,4 @@
+import { SessionTotals } from "./session-totals.ts";
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 import { UsageResult, type UsageResult as Result } from "@ace/protocol";
 import { migrate } from "./database.ts";
@@ -10,6 +11,7 @@ import { burnRate, QuotaWindow } from "./quotas.ts";
 export class UsageStore {
   private readonly db: DatabaseSync;
   private readonly statements = new Map<string, StatementSync>();
+  private readonly sessionTotals: SessionTotals;
   private readonly ingestion: Ingestion;
   private readonly settings: UsageSettings;
   private readonly priceVersion: string;
@@ -23,6 +25,7 @@ export class UsageStore {
       const insert = this.db.prepare("INSERT INTO usage_prices VALUES (?, ?, ?, ?, ?, ?)");
       for (const [model, rate] of Object.entries(prices.models))
         insert.run(model, rate.input, rate.cached, rate.write, rate.write1h, rate.output);
+      this.sessionTotals = new SessionTotals(this.db);
       this.ingestion = new Ingestion(this.db, dayFormatter(this.settings.timezone));
     } catch (error) {
       this.db.close();
@@ -46,6 +49,9 @@ export class UsageStore {
   }
   ingest(batch: unknown): number {
     return this.ingestion.ingest(batch);
+  }
+  sessionTotalsFor(input: unknown) {
+    return this.sessionTotals.list(input);
   }
   summary(query: unknown): Result {
     return this.query(query, "summary");

@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/HistoryListResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "next": {
+      "anyOf": [
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "lastActivity": {
+              "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+            }
+          },
+          "required": [
+            "lastActivity",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sessions": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/HistorySession.json"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "type": {
+      "const": "history.list",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "sessions",
+    "next"
+  ],
+  "type": "object"
+}

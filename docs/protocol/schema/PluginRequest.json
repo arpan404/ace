@@ -1,0 +1,146 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/PluginName.json"
+        },
+        "type": {
+          "const": "plugins.update",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-zA-Z0-9-]{1,80}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "plugins.cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/PluginName.json"
+        },
+        "ref": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "repository": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "type": {
+          "const": "plugins.prepare",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "repository",
+        "ref",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "$ref": "https://ace.local/protocol/v1/PluginCommit.json"
+        },
+        "hash": {
+          "$ref": "https://ace.local/protocol/v1/PluginHash.json"
+        },
+        "id": {
+          "pattern": "^[a-zA-Z0-9-]{1,80}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "plugins.accept",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "commit",
+        "hash"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/PluginName.json"
+        },
+        "type": {
+          "const": "plugins.remove",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "plugins.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-zA-Z0-9-]{1,80}$",
+          "type": "string"
+        },
+        "offset": {
+          "$ref": "https://ace.local/protocol/v1/PluginReviewOffset.json",
+          "default": 0
+        },
+        "type": {
+          "const": "plugins.readReview",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "type": "object"
+    }
+  ]
+}

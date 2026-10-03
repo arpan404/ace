@@ -1,0 +1,130 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenCapabilities.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {},
+  "properties": {
+    "capture": {
+      "properties": {
+        "changeDriven": {
+          "type": "boolean"
+        },
+        "displays": {
+          "type": "boolean"
+        },
+        "windows": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "windows",
+        "displays",
+        "changeDriven"
+      ],
+      "type": "object"
+    },
+    "codecs": {
+      "items": {
+        "enum": [
+          "jpeg",
+          "h264"
+        ],
+        "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 1,
+      "type": "array"
+    },
+    "input": {
+      "properties": {
+        "keyboard": {
+          "type": "boolean"
+        },
+        "pointer": {
+          "type": "boolean"
+        },
+        "scroll": {
+          "type": "boolean"
+        },
+        "text": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "pointer",
+        "keyboard",
+        "scroll",
+        "text"
+      ],
+      "type": "object"
+    },
+    "permissions": {
+      "properties": {
+        "input": {
+          "enum": [
+            "granted",
+            "denied",
+            "prompt",
+            "n/a"
+          ],
+          "type": "string"
+        },
+        "screen": {
+          "enum": [
+            "granted",
+            "denied",
+            "prompt",
+            "n/a"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "screen",
+        "input"
+      ],
+      "type": "object"
+    },
+    "platform": {
+      "enum": [
+        "macos",
+        "windows",
+        "linux-x11",
+        "linux-wayland"
+      ],
+      "type": "string"
+    },
+    "semanticActions": {
+      "items": {
+        "enum": [
+          "press",
+          "focus",
+          "setValue",
+          "scroll",
+          "expand",
+          "select"
+        ],
+        "type": "string"
+      },
+      "maxItems": 6,
+      "type": "array"
+    },
+    "uiTree": {
+      "type": "boolean"
+    },
+    "version": {
+      "const": 2,
+      "type": "number"
+    }
+  },
+  "required": [
+    "version",
+    "platform",
+    "capture",
+    "input",
+    "uiTree",
+    "semanticActions",
+    "codecs",
+    "permissions"
+  ],
+  "type": "object"
+}

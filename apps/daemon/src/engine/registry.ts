@@ -1,19 +1,37 @@
 import type { ProviderAdapter } from "@ace/engine-api";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
-import type { Capabilities, ProviderKind } from "@ace/protocol";
+import type { Capabilities, ProviderKind, AcpIdentity } from "@ace/protocol";
 
 export class AdapterRegistry {
   private entries = new Map<
     ProviderKind,
-    { adapter: ProviderAdapter & { close?(): Promise<void> }; capabilities: Capabilities }
+    {
+      adapter: ProviderAdapter & { close?(): Promise<void> };
+      source: ProviderAdapter & { close?(): Promise<void> };
+      capabilities: Capabilities;
+    }
   >();
   register(adapter: ProviderAdapter & { close?(): Promise<void> }, cli: DiscoveryResult): void {
-    this.entries.set(adapter.provider, { adapter, capabilities: adapter.capabilities(cli) });
+    this.entries.set(adapter.provider, {
+      adapter,
+      source: adapter,
+      capabilities: adapter.capabilities(cli),
+    });
   }
   get(provider: ProviderKind) {
     const entry = this.entries.get(provider);
     if (!entry) throw new Error(`No adapter registered for ${provider}`);
     return entry;
+  }
+  bindSessions(bind: (adapter: ProviderAdapter) => ProviderAdapter): void {
+    for (const entry of this.entries.values()) {
+      const original = entry.source;
+      const bound = bind(original);
+      entry.adapter = {
+        ...bound,
+        ...(original.close ? { close: () => original.close?.() ?? Promise.resolve() } : {}),
+      };
+    }
   }
   async close(): Promise<void> {
     const results = await Promise.allSettled(
@@ -24,7 +42,8 @@ export class AdapterRegistry {
     );
     if (errors.length) throw new AggregateError(errors, "Adapter shutdown failed");
   }
-  has(provider: ProviderKind): boolean {
-    return this.entries.has(provider);
+  has(provider: ProviderKind, identity?: AcpIdentity): boolean {
+    const entry = this.entries.get(provider);
+    return !!entry && (!identity || entry.adapter.acceptsIdentity?.(identity) === true);
   }
 }

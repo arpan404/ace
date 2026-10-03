@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/PendingMcpIntent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "intent": {
+      "$ref": "https://ace.local/protocol/v1/McpIntent.json"
+    }
+  },
+  "required": [
+    "id",
+    "intent"
+  ],
+  "type": "object"
+}

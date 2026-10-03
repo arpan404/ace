@@ -1,0 +1,97 @@
+{
+  "$id": "https://ace.local/protocol/v1/UsageUpdated.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "accountId": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "billingMode": {
+      "enum": [
+        "api",
+        "subscription",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "cacheWrite1hTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "cacheWriteTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "cachedInputTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "contextWindow": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "costUsd": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "counterKey": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "counterMode": {
+      "enum": [
+        "cumulative",
+        "incremental"
+      ],
+      "type": "string"
+    },
+    "inputTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "model": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "outputTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "reasoningTokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "type": {
+      "const": "usage.updated",
+      "type": "string"
+    },
+    "usageScope": {
+      "enum": [
+        "agent",
+        "provider_session",
+        "model_session"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "agentId",
+    "inputTokens",
+    "outputTokens"
+  ],
+  "type": "object",
+  "x-ace-constraint": "If usageScope is provider_session or model_session, counterKey is required."
+}

@@ -3,7 +3,12 @@ import { runtimePackages, stageRuntimePackages } from "./runtime-assets.ts";
 import { readFile, cp } from "node:fs/promises";
 import { join } from "node:path";
 export { stageNativeFiles } from "./native-assets.ts";
-export async function bundleDaemon(repo: string, root: string, publicKey: string) {
+export async function bundleDaemon(
+  repo: string,
+  root: string,
+  publicKey: string,
+  target = `${process.platform}-${process.arch}`,
+) {
   const options = {
     bundle: true,
     metafile: true,
@@ -23,10 +28,24 @@ export async function bundleDaemon(repo: string, root: string, publicKey: string
           ctx.onLoad(
             {
               filter:
-                /(?:worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search)\.ts$/,
+                /(?:blob-export|exclusive-rename|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
+              for (const [source, worker, output] of [
+                ["/files/src/blob-export.ts", "./blob-worker.ts", "./files-blob-worker.mjs"],
+                [
+                  "/files/src/exclusive-rename.ts",
+                  "./rename-worker.ts",
+                  "./files-rename-worker.mjs",
+                ],
+                ["/search/src/worker-runtime.ts", "./query-worker.ts", "./search-query-worker.mjs"],
+              ]) {
+                if (source && worker && output && args.path.endsWith(source))
+                  contents = contents.replace(JSON.stringify(worker), JSON.stringify(output));
+              }
+              if (args.path.endsWith("/mcp-server/src/injection.ts"))
+                contents = contents.replace('"./stdio-entry.ts"', '"./acp-mcp-bridge.mjs"');
               if (args.path.endsWith("/workspace/src/descriptor.ts"))
                 contents = contents.replace('"../dist/descriptor.node"', '"./descriptor.node"');
               if (args.path.endsWith("/workspace/src/node-search.ts"))
@@ -85,7 +104,7 @@ export async function bundleDaemon(repo: string, root: string, publicKey: string
   });
   if (!daemon.metafile) throw new Error("Bundle metadata is required");
   const inputs = new Set(Object.keys(daemon.metafile.inputs));
-  const runtimeManifests = await stageRuntimePackages(repo, root);
+  const runtimeManifests = await stageRuntimePackages(repo, root, target);
   for (const manifest of runtimeManifests) inputs.add(manifest);
   const workspaceIncluded = [...inputs].some((input) =>
     input.endsWith("packages/workspace/src/descriptor.ts"),
@@ -93,6 +112,10 @@ export async function bundleDaemon(repo: string, root: string, publicKey: string
   if (workspaceIncluded)
     await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
   const helpers = [
+    ["packages/mcp-server/src/stdio-entry.ts", "acp-mcp-bridge.mjs"],
+    ["packages/files/src/blob-worker.ts", "files-blob-worker.mjs"],
+    ["packages/files/src/rename-worker.ts", "files-rename-worker.mjs"],
+    ["packages/search/src/query-worker.ts", "search-query-worker.mjs"],
     ["packages/usage/src/worker-entry.ts", "usage-worker.mjs"],
     ["packages/review/src/worker.ts", "review-worker.mjs"],
     ["packages/history-import/src/worker.ts", "history-import-worker.mjs"],

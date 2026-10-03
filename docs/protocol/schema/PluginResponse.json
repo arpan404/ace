@@ -1,0 +1,134 @@
+{
+  "$id": "https://ace.local/protocol/v1/PluginResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-zA-Z0-9-]{1,80}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "plugins.cancelled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "review": {
+          "$ref": "https://ace.local/protocol/v1/PluginReview.json"
+        },
+        "type": {
+          "const": "plugins.review",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "review"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "install": {
+          "$ref": "https://ace.local/protocol/v1/PluginInstall.json"
+        },
+        "type": {
+          "const": "plugins.installed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "install"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "installs": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/PluginInstall.json"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "reviews": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/PluginReviewSummary.json"
+          },
+          "maxItems": 32,
+          "type": "array"
+        },
+        "type": {
+          "const": "plugins.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "installs",
+        "reviews"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "https://ace.local/protocol/v1/PluginName.json"
+        },
+        "type": {
+          "const": "plugins.removed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/PluginReviewEntry.json"
+          },
+          "maxItems": 1024,
+          "type": "array"
+        },
+        "nextOffset": {
+          "maximum": 1024,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "review": {
+          "$ref": "https://ace.local/protocol/v1/PluginReviewSummary.json"
+        },
+        "type": {
+          "const": "plugins.reviewPage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "review",
+        "entries"
+      ],
+      "type": "object"
+    }
+  ]
+}

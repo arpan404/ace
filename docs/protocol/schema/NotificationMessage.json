@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/NotificationMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "notification": {
+      "$ref": "https://ace.local/protocol/v1/Notification.json"
+    },
+    "type": {
+      "const": "notification",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "notification"
+  ],
+  "type": "object"
+}

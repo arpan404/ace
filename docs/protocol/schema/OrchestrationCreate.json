@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationCreate.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "baseRef": {
+      "maxLength": 512,
+      "minLength": 1,
+      "pattern": "^(?:[a-f0-9]{40}|[a-f0-9]{64})$",
+      "type": "string"
+    },
+    "prompt": {
+      "maxLength": 32768,
+      "minLength": 1,
+      "type": "string"
+    },
+    "targetBranch": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    },
+    "template": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationTemplate.json"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "workspaceId",
+    "prompt",
+    "baseRef",
+    "targetBranch",
+    "template"
+  ],
+  "type": "object"
+}

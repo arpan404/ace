@@ -1,3 +1,4 @@
+import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 
 export const ProviderKind = z.enum(["claude", "codex", "opencode", "cursor", "antigravity", "acp"]);
@@ -10,9 +11,12 @@ export type ProviderKind = z.infer<typeof ProviderKind>;
  */
 export const NativeRef = z.object({
   provider: ProviderKind,
+  ...AcpIdentity.partial().shape,
   nativeId: z.string().optional(),
   /** Hierarchical name when the provider has one (Codex `agent_path`, e.g. `/root/explorer`). */
   path: z.string().optional(),
+  /** Native history lineage, separate from agent ancestry and workspace cloning. */
+  forkedFromNativeId: z.string().min(1).max(1024).optional(),
   /** Other native ids that refer to the same entity (e.g. a resumed subagent's new session id). */
   aliases: z.array(z.string()).optional(),
 });
@@ -36,7 +40,10 @@ export const RawPayload = z.union([
     name: z.string().optional(),
     blobRef: z.string().min(1),
     size: z.number().int().nonnegative(),
-    preview: z.string().refine((text) => new TextEncoder().encode(text).length <= 2048),
+    preview: z
+      .string()
+      .refine((text) => new TextEncoder().encode(text).length <= 2048)
+      .meta({ "x-ace-constraint": "UTF-8 encoding must be at most 2048 bytes." }),
   }),
 ]);
 export type RawPayload = z.infer<typeof RawPayload>;

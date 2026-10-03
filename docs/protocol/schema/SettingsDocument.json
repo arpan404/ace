@@ -1,0 +1,215 @@
+{
+  "$id": "https://ace.local/protocol/v1/SettingsDocument.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {
+    "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema6"
+  },
+  "properties": {
+    "settings": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema5"
+      },
+      "properties": {
+        "approvals.policy": {
+          "enum": [
+            "ask",
+            "on-failure",
+            "never"
+          ],
+          "type": "string"
+        },
+        "automations.enabled": {
+          "type": "boolean"
+        },
+        "automations.maxConcurrent": {
+          "maximum": 32,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "automations.timezone": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "clients.keybindings": {
+          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema4"
+        },
+        "clients.theme": {
+          "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema3"
+        },
+        "conductor.maxFixRounds": {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "conductor.mergePolicy": {
+          "enum": [
+            "manual",
+            "after-review",
+            "after-checks"
+          ],
+          "type": "string"
+        },
+        "conductor.planApproval": {
+          "enum": [
+            "required",
+            "optional"
+          ],
+          "type": "string"
+        },
+        "notifications.enabled": {
+          "type": "boolean"
+        },
+        "notifications.onApproval": {
+          "type": "boolean"
+        },
+        "notifications.onCompletion": {
+          "type": "boolean"
+        },
+        "notifications.sound": {
+          "type": "boolean"
+        },
+        "notifications.suppressWhenActive": {
+          "type": "boolean"
+        },
+        "plugins.enabled": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "maxItems": 256,
+          "type": "array"
+        },
+        "plugins.preferences": {
+          "additionalProperties": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema2"
+          },
+          "propertyNames": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "providers.coder.model": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "providers.coder.provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "providers.coder.reasoningEffort": {
+          "enum": [
+            "default",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "type": "string"
+        },
+        "providers.coder.tier": {
+          "enum": [
+            "default",
+            "standard",
+            "fast",
+            "flex",
+            "priority"
+          ],
+          "type": "string"
+        },
+        "providers.default": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "providers.planner.model": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "providers.planner.provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "providers.planner.reasoningEffort": {
+          "enum": [
+            "default",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "type": "string"
+        },
+        "providers.planner.tier": {
+          "enum": [
+            "default",
+            "standard",
+            "fast",
+            "flex",
+            "priority"
+          ],
+          "type": "string"
+        },
+        "providers.reviewer.model": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "providers.reviewer.provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        },
+        "providers.reviewer.reasoningEffort": {
+          "enum": [
+            "default",
+            "none",
+            "minimal",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "type": "string"
+        },
+        "providers.reviewer.tier": {
+          "enum": [
+            "default",
+            "standard",
+            "fast",
+            "flex",
+            "priority"
+          ],
+          "type": "string"
+        },
+        "remote.enabled": {
+          "type": "boolean"
+        },
+        "remote.transport": {
+          "enum": [
+            "local",
+            "lan",
+            "tailscale",
+            "relay"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "version": {
+      "const": 2,
+      "type": "number"
+    }
+  },
+  "required": [
+    "version",
+    "settings"
+  ],
+  "type": "object"
+}

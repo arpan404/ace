@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewSource.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "from": {
+      "$ref": "https://ace.local/protocol/v1/ReviewRevision.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "to": {
+      "$ref": "https://ace.local/protocol/v1/ReviewRevision.json"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "workspaceId",
+    "from",
+    "to"
+  ],
+  "type": "object"
+}

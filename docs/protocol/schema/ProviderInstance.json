@@ -1,0 +1,91 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderInstance.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    {
+      "env": {
+        "CODEX_HOME": "/example/codex"
+      },
+      "homeDir": "/example/codex",
+      "id": "codex-default",
+      "label": "Codex",
+      "provider": "codex"
+    },
+    {
+      "acpAgentId": "local:agent",
+      "env": {},
+      "homeDir": "/example/home",
+      "homeStrategy": "default_cli",
+      "id": "installed:default",
+      "installationId": "installed",
+      "instanceId": "installed:default",
+      "label": "Local agent",
+      "provider": "acp"
+    }
+  ],
+  "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "env": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/AccountDirectory.json"
+      },
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/AccountEnvKey.json"
+      },
+      "type": "object"
+    },
+    "homeDir": {
+      "$ref": "https://ace.local/protocol/v1/AccountDirectory.json"
+    },
+    "homeStrategy": {
+      "const": "default_cli",
+      "type": "string"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "installationVersion": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "label": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "loginRevision": {
+      "maxLength": 128,
+      "type": "string"
+    },
+    "profileRevision": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/AccountProvider.json"
+    }
+  },
+  "required": [
+    "id",
+    "provider",
+    "label",
+    "homeDir",
+    "env"
+  ],
+  "type": "object",
+  "x-ace-constraint": "Native instances use native account IDs. ACP instances require matching agent, installation and instance references, id equal to instanceId, default_cli home strategy and an empty selector environment."
+}

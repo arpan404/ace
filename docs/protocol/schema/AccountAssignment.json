@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/AccountAssignment.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "estimatedLoad": {
+      "maximum": 100,
+      "minimum": 0,
+      "type": "number"
+    },
+    "instanceId": {
+      "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+    },
+    "role": {
+      "maxLength": 64,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "role",
+    "estimatedLoad"
+  ],
+  "type": "object"
+}

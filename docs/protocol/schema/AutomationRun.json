@@ -1,0 +1,72 @@
+{
+  "$id": "https://ace.local/protocol/v1/AutomationRun.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "automationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "eventKey": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "finishedAt": {
+      "maximum": 8640000000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "startedAt": {
+      "maximum": 8640000000000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "status": {
+      "enum": [
+        "running",
+        "succeeded",
+        "failed",
+        "skipped"
+      ],
+      "type": "string"
+    },
+    "threadId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "title": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "trigger": {
+      "enum": [
+        "schedule",
+        "github",
+        "file",
+        "manual"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "automationId",
+    "title",
+    "eventKey",
+    "trigger",
+    "status",
+    "startedAt"
+  ],
+  "type": "object"
+}

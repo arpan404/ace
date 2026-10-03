@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/SpawnAgentRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "prompt": {
+      "maxLength": 32768,
+      "minLength": 1,
+      "type": "string"
+    },
+    "requestId": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    },
+    "spec": {
+      "$ref": "https://ace.local/protocol/v1/LaneSpec.json"
+    }
+  },
+  "required": [
+    "requestId",
+    "spec",
+    "prompt"
+  ],
+  "type": "object"
+}

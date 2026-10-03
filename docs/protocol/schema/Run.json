@@ -1,0 +1,45 @@
+{
+  "$id": "https://ace.local/protocol/v1/Run.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "endedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/RunId.json"
+    },
+    "nativeId": {
+      "type": "string"
+    },
+    "startedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "state": {
+      "enum": [
+        "active",
+        "completed",
+        "interrupted",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "trigger": {
+      "$ref": "https://ace.local/protocol/v1/RunTrigger.json"
+    }
+  },
+  "required": [
+    "id",
+    "threadId",
+    "agentId",
+    "trigger",
+    "state",
+    "startedAt"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/McpSpawnIntent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "input": {
+      "$ref": "https://ace.local/protocol/v1/McpSpawnInput.json"
+    },
+    "sessionId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "mcp.spawn",
+      "type": "string"
+    }
+  },
+  "required": [
+    "sessionId",
+    "threadId",
+    "agentId",
+    "type",
+    "input"
+  ],
+  "type": "object"
+}

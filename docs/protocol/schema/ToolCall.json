@@ -1,0 +1,53 @@
+{
+  "$id": "https://ace.local/protocol/v1/ToolCall.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "backgroundTaskId": {
+      "$ref": "https://ace.local/protocol/v1/BackgroundTaskId.json"
+    },
+    "detail": {
+      "$ref": "https://ace.local/protocol/v1/ToolDetail.json"
+    },
+    "endedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "error": {
+      "type": "string"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/ItemId.json"
+    },
+    "kind": {
+      "$ref": "https://ace.local/protocol/v1/ToolKind.json"
+    },
+    "raw": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+      },
+      "type": "array"
+    },
+    "startedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/ToolStatus.json"
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "agentId",
+    "kind",
+    "title",
+    "status",
+    "detail",
+    "startedAt",
+    "raw"
+  ],
+  "type": "object"
+}

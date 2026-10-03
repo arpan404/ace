@@ -1,0 +1,24 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationChecks.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "command": {
+      "items": {
+        "maxLength": 4096,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "type": "array"
+    },
+    "review": {
+      "maxLength": 8192,
+      "type": "string"
+    }
+  },
+  "required": [
+    "command"
+  ],
+  "type": "object",
+  "x-ace-constraint": "command[0] must be nonempty and every argument must be NUL-free."
+}

@@ -1,48 +1,21 @@
-import type { Fact, Key } from "@ace/core";
-import type { RawPayload } from "@ace/protocol";
+import { factRaw, canonicalOnly } from "./raw-facts.ts";
+import { interactionFrame } from "./translate-interactions.ts";
+import type { Key } from "@ace/core";
 import type { Translator, Frame } from "@ace/engine-api";
+import { rateLimitFacts } from "./rate-limits.ts";
+import { ResultUsage } from "./result-usage.ts";
+import { NativeQueue } from "./native-queue.ts";
 import { PendingTranscripts } from "./pending-transcripts.ts";
 import { MessageIndex } from "./blocks.ts";
 import { ClaudeState } from "./state.ts";
-import { message, stream, tool, finishStream, type StreamState } from "./content.ts";
+import { message, stream, finishStream, type StreamState } from "./content.ts";
 import { taskFrame, taskTick } from "./tasks.ts";
-import { requestFor, resolutionFor } from "./interactions.ts";
 import { number, object, string, type Data } from "./native.ts";
-
-function factRaw(fact: Fact): RawPayload[] {
-  if (fact.type === "item.upsert") {
-    if (fact.draft.type === "tool_call") return fact.draft.call?.raw ?? [];
-    if (fact.draft.type === "message" || fact.draft.type === "notice") return fact.draft.raw ?? [];
-  }
-  if (fact.type === "interaction.opened" || fact.type === "background.started")
-    return fact.raw ?? [];
-  return [];
-}
-
-// The receipt notice owns raw data; canonical enrichment must preserve prior raw.
-function canonicalOnly(fact: Fact): Fact {
-  if (fact.type === "item.upsert") {
-    if (fact.draft.type === "tool_call") {
-      const call = { ...fact.draft.call };
-      delete call.raw;
-      return { ...fact, draft: { ...fact.draft, call } };
-    }
-    if (fact.draft.type === "message" || fact.draft.type === "notice") {
-      const draft = { ...fact.draft };
-      delete draft.raw;
-      return { ...fact, draft };
-    }
-  }
-  if (fact.type === "interaction.opened" || fact.type === "background.started") {
-    const canonical = { ...fact };
-    delete canonical.raw;
-    return canonical;
-  }
-  return fact;
-}
 
 export function createTranslator(init: { rootKey: Key }): Translator {
   let state = new ClaudeState(init.rootKey);
+  let accounting = new ResultUsage();
+  let queue = new NativeQueue();
   const streams = new Map<string, StreamState>();
   const messages = new MessageIndex(init.rootKey);
   const pending = new PendingTranscripts();
@@ -74,15 +47,16 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       }
       if (subtype === "api_retry") {
         const error = string(data["error"]);
+        state.retryOn =
+          error === "rate_limit" || data["error_status"] === 429
+            ? "rate_limit"
+            : data["error_status"] == null
+              ? "network"
+              : "upstream";
         state.emit({
           type: "retry",
           agent: state.root,
-          on:
-            error === "rate_limit" || data["error_status"] === 429
-              ? "rate_limit"
-              : data["error_status"] == null
-                ? "network"
-                : "upstream",
+          on: state.retryOn,
           message: error,
           ...(number(data["attempt"]) > 0 ? { attempt: Math.floor(number(data["attempt"])) } : {}),
         });
@@ -112,6 +86,10 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         state.start(state.root, "user");
       }
       message(state, data, frame.seq, streams, messages);
+      return true;
+    }
+    if (type === "conversation_reset") {
+      accounting.reset(data);
       return true;
     }
     if (type === "result") {
@@ -154,32 +132,11 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           on: "upstream",
           message: "Claude session has not settled",
         });
-      const queued = Math.floor(number(data["queued_turn_count"]));
-      if (queued !== state.nativeQueued) {
-        state.emit({ type: "queue.changed", count: queued, source: "provider" });
-        state.nativeQueued = queued;
-      }
-      const usage = object(data["usage"]);
-      state.emit({
-        type: "usage",
-        agent: state.root,
-        inputTokens: number(usage["input_tokens"]),
-        outputTokens: number(usage["output_tokens"]),
-        cachedInputTokens: number(usage["cache_read_input_tokens"]),
-        costUsd: number(data["total_cost_usd"]),
-      });
+      for (const fact of accounting.facts(state, data)) state.emit(fact);
       return true;
     }
     if (type === "rate_limit_event") {
-      const info = object(data["rate_limit_info"]);
-      if (info["status"] === "rejected")
-        state.emit({
-          type: "retry",
-          agent: state.root,
-          on: "rate_limit",
-          message: "Claude rate limit",
-        });
-      else state.emit({ type: "retry.cleared", agent: state.root });
+      rateLimitFacts(state, data);
       return true;
     }
     if (type === "control_cancel_request") {
@@ -194,87 +151,6 @@ export function createTranslator(init: { rootKey: Key }): Translator {
     }
     return type === "keep_alive";
   }
-  function permission(data: Data, frame: Frame): void {
-    if (frame.dir === "send") {
-      const id = string(data["requestId"]);
-      const interaction = state.interactions.get(id);
-      if (!interaction) return;
-      state.toolFrames.set(interaction.toolId, frame.seq);
-      const result = object(data["result"]);
-      const denied = result["behavior"] === "deny";
-      // A late reply cannot replace a tool's settled outcome or reopen its work.
-      if (!state.terminalChildren.has(interaction.agent))
-        state.emit({
-          type: "item.upsert",
-          agent: interaction.agent,
-          item: interaction.item,
-          draft: {
-            type: "tool_call",
-            complete: denied,
-            call: {
-              status: denied
-                ? result["interrupt"] === true
-                  ? "cancelled"
-                  : "declined"
-                : "running",
-            },
-          },
-        });
-      state.emit({
-        type: "interaction.closed",
-        interaction: state.key("interaction", id),
-        state: "resolved",
-        resolution: resolutionFor(interaction.request, data["result"], data["resolution"]),
-      });
-      state.interactions.delete(id);
-      return;
-    }
-    const options = object(data["options"]);
-    const id = string(options["requestId"]);
-    if (!id) return;
-    const native = string(options["agentID"]);
-    const task = state.tasks.get(native);
-    const agent = native
-      ? (state.nativeAgents.get(native) ??
-        state.child(`native:${native}`, state.root, false, native, task?.terminalStatus))
-      : state.root;
-    if (task?.terminal) {
-      task.child = agent;
-      state.endChild(task, task.terminalStatus ?? "failed");
-    }
-    const toolId = string(options["toolUseID"], `interaction:${id}`);
-    const name = string(data["toolName"], "Unknown tool");
-    state.toolFrames.set(toolId, frame.seq);
-    const start = state.facts.length;
-    tool(state, agent, { id: toolId, name, input: data["input"] }, data, true);
-    if (state.terminalChildren.has(agent)) {
-      state.interactions.delete(id);
-      // Retire stale permissions without opening human work. Keep their raw once.
-      for (let index = start; index < state.facts.length; index++) {
-        const fact = state.facts[index];
-        if (fact) state.facts[index] = canonicalOnly(fact);
-      }
-      state.notice(
-        data,
-        `settled-permission:${frame.seq}`,
-        agent,
-        "info",
-        "Claude permission retired for a settled child",
-      );
-      return;
-    }
-    const request = requestFor(name, object(data["input"]), options);
-    state.interactions.set(id, { agent, item: state.key("tool", toolId), toolId, request });
-    state.emit({
-      type: "interaction.opened",
-      agent,
-      interaction: state.key("interaction", id),
-      item: state.key("tool", toolId),
-      blocking: true,
-      request,
-      raw: [{ type: "can_use_tool", name, data }],
-    });
-  }
   return {
     translate(frame, now) {
       state.facts = [];
@@ -282,6 +158,8 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       const data = object(frame.data);
       if (frame.channel === "lifecycle" && data["type"] === "process.started") {
         state = new ClaudeState(init.rootKey);
+        accounting = new ResultUsage();
+        queue = new NativeQueue();
         streams.clear();
         messages.clear();
         pending.clear();
@@ -289,9 +167,26 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       taskTick(state, now);
       state.ensureRoot(data);
       state.emit({ type: "signal", agent: state.agentFor(data) });
+      if (
+        frame.channel === "sdk" &&
+        frame.dir === "recv" &&
+        data["type"] === "result" &&
+        !accounting.accept(data)
+      ) {
+        state.notice(
+          frame.data,
+          `native:${frame.seq}`,
+          state.root,
+          "info",
+          "Claude duplicate result",
+        );
+        return state.facts;
+      }
+      queue.observe(state, frame, data);
       if (pending.defer(state, frame)) return state.facts;
-      if (frame.channel === "can_use_tool") permission(data, frame);
-      else if (frame.channel === "lifecycle" && data["type"] === "process.exited") {
+      if (interactionFrame(state, frame, data)) {
+        // Interaction owner reports only lifecycle facts.
+      } else if (frame.channel === "lifecycle" && data["type"] === "process.exited") {
         state.emit({
           type: "process.exited",
           deliberate: data["deliberate"] === true,

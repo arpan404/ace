@@ -1,3 +1,9 @@
+import { startAgentRegistry } from "./agent-registry.ts";
+import { startScreen } from "./screen.ts";
+import { startAccounts } from "./accounts.ts";
+import { startCommands } from "./commands.ts";
+import { startFiles } from "./files.ts";
+import { startRelayKeys } from "./relay.ts";
 import { startPlugins } from "./plugins.ts";
 import { startBrowser } from "./browser.ts";
 import { startContext } from "./context.ts";
@@ -12,6 +18,11 @@ import { startEngine } from "./engine.ts";
 import type { ServiceContext, Services } from "./types.ts";
 /** Ordered composition: provider sessions are admitted only after their services open. */
 export const serviceFactories = [
+  startScreen,
+  startAccounts,
+  startCommands,
+  startFiles,
+  startRelayKeys,
   startPlugins,
   startBrowser,
   startContext,
@@ -22,6 +33,7 @@ export const serviceFactories = [
   startModels,
   startMcp,
   startNotifications,
+  startAgentRegistry,
   startEngine,
 ];
 export function readyServices(services: Partial<Services>): Services {
@@ -67,6 +79,12 @@ export function readyServices(services: Partial<Services>): Services {
     notifications,
     review,
     usage,
+    ...(services.agentRegistry ? { agentRegistry: services.agentRegistry } : {}),
+    ...(services.screen ? { screen: services.screen } : {}),
+    ...(services.accounts ? { accounts: services.accounts } : {}),
+    ...(services.commands ? { commands: services.commands } : {}),
+    ...(services.files ? { files: services.files } : {}),
+    ...(services.relay ? { relay: services.relay } : {}),
     ...(services.engine ? { engine: services.engine } : {}),
     ...(services.history ? { history: services.history } : {}),
   };

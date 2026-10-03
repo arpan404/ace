@@ -1,0 +1,78 @@
+{
+  "$id": "https://ace.local/protocol/v1/Agent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "background": {
+      "default": false,
+      "type": "boolean"
+    },
+    "createdAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "cwd": {
+      "type": "string"
+    },
+    "endedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "fidelity": {
+      "$ref": "https://ace.local/protocol/v1/AgentFidelity.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "model": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "native": {
+      "$ref": "https://ace.local/protocol/v1/NativeRef.json"
+    },
+    "origin": {
+      "$ref": "https://ace.local/protocol/v1/AgentOrigin.json"
+    },
+    "parentId": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "role": {
+      "type": "string"
+    },
+    "spawnedBy": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/AgentStatus.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "id",
+    "threadId",
+    "parentId",
+    "origin",
+    "native",
+    "fidelity",
+    "cwd",
+    "status",
+    "createdAt"
+  ],
+  "type": "object"
+}

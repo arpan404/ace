@@ -1,0 +1,42 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewFingerprint.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "after": {
+      "items": {
+        "maxLength": 8192,
+        "type": "string"
+      },
+      "maxItems": 3,
+      "type": "array"
+    },
+    "before": {
+      "items": {
+        "maxLength": 8192,
+        "type": "string"
+      },
+      "maxItems": 3,
+      "type": "array"
+    },
+    "lines": {
+      "items": {
+        "maxLength": 8192,
+        "type": "string"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "type": "array"
+    },
+    "noFinalNewline": {
+      "const": true,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "before",
+    "lines",
+    "after"
+  ],
+  "type": "object",
+  "x-ace-constraint": "Total UTF-16 length of before, lines and after is <= 8192."
+}

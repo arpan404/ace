@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/QuotaWindow.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "resetsAt": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "usedPercent": {
+      "maximum": 100,
+      "minimum": 0,
+      "type": "number"
+    }
+  },
+  "required": [
+    "usedPercent",
+    "resetsAt"
+  ],
+  "type": "object"
+}

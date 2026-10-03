@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/TriggerVariables.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": {
+    "maxLength": 8192,
+    "type": "string"
+  },
+  "maxProperties": 64,
+  "propertyNames": {
+    "maxLength": 128,
+    "pattern": "^[A-Za-z][A-Za-z0-9_.]*$",
+    "type": "string"
+  },
+  "type": "object",
+  "x-ace-constraint": "At most 64 entries."
+}

@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenPermissionsV2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "input": {
+      "enum": [
+        "granted",
+        "denied",
+        "prompt",
+        "n/a"
+      ],
+      "type": "string"
+    },
+    "screen": {
+      "enum": [
+        "granted",
+        "denied",
+        "prompt",
+        "n/a"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "screen",
+    "input"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,26 @@
+{
+  "$id": "https://ace.local/protocol/v1/SettingsChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SettingsEntry.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "subscriptionId": {
+      "type": "string"
+    },
+    "type": {
+      "const": "settings.changed",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "subscriptionId",
+    "entries"
+  ],
+  "type": "object"
+}

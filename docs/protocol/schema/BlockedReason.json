@@ -1,0 +1,13 @@
+{
+  "$id": "https://ace.local/protocol/v1/BlockedReason.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "human",
+    "subagents",
+    "background_task",
+    "rate_limit",
+    "network",
+    "upstream"
+  ],
+  "type": "string"
+}

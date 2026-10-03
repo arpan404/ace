@@ -1,0 +1,125 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationState.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "failed": {
+      "maximum": 64,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    },
+    "input": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationCreate.json"
+    },
+    "intents": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/OrchestrationIntent.json"
+      },
+      "maxProperties": 129,
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/LaneId.json"
+      },
+      "type": "object",
+      "x-ace-constraint": "At most 129 entries."
+    },
+    "lanes": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/OrchestrationLane.json"
+      },
+      "maxProperties": 64,
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/LaneId.json"
+      },
+      "type": "object",
+      "x-ace-constraint": "At most 64 entries."
+    },
+    "mergeRequested": {
+      "type": "boolean"
+    },
+    "mergeStatus": {
+      "enum": [
+        "none",
+        "pending",
+        "applied",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "open": {
+      "maximum": 64,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "runId": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    },
+    "safetyCheckpoint": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "spawnReceipts": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/LaneId.json"
+      },
+      "maxProperties": 64,
+      "propertyNames": {
+        "maxLength": 300,
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "At most 64 entries."
+    },
+    "startedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationRunStatus.json"
+    },
+    "stopReason": {
+      "enum": [
+        "cancelled",
+        "budget_exhausted",
+        "winner"
+      ],
+      "type": "string"
+    },
+    "succeeded": {
+      "maximum": 64,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "usage": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationUsage.json"
+    },
+    "waiting": {
+      "maximum": 64,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "winner": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    }
+  },
+  "required": [
+    "id",
+    "runId",
+    "input",
+    "startedAt",
+    "status",
+    "lanes",
+    "intents",
+    "spawnReceipts",
+    "open",
+    "waiting",
+    "succeeded",
+    "failed",
+    "usage",
+    "mergeRequested",
+    "mergeStatus"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,417 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_thread_info.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "thread": {
+      "additionalProperties": false,
+      "properties": {
+        "acpAgentId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "acpSupport": {
+          "additionalProperties": false,
+          "properties": {
+            "capabilities": {
+              "additionalProperties": false,
+              "properties": {
+                "imageInput": {
+                  "type": "boolean"
+                },
+                "planMode": {
+                  "type": "boolean"
+                },
+                "resume": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "resume",
+                "imageInput",
+                "planMode"
+              ],
+              "type": "object"
+            },
+            "coverage": {
+              "enum": [
+                "source_profile",
+                "generic",
+                "legacy"
+              ],
+              "type": "string"
+            },
+            "mcp": {
+              "enum": [
+                "http",
+                "stdio",
+                "unavailable"
+              ],
+              "type": "string"
+            },
+            "modeSelection": {
+              "type": "boolean"
+            },
+            "modelSelection": {
+              "type": "boolean"
+            },
+            "raw": {
+              "additionalProperties": false,
+              "properties": {
+                "json": {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                "truncated": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "json",
+                "truncated"
+              ],
+              "type": "object"
+            },
+            "subagentSessions": {
+              "default": false,
+              "type": "boolean"
+            },
+            "visibility": {
+              "const": "limited",
+              "type": "string"
+            }
+          },
+          "required": [
+            "capabilities",
+            "mcp",
+            "modelSelection",
+            "modeSelection",
+            "subagentSessions",
+            "coverage",
+            "visibility",
+            "raw"
+          ],
+          "type": "object"
+        },
+        "archivedAt": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "createdAt": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "effectiveCapabilities": {
+          "additionalProperties": false,
+          "properties": {
+            "backgroundTaskControl": {
+              "type": "boolean"
+            },
+            "backgroundVisibility": {
+              "enum": [
+                "full",
+                "partial",
+                "none"
+              ],
+              "type": "string"
+            },
+            "fork": {
+              "type": "boolean"
+            },
+            "imageInput": {
+              "type": "boolean"
+            },
+            "interruptCascades": {
+              "type": "boolean"
+            },
+            "planMode": {
+              "type": "boolean"
+            },
+            "resume": {
+              "type": "boolean"
+            },
+            "rewindFiles": {
+              "type": "boolean"
+            },
+            "steer": {
+              "type": "boolean"
+            },
+            "subagentTranscripts": {
+              "type": "boolean"
+            },
+            "tokenUsage": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "steer",
+            "interruptCascades",
+            "resume",
+            "fork",
+            "subagentTranscripts",
+            "backgroundTaskControl",
+            "backgroundVisibility",
+            "planMode",
+            "tokenUsage",
+            "imageInput",
+            "rewindFiles"
+          ],
+          "type": "object"
+        },
+        "id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "imported": {
+          "additionalProperties": false,
+          "properties": {
+            "importedAt": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "instanceId": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "native": {
+              "additionalProperties": false,
+              "properties": {
+                "acpAgentId": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "aliases": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "forkedFromNativeId": {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "installationId": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "instanceId": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "nativeId": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "provider": {
+                  "enum": [
+                    "claude",
+                    "codex",
+                    "opencode",
+                    "cursor",
+                    "antigravity",
+                    "acp"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "provider"
+              ],
+              "type": "object"
+            },
+            "sourceId": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "sourceId",
+            "instanceId",
+            "native",
+            "importedAt"
+          ],
+          "type": "object"
+        },
+        "installationId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "instanceId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "enum": [
+            "claude",
+            "codex",
+            "opencode",
+            "cursor",
+            "antigravity",
+            "acp"
+          ],
+          "type": "string"
+        },
+        "rootAgentId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "interactions": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                },
+                "state": {
+                  "const": "needs_you",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state",
+                "interactions"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "agents": {
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991,
+                  "type": "integer"
+                },
+                "state": {
+                  "const": "working",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state",
+                "agents"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "on": {
+                  "enum": [
+                    "background_task",
+                    "rate_limit",
+                    "network",
+                    "upstream",
+                    "queue"
+                  ],
+                  "type": "string"
+                },
+                "state": {
+                  "const": "waiting",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state",
+                "on"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "failed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "unresponsive",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "done",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "state": {
+                  "const": "new",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "state"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "workspaceId": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "workspaceId",
+        "title",
+        "provider",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "thread"
+  ],
+  "type": "object"
+}

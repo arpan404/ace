@@ -36,6 +36,9 @@ test("indexed wire pages preserve browser artifacts created before a root agent"
     ).toBe("hello");
     expect(store.snapshotThread(thread.id).items.recording).toEqual(artifact);
     expect(store.getThread(thread.id)?.rootAgentId).toBeUndefined();
+    const hit = store.search.query({ text: "recording", filters: { kind: "artifact" } }).hits[0];
+    expect(hit).toMatchObject({ itemId: artifact.id, kind: "artifact" });
+    expect(hit?.agentId).toBeUndefined();
   } finally {
     store.close();
   }

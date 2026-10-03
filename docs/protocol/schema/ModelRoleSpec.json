@@ -1,0 +1,75 @@
+{
+  "$id": "https://ace.local/protocol/v1/ModelRoleSpec.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "effort": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "imageInput": {
+      "default": false,
+      "type": "boolean"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instance": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "preferenceOrder": {
+      "default": [],
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 512,
+      "type": "array"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "role": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "selection": {
+      "default": "default",
+      "enum": [
+        "default",
+        "strongest"
+      ],
+      "type": "string"
+    },
+    "tier": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "role"
+  ],
+  "type": "object"
+}

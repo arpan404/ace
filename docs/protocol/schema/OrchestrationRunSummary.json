@@ -1,0 +1,42 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationRunSummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    },
+    "laneIds": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/LaneId.json"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "orchestrationId": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    },
+    "startedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationRunStatus.json"
+    },
+    "usage": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationUsage.json"
+    },
+    "winner": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    }
+  },
+  "required": [
+    "id",
+    "orchestrationId",
+    "status",
+    "startedAt",
+    "laneIds",
+    "usage"
+  ],
+  "type": "object"
+}

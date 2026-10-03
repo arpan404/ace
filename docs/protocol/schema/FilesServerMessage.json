@@ -1,0 +1,207 @@
+{
+  "$id": "https://ace.local/protocol/v1/FilesServerMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "channel": {
+          "type": "number"
+        },
+        "type": {
+          "const": "files.cancelled",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "channel"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "files.result",
+          "type": "string"
+        },
+        "value": {}
+      },
+      "required": [
+        "type",
+        "requestId",
+        "value"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "type": "number"
+        },
+        "code": {
+          "type": "string"
+        },
+        "current": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "files.error",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "type": "number"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": {
+          "const": "files.ready",
+          "type": "string"
+        },
+        "validator": {
+          "$ref": "https://ace.local/protocol/v1/FileVersion.json"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "channel",
+        "offset",
+        "size",
+        "validator"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "type": "number"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "type": {
+          "const": "files.end",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "channel",
+        "offset",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "type": "number"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "size": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "const": "files.upload",
+          "type": "string"
+        },
+        "uploadId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "channel",
+        "uploadId",
+        "offset",
+        "size"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "change": {
+          "$ref": "https://ace.local/protocol/v1/WorkspaceFileChange.json"
+        },
+        "type": {
+          "const": "files.changed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "change"
+      ],
+      "type": "object"
+    }
+  ]
+}

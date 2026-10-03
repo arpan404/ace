@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/OutputSummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "streamId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "tail": {
+      "type": "string",
+      "x-ace-constraint": "UTF-8 encoding must be at most 4096 bytes."
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "streamId",
+    "bytes",
+    "tail",
+    "truncated"
+  ],
+  "type": "object"
+}

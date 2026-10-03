@@ -156,7 +156,14 @@ export class PayloadStore {
   }
   persist(event: Event): void {
     const p = event.payload;
-    if (p.type === "item.created" || p.type === "item.updated") {
+    if (p.type === "item.deleted") {
+      this.db
+        .prepare("DELETE FROM items WHERE id = ? AND thread_id = ?")
+        .run(p.itemId, event.threadId);
+      this.db
+        .prepare("DELETE FROM output_streams WHERE item_id = ? AND thread_id = ?")
+        .run(p.itemId, event.threadId);
+    } else if (p.type === "item.created" || p.type === "item.updated") {
       this.items.upsert(event, p.item);
     } else if (p.type === "item.delta") {
       if (p.field !== "output") {
@@ -228,7 +235,39 @@ export class PayloadStore {
     }
     return statement;
   }
+  blobInfo(blobRef: string) {
+    const metadata = this.readStatement(
+      "SELECT rowid, thread_id AS threadId, length(bytes) AS size, sha256 FROM blobs WHERE id=?",
+    );
+    const row = metadata.get(blobRef);
+    if (!row) throw new Error("Unknown blob reference");
+    return z
+      .object({
+        rowid: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        threadId: ThreadId,
+        size: z.number().int().nonnegative().max(2147483647),
+        sha256: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .parse(row);
+  }
+  outputInfo(streamId: string) {
+    const metadata = this.readStatement(
+      "SELECT thread_id AS threadId, size FROM output_streams WHERE id=?",
+    );
+    const row = metadata.get(streamId);
+    if (!row) throw new Error("Unknown output stream");
+    return z
+      .object({
+        threadId: ThreadId,
+        size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+      })
+      .parse(row);
+  }
   readOutput(streamId: string, offset: number, limit: number) {
+    const result = this.readOutputBytes(streamId, offset, limit);
+    return { ...result, bytes: result.bytes.toString("base64") };
+  }
+  readOutputBytes(streamId: string, offset: number, limit: number) {
     if (
       !Number.isSafeInteger(offset) ||
       offset < 0 ||
@@ -244,7 +283,7 @@ export class PayloadStore {
     const table = output ? "output_chunks" : "item_source_chunks";
     if (!stream) throw new Error("Unknown output stream");
     const size = Number(stream.size);
-    if (offset >= size) return { bytes: "", nextOffset: offset, eof: true };
+    if (offset >= size) return { bytes: Buffer.alloc(0), nextOffset: offset, eof: true };
     const end = Math.min(size, offset + limit);
     // Seek the predecessor using the primary key, then read only the intersecting range.
     const predecessor = this.readStatement(
@@ -261,7 +300,7 @@ export class PayloadStore {
       }),
     );
     return {
-      bytes: bytes.toString("base64"),
+      bytes,
       nextOffset: offset + bytes.length,
       eof: offset + bytes.length >= size,
     };

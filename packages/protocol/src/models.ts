@@ -1,3 +1,4 @@
+import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 import { ProviderKind } from "./provider.ts";
 
@@ -9,17 +10,21 @@ export const ModelTier = z.object({
   parameters: z
     .record(label, z.union([z.string().max(256), z.boolean()]))
     .default({})
-    .refine((parameters) => Object.keys(parameters).length <= 16),
+    .refine((parameters) => Object.keys(parameters).length <= 16)
+    .meta({ maxProperties: 16, "x-ace-constraint": "At most 16 entries." }),
 });
 export const CatalogModel = z
   .object({
     id: label,
     displayName: label,
     provider: ProviderKind,
+    ...AcpIdentity.partial().shape,
     instance: label,
     nativeProviderId: label.optional(),
     nativeModelId: label,
     resolvedModelId: label.optional(),
+    modelConfigId: label.optional(),
+    selectorMethod: z.enum(["session/set_config_option", "session/set_model"]).optional(),
     contextWindow: z.number().int().positive().optional(),
     reasoningEfforts: z.array(label).max(32),
     defaultEffort: label.optional(),
@@ -33,16 +38,22 @@ export const CatalogModel = z
       json: z
         .string()
         .max(2048)
-        .refine((json) => new TextEncoder().encode(json).byteLength <= 2048),
+        .refine((json) => new TextEncoder().encode(json).byteLength <= 2048)
+        .meta({ "x-ace-constraint": "UTF-8 encoding must be at most 2048 bytes." }),
       truncated: z.boolean(),
     }),
   })
   .refine(
     (model) => new TextEncoder().encode(JSON.stringify(model)).byteLength <= 8192,
     "Model row exceeds 8 KiB",
-  );
+  )
+  .meta({
+    "x-ace-constraint":
+      "The parsed model with defaults filled and unknown fields stripped must serialize to at most 8192 UTF-8 bytes of compact JSON.",
+  });
 export type CatalogModel = z.infer<typeof CatalogModel>;
 export const ModelFilter = z.object({
+  ...AcpIdentity.partial().shape,
   provider: ProviderKind.optional(),
   instance: label.optional(),
 });
@@ -53,6 +64,7 @@ export const ModelListOptions = ModelFilter.extend({
 });
 export type ModelListOptions = z.input<typeof ModelListOptions>;
 export const ModelInstanceStatus = z.object({
+  ...AcpIdentity.partial().shape,
   provider: ProviderKind,
   instance: label,
   refreshedAt: z.number().nonnegative().optional(),

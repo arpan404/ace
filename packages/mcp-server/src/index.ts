@@ -41,3 +41,8 @@ export {
   openCodeDiscoveryApi,
   type CodexMcpStatusPort,
 } from "./discovery-apis.ts";
+export { runStdioBridge, type BridgeOptions } from "./stdio-bridge.ts";
+export { acpStdioInjection, appendAcpMcp } from "./injection.ts";
+
+export type { ContentToolDefinition } from "./content-tools.ts";
+export { builtinToolCatalog } from "./catalog.ts";

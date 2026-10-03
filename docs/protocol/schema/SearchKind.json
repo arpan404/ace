@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/SearchKind.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "thread",
+    "message",
+    "reasoning",
+    "tool_call",
+    "notice",
+    "compaction",
+    "artifact"
+  ],
+  "type": "string"
+}

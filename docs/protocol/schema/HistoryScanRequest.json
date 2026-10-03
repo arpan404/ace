@@ -1,0 +1,14 @@
+{
+  "$id": "https://ace.local/protocol/v1/HistoryScanRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "type": {
+      "const": "history.scan",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type"
+  ],
+  "type": "object"
+}

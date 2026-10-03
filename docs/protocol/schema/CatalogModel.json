@@ -1,0 +1,148 @@
+{
+  "$id": "https://ace.local/protocol/v1/CatalogModel.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "contextWindow": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "defaultEffort": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "defaultTier": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "deprecated": {
+      "type": "boolean"
+    },
+    "displayName": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "hidden": {
+      "type": "boolean"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "inputModalities": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instance": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "isDefault": {
+      "type": "boolean"
+    },
+    "modelConfigId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "nativeModelId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "nativeProviderId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "raw": {
+      "properties": {
+        "json": {
+          "maxLength": 2048,
+          "type": "string",
+          "x-ace-constraint": "UTF-8 encoding must be at most 2048 bytes."
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "json",
+        "truncated"
+      ],
+      "type": "object"
+    },
+    "reasoningEfforts": {
+      "items": {
+        "maxLength": 256,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "resolvedModelId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "selectorMethod": {
+      "enum": [
+        "session/set_config_option",
+        "session/set_model"
+      ],
+      "type": "string"
+    },
+    "serviceTiers": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ModelTier.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "displayName",
+    "provider",
+    "instance",
+    "nativeModelId",
+    "reasoningEfforts",
+    "serviceTiers",
+    "inputModalities",
+    "isDefault",
+    "hidden",
+    "deprecated",
+    "raw"
+  ],
+  "type": "object",
+  "x-ace-constraint": "The parsed model with defaults filled and unknown fields stripped must serialize to at most 8192 UTF-8 bytes of compact JSON."
+}

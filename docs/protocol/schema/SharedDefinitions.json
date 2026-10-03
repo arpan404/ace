@@ -1,0 +1,222 @@
+{
+  "$defs": {
+    "schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema0"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema0"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "schema1": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema1"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema1"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "schema2": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema2"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema2"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "schema3": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema3"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema3"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "schema4": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema4"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema4"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "schema5": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema5"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema5"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "schema6": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema6"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "https://ace.local/protocol/v1/SharedDefinitions.json#/$defs/schema6"
+          },
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "$id": "https://ace.local/protocol/v1/SharedDefinitions.json"
+}
