@@ -41,7 +41,7 @@ export function ThreadList(props: { arrangement: Arrangement }) {
     [active, settled, settledOpen],
   );
   const viewport = useRef<HTMLDivElement>(null);
-  // oxlint-disable-next-line react/incompatible-library -- the virtualizer's callbacks are unstable by design.
+  // oxlint-disable-next-line react-compiler/incompatible-library -- the virtualizer's callbacks are unstable by design.
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => viewport.current,

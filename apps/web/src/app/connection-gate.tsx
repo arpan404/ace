@@ -43,12 +43,12 @@ export function ConnectionGate(props: {
     // The client is an external resource with a start/close lifecycle. Creating it here (not
     // in render) keeps StrictMode's mount-unmount-mount from starting a closed client.
     if (!state.target) {
-      // oxlint-disable-next-line react/set-state-in-effect
+      // oxlint-disable-next-line react-compiler/set-state-in-effect
       setClient(undefined);
       return;
     }
     const next = createClient(state.target);
-    // oxlint-disable-next-line react/set-state-in-effect
+    // oxlint-disable-next-line react-compiler/set-state-in-effect
     setClient({ client: next, key: ++generation.current });
     void next.start().catch(() => {
       /* The client reports a fatal state; the shell shows it. */
