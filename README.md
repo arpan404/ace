@@ -129,8 +129,13 @@ any staged binary is built for another architecture.
   `Contents/Helpers/AceScreenHelper.app` (`dev.ace.screen-helper`), signed by
   `native/screen-helper/build.sh` and left untouched by the app's signing; its manifest is
   `Contents/Resources/screen-helper-manifest.json`. A full package signs the helper with the
-  Developer ID Application identity in the keychain named by `ACE_SCREEN_SIGN_IDENTITY` (or
-  `CSC_NAME`) and a secure timestamp, and fails without one.
+  Developer ID Application identity named by `ACE_SCREEN_SIGN_IDENTITY` (or `CSC_NAME`) and a
+  secure timestamp, and fails without one. That identity must already be in a keychain on the
+  search list when the package command starts: the helper is signed during the build, before
+  electron-builder imports `CSC_LINK` into its own temporary keychain. In CI, import the
+  certificate first (`security create-keychain`, `security import … -T /usr/bin/codesign`,
+  `security set-key-partition-list`, `security list-keychains -s`), then run
+  `bun run desktop:package --full`.
 - **Windows:** NSIS, with an "Open in ace" folder entry in Explorer. Windows runs no local daemon
   yet; it connects to a remote one.
 - **Linux:** AppImage and deb. Launch at login is not available on Linux yet.

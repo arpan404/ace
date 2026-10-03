@@ -12,6 +12,8 @@ import { verifyNatives } from "./verify-natives.ts";
  * `bun run desktop:package`: the full platform package for one architecture (macOS dmg+zip,
  * Windows NSIS, Linux AppImage and deb), signed and notarized when the release credentials
  * are present (CSC_LINK / CSC_NAME, APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER).
+ * On macOS the Developer ID identity must already be in a keychain on the search list: the
+ * screen helper is signed during the build, before electron-builder imports CSC_LINK.
  *
  * One run builds one architecture, the host's (`--arch` may name it and must match): the
  * daemon's native modules, ripgrep and the screen helper are built for the host, and the
