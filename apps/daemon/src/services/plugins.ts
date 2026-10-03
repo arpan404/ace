@@ -37,19 +37,26 @@ export function createPluginsSession(context: SocketContext): SocketService {
       switch (message.type) {
         case "pluginRequest": {
           const scope =
-            message.request.type === "plugins.list" || message.request.type === "plugins.readReview"
+            message.request.type === "plugins.list" ||
+            message.request.type === "plugins.readReview" ||
+            message.request.type === "plugins.catalog" ||
+            message.request.type === "plugins.source"
               ? "read"
               : "admin";
           if (!authorize(scope)) {
-            fail("forbidden", `${scope} scope required`);
+            fail("forbidden", `${scope} scope required`, false, { requestId: message.requestId });
             return true;
           }
           if (!options.plugins) {
-            fail("plugins_unavailable", "Plugin service unavailable");
+            fail("plugins_unavailable", "Plugin service unavailable", false, {
+              requestId: message.requestId,
+            });
             return true;
           }
           if (pluginPending || tasks.size >= 8) {
-            fail("plugins_busy", "Plugin operation already pending");
+            fail("plugins_busy", "Plugin operation already pending", false, {
+              requestId: message.requestId,
+            });
             return true;
           }
           pluginPending = true;
@@ -71,6 +78,8 @@ export function createPluginsSession(context: SocketContext): SocketService {
               fail(
                 "plugin_failed",
                 error instanceof Error ? error.message.slice(0, 8192) : "Plugin operation failed",
+                false,
+                { requestId: request.requestId },
               );
             } finally {
               pluginPending = false;

@@ -1,3 +1,11 @@
+import { migrateRunClient, prepareRunClient } from "./run-client-storage.ts";
+import {
+  migrateThreadClient,
+  seedThreadClient,
+  encodeThreadClient,
+  liveMetadataChange,
+} from "./thread-client-storage.ts";
+import { ThreadClientFields } from "@ace/protocol";
 import { ThreadProviderMetadata } from "@ace/protocol";
 import { setImmediate } from "node:timers/promises";
 import type { ArchiveReader } from "@ace/history-import";
@@ -79,6 +87,7 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
+      this.atomic(migrateThreadClient);
       this.usageReplay = new UsageReplay(this.db);
       this.db.exec(
         `CREATE INDEX IF NOT EXISTS threads_update_blockers ON threads(id) WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')`,
@@ -88,6 +97,8 @@ export class Store {
       );
       this.payloads.initialize();
       this.status.initialize((id) => this.getThread(id));
+      this.atomic(migrateRunClient);
+      this.atomic((db) => seedThreadClient(db, (id) => this.getThread(id)));
       this.devices = new Devices(this.db, {
         id: options.id ?? this.nextId,
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
@@ -296,9 +307,9 @@ export class Store {
       await setImmediate();
     }
   }
-  getWorkspace(id: WorkspaceId): { path: string } | undefined {
-    const row = this.statement("SELECT path FROM workspaces WHERE id=?").get(id);
-    return row ? { path: String(row.path) } : undefined;
+  getWorkspace(id: WorkspaceId): { path: string; name: string } | undefined {
+    const row = this.statement("SELECT path,name FROM workspaces WHERE id=?").get(id);
+    return row ? { path: String(row.path), name: String(row.name) } : undefined;
   }
   importedSource(sourceId: string): Thread | undefined {
     const row = this.statement(
@@ -324,7 +335,7 @@ export class Store {
     let after = "";
     for (;;) {
       const rows = this.statement(
-        "SELECT id FROM threads WHERE workspace_id=? AND archived_at IS NULL AND id>? ORDER BY id LIMIT 64",
+        "SELECT id FROM threads WHERE workspace_id=? AND archived_at IS NULL AND json_extract(client,'$.deletedAt') IS NULL AND id>? ORDER BY id LIMIT 64",
       ).all(workspaceId, after);
       if (!rows.length) return;
       this.transaction(() => {
@@ -343,6 +354,7 @@ export class Store {
   }
   private decodeThread(row: Record<string, SQLOutputValue>): Thread {
     return Thread.parse({
+      ...(row.client == null ? {} : ThreadClientFields.parse(JSON.parse(String(row.client)))),
       id: row.id,
       workspaceId: row.workspace_id,
       title: row.title,
@@ -372,8 +384,21 @@ export class Store {
     return this.transaction(() => {
       let seq = this.headSeq();
       const events: Event[] = [];
-      for (const payload of payloads) {
-        const event = Event.parse({ seq: ++seq, id: this.nextId(), threadId, at, payload });
+      let followup: EventPayload | undefined;
+      let inputIndex = 0;
+      while (followup || inputIndex < payloads.length) {
+        const payload = followup ?? payloads[inputIndex++];
+        followup = undefined;
+        if (!payload) break;
+        const previous = this.getThread(threadId);
+        const prepared = previous ? prepareRunClient(this.db, previous, payload) : payload;
+        const event = Event.parse({
+          seq: ++seq,
+          id: this.nextId(),
+          threadId,
+          at,
+          payload: prepared,
+        });
         if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
         let thread: Thread;
         if (event.payload.type === "thread.created") {
@@ -397,7 +422,17 @@ export class Store {
           if (!existing) throw new Error("Unknown thread");
           thread = existing;
         }
+        const liveChange = liveMetadataChange(this.db, thread, event.payload);
+        if (liveChange) followup = liveChange;
         updateThread(thread, event);
+        if (
+          event.payload.type === "thread.created" ||
+          event.payload.type === "thread.client.updated"
+        )
+          this.statement("UPDATE threads SET client=? WHERE id=?").run(
+            encodeThreadClient(thread),
+            thread.id,
+          );
         this.statement(
           "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ? WHERE id = ?",
         ).run(
@@ -437,11 +472,14 @@ export class Store {
       if (
         events.some(
           (event) =>
-            event.payload.type === "thread.created" || event.payload.type === "thread.updated",
+            event.payload.type === "thread.created" ||
+            event.payload.type === "thread.updated" ||
+            event.payload.type === "thread.client.updated",
         )
       ) {
         const current = this.getThread(threadId);
-        if (current) this.search.observeThread(current, seq);
+        if (current?.deletedAt !== undefined) this.search.deleteThread(threadId);
+        else if (current) this.search.observeThread(current, seq);
       }
       this.search.append(events);
       this.transactionEvents?.push(...events);
@@ -508,6 +546,18 @@ export class Store {
         JSON.stringify(result),
       );
       return result;
+    });
+  }
+  completeAsyncCommand(id: CommandId, input: CommandResult): CommandResult {
+    const result = CommandResult.parse(input);
+    if (result.commandId !== id) throw new Error("Command result id mismatch");
+    return this.atomic((db) => {
+      db.prepare(
+        "UPDATE command_receipts SET result=? WHERE command_id=? AND json_extract(result,'$.error')='client_action_pending'",
+      ).run(JSON.stringify(result), id);
+      const row = db.prepare("SELECT result FROM command_receipts WHERE command_id=?").get(id);
+      if (!row) throw new Error("Missing command reservation");
+      return CommandResult.parse(JSON.parse(String(row.result)));
     });
   }
   releaseReviewCommand(commandId: CommandId, deviceId: DeviceId): void {

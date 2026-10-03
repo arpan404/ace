@@ -1,3 +1,8 @@
+import { startPreviewClient } from "./preview-client.ts";
+import { startConductor } from "./conductor.ts";
+import { startAutomations } from "./automations.ts";
+import { startWorkspaceActions } from "./workspace-actions.ts";
+import { startThreadOrganization } from "./thread-organization.ts";
 import { startAgentRegistry } from "./agent-registry.ts";
 import { startScreen } from "./screen.ts";
 import { startAccounts } from "./accounts.ts";
@@ -34,7 +39,12 @@ export const serviceFactories = [
   startMcp,
   startNotifications,
   startAgentRegistry,
+  startPreviewClient,
+  startWorkspaceActions,
   startEngine,
+  startThreadOrganization,
+  startAutomations,
+  startConductor,
 ];
 export function readyServices(services: Partial<Services>): Services {
   const {
@@ -80,6 +90,11 @@ export function readyServices(services: Partial<Services>): Services {
     review,
     usage,
     ...(services.agentRegistry ? { agentRegistry: services.agentRegistry } : {}),
+    ...(services.workspaceActions ? { workspaceActions: services.workspaceActions } : {}),
+    ...(services.canReadThread ? { canReadThread: services.canReadThread } : {}),
+    ...(services.previewClient ? { previewClient: services.previewClient } : {}),
+    ...(services.conductor ? { conductor: services.conductor } : {}),
+    ...(services.automations ? { automations: services.automations } : {}),
     ...(services.screen ? { screen: services.screen } : {}),
     ...(services.accounts ? { accounts: services.accounts } : {}),
     ...(services.commands ? { commands: services.commands } : {}),

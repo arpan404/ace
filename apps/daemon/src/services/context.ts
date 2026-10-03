@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { ContextService } from "@ace/context";
-import { ThreadId } from "@ace/protocol";
+import { ThreadId, WorkspaceId } from "@ace/protocol";
 import type { ServiceContext } from "./types.ts";
 export async function startContext(runtime: ServiceContext): Promise<void> {
   const { config, store, now, id, resources, services, log, onListen } = runtime;
@@ -9,10 +9,20 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
     root: join(config.dataDir, "context"),
     now,
     id,
-    authorize: (_device, thread) => store.getThread(ThreadId.parse(thread)) !== undefined,
-    workspace: (thread) => {
+    authorize: (_device, thread) => {
+      const entity = store.getThread(ThreadId.parse(thread));
+      return entity !== undefined && entity.deletedAt === undefined;
+    },
+    workspaceRoot: (workspaceId) => store.getWorkspacePath(WorkspaceId.parse(workspaceId)),
+    threadWorkspaceRoot: (thread) => {
       const entity = store.getThread(ThreadId.parse(thread));
       return entity ? store.getWorkspacePath(entity.workspaceId) : undefined;
+    },
+    workspace: (thread) => {
+      const entity = store.getThread(ThreadId.parse(thread));
+      return entity
+        ? (entity.details?.worktree ?? store.getWorkspacePath(entity.workspaceId))
+        : undefined;
     },
   });
   resources.own(() => context.close());
@@ -50,7 +60,10 @@ export function createContextSession(context: SocketContext): SocketService {
         case "context.request": {
           const op = message.operation.op;
           const scope =
-            op === "attachment.list" || op === "upload.status" || op.startsWith("mention.")
+            op === "attachment.list" ||
+            op === "upload.status" ||
+            op.startsWith("mention.") ||
+            op === "draft.mention.complete"
               ? "read"
               : "operate";
           if (

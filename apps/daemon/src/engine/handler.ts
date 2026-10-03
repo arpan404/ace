@@ -1,13 +1,7 @@
 import { realpathSync, statSync } from "node:fs";
 import { validResolution } from "./resolution.ts";
 import { createThreadState } from "@ace/core";
-import {
-  AcpIdentity,
-  Thread,
-  type Command,
-  type CommandResult,
-  type ThreadId,
-} from "@ace/protocol";
+import { AcpIdentity, Thread, type Command, type CommandResult, ThreadId } from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -19,6 +13,7 @@ export function engineHandler(
   silenceMs: number,
   wake: (id: ThreadId) => void,
   nextId: () => string,
+  machine?: { host: string; name: string },
 ): CommandHandler {
   return {
     handle(command: Command): CommandResult {
@@ -61,6 +56,26 @@ export function engineHandler(
             title: p.title ?? "New thread",
             provider: p.provider,
             ...acpIdentity,
+            details: {
+              workspace: {
+                id: p.workspaceId,
+                name: repo.store.getWorkspace(p.workspaceId)?.name ?? p.workspaceId,
+                path: cwd,
+              },
+              mode: p.mode ?? "local",
+              worktree: cwd,
+              ...(p.baseBranch ? { baseBranch: p.baseBranch } : {}),
+              ...(machine ? { machine } : {}),
+            },
+            live: {
+              provider: p.provider,
+              ...(p.model ? { model: p.model } : {}),
+              ...(p.account ? { account: p.account } : {}),
+              ...(p.options ? { options: p.options } : {}),
+              subagentCount: 0,
+              backgroundTaskCount: 0,
+            },
+            activityAt: at,
             status: { state: "new" },
             createdAt: at,
             updatedAt: at,
@@ -79,15 +94,17 @@ export function engineHandler(
             },
           });
           repo.save(state, [{ type: "thread.created", thread }], at);
-          repo.createSession(threadId, cwd, p.model);
+          repo.createSession(threadId, cwd, p.model, p.account, p.options);
         } else if ("threadId" in p) {
-          threadId = p.threadId;
+          threadId = ThreadId.parse(p.threadId);
           if (p.type === "thread.archive") {
             if (!repo.store.getThread(threadId)) return fail("thread_not_found");
             const at = now();
             repo.store.appendEvents(threadId, [{ type: "thread.updated", archivedAt: at }], at);
             return { commandId: command.id, ok: true };
           }
+          if (repo.store.getThread(threadId)?.deletedAt !== undefined)
+            return fail("thread_not_found");
           if (!repo.state(threadId)) return fail("thread_not_found");
           if (
             p.type === "thread.interrupt" &&
@@ -125,7 +142,11 @@ export function engineHandler(
         repo.add(command, threadId, resolutionId);
         // Microtasks execute only after the enclosing receipt transaction commits.
         queueMicrotask(() => wake(threadId));
-        return { commandId: command.id, ok: true };
+        return {
+          commandId: command.id,
+          ok: true,
+          ...(p.type === "thread.create" ? { threadId } : {}),
+        };
       });
     },
   };

@@ -67,7 +67,11 @@ export function accessHttp(
           auth.requireAdmin(actor());
           const { code, expiresAt } = auth.pairing([...new Set(data.data.scopes)]);
           const url = new URL("/pair", connection.origin);
-          url.hash = new URLSearchParams({ fingerprint: connection.fingerprint, code }).toString();
+          url.hash = new URLSearchParams({
+            fingerprint: connection.fingerprint,
+            code,
+            scopes: data.data.scopes.join(","),
+          }).toString();
           result = { url: url.toString(), expiresAt };
         } else if (path === "/v1/devices" && request.method === "GET") result = auth.list();
         else if (path.startsWith("/v1/devices/") && request.method === "DELETE") {

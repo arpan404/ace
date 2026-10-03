@@ -75,16 +75,18 @@ export function createCommandsSession(context: SocketContext): SocketService {
   return {
     async handle(message) {
       if (message.type !== "commands.list" && message.type !== "commands.resolve") return false;
+      const reject = (code: string, detail: string) =>
+        context.fail(code, detail, false, { requestId: message.requestId });
       const readable = () =>
         context.connected() && context.authorize("read") && context.canReadThread(message.threadId);
-      if (!context.authorize("read")) context.fail("forbidden", "Read scope required");
+      if (!context.authorize("read")) reject("forbidden", "Read scope required");
       else if (
         !context.options.store.getThread(message.threadId) ||
         !context.canReadThread(message.threadId)
       )
-        context.fail("read_denied", "Thread is not readable");
+        reject("read_denied", "Thread is not readable");
       else if (!context.options.commands)
-        context.fail("commands_unavailable", "Command catalog unavailable");
+        reject("commands_unavailable", "Command catalog unavailable");
       else
         try {
           if (message.type === "commands.list") {
@@ -114,7 +116,7 @@ export function createCommandsSession(context: SocketContext): SocketService {
               });
           }
         } catch {
-          context.fail("commands_failed", "Unknown thread or command catalog unavailable");
+          reject("commands_failed", "Unknown thread or command catalog unavailable");
         }
       return true;
     },

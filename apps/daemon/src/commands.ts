@@ -81,7 +81,7 @@ export function stubHandler(
           p.title ?? "Development thread",
           p.provider,
         );
-        return { commandId: command.id, ok: Boolean(thread) };
+        return { commandId: command.id, ok: Boolean(thread), threadId: thread.id };
       }
       return { commandId: command.id, ok: false, error: "not_implemented" };
     },

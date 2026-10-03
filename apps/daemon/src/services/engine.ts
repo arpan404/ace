@@ -52,6 +52,17 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     ...acp,
     ...engineOptions,
     registry,
+    ...(services.workspaceActions
+      ? {
+          prepareWorkspace: (id) =>
+            services.workspaceActions?.prepare(id) ??
+            Promise.reject(new Error("Workspace unavailable")),
+          machine: services.workspaceActions.machine,
+          beforeSend: (threadId, commandId) =>
+            services.workspaceActions?.checkpoints.beforeSend(threadId, commandId) ??
+            Promise.reject(new Error("Workspace unavailable")),
+        }
+      : {}),
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());
@@ -68,7 +79,6 @@ export function createEngineSession({ options, send }: SocketContext): SocketSer
         "thread.create",
         "thread.send",
         "thread.interrupt",
-        "thread.archive",
         "thread.model.set",
         "thread.mode.set",
         "interaction.resolve",

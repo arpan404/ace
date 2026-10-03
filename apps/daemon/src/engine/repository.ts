@@ -1,6 +1,6 @@
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import { randomUUID } from "node:crypto";
-import { Command, ThreadId, type EventPayload } from "@ace/protocol";
+import { TurnOptions, Command, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
 import { capFact, readRawBlob } from "./raw.ts";
@@ -236,6 +236,7 @@ export class EngineRepository {
   session(id: ThreadId): {
     cwd: string;
     model?: string;
+    options?: TurnOptions;
     nativeSessionId?: string;
     instanceId?: string;
   } {
@@ -244,6 +245,9 @@ export class EngineRepository {
       if (!row) throw new Error("Missing engine session metadata");
       return {
         cwd: String(row.cwd),
+        ...(row.options == null
+          ? {}
+          : { options: TurnOptions.parse(JSON.parse(String(row.options))) }),
         ...(typeof row.instance_id === "string" ? { instanceId: row.instance_id } : {}),
         ...(row.model === null ? {} : { model: String(row.model) }),
         ...(row.native_session_id === null
@@ -252,22 +256,34 @@ export class EngineRepository {
       };
     });
   }
-  createSession(id: ThreadId, cwd: string, model?: string): void {
+  createSession(
+    id: ThreadId,
+    cwd: string,
+    model?: string,
+    instanceId?: string,
+    options?: TurnOptions,
+  ): void {
     this.store.atomic((db) =>
       db
         .prepare(
-          "INSERT INTO engine_sessions (thread_id, cwd, model, native_session_id) VALUES (?, ?, ?, NULL)",
+          "INSERT INTO engine_sessions (thread_id, cwd, model, native_session_id, instance_id, options) VALUES (?, ?, ?, NULL, ?, ?)",
         )
-        .run(id, cwd, model ?? null),
+        .run(id, cwd, model ?? null, instanceId ?? null, options ? JSON.stringify(options) : null),
     );
   }
   nativeSession(id: ThreadId, nativeId: string, instanceId?: string): void {
-    this.store.atomic((db) =>
-      db
-        .prepare(
-          "UPDATE engine_sessions SET native_session_id = ?, instance_id = COALESCE(?, instance_id) WHERE thread_id = ?",
-        )
-        .run(nativeId, instanceId ?? null, id),
-    );
+    this.store.atomic((db) => {
+      db.prepare(
+        "UPDATE engine_sessions SET native_session_id = ?, instance_id = COALESCE(?, instance_id) WHERE thread_id = ?",
+      ).run(nativeId, instanceId ?? null, id);
+      const thread = this.store.getThread(id);
+      if (thread && instanceId && thread.live?.account !== instanceId)
+        this.store.appendEvents(id, [
+          {
+            type: "thread.client.updated",
+            changes: { live: { ...thread.live, account: instanceId } },
+          },
+        ]);
+    });
   }
 }

@@ -9,15 +9,24 @@ export async function executeIntent(
   repo: EngineRepository,
   registry: AdapterRegistry,
   sessions: Sessions,
+  beforeSend?: (
+    threadId: import("@ace/protocol").ThreadId,
+    commandId: import("@ace/protocol").CommandId,
+  ) => Promise<void>,
 ): Promise<void> {
   const p = intent.command.payload;
   if (p.type === "thread.create" || p.type === "thread.send") {
+    if (repo.store.getThread(actor.id)?.deletedAt !== undefined) throw new Error("Thread deleted");
+    await sessions.select(actor, p.model, p.options);
     await sessions.open(actor);
     const capabilities =
       actor.effectiveCapabilities ??
       registry.get(repo.requireState(actor.id).config.provider).capabilities;
     const session = actor.session;
     if (!session) throw new Error("Provider session exited before send");
+    const active = repo.requireState(actor.id).agents[repo.requireState(actor.id).rootKey ?? ""]
+      ?.activeRun;
+    if (!active) await beforeSend?.(actor.id, intent.command.id);
     await session.send(
       p.input,
       p.type === "thread.send" && p.delivery === "steer" && capabilities.steer ? "steer" : "queue",

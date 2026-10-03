@@ -87,3 +87,85 @@ test("retry after failed model persistence publishes the confirmed choice instea
     await h.close();
   }
 });
+
+test("create receipts return the admitted thread and next-turn selection reaches the provider before its input", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      { on: "send", frames: [frames.frame(start, end)] },
+      { on: "send", frames: [frames.frame(start, end)] },
+    ],
+    frames,
+  );
+  const original = h.registry.get("codex").adapter;
+  const delivered: {
+    model: string | undefined;
+    options: import("@ace/protocol").TurnOptions;
+    text: string;
+  }[] = [];
+  h.registry.register(
+    {
+      ...original,
+      async openSession(context) {
+        const session = await original.openSession(context);
+        let model = context.model;
+        let options = context.options ?? {};
+        return {
+          ...session,
+          async configure(value) {
+            model = value.model;
+            options = value.options;
+          },
+          async send(input, delivery) {
+            delivered.push({
+              model,
+              options,
+              text: input.flatMap((part) => (part.type === "text" ? [part.text] : [])).join(""),
+            });
+            await session.send(input, delivery);
+          },
+        };
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "unused" },
+  );
+  try {
+    const receipt = h.command(
+      {
+        type: "thread.create",
+        workspaceId: h.workspace,
+        provider: "codex",
+        account: "personal",
+        model: "first",
+        options: { effort: "high" },
+        input: [{ type: "text", text: "one" }],
+      },
+      "phone",
+      "create",
+    );
+    expect(receipt.ok).toBe(true);
+    if (!receipt.threadId) throw new Error("Missing admitted id");
+    await h.engine.flush();
+    h.command({
+      type: "thread.send",
+      threadId: receipt.threadId,
+      model: "second",
+      options: { effort: "low" },
+      delivery: "queue",
+      input: [{ type: "text", text: "two" }],
+    });
+    await h.engine.flush();
+    expect(delivered).toEqual([
+      { model: "first", options: { effort: "high" }, text: "one" },
+      { model: "second", options: { effort: "low" }, text: "two" },
+    ]);
+    expect(h.store.getThread(receipt.threadId)?.live).toMatchObject({
+      model: "second",
+      account: "personal",
+      options: { effort: "low" },
+    });
+    expect(Object.values(h.store.snapshotThread(receipt.threadId).agents)[0]?.model).toBe("second");
+  } finally {
+    await h.close();
+  }
+});

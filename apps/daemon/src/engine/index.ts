@@ -16,6 +16,9 @@ export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
   limits?: Partial<EngineLimits>;
+  beforeSend?(threadId: ThreadId, commandId: import("@ace/protocol").CommandId): Promise<void>;
+  prepareWorkspace?(threadId: ThreadId): Promise<string>;
+  machine?: { host: string; name: string };
   sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
   ids?: IdSource;
   threadId?: () => string;
@@ -38,9 +41,11 @@ export class Engine {
   private controls: IntentWorkers;
   private steering: IntentWorkers;
   private sessions: Sessions;
+  private beforeSend: EngineOptions["beforeSend"];
   private closing = false;
   private closePromise?: Promise<void>;
   constructor(store: Store, options: EngineOptions = {}) {
+    this.beforeSend = options.beforeSend;
     this.limits = engineLimits(options.limits);
     this.repo = new EngineRepository(store, options.ids, this.limits.maxActiveThreads);
     this.registry = options.registry ?? new AdapterRegistry();
@@ -56,6 +61,7 @@ export class Engine {
     this.sessions = new Sessions({
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
       repo: this.repo,
+      ...(options.prepareWorkspace ? { prepareWorkspace: options.prepareWorkspace } : {}),
       registry: this.registry,
       clock: this.clock,
       closing: () => this.closing,
@@ -73,6 +79,7 @@ export class Engine {
       silenceMs,
       (id) => this.wake(id),
       options.threadId ?? randomUUID,
+      options.machine,
     );
     this.handler = {
       handle: (command, context) =>
@@ -280,7 +287,13 @@ export class Engine {
   }
   private isSteer(intent: Intent): boolean {
     const payload = intent.command.payload;
-    if (payload.type !== "thread.send" || payload.delivery !== "steer") return false;
+    if (
+      payload.type !== "thread.send" ||
+      payload.delivery !== "steer" ||
+      payload.model !== undefined ||
+      payload.options !== undefined
+    )
+      return false;
     const state = this.repo.requireState(intent.threadId);
     return (
       this.registry.has(state.config.provider) &&
@@ -328,7 +341,7 @@ export class Engine {
     }
     this.queue(actor);
     try {
-      await executeIntent(actor, intent, this.repo, this.registry, this.sessions);
+      await executeIntent(actor, intent, this.repo, this.registry, this.sessions, this.beforeSend);
       await actor.flush();
       if (actor.poisoned) throw new Error("Provider frames could not be persisted");
       this.repo.mark(intent, "done");

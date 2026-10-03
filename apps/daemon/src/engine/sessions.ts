@@ -1,4 +1,4 @@
-import { AcpIdentity } from "@ace/protocol";
+import { AcpIdentity, type TurnOptions } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
 import type { ThreadActor, EngineClock } from "./actor.ts";
@@ -7,6 +7,7 @@ import type { AdapterRegistry } from "./registry.ts";
 
 interface SessionDependencies {
   repo: EngineRepository;
+  prepareWorkspace?(id: ThreadId): Promise<string>;
   registry: AdapterRegistry;
   clock: EngineClock;
   closing(): boolean;
@@ -31,7 +32,18 @@ export class Sessions {
     try {
       const state = this.dependencies.repo.requireState(actor.id);
       const { adapter, capabilities } = this.dependencies.registry.get(state.config.provider);
-      const metadata = this.dependencies.repo.session(actor.id);
+      let metadata = this.dependencies.repo.session(actor.id);
+      const entity = this.dependencies.repo.store.getThread(actor.id);
+      if (entity?.deletedAt !== undefined) throw new Error("Thread deleted");
+      if (entity?.details?.mode === "worktree" && !metadata.nativeSessionId) {
+        if (!this.dependencies.prepareWorkspace)
+          throw new Error("Worktree preparation unavailable");
+        const cwd = await this.dependencies.prepareWorkspace(actor.id);
+        this.dependencies.repo.store.atomic((db) =>
+          db.prepare("UPDATE engine_sessions SET cwd=? WHERE thread_id=?").run(cwd, actor.id),
+        );
+        metadata = this.dependencies.repo.session(actor.id);
+      }
       if (state.config.provider !== "acp" && metadata.nativeSessionId && !capabilities.resume)
         throw new Error("Provider cannot resume this thread");
       const rootKey = state.rootKey ?? "root";
@@ -69,6 +81,7 @@ export class Sessions {
         cwd: metadata.cwd,
         ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
         ...(metadata.model === undefined ? {} : { model: metadata.model }),
+        ...(metadata.options ? { options: metadata.options } : {}),
         ...(metadata.nativeSessionId === undefined
           ? {}
           : { resume: { nativeSessionId: metadata.nativeSessionId } }),
@@ -95,12 +108,47 @@ export class Sessions {
         throw new Error("Provider session closed while opening");
       }
       actor.session = session;
+      if (metadata.options && Object.keys(metadata.options).length > 0) {
+        if (!session.configure) {
+          await session.close("shutdown");
+          actor.session = undefined;
+          throw new Error("Provider options configuration unavailable");
+        }
+        await session.configure({
+          provider: state.config.provider,
+          ...(metadata.model ? { model: metadata.model } : {}),
+          ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
+          options: metadata.options,
+        });
+      }
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
       this.dependencies.repo.nativeSession(actor.id, session.nativeSessionId, session.instanceId);
+      if (session.instanceId && session.instanceId !== thread?.live?.account) {
+        const current = this.dependencies.repo.store.getThread(actor.id);
+        if (current)
+          this.dependencies.repo.store.appendEvents(
+            actor.id,
+            [
+              {
+                type: "thread.client.updated",
+                changes: { live: { ...current.live, account: session.instanceId } },
+              },
+            ],
+            this.dependencies.clock.now(),
+          );
+      }
       this.dependencies.wake(actor.id);
     } catch (error) {
       await actor.flush();
       if (generation === actor.generation) {
+        const session = actor.session;
+        actor.session = undefined;
+        lifetime.abort();
+        try {
+          await session?.close("shutdown");
+        } catch {
+          /* Opening failure remains authoritative. */
+        }
         actor.generation++;
         actor.translator = undefined;
         actor.lifetime = undefined;
@@ -118,6 +166,71 @@ export class Sessions {
     }
   }
 
+  async select(
+    actor: ThreadActor,
+    model: string | undefined,
+    options: TurnOptions | undefined,
+  ): Promise<void> {
+    if (model === undefined && options === undefined) return;
+    const metadata = this.dependencies.repo.session(actor.id);
+    const state = this.dependencies.repo.requireState(actor.id);
+    const selectedModel = model ?? metadata.model;
+    const selectedOptions = options ?? metadata.options ?? {};
+    const selection = {
+      provider: state.config.provider,
+      ...(selectedModel ? { model: selectedModel } : {}),
+      ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
+      options: selectedOptions,
+    };
+    if (actor.session?.configure) await actor.session.configure(selection);
+    else if (actor.session && Object.keys(selectedOptions).length > 0)
+      throw new Error("Provider options configuration unavailable");
+    else if (actor.session && selectedModel !== metadata.model) {
+      if (actor.session.setModel && selectedModel) await actor.session.setModel(selectedModel);
+      else {
+        const capability =
+          actor.effectiveCapabilities ??
+          this.dependencies.registry.get(state.config.provider).capabilities;
+        if (!capability.resume)
+          throw new Error("Provider cannot change model without losing history");
+        await this.close(actor, "idle");
+      }
+    }
+    await actor.flush();
+    try {
+      this.dependencies.repo.store.atomic((db) => {
+        const confirmed = this.dependencies.repo.requireState(actor.id);
+        if (selectedModel && selectedModel !== metadata.model && confirmed.rootKey)
+          actor.apply([{ type: "agent.linked", agent: confirmed.rootKey, model: selectedModel }]);
+        db.prepare("UPDATE engine_sessions SET model=?,options=? WHERE thread_id=?").run(
+          selectedModel ?? null,
+          JSON.stringify(selectedOptions),
+          actor.id,
+        );
+        const thread = this.dependencies.repo.store.getThread(actor.id);
+        if (thread)
+          this.dependencies.repo.store.appendEvents(
+            actor.id,
+            [
+              {
+                type: "thread.client.updated",
+                changes: {
+                  live: {
+                    ...thread.live,
+                    ...(selectedModel ? { model: selectedModel } : {}),
+                    options: selectedOptions,
+                  },
+                },
+              },
+            ],
+            this.dependencies.clock.now(),
+          );
+      });
+    } catch (error) {
+      this.dependencies.repo.evict(actor.id);
+      throw error;
+    }
+  }
   async close(actor: ThreadActor, reason: "idle" | "user" | "shutdown"): Promise<void> {
     const session = actor.session;
     if (!session) return;

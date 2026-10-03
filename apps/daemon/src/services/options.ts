@@ -14,6 +14,8 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  conductor?: import("../conductor-runtime.ts").ConductorRuntimeOptions;
+  workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntimeOptions;
   claude?: DaemonClaudeOptions;
   screen?: ScreenManager;
   commands?: DaemonCommandIntegration;

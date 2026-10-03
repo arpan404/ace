@@ -29,6 +29,7 @@ function target(p: EventPayload): { collection: Collection; id: string } | undef
       return { collection: "agents", id: p.agentId };
     case "run.started":
       return { collection: "runs", id: p.run.id };
+    case "run.client.updated":
     case "run.ended":
       return { collection: "runs", id: p.runId };
     case "interaction.opened":
