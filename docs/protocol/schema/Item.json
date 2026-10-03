@@ -13,6 +13,9 @@
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
@@ -77,6 +80,9 @@
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
@@ -133,6 +139,9 @@
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
@@ -168,6 +177,9 @@
         },
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
@@ -230,6 +242,9 @@
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
+        },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
@@ -279,6 +294,9 @@
         },
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "executionSource": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
         },
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"

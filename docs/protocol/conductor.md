@@ -22,9 +22,8 @@ Example:
 
 ```json
 {
-  "deadline": 9,
-  "decision": "approve",
-  "gateId": "HfGm3yU8hT1rjuLSUlzxs81MBjpR",
+  "decision": "reject",
+  "gateId": "6sHAJnf",
   "plan": {
     "summary": "Example plan",
     "workstreams": [
@@ -93,7 +92,7 @@ Example:
 
 ```json
 {
-  "runId": "6T3Ucj60hSSn8LEB893uotYEFnq0nAk.NDlPu1CTUZP-T2WabipmTB967OKOLAL",
+  "runId": "5T1rjuLSUlzxs8",
   "spec": {
     "constraints": {
       "accounts": [
@@ -175,11 +174,11 @@ Example:
 ```json
 {
   "approval": {
-    "deadline": 6,
-    "decision": "reject",
-    "gateId": "wrpMHy.MCpjUm0j.ZrpzFgnTztqYpqS1ZBaxW-qEk6g31LX2.G0bJLIEEOqT9M_H5Yd2AdT9P2dL6xFci"
+    "budget": 7,
+    "decision": "approve",
+    "gateId": "72WabipmTB967OKOLALFyflngAwSA_mRxOrpMHy.MCpjUm0j.ZrpzFgnTztqYpqS1ZBaxW-qEk6g31LX2.G0bJLIE"
   },
-  "runId": "xlngAwSA_mR",
+  "runId": "KjpRBl0.a_9FT3Ucj60hSSn8LEB893uotYEFnq0nAk.NDlPu1CTUZP",
   "type": "conductor.approve"
 }
 ```
@@ -195,7 +194,7 @@ Example:
 
 ```json
 {
-  "runId": "hGr4t.5ivja8rcidPgKKytJ6dfiYwYQbaL2M.PVmWI8dSjchm.rIdszj1ARDNCEvHaMqzVL5TTGO3jb1q8WpQNc9ZwbHKVrqWsz.D",
+  "runId": "KH5Yd2AdT9P2dL6xFciOLycOhYGr4t.5ivja8rcidPgKKytJ6dfiYwYQbaL2M.PVmWI8dSjchm.rIdszj1ARDNCEvHaMqzVL5TTGO3jb1q8WpQNc9ZwbHKVrqWsz.DCY",
   "type": "conductor.pause"
 }
 ```
@@ -211,7 +210,7 @@ Example:
 
 ```json
 {
-  "runId": "BFRa2TwDWiFZDnEEKQ.5iRAqOdhhXryEK2PHmjGCnhKPGxeJ5h3QcBfNHfdy48N9gyi_8Rxz25mTM7u720Cc-mvttXblHh4Dygk6",
+  "runId": "Ea2TwDWiFZDnEEKQ.5iRAqOdhhXryEK2PHmjGCnhKPGxeJ5h3QcBfNHfdy48N9gyi_8Rxz25mTM7u720Cc-mv",
   "type": "conductor.resume"
 }
 ```
@@ -227,7 +226,7 @@ Example:
 
 ```json
 {
-  "runId": "K1KCRgCiBtjjZrhpiN3WMG3kqjbuMrB26ElpY.GhXArASyPysmR_j-54lTjWbGBFkTAZJNYmiqViSvg.GflLf6ax.cXwiBFENRxgCUu",
+  "runId": "sXblHh4Dygk6M01KCRgCiBtjjZrhpiN3WMG3kqj",
   "type": "conductor.cancel"
 }
 ```
@@ -248,10 +247,10 @@ Example:
 
 ```json
 {
-  "cost": 0,
-  "model": "eDULnR2DeSBk3ibi-rTpi45drgI_gzGEf0CUNp3RSH3lwy4zHItpnM-nnR3YKFoEQOEbOyeEq7Lb8eH4a1GMYvfJ6coH5qfPmm",
-  "provider": "antigravity",
-  "quota": 9,
+  "cost": 4,
+  "model": "trB26ElpY.GhXArASyPysmR_j-54lTjWbGBFkTAZJNYmiqViSvg.GflLf6ax.cXwiBFENRxgCUuRf",
+  "provider": "claude",
+  "quota": 8,
   "tier": "normal"
 }
 ```
@@ -567,8 +566,8 @@ Example:
     "risks": []
   },
   "dependencies": [],
-  "id": "fRkVrbc8KyFEWALjk95L9ZPoM2IravvmRmOgeMCcPnDgM9o4O7CKsip7GgoTJmsvAS8gEQv1XtxbCjKc8vxDqjF7",
-  "priority": 3,
+  "id": "CSBk3ibi-",
+  "priority": 2,
   "title": "example"
 }
 ```

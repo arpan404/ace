@@ -72,6 +72,22 @@
       "minimum": 0,
       "type": "integer"
     },
+    "origin": {
+      "properties": {
+        "backend": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+        }
+      },
+      "required": [
+        "provider"
+      ],
+      "type": "object"
+    },
     "policy": {
       "const": "recent-complete-items",
       "type": "string"

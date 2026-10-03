@@ -21,6 +21,78 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "executionSource": {
+                "additionalProperties": false,
+                "properties": {
+                  "nativeSessionId": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "selection": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "instanceId": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "model": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "options": {
+                        "additionalProperties": {
+                          "anyOf": [
+                            {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "default": {},
+                        "propertyNames": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "type": "object",
+                        "x-ace-constraint": "At most 32 provider option entries."
+                      },
+                      "provider": {
+                        "enum": [
+                          "claude",
+                          "codex",
+                          "opencode",
+                          "cursor",
+                          "antigravity",
+                          "acp"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "options"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "nativeSessionId",
+                  "selection"
+                ],
+                "type": "object"
+              },
               "id": {
                 "minLength": 1,
                 "type": "string"
@@ -268,6 +340,78 @@
                 "maximum": 9007199254740991,
                 "minimum": 0,
                 "type": "integer"
+              },
+              "executionSource": {
+                "additionalProperties": false,
+                "properties": {
+                  "nativeSessionId": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "selection": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "instanceId": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "model": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "options": {
+                        "additionalProperties": {
+                          "anyOf": [
+                            {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "default": {},
+                        "propertyNames": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "type": "object",
+                        "x-ace-constraint": "At most 32 provider option entries."
+                      },
+                      "provider": {
+                        "enum": [
+                          "claude",
+                          "codex",
+                          "opencode",
+                          "cursor",
+                          "antigravity",
+                          "acp"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "options"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "nativeSessionId",
+                  "selection"
+                ],
+                "type": "object"
               },
               "id": {
                 "minLength": 1,
@@ -939,6 +1083,78 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "executionSource": {
+                "additionalProperties": false,
+                "properties": {
+                  "nativeSessionId": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "selection": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "instanceId": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "model": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "options": {
+                        "additionalProperties": {
+                          "anyOf": [
+                            {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "default": {},
+                        "propertyNames": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "type": "object",
+                        "x-ace-constraint": "At most 32 provider option entries."
+                      },
+                      "provider": {
+                        "enum": [
+                          "claude",
+                          "codex",
+                          "opencode",
+                          "cursor",
+                          "antigravity",
+                          "acp"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "options"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "nativeSessionId",
+                  "selection"
+                ],
+                "type": "object"
+              },
               "id": {
                 "minLength": 1,
                 "type": "string"
@@ -980,6 +1196,78 @@
                 "maximum": 9007199254740991,
                 "minimum": 0,
                 "type": "integer"
+              },
+              "executionSource": {
+                "additionalProperties": false,
+                "properties": {
+                  "nativeSessionId": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "selection": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "instanceId": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "model": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "options": {
+                        "additionalProperties": {
+                          "anyOf": [
+                            {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "default": {},
+                        "propertyNames": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "type": "object",
+                        "x-ace-constraint": "At most 32 provider option entries."
+                      },
+                      "provider": {
+                        "enum": [
+                          "claude",
+                          "codex",
+                          "opencode",
+                          "cursor",
+                          "antigravity",
+                          "acp"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "options"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "nativeSessionId",
+                  "selection"
+                ],
+                "type": "object"
               },
               "id": {
                 "minLength": 1,
@@ -1120,6 +1408,78 @@
                 "minimum": 0,
                 "type": "integer"
               },
+              "executionSource": {
+                "additionalProperties": false,
+                "properties": {
+                  "nativeSessionId": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "selection": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "instanceId": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "model": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "options": {
+                        "additionalProperties": {
+                          "anyOf": [
+                            {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "default": {},
+                        "propertyNames": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "type": "object",
+                        "x-ace-constraint": "At most 32 provider option entries."
+                      },
+                      "provider": {
+                        "enum": [
+                          "claude",
+                          "codex",
+                          "opencode",
+                          "cursor",
+                          "antigravity",
+                          "acp"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "options"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "nativeSessionId",
+                  "selection"
+                ],
+                "type": "object"
+              },
               "id": {
                 "minLength": 1,
                 "type": "string"
@@ -1175,6 +1535,78 @@
                 "maximum": 9007199254740991,
                 "minimum": 0,
                 "type": "integer"
+              },
+              "executionSource": {
+                "additionalProperties": false,
+                "properties": {
+                  "nativeSessionId": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "selection": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "instanceId": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "model": {
+                        "maxLength": 256,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "options": {
+                        "additionalProperties": {
+                          "anyOf": [
+                            {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "default": {},
+                        "propertyNames": {
+                          "maxLength": 128,
+                          "type": "string"
+                        },
+                        "type": "object",
+                        "x-ace-constraint": "At most 32 provider option entries."
+                      },
+                      "provider": {
+                        "enum": [
+                          "claude",
+                          "codex",
+                          "opencode",
+                          "cursor",
+                          "antigravity",
+                          "acp"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "provider",
+                      "options"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "nativeSessionId",
+                  "selection"
+                ],
+                "type": "object"
               },
               "id": {
                 "minLength": 1,

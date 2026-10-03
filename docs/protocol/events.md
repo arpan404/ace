@@ -223,9 +223,15 @@ Example:
 {
   "run": {
     "agentId": "example",
+    "executionSource": {
+      "nativeSessionId": "example",
+      "selection": {
+        "provider": "claude"
+      }
+    },
     "id": "example",
-    "startedAt": 0,
-    "state": "active",
+    "startedAt": 5,
+    "state": "completed",
     "threadId": "example",
     "trigger": "subagent_result"
   },
@@ -249,7 +255,7 @@ Example:
 {
   "endedAt": 4,
   "runId": "example",
-  "state": "failed",
+  "state": "interrupted",
   "type": "run.ended"
 }
 ```
@@ -267,13 +273,23 @@ Example:
 {
   "item": {
     "agentId": "example",
+    "bytes": 5,
     "complete": true,
-    "createdAt": 4,
+    "createdAt": 6,
+    "executionSource": {
+      "nativeSessionId": "example",
+      "selection": {
+        "instanceId": "example",
+        "model": "example",
+        "provider": "acp"
+      }
+    },
     "id": "example",
-    "level": "error",
-    "text": "example",
-    "toolCallId": "example",
-    "type": "notice"
+    "mimeType": "example",
+    "nativeId": "example",
+    "path": "example",
+    "source": "browser",
+    "type": "artifact"
   },
   "type": "item.created"
 }
@@ -295,7 +311,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "text",
+  "field": "output",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -314,13 +330,11 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "complete": false,
-    "createdAt": 1,
+    "complete": true,
+    "createdAt": 2,
     "id": "example",
     "nativeId": "example",
-    "parts": [],
-    "role": "user",
-    "type": "message"
+    "type": "compaction"
   },
   "type": "item.updated"
 }
@@ -356,19 +370,15 @@ Example:
   "interaction": {
     "agentId": "example",
     "blocking": true,
-    "createdAt": 4,
+    "createdAt": 9,
     "id": "example",
     "request": {
       "kind": "question",
       "questions": []
     },
-    "resolution": {
-      "decision": "reject",
-      "feedback": "example",
-      "kind": "plan_review"
-    },
     "state": "expired",
-    "threadId": "example"
+    "threadId": "example",
+    "toolCallId": "example"
   },
   "type": "interaction.opened"
 }
@@ -391,6 +401,11 @@ Example:
 {
   "closedAt": 9,
   "interactionId": "example",
+  "resolution": {
+    "answers": {},
+    "dismissed": false,
+    "kind": "question"
+  },
   "state": "expired",
   "type": "interaction.closed"
 }
@@ -409,12 +424,13 @@ Example:
 {
   "task": {
     "agentId": "example",
-    "ambient": true,
-    "endedAt": 8,
+    "ambient": false,
+    "childAgentId": "example",
     "id": "example",
-    "kind": "other",
+    "kind": "monitor",
+    "raw": [],
     "startedAt": 3,
-    "status": "running",
+    "status": "completed",
     "stoppable": true,
     "title": "example"
   },
@@ -435,8 +451,8 @@ Example:
 
 ```json
 {
-  "endedAt": 0,
-  "status": "failed",
+  "endedAt": 7,
+  "status": "unknown",
   "taskId": "example",
   "type": "background_task.updated"
 }
@@ -470,13 +486,13 @@ Example:
 ```json
 {
   "agentId": "example",
-  "cacheWriteTokens": 7,
+  "contextWindow": 1,
+  "costUsd": 1,
   "counterKey": "example",
-  "inputTokens": 3,
+  "inputTokens": 7,
   "model": "example",
-  "outputTokens": 7,
-  "type": "usage.updated",
-  "usageScope": "model_session"
+  "outputTokens": 8,
+  "type": "usage.updated"
 }
 ```
 
@@ -496,8 +512,7 @@ Example:
     "id": "example",
     "op": "example",
     "path": "example",
-    "trashId": "example",
-    "version": "example"
+    "version": null
   },
   "type": "workspace.files_changed",
   "workspaceId": "example"
