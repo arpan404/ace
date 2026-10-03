@@ -13,7 +13,7 @@ checks before merge. Behavior tests are written for merge-time execution. CI is
 disabled by the owner; no CI run, rerun or watch was requested.
 
 Static validation: `bun run fmt`, `bun run lint`, `bun run typecheck` and
-`bun run check:size` passed, with 2,328 sources within the 1,500-line limit. These do not establish runtime correctness.
+`bun run check:size` passed, with 2,329 sources within the 1,500-line limit. These do not establish runtime correctness.
 Main through `6d9a0118` was merged without rebasing. Its browser and desktop
 integration was preserved without UI edits, and its shared handoff/transition
 owner now retains SDK backend and account metadata.
@@ -86,6 +86,7 @@ Merge integration guards, all need run at merge:
 - Migration-10 SDK raw streams and backend identity survive the main history/transition migration and subsequent reopen.
 - Native SDK forks with opaque ACP/task IDs are refused before host admission.
 - Equal completed source messages retain separate citations in shared portable history.
+- Authenticated socket handoff creation refuses an unreadable source before engine admission and still accepts authorized sources.
 
 ## Mutation cases — not executed (tests run at merge)
 
@@ -168,6 +169,8 @@ Merge integration guards, all need run at merge:
 66. Accept an opaque native SDK fork: public adapter admission rejects before discovery.
 67. Clear SDK native identity on a same-account model switch: private source history survives close/resume.
 68. Reclaim an old SDK checkpoint during provider switches: both directions require fresh context and preserve continuation.
+
+69. Remove source-thread authorization from socket handoff creation: denied history creates no recipient, while authorized history still creates one.
 
 These are designed mutation cases, not evidence that executed mutations were killed.
 

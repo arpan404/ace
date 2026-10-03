@@ -132,7 +132,11 @@ export async function startEngine(context: ServiceContext): Promise<void> {
 
 import { commandContext } from "../commands.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export function createEngineSession({ options, send }: SocketContext): SocketService {
+export function createEngineSession({
+  options,
+  send,
+  canReadThread,
+}: SocketContext): SocketService {
   return {
     command: {
       types: [
@@ -147,6 +151,20 @@ export function createEngineSession({ options, send }: SocketContext): SocketSer
       ],
       scope: () => "operate",
       accept(command, device) {
+        const payload = command.payload;
+        if (
+          payload.type === "thread.create" &&
+          payload.handoffFrom &&
+          !canReadThread(payload.handoffFrom)
+        ) {
+          send({
+            type: "commandResult",
+            commandId: command.id,
+            ok: false,
+            error: "handoff_source_not_found",
+          });
+          return;
+        }
         const result = options.store.recordCommand(command.id, device, () =>
           options.handler.handle(command, commandContext(options.store)),
         );
