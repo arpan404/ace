@@ -17,6 +17,7 @@ async function fixture(platform = "linux") {
     mkdir(bin),
   ]);
   const journal = join(home, "commands.jsonl");
+  await writeFile(journal, "");
   const state = join(home, "state");
   await writeFile(state, "shutdown");
   const record = `const fs = require('node:fs'); const args = process.argv.slice(2); fs.appendFileSync(process.env.DEVICE_JOURNAL, JSON.stringify({tool: require('node:path').basename(process.argv[1]), args})+'\\n');`;
@@ -77,6 +78,7 @@ async function fixture(platform = "linux") {
     (await readFile(journal, "utf8"))
       .trim()
       .split("\n")
+      .filter(Boolean)
       .map((line): unknown => JSON.parse(line));
   return { home, sdk, bin, journal, state, tree, env, manager, commands };
 }
@@ -201,9 +203,7 @@ it("rejects adb text it cannot reproduce instead of changing it", async () => {
   await expect(f.manager.input(android(), { kind: "type", text: "مرحبا" })).rejects.toMatchObject({
     code: "not_supported",
   });
-  expect((await f.commands()).filter((entry) => JSON.stringify(entry).includes("input"))).toEqual(
-    [],
-  );
+  expect(await f.commands()).toEqual([]);
 });
 it("refreshes Android semantic targets and refuses a stale node after its identity changes", async () => {
   const f = await fixture();

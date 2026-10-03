@@ -364,8 +364,14 @@ async function simulator(duplicate = false) {
 
 it("an exhausted iOS state observer limit releases native capture capacity after setup fails", async () => {
   const f = await simulator();
-  const observers = Array.from({ length: 64 }, () => f.screen.watch(noop));
+  const observed = new Set<number>();
+  const observers = Array.from({ length: 64 }, (_, viewer) =>
+    f.screen.watch(() => {
+      observed.add(viewer);
+    }),
+  );
   await expect(f.start()).rejects.toThrow("subscriber limit");
+  expect(observed.size).toBe(64);
   expect(f.screen.states()).toEqual([]);
   for (const release of observers) release();
   const next = await f.screen.start(simulatorTarget);

@@ -691,6 +691,10 @@ describe("in-app device ownership", () => {
     await delegate(h);
     const registry = new ToolRegistry({ scheduler: { after: () => () => {} } });
     devicesToolkit(h.service).register(registry);
+    // A second owner cannot replace the first toolkit's authorized bindings.
+    expect(() => devicesToolkit(h.service).register(registry)).toThrow(
+      "Invalid or duplicate tool name",
+    );
     let secret = 0;
     const credentials = new CredentialRegistry(() => String(++secret).padStart(64, "0"));
     const lifetime = new AbortController();
