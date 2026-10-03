@@ -15,6 +15,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@ace/fake-daemon": "workspace:*"
+    "@ace/fake-daemon": "workspace:*",
+    "@ace/projection": "workspace:*"
   }
 }
