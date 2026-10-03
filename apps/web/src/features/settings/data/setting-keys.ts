@@ -38,6 +38,7 @@ export const settingKeys = {
   followUp: setting("threads.followUpBehavior", FollowUp, "queue"),
   continueAfterRestart: setting("threads.continueAfterRestart", z.boolean(), false),
   openAtLogin: setting("app.openAtLogin", z.boolean(), false),
+  automations: setting("automations.enabled", z.boolean(), false),
   notifyNeedsYou: setting("notifications.onApproval", z.boolean(), true),
   notifyDone: setting("notifications.onCompletion", z.boolean(), true),
   notifyFailures: setting("notifications.onFailure", z.boolean(), true),

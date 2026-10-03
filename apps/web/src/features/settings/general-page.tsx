@@ -57,6 +57,13 @@ export function GeneralSettings() {
         <SettingSwitch setting={settingKeys.openAtLogin} title="Open ace at login" />
       </SettingSection>
       <RecoverySettings />
+      <SettingSection label="Automations">
+        <SettingSwitch
+          setting={settingKeys.automations}
+          title="Run automations"
+          description="Scheduled and repository-event automations run on this daemon. Off, none start, not even by hand."
+        />
+      </SettingSection>
       {!fake && <DaemonSettings />}
     </>
   );

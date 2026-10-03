@@ -411,6 +411,17 @@ export class FakeDaemon implements Host {
     this.apply(threadId, outcome.facts);
     return { commandId, ok: true };
   }
+  private migrationTarget(host: ThreadHost): string | undefined {
+    const thread = host.view.thread;
+    const current = thread.live?.account ?? thread.execution?.instanceId;
+    const from = this.services.accounts.find((account) => account.id === current);
+    return this.services.accounts.find(
+      (account) =>
+        account.id !== current &&
+        account.provider === (from?.provider ?? thread.provider) &&
+        account.availability !== "exhausted",
+    )?.id;
+  }
   private execute(command: Command): CommandResult {
     const payload = command.payload;
     const commandId = command.id;
@@ -438,20 +449,28 @@ export class FakeDaemon implements Host {
       const result = this.run(commandId, payload.threadId, (host) =>
         queueCommand(host, payload, this.options.clock()),
       );
-      // Moving a limited thread runs it on the chosen account from now on.
+      // Moving a limited thread runs it on the chosen account from now on, or, as the daemon
+      // does when none is named, the same provider's account with headroom.
       const host = this.threads.get(payload.threadId);
-      if (result.ok && host && payload.type === "thread.limit" && payload.action === "migrate_now")
-        if (payload.instanceId)
+      if (
+        result.ok &&
+        host &&
+        payload.type === "thread.limit" &&
+        payload.action === "migrate_now"
+      ) {
+        const account = payload.instanceId ?? this.migrationTarget(host);
+        if (account)
           this.append(
             host,
             [
               {
                 type: "thread.client.updated",
-                changes: { live: { ...host.view.thread.live, account: payload.instanceId } },
+                changes: { live: { ...host.view.thread.live, account } },
               },
             ],
             this.options.clock(),
           );
+      }
       return result;
     }
     switch (payload.type) {

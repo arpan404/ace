@@ -120,19 +120,34 @@ test("Run now starts a run on the daemon and lists it as running", async () => {
   expect(await toasts.findByText("Started · Nightly dependency audit")).toBeTruthy();
 });
 
-test("Run now while automations are off says how to turn them on", async () => {
-  await open("/automations/auto-dependency-audit");
+test("Run now while automations are off says how to turn them on, and that works", async () => {
+  const { app } = await open("/automations/auto-dependency-audit");
   await heading("Nightly dependency audit");
 
   await userEvent.click(screen.getAllByRole("button", { name: "Run now" })[0] ?? document.body);
 
   const toasts = within(screen.getByRole("region", { name: "Notifications" }));
   expect(
-    await toasts.findByText("Automations are turned off. Turn them on in Settings to run one."),
+    await toasts.findByText(
+      "Automations are turned off. Turn on Run automations in Settings › General to run one.",
+    ),
   ).toBeTruthy();
   expect(
     within(screen.getByRole("list", { name: "Recent runs" })).queryByText("Running…"),
   ).toBeNull();
+
+  await userEvent.click(screen.getByRole("link", { name: "Settings" }));
+  await userEvent.click(await screen.findByRole("switch", { name: "Run automations" }));
+  await waitFor(() => expect(app.daemon.services.settings.get("automations.enabled")).toBe(true));
+  await userEvent.click(screen.getByRole("link", { name: "Automations" }));
+  const aside = await screen.findByRole("complementary", { name: "Automations" });
+  const schedules = within(await within(aside).findByRole("region", { name: "Schedules" }));
+  await userEvent.click(await schedules.findByRole("link", { name: /Nightly dependency audit/ }));
+  await heading("Nightly dependency audit");
+  await userEvent.click(screen.getAllByRole("button", { name: "Run now" })[0] ?? document.body);
+  expect(
+    await within(screen.getByRole("list", { name: "Recent runs" })).findByText("Running…"),
+  ).toBeTruthy();
 });
 
 test("a new automation is validated, read back in words and opened once created", async () => {

@@ -24,7 +24,7 @@ function automationErrorMessage(code: string | undefined): string {
     case "automation_unavailable":
       return "This daemon's automation service isn't running.";
     case "Automation service is stopped":
-      return "Automations are turned off. Turn them on in Settings to run one.";
+      return "Automations are turned off. Turn on Run automations in Settings › General to run one.";
     case "disabled_or_missing":
       return "That automation is paused or no longer exists.";
     case "forbidden":
