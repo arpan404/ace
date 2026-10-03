@@ -37,8 +37,20 @@ export class HeadlessBackend implements BrowserBackend {
       handleSIGHUP: false,
     });
     let closed = false;
+    let closing: Promise<void> | undefined;
+    let guard: Awaited<ReturnType<typeof installOriginGuard>> | undefined;
+    const close = (): Promise<void> => {
+      if (closing) return closing;
+      closed = true;
+      request.signal.removeEventListener("abort", abort);
+      guard?.close();
+      // Cancellation and explicit teardown share the original process-close promise.
+      // Repeated Playwright closes can otherwise finish before that shutdown completes.
+      closing = context.close();
+      return closing;
+    };
     const abort = () => {
-      void context.close().catch(() => {});
+      void close().catch(() => {});
     };
     request.signal.addEventListener("abort", abort, { once: true });
     try {
@@ -67,9 +79,9 @@ export class HeadlessBackend implements BrowserBackend {
         void download.cancel().catch(() => {});
       });
       const cdp = await context.newCDPSession(page);
-      const guard = await installOriginGuard(cdp, request.allowed);
+      guard = await installOriginGuard(cdp, request.allowed);
       context.once("close", () => {
-        guard.close();
+        guard?.close();
         if (!closed) request.lost("Headless browser closed");
       });
       page.once("close", () => {
@@ -77,7 +89,7 @@ export class HeadlessBackend implements BrowserBackend {
       });
       await context.route("**/*", async (route) => {
         try {
-          await guard.ready();
+          await guard?.ready();
           if (
             route.request().frame().page() === page &&
             (await request.allowed(route.request().url()))
@@ -127,17 +139,10 @@ export class HeadlessBackend implements BrowserBackend {
         viewport: () => page.viewportSize() ?? { width: 1280, height: 720 },
         media: (colorScheme) => page.emulateMedia({ colorScheme }),
         controller: async () => {},
-        async close() {
-          closed = true;
-          request.signal.removeEventListener("abort", abort);
-          guard.close();
-          await context.close();
-        },
+        close,
       };
     } catch (error) {
-      closed = true;
-      request.signal.removeEventListener("abort", abort);
-      await context.close().catch(() => {});
+      await close().catch(() => {});
       throw error;
     }
   }

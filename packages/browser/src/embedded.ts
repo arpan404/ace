@@ -262,6 +262,10 @@ export class EmbeddedBackend implements BrowserBackend {
         // A disconnected bridge has already destroyed all pending commands.
         try {
           if (!this.closed && this.sessions.has(sessionId)) await call({ kind: "close" });
+        } catch (error) {
+          // Shutdown may disconnect the relay after sending close. That loss already
+          // cancels every pending command, and must not turn teardown into a failure.
+          if (!this.closed && this.sessions.has(sessionId)) throw error;
         } finally {
           this.sessions.delete(sessionId);
           remote.events.removeAllListeners();
