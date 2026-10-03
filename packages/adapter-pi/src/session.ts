@@ -60,7 +60,10 @@ export async function openPiSession(
     mode !== "unrestricted"
       ? undefined
       : ctx.aceMcp
-        ? { ...AceMcpConnectionSchema.parse(ctx.aceMcp), end() {} }
+        ? {
+            ...AceMcpConnectionSchema.parse({ url: ctx.aceMcp.url, bearer: ctx.aceMcp.bearer }),
+            end() {},
+          }
         : options.openMcp?.(ctx, lifetime.signal);
   const args = [
     "--mode",

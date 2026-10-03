@@ -8,7 +8,7 @@ export async function bindMcpSession(
   adapter: ProviderAdapter,
   context: SessionContext,
   options: {
-    mcp: Awaited<ReturnType<typeof startDaemonMcp>>;
+    mcp: Awaited<ReturnType<typeof startDaemonMcp>> | undefined;
     store: Pick<Store, "getThread">;
     id(): string;
     capabilities: McpCapability[];
@@ -20,7 +20,7 @@ export async function bindMcpSession(
   // Generic ACP already owns its negotiated HTTP/stdio lease. Keep that
   // connection and its configured servers instead of issuing a second one.
   const lease =
-    context.mcp || context.aceMcp
+    context.mcp || context.aceMcp || !options.mcp
       ? undefined
       : options.mcp.openSession(
           {
@@ -31,6 +31,7 @@ export async function bindMcpSession(
           },
           context.signal,
         );
+  if (!context.mcp && !context.aceMcp && !lease) throw new Error("Provider MCP scope unavailable");
   let ended = false;
   const end = () => {
     if (ended) return;
@@ -45,7 +46,9 @@ export async function bindMcpSession(
   lifetime.addEventListener("abort", end, { once: true });
   const connection =
     context.aceMcp ??
-    (lease ? { url: options.mcp.url, bearer: lease.bearer, signal: lifetime, end } : undefined);
+    (lease && options.mcp
+      ? { url: options.mcp.url, bearer: lease.bearer, signal: lifetime, end }
+      : undefined);
   const nativeMcp =
     connection && ["acp", "cursor", "antigravity"].includes(adapter.provider)
       ? {
@@ -88,8 +91,8 @@ export async function bindMcpSession(
       resolve: (interaction, resolution) => session.resolve(interaction, resolution),
       stopTask: (task) => session.stopTask(task),
       async close(reason) {
-        end();
         await session.close(reason);
+        end();
       },
     };
   } catch (error) {

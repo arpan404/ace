@@ -41,7 +41,7 @@ export async function openCodexSession(
   const injection = ctx.aceMcp ? codexInjection(ctx.aceMcp) : undefined;
   const proc = io.spawn({
     command: cli.path,
-    args: [...(injection?.args ?? []), "app-server"],
+    args: ["app-server", ...(injection?.args ?? [])],
     cwd: ctx.cwd,
     env: { ...(ctx.env ?? options.discovery?.env), ...injection?.env },
     name: "ace-codex",

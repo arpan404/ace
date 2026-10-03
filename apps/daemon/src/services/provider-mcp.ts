@@ -12,7 +12,10 @@ export function withDaemonMcp(
     ...adapter,
     openSession(session) {
       const mcp = context.services.mcp;
-      if (!mcp) throw new Error("Provider MCP scope unavailable");
+      if (adapter.provider === "pi" && !mcp && !session.aceMcp && !session.mcp)
+        return adapter.openSession(session);
+      if (!mcp && !session.aceMcp && !session.mcp)
+        throw new Error("Provider MCP scope unavailable");
       return bindMcpSession(adapter, session, {
         mcp,
         store: context.store,

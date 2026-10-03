@@ -30,7 +30,9 @@ export class ServerPool {
     ctx: SessionContext,
   ): Promise<{ server: OpenCodeServer; release(): Promise<void> }> {
     if (this.closed) throw new Error("OpenCode adapter is closed");
-    const connection = ctx.aceMcp ? AceMcpConnectionSchema.parse(ctx.aceMcp) : undefined;
+    const connection = ctx.aceMcp
+      ? AceMcpConnectionSchema.parse({ url: ctx.aceMcp.url, bearer: ctx.aceMcp.bearer })
+      : undefined;
     if (connection && this.options.attach)
       throw new Error(
         "Scoped ace MCP requires an owned OpenCode server; external attachment cannot isolate session credentials",

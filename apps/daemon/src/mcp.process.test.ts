@@ -14,6 +14,7 @@ import { z } from "zod";
 import { ScreenManager } from "@ace/screen";
 import { afterEach, expect, it } from "vitest";
 import { startDaemon, readConfig, createDevThread, Store } from "./index.ts";
+import { startDaemonMcp } from "./mcp.ts";
 import { accessRequest, redeemPairing } from "./client-access.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -134,8 +135,22 @@ it("serves remote device access alongside isolated MCP authority and shuts down 
 });
 
 it("persists an attributed notice and notification intent together and preserves pending intents across restart", async () => {
-  const config = readConfig({ ACE_HOME: home(), ACE_PORT: "0", ACE_LOG_LEVEL: "silent" });
-  const daemon = await startDaemon({ config: config });
+  const directory = home();
+  // Exercise the durable MCP acceptance port without installing a spawn executor.
+  // Full daemon composition executes legacy spawns through delegation instead.
+  async function openTransport() {
+    const store = new Store(join(directory, "events.sqlite"));
+    const mcp = await startDaemonMcp(store);
+    return {
+      store,
+      mcp,
+      async close() {
+        await mcp.close();
+        store.close();
+      },
+    };
+  }
+  const daemon = await openTransport();
   cleanups.push(() => daemon.close());
   const { thread, scope } = seed(daemon.store);
   const lease = daemon.mcp.openSession(scope, new AbortController().signal);
@@ -169,7 +184,7 @@ it("persists an attributed notice and notification intent together and preserves
   await daemon.close();
   expect(lease.principal.signal.aborted).toBe(true);
   expect(() => daemon.mcp.openSession(scope, new AbortController().signal)).toThrow();
-  const reopened = await startDaemon({ config: config });
+  const reopened = await openTransport();
   cleanups.push(() => reopened.close());
   expect(reopened.store.readMcpIntents()).toMatchObject([
     pending[0],
