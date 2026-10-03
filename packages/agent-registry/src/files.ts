@@ -18,7 +18,27 @@ export async function readBoundedJson(path: string, maximum: number): Promise<un
     await file.close();
   }
 }
-export function atomicJsonFile(path: string, maximum: number, id: () => string) {
+/** Rename published the value; callers must not delete artifacts referenced by it. */
+export class CommittedWriteError extends Error {
+  constructor(cause: unknown) {
+    super("Published inventory durability could not be confirmed", { cause });
+  }
+}
+export type AtomicFileRuntime = { syncDirectory?: (directory: string) => Promise<void> };
+async function syncDirectory(path: string): Promise<void> {
+  const directory = await open(path, "r");
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
+}
+export function atomicJsonFile(
+  path: string,
+  maximum: number,
+  id: () => string,
+  runtime: AtomicFileRuntime = {},
+) {
   return {
     async load(): Promise<unknown> {
       try {
@@ -33,6 +53,7 @@ export function atomicJsonFile(path: string, maximum: number, id: () => string) 
       if (Buffer.byteLength(json) > maximum) throw new Error("JSON file exceeds byte budget");
       await mkdir(dirname(path), { recursive: true, mode: 0o700 });
       const temporary = `${path}.${id()}.tmp`;
+      let committed = false;
       try {
         const file = await open(temporary, "wx", 0o600);
         try {
@@ -42,14 +63,19 @@ export function atomicJsonFile(path: string, maximum: number, id: () => string) 
           await file.close();
         }
         await rename(temporary, path);
-        const directory = await open(dirname(path), "r");
+        committed = true;
         try {
-          await directory.sync();
-        } finally {
-          await directory.close();
+          await (runtime.syncDirectory ?? syncDirectory)(dirname(path));
+        } catch (error) {
+          throw new CommittedWriteError(error);
         }
       } finally {
-        await rm(temporary, { force: true });
+        try {
+          await rm(temporary, { force: true });
+        } catch (error) {
+          if (committed) throw new CommittedWriteError(error);
+          throw error;
+        }
       }
     },
   };

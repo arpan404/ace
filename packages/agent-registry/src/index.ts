@@ -27,3 +27,5 @@ export {
 } from "./profiles.ts";
 export { sessionSelectors, selectorRequest, type SelectorState } from "./selectors.ts";
 export { fileInventoryStorage } from "./storage.ts";
+
+export { CommittedWriteError, type AtomicFileRuntime } from "./files.ts";

@@ -99,7 +99,11 @@ export const RegistryResult = z.object({
       nextOffset: z.number().int().nonnegative().optional(),
     }),
     z.object({ ok: z.literal(true), plan: RegistryInstallPlan }),
-    z.object({ ok: z.literal(true), installation: RegistryInstallation }),
+    z.object({
+      ok: z.literal(true),
+      installation: RegistryInstallation,
+      durability: z.literal("uncertain").optional(),
+    }),
     z.object({ ok: z.literal(true), cancelled: z.boolean() }),
   ]),
 });
@@ -109,6 +113,7 @@ export const AcpSessionSupport = z.object({
   mcp: z.enum(["http", "stdio", "unavailable"]),
   modelSelection: z.boolean(),
   modeSelection: z.boolean(),
+  subagentSessions: z.boolean().default(false),
   coverage: z.enum(["source_profile", "generic", "legacy"]),
   visibility: z.literal("limited"),
   raw: z.object({ json: z.string().max(2048), truncated: z.boolean() }),

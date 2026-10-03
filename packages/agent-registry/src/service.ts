@@ -16,6 +16,7 @@ import {
   executableDigest,
   type LocalBinding,
 } from "./inventory.ts";
+import { CommittedWriteError } from "./files.ts";
 import { executeInstall, type InstallRuntime } from "./install.ts";
 export type InventoryStorage = {
   load(): Promise<unknown>;
@@ -42,6 +43,7 @@ export class AgentRegistry {
       result: Promise<RegistryResult["result"]>;
       abort: AbortController;
       completed: boolean;
+      committing: boolean;
     }
   >();
   #active = false;
@@ -133,7 +135,7 @@ export class AgentRegistry {
         }
         case "registry.install-cancel": {
           const intent = this.#intents.get(request.intentId);
-          const cancelled = !!intent && !intent.completed;
+          const cancelled = !!intent && !intent.completed && !intent.committing;
           if (cancelled) intent.abort.abort();
           return reply({ ok: true, cancelled });
         }
@@ -191,10 +193,19 @@ export class AgentRegistry {
                 phase: "persist",
                 receivedBytes: 0,
               };
+              // Commit is noncancellable: persistence may have published before resolving.
+              const intent = this.#intents.get(request.intentId);
+              if (!intent) throw new Error("Missing install intent");
+              intent.committing = true;
+              clearTimeout(timeout);
               await this.#options.storage.save(next.all());
               this.inventory.add(installation);
               return { ok: true, installation: installation.metadata };
-            } catch {
+            } catch (error) {
+              if (installation && error instanceof CommittedWriteError) {
+                this.inventory.add(installation);
+                return { ok: true, installation: installation.metadata, durability: "uncertain" };
+              }
               if (installation)
                 await rm(plan.preview.destination, { recursive: true, force: true });
               // No raw package-manager output crosses the registry boundary.
@@ -217,6 +228,7 @@ export class AgentRegistry {
             abort,
             result,
             completed: false,
+            committing: false,
           });
           return reply(await result);
         }
@@ -233,7 +245,7 @@ export class AgentRegistry {
   }
   async close(): Promise<void> {
     this.#closed = true;
-    for (const intent of this.#intents.values()) intent.abort.abort();
+    for (const intent of this.#intents.values()) if (!intent.committing) intent.abort.abort();
     await Promise.all([...this.#intents.values()].map((intent) => intent.result));
     await this.catalog.close();
   }
