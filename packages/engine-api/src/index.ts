@@ -1,3 +1,4 @@
+import type { LaunchPlan } from "@ace/agent-registry";
 import type { Fact, Key } from "@ace/core";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { ProviderPayload } from "@ace/provider-kit/payload";
@@ -59,6 +60,8 @@ export interface SessionContext {
   instanceId?: string;
   model?: string;
   acpIdentity?: AcpIdentity;
+  /** Immutable daemon-local plan; wrappers retain it when replacing lifetime signals. */
+  acpLaunch?: LaunchPlan;
   mcp?: {
     configuredServers?: readonly unknown[];
     httpServers: readonly unknown[];

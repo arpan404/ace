@@ -23,6 +23,8 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           mcp: services.mcp,
           store,
           options,
+          accounts: services.accounts,
+          accountRegistry: services.accountRegistry,
           report: (error) => log.log("error", "ACP metadata failure", error),
         })
       : {};

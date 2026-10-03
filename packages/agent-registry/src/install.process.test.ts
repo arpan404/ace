@@ -239,6 +239,13 @@ test("Claude and Codex bridges use the selected user binary and selected home ra
       });
       expect(launch.env[variable]).toBe(native);
       expect(launch.env[home]).toBe(`/private/${agent}`);
+      const login = await service.resolveLogin(identity, {
+        [home]: `/private/${agent}`,
+        [variable]: "/bundled/wrong",
+      });
+      expect(login?.command).toBe(native);
+      expect(login?.env[home]).toBe(`/private/${agent}`);
+      expect(login?.args).toEqual(agent === "claude-acp" ? ["auth", "login"] : ["login"]);
       await writeFile(native, "new version");
       await expect(service.resolve(identity)).rejects.toThrow("changed");
     }

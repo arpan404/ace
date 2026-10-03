@@ -80,6 +80,11 @@
         "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
       },
+      "devDependencies": {
+        "@ace/adapter-acp": "workspace:*",
+        "@ace/adapter-testkit": "workspace:*",
+        "@ace/agent-registry": "workspace:*",
+      },
     },
     "packages/adapter-acp": {
       "name": "@ace/adapter-acp",
@@ -236,6 +241,7 @@
     "packages/engine-api": {
       "name": "@ace/engine-api",
       "dependencies": {
+        "@ace/agent-registry": "workspace:*",
         "@ace/core": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",

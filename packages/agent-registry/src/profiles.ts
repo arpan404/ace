@@ -12,11 +12,13 @@ export type CompatibilityProfile = Readonly<{
   denyHttpMcp?: boolean;
   bridge?: "claude" | "codex";
   subagentSessions?: true;
+  login?: Readonly<{ binary: "agent" | "native"; args: readonly string[] }>;
   env?: Readonly<Record<string, string>>;
 }>;
 const specs: Omit<CompatibilityProfile, "revision">[] = [
   {
     id: "gemini-043",
+    login: { binary: "agent", args: [] },
     agent: "gemini",
     version: "0.43.0",
     command: "gemini",
@@ -28,6 +30,7 @@ const specs: Omit<CompatibilityProfile, "revision">[] = [
   },
   {
     id: "qwen-old",
+    login: { binary: "agent", args: [] },
     agent: "qwen-code",
     version: "0.0.14",
     command: "qwen",
@@ -40,6 +43,7 @@ const specs: Omit<CompatibilityProfile, "revision">[] = [
   },
   {
     id: "qwen-modern",
+    login: { binary: "agent", args: [] },
     agent: "qwen-code",
     version: "0.24.7",
     command: "qwen",
@@ -51,6 +55,7 @@ const specs: Omit<CompatibilityProfile, "revision">[] = [
   },
   {
     id: "claude-bridge",
+    login: { binary: "native", args: ["auth", "login"] },
     agent: "claude-acp",
     version: "0.85.1",
     command: "claude-agent-acp",
@@ -64,6 +69,7 @@ const specs: Omit<CompatibilityProfile, "revision">[] = [
   },
   {
     id: "codex-bridge",
+    login: { binary: "native", args: ["login"] },
     agent: "codex-acp",
     version: "2.1.1",
     command: "codex-acp",
@@ -77,6 +83,7 @@ const specs: Omit<CompatibilityProfile, "revision">[] = [
   },
   {
     id: "goose-153",
+    login: { binary: "agent", args: ["configure"] },
     agent: "goose",
     version: "1.53.0",
     command: "goose",
@@ -88,6 +95,7 @@ const specs: Omit<CompatibilityProfile, "revision">[] = [
   },
   {
     id: "auggie-036",
+    login: { binary: "agent", args: ["login"] },
     agent: "auggie",
     version: "0.36.0",
     command: "auggie",
@@ -105,6 +113,9 @@ export const profiles: readonly CompatibilityProfile[] = Object.freeze(
       ...spec,
       ...(spec.env ? { env: Object.freeze({ ...spec.env }) } : {}),
       args: Object.freeze([...spec.args]),
+      ...(spec.login
+        ? { login: Object.freeze({ ...spec.login, args: Object.freeze([...spec.login.args]) }) }
+        : {}),
       revision: "source-2026-10-02",
     }),
   ),

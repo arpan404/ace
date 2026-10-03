@@ -16,7 +16,7 @@ interface SessionDependencies {
   context?(
     threadId: ThreadId,
     signal: AbortSignal,
-  ): Promise<Partial<Pick<SessionContext, "env" | "mcp" | "onSessionMetadata">>>;
+  ): Promise<Partial<Pick<SessionContext, "env" | "mcp" | "onSessionMetadata" | "acpLaunch">>>;
 }
 export class Sessions {
   private dependencies: SessionDependencies;

@@ -13,6 +13,8 @@ export async function startAccounts({ config, resources, services, now }: Servic
     now,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     env: process.env,
+    resolveAcpLogin: (identity, env) =>
+      services.agentRegistry?.resolveLogin(identity, env) ?? Promise.resolve(undefined),
   });
 }
 export function createAccountsSession(context: SocketContext): SocketService {

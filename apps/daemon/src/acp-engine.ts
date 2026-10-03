@@ -1,11 +1,13 @@
 import { createAcpAdapter, genericQuirks } from "@ace/adapter-acp";
-import { digest, type AgentRegistry, type LaunchPlan } from "@ace/agent-registry";
+import { digest, type AgentRegistry } from "@ace/agent-registry";
 import type { ModelCatalog, InstanceInput } from "@ace/models";
 import { AcpIdentity } from "@ace/protocol";
 import { acpInjection, acpStdioInjection } from "@ace/mcp-server";
 import type { EngineOptions, AdapterRegistry } from "./engine/index.ts";
 import type { Services } from "./services/types.ts";
 import type { DaemonOptions } from "./services/options.ts";
+import { createAcpInstance } from "@ace/accounts";
+import { homedir } from "node:os";
 import type { Store } from "./store.ts";
 export function acpEngineOptions(input: {
   registry: AdapterRegistry;
@@ -14,14 +16,16 @@ export function acpEngineOptions(input: {
   mcp: Services["mcp"];
   store: Store;
   options: DaemonOptions;
+  accounts?: Services["accounts"];
+  accountRegistry?: Services["accountRegistry"];
+  userHome?: string;
   report(error: unknown): void;
 }): Pick<EngineOptions, "sessionContext"> {
-  const launches = new WeakMap<AbortSignal, LaunchPlan>();
   input.registry.register(
     createAcpAdapter(genericQuirks, {
       acceptsIdentity: (identity) => input.agents.has(identity),
       async resolveLaunch(ctx) {
-        const plan = launches.get(ctx.signal);
+        const plan = ctx.acpLaunch;
         if (!plan) throw new Error("ACP immutable launch plan unavailable");
         return plan;
       },
@@ -33,12 +37,35 @@ export function acpEngineOptions(input: {
       const thread = input.store.getThread(threadId);
       if (thread?.provider !== "acp") return {};
       const identity = AcpIdentity.parse(thread);
-      const account = input.options.acpEnvironment?.(identity) ?? {
-        env: process.env,
-        loginRevision: "default-local",
-      };
+      if (
+        input.accounts &&
+        input.accountRegistry &&
+        !input.accountRegistry.get(identity.instanceId)
+      ) {
+        const installation = input.agents.inventory
+          .list()
+          .find(
+            (entry) =>
+              entry.installationId === identity.installationId &&
+              entry.acpAgentId === identity.acpAgentId &&
+              entry.instanceId === identity.instanceId,
+          );
+        if (!installation) throw new Error("Approved ACP installation unavailable");
+        await input.accountRegistry.register(
+          createAcpInstance({
+            identity,
+            label: identity.acpAgentId.slice(0, 128),
+            userHome: input.userHome ?? homedir(),
+            installation,
+          }),
+        );
+      }
+      const account = input.options.acpEnvironment?.(identity) ??
+        input.accounts?.acpEnvironment(identity) ?? {
+          env: process.env,
+          loginRevision: "default-local",
+        };
       const plan = await input.agents.resolve(identity, account.env);
-      launches.set(signal, plan);
       const root = thread.rootAgentId;
       if (!root) throw new Error("ACP MCP caller unavailable");
       const lease = input.mcp.openSession(
@@ -64,11 +91,9 @@ export function acpEngineOptions(input: {
           ),
         ),
         args: [...plan.args],
-        env: Object.fromEntries(
-          Object.entries(plan.env).filter(
-            (pair): pair is [string, string] => pair[1] !== undefined,
-          ),
-        ),
+        // Generic ACP never uses catalog-driven process discovery. Keep the launch
+        // environment only on its daemon-local plan, outside model metadata.
+        env: {},
         profileRevision: plan.profile?.revision ?? "generic-v1",
         installationVersion: plan.version,
       };
@@ -99,6 +124,7 @@ export function acpEngineOptions(input: {
         }
       };
       return {
+        acpLaunch: plan,
         env: account.env,
         mcp: {
           httpServers: acpInjection(connection).mcpServers,

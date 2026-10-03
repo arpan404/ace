@@ -20,6 +20,7 @@ import { CommittedWriteError } from "./files.ts";
 import { executeInstall, type InstallRuntime } from "./install.ts";
 export type InventoryStorage = {
   load(): Promise<unknown>;
+  /** Reject with CommittedWriteError if publication happened before a durability failure. */
   save(entries: readonly LocalInstallation[]): Promise<void>;
 };
 export type RegistryServiceOptions = {
@@ -66,6 +67,18 @@ export class AgentRegistry {
   resolve(identity: AcpIdentity, environment: NodeJS.ProcessEnv = this.#options.env) {
     if (this.#closed) throw new Error("Registry closed");
     return this.inventory.resolve(identity, environment);
+  }
+  /** Local terminal login only; never invoke ACP authenticate or a bundled bridge CLI. */
+  async resolveLogin(identity: AcpIdentity, environment: NodeJS.ProcessEnv = this.#options.env) {
+    const plan = await this.resolve(identity, environment);
+    const login = plan.profile?.login;
+    if (!login) return undefined;
+    const command =
+      login.binary === "native"
+        ? plan.env[plan.profile?.bridge === "claude" ? "CLAUDE_CODE_EXECUTABLE" : "CODEX_PATH"]
+        : plan.command;
+    if (!command) throw new Error("Approved login CLI unavailable");
+    return { command, args: [...login.args], env: { ...plan.env } };
   }
   /** Local configuration API only. Never exposed as remote executable/argv input. */
   async bind(input: LocalBinding): Promise<void> {
