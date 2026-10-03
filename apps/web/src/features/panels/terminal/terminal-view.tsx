@@ -88,9 +88,10 @@ function useSession(sessions: TerminalSessions, id: string) {
     (changed: () => void) => sessions.watch(id, changed),
     [sessions, id],
   );
-  useSyncExternalStore(subscribe, () => sessions.version(id));
+  // The screen caches its rows until the next write, so they are a stable snapshot.
+  const rows = useSyncExternalStore(subscribe, () => sessions.screen(id).rows());
   const exitCode = useSyncExternalStore(subscribe, () => sessions.exitCode(id));
-  return { screen: sessions.screen(id), exitCode };
+  return { rows, exitCode };
 }
 
 /**
@@ -99,7 +100,7 @@ function useSession(sessions: TerminalSessions, id: string) {
  */
 export function TerminalView(props: { sessions: TerminalSessions; id: string; name: string }) {
   const { sessions, id } = props;
-  const { screen, exitCode } = useSession(sessions, id);
+  const { rows, exitCode } = useSession(sessions, id);
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
   useResize(box, (cols, rows) => sessions.resize(id, cols, rows));
@@ -123,7 +124,7 @@ export function TerminalView(props: { sessions: TerminalSessions; id: string; na
         if (!window.getSelection()?.toString()) input.current?.focus();
       }}
     >
-      <ScreenRows rows={screen.rows()} label={`${props.name} output`} />
+      <ScreenRows rows={rows} label={`${props.name} output`} />
       {exitCode !== null && (
         <p className="px-4 pb-3 font-sans text-xs text-subtle-foreground">
           Process exited with code {exitCode}.

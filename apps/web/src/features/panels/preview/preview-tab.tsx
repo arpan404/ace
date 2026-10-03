@@ -22,6 +22,9 @@ import { useVersion } from "../store.ts";
 import type { BrowserView, PreviewSource, ScreenFrame } from "../sources.ts";
 
 function usePreview(source: PreviewSource, threadId: string) {
+  // The source's reads change whenever its version does; React Compiler would memoize them
+  // by their arguments, so this hook opts out and re-reads on every version.
+  "use no memo";
   useVersion(source);
   return {
     view: source.view(threadId),
