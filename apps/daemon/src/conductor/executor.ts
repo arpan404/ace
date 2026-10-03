@@ -69,13 +69,14 @@ export class NativeConductorExecutor {
       if (!result.ok || !result.threadId) throw new Error(result.error);
       threadId = result.threadId;
     }
-    const thread = store.getThread(threadId);
-    if (!thread?.rootAgentId) throw new Error("deck_root_agent_missing");
+    const rootAgent =
+      store.getThread(threadId)?.rootAgentId ?? this.context.services.engine?.rootAgent(threadId);
+    if (!rootAgent) throw new Error("deck_root_agent_missing");
     const info = await this.worktrees.git.repositoryInfo(repo);
     const root: RootBinding = {
       run: state.id,
       thread: threadId,
-      agent: AgentId.parse(thread.rootAgentId),
+      agent: AgentId.parse(rootAgent),
       repo,
       baseBranch: info.branch,
       path: await this.worktrees.path(key),

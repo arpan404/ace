@@ -327,6 +327,18 @@ export class Engine {
   ): void {
     this.hostInteractionHandler = handler;
   }
+  /**
+   * A thread's root agent id. A prepared thread has only its configured root until a fact
+   * arrives, so a harmless tick materializes it for hosts that attach children before any turn.
+   */
+  rootAgent(threadId: ThreadId): string | undefined {
+    const rootOf = () => {
+      const state = this.repo.requireState(threadId);
+      return state.rootKey === undefined ? undefined : state.agents[state.rootKey]?.agent.id;
+    };
+    if (rootOf() === undefined) this.actor(threadId).apply([{ type: "tick" }]);
+    return rootOf();
+  }
   openHostGate(threadId: ThreadId, key: string, message: string) {
     const state = this.repo.requireState(threadId);
     this.actor(threadId).apply([
