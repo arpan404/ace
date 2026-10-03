@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { chmodSync } from "node:fs";
-import { Worker } from "node:worker_threads";
+import { IdleWorker } from "@ace/provider-kit/idle-worker";
 import { z } from "zod";
 import { CachedEntry } from "./cache-schema.ts";
 import type { CacheEntry, CatalogStorage } from "./types.ts";
@@ -14,7 +14,7 @@ export function openModelStorage(path: string): CatalogStorage {
   try {
     if (path !== ":memory:") chmodSync(path, 0o600);
     db.exec(
-      "PRAGMA journal_mode=DELETE; CREATE TABLE IF NOT EXISTS model_catalog (instance TEXT PRIMARY KEY, payload TEXT NOT NULL)",
+      "PRAGMA journal_mode=DELETE; PRAGMA cache_size=-512; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; CREATE TABLE IF NOT EXISTS model_catalog (instance TEXT PRIMARY KEY, payload TEXT NOT NULL)",
     );
     const rows = db
       .prepare(
@@ -35,7 +35,7 @@ export function openModelStorage(path: string): CatalogStorage {
   } finally {
     db.close();
   }
-  const worker = new Worker(new URL("./storage-worker.ts", import.meta.url), {
+  const worker = new IdleWorker(new URL("./storage-worker.ts", import.meta.url), {
     workerData: { path },
   });
   const pending = new Map<number, Pending>();
@@ -59,6 +59,7 @@ export function openModelStorage(path: string): CatalogStorage {
     pending.delete(parsed.data.id);
     if (parsed.data.ok) request?.resolve();
     else request?.reject(new Error("Model persistence failed"));
+    if (!pending.size && path !== ":memory:") worker.idle();
   });
   const exited = new Promise<void>((resolve) =>
     worker.once("exit", () => {
@@ -101,7 +102,7 @@ export function openModelStorage(path: string): CatalogStorage {
     close() {
       closing ??= (async () => {
         try {
-          await send("close", null);
+          if (worker.started) await send("close", null);
         } finally {
           await worker.terminate();
           await exited;

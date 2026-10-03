@@ -1,25 +1,28 @@
-import { Worker } from "node:worker_threads";
+import type { Worker } from "node:worker_threads";
 import { z } from "zod";
 import type { RedactionContext } from "@ace/redaction";
 import type { BatchSink, LogRecord } from "./logger.ts";
 import type { FileSinkOptions } from "./file-sink.ts";
+import { openFileSink } from "./file-sink.ts";
+import { createRedactor } from "@ace/redaction";
 export interface LogWorkerRuntime {
   spawn(url: URL, data: unknown): Pick<Worker, "on" | "postMessage" | "terminate">;
   schedule(callback: () => void, milliseconds: number): () => void;
   deadlineMs: number;
 }
-const systemWorker: LogWorkerRuntime = {
-  spawn: (url, data) => new Worker(url, { workerData: data }),
-  schedule(callback, ms) {
-    const timer = setTimeout(callback, ms);
-    return () => clearTimeout(timer);
-  },
-  deadlineMs: 5000,
-};
 export async function createFileSink(
   options: FileSinkOptions & { context: RedactionContext },
-  runtime: LogWorkerRuntime = systemWorker,
+  runtime?: LogWorkerRuntime,
 ): Promise<BatchSink> {
+  if (!runtime) {
+    const sink = await openFileSink(options);
+    const redact = createRedactor(options.context);
+    // The logger bounds and serializes batches. File writes and rotation already use async I/O.
+    return {
+      write: (records) => sink.write(records.map((entry) => redact(JSON.stringify(entry)) + "\n")),
+      async close() {},
+    };
+  }
   if (!Number.isFinite(runtime.deadlineMs) || runtime.deadlineMs < 1)
     throw new RangeError("Invalid worker deadline");
   const worker = runtime.spawn(new URL("./log-worker.ts", import.meta.url), options);

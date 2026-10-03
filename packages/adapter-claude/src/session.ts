@@ -6,7 +6,7 @@ import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
 import { findExecutable } from "@ace/provider-kit/discovery";
 import { probeOutput, type SupervisedProcess } from "@ace/provider-kit/process";
 import type { InteractionResolution } from "@ace/protocol";
-import { query, type Query } from "@anthropic-ai/claude-agent-sdk";
+import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import { capabilities } from "./capabilities.ts";
 import { SessionTasks } from "./session-tasks.ts";
 import { InputStream, content } from "./input.ts";
@@ -115,6 +115,8 @@ export async function openSession(
     cwd: ctx.cwd,
   });
   const injection = ctx.aceMcp ? claudeInjection(ctx.aceMcp) : undefined;
+  const { query } = await import("@anthropic-ai/claude-agent-sdk");
+  ctx.signal.throwIfAborted();
   q = query({
     prompt: input,
     options: {

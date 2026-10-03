@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "zod": "^4.1.12"
   },
   "devDependencies": {

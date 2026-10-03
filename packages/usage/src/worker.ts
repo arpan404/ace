@@ -1,12 +1,13 @@
 import { SessionTotalsRequest, SessionTotalPage } from "./session-totals.ts";
-import { Worker } from "node:worker_threads";
+import { IdleWorker, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
 import { UsageBurn, UsageQuery, UsageResult } from "@ace/protocol";
 import { WorkerConfig, WorkerRequest, WorkerResponse, type WorkerCall } from "./worker-wire.ts";
 import { UsageBatch } from "./events.ts";
 import { UsageSettings } from "./settings.ts";
 import { QuotaWindow } from "./quotas.ts";
 export class UsageWorker {
-  private readonly worker: Worker;
+  private readonly worker: IdleWorker;
+  private readonly persistent: boolean;
   private readonly pending = new Map<
     number,
     { resolve(value: unknown): void; reject(error: Error): void; bytes: number }
@@ -15,9 +16,14 @@ export class UsageWorker {
   private bytes = 0;
   private failed: Error | undefined;
   private closing: Promise<void> | undefined;
-  constructor(path: string, settings: unknown = {}) {
+  constructor(path: string, settings: unknown = {}, runtime?: IdleWorkerRuntime) {
+    this.persistent = path !== ":memory:";
     const config = WorkerConfig.parse({ path, settings: UsageSettings.parse(settings) });
-    this.worker = new Worker(new URL("./worker-entry.ts", import.meta.url), { workerData: config });
+    this.worker = new IdleWorker(
+      new URL("./worker-entry.ts", import.meta.url),
+      { workerData: config },
+      runtime,
+    );
     this.worker.on("error", () => this.fail(new Error("Usage worker failed")));
     this.worker.on("exit", () => this.fail(new Error("Usage worker exited")));
     this.worker.on("message", (input: unknown) => {
@@ -34,6 +40,7 @@ export class UsageWorker {
       this.bytes -= pending.bytes;
       if (message.ok) pending.resolve(message.value);
       else pending.reject(new Error("Usage operation rejected"));
+      if (!this.pending.size && this.persistent) this.worker.idle();
     });
   }
   private fail(error: Error): void {
@@ -94,7 +101,7 @@ export class UsageWorker {
   close(): Promise<void> {
     if (!this.closing) {
       // One reserved control slot follows all admitted messages in the worker FIFO.
-      const closed = this.call({ method: "close" });
+      const closed = this.worker.started ? this.call({ method: "close" }) : Promise.resolve();
       this.closing = (async () => {
         try {
           await closed;

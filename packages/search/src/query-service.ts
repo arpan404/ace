@@ -46,6 +46,7 @@ class SearchReader {
           this.pending.delete(result.id);
           if (result.ok) request?.resolve(result.results);
           else request?.reject(new Error(result.error));
+          if (!this.pending.size && this.path !== ":memory:") worker.idle?.();
         });
         worker.on("error", () => {
           if (this.worker === worker) this.stopWorker();
