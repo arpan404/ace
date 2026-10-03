@@ -8,6 +8,7 @@ import { discoverCursorSdk } from "./host.ts";
 import { hostWire } from "./host-wire.ts";
 import { HostRuntime } from "./host-runtime.ts";
 import { snapshotInHost } from "./history.ts";
+import { validateCursorAuthHome } from "./auth-home.ts";
 import { cursorAuthInHost } from "./auth-host.ts";
 
 // This entry is launched only by provider-kit with HOME set before any SDK import.
@@ -42,6 +43,7 @@ const stop = () => {
   }
 };
 const wire = hostWire(async (method, params) => {
+  await validateCursorAuthHome(homedir());
   sdk ??= await import("@cursor/sdk");
   if (method === "status" || method === "login" || method === "logout")
     return cursorAuthInHost(method, {

@@ -20,3 +20,5 @@ export { recoverCursorCheckpoint } from "./recovery.ts";
 export { boundedCheckpointStore } from "./checkpoint-store.ts";
 
 export { openSdkCheckpointStore } from "./sdk-store.ts";
+
+export { validateCursorAuthHome } from "./auth-home.ts";

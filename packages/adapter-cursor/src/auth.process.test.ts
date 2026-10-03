@@ -1,3 +1,5 @@
+import { symlink, realpath } from "node:fs/promises";
+import { validateCursorAuthHome } from "./index.ts";
 import { mkdtemp, writeFile, mkdir, access, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -70,6 +72,25 @@ it("isolates login stores, discards the return key and deletes only the selected
     expect(
       await cursorAuthInHost("status", { ...boundary, environmentKeyPresent: () => true }),
     ).toEqual({ status: "logged-in", source: "environment" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it("refuses another account's linked SDK credential store without reading or removing its contents", async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), "cursor-auth-link-")));
+  try {
+    const a = join(root, "a"),
+      b = join(root, "b");
+    for (const home of [a, b]) await mkdir(join(home, ".cursor", "sdk"), { recursive: true });
+    const credential = join(b, ".cursor", "sdk", "auth.json");
+    await writeFile(credential, "other-account-sentinel");
+    await symlink(credential, join(a, ".cursor", "sdk", "auth.json"));
+    await expect(validateCursorAuthHome(a)).rejects.toThrow("redirected");
+    await expect(validateCursorAuthHome(b)).resolves.toBeUndefined();
+    expect(await readFile(credential, "utf8")).toBe("other-account-sentinel");
+    await writeFile(credential, "x".repeat(1025));
+    await expect(validateCursorAuthHome(b, 1024)).rejects.toThrow("oversized");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -6,10 +6,8 @@ import { createHash } from "node:crypto";
 export function checkpointDirectory(home: string, threadId: string): string {
   return join(home, ".cursor", "sdk", "ace", createHash("sha256").update(threadId).digest("hex"));
 }
-export async function checkCheckpointBudget(
-  root: string,
-  maxBytes: number,
-): Promise<{ bytes: number; files: number }> {
+/** Shared SDK home/checkpoint ancestor gate; does not read credentials or create files. */
+export async function validatePrivateDirectory(root: string): Promise<void> {
   // Reject symlink ancestors before creating a private store, including a redirected HOME.
   let parent = root;
   while (parent !== parse(parent).root) {
@@ -22,6 +20,12 @@ export async function checkCheckpointBudget(
     }
     parent = dirname(parent);
   }
+}
+export async function checkCheckpointBudget(
+  root: string,
+  maxBytes: number,
+): Promise<{ bytes: number; files: number }> {
+  await validatePrivateDirectory(root);
   await mkdir(root, { recursive: true, mode: 0o700 });
   const rootStat = await lstat(root);
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink())
