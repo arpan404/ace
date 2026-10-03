@@ -1,25 +1,8 @@
 import { execFile } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
-import { extname } from "node:path";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { shell } from "electron";
 import type { OpenInEditor } from "../../shared/contract.ts";
-
-/** Opening these with the default handler would run them; reveal them instead. */
-const executable = new Set([
-  ".app",
-  ".bat",
-  ".cmd",
-  ".com",
-  ".command",
-  ".exe",
-  ".jar",
-  ".lnk",
-  ".msi",
-  ".ps1",
-  ".scr",
-  ".sh",
-  ".vbs",
-]);
+import { defaultOpenAction } from "./open-policy.ts";
 
 /** Editor URL handlers, so no editor CLI needs to be on PATH. */
 function editorUrl(request: OpenInEditor): string | undefined {
@@ -50,14 +33,13 @@ export async function openInEditor(request: OpenInEditor): Promise<boolean> {
     const args = [...(request.line ? ["--line", String(request.line)] : []), request.path];
     return new Promise((resolve) => execFile("xed", args, (error) => resolve(!error)));
   }
-  if (
-    !statSync(request.path).isDirectory() &&
-    executable.has(extname(request.path).toLowerCase())
-  ) {
-    shell.showItemInFolder(request.path);
+  // Judge (and open) what the path resolves to, so a symlink cannot disguise an app.
+  const target = realpathSync(request.path);
+  if (defaultOpenAction(target, statSync(target).isDirectory(), process.platform) === "reveal") {
+    shell.showItemInFolder(target);
     return true;
   }
-  return (await shell.openPath(request.path)) === "";
+  return (await shell.openPath(target)) === "";
 }
 
 export function reveal(path: string): boolean {
