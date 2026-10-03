@@ -2,6 +2,12 @@
 
 Researched 2026-10-01/02 for the ace rewrite. This file compares the five priority providers and draws conclusions for the canonical protocol. The per-provider files hold the detail and the citations:
 
+The follow-up [local SDK audit](sdk-audit.md) compares current Claude and Codex
+SDK implementations with `integration/train-1` and also covers Gemini CLI and
+Qwen Code. Its recommendations supersede the SDK-specific conclusions here.
+In particular, current Codex exec can emit some collaboration summaries; it still
+filters child transcripts and lacks interactive SDK controls.
+
 | Provider    | File                             | Version inspected                                                         |
 | ----------- | -------------------------------- | ------------------------------------------------------------------------- |
 | Claude Code | [claude-code.md](claude-code.md) | `@anthropic-ai/claude-agent-sdk` 0.3.287 (CLI 2.1.287), local CLI 2.1.286 |
