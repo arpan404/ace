@@ -7,6 +7,8 @@ import {
   type CommandPayload,
   type CommandResult,
 } from "@ace/protocol";
+import { commandCatalog, listCommands } from "./services/commands.ts";
+import { FakeFilesWire } from "./files-wire.ts";
 import { FakeBrowser } from "./browser.ts";
 import { fakeBrowserSession } from "./browser-wire.ts";
 import { FakeTerminalStream } from "./terminal-stream.ts";
@@ -41,11 +43,13 @@ export class FakeServicesWire {
   readonly browser = new FakeBrowser();
   readonly context: FakeContextWire;
   readonly workspace: FakeWorkspaceWire;
+  readonly files: FakeFilesWire;
   private planning: FakePlanningWire;
   private plugins = new FakePluginsWire();
   private host: FakeServiceContext;
   constructor(context: FakeServiceContext, settings: FakeSettings) {
     this.host = context;
+    this.files = new FakeFilesWire(context);
     this.context = new FakeContextWire(context);
     this.workspace = new FakeWorkspaceWire(context);
     this.planning = new FakePlanningWire(
@@ -54,10 +58,13 @@ export class FakeServicesWire {
       () => settings.get("automations.enabled") === true,
     );
   }
-  command(payload: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
+  command(
+    payload: CommandPayload,
+    commandId?: string,
+  ): Omit<CommandResult, "commandId"> | undefined {
     const conductor = ConductorCommandPayload.safeParse(payload);
     if (conductor.success) return this.planning.command(conductor.data);
-    return this.workspace.command(payload);
+    return this.workspace.command(payload, commandId);
   }
   session(send: (message: Message) => void): FakeWireSession {
     const subscriptions = new Map<string, () => void>();
@@ -66,19 +73,59 @@ export class FakeServicesWire {
     const emit = (message: Message) => {
       if (!closed) send(ServerMessage.parse(message));
     };
+    const files = this.files.session(emit);
     const browser = fakeBrowserSession(this.browser, this.host, emit);
     return {
       close: () => {
         closed = true;
         browser.close();
+        files.close();
         for (const stop of subscriptions.values()) stop();
         subscriptions.clear();
         terminalStreams.clear();
       },
       handle: async (message, device) => {
         try {
+          if (message.type.startsWith("files.")) {
+            await files.handle(message, device);
+            return;
+          }
+          if (message.type === "commands.list" && message.draft) {
+            const draft = message.draft;
+            if (this.context.draftWorkspace(device, draft.draftId) !== draft.workspaceId)
+              throw new Error("draft_unavailable");
+            emit({
+              type: "commands.list.result",
+              requestId: message.requestId,
+              commands: listCommands(
+                commandCatalog().filter((command) => command.scope !== "runtime"),
+                draft.provider,
+                message.query,
+                message.limit,
+              ),
+              diagnostics: [],
+            });
+            return;
+          }
           if (message.type === "context.request") {
             emit(await this.context.handle(message, device));
+            return;
+          }
+          if (message.type === "history.import" || message.type === "history.continue") {
+            if (message.requestId)
+              for (const phase of ["preparing", "unsupported"] as const)
+                emit({
+                  type: "history.operation.progress",
+                  requestId: message.requestId,
+                  operation: message.type,
+                  phase,
+                });
+            emit({
+              type: message.type,
+              requestId: message.requestId,
+              status: "unsupported",
+              reason: "No native history sessions in this fixture",
+            });
             return;
           }
           if (message.type === "workspace.request") {

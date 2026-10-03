@@ -538,3 +538,74 @@ test("paired device fixtures stay valid near epoch zero and preserve ages with a
     lastSeenAt: now - 6 * 86400000,
   });
 });
+
+test("fake workspace changes preserve preparation selection and reject dirty changes until explicitly allowed", async () => {
+  const f = await fixture();
+  try {
+    const threadId = ThreadId.parse("prepared-workspace");
+    const workspaceId = WorkspaceId.parse("project");
+    expect(
+      await f.client.command({
+        type: "thread.prepare",
+        threadId,
+        workspaceId,
+        title: "Prepared",
+        provider: "codex",
+        mode: "worktree",
+        baseBranch: "main",
+      }),
+    ).toMatchObject({ ok: true, threadId });
+    const lease = f.client.thread(threadId);
+    const details = await f.client.request({
+      type: "workspace.request",
+      operation: { op: "thread.details", threadId },
+    });
+    expect(details.result).toMatchObject({
+      kind: "details",
+      details: { mode: "worktree", baseBranch: "main" },
+    });
+    expect(
+      await f.client.command({
+        type: "thread.workspace.set",
+        allowUncommitted: false,
+        threadId,
+        mode: "local",
+        branch: "develop",
+      }),
+    ).toMatchObject({ ok: true });
+    expect(lease.store.thread?.details).toMatchObject({
+      mode: "local",
+      branch: "develop",
+      workspaceChange: { state: "applied" },
+    });
+    f.daemon.createThread({
+      id: "dirty-workspace",
+      workspaceId,
+      title: "Dirty",
+      provider: "codex",
+      details: { diff: { files: 1, additions: 1, deletions: 0 } },
+    });
+    const dirty = ThreadId.parse("dirty-workspace");
+    expect(
+      await f.client.command({
+        type: "thread.workspace.set",
+        allowUncommitted: false,
+        threadId: dirty,
+        mode: "local",
+        branch: "develop",
+      }),
+    ).toMatchObject({ ok: false, error: "git_dirty_worktree" });
+    expect(
+      await f.client.command({
+        type: "thread.workspace.set",
+        threadId: dirty,
+        mode: "local",
+        branch: "develop",
+        allowUncommitted: true,
+      }),
+    ).toMatchObject({ ok: true });
+    lease.release();
+  } finally {
+    await f.client.close();
+  }
+});

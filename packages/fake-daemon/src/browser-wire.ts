@@ -10,7 +10,7 @@ export function fakeBrowserSession(
 ) {
   const subscriptions = new Map<
     string,
-    { stop(): void; pump(): void; sent?: number; ack?: number }
+    { stop(): void; pump(): void; subscribers: Set<string>; sent?: number; ack?: number }
   >();
   return {
     close() {
@@ -64,9 +64,23 @@ export function fakeBrowserSession(
           break;
         }
         case "browser.subscribe": {
-          if (subscriptions.has(id) || subscriptions.size >= 8)
-            throw new Error("subscription_limit");
-          const entry: { stop(): void; pump(): void; sent?: number; ack?: number } = {
+          const subscriber = message.subscriberId ?? "legacy";
+          const existing = subscriptions.get(id);
+          if (existing) {
+            if (existing.subscribers.size >= 64 && !existing.subscribers.has(subscriber))
+              throw new Error("subscription_limit");
+            existing.subscribers.add(subscriber);
+            break;
+          }
+          if (subscriptions.size >= 8) throw new Error("subscription_limit");
+          const entry: {
+            stop(): void;
+            pump(): void;
+            subscribers: Set<string>;
+            sent?: number;
+            ack?: number;
+          } = {
+            subscribers: new Set([subscriber]),
             stop: noop,
             pump() {
               if (!host.thread(id)) {
@@ -105,10 +119,15 @@ export function fakeBrowserSession(
           });
           break;
         }
-        case "browser.unsubscribe":
-          subscriptions.get(id)?.stop();
-          subscriptions.delete(id);
+        case "browser.unsubscribe": {
+          const entry = subscriptions.get(id);
+          entry?.subscribers.delete(message.subscriberId ?? "legacy");
+          if (entry && !entry.subscribers.size) {
+            entry.stop();
+            subscriptions.delete(id);
+          }
           break;
+        }
         case "browser.recording.start":
         case "browser.recording.stop":
           throw new Error("recording_unavailable_in_fixture");
