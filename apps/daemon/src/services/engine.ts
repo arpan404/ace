@@ -1,3 +1,4 @@
+import { daemonClaudeAdapter } from "./claude.ts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
@@ -10,7 +11,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   }
   const engineOptions = options.engine ?? {};
   const registry =
-    engineOptions.registry ?? (await discoverAdapters(engineOptions.adapterDiscovery));
+    engineOptions.registry ??
+    (await discoverAdapters(engineOptions.adapterDiscovery, (cli) =>
+      daemonClaudeAdapter(context, cli),
+    ));
   if (!engineOptions.registry) resources.own(() => registry.close());
   const engine = new Engine(store, {
     ...engineOptions,

@@ -54,7 +54,14 @@ remain CLI-owned. Returned connection failures reject visibly and wire control
 results, including extensions, remain raw. Optional controls fail through the
 installed CLI's error response rather than assuming wrapper presence proves
 support. The daemon's accounts/configuration owners can consume these ports;
-this branch adds no duplicate account or command service.
+this branch adds no duplicate account or command service. Daemon discovery now
+binds each Claude Query to the existing MCP service's scoped ace lease. The
+service keeps that lease in SDK replacements and exposes authorized
+`mcp.status`, `mcp.replace`, `mcp.reconnect`, `mcp.enable` and `mcp.disable`
+requests through its own socket registration. Controls expire with the process.
+Daemon hosts pass their account observer as `DaemonOptions.claude.onRateLimit`;
+it receives the thread identity and native observation. No accounts package is
+introduced here.
 
 The existing MCP discovery owner can read the same session:
 
@@ -84,7 +91,16 @@ rollups. The usage owner's `sessionTotalsFor({thread,limit})` reads up to 100
 snapshots; `UsageWorker` exposes the same operation. Repeated/lower snapshots
 cannot erase stored totals. Resume/fork inherited snapshots remain separate
 from fresh per-turn activity, and conversation resets start a new counter key.
-Known startup failures emit no accounting sample. Native result UUIDs and a
+Canonical replay retains the scope and omits malformed legacy
+snapshot identities visibly while continuing healthy ingestion. Thread views
+and materialized reconnect snapshots keep `usageSnapshots` separately from
+per-agent `usage`; clients select them through `usageSnapshot(key)` and the
+projection owner's `usageSnapshotKey`. An authorized `usage.session_totals`
+request reads the inclusive estimates from the daemon worker.
+Known startup failures emit no accounting sample. Root and child samples carry
+cache-write totals and their native one-hour subset, including refinements, so
+ordinary, cached, five-minute and one-hour inputs receive their own prices.
+Native result UUIDs and a
 bounded 256-result window suppress duplicate settlement; supported native result
 indices provide a monotonic guard. Historical raw fields remain available.
 
@@ -92,7 +108,12 @@ When initialization advertises `interrupt_receipt_v1`, wire-ordered receipts
 retain known UUID survivors until a correlated result consumes them. Internal
 unknown UUIDs do not become ace sends. Missing receipt/count fields are not
 proof that queued work or background tasks finished. Root interruption never
-settles children. Explicit cascades attempt every registered target and report
+settles children. Consuming the final known survivor publishes an empty queue
+even without a count field. An authoritative zero count retires an overflow
+correlation guard; independent background work remains unfinished. Older CLIs
+without receipt capability use the existing queue fallback and do not accumulate
+unsupported UUID correlations across ordinary turns.
+Explicit cascades attempt every registered target and report
 aggregate failures. No private `cancelQueued` API is used.
 
 ## History and model discovery
@@ -132,3 +153,24 @@ See [recording scenarios](recording-scenarios.md) and [mutation cases](MUTATIONS
 No fixtures were recorded, no real prompt was sent, and no new capability was
 advertised. ADR 0046 remains proposed. Qwen daemon SDK adoption is follow-up work;
 Gemini and Qwen's current ACP paths stay with their registry owner.
+
+## Review follow-up limits
+
+Child accounting admits at most 256 ledgers and 1,024 distinct messages per
+ledger. Retained message refinements remain idempotent. Excess samples produce
+one visible accounting-capacity warning and remain raw, rather than inflating
+totals after an eviction. Counts saturate at the safe-integer ceiling.
+Session control bookkeeping retains at most 512 live tasks plus needed ancestor
+records within that same cap, and 1,024 unsettled tool parents. Completed leaves
+and their unneeded ancestry retire incrementally. A 512-entry compact ancestry
+window correlates descendants whose metadata arrives after completion. If an
+explicit cascade reaches ancestry outside that window, it reports uncertainty
+while still stopping known descendants. Excess live admission ends
+the provider visibly; live control identity is never silently evicted.
+Other existing translator identity caches are unchanged by this follow-up;
+these limits do not claim that every inherited translator cache is bounded.
+
+`bench/sdk-controls.ts` now includes 1,024 retained child messages and duration
+refinements. `bench/session-retention.ts` covers completed-task churn, and
+`packages/projection/bench/usage-scopes.ts` covers 64-model snapshot folding.
+All throughput/RSS evidence needs run at merge; no benchmark was executed.

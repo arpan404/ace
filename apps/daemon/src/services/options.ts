@@ -10,7 +10,9 @@ import type { BrowserServiceOptions } from "@ace/browser";
 import type { DaemonPreviewOptions } from "../preview.ts";
 import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
+import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  claude?: DaemonClaudeOptions;
   config?: Config;
   handler?: CommandHandler | undefined;
   engine?: EngineOptions & { adapterDiscovery?: typeof discoverProviders };

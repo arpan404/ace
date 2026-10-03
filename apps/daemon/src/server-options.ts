@@ -23,6 +23,7 @@ import type { CommandHandler } from "./commands.ts";
 import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
+  mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
   settings?: SettingsService;
   preview?: DaemonPreviewOptions;
   history?: Pick<DaemonHistory, "handle">;

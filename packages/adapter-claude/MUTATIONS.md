@@ -29,3 +29,26 @@ applied or run during implementation.
 The non-gating `bench/sdk-controls.ts` workload measures the public translator's
 new accounting/queue path. It has not run. Ops/s, µs/turn and peak RSS need
 measurement at merge; no numbers are claimed here.
+
+## Review regressions
+
+All additional cases are **not executed (tests run at merge)**. No caught or
+survived result is claimed.
+
+| Production mutation                                                              | Behavior test designed to kill it                                                                                                                                   |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Drop scope in daemon SQL replay.                                                 | Canonical replay keeps root+child input at 14 while storing every inclusive model/session total across restart.                                                     |
+| Route inclusive snapshots to the agent projection.                               | Client live delivery and forced snapshot reconnect preserve root activity plus two models and provider totals separately.                                           |
+| Skip scoped materialization migration.                                           | Replay restart repairs an emulated old agent-keyed view from retained canonical history.                                                                            |
+| Fail to publish zero after the last survivor is consumed without a native count. | The survivor regression now omits its explicit queue-count field.                                                                                                   |
+| Keep an overflow guard after authoritative empty queue.                          | Overflow recovery with and without UUID echoes finishes; independent shell work stays unfinished.                                                                   |
+| Accept inclusive scope without a counter key.                                    | Retained malformed snapshot is omitted and healthy replay advances; canonical admission rejects that malformed usage.                                               |
+| Drop child cache-write counts or root/child one-hour subsets.                    | Root/refined-child public translation and usage pricing produce 71 input tokens, 36 writes, 13 one-hour writes and $0.0001423 equivalent cost under explicit rates. |
+| Leave default daemon Claude discovery disconnected from MCP/account callbacks.   | Discovery-to-engine process test observes ace tools, persistent service lease ownership and thread-attributed rate metadata.                                        |
+| Permit an unauthorized native MCP mutation or scoped total read.                 | Real socket service tests reject read-only mutations and operate-only snapshot reads.                                                                               |
+| Lose process-exit unbinding for native controls.                                 | Provider exit makes the live control unavailable and the socket request fails visibly.                                                                              |
+| Add a 60-second SDK callback deadline.                                           | The process callback test advances injected timers by 120 seconds, observes child progress and returns a valid typed answer.                                        |
+| Open a human interaction for an unsupported dialog.                              | Unsupported dialog process test checks both native cancellation and absence of canonical interaction facts.                                                         |
+| Retain all completed tasks or drop required completed ancestry.                  | Completed-task churn still admits/stops a later shell; a targeted cascade reaches a live descendant through a completed middle agent.                               |
+| Evict live tasks or silently overrun accounting admission.                       | Live-task overflow exits visibly; child accounting overflow warns once while retained refinements remain idempotent.                                                |
+| Reject SDK-native null cache counts.                                             | Child usage with null cache metadata still records ordinary input/output with zero cache subsets.                                                                   |
