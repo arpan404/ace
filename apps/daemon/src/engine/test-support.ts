@@ -7,7 +7,13 @@ import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
 import type { Fact } from "@ace/core";
 import type { Frame, SessionContext } from "@ace/engine-api";
 import { ProviderPayload } from "@ace/provider-kit/payload";
-import { Command, Capabilities, type CommandPayload, type ServerMessage } from "@ace/protocol";
+import {
+  Command,
+  Capabilities,
+  type CommandPayload,
+  type ServerMessage,
+  type ProviderKind,
+} from "@ace/protocol";
 import { Store, Engine, AdapterRegistry, type EngineClock, type EngineOptions } from "@ace/daemon";
 import { startServer } from "../server.ts";
 import { Client, token } from "../socket-test-support.ts";
@@ -83,6 +89,8 @@ export async function harness(
     tick?: (now: number) => Fact[];
     nextDeadline?: () => number | undefined;
     resolveGate?: Promise<void>;
+    provider?: ProviderKind;
+    capabilities?: Capabilities;
   } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-engine-"));
@@ -92,21 +100,23 @@ export async function harness(
   const clock = new ManualClock();
   const contexts: SessionContext[] = [];
   const adapter = createScriptedAdapter({
-    provider: "codex",
+    provider: options.provider ?? "codex",
     nativeSessionId: "native-1",
-    capabilities: Capabilities.parse({
-      steer: options.steer ?? false,
-      interruptCascades: false,
-      resume: true,
-      fork: false,
-      subagentTranscripts: true,
-      backgroundTaskControl: true,
-      backgroundVisibility: "full",
-      planMode: false,
-      tokenUsage: false,
-      imageInput: true,
-      rewindFiles: false,
-    }),
+    capabilities:
+      options.capabilities ??
+      Capabilities.parse({
+        steer: options.steer ?? false,
+        interruptCascades: false,
+        resume: true,
+        fork: false,
+        subagentTranscripts: true,
+        backgroundTaskControl: true,
+        backgroundVisibility: "full",
+        planMode: false,
+        tokenUsage: false,
+        imageInput: true,
+        rewindFiles: false,
+      }),
     createTranslator: () => ({
       translate: frames.translate,
       tick: options.tick ?? (() => []),
@@ -118,6 +128,7 @@ export async function harness(
   registry.register(
     {
       ...adapter,
+      ...(options.provider === "acp" ? { acceptsIdentity: () => true } : {}),
       async openSession(ctx) {
         contexts.push(ctx);
         const session = await adapter.openSession(ctx);
@@ -198,7 +209,14 @@ export async function harness(
       const result = command({
         type: "thread.create",
         workspaceId: workspace,
-        provider: "codex",
+        provider: options.provider ?? "codex",
+        ...(options.provider === "acp"
+          ? {
+              acpAgentId: "test-agent",
+              installationId: "test-install",
+              instanceId: "test-instance",
+            }
+          : {}),
         model: "model",
         input: [{ type: "text", text: "first" }],
       });
