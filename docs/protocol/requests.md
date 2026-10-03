@@ -47,7 +47,7 @@ Example:
 
 ```json
 {
-  "key": "notifications.sound",
+  "key": "notifications.enabled",
   "requestId": "example",
   "scope": {
     "threadId": "example",

@@ -16,7 +16,8 @@ code belongs to the daemon package.
 
 `browser.backend` is a layered setting, `auto | embedded | headless`, default
 `auto`; thread settings override workspace/global settings. `embedded` fails
-explicitly when unavailable. Existing sessions keep their selected backend.
+explicitly when unavailable. Existing sessions keep their selected backend. The legacy `headed` open field is
+accepted for wire compatibility; fallback sessions always launch headlessly.
 `browser.backendLoss` is `pause | headless`, default `pause`. Loss always emits
 `browser.backend.lost` and a state with `status: paused`, `controller: none` and
 an explanation. Headless recovery reopens the last approved URL in an ephemeral
@@ -34,7 +35,7 @@ host-token hello and the credential's device id, then sends:
 - `browser.backend.register`: `requestId`, `credential`, `version: 1`, and
   `capabilities`. All version-1 capabilities are required: `cdp`, `targets`,
   `permissions`, `downloads`, `controllerLease`.
-- `browser.backend.registered`: matching `requestId`, `backendId`.
+- `browser.backend.registered`: matching `requestId`, `backendId`, `connectionId`.
 
 The second credential is desktop-scoped, checked against the authenticated
 connection's device id. Desktop credentials cannot be paired or used for
@@ -56,13 +57,19 @@ the same identifiers and either `result` or `error`. Supported operations:
 - `cdp`: `method`, optional `params`. Return the exact CDP result. CDP events
   use `browser.backend.event`, same backend/session, `method`, `params`.
   Navigation, console, network, Fetch, Target, screencast and close events must
-  be forwarded. Unknown CDP fields remain opaque.
+  be forwarded. Report native denials as method `ace.permissionDenied` with
+  `{origin, permission}` and `ace.downloadDenied` with `{url, suggestedFilename}`.
+  Deny locally before emitting; these are audit hooks, never approval requests. Unknown CDP fields remain opaque.
 - `navigate`: URL and timeout. Await DOMContentLoaded or report an error.
+  Return `{url}` with the final URL after redirects; evaluation approval and
+  recovery use this URL.
 - `press`: Playwright-compatible keyboard key/chord string.
 - `resize`: width/height. Resize the actual view and CDP viewport.
 - `controller`: monotonically increasing `generation`, controller and optional
   human connection owner. Return after applying the lease. Native view input
-  is disabled while the agent owns it. Native take-control uses the existing
+  is enabled only when `controller` is `human` and `owner` equals the registered
+  `connectionId`; another device's human lease keeps native input disabled.
+  Native take-control uses the existing
   browser.takeover connection; local pointer input follows that lease.
 - `close`: destroy the view, detach CDP, remove ephemeral partition data.
 
@@ -89,7 +96,12 @@ The fallback lazily streams a version-pinned Chrome for Testing archive into
 `dataDir/chromium`, reports bytes/progress, verifies the published checksum
 before extraction, and atomically publishes a completed installation. Archives,
 expanded bytes, entries and paths are bounded. Partial or corrupt installs are
-removed and can be retried. Downloads are single-flight per service and abort
+removed and can be retried. The pin is Chrome for Testing 153.0.8010.12,
+matching Playwright 1.61.1, with the publisher's MD5 transfer checksum and immutable
+Google Storage object generation. HTTPS authenticates the publisher; MD5 alone
+is not a signature. The installed executable also has a SHA-256 cache digest.
+Supported artifacts are Linux x64, macOS x64/arm64 and Windows x64. Linux/Windows
+arm64 fail explicitly rather than silently selecting a personal installation. Downloads are single-flight per service and abort
 on shutdown. Existing browser discovery remains a diagnostic/test API; the
 production service never searches PATH, applications or personal Playwright
 caches. Explicit executable injection remains available at the trusted service

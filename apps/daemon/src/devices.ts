@@ -22,6 +22,14 @@ function decode(row: Record<string, SQLOutputValue>): Device {
 
 /** Shares the event store's SQLite connection; credentials never leave this module. */
 export class Devices {
+  private revoked = new Set<(id: string) => void>();
+  onRevoke(listener: (id: string) => void): () => void {
+    if (this.revoked.size >= 32) throw new Error("Device revocation subscriber limit");
+    this.revoked.add(listener);
+    return () => {
+      this.revoked.delete(listener);
+    };
+  }
   private runtime: CredentialRuntime;
   private insert: StatementSync;
   private byId: StatementSync;

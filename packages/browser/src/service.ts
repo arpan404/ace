@@ -1,40 +1,23 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { type BrowserContext } from "playwright-core";
-import {
-  BrowserOpen,
-  type BrowserArtifact,
-  type BrowserState,
-  type BrowserFrame,
-} from "@ace/protocol";
-import { detectChromium, detectFfmpeg } from "./discovery.ts";
-import { allowedOrigin, type OriginPolicy } from "./policy.ts";
+
+import { BrowserOpen, type BrowserState, type BrowserFrame } from "@ace/protocol";
+import { recoverHeadless } from "./recovery.ts";
+import { detectFfmpeg } from "./discovery.ts";
+import { HeadlessBackend } from "./headless.ts";
+import { acquireChromium } from "./acquisition.ts";
+import { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";
+import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
+import type { BrowserBackendLost, BrowserDownloadProgress } from "@ace/protocol";
+import { allowedOrigin } from "./policy.ts";
 import { BrowserSession, type Actor } from "./session.ts";
 import type { FrameSink } from "./fanout.ts";
-import { installOriginGuard } from "./origin-guard.ts";
+
 import { PolicyGate } from "./policy-call.ts";
 import { setMaxListeners } from "node:events";
-import { launchContext, type ContextLauncher, type ProcessSpawner } from "./io.ts";
-
-export interface BrowserServiceOptions {
-  dataDir: string;
-  executablePath?: string;
-  ffmpeg?: string;
-  originPolicy?: OriginPolicy;
-  evaluatePolicy?: (
-    threadId: string,
-    url: string,
-    signal?: AbortSignal,
-  ) => boolean | Promise<boolean>;
-  onArtifact?: (threadId: string, artifact: BrowserArtifact) => void | Promise<void>;
-  onError?: (error: unknown) => void;
-  now?: () => number;
-  id?: () => string;
-  maxSessions?: number;
-  launchContext?: ContextLauncher;
-  spawn?: ProcessSpawner;
-}
+import type { BrowserServiceOptions } from "./service-options.ts";
+export type { BrowserServiceOptions } from "./service-options.ts";
 
 export class BrowserService {
   private options: BrowserServiceOptions;
@@ -48,11 +31,48 @@ export class BrowserService {
   private closing: Promise<void> | undefined;
   private lifetime = new AbortController();
   private policyGate = new PolicyGate();
+  private embedded: EmbeddedBackend | undefined;
+  private headless: BrowserBackend;
+  private acquiring: Promise<string> | undefined;
+  private recoveries = new Map<string, Promise<void>>();
+  private downloadListeners = new Set<(progress: BrowserDownloadProgress) => void>();
+  downloadProgress(listener: (progress: BrowserDownloadProgress) => void): () => void {
+    if (this.downloadListeners.size >= 64) throw new Error("Browser download subscriber limit");
+    this.downloadListeners.add(listener);
+    return () => {
+      this.downloadListeners.delete(listener);
+    };
+  }
+  private backendEvents = new Map<string, Set<(event: BrowserBackendLost) => void>>();
   private policyScopes = new Map<string, AbortController>();
   constructor(options: BrowserServiceOptions) {
     this.options = options;
     this.now = options.now ?? Date.now;
     this.id = options.id ?? randomUUID;
+    this.headless =
+      options.headlessBackend ??
+      new HeadlessBackend(() => {
+        if (options.executablePath) return Promise.resolve(options.executablePath);
+        this.acquiring ??= acquireChromium({
+          ...options.acquisition,
+          dataDir: options.dataDir,
+          signal: this.lifetime.signal,
+          progress: (progress) => {
+            options.onDownload?.(progress);
+            for (const listener of this.downloadListeners) {
+              try {
+                listener(progress);
+              } catch (error) {
+                options.onError?.(error);
+              }
+            }
+          },
+        }).catch((error) => {
+          this.acquiring = undefined;
+          throw error;
+        });
+        return this.acquiring;
+      }, options.launchContext);
   }
   async open(raw: unknown): Promise<BrowserState> {
     if (this.closing) throw new Error("Browser service shutting down");
@@ -78,13 +98,12 @@ export class BrowserService {
   private async launch(options: BrowserOpen, scope: AbortController): Promise<BrowserSession> {
     const signal = AbortSignal.any([scope.signal, this.lifetime.signal]);
     setMaxListeners(33, signal);
-    const executablePath = await detectChromium({
-      ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
-      dataDir: this.options.dataDir,
-      ...(this.options.executablePath ? { executablePath: this.options.executablePath } : {}),
-    });
-    if (!executablePath)
-      throw new Error("No Chromium available; use installChromium(dataDir) to download it");
+    const preference = (await this.options.backendPreference?.(options)) ?? "auto";
+    const lossPolicy = (await this.options.backendLoss?.(options)) ?? "pause";
+    const backend = preference !== "headless" && this.embedded ? this.embedded : this.headless;
+    if (preference === "embedded" && backend.kind !== "embedded")
+      throw new Error("Desktop browser backend unavailable");
+    signal.throwIfAborted();
     const root = join(this.options.dataDir, "browser");
     await mkdir(root, { recursive: true, mode: 0o700 });
     const workspaceKey = createHash("sha256").update(options.workspaceId).digest("hex");
@@ -94,9 +113,13 @@ export class BrowserService {
       : await mkdtemp(join(root, "ephemeral-"));
     if (this.leases.has(profile)) throw new Error("Workspace browser profile is already in use");
     this.leases.add(profile);
-    let context: BrowserContext | undefined;
+    let context: BrowserBackendSession | undefined;
+    let recoveryProfile: string | undefined;
     let session: BrowserSession | undefined;
+    let released = false;
     const release = async () => {
+      if (released) return;
+      released = true;
       if (session && this.sessions.get(options.threadId) === session)
         this.sessions.delete(options.threadId);
       scope.abort();
@@ -104,21 +127,10 @@ export class BrowserService {
         this.policyScopes.delete(options.threadId);
       this.leases.delete(profile);
       if (!persistent) await rm(profile, { recursive: true, force: true });
+      if (recoveryProfile) await rm(recoveryProfile, { recursive: true, force: true });
     };
     try {
       await mkdir(profile, { recursive: true, mode: 0o700 });
-      context = await (this.options.launchContext ?? launchContext)(profile, {
-        executablePath,
-        headless: !options.headed,
-        viewport: { width: 1280, height: 720 },
-        serviceWorkers: "block",
-        acceptDownloads: false,
-        chromiumSandbox: true,
-        timeout: 30_000,
-        handleSIGINT: false,
-        handleSIGTERM: false,
-        handleSIGHUP: false,
-      });
       const allowed = (url: string) =>
         allowedOrigin(
           options.threadId,
@@ -131,43 +143,86 @@ export class BrowserService {
                 )
             : undefined,
         );
-      await context.routeWebSocket("**/*", async (route) => {
-        try {
-          if (await allowed(route.url())) route.connectToServer();
-          else route.close();
-        } catch {
-          route.close();
-        }
-      });
-      const page = context.pages()[0] ?? (await context.newPage());
-      context.on("page", (popup) => {
-        if (popup !== page) void popup.close().catch(() => {});
-      });
-      page.on("dialog", (dialog) => {
-        void dialog.dismiss().catch(() => {});
-      });
-      const cdp = await context.newCDPSession(page);
-      const guard = await installOriginGuard(cdp, allowed);
-      context.once("close", () => guard.close());
-      // Playwright routing only intercepts the first hop of a redirect. CDP Fetch
-      // checks every hop on the primary page; this route rejects popup requests.
-      await context.route("**/*", async (route) => {
-        try {
-          await guard.ready();
-          if (route.request().frame().page() === page && (await allowed(route.request().url())))
-            await route.continue();
-          else await route.abort("blockedbyclient");
-        } catch {
-          await route.abort("blockedbyclient").catch(() => {});
-        }
-      });
+      const request: BackendOpen = {
+        options,
+        profileDir: profile,
+        signal,
+        allowed,
+        navigation: () => session?.navigation(),
+        log: (entry) => session?.log(entry),
+        permissionDenied: (denial) =>
+          session?.log({
+            kind: "console",
+            type: "permission.denied",
+            text: `${denial.permission} ${denial.origin}`,
+          }),
+        downloadDenied: (denial) =>
+          session?.log({
+            kind: "network",
+            type: "download.denied",
+            text: `${denial.url} ${denial.suggestedFilename}`,
+          }),
+        lost: (reason) => {
+          if (!session || session.state.closed || signal.aborted) return;
+          if (backend.kind === "headless") {
+            void session.close().catch((error) => this.options.onError?.(error));
+            return;
+          }
+          if (session.state.status === "paused") return;
+          session.suspend(reason);
+          const event: BrowserBackendLost = {
+            type: "browser.backend.lost",
+            threadId: options.threadId,
+            backend: "embedded",
+            recovery: lossPolicy,
+            url: session.state.url,
+            pageStateLost: true,
+            reason: reason.slice(0, 2048),
+          };
+          try {
+            this.options.onBackendLost?.(event);
+          } catch (error) {
+            this.options.onError?.(error);
+          }
+          for (const listener of this.backendEvents.get(options.threadId) ?? []) {
+            try {
+              listener(event);
+            } catch (error) {
+              this.options.onError?.(error);
+            }
+          }
+          if (lossPolicy === "headless") {
+            const owned = session;
+            const recovery = recoverHeadless({
+              request,
+              backend: this.headless,
+              session: owned,
+              root,
+              url: event.url,
+              profileCreated: (path) => {
+                recoveryProfile = path;
+              },
+            })
+              .catch((error) => {
+                if (!signal.aborted)
+                  owned.recoveryFailed(
+                    error instanceof Error ? error.message : "Browser recovery failed",
+                  );
+                this.options.onError?.(error);
+              })
+              .finally(() => this.recoveries.delete(options.threadId));
+            this.recoveries.set(options.threadId, recovery);
+          }
+        },
+      };
+      context = await backend.open(request);
+      signal.throwIfAborted();
       const dir = await mkdtemp(join(root, "session-"));
       const ffmpeg = this.options.ffmpeg ?? (await detectFfmpeg());
       session = new BrowserSession({
         threadId: options.threadId,
-        context,
-        page,
-        cdp,
+        backend: context,
+        backendKind: backend.kind,
         dir,
         now: this.now,
         id: this.id,
@@ -187,26 +242,28 @@ export class BrowserService {
         artifact: (artifact) => this.options.onArtifact?.(options.threadId, artifact),
         state: (state) => this.emit(state),
         cleanup: async () => {
-          guard.close();
           await release();
         },
-      });
-      const owned = session;
-      context.once("close", () => {
-        void owned.close().catch((error: unknown) => this.options.onError?.(error));
-      });
-      page.once("close", () => {
-        void owned.close().catch((error: unknown) => this.options.onError?.(error));
       });
       await session.live.start();
       this.sessions.set(options.threadId, session);
       this.emit(session.state);
       return session;
     } catch (error) {
+      await session?.close().catch(() => {});
       await context?.close().catch(() => {});
       await release();
       throw error;
     }
+  }
+  registerEmbedded(transport: EmbeddedTransport): EmbeddedBackend {
+    if (this.closing) throw new Error("Browser service shutting down");
+    if (this.embedded) throw new Error("Desktop browser backend already registered");
+    const backend = new EmbeddedBackend(this.id(), transport, () => {
+      if (this.embedded === backend) this.embedded = undefined;
+    });
+    this.embedded = backend;
+    return backend;
   }
   private get(threadId: string): BrowserSession {
     const session = this.sessions.get(threadId);
@@ -236,6 +293,7 @@ export class BrowserService {
     connectionId: string,
     sink: FrameSink,
     onState: (state: BrowserState) => void,
+    onBackendEvent?: (event: BrowserBackendLost) => void,
   ): () => void {
     const session = this.get(threadId);
     let listeners = this.listeners.get(threadId);
@@ -246,8 +304,16 @@ export class BrowserService {
     if (listeners.size >= 64) throw new Error("Browser subscriber limit");
     const stop = session.live.fanout.subscribe(connectionId, sink);
     listeners.add(onState);
+    let events = this.backendEvents.get(threadId);
+    if (!events) {
+      events = new Set();
+      this.backendEvents.set(threadId, events);
+    }
+    if (onBackendEvent) events.add(onBackendEvent);
     const unsubscribe = () => {
       stop();
+      if (onBackendEvent) events.delete(onBackendEvent);
+      if (!events.size) this.backendEvents.delete(threadId);
       listeners.delete(onState);
       if (!listeners.size && this.listeners.get(threadId) === listeners)
         this.listeners.delete(threadId);
@@ -283,6 +349,7 @@ export class BrowserService {
     if (state.closed) {
       this.listeners.get(state.threadId)?.clear();
       this.listeners.delete(state.threadId);
+      this.backendEvents.delete(state.threadId);
     }
   }
   startRecording(threadId: string): Promise<void> {
@@ -293,6 +360,7 @@ export class BrowserService {
   }
   async closeThread(threadId: string): Promise<void> {
     this.policyScopes.get(threadId)?.abort();
+    await this.recoveries.get(threadId);
     const session = this.sessions.get(threadId) ?? (await this.opening.get(threadId));
     if (session) {
       await session.close();
@@ -302,13 +370,18 @@ export class BrowserService {
   close(): Promise<void> {
     this.closing ??= (async () => {
       this.lifetime.abort();
+      this.embedded?.disconnect("Browser service shutting down");
+      await Promise.allSettled(this.recoveries.values());
       await Promise.allSettled(this.opening.values());
+      if (this.acquiring) await Promise.allSettled([this.acquiring]);
       const results = await Promise.allSettled(
         [...this.sessions.values()].map((session) => session.close()),
       );
       this.sessions.clear();
       this.policyScopes.clear();
       this.listeners.clear();
+      this.backendEvents.clear();
+      this.downloadListeners.clear();
       const failed = results.find((result) => result.status === "rejected");
       if (failed?.status === "rejected") throw failed.reason;
     })();
