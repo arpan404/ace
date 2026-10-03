@@ -8,6 +8,21 @@ export type RedactionContext = {
 
 const SECRET_KEY =
   /token|secret|password|api[_-]?key|authorization|cookie|credential|ticket|pairing[_-]?code/i;
+const TOKEN_COUNTERS = new Set([
+  "inputTokens",
+  "outputTokens",
+  "cacheReadTokens",
+  "cacheWriteTokens",
+  "reasoningTokens",
+]);
+function accountingCounter(key: string, value: unknown): boolean {
+  return (
+    TOKEN_COUNTERS.has(key) &&
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    value >= 0
+  );
+}
 export function isSecretKey(key: string): boolean {
   return SECRET_KEY.test(key);
 }
@@ -113,11 +128,12 @@ export function createRedactor(ctx: RedactionContext): (line: string) => string 
             enumerable: true,
             configurable: true,
             writable: true,
-            value: isSecretKey(key)
-              ? "<SECRET>"
-              : identity.test(key)
-                ? "<ID>"
-                : clean(item, depth + 1),
+            value:
+              isSecretKey(key) && !accountingCounter(key, item)
+                ? "<SECRET>"
+                : identity.test(key)
+                  ? "<ID>"
+                  : clean(item, depth + 1),
           });
         }
         return result;
