@@ -7,15 +7,8 @@ import { join, resolve } from "node:path";
 import { createPublicKey } from "node:crypto";
 import { z } from "zod";
 import { ReleaseTarget, ReleaseVersion } from "@ace/protocol";
-import { hashFile, downloadArchive } from "@ace/service";
-import { extract } from "tar";
-const nodeVersion = "24.13.0";
-const hashes = {
-  "darwin-arm64": "d595961e563fcae057d4a0fb992f175a54d97fcc4a14dc2d474d92ddeea3b9f8",
-  "darwin-x64": "6f03c1b48ddbe1b129a6f8038be08e0899f05f17185b4d3e4350180ab669a7f3",
-  "linux-arm64": "0f6d40b94c6a2eb6b4c240ffc8b9fd3ada7ab044c177dd413c06e1ef9a63f081",
-  "linux-x64": "6223aad1a81f9d1e7b682c59d12e2de233f7b4c37475cd40d1c89c42b737ffa8",
-};
+import { hashFile } from "@ace/service";
+import { nodeVersion, stageNodeRuntime } from "./node-runtime.ts";
 const NativeInputs = z.record(ReleaseTarget, LinuxNativeInput.optional());
 async function files(root: string, prefix = ""): Promise<string[]> {
   const result: string[] = [];
@@ -43,33 +36,7 @@ async function main() {
   await mkdir(output, { recursive: true });
   await rm(root, { recursive: true, force: true });
   await mkdir(join(root, "bin"), { recursive: true });
-  const nodeArchive = `node-v${nodeVersion}-${target}.tar.gz`;
-  const archivePath = join(output, nodeArchive);
-  // Known hashes are pinned from the official Node release SHASUMS256.txt.
-  try {
-    if ((await hashFile(archivePath)) !== hashes[target])
-      throw new Error("Untrusted cached Node runtime");
-  } catch {
-    await rm(archivePath, { force: true });
-    const response = await fetch(`https://nodejs.org/dist/v${nodeVersion}/${nodeArchive}`, {
-      signal: AbortSignal.timeout(120_000),
-    });
-    const bytes = Number(response.headers.get("content-length"));
-    await downloadArchive(response, archivePath, {
-      version,
-      target,
-      channel: "stable",
-      archive: "ace-node.tar.gz",
-      bytes,
-      sha256: hashes[target],
-    });
-  }
-  await extract({
-    file: archivePath,
-    cwd: root,
-    strip: 1,
-    filter: (path) => path.endsWith("/bin/node") || path.endsWith("/LICENSE"),
-  });
+  await stageNodeRuntime({ target, version, cacheDir: output, destination: root });
   const native = process.argv[5]
     ? NativeInputs.parse(JSON.parse(await readFile(process.argv[5], "utf8")))[target]
     : undefined;
