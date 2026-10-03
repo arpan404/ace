@@ -27,7 +27,7 @@ export function developerInstructions(provider: ProviderKind): string {
     antigravity: "Use the ace MCP server for ace operations.",
     acp: "Use the ace MCP server for ace operations.",
   };
-  return `${prefix[provider]} Inspect the thread and agent tree for live status. Spawn returns acceptance, not completion. Notify the user when their input is needed. Browser and preview tools appear only when authorized.`;
+  return `${prefix[provider]} Inspect the thread and agent tree for live status. Spawn returns acceptance, not completion. Notify the user when their input is needed. Browser, screen and device tools appear only when authorized. Inspect semantic trees before using coordinate input.`;
 }
 export function codexInjection(input: AceMcpConnection) {
   const { url, bearer } = connection.parse(input);
@@ -86,4 +86,9 @@ export function acpInjection(
     ],
     developerInstructions: developerInstructions(provider),
   };
+}
+
+/** Scrub before building a persisted provider payload, including echoed stderr. */
+export function redactMcpCredential(encoded: string, input?: AceMcpConnection): string {
+  return input ? encoded.replaceAll(input.bearer, "<ACE_MCP_CREDENTIAL>") : encoded;
 }

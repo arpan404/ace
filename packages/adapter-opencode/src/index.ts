@@ -1,3 +1,4 @@
+import { openCodeInjection } from "@ace/mcp-server";
 import type { Key } from "@ace/core";
 import type { ThreadId } from "@ace/protocol";
 import type { SessionContext, ProviderAdapter } from "@ace/engine-api";
@@ -19,10 +20,14 @@ export function createOpenCodeAdapter(
     capabilities,
     createTranslator: (init: { threadId: ThreadId; rootKey: Key }) => new OpenCodeTranslator(init),
     async openSession(ctx: SessionContext) {
-      if (!ctx.env) return OpenCodeSession.open(ctx, server);
+      if (!ctx.env && !ctx.aceMcp) return OpenCodeSession.open(ctx, server);
+      const injection = ctx.aceMcp ? openCodeInjection(ctx.aceMcp) : undefined;
       const isolated = new OpenCodeServer({
         ...options,
-        discovery: { ...options.discovery, env: ctx.env },
+        discovery: {
+          ...options.discovery,
+          env: { ...options.discovery?.env, ...ctx.env, ...injection?.env },
+        },
       });
       const onAbort = () => {
         void isolated.close();

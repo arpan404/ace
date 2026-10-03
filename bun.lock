@@ -28,6 +28,7 @@
         "@ace/commands": "workspace:*",
         "@ace/context": "workspace:*",
         "@ace/core": "workspace:*",
+        "@ace/devices": "workspace:*",
         "@ace/diagnostics": "workspace:*",
         "@ace/engine-api": "workspace:*",
         "@ace/files": "workspace:*",
@@ -85,6 +86,7 @@
       "dependencies": {
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "zod": "^4.4.3",
@@ -98,6 +100,7 @@
       "dependencies": {
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "@anthropic-ai/claude-agent-sdk": "0.3.287",
@@ -112,6 +115,7 @@
       "dependencies": {
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "zod": "^4.3.6",
@@ -125,6 +129,7 @@
       "dependencies": {
         "@ace/core": "workspace:*",
         "@ace/engine-api": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
         "zod": "^4.4.3",
@@ -155,6 +160,7 @@
     "packages/browser": {
       "name": "@ace/browser",
       "dependencies": {
+        "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "playwright-core": "^1.61.1",
         "zod": "^4.6.5",
@@ -219,6 +225,7 @@
       "name": "@ace/engine-api",
       "dependencies": {
         "@ace/core": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
         "@ace/protocol": "workspace:*",
         "@ace/provider-kit": "workspace:*",
       },
@@ -472,6 +479,17 @@
         "node-gyp": "11.5.0",
       },
     },
+    "packages/devices": {
+      "name": "@ace/devices",
+      "dependencies": {
+        "@ace/browser": "workspace:*",
+        "@ace/mcp-server": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "@ace/screen": "workspace:*",
+        "zod": "^4.6.5",
+      },
+    },
   },
   "trustedDependencies": [
     "node-pty",
@@ -504,6 +522,8 @@
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
+
+    "@ace/devices": ["@ace/devices@workspace:packages/devices"],
 
     "@ace/diagnostics": ["@ace/diagnostics@workspace:packages/diagnostics"],
 

@@ -150,6 +150,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       ...(server.preview ? { preview: server.preview } : {}),
       preparePlugins: services.preparePlugins,
       launchPlugins: services.launchPlugins,
+      devices: services.devices,
       browser: services.browser,
       context: services.context,
       settings: services.settings,

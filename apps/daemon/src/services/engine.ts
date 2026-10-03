@@ -1,3 +1,4 @@
+import { bindMcpSession } from "./mcp-session.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
@@ -15,20 +16,40 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   if (!engineOptions.registry) resources.own(() => registry.close());
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
-  if (accounts && accountRegistry)
-    registry.bindSessions((adapter) => {
-      if (!AccountProvider.safeParse(adapter.provider).success) return adapter;
-      const bound = accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
-      return {
-        ...adapter,
-        openSession(session) {
-          return session.instanceId ||
-            accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
-            ? bound.openSession(session)
-            : adapter.openSession(session);
-        },
-      };
-    });
+  registry.bindSessions((adapter) => {
+    const bound =
+      accounts && accountRegistry && AccountProvider.safeParse(adapter.provider).success
+        ? accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter })
+        : adapter;
+    return {
+      ...adapter,
+      openSession(session) {
+        const selected =
+          session.instanceId ||
+          accountRegistry?.list().some(({ instance }) => instance.provider === adapter.provider)
+            ? bound
+            : adapter;
+        return services.mcp
+          ? bindMcpSession(selected, session, {
+              mcp: services.mcp,
+              store,
+              id: context.id,
+              onEnd: (threadId, agentId) => {
+                services.devices?.disconnect(JSON.stringify([threadId, agentId]));
+                services.screen?.releaseController(JSON.stringify([threadId, agentId]));
+              },
+              capabilities: [
+                "notify",
+                "agents",
+                "browser",
+                ...(services.devices ? ["devices" as const] : []),
+                ...(services.screen ? ["screen" as const] : []),
+              ],
+            })
+          : selected.openSession(session);
+      },
+    };
+  });
   const engine = new Engine(store, {
     ...engineOptions,
     registry,

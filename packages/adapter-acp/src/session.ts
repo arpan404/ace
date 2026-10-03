@@ -1,3 +1,4 @@
+import { acpInjection, redactMcpCredential } from "@ace/mcp-server";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { ShellSettlement } from "./shell-settlement.ts";
 import { cancellationGraceMs, promptStop } from "./settlement.ts";
@@ -155,7 +156,7 @@ class AcpSession implements ProviderSession {
     void this.close("shutdown");
   };
   frame(dir: "send" | "recv" | "stderr" | "note", channel: string, data: unknown): void {
-    const payload = new ProviderPayload(JSON.stringify(data));
+    const payload = new ProviderPayload(redactMcpCredential(JSON.stringify(data), this.ctx.aceMcp));
     this.ctx.onFrame({
       seq: this.sequence++,
       t: Math.round(this.now() - this.started),
@@ -187,6 +188,13 @@ class AcpSession implements ProviderSession {
       object(result["agentInfo"])["name"] !== "antigravity-acp"
     )
       throw new Error("Unexpected Antigravity ACP server identity");
+    if (
+      this.ctx.aceMcp &&
+      object(object(result["agentCapabilities"])["mcpCapabilities"])["http"] !== true
+    )
+      throw new Error(
+        "Provider does not support session-scoped HTTP MCP; update its installed CLI",
+      );
     this.rpc.notify("initialized");
     const resume = this.ctx.resume;
     const session = object(
@@ -194,7 +202,14 @@ class AcpSession implements ProviderSession {
         resume ? "session/load" : "session/new",
         {
           cwd: this.ctx.cwd,
-          mcpServers: [],
+          mcpServers: this.ctx.aceMcp
+            ? acpInjection(
+                this.ctx.aceMcp,
+                this.quirks.provider === "cursor" || this.quirks.provider === "antigravity"
+                  ? this.quirks.provider
+                  : "acp",
+              ).mcpServers
+            : [],
           ...(resume ? { sessionId: resume.nativeSessionId } : {}),
         },
         { signal: this.ctx.signal },

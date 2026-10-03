@@ -1,3 +1,4 @@
+import { startDevices } from "./devices.ts";
 import { startScreen } from "./screen.ts";
 import { startAccounts } from "./accounts.ts";
 import { startCommands } from "./commands.ts";
@@ -21,6 +22,7 @@ export const serviceFactories = [
   startAccounts,
   startCommands,
   startFiles,
+  startDevices,
   startRelayKeys,
   startPlugins,
   startBrowser,
@@ -77,6 +79,7 @@ export function readyServices(services: Partial<Services>): Services {
     notifications,
     review,
     usage,
+    ...(services.devices ? { devices: services.devices } : {}),
     ...(services.screen ? { screen: services.screen } : {}),
     ...(services.accounts ? { accounts: services.accounts } : {}),
     ...(services.commands ? { commands: services.commands } : {}),

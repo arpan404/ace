@@ -1,3 +1,4 @@
+import { redactMcpCredential, developerInstructions } from "@ace/mcp-server";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
@@ -171,7 +172,7 @@ export class OpenCodeSession implements ProviderSession {
     };
     this.translator.translate(clock, t);
     this.ctx.onFrame(clock);
-    const payload = new ProviderPayload(JSON.stringify(data));
+    const payload = new ProviderPayload(redactMcpCredential(JSON.stringify(data), this.ctx.aceMcp));
     const frame: Frame = { seq: this.sequence++, t, dir, channel, data: payload.data, payload };
     this.translator.translate(frame, t);
     this.ctx.onFrame(frame);
@@ -278,10 +279,8 @@ export class OpenCodeSession implements ProviderSession {
     if (!next) return;
     this.pumping = true;
     try {
-      await this.request(
-        "POST",
-        `/session/${this.nativeSessionId}/prompt_async`,
-        promptBody(
+      await this.request("POST", `/session/${this.nativeSessionId}/prompt_async`, {
+        ...promptBody(
           next.input,
           this.ctx.cwd,
           messageId(
@@ -291,7 +290,8 @@ export class OpenCodeSession implements ProviderSession {
           ),
           this.ctx.model,
         ),
-      );
+        ...(this.ctx.aceMcp ? { system: developerInstructions("opencode") } : {}),
+      });
       next.resolve();
     } catch (error) {
       next.reject(error instanceof Error ? error : new Error(String(error)));

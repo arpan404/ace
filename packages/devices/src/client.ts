@@ -195,7 +195,7 @@ export class DeviceClient {
             ),
           );
         },
-        operation.op === "record.stop" ? 180000 : operation.op === "boot" ? 150000 : 60000,
+        operation.op === "record.stop" ? 180000 : operation.op === "boot" ? 250000 : 60000,
       );
       this.pending.set(message.requestId, { resolve, reject, cancel, operation });
       try {

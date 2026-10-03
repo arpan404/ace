@@ -1,3 +1,4 @@
+import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { AccountService } from "@ace/accounts";
 import type { CommandService } from "@ace/commands";
@@ -29,6 +30,7 @@ import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
   screen?: ScreenManager;
+  devices?: DevicesService;
   accounts?: AccountService;
   commands?: CommandService;
   files?: FilesService;

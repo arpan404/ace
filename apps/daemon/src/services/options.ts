@@ -1,3 +1,4 @@
+import type { DevicesService } from "@ace/devices";
 import type { ScreenManager } from "@ace/screen";
 import type { DaemonCommandIntegration } from "./commands.ts";
 import type { Config } from "../config.ts";
@@ -14,6 +15,7 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 export type DaemonOptions = {
   screen?: ScreenManager;
+  devices?: DevicesService;
   commands?: DaemonCommandIntegration;
   config?: Config;
   handler?: CommandHandler | undefined;

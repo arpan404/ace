@@ -55,7 +55,13 @@ export function devicesToolkit(service: DevicesService): Toolkit {
           input,
           capability: "devices",
           timeoutMs:
-            name === "device_record_stop" ? 180000 : name === "device_install" ? 120000 : 30000,
+            name === "device_record_stop"
+              ? 180000
+              : name === "device_boot"
+                ? 250000
+                : name === "device_install"
+                  ? 120000
+                  : 30000,
           description: `Use the approved in-app device: ${name.slice(7).replaceAll("_", " ")}. UI tree and find return bounded semantic refs; actions require a human-delegated lease.`,
           async run(args, { caller, signal }) {
             const owner = agentOwner(caller.threadId, caller.agentId);

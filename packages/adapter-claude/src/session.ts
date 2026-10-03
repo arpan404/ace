@@ -1,3 +1,4 @@
+import { claudeInjection, redactMcpCredential } from "@ace/mcp-server";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { randomUUID } from "node:crypto";
 import type { Frame, ProviderSession, SessionContext } from "@ace/engine-api";
@@ -67,7 +68,7 @@ export async function openSession(
   let q: Query;
   const processId = randomUUID();
   const frame = (dir: Frame["dir"], channel: string, data: unknown) => {
-    const payload = new ProviderPayload(JSON.stringify(data));
+    const payload = new ProviderPayload(redactMcpCredential(JSON.stringify(data), ctx.aceMcp));
     ctx.onFrame({
       seq: sequence++,
       t: Math.round(performance.now() - started),
@@ -109,9 +110,20 @@ export async function openSession(
     process_id: processId,
     cwd: ctx.cwd,
   });
+  const injection = ctx.aceMcp ? claudeInjection(ctx.aceMcp) : undefined;
   q = query({
     prompt: input,
     options: {
+      ...(injection
+        ? {
+            mcpServers: injection.mcpServers,
+            systemPrompt: {
+              type: "preset",
+              preset: "claude_code",
+              append: injection.developerInstructions,
+            },
+          }
+        : {}),
       cwd: ctx.cwd,
       ...(ctx.model ? { model: ctx.model } : {}),
       ...(ctx.resume ? { resume: sessionId } : { sessionId }),
