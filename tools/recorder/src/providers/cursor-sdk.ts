@@ -1,7 +1,7 @@
 import { createWriteStream } from "node:fs";
 import { once } from "node:events";
 import { boundedJson, RpcWriter } from "@ace/provider-kit/ipc";
-import { createRedactor } from "@ace/redaction";
+import { createRedactor } from "../redact.ts";
 import type { Frame } from "@ace/engine-api";
 import { z } from "zod";
 import { CursorSdkApproval, CursorSdkScenario } from "../cursor-sdk-plan.ts";
