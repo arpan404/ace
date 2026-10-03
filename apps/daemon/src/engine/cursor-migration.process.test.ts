@@ -1,3 +1,5 @@
+import { Store } from "@ace/daemon";
+import { ThreadId } from "@ace/protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -74,6 +76,56 @@ it("preserves pre-SDK session identity during the additive metadata migration", 
     await registry.close();
   } finally {
     db.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+it("opens SDK-only and ACP-only metadata migrations without rewriting the surviving thread identity", async () => {
+  const home = await mkdtemp(join(tmpdir(), "cursor-acp-schema-"));
+  try {
+    for (const missing of ["acp", "provider_metadata"] as const) {
+      const path = join(home, `${missing}.sqlite`);
+      let store = new Store(path);
+      const workspaceId = store.createWorkspace(home, "Metadata workspace");
+      const threadId = ThreadId.parse(`thread-${missing}`);
+      const metadata =
+        missing === "acp"
+          ? { backend: "cursor-sdk" as const }
+          : { acpAgentId: "agent", installationId: "installation", instanceId: "instance" };
+      store.appendEvents(
+        threadId,
+        [
+          {
+            type: "thread.created",
+            thread: {
+              id: threadId,
+              workspaceId,
+              provider: missing === "acp" ? "cursor" : "acp",
+              title: "Preserved",
+              status: { state: "new" },
+              createdAt: 1,
+              updatedAt: 1,
+              ...metadata,
+            },
+          },
+        ],
+        1,
+      );
+      store.close();
+      const db = new DatabaseSync(path);
+      try {
+        db.exec(`ALTER TABLE threads DROP COLUMN ${missing}`);
+      } finally {
+        db.close();
+      }
+      store = new Store(path);
+      try {
+        expect(store.getThread(threadId)).toMatchObject({ title: "Preserved", ...metadata });
+      } finally {
+        store.close();
+      }
+    }
+  } finally {
     await rm(home, { recursive: true, force: true });
   }
 });

@@ -20,6 +20,9 @@
     },
     {
       "properties": {
+        "acpSupport": {
+          "$ref": "https://ace.local/protocol/v1/AcpSessionSupport.json"
+        },
         "archivedAt": {
           "anyOf": [
             {
@@ -29,6 +32,9 @@
               "type": "null"
             }
           ]
+        },
+        "effectiveCapabilities": {
+          "$ref": "https://ace.local/protocol/v1/Capabilities.json"
         },
         "status": {
           "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
@@ -142,6 +148,33 @@
       "required": [
         "type",
         "agentId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "agentId": {
+          "$ref": "https://ace.local/protocol/v1/AgentId.json"
+        },
+        "commandId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "nativeInputId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "input.admitted",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "agentId",
+        "nativeInputId"
       ],
       "type": "object"
     },

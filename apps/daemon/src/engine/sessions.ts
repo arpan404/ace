@@ -1,3 +1,5 @@
+import { AcpIdentity } from "@ace/protocol";
+import type { SessionContext } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { EngineRepository } from "./repository.ts";
@@ -18,6 +20,10 @@ interface SessionDependencies {
   wake(id: ThreadId): void;
   expireDelivery(actor: ThreadActor): void;
   released(id: ThreadId): void;
+  context?(
+    threadId: ThreadId,
+    signal: AbortSignal,
+  ): Promise<Partial<Pick<SessionContext, "env" | "mcp" | "onSessionMetadata" | "acpLaunch">>>;
 }
 export class Sessions {
   private dependencies: SessionDependencies;
@@ -37,14 +43,40 @@ export class Sessions {
         state.config.provider,
         backend,
       );
-      if (metadata.nativeSessionId && !capabilities.resume)
+      if (state.config.provider !== "acp" && metadata.nativeSessionId && !capabilities.resume)
         throw new Error("Provider cannot resume this thread");
       const rootKey = state.rootKey ?? "root";
-      actor.translator = adapter.createTranslator({ threadId: actor.id, rootKey });
+      const thread = this.dependencies.repo.store.getThread(actor.id);
+      const identity = thread?.provider === "acp" ? AcpIdentity.parse(thread) : undefined;
+      actor.translator = adapter.createTranslator({
+        threadId: actor.id,
+        rootKey,
+        ...(identity ? { acpIdentity: identity } : {}),
+      });
       if (backend === "cursor-sdk")
         this.dependencies.repo.recovery.restore(actor.id, actor.translator);
       actor.apply([{ type: "process.started" }]);
+      const context = await this.dependencies.context?.(actor.id, lifetime.signal);
       const session = await adapter.openSession({
+        ...context,
+        ...(identity ? { acpIdentity: identity } : {}),
+        onCapabilities: (effectiveCapabilities, acpSupport) => {
+          if (generation !== actor.generation) return;
+          actor.effectiveCapabilities = effectiveCapabilities;
+          actor.enqueue(() =>
+            this.dependencies.repo.store.appendEvents(
+              actor.id,
+              [
+                {
+                  type: "thread.updated",
+                  effectiveCapabilities,
+                  ...(acpSupport ? { acpSupport } : {}),
+                },
+              ],
+              this.dependencies.clock.now(),
+            ),
+          );
+        },
         threadId: actor.id,
         rootKey,
         cwd: metadata.cwd,
@@ -66,10 +98,10 @@ export class Sessions {
             }),
         ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
         signal: lifetime.signal,
-        onSessionIdentity: (identity) => {
+        onSessionIdentity: (selection) => {
           if (generation !== actor.generation || lifetime.signal.aborted)
             throw new Error("Provider identity arrived after host admission was fenced");
-          const parsed = SessionIdentity.parse(identity);
+          const parsed = SessionIdentity.parse(selection);
           if (parsed.backend !== backend) throw new Error("Provider changed its selected backend");
           this.dependencies.repo.pinSessionIdentity(actor.id, {
             backend: parsed.backend,
@@ -99,6 +131,7 @@ export class Sessions {
         throw new Error("Provider session closed while opening");
       }
       actor.session = session;
+      actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
       this.dependencies.repo.nativeSession(
         actor.id,
         session.nativeSessionId,

@@ -104,7 +104,7 @@ it("recovers a killed daemon's committed deltas once and resumes the pinned chec
             backend: "cursor-sdk",
             instanceId: "account-a",
             async send(input, _delivery, intent) {
-              operation = intent?.operationId ?? "missing-intent";
+              operation = intent ?? "missing-intent";
               await emit("send", { input });
               await emit("delta", { type: "text-delta", text: "before after" });
               await emit("result", { status: "finished" });
@@ -208,7 +208,7 @@ it("pins the selected account when create is accepted and honors an explicit acc
           type: "thread.create",
           workspaceId,
           provider: "cursor",
-          input: [],
+          input: [{ type: "text", text: "offline account selection" }],
           ...(instanceId ? { instanceId } : {}),
         },
       });

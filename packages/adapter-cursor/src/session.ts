@@ -151,7 +151,7 @@ export async function openCursorSession(
       nativeSessionId: reply.agentId,
       backend: "cursor-sdk",
       instanceId: options.instanceId,
-      async send(input: ContentPart[], delivery, intent) {
+      async send(input: ContentPart[], delivery, commandId) {
         if (closing || exited) throw new Error("SDK host is closed");
         if (uncertain)
           throw new Error(
@@ -163,27 +163,20 @@ export async function openCursorSession(
         control = true;
         try {
           if (delivery === "steer" && active) {
-            frame(
-              "send",
-              "cancel",
-              { replacement: true, commandId: intent?.operationId },
-              operation,
-              segment,
-            );
+            frame("send", "cancel", { replacement: true, commandId }, operation, segment);
             await host.request("cancel");
             segment++;
           } else {
             // A previous run may already have settled; cancel also awaits its drain.
             if (active) await host.request("cancel");
-            operation =
-              intent?.operationId ?? options.operationId?.() ?? `${host.generation}:${++seq}`;
+            operation = commandId ?? options.operationId?.() ?? `${host.generation}:${++seq}`;
             segment = 0;
           }
           active = true;
           try {
             await host.request("send", {
               operationId: operation,
-              commandId: intent?.operationId ?? operation,
+              commandId: commandId ?? operation,
               segment,
               input,
             });

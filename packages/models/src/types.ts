@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   ProviderKind,
+  AcpIdentity,
   type CatalogModel,
   type ModelFilter,
   type ModelInstanceStatus,
@@ -14,6 +15,9 @@ export const ModelInstance = z
   .object({
     id: z.string().min(1).max(256),
     provider: ProviderKind,
+    ...AcpIdentity.partial().shape,
+    profileRevision: z.string().max(256).optional(),
+    installationVersion: z.string().max(256).optional(),
     loginRevision: z.string().min(1).max(256),
     executable: z.string().max(4096).default(""),
     backend: z.enum(["acp", "cursor-sdk"]).optional(),

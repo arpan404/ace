@@ -4,6 +4,7 @@ import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import {
   AccountId,
+  AccountInstanceId,
   AccountEnvKey,
   ProviderInstance,
   AccountQuota,
@@ -37,6 +38,18 @@ function summarize(
     id: instance.id,
     provider: instance.provider,
     label: instance.label,
+    ...(instance.provider === "acp"
+      ? {
+          acpAgentId: instance.acpAgentId,
+          installationId: instance.installationId,
+          instanceId: instance.id,
+          homeStrategy: instance.homeStrategy,
+          isolation: "unsupported" as const,
+          profileRevision: instance.profileRevision,
+          installationVersion: instance.installationVersion,
+        }
+      : {}),
+    loginRevision: instance.loginRevision ?? "0",
     quota,
     availability: availability(quota, now),
   };
@@ -81,7 +94,7 @@ export class AccountRegistry {
     return { instance: ProviderInstance.parse(JSON.parse(parsed.instance)), quota };
   }
   get(id: string) {
-    const value = this.select.get(AccountId.parse(id));
+    const value = this.select.get(AccountInstanceId.parse(id));
     return value === undefined ? undefined : this.decode(value);
   }
   setCursorSdkAuth(id: string, input: unknown): void {
@@ -129,12 +142,16 @@ export class AccountRegistry {
           if (
             AccountEnvKey.options.some((key) => other.instance.env[key] !== instance.env[key]) ||
             other.instance.provider !== instance.provider ||
-            other.instance.homeDir !== instance.homeDir
+            other.instance.homeDir !== instance.homeDir ||
+            other.instance.acpAgentId !== instance.acpAgentId ||
+            other.instance.installationId !== instance.installationId ||
+            other.instance.instanceId !== instance.instanceId ||
+            other.instance.homeStrategy !== instance.homeStrategy
           )
-            throw new Error("An instance ID cannot change homes");
+            throw new Error("An instance identity cannot change homes or agents");
           continue;
         }
-        if (other.instance.provider !== instance.provider) continue;
+        if (other.instance.provider !== instance.provider || instance.provider === "acp") continue;
         if (
           [other.instance.homeDir, ...Object.values(other.instance.env)].some((p) =>
             roots.has(resolve(p)),
@@ -142,8 +159,15 @@ export class AccountRegistry {
         )
           throw new Error("Instance homes must be distinct");
       }
-      const current = this.get(instance.id)?.quota ?? initialQuota();
-      this.upsert.run(instance.id, JSON.stringify(instance), JSON.stringify(current));
+      const current = this.get(instance.id);
+      this.upsert.run(
+        instance.id,
+        JSON.stringify({
+          ...instance,
+          loginRevision: current?.instance.loginRevision ?? instance.loginRevision ?? "0",
+        }),
+        JSON.stringify(current?.quota ?? initialQuota()),
+      );
       this.db.exec("COMMIT");
     } catch (error) {
       this.db.exec("ROLLBACK");
@@ -158,6 +182,7 @@ export class AccountRegistry {
       normalized.push({ ...account, instance: await canonicalInstance(account.instance) });
     const roots = new Map<string, Set<string>>();
     for (const { instance } of normalized) {
+      if (instance.provider === "acp") continue;
       const used = roots.get(instance.provider) ?? new Set<string>();
       const selectors = new Set([instance.homeDir, ...Object.values(instance.env)]);
       for (const path of selectors)
@@ -182,6 +207,20 @@ export class AccountRegistry {
       throw error;
     }
   }
+  /** CLI-owned login completed; invalidate only this immutable account generation. */
+  loginChanged(id: string): void {
+    const account = this.get(id);
+    if (!account) throw new Error("Unknown instance");
+    const previous = account.instance.loginRevision ?? "0";
+    if (!/^\d{1,15}$/.test(previous)) throw new Error("Invalid login revision");
+    const revision = Number(previous) + 1;
+    if (revision > 999999999999999) throw new Error("Login revision capacity reached");
+    this.upsert.run(
+      id,
+      JSON.stringify({ ...account.instance, loginRevision: String(revision) }),
+      JSON.stringify(account.quota),
+    );
+  }
   ingest(id: string, fact: QuotaFact) {
     this.db.exec("BEGIN IMMEDIATE");
     try {
@@ -189,6 +228,7 @@ export class AccountRegistry {
       if (!account) throw new Error("Unknown instance");
       if (fact.provider !== account.instance.provider) throw new Error("Provider mismatch");
       const result = ingestQuota(account.quota, fact);
+      if (result.state.auth !== account.quota.auth) this.loginChanged(id);
       if (result.state !== account.quota)
         this.updateQuota.run(JSON.stringify(AccountQuota.parse(result.state)), id);
       this.db.exec("COMMIT");

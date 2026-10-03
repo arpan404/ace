@@ -114,6 +114,8 @@ live SDK evidence at merge; static review is not runtime proof.
 
 45. Admit a linked or oversized SDK credential store: cross-home source-preservation refusal.
 
+46. Resolve the shared migration number as only SDK or only ACP: cold-store identity assertions for both historical shapes.
+
 These are designed mutation cases, not evidence that executed mutations were killed.
 
 ## Performance — needs run at merge

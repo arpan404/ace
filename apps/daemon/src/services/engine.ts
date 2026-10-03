@@ -1,4 +1,5 @@
 import { cursorHosts } from "./cursor-hosts.ts";
+import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { defaultCursorInstance } from "@ace/adapter-cursor";
@@ -47,6 +48,20 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       daemonClaudeAdapter(context, cli),
     ));
   if (!engineOptions.registry) resources.own(() => registry.close());
+  const acp =
+    services.agentRegistry && services.models && services.mcp
+      ? acpEngineOptions({
+          registry,
+          agents: services.agentRegistry,
+          models: services.models,
+          mcp: services.mcp,
+          store,
+          options,
+          accounts: services.accounts,
+          accountRegistry: services.accountRegistry,
+          report: (error) => log.log("error", "ACP metadata failure", error),
+        })
+      : {};
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
   const defaultInstance = cursorOptions.instance ?? defaultCursorInstance(homedir());
@@ -89,6 +104,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       };
     });
   const engine = new Engine(store, {
+    ...acp,
     ...engineOptions,
     registry,
     selectInstance:
@@ -114,6 +130,8 @@ export function createEngineSession({ options, send }: SocketContext): SocketSer
         "thread.send",
         "thread.interrupt",
         "thread.archive",
+        "thread.model.set",
+        "thread.mode.set",
         "interaction.resolve",
         "background_task.stop",
       ],

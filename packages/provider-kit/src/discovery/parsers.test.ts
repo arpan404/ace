@@ -93,3 +93,29 @@ describe("CLI auth parsing", () => {
     expect(parseVersion("codex", "\u001b[32mcodex-cli 0.159.1\u001b[0m")).toBe("0.159.1");
   });
 });
+
+it("OpenCode v2 version prefixes and connection counts remain non-secret evidence", () => {
+  expect(parseVersion("opencode", "opencode v2.0.22\n")).toBe("2.0.22");
+  expect(
+    parseOpenCodeAuth(
+      JSON.stringify([
+        {
+          id: "opencode-go",
+          name: "private@example.test",
+          connections: [
+            { type: "credential", label: "secret label", key: "never-store" },
+            { type: "env", name: "private environment", token: "never-store" },
+          ],
+        },
+      ]),
+    ),
+  ).toEqual({
+    auth: "unknown",
+    authEvidence: "credentials_configured",
+    authDetail: "2 configured connections; entitlement unverified",
+  });
+  expect(parseOpenCodeAuth("[]")).toEqual({ auth: "logged_out" });
+  expect(
+    parseOpenCodeAuth('[{"id":"future","connections":[{"type":"unknown","token":"never-store"}]}]'),
+  ).toEqual({ auth: "unknown" });
+});

@@ -1,3 +1,4 @@
+import { createAgentRegistrySession } from "./agent-registry.ts";
 import { createScreenSession } from "./screen.ts";
 import { Simulators } from "@ace/screen";
 import { createSearchSession } from "./search.ts";
@@ -35,6 +36,7 @@ export const socketServiceFactories = [
   createUsageSession,
   createMcpSession,
   createModelsSession,
+  createAgentRegistrySession,
   createReviewSession,
   createEngineSession,
   createDiagnosticsSession,

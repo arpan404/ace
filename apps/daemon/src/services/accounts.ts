@@ -14,6 +14,8 @@ export async function startAccounts({ config, resources, services, now, options 
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     env: process.env,
     cursorEnv: options.engine?.cursor?.env ?? process.env,
+    resolveAcpLogin: (identity, env) =>
+      services.agentRegistry?.resolveLogin(identity, env) ?? Promise.resolve(undefined),
   });
 }
 export function createAccountsSession(context: SocketContext): SocketService {

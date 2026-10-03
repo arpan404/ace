@@ -2,8 +2,8 @@ import { fileURLToPath } from "node:url";
 import { afterEach } from "vitest";
 import { ThreadId } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
-import { createOpenCodeAdapter, type ServerOptions } from "../index.ts";
-import { harness } from "../replay.ts";
+import { createOpenCodeAdapter, type ServerOptions } from "./v1/index.ts";
+import { harness } from "./v1/replay.ts";
 const cli = fileURLToPath(new URL("./cli.mjs", import.meta.url));
 const owners: ReturnType<typeof createOpenCodeAdapter>[] = [];
 function options() {

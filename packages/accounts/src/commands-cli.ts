@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { ProviderPayload } from "@ace/provider-kit/payload";
-import { AccountProvider } from "@ace/protocol/accounts";
+import { NativeAccountProvider } from "@ace/protocol/accounts";
 import { openRegistry } from "./registry.ts";
 import { createInstance, discoverHomes, loginStatus } from "./instances.ts";
 import { addAccount } from "./login.ts";
@@ -22,7 +22,7 @@ export async function runAccountsCommand(args: readonly string[]) {
   try {
     if (command === "add") {
       const parsed = z
-        .tuple([AccountProvider, z.string(), z.string(), z.string()])
+        .tuple([NativeAccountProvider, z.string(), z.string(), z.string()])
         .parse(rest.slice(0, 4));
       if (rest.length > 5 || (rest[4] !== undefined && rest[4] !== "--console"))
         throw new Error("Unknown login option");

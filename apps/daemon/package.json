@@ -28,6 +28,7 @@
     "@ace/adapter-codex": "workspace:*",
     "@ace/adapter-cursor": "workspace:*",
     "@ace/adapter-opencode": "workspace:*",
+    "@ace/agent-registry": "workspace:*",
     "@ace/browser": "workspace:*",
     "@ace/commands": "workspace:*",
     "@ace/context": "workspace:*",

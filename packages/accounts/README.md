@@ -59,3 +59,11 @@ pending login before deleting the SDK store. `selectedCursorSdk`/`selectCursorSd
 store only the default account identity. New SDK threads pin it at command
 acceptance; resume retains the original instance. The remote client opens the
 SDK-provided URL. See the [typed browser auth protocol](../../docs/integration/cursor-sdk-auth.md).
+
+## ACP registry instances
+
+`createAcpInstance` registers a CLI-owned default with explicit `acpAgentId`, `installationId` and `instanceId`. Default instances may share the current user home without claiming isolation. Unknown home/keychain strategies and ACP migration return unsupported; `createInstance` continues to construct native instances. Stored defaults cannot change agent or installation identity under the same ID.
+
+`AccountService.acpEnvironment` returns the selected local environment and login revision. A successful CLI login revises only that account generation; ACP advertised auth methods do not establish login status. `AccountService.loginAcp` is a local terminal API backed by the approved registry's reviewed login resolver. It inherits terminal streams without recording credential input/output and has no remote wire route. Unknown profile commands are unsupported. Session wrappers preserve immutable launch plans, negotiated support and model/mode selectors even when they replace lifetime signals.
+
+ACP behavior suites and `bench/acp.ts` are written but not executed. They need run at merge under the owner's verification policy.

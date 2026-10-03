@@ -25,7 +25,7 @@ export function availability(
   return near ? "near_limit" : "available";
 }
 export type QuotaFact = {
-  provider: "codex" | "claude" | "opencode" | "cursor";
+  provider: "codex" | "claude" | "opencode" | "cursor" | "acp";
   /** ProviderPayload from encoded bytes. Uncertified input is blocked without traversal. */
   payload: unknown;
   observedAt: number;
@@ -37,6 +37,7 @@ export function ingestQuota(
   fact: QuotaFact,
 ): { state: AccountQuota; raw: unknown } {
   const payload = ProviderPayloadSchema.safeParse(fact.payload).data;
+  if (fact.provider === "acp") return { state, raw: payload?.data };
   // Never enumerate an object whose encoded byte budget was not verified at admission.
   if (!payload)
     return {

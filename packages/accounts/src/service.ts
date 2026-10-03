@@ -7,6 +7,8 @@ import {
 import type { ProviderAdapter, ProviderSession, SessionContext } from "@ace/engine-api";
 import type { AccountRegistry } from "./registry.ts";
 import { object } from "./quota-decode.ts";
+import { loginAcpAccount, type AcpLoginResolver } from "./acp-login.ts";
+import { AcpIdentity } from "@ace/protocol";
 import { instanceEnv } from "./instances.ts";
 import { pickInstance } from "./scheduler.ts";
 import { migrateSession, type MigrationSafety } from "./migration.ts";
@@ -42,6 +44,7 @@ export class AccountService {
   private safety: MigrationSafety;
   private env: NodeJS.ProcessEnv;
   private cursorEnv: NodeJS.ProcessEnv;
+  private resolveAcpLogin: AcpLoginResolver | undefined;
   private writers = new Map<string, number>();
   private migrating = new Set<string>();
   constructor(options: {
@@ -51,13 +54,45 @@ export class AccountService {
     env: NodeJS.ProcessEnv;
     cursorEnv?: NodeJS.ProcessEnv;
     safety?: MigrationSafety;
+    resolveAcpLogin?: AcpLoginResolver;
   }) {
     this.registry = options.registry;
     this.now = options.now;
     this.timeZone = options.timeZone;
     this.env = options.env;
     this.cursorEnv = options.cursorEnv ?? options.env;
+    this.resolveAcpLogin = options.resolveAcpLogin;
     this.safety = options.safety ?? { acquire: async () => undefined };
+  }
+  /** Local interactive terminal API, deliberately absent from remote accounts messages. */
+  async loginAcp(instanceId: string, signal?: AbortSignal) {
+    const instance = this.registry.get(instanceId)?.instance;
+    if (!instance || instance.provider !== "acp") throw new Error("Unknown ACP instance");
+    if (this.writers.has(instanceId) || this.migrating.has(instanceId))
+      throw new Error("Instance is busy");
+    this.migrating.add(instanceId);
+    try {
+      return await loginAcpAccount(this.registry, instance, {
+        env: this.env,
+        resolve: this.resolveAcpLogin ?? (async () => undefined),
+        ...(signal ? { signal } : {}),
+      });
+    } finally {
+      this.migrating.delete(instanceId);
+    }
+  }
+  /** Daemon-local environment and login generation, resolved by immutable identity. */
+  acpEnvironment(input: AcpIdentity): { env: NodeJS.ProcessEnv; loginRevision: string } {
+    const identity = AcpIdentity.parse(input);
+    const chosen = this.registry.get(identity.instanceId)?.instance;
+    if (
+      !chosen ||
+      chosen.provider !== "acp" ||
+      chosen.acpAgentId !== identity.acpAgentId ||
+      chosen.installationId !== identity.installationId
+    )
+      throw new Error("No matching ACP account identity");
+    return { env: instanceEnv(chosen, this.env), loginRevision: chosen.loginRevision ?? "0" };
   }
   preferredCursorInstance(): string | undefined {
     return (
@@ -73,7 +108,9 @@ export class AccountService {
   bindAdapter(
     factory: AccountAdapterFactory,
     assignmentFor: (context: SessionContext) => AccountAssignment = (context) => ({
-      ...(context.instanceId === undefined ? {} : { instanceId: context.instanceId }),
+      ...(context.instanceId === undefined && !context.acpIdentity
+        ? {}
+        : { instanceId: context.instanceId ?? context.acpIdentity?.instanceId }),
       role: "worker",
       estimatedLoad: 1,
     }),
@@ -159,6 +196,16 @@ export class AccountService {
           this.registry.list().filter((a) => !this.migrating.has(a.instance.id)),
           this.now(),
         );
+    if (provider === "acp") {
+      const identity = AcpIdentity.parse(context.acpIdentity);
+      if (
+        !chosen ||
+        chosen.acpAgentId !== identity.acpAgentId ||
+        chosen.installationId !== identity.installationId ||
+        chosen.id !== identity.instanceId
+      )
+        throw new Error("No matching ACP account identity");
+    }
     if (!chosen || chosen.provider !== adapter.provider)
       throw new Error("No matching provider instance");
     if (this.migrating.has(chosen.id)) throw new Error("Instance is migrating");
@@ -247,6 +294,26 @@ export class AccountService {
         session: {
           instanceId: chosen.id,
           ...(session.backend ? { backend: session.backend } : {}),
+          get effectiveCapabilities() {
+            return session.effectiveCapabilities;
+          },
+          get acpSupport() {
+            return session.acpSupport;
+          },
+          ...(session.setModel
+            ? {
+                setModel: (model: string) =>
+                  session.setModel?.(model) ??
+                  Promise.reject(new Error("Model selection unavailable")),
+              }
+            : {}),
+          ...(session.setMode
+            ? {
+                setMode: (mode: string) =>
+                  session.setMode?.(mode) ??
+                  Promise.reject(new Error("Mode selection unavailable")),
+              }
+            : {}),
           ...(session.mcp ? { mcp: session.mcp } : {}),
           get nativeSessionId() {
             return session.nativeSessionId;

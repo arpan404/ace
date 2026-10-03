@@ -5,7 +5,7 @@ import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { probeOutput } from "../process.ts";
-import { discoverProviders, findExecutable } from "./index.ts";
+import { discoverProvider, discoverProviders, findExecutable } from "./index.ts";
 import { binary, cleanupDirectories, directory, fixture, nodeBinary } from "./testing/cli.ts";
 
 afterEach(cleanupDirectories);
@@ -15,6 +15,41 @@ const healthy = {
 };
 
 describe("provider discovery", () => {
+  it("OpenCode uses an injected standalone auth probe and cancellation reaches both probes", async () => {
+    const root = await directory();
+    const path = await binary(root, "opencode", healthy);
+    const result = await discoverProvider("opencode", {
+      overrides: { opencode: path },
+      probe: async (_path, args) => ({
+        code: 0,
+        stderr: "",
+        stdout:
+          args[0] === "--version"
+            ? "opencode v2.0.22"
+            : args.join(" ") === "auth list --standalone --format json"
+              ? "[]"
+              : "unknown",
+      }),
+    });
+    expect(result).toMatchObject({ installed: true, version: "2.0.22", auth: "logged_out" });
+    const entered = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    const cancelled = discoverProvider("opencode", {
+      overrides: { opencode: path },
+      signal: controller.signal,
+      probe: async (_path, args, options) =>
+        new Promise((_resolve, reject) => {
+          if (args[0] === "--version") entered.resolve();
+          const abort = () => reject(options?.signal?.reason);
+          options?.signal?.addEventListener("abort", abort, { once: true });
+          if (options?.signal?.aborted) abort();
+        }),
+    });
+    const rejected = expect(cancelled).rejects.toThrow("cancelled");
+    await entered.promise;
+    controller.abort(new Error("cancelled"));
+    await rejected;
+  });
   it("reports missing binaries independently without probing installed CLIs", async () => {
     const root = await directory();
     expect(await discoverProviders({ env: { PATH: root } })).toEqual({

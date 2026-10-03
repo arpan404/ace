@@ -18,6 +18,11 @@
     "@ace/provider-kit": "workspace:*",
     "zod": "^4.6.5"
   },
+  "devDependencies": {
+    "@ace/adapter-acp": "workspace:*",
+    "@ace/adapter-testkit": "workspace:*",
+    "@ace/agent-registry": "workspace:*"
+  },
   "engines": {
     "node": ">=24"
   }

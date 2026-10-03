@@ -56,7 +56,7 @@ registry.register(
         backend: "cursor-sdk",
         instanceId: "account-a",
         async send(input, _delivery, intent) {
-          operation = intent?.operationId ?? "first-command";
+          operation = intent ?? "first-command";
           await frame(context, "send", { input });
           await frame(context, "delta", { type: "text-delta", text: "before" });
           await frame(context, "delta", { type: "text-delta", text: " after" }, false);

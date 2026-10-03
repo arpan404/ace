@@ -1,7 +1,6 @@
+import { findExecutable } from "./executable.ts";
+export { findExecutable, isPackageRunner } from "./executable.ts";
 import { z } from "zod";
-import { constants } from "node:fs";
-import { access, stat } from "node:fs/promises";
-import { delimiter, isAbsolute, resolve } from "node:path";
 import { probeOutput } from "../process.ts";
 import {
   parseClaudeAuth,
@@ -21,14 +20,9 @@ export {
 export type { AuthStatus } from "./parsers.ts";
 
 const ProviderSchema = z.enum(["claude", "codex", "opencode", "cursor"]);
-export type Provider = z.infer<typeof ProviderSchema>;
-export type DiscoveryResult = AuthStatus & {
-  installed: boolean;
-  path?: string;
-  version?: string;
-  loginHint: string;
-  error?: string;
-};
+export type Provider = "claude" | "codex" | "opencode" | "cursor";
+export type { DiscoveryResult } from "./types.ts";
+import type { DiscoveryResult } from "./types.ts";
 export type DiscoveryOptions = {
   overrides?: Partial<Record<Provider, string>>;
   /** Explicit environment overrides, including PATH, for resolution and probes. */
@@ -52,7 +46,7 @@ const specs = {
   },
   opencode: {
     command: "opencode",
-    authArgs: ["auth", "list"],
+    authArgs: ["auth", "list", "--standalone", "--format", "json"],
     parse: parseOpenCodeAuth,
     loginHint: "opencode auth login",
   },
@@ -67,31 +61,6 @@ const specs = {
   { command: string; authArgs: string[]; parse: (text: string) => AuthStatus; loginHint: string }
 >;
 
-async function executable(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.X_OK);
-    return (await stat(path)).isFile();
-  } catch {
-    return false;
-  }
-}
-
-/** Resolve directly, without a shell or a platform-specific `which` subprocess. */
-export async function findExecutable(
-  command: string,
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<string | undefined> {
-  if (isAbsolute(command) || command.includes("/") || command.includes("\\")) {
-    const path = resolve(command);
-    return (await executable(path)) ? path : undefined;
-  }
-  const candidates = (env["PATH"] ?? "")
-    .split(delimiter)
-    .map((directory) => resolve(directory, command));
-  const found = await Promise.all(candidates.map(executable));
-  return candidates.find((_, index) => found[index]);
-}
-
 function probeError(label: string, error: unknown): string {
   // Exception messages and CLI stderr can contain credentials or identities.
   return error instanceof Error && error.message === "Probe timed out"
@@ -104,6 +73,7 @@ export async function discoverProvider(
   input: Provider,
   options: DiscoveryOptions = {},
 ): Promise<DiscoveryResult> {
+  options.signal?.throwIfAborted();
   const provider = ProviderSchema.parse(input);
   const env = { ...process.env, ...options.env };
   const spec = specs[provider];
@@ -113,14 +83,20 @@ export async function discoverProvider(
     loginHint: spec.loginHint,
   };
   const path = await findExecutable(options.overrides?.[provider] ?? spec.command, env);
+  options.signal?.throwIfAborted();
   if (!path) return result;
   result.installed = true;
   result.path = path;
-  const probeOptions = { env, timeoutMs: options.timeoutMs ?? 10_000 };
+  const probeOptions = {
+    env,
+    timeoutMs: options.timeoutMs ?? 10_000,
+    ...(options.signal ? { signal: options.signal } : {}),
+  };
   const [version, auth] = await Promise.allSettled([
-    probeOutput(path, ["--version"], probeOptions),
-    probeOutput(path, spec.authArgs, probeOptions),
+    (options.probe ?? probeOutput)(path, ["--version"], probeOptions),
+    (options.probe ?? probeOutput)(path, spec.authArgs, probeOptions),
   ]);
+  options.signal?.throwIfAborted();
   const errors: string[] = [];
   if (version.status === "fulfilled" && version.value.code === 0) {
     const parsed = parseVersion(provider, version.value.stdout);
@@ -187,3 +163,8 @@ export async function discoverAntigravity(
     "Login status requires interactive verification; no safe status command is documented";
   return result;
 }
+export {
+  discoverDescriptor,
+  type DiscoveryDescriptor,
+  type DescriptorOptions,
+} from "./descriptor.ts";

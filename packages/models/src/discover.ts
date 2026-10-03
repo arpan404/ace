@@ -8,7 +8,8 @@ import {
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 import { z } from "zod";
 import { cursorSessionOptions, isMissingMethod } from "./cursor.ts";
-import { OpenCodeParser } from "./open-code.ts";
+import { discoverOpenCodeModels } from "@ace/adapter-opencode";
+import { normalizeOpenCodeV2 } from "./open-code.ts";
 import { CodexPage } from "./native-schemas.ts";
 import { normalizeAcp, normalizeClaude, normalizeCodex, normalizeCursorSdk } from "./normalize.ts";
 import type { DiscoverModels, ModelInstance } from "./types.ts";
@@ -20,6 +21,7 @@ export type DiscoveryOptions = {
   /** Selected launch environment stays local to supervised SDK workers, never catalog rows. */
   cursorEnv?: NodeJS.ProcessEnv;
   cursorEnvironment?(instance: ModelInstance): NodeJS.ProcessEnv;
+  opencode?: (instance: ModelInstance, signal: AbortSignal) => Promise<unknown>;
 };
 export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverModels {
   const spawn = options.spawn ?? spawnSupervised;
@@ -45,6 +47,8 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         instance,
       );
     }
+    // Unprofiled session/new is executable startup behavior, not a metadata query.
+    if (instance.provider === "acp") return [];
     if (instance.provider === "claude")
       return normalizeClaude(
         await discoverClaudeModels({
@@ -57,18 +61,37 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         }),
         instance,
       );
+    if (instance.provider === "opencode") {
+      const payload = await (
+        options.opencode ??
+        ((entry, abort) =>
+          discoverOpenCodeModels(
+            {
+              discovery: { overrides: { opencode: entry.executable }, env: entry.env },
+              runtime: {
+                spawn: (launch) =>
+                  spawn({
+                    ...launch,
+                    args: [...entry.args, ...(launch.args ?? [])],
+                    cwd: entry.cwd,
+                  }),
+              },
+            },
+            entry.cwd,
+            abort,
+          ))
+      )(instance, signal);
+      signal.throwIfAborted();
+      return normalizeOpenCodeV2(payload, instance);
+    }
     const args = [...instance.args];
     switch (instance.provider) {
       case "codex":
         args.push("app-server");
         break;
-      case "opencode":
-        args.push("models", "--verbose");
-        break;
       case "cursor":
         args.push("acp");
         break;
-      case "acp":
       case "antigravity":
         break;
     }
@@ -86,29 +109,6 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
     signal.addEventListener("abort", abort, { once: true });
     let rpc: JsonRpcPeer | undefined;
     async function readModels(): Promise<CatalogModel[]> {
-      if (instance.provider === "opencode") {
-        const parser = new OpenCodeParser(instance);
-        let failure: unknown;
-        const receive = (line: string) => {
-          try {
-            parser.push(line);
-          } catch (error) {
-            failure = error;
-            proc.stdout.removeListener("line", receive);
-            void proc.stop({ graceMs: 0 });
-          }
-        };
-        proc.stdout.on("line", receive);
-        try {
-          const exit = await proc.exited;
-          signal.throwIfAborted();
-          if (failure) throw failure;
-          if (exit.code !== 0) throw new Error("Model listing failed");
-          return parser.finish();
-        } finally {
-          proc.stdout.removeListener("line", receive);
-        }
-      }
       rpc = new JsonRpcPeer(proc, { timeoutMs: null });
       if (instance.provider === "codex") {
         await rpc.request(

@@ -1,3 +1,4 @@
+import type { LaunchPlan } from "@ace/agent-registry";
 import type { Fact, Key } from "@ace/core";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
 import type { ProviderPayload } from "@ace/provider-kit/payload";
@@ -12,6 +13,8 @@ export type SdkDiscovery = {
 };
 import type {
   Capabilities,
+  AcpIdentity,
+  AcpSessionSupport,
   ContentPart,
   InteractionResolution,
   ProviderKind,
@@ -38,7 +41,12 @@ export interface ProviderAdapter {
   readonly backend?: ProviderBackend;
   /** Probe the installed CLI through provider-kit and report this version's support. */
   capabilities(cli: DiscoveryResult): Capabilities;
-  createTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator;
+  acceptsIdentity?(identity: AcpIdentity): boolean;
+  createTranslator(init: {
+    threadId: ThreadId;
+    rootKey: Key;
+    acpIdentity?: AcpIdentity;
+  }): Translator;
   openSession(ctx: SessionContext): Promise<ProviderSession>;
   /** Idle provider history clone, bound to this adapter's private home. Never sends input. */
   forkSession?(input: { nativeSessionId: string; signal: AbortSignal }): Promise<string>;
@@ -78,6 +86,18 @@ export interface SessionContext {
     instanceId: string;
     nativeSessionId?: string;
   }): void;
+  acpIdentity?: AcpIdentity;
+  /** Immutable daemon-local plan; wrappers retain it when replacing lifetime signals. */
+  acpLaunch?: LaunchPlan;
+  mcp?: {
+    configuredServers?: readonly unknown[];
+    httpServers: readonly unknown[];
+    stdioServers?: readonly unknown[];
+    secrets: readonly string[];
+    end(): void;
+  };
+  onCapabilities?(capabilities: Capabilities, support?: AcpSessionSupport): void;
+  onSessionMetadata?(metadata: unknown): void;
   /** Every sent and received frame goes to the engine for translation and persistence. */
   onFrame(frame: Frame): void;
   onExit(exit: { deliberate: boolean; message?: string }): void;
@@ -97,11 +117,12 @@ export interface ProviderSession {
   readonly instanceId?: string;
   readonly nativeSessionId: string;
   readonly backend?: ProviderBackend;
-  send(
-    input: ContentPart[],
-    delivery: "steer" | "queue",
-    intent?: { operationId: string },
-  ): Promise<void>;
+  readonly effectiveCapabilities?: Capabilities | undefined;
+  readonly acpSupport?: AcpSessionSupport | undefined;
+  setModel?(model: string): Promise<void>;
+  setMode?(mode: string): Promise<void>;
+  /** Optional engine command correlation for providers with durable admission. */
+  send(input: ContentPart[], delivery: "steer" | "queue", commandId?: string): Promise<void>;
   interrupt(target: { agent?: Key; cascade: boolean }): Promise<void>;
   resolve(interaction: Key, resolution: InteractionResolution): Promise<void>;
   stopTask(task: Key): Promise<void>;

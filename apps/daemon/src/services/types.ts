@@ -35,6 +35,7 @@ export interface Services {
   files?: FilesService;
   relay?: { url: string; keys: KeyPair };
   handler: CommandHandler;
+  agentRegistry?: import("@ace/agent-registry").AgentRegistry;
   engine?: Engine;
   cursorHosts?: CursorHostSlots;
   cursorAccounts?: ReturnType<typeof bindCursorSdk>;

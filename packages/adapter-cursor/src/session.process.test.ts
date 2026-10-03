@@ -56,21 +56,15 @@ it("supervises a real host, keeps steering in one ace run and rejects child cont
         now: () => 1,
       },
     );
-    await session.send([{ type: "text", text: "first" }], "queue", {
-      operationId: "durable-command-1",
-    });
-    await session.send([{ type: "text", text: "replacement" }], "steer", {
-      operationId: "durable-command-2",
-    });
+    await session.send([{ type: "text", text: "first" }], "queue", "durable-command-1");
+    await session.send([{ type: "text", text: "replacement" }], "steer", "durable-command-2");
     expect(Object.values(state.runs)).toHaveLength(1);
     await expect(session.interrupt({ agent: "child", cascade: true })).rejects.toThrow("read-only");
     await expect(session.stopTask("task")).rejects.toThrow("unsupported");
     await expect(
       session.resolve("question", { kind: "question", answers: {}, dismissed: true }),
     ).rejects.toThrow("sandbox-only");
-    await session.send([{ type: "text", text: "uncertain" }], "steer", {
-      operationId: "durable-command-3",
-    });
+    await session.send([{ type: "text", text: "uncertain" }], "steer", "durable-command-3");
     await expect(
       session.send([{ type: "text", text: "must not dispatch" }], "queue"),
     ).rejects.toThrow("uncertain");

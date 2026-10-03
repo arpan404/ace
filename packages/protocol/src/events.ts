@@ -1,3 +1,4 @@
+import { AcpSessionSupport } from "./agent-registry.ts";
 import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
 import { UsageMetadata } from "./usage.ts";
@@ -16,7 +17,7 @@ import {
 } from "./ids.ts";
 import { Interaction, InteractionResolution, InteractionState } from "./interactions.ts";
 import { Item } from "./items.ts";
-import { NativeRef } from "./provider.ts";
+import { NativeRef, Capabilities } from "./provider.ts";
 import { Run, RunTrigger, Thread, ThreadStatus } from "./thread.ts";
 
 export const UsageUpdated = UsageMetadata.safeExtend({
@@ -37,6 +38,8 @@ export const EventPayload = z.discriminatedUnion("type", [
     backend: Thread.shape.backend,
     capabilities: Thread.shape.capabilities,
     title: z.string().optional(),
+    effectiveCapabilities: Capabilities.optional(),
+    acpSupport: AcpSessionSupport.optional(),
     status: ThreadStatus.optional(),
     archivedAt: Timestamp.nullable().optional(),
   }),
@@ -58,6 +61,13 @@ export const EventPayload = z.discriminatedUnion("type", [
     spawnedBy: ItemId.nullable().optional(),
     background: z.boolean().optional(),
     endedAt: Timestamp.optional(),
+  }),
+  /** Durable admission is distinct from execution and completion. */
+  z.object({
+    type: z.literal("input.admitted"),
+    agentId: AgentId,
+    nativeInputId: z.string().min(1).max(512),
+    commandId: z.string().min(1).max(512).optional(),
   }),
   z.object({ type: z.literal("run.started"), run: Run }),
   z.object({

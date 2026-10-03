@@ -43,6 +43,8 @@ export async function addAccount(
       },
     };
   }
+  if (instance.provider === "acp")
+    throw new Error("Use the reviewed ACP local-login API; account isolation is unsupported");
   const args = loginArgs(instance.provider, options.mode);
   options.signal?.throwIfAborted();
   await registry.register(instance);

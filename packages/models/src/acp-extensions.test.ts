@@ -230,10 +230,17 @@ test.each([
     deadline: clock.deadline,
   });
   try {
-    await catalog.refresh();
+    await catalog.updateFromSession(instance("acp"), payload);
     payload = { configOptions: [model, invalid] };
-    expect(await catalog.refresh()).toMatchObject([{ error: "discovery_failed" }]);
+    await expect(catalog.updateFromSession(instance("acp"), payload)).rejects.toThrow();
     expect(catalog.list().models.map((row) => row.id)).toEqual(["a", "b"]);
+    await catalog.updateFromSession(instance("acp"), {
+      configOptions: [{ ...model, currentValue: "b" }],
+    });
+    expect(catalog.list().models.map((row) => [row.id, row.isDefault])).toEqual([
+      ["a", false],
+      ["b", true],
+    ]);
   } finally {
     await catalog.close();
   }

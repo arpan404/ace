@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 
 const migrations = [
@@ -86,7 +87,7 @@ const migrations = [
    CREATE TABLE history_blobs(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,size INTEGER NOT NULL);
    CREATE TABLE history_blob_chunks(blob_id TEXT NOT NULL REFERENCES history_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));`,
   `CREATE TABLE usage_deletions (seq INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, at INTEGER NOT NULL);`,
-  `ALTER TABLE threads ADD COLUMN provider_metadata JSON;`,
+  `ALTER TABLE threads ADD COLUMN acp JSON;`,
 ];
 export function migrate(db: DatabaseSync): void {
   db.exec("BEGIN IMMEDIATE");
@@ -105,6 +106,17 @@ export function migrate(db: DatabaseSync): void {
         "INSERT INTO schema_version VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version",
       ).run(i + 1);
     }
+    // SDK and ACP branches independently appended the same numbered migration.
+    // Upgrade either historical shape by columns, without rewriting its metadata.
+    const columns = new Set(
+      db
+        .prepare("PRAGMA table_info(threads)")
+        .all()
+        .map((value) => z.object({ name: z.string() }).parse(value).name),
+    );
+    if (!columns.has("acp")) db.exec("ALTER TABLE threads ADD COLUMN acp JSON");
+    if (!columns.has("provider_metadata"))
+      db.exec("ALTER TABLE threads ADD COLUMN provider_metadata JSON");
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");

@@ -96,18 +96,22 @@ test("Claude discovery initializes only and keeps resolved aliases and supported
   expect(rows[0]?.raw.json).toContain("extraFutureCapability");
 });
 
-test("OpenCode verbose CLI metadata keeps provider/model IDs and image capability", async () => {
+test("OpenCode v2 metadata keeps provider/model IDs and image capability", async () => {
   const native = {
-    id: "some/model",
+    id: "local/some/model",
+    modelID: "some/model",
     providerID: "local",
     name: "Local model",
-    limit: { context: 131072 },
+    limit: { context: 131072, output: 8192 },
     capabilities: { input: { text: true, image: true, audio: false } },
-    variants: { high: { reasoningEffort: "high" } },
+    variants: [{ id: "high" }],
+    enabled: true,
     status: "deprecated",
   };
   const { config } = await launch("opencode", [native]);
-  const rows = await createModelDiscovery()(config, new AbortController().signal);
+  const rows = await createModelDiscovery({
+    opencode: async () => ({ location: { directory: config.cwd }, data: [native] }),
+  })(config, new AbortController().signal);
   expect(rows[0]).toMatchObject({
     id: "local/some/model",
     nativeProviderId: "local",
@@ -117,6 +121,43 @@ test("OpenCode verbose CLI metadata keeps provider/model IDs and image capabilit
     reasoningEfforts: ["high"],
     deprecated: true,
   });
+});
+
+test("shared discovery keeps OpenCode metadata without starting an unprofiled ACP agent", async () => {
+  const work = await workspace();
+  cleanups.push(work.close);
+  const executable = join(work.path, "not-authorized-to-start");
+  const discover = createModelDiscovery({
+    opencode: async (entry) => ({
+      location: { directory: entry.cwd },
+      data: [
+        {
+          id: "local/merged-model",
+          providerID: "local",
+          modelID: "merged-model",
+          name: "Merged model",
+          limit: { context: 131072, output: 8192 },
+          capabilities: { input: { text: true } },
+          variants: [{ id: "high" }],
+          enabled: true,
+          status: "active",
+        },
+      ],
+    }),
+  });
+  const signal = new AbortController().signal;
+  const openCode = await discover({ ...instance("opencode"), executable, cwd: work.path }, signal);
+  const acp = await discover({ ...instance("acp"), executable, cwd: work.path }, signal);
+  expect(openCode).toEqual([
+    expect.objectContaining({
+      id: "local/merged-model",
+      nativeProviderId: "local",
+      nativeModelId: "merged-model",
+      contextWindow: 131072,
+      reasoningEfforts: ["high"],
+    }),
+  ]);
+  expect(acp).toEqual([]);
 });
 
 test("recorded Cursor model options apply session parameters only to its current model", async () => {
@@ -135,7 +176,7 @@ test("recorded Cursor model options apply session parameters only to its current
   expect(rows.length).toBeGreaterThan(30);
 });
 
-for (const provider of ["acp", "antigravity"] as const) {
+for (const provider of ["antigravity"] as const) {
   test(`${provider} discovers legacy session model options without a prompt`, async () => {
     const { config } = await launch(provider, {
       models: {

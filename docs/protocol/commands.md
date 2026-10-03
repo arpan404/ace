@@ -506,6 +506,9 @@ Example:
 | type | yes | `"thread.create"` |  |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | model | no | string |  |
 | title | no | string |  |
 | input | yes | array | {"minItems":1,"items":{"$ref":"https://ace.local/protocol/v1/ContentPart.json"}} |
@@ -515,16 +518,14 @@ Example:
 
 ```json
 {
-  "context": {
-    "mentions": []
-  },
   "input": [
     {
-      "mimeType": "example",
-      "path": "example",
-      "type": "file"
+      "text": "example",
+      "type": "text"
     }
   ],
+  "installationId": "example",
+  "model": "example",
   "provider": "codex",
   "title": "example",
   "type": "thread.create",
@@ -549,9 +550,8 @@ Example:
   "delivery": "steer",
   "input": [
     {
-      "mimeType": "example",
-      "path": "example",
-      "type": "file"
+      "text": "example",
+      "type": "text"
     }
   ],
   "threadId": "example",
@@ -573,7 +573,6 @@ Example:
 ```json
 {
   "agentId": "example",
-  "cascade": false,
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -592,6 +591,42 @@ Example:
 {
   "threadId": "example",
   "type": "thread.archive"
+}
+```
+
+### thread.model.set
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.model.set"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| model | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "model": "example",
+  "threadId": "example",
+  "type": "thread.model.set"
+}
+```
+
+### thread.mode.set
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.mode.set"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| mode | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "mode": "example",
+  "threadId": "example",
+  "type": "thread.mode.set"
 }
 ```
 

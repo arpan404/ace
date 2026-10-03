@@ -115,6 +115,9 @@ export function updateThread(thread: Thread, event: Event): void {
     if (payload.capabilities !== undefined)
       thread.capabilities = structuredCopy(payload.capabilities);
     if (payload.title !== undefined) thread.title = payload.title;
+    if (payload.effectiveCapabilities !== undefined)
+      thread.effectiveCapabilities = structuredCopy(payload.effectiveCapabilities);
+    if (payload.acpSupport !== undefined) thread.acpSupport = structuredCopy(payload.acpSupport);
     if (payload.status !== undefined) thread.status = structuredCopy(payload.status);
     if (payload.archivedAt === null) delete thread.archivedAt;
     else if (payload.archivedAt !== undefined) thread.archivedAt = payload.archivedAt;
@@ -236,6 +239,9 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       }
       break;
     }
+    case "input.admitted":
+      // Queue ownership is reconciled by the host; admission creates no transcript/run.
+      break;
     case "usage.updated":
       if (p.usageScope === "provider_session" || p.usageScope === "model_session")
         put(view.usageSnapshots, usageSnapshotKey(p), structuredCopy(p));

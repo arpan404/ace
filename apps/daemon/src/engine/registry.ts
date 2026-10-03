@@ -1,6 +1,6 @@
 import type { ProviderAdapter, ProviderBackend } from "@ace/engine-api";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
-import type { Capabilities, ProviderKind } from "@ace/protocol";
+import type { Capabilities, ProviderKind, AcpIdentity } from "@ace/protocol";
 type Entry = {
   source: ProviderAdapter & { close?(): Promise<void> };
   adapter: ProviderAdapter & { close?(): Promise<void> };
@@ -59,7 +59,8 @@ export class AdapterRegistry {
     );
     if (errors.length) throw new AggregateError(errors, "Adapter shutdown failed");
   }
-  has(provider: ProviderKind): boolean {
-    return this.entries.has(provider);
+  has(provider: ProviderKind, identity?: AcpIdentity): boolean {
+    const entry = this.entries.get(provider);
+    return !!entry && (!identity || entry.adapter.acceptsIdentity?.(identity) === true);
   }
 }
