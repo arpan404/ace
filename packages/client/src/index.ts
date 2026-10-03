@@ -22,3 +22,8 @@ export type { Sidebar, SidebarReader } from "./sidebar.ts";
 export { ticketCredential } from "./credentials.ts";
 export type { Credential } from "./credentials.ts";
 export { retryDelay } from "./lifecycle.ts";
+
+export type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
+
+export { AccessClient } from "./access.ts";
+export type { AccessOptions } from "./access.ts";

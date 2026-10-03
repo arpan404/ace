@@ -1,3 +1,8 @@
+import {
+  decodeServiceResponse,
+  type ServiceRequest,
+  type ServiceResponse,
+} from "./service-requests.ts";
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
@@ -36,6 +41,7 @@ export class Client {
   private intents: Intents;
   private notifications: Notifications;
   private closed = false;
+  private serviceListeners = new Set<(message: ServerMessage) => void>();
   private hostId: string | undefined;
   constructor(options: ClientOptions) {
     this.options = options;
@@ -50,6 +56,15 @@ export class Client {
       options,
       limits,
       (message) => {
+        for (const listener of this.serviceListeners) {
+          try {
+            listener(message);
+          } catch {
+            /* Consumers cannot break protocol delivery. */
+          }
+        }
+        if ("requestId" in message && message.type !== "error" && message.requestId)
+          this.requests.resolve(message.requestId, message);
         switch (message.type) {
           case "welcome":
             if (this.hostId && this.hostId !== message.hostId)
@@ -138,6 +153,7 @@ export class Client {
   }
   close(): Promise<void> {
     this.closed = true;
+    this.serviceListeners.clear();
     this.connection.stop();
     return this.intents.settled();
   }
@@ -162,6 +178,15 @@ export class Client {
     options: RequestOptions = {},
     id = this.options.id(),
   ): Promise<CommandResult> {
+    if (payload.type === "diagnostics.health")
+      return this.request({ type: "diagnostics.health" }, options).then(({ ok, health, error }) =>
+        CommandResult.parse({
+          commandId: id,
+          ok,
+          ...(health ? { health } : {}),
+          ...(error ? { error } : {}),
+        }),
+      );
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
     return this.requests.wait(id, CommandResult.parse, options, () => {
       void this.enqueue(payload, id).catch((error: unknown) =>
@@ -171,6 +196,42 @@ export class Client {
         ),
       );
     });
+  }
+  /** One-off service operation. Never persisted or replayed after a disconnect. */
+  request<Q extends ServiceRequest>(
+    input: Q,
+    options: RequestOptions = {},
+  ): Promise<ServiceResponse<Q>> {
+    if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
+    const id = this.options.id();
+    const parsed = ClientMessage.safeParse({ ...input, requestId: id });
+    if (!parsed.success) return Promise.reject(new ClientError("protocol", "Invalid request"));
+    return this.requests.wait(
+      id,
+      (value) => decodeServiceResponse(input, id, value),
+      options,
+      () => {
+        if (!this.connection.send(parsed.data)) throw new ClientError("offline");
+      },
+    );
+  }
+  /** Subscribe to ephemeral service changes; caller releases on unmount. */
+  onMessage(listener: (message: ServerMessage) => void): () => void {
+    if (this.closed) throw new ClientError("offline");
+    if (this.serviceListeners.size >= (this.options.limits?.listeners ?? defaultLimits.listeners))
+      throw new ClientError("limit");
+    this.serviceListeners.add(listener);
+    return () => {
+      this.serviceListeners.delete(listener);
+    };
+  }
+  /** One-way service controls, such as browser frame ACKs or file credits. */
+  send(
+    message: Exclude<ClientMessage, { type: "hello" | "command" | "subscribe" | "unsubscribe" }>,
+  ): void {
+    const parsed = ClientMessage.parse(message);
+    if (this.state !== "ready" || this.closed || !this.connection.send(parsed))
+      throw new ClientError("offline");
   }
   registry(input: RegistryQuery, options: RequestOptions = {}): Promise<RegistryResult> {
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
