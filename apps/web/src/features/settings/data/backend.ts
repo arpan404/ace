@@ -1,17 +1,10 @@
 import type { CatalogModel, Device, DeviceScope, ProviderKind } from "@ace/protocol";
 
 /**
- * Everything Settings reads from or writes to the daemon, behind one narrow seam.
- *
- * TODO(train-2): wire to protocol when merged. @ace/client does not yet expose these requests,
- * so the app runs this interface against the fake daemon's settings fixture. Wiring is a
- * one-file change (a `daemonBackend(client)` beside `fake-backend.ts`):
- * - values / set / reset: `settings.subscribe`, `settings.set` (global layer), `settings.get`
- *   (packages/protocol/src/settings.ts, on main).
- * - providers: provider discovery + `accounts.list` (accounts PR #25).
- * - models / refreshModels: `models.list`, `models.refresh` (packages/protocol/src/models.ts).
- * - machines / devices / pair / revoke: the daemon's access HTTP API on main
- *   (`GET /v1/devices`, `POST /v1/pairings`, `DELETE /v1/devices/:id`).
+ * Everything Settings reads from or writes to the daemon, behind one narrow seam
+ * (daemon-backend.ts): values over `settings.subscribe` / `settings.set`, providers from
+ * `accounts.list`, models from `models.list` / `models.refresh`. Machines, devices, pairing and
+ * ACP agents added by command wait for access support (access-source.ts, TODO(client-gaps)).
  */
 export interface SettingsBackend {
   /** The daemon's settings as a live store (a mirror of `settings.subscribe`). */
@@ -43,7 +36,7 @@ export interface ProviderAccount {
   label: string;
   plan: string;
   auth: "logged_in" | "logged_out";
-  availability: "available" | "near_limit" | "exhausted" | "logged_out";
+  availability: "available" | "near_limit" | "exhausted" | "logged_out" | "unknown";
 }
 
 /** A provider CLI as discovery found it. `version: null` means it is not installed. */

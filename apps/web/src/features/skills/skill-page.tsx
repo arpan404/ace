@@ -52,7 +52,7 @@ function SkillDetail(props: { skill: Skill }) {
   const setEnabled = useSetSkillEnabled();
   const setAvailability = useSetAvailability();
   const group = kinds.find((entry) => entry.kind === skill.kind)?.label ?? "Skills";
-  // TODO(train-2): open in the user's editor through the daemon once it can.
+  // TODO(client-gaps): open in the user's editor through workspace.request's editor launch.
   const openSource = () => toast.add({ title: `Opening ${skill.location}` });
   return (
     <Screen

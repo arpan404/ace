@@ -39,3 +39,5 @@ export type {
   FakeProviderInstall,
   SettingsFixture,
 } from "./scenarios/settings.ts";
+export { FakeServices, FakeSettings } from "./services/index.ts";
+export { accountSummary } from "./services/accounts.ts";

@@ -4,7 +4,9 @@ import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
-import { useMoveThreads, type Account, type QuotaWindow } from "./accounts-source.ts";
+import { blockingReset } from "@ace/ui-core";
+import { useMoveThreads } from "./account-details-source.ts";
+import type { Account, QuotaWindow } from "./accounts-source.ts";
 import { formatClock, formatResets } from "./format.ts";
 
 const radius = 18;
@@ -19,7 +21,10 @@ export function UsageRing(props: { window: QuotaWindow; now: number }) {
       : used >= 85
         ? "stroke-status-needs-you"
         : "stroke-foreground";
-  const resets = formatResets(props.window.resetsAt, props.now);
+  const resets =
+    props.window.resetsAt === null
+      ? "Reset time not reported"
+      : formatResets(props.window.resetsAt, props.now);
   return (
     <div className="flex items-center gap-2.5">
       <span
@@ -73,10 +78,8 @@ export function AccountCard(props: { account: Account }) {
   const move = useMoveThreads();
   const toast = useToast();
   const exhausted = account.availability === "exhausted";
-  const blocking = account.windows
-    .filter((window) => window.usedPercent >= 100)
-    .toSorted((a, b) => a.resetsAt - b.resetsAt)[0];
-  const waiting = account.pausedThreads + account.runningThreads;
+  const resetsAt = blockingReset(account);
+  const waiting = (account.pausedThreads ?? 0) + (account.runningThreads ?? 0);
   return (
     <article
       aria-label={`${account.providerLabel} ${account.label}`}
@@ -88,7 +91,12 @@ export function AccountCard(props: { account: Account }) {
     >
       <div className="flex items-center gap-2 text-base font-medium">
         {account.label}
-        <span className="text-sm font-normal text-subtle-foreground">{account.plan}</span>
+        {account.plan && (
+          <span className="text-sm font-normal text-subtle-foreground">{account.plan}</span>
+        )}
+        {!account.signedIn && (
+          <span className="text-sm font-normal text-subtle-foreground">Signed out</span>
+        )}
         {account.isDefault && (
           <span className="ml-auto rounded-sm bg-secondary px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
             Default
@@ -109,7 +117,7 @@ export function AccountCard(props: { account: Account }) {
         <div className="mt-3.5 flex items-center gap-2.5 rounded-card bg-[color-mix(in_oklab,var(--status-failed)_9%,transparent)] px-3 py-2.5 text-sm leading-[1.45] text-muted-foreground">
           <span className="min-w-0 flex-1">
             {waiting} {waiting === 1 ? "thread is" : "threads are"} paused until the window resets
-            {blocking ? ` at ${formatClock(blocking.resetsAt)}` : ""}.
+            {resetsAt === undefined ? "" : ` at ${formatClock(resetsAt)}`}.
           </span>
           <Button
             size="sm"
@@ -129,10 +137,12 @@ export function AccountCard(props: { account: Account }) {
           </Button>
         </div>
       ) : (
-        <div className="mt-3.5 flex items-center gap-2 text-sm text-muted-foreground">
-          <Icon icon={PlayIcon} size={14} />
-          {threads(account.runningThreads)}
-        </div>
+        account.runningThreads !== undefined && (
+          <div className="mt-3.5 flex items-center gap-2 text-sm text-muted-foreground">
+            <Icon icon={PlayIcon} size={14} />
+            {threads(account.runningThreads)}
+          </div>
+        )
       )}
     </article>
   );

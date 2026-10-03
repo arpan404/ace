@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { Screen } from "@/features/shell/index.ts";
 import { Composer, type Draft } from "@/features/thread/index.ts";
@@ -8,7 +7,8 @@ import { useOrganizerState } from "../use-organizer.ts";
 import { loadChoices, pickProject, resolve, saveChoices, type Choices } from "./choices.ts";
 import { ContextBar } from "./context-bar.tsx";
 import { ModelPicker } from "./model-picker.tsx";
-import { newThreadSource } from "./options-source.ts";
+import { useBranches } from "./branch-source.ts";
+import { useNewThreadOptions } from "@/features/models/index.ts";
 import { useCreateThread } from "./use-create-thread.ts";
 
 /**
@@ -25,14 +25,10 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
   const [baseChoice, setBase] = useState(props.base);
   const { create, sending, error } = useCreateThread();
 
-  const options = useQuery({
-    queryKey: ["new-thread-options", project],
-    queryFn: ({ signal }) => newThreadSource.options(project ?? "", signal),
-    enabled: project !== undefined,
-  });
-  const resolved = resolve(options.data, choices);
-  const branches = options.data?.branches ?? ["main"];
-  const base = baseChoice && branches.includes(baseChoice) ? baseChoice : (branches[0] ?? "main");
+  const options = useNewThreadOptions();
+  const resolved = resolve(options, choices);
+  const branches = useBranches(project);
+  const base = baseChoice && branches.includes(baseChoice) ? baseChoice : branches[0];
 
   const choose = (patch: Partial<Choices>) => {
     const next = { ...choices, ...patch };
@@ -41,7 +37,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
   };
   // Mentions and uploads complete against the project before the thread exists.
   const draftThread = useMemo(
-    () => ({ id: "new", workspaceId: project ?? "", title: "" }),
+    () => ({ id: "new", workspaceId: project ?? "", title: "", draft: true }),
     [project],
   );
   const send = async (draft: Draft) => {
@@ -50,7 +46,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     return create({
       project,
       provider: resolved.model.provider,
-      model: resolved.model.id,
+      model: resolved.model.fromCatalog ? resolved.model.id : undefined,
       text: draft.text.trim() || "See the attached files.",
       context: { mentions: draft.mentions, attachments: draft.attachments },
     });
@@ -71,7 +67,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
             placeholder="Describe the change, a bug, or a question. @ to mention a file"
             controls={
               <ModelPicker
-                options={options.data}
+                options={options}
                 resolved={resolved}
                 onModel={(model) => choose({ model, account: undefined })}
                 onAccount={(account) => choose({ account })}

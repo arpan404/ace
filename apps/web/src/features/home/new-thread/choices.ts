@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
-import type { AccountOption, ModelOption, NewThreadOptions } from "./options-source.ts";
+import type { AccountOption, ModelOption } from "@ace/ui-core";
+
+export interface NewThreadOptions {
+  models: readonly ModelOption[];
+  accounts: readonly AccountOption[];
+}
 
 export const WorkMode = z.enum(["worktree", "local"]);
 export type WorkMode = z.infer<typeof WorkMode>;

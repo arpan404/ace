@@ -1,9 +1,10 @@
-// TODO(train-2): wire to protocol when merged
+// TODO(client-gaps): feat/client-protocol-gaps
 /*
- * The daemon on this branch has no wire reads for decks, accounts, files, search, skills or
- * slash commands yet. Each feature's `*-source.ts` reads from this fake backend in fake mode
- * (dev:fake and tests) and reports "unavailable" against a real daemon, so wiring a protocol
- * later changes only that feature's source file.
+ * What main's protocol can't carry to a web client yet: decks (conductor run view), skills and
+ * plugins, changed files and transfers (binary file channels), and account details. Each such
+ * feature's single `*-source.ts` reads this fake backend in fake mode (dev:fake and tests) and
+ * reports "unavailable" against a real daemon. Everything the protocol does carry goes through
+ * `Client.request` in both modes, served in fake mode by @ace/fake-daemon's wire services.
  *
  * The fake daemon is loaded lazily so a production bundle never fetches it.
  */

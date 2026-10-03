@@ -12,8 +12,7 @@ import {
 } from "@/components/ui/menu.tsx";
 import { ProviderGlyph } from "@/components/ui/provider-glyph.tsx";
 import { providerNames } from "@ace/ui-core";
-import type { Resolved } from "./choices.ts";
-import type { NewThreadOptions } from "./options-source.ts";
+import type { NewThreadOptions, Resolved } from "./choices.ts";
 
 /**
  * Model and account in one chip ("Opus 4.6 personal ▾"). Models are grouped by provider; the
