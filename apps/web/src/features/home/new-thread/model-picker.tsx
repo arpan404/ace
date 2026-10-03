@@ -32,7 +32,7 @@ export function ModelPicker(props: {
       <MenuTrigger
         disabled={!model}
         aria-label={`Model: ${model?.label ?? "loading"}${account ? `, account ${account.label}` : ""}`}
-        className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-ui font-medium text-foreground outline-none transition-colors duration-150 hover:bg-accent aria-expanded:bg-accent disabled:opacity-50"
+        className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-full px-2.5 text-ui font-medium text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent aria-expanded:bg-accent disabled:opacity-50"
       >
         {model?.label ?? "Loading models…"}
         {account && <span className="font-normal text-subtle-foreground">{account.label}</span>}

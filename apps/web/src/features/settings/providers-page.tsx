@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { SettingRow } from "@/components/setting-row.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
 import type { ProviderAccount, ProviderInstall } from "./data/backend.ts";
@@ -26,22 +26,12 @@ export function describeInstall(install: ProviderInstall): string {
   return parts.join(" · ");
 }
 
-function needsAttention(install: ProviderInstall): boolean {
-  return install.accounts.some(
-    (account) => account.availability === "exhausted" || account.auth === "logged_out",
-  );
-}
-
 /** Installed provider CLIs from discovery, their logins, and the models each one offers. */
 export function ProviderSettings() {
   const backend = useSettingsBackend();
   const providers = useQuery(settingsQueries.providers(backend));
   if (providers.isPending)
-    return (
-      <div className="mt-7">
-        <Spinner aria-label="Looking for provider CLIs" />
-      </div>
-    );
+    return <ListSkeleton label="provider CLIs" shape="row" rows={5} className="mt-7" />;
   if (providers.isError)
     return (
       <p role="alert" className="mt-7 text-sm text-muted-foreground">
@@ -88,7 +78,6 @@ function ProviderRow(props: { install: ProviderInstall }) {
   return (
     <>
       <SettingRow title={install.name} description={describeInstall(install)}>
-        {needsAttention(install) && <Dot tone="needs-you" label="Needs attention" />}
         {installed && (
           <Button
             size="sm"

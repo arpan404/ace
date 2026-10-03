@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-row.tsx";
@@ -40,13 +41,15 @@ export function DeckSidebar() {
     >
       <Link
         to="/deck/new"
-        className="mb-1.5 flex h-8 items-center gap-[9px] rounded-md px-2.5 text-ui font-medium text-sidebar-foreground transition-colors duration-150 hover:bg-sidebar-accent data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] [&_svg]:text-muted-foreground"
+        className="mb-1.5 flex h-8 items-center gap-[9px] rounded-md px-2.5 text-ui font-medium text-sidebar-foreground transition-colors duration-(--dur-1) hover:bg-sidebar-accent data-[status=active]:bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)] [&_svg]:text-muted-foreground"
       >
         <Icon icon={CardsIcon} />
         New deck
         <Kbd keys="shift+mod+n" variant="bare" className="ml-auto" />
       </Link>
-      {ready && !shown.length ? (
+      {!ready ? (
+        <ListSkeleton label="decks" shape="card" rows={4} />
+      ) : !shown.length ? (
         <EmptyState
           icon={CardsIcon}
           title="No decks yet"

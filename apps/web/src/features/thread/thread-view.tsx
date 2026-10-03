@@ -1,5 +1,10 @@
 import { useThreadError, useThreadMeta } from "@ace/client-react";
 import { useMemo, useState, useSyncExternalStore } from "react";
+import { WarningCircleIcon } from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
+import { buttonVariants } from "@/components/ui/button.tsx";
+import { EmptyState } from "@/components/ui/empty.tsx";
+import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
 import { threadPanels } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
@@ -43,9 +48,20 @@ export function ThreadView(props: { threadId: string }) {
       {...threadPanels(id)}
     >
       {error ? (
-        <p role="alert" className="p-4 text-ui text-status-failed">
-          This thread could not be loaded ({error.message}).
-        </p>
+        <div role="alert" className="h-full">
+          <EmptyState
+            icon={WarningCircleIcon}
+            title="This thread couldn't be loaded"
+            description={`The daemon said: ${error.message}. The agents keep working; try again from the list.`}
+            action={
+              <Link to="/" className={buttonVariants({ size: "sm" })}>
+                Back to Home
+              </Link>
+            }
+          />
+        </div>
+      ) : !meta ? (
+        <TranscriptSkeleton />
       ) : (
         <div className="flex h-full min-h-0 flex-col">
           <div className="min-h-0 flex-1">
@@ -58,5 +74,19 @@ export function ThreadView(props: { threadId: string }) {
       )}
       {renaming && thread && <RenameDialog thread={thread} onClose={() => setRenaming(false)} />}
     </Screen>
+  );
+}
+
+/** The shape of a transcript while its first window arrives: an ask, a work line, an answer. */
+function TranscriptSkeleton() {
+  return (
+    <LoadingRegion
+      label="thread"
+      className="mx-auto flex w-full max-w-(--column) flex-col px-8 pt-16"
+    >
+      <Skeleton className="ml-auto h-14 w-3/5 rounded-[16px_16px_4px_16px]" />
+      <Skeleton className="mt-10 h-3 w-48" />
+      <SkeletonText lines={4} className="mt-6" />
+    </LoadingRegion>
   );
 }

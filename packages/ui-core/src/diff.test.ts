@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { diffTexts, fold, pairRows, parseUnifiedDiff, type DiffRow } from "./diff.ts";
+import { changeStat } from "./file-changes.ts";
 
 const text = (rows: readonly DiffRow[]) =>
   rows.map((row) =>
@@ -87,4 +88,13 @@ test("split layout lines a change's removed and added lines up side by side", ()
     ["old 2", ""],
     ["end", "end"],
   ]);
+});
+
+test("a full-text edit counts the lines that changed, not the size of the file", () => {
+  const before = "one\ntwo\nthree\nfour\n";
+  const after = "one\n2\nthree\nfour\nfive\n";
+  expect(changeStat({ path: "a.ts", kind: "update", oldText: before, newText: after })).toEqual({
+    added: 2,
+    removed: 1,
+  });
 });

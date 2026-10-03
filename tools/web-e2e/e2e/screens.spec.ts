@@ -70,24 +70,50 @@ const screens: Record<string, Setup> = {
     await page.getByRole("dialog").waitFor();
   },
   "new-thread": visit("/new", "New thread"),
-  thread: openThread("/t/thread-replay-cursor"),
+  // The design's hero: work log, answer, changed files, subagents, a background relay, the
+  // New activity divider and a message queued behind the busy agent.
+  thread: async (page) => {
+    await openThread("/t/thread-dedupe")(page);
+    await page.getByRole("separator", { name: "New activity" }).waitFor();
+    await page
+      .getByRole("combobox", { name: "Message" })
+      .fill("Also check the iOS cold-start path");
+    await page.keyboard.press("Enter");
+    await page.getByRole("list", { name: "Queued messages" }).waitFor();
+  },
   "thread-work-log": async (page) => {
-    await openThread("/t/thread-replay-cursor")(page);
+    await openThread("/t/thread-dedupe")(page);
     await page.getByRole("button", { name: /^Worked for/ }).click();
   },
-  "thread-changes": rightTab("/t/thread-cold-start", /^Changes/),
+  // With a line comment on the diff, as the design's hero state shows.
+  "thread-changes": async (page) => {
+    await rightTab("/t/thread-cold-start", /^Changes/)(page);
+    const file = page.getByRole("region", { name: "apps/server/src/replay.ts" });
+    const line = file.getByText(/client.send\(\{ type: "resume.ack", headSeq/);
+    await line.hover();
+    await line.getByRole("button", { name: /^Comment on line \d+$/ }).click();
+    await file
+      .getByRole("textbox", { name: /Comment on line/ })
+      .fill("Should the ack also carry coldStartWindow?");
+    await file.getByRole("button", { name: "Comment", exact: true }).click();
+  },
   "thread-changes-split": async (page) => {
     await rightTab("/t/thread-cold-start", /^Changes/)(page);
     await page.getByRole("button", { name: "Split" }).click();
   },
-  "thread-agents": rightTab("/t/thread-replay-cursor", "Agents"),
+  "thread-agents": rightTab("/t/thread-dedupe", "Agents"),
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
   "thread-terminal": bottomTab("/t/thread-cold-start", "Terminal"),
   "thread-logs": bottomTab("/t/thread-cold-start", "Logs"),
   activity: visit("/activity", "Activity"),
-  automations: visit("/automations", "Automations"),
+  // Automations opens on the first automation.
+  automations: async (page) => {
+    await page.goto("/automations");
+    await page.waitForURL(/\/automations\/(?!new)[^/]+$/);
+    await page.getByRole("main").waitFor();
+  },
   "automation-detail": async (page) => {
-    await visit("/automations", "Automations")(page);
+    await screens.automations!(page);
     await page
       .getByRole("complementary")
       .locator('a[href^="/automations/"]:not([href$="/new"])')

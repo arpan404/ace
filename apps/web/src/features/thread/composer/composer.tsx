@@ -154,7 +154,7 @@ export function Composer(props: {
           attachments.add(event.dataTransfer.files);
         }}
         className={cn(
-          "glass grid grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-1 py-[5px] pr-[5px] pl-1.5 transition-[box-shadow,border-color,border-radius] duration-200",
+          "glass grid grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-1 py-[5px] pr-[5px] pl-1.5 transition-[box-shadow,border-color,border-radius] duration-(--dur-2)",
           "focus-within:border-[color-mix(in_oklab,var(--foreground)_22%,var(--glass-border))] focus-within:shadow-[var(--glass-highlight),0_0_0_0.5px_var(--glass-edge),var(--glass-shadow),0_0_0_4px_color-mix(in_oklab,var(--foreground)_6%,transparent)]",
           layout ? "rounded-xl" : "rounded-full",
         )}
@@ -167,7 +167,7 @@ export function Composer(props: {
             type="button"
             aria-label="Attach files or images"
             onClick={() => file.current?.click()}
-            className="grid size-[34px] place-items-center rounded-card text-muted-foreground transition-colors duration-150 [grid-area:plus] hover:bg-accent hover:text-foreground"
+            className="grid size-[34px] place-items-center rounded-card text-muted-foreground transition-colors duration-(--dur-1) [grid-area:plus] hover:bg-accent hover:text-foreground"
           >
             <PlusIcon aria-hidden size={20} />
           </button>
@@ -221,7 +221,7 @@ export function Composer(props: {
                 type="button"
                 aria-label="Stop the agent"
                 onClick={props.onStop}
-                className="grid size-8 place-items-center rounded-full bg-secondary text-foreground transition-[transform,background-color] duration-150 hover:scale-105 hover:bg-accent active:scale-95"
+                className="grid size-8 place-items-center rounded-full bg-secondary text-foreground transition-[transform,background-color] duration-(--dur-1) hover:scale-105 hover:bg-accent active:scale-95"
               >
                 <StopIcon aria-hidden size={12} weight="fill" />
               </button>
@@ -237,7 +237,7 @@ export function Composer(props: {
                 disabled={!canSend}
                 onClick={() => void submit(false)}
                 className={cn(
-                  "grid size-8 place-items-center rounded-full transition-[transform,background-color,opacity] duration-150",
+                  "grid size-8 place-items-center rounded-full transition-[transform,background-color,opacity] duration-(--dur-1)",
                   canSend
                     ? "bg-primary text-primary-foreground shadow-[0_1px_2px_rgb(0_0_0/0.18)] hover:scale-105 active:scale-95"
                     : "bg-secondary text-subtle-foreground",

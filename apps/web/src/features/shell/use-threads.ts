@@ -19,8 +19,3 @@ export function useThreadIdsWhere(
   );
   return useSidebar(keys, selector, arrayEqual) ?? none;
 }
-const needsYou = (reader: SidebarReader, id: string) =>
-  reader.thread(id)?.status.state === "needs_you";
-export function useNeedsYouThreadIds(): readonly string[] {
-  return useThreadIdsWhere(needsYou);
-}

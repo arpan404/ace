@@ -12,13 +12,16 @@ import { flatEqual, useItemsSelect } from "../lib/use-items.ts";
 
 /**
  * A work log's headline, live: re-renders when one of its items changes the summary, and every
- * second only while a step is still running.
+ * second only while a step is still running. `live` marks the log the agent is still adding to
+ * (the last block of an open turn), which reads "Working for …" between steps too.
  */
 export function useWorkLog(
   threadId: string,
   itemIds: readonly string[],
+  live = false,
 ): WorkLogHeadline | undefined {
-  const summary = useItemsSelect(threadId, itemIds, summarizeWork, flatEqual);
+  const selected = useItemsSelect(threadId, itemIds, summarizeWork, flatEqual);
+  const summary = selected && live && !selected.running ? { ...selected, running: true } : selected;
   const now = useTicker(summary?.running ?? false);
   return summary ? workLogHeadline(summary, now) : undefined;
 }

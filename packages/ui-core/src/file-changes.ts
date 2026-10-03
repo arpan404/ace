@@ -1,4 +1,5 @@
 import type { FileChange, Item } from "@ace/protocol";
+import { diffTexts } from "./diff.ts";
 
 export interface PatchLine {
   kind: "add" | "del" | "context" | "hunk";
@@ -26,7 +27,7 @@ export interface DiffStat {
   removed: number;
 }
 
-/** Lines added and removed by one change, from its diff or else its before and after text. */
+/** Lines added and removed by one change, from its diff or else by diffing its before and after text. */
 export function changeStat(change: FileChange): DiffStat {
   if (change.diff) {
     let added = 0;
@@ -38,6 +39,17 @@ export function changeStat(change: FileChange): DiffStat {
     return { added, removed };
   }
   if (change.kind === "delete") return { added: 0, removed: lineCount(change.oldText) };
+  // Full before and after text: count the lines that differ, exactly as the diff view shows
+  // them, not the size of the whole file.
+  if (change.oldText && change.newText) {
+    let added = 0;
+    let removed = 0;
+    for (const line of diffTexts(change.oldText, change.newText)) {
+      if (line.kind === "add") added++;
+      else if (line.kind === "del") removed++;
+    }
+    return { added, removed };
+  }
   return { added: lineCount(change.newText), removed: lineCount(change.oldText) };
 }
 

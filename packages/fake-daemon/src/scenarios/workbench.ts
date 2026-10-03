@@ -1,7 +1,8 @@
 import type { Fact } from "@ace/core";
 import type { ProviderKind } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
-import { endTurn, message, output, rootAgent, subagent, tool, toolDone, turn } from "./facts.ts";
+import { dedupeReconnect } from "./dedupe-reconnect.ts";
+import { endTurn, message, output, rootAgent, tool, toolDone, turn } from "./facts.ts";
 
 /**
  * A realistic Home list across five projects, matching the approved design: three threads
@@ -14,7 +15,7 @@ export function workbench(): Scenario[] {
     retryBudget(),
     sheetRotate(),
     refundTax(),
-    dedupeEvents(),
+    dedupeReconnect(),
     installPage(),
     pdfLocale(),
     fanOut(),
@@ -26,7 +27,13 @@ function opening(provider: ProviderKind, ask: string, cwd: string): Fact[] {
   return [rootAgent(provider, cwd), turn("root"), message("root", "ask", "user", ask)];
 }
 
-function approval(key: string, title: string, command: string, description: string): Fact[] {
+function approval(
+  key: string,
+  title: string,
+  command: string,
+  description: string,
+  always: string,
+): Fact[] {
   return [
     tool("root", `${key}-call`, {
       kind: "shell",
@@ -46,6 +53,7 @@ function approval(key: string, title: string, command: string, description: stri
         description,
         options: [
           { id: "allow", label: "Approve", kind: "allow_once" },
+          { id: "always", label: always, kind: "allow_session" },
           { id: "deny", label: "Deny", kind: "deny" },
         ],
       },
@@ -81,6 +89,7 @@ function retryBudget(): Scenario {
             "Allow a force push to fix/restart-retry?",
             "git push --force-with-lease origin fix/restart-retry",
             "Rewrites 6 commits on a branch that PR #188 tracks.",
+            "Always allow git push in this thread",
           ),
         ],
       },
@@ -181,72 +190,11 @@ function refundTax(): Scenario {
             "Install @fontsource/noto-sans-jp?",
             "bun add @fontsource/noto-sans-jp@5.1.0",
             "Downloads from npm and changes package.json and bun.lock.",
+            "Always allow bun add in this thread",
           ),
         ],
       },
       { kind: "await", interaction: "approve-font" },
-    ],
-  };
-}
-
-function dedupeEvents(): Scenario {
-  return {
-    thread: {
-      id: "thread-dedupe",
-      workspaceId: "ace",
-      title: "Dedupe thread events after reconnect",
-      provider: "claude",
-    },
-    steps: [
-      {
-        kind: "facts",
-        facts: [
-          ...opening(
-            "claude",
-            "After a reconnect the web client shows some events twice. Find the cause and fix it.",
-            "/Users/dev/ace",
-          ),
-          message(
-            "root",
-            "cause",
-            "assistant",
-            "The replay cursor resets on every resume, so the daemon resends everything after the last checkpoint instead of after the last event the client acknowledged.",
-          ),
-          tool("root", "spawn-audit", {
-            kind: "agent.spawn",
-            title: "Audit every resume path",
-            detail: { kind: "agent.spawn", description: "Audit resume paths", childAgent: "audit" },
-          }),
-          subagent("claude", "audit", "reconnect-audit", "spawn-audit"),
-          turn("audit", "spawn"),
-          tool("root", "spawn-test", {
-            kind: "agent.spawn",
-            title: "Write the regression test",
-            detail: {
-              kind: "agent.spawn",
-              description: "Restart the daemon mid-stream and assert no duplicates",
-              childAgent: "test",
-            },
-          }),
-          subagent("claude", "test", "regression-test", "spawn-test"),
-          turn("test", "spawn"),
-          tool("root", "relay", {
-            kind: "shell",
-            title: "Run the relay in the background",
-            detail: { kind: "shell", command: "bun run dev:relay" },
-          }),
-          {
-            type: "background.started",
-            agent: "root",
-            task: "relay",
-            kind: "shell",
-            title: "bun run dev:relay",
-            item: "relay",
-            stoppable: true,
-          },
-          output("root", "relay", "relay listening on ws://127.0.0.1:8787\n"),
-        ],
-      },
     ],
   };
 }

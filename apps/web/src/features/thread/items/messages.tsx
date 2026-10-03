@@ -3,7 +3,7 @@ import { FileIcon } from "@phosphor-icons/react";
 import { formatClock } from "@ace/ui-core";
 import { Prose } from "../markdown/prose.tsx";
 
-/** The person's message: a right-aligned bubble with its time below. */
+/** The person's message: a right-aligned bubble; its time shows on hover, keeping the column quiet. */
 export function UserMessage(props: { threadId: string; itemId: string }) {
   const item = useItem(props.threadId, props.itemId);
   if (item?.type !== "message") return null;
@@ -14,7 +14,7 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
     part.type === "image" && /^(data:image\/|blob:|https?:)/.test(part.url) ? [part] : [],
   );
   return (
-    <div className="flex flex-col items-end">
+    <div className="group/bubble flex flex-col items-end">
       <div className="max-w-[82%] rounded-[16px_16px_4px_16px] bg-bubble px-[15px] py-2.5 text-[15px] leading-[1.55] tracking-[-0.005em] wrap-break-word whitespace-pre-wrap">
         {images.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
@@ -43,7 +43,7 @@ export function UserMessage(props: { threadId: string; itemId: string }) {
           </span>
         )}
       </div>
-      <span className="mt-[5px] pr-1 text-xs text-subtle-foreground">
+      <span className="mt-[5px] pr-1 text-xs text-subtle-foreground opacity-0 transition-opacity duration-(--dur-1) group-focus-within/bubble:opacity-100 group-hover/bubble:opacity-100">
         {formatClock(item.createdAt)}
       </span>
     </div>

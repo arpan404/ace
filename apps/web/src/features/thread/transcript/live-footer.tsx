@@ -49,12 +49,26 @@ export function liveLine(reader: ThreadReader, rootId: string): string | undefin
   }
 }
 
-/** Below the last block: open requests to answer, then what the agent is doing now. */
-export function LiveFooter(props: { threadId: string }) {
+/** The root agent is mid-turn and doing the work itself (not blocked or waiting). */
+export function useRootWorking(threadId: string): boolean {
+  const rootId = useThreadMeta(threadId)?.rootAgentId ?? "";
+  const read = useCallback(
+    (reader: ThreadReader) => reader.agent(rootId)?.status.state === "working",
+    [rootId],
+  );
+  return useThread(threadId, [`agent:${rootId}`], read) ?? false;
+}
+
+/**
+ * Below the last block: open requests to answer, then what the agent is doing now. `quiet`
+ * drops a plain "Working" line when the work log above already says "Working for …".
+ */
+export function LiveFooter(props: { threadId: string; quiet?: boolean }) {
   const pending = useInteractions(props.threadId) ?? [];
   const rootId = useThreadMeta(props.threadId)?.rootAgentId ?? "";
   const read = useCallback((reader: ThreadReader) => liveLine(reader, rootId), [rootId]);
-  const line = useThread(props.threadId, ["agents", "tasks", `agent:${rootId}`], read);
+  const live = useThread(props.threadId, ["agents", "tasks", `agent:${rootId}`], read);
+  const line = props.quiet ? undefined : live;
   if (!pending.length && !line) return null;
   return (
     <div className="flex flex-col gap-3 pb-2">
@@ -62,7 +76,11 @@ export function LiveFooter(props: { threadId: string }) {
         <InteractionCard key={id} threadId={props.threadId} interactionId={id} />
       ))}
       {line && (
-        <p role="status" aria-label={line} className="flex items-center gap-[9px] text-[13.5px]">
+        <p
+          role="status"
+          aria-label={line}
+          className="fx-view-in flex items-center gap-[9px] text-[13.5px]"
+        >
           <Spinner />
           <span className="shimmer">{line}</span>
         </p>

@@ -13,14 +13,17 @@ function TabsList({ className, ...props }: TabsPrimitive.List.Props) {
   );
 }
 
-/** Panel tab (Changes, Preview, Agents, Terminal, Logs): 12.5/500, 8% ink when active. */
+/**
+ * Panel tab (Changes, Preview, Agents, Terminal, Logs): 12.5/500, 8% ink when active. Hover is
+ * mostly a text change, so a hovered tab never reads as a second selected one.
+ */
 function TabsTab({ className, ...props }: TabsPrimitive.Tab.Props) {
   return (
     <TabsPrimitive.Tab
       data-slot="tabs-tab"
       className={cn(
-        "inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-sm font-medium whitespace-nowrap text-muted-foreground outline-none transition-colors duration-150",
-        "hover:bg-accent hover:text-foreground data-active:bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] data-active:text-foreground",
+        "inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2.5 text-sm font-medium whitespace-nowrap text-muted-foreground outline-none transition-colors duration-(--dur-1)",
+        "hover:text-foreground hover:not-data-active:bg-[color-mix(in_oklab,var(--foreground)_3.5%,transparent)] data-active:bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] data-active:text-foreground",
         className,
       )}
       {...props}

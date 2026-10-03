@@ -28,7 +28,7 @@ function ToastList() {
       toast={toast}
       className={cn(
         "glass rounded-lg text-ui font-medium text-popover-foreground",
-        "transition-[opacity,transform] duration-[240ms] ease-spring data-ending-style:translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",
+        "transition-[opacity,transform] duration-(--dur-3) ease-spring data-ending-style:translate-y-2 data-ending-style:opacity-0 data-limited:hidden data-starting-style:translate-y-2 data-starting-style:scale-[0.97] data-starting-style:opacity-0",
       )}
     >
       <Toast.Content className="flex items-center gap-2.5 py-[9px] pr-3 pl-3.5">

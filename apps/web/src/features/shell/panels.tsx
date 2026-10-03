@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap, type KeymapId } from "@/lib/keymap.ts";
 import { useLayout, type PanelSide } from "@/lib/layout.tsx";
+import { panelMotion, usePresence } from "@/lib/motion.ts";
 
 export interface PanelTab {
   id: string;
@@ -46,7 +47,8 @@ const bounds = (side: PanelSide, viewport: string) => {
 
 /**
  * A resizable tabbed panel on the right of or below the content. Open state, active tab and
- * size live in the shell layout and persist; the content column reflows around it.
+ * size live in the shell layout and persist; the content column reflows around it. Opening
+ * slides it a short way in from its edge; closing fades it out before the column reflows.
  */
 export function ShellPanel(props: { side: PanelSide; panel: PanelDefinition }) {
   const { layout, setTab, setPanelOpen, setPanelSize, toggleTab } = useLayout();
@@ -68,16 +70,21 @@ export function ShellPanel(props: { side: PanelSide; panel: PanelDefinition }) {
         />
       ),
   );
-  if (!state.open) return shortcuts;
+  const presence = usePresence(state.open);
+  if (!presence.mounted) return shortcuts;
+  const closing = presence.phase === "exit";
   return (
     <>
       {shortcuts}
       <section
-        aria-label={props.panel.label}
+        aria-label={closing ? undefined : props.panel.label}
+        inert={closing}
+        data-edge={right ? "right" : "bottom"}
         style={right ? { width: size } : { height: size }}
         className={cn(
           "relative flex min-h-0 min-w-0 shrink-0 flex-col bg-panel",
           right ? "border-l" : "border-t",
+          panelMotion(presence),
         )}
       >
         <ResizeHandle

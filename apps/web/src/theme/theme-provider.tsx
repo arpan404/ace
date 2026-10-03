@@ -1,4 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+} from "react";
+import { flushSync } from "react-dom";
 import type { ReactNode } from "react";
 import { writeJson, type KeyValueStorage } from "@ace/ui-core";
 import {
@@ -12,6 +21,7 @@ import {
 import { themeStylesheet } from "./css.ts";
 import { loadCustomThemes, saveCustomThemes } from "./custom-themes.ts";
 import { basePreset, presetThemes, type Theme } from "./presets.ts";
+import { withViewTransition } from "@/lib/motion.ts";
 
 export interface Environment {
   storage?: KeyValueStorage | undefined;
@@ -61,7 +71,8 @@ export function ThemeProvider(props: { environment: Environment; children: React
   const theme = themes.find((candidate) => candidate.id === wanted) ?? basePreset("dark");
 
   const css = useMemo(() => themeStylesheet(themes), [themes]);
-  useEffect(() => {
+  // Layout effect, so a theme switch inside a view transition lands before the new snapshot.
+  useLayoutEffect(() => {
     if (!root) return;
     const attributes: Record<string, string> = {
       "data-theme": theme.id,
@@ -86,12 +97,18 @@ export function ThemeProvider(props: { environment: Environment; children: React
   }, [root, storage, css, theme.id, theme.scheme, appearance]);
 
   const update = useCallback(
-    (next: Partial<Appearance>) =>
-      setAppearance((previous) => {
-        const merged = { ...previous, ...next };
-        saveAppearance(storage, merged);
-        return merged;
-      }),
+    (next: Partial<Appearance>) => {
+      const apply = () =>
+        setAppearance((previous) => {
+          const merged = { ...previous, ...next };
+          saveAppearance(storage, merged);
+          return merged;
+        });
+      // A new theme or accent cross-fades the window; sliders and toggles apply directly.
+      if (next.theme !== undefined || next.accent !== undefined)
+        withViewTransition(() => flushSync(apply));
+      else apply();
+    },
     [storage],
   );
   const saveTheme = useCallback(

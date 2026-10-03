@@ -40,7 +40,7 @@ test("a thread that starts needing you raises a toast that leads to Activity", a
   checkout.runThrough("approval-requested");
 
   await within(toasts()).findByText("Fix flaky checkout test");
-  expect(within(toasts()).getByText("acme-web · needs you")).toBeTruthy();
+  expect(within(toasts()).getByText("billing-api · needs you")).toBeTruthy();
   await userEvent.click(within(toasts()).getByRole("button", { name: "Answer" }));
   await screen.findByRole("heading", { level: 1, name: "Activity" });
   expect(
@@ -99,7 +99,7 @@ test("turning a toast off in Activity's toast settings silences it", async () =>
 
   const rail = screen.getByRole("navigation", { name: "Views" });
   await within(rail).findByLabelText("1 need you");
-  expect(within(toasts()).queryByText("acme-web · needs you")).toBeNull();
+  expect(within(toasts()).queryByText("billing-api · needs you")).toBeNull();
   expect(JSON.parse(localStorage.getItem("ace.notifications.toasts") ?? "{}")).toMatchObject({
     needsYou: false,
   });

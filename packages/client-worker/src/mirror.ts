@@ -204,11 +204,15 @@ export class MirrorSidebar implements SidebarSource {
   private failure: ClientError | undefined;
   private list: readonly string[] = none;
   private threads = new Map<string, ThreadListEntry>();
+  private snapshot = false;
   constructor(listeners: number) {
     this.notifications = new Notifications(listeners);
   }
   get error() {
     return this.failure;
+  }
+  get loaded() {
+    return this.snapshot;
   }
   get ids() {
     return this.list;
@@ -226,6 +230,7 @@ export class MirrorSidebar implements SidebarSource {
   reset(copy: SidebarExport): void {
     this.failure = errorOf(copy.error);
     this.list = copy.ids;
+    this.snapshot = copy.view !== undefined;
     this.threads = entries(copy.view?.threads);
     this.notifications.emitAll();
   }

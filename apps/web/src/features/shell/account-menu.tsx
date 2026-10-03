@@ -32,9 +32,9 @@ export function AccountMenu() {
     <Menu>
       <MenuTrigger
         aria-label="Account and connection"
-        className="relative mt-0.5 grid size-7 place-items-center rounded-full bg-[linear-gradient(135deg,#8E97AA,#4B5261)] text-white outline-none"
+        className="relative mt-0.5 grid size-7 place-items-center rounded-full bg-secondary text-muted-foreground shadow-[inset_0_0_0_1px_var(--border)] outline-none transition-[color,transform] duration-(--dur-1) hover:text-foreground active:scale-[0.94]"
       >
-        <Icon icon={UserIcon} size={14} active />
+        <Icon icon={UserIcon} size={14} />
         <span
           role="status"
           aria-label={`Daemon: ${label}`}

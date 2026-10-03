@@ -26,7 +26,7 @@ export function LaneDetail(props: { card: DeckCard; run: DeckRun }) {
   return (
     <section
       aria-label={`Lane: ${card.title}`}
-      className="mt-[26px] animate-in rounded-lg px-5 py-[18px] shadow-[inset_0_0_0_1px_var(--border)] fade-in-0"
+      className="fx-rise-in mt-[26px] rounded-lg px-5 py-[18px] shadow-[inset_0_0_0_1px_var(--border)]"
     >
       <div className="flex items-center gap-2.5">
         <h2 className="min-w-0 flex-1 text-md font-medium">{card.title}</h2>

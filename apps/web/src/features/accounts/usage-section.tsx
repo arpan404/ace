@@ -145,7 +145,7 @@ function DailyBars(props: { rows: readonly UsageRow[] }) {
             >
               <span
                 style={{ height: `${Math.max(2, (value / max) * 100)}%` }}
-                className="block w-full rounded-t-[4px] bg-[color-mix(in_oklab,var(--foreground)_55%,transparent)] transition-colors duration-150 group-hover:bg-foreground group-focus-visible:bg-foreground"
+                className="block w-full rounded-t-[4px] bg-[color-mix(in_oklab,var(--foreground)_55%,transparent)] transition-colors duration-(--dur-1) group-hover:bg-foreground group-focus-visible:bg-foreground"
               />
             </li>
           );

@@ -17,7 +17,7 @@ import { useGit } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
 
 const control =
-  "inline-flex h-6 items-center gap-[5px] rounded-sm px-[7px] text-subtle-foreground outline-none transition-colors duration-150 hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground";
+  "inline-flex h-6 items-center gap-[5px] rounded-sm px-[7px] text-subtle-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground";
 
 function Separator() {
   return <span aria-hidden className="mx-1 h-3 w-px bg-border" />;

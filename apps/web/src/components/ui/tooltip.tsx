@@ -22,7 +22,7 @@ function TooltipContent({
           data-slot="tooltip-content"
           className={cn(
             "flex items-center gap-2 rounded-[7px] bg-primary px-2 py-[5px] text-[12px] leading-4 font-medium whitespace-nowrap text-primary-foreground",
-            "origin-(--transform-origin) transition-[opacity,transform] duration-150 ease-smooth data-ending-style:opacity-0 data-starting-style:translate-y-0.5 data-starting-style:opacity-0",
+            "origin-(--transform-origin) transition-[opacity,transform] duration-(--dur-1) ease-smooth data-ending-style:opacity-0 data-ending-style:duration-100 data-instant:duration-0 data-starting-style:opacity-0 data-[side=bottom]:data-starting-style:-translate-y-0.5 data-[side=top]:data-starting-style:translate-y-0.5",
             className,
           )}
           {...props}

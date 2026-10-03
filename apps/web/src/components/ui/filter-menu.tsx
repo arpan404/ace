@@ -16,7 +16,7 @@ export function FilterMenu<T extends string>(props: {
     <Menu>
       <MenuTrigger
         aria-label={`${props.label}: ${current?.label ?? ""}`}
-        className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-ui text-muted-foreground outline-none transition-colors duration-150 hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent"
+        className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-ui text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent hover:text-foreground aria-expanded:bg-sidebar-accent"
       >
         {current?.label}
         <CaretDownIcon aria-hidden size={13} />

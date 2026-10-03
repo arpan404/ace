@@ -25,8 +25,8 @@ const activity = (agent: string, detail: string): Fact => ({
 /**
  * The thread the right and bottom panels are designed around: two turns of edits (one with
  * full file text, one as a provider unified diff), two subagents, a background dev server
- * with live output, and a slow settle. Labels: `turn-1`, `turn-2`, `relay-output`,
- * `audit-done`, `test-done`, `root-replied`.
+ * with live output, and a slow settle. The first turn happened minutes earlier. Labels:
+ * `turn-1`, `turn-2`, `relay-output`, `audit-done`, `test-done`, `root-replied`.
  */
 export function coldStartReplay(id = "thread-cold-start"): Scenario {
   return {
@@ -40,6 +40,7 @@ export function coldStartReplay(id = "thread-cold-start"): Scenario {
       {
         kind: "facts",
         label: "turn-1",
+        agoMs: 9 * 60_000,
         facts: [
           rootAgent("claude", "/Users/dev/ace"),
           turn("root", "t1"),

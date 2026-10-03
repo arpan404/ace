@@ -11,6 +11,7 @@ import { inProject, useActivityState, type ActivityTab } from "./activity-state.
 import { useFeed, type FeedEvent } from "./feed-source.ts";
 import { EventRow, RunRow, ThreadNeedsRows } from "./feed-rows.tsx";
 import { useNeedsYou, useNeedsYouCount } from "./use-needs-you.ts";
+import { ArrivalScope } from "@/lib/arrival.tsx";
 
 const tabs: { id: ActivityTab; label: string }[] = [
   { id: "all", label: "All" },
@@ -44,7 +45,7 @@ function FeedTabs() {
           aria-selected={tab === entry.id}
           onClick={() => setTab(entry.id)}
           className={cn(
-            "h-[26px] rounded-[7px] px-2 text-[12px] font-medium whitespace-nowrap text-muted-foreground transition-colors duration-150 hover:bg-sidebar-accent hover:text-foreground",
+            "h-[26px] rounded-[7px] px-2 text-[12px] font-medium whitespace-nowrap text-muted-foreground transition-colors duration-(--dur-1) hover:bg-sidebar-accent hover:text-foreground",
             tab === entry.id &&
               "bg-[color-mix(in_oklab,var(--foreground)_10%,transparent)] text-foreground hover:bg-[color-mix(in_oklab,var(--foreground)_10%,transparent)]",
           )}
@@ -104,15 +105,17 @@ function FeedList() {
     );
   return (
     <ul aria-label="Activity" className="flex flex-col gap-px">
-      {showNeeds && (
-        <>
-          {needs.threadIds.map((id) => (
-            <ThreadNeedsRows key={id} threadId={id} />
-          ))}
-          {needs.escalations.map((event) => eventRow(event, feed.read))}
-        </>
-      )}
-      {others}
+      <ArrivalScope>
+        {showNeeds && (
+          <>
+            {needs.threadIds.map((id) => (
+              <ThreadNeedsRows key={id} threadId={id} />
+            ))}
+            {needs.escalations.map((event) => eventRow(event, feed.read))}
+          </>
+        )}
+        {others}
+      </ArrivalScope>
     </ul>
   );
 }

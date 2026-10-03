@@ -2,6 +2,7 @@ import { ArrowsClockwiseIcon, ChartBarIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { PageTitle, Screen } from "@/features/shell/index.ts";
 import { AccountCard } from "./account-card.tsx";
 import { AddAccount } from "./add-account.tsx";
@@ -50,7 +51,9 @@ export function AccountsPage() {
               title="Accounts unavailable"
               description={accounts.error.message}
             />
-          ) : accounts.data && !accounts.data.length ? (
+          ) : !accounts.data ? (
+            <ListSkeleton label="accounts" shape="row" rows={4} className="mt-6" />
+          ) : !accounts.data.length ? (
             <EmptyState
               icon={ChartBarIcon}
               title="No accounts found yet"

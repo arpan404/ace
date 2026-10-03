@@ -10,6 +10,7 @@ import { useState } from "react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { FilterMenu } from "@/components/ui/filter-menu.tsx";
 import { ViewRowBody, ViewRowSection, viewRowClass } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
@@ -79,7 +80,9 @@ export function SkillsSidebar() {
     >
       {skills.isError ? (
         <EmptyState icon={CubeIcon} title="Skills unavailable" description={skills.error.message} />
-      ) : skills.data && !shown.length ? (
+      ) : !skills.data ? (
+        <ListSkeleton label="skills" shape="card" rows={5} />
+      ) : !shown.length ? (
         <EmptyState
           icon={CubeIcon}
           title="No matching skills"

@@ -9,6 +9,7 @@ export * from "./arrange.ts";
 export * from "./content-hash.ts";
 export * from "./deck.ts";
 export * from "./diff.ts";
+export * from "./motion.ts";
 export * from "./file-changes.ts";
 export * from "./models.ts";
 export * from "./lru.ts";

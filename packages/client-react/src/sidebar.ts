@@ -25,6 +25,11 @@ const readIds = (reader: SidebarReader) => reader.ids;
 export function useSidebarIds(): readonly string[] | undefined {
   return useSidebar(["ids"], readIds, arrayEqual);
 }
+const readLoaded = (reader: SidebarReader) => reader.loaded;
+/** False until the thread list's first snapshot, so screens can show a skeleton, not "empty". */
+export function useSidebarLoaded(): boolean {
+  return useSidebar(["ids"], readLoaded) ?? false;
+}
 export function useSidebarThread(threadId: string) {
   const selector = useCallback((reader: SidebarReader) => reader.thread(threadId), [threadId]);
   return useSidebar([`thread:${threadId}`], selector);

@@ -18,7 +18,12 @@ import {
  */
 export function flakyCheckout(id = "thread-checkout"): Scenario {
   return {
-    thread: { id, workspaceId: "acme-web", title: "Fix flaky checkout test", provider: "claude" },
+    thread: {
+      id,
+      workspaceId: "billing-api",
+      title: "Fix flaky checkout test",
+      provider: "claude",
+    },
     steps: [
       {
         kind: "facts",

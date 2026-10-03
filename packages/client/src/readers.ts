@@ -43,6 +43,8 @@ export interface ThreadReader {
 export type SidebarKey = "error" | "ids" | `thread:${string}`;
 export interface SidebarReader {
   readonly error: ClientError | undefined;
+  /** The first snapshot has arrived, so an empty `ids` means no threads rather than not yet. */
+  readonly loaded: boolean;
   readonly ids: readonly string[];
   thread(id: string): ThreadListEntry | undefined;
 }

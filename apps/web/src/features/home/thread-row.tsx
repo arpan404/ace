@@ -8,7 +8,7 @@ import { ThreadMenu } from "./thread-menu.tsx";
 import { useThreadCard } from "./use-thread-card.ts";
 
 const grid =
-  "grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 rounded-md px-[11px] pt-[9px] pb-2.5 outline-none transition-colors duration-150 compact:pt-1.5 compact:pb-[7px]";
+  "grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 rounded-md px-[11px] pt-[9px] pb-2.5 outline-none transition-colors duration-(--dur-1) compact:pt-1.5 compact:pb-[7px]";
 
 /**
  * One Home card: project and machine on line one with the age, the title on line two (medium

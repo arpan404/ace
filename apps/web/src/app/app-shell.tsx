@@ -1,6 +1,6 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
-import { ActivityNotifier } from "@/features/activity/index.ts";
+import { ActivityNotifier, useNeedsYouCount } from "@/features/activity/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { GlobalHotkeys, Rail } from "@/features/shell/index.ts";
 
@@ -16,7 +16,7 @@ export function AppShell() {
       >
         Skip to content
       </a>
-      <Rail />
+      <ViewRail />
       <div className="relative z-[1] flex min-h-0 min-w-0 flex-1">
         <Outlet />
       </div>
@@ -25,6 +25,12 @@ export function AppShell() {
       <ActivityNotifier />
     </div>
   );
+}
+
+/** The rail with Activity's count: the same number its header shows. */
+function ViewRail() {
+  const needsYou = useNeedsYouCount();
+  return <Rail badges={{ activity: needsYou }} />;
 }
 
 /** After client-side navigation, move focus to the new view's title so keyboard and

@@ -43,6 +43,9 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
   get ids(): readonly string[] {
     return this.order;
   }
+  get loaded(): boolean {
+    return this.view !== undefined;
+  }
   thread(id: string): ThreadListEntry | undefined {
     return this.view && Object.hasOwn(this.view.threads, id) ? this.view.threads[id] : undefined;
   }

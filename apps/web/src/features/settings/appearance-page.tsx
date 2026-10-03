@@ -105,7 +105,7 @@ function AccentPicker() {
   const { appearance, update } = useTheme();
   const [hex, setHex] = useState(appearance.accent === "custom" ? appearance.customAccent : "");
   const swatch =
-    "size-[22px] rounded-full outline-none transition-shadow duration-150 focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)] aria-checked:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)]";
+    "size-[22px] rounded-full outline-none transition-shadow duration-(--dur-1) focus-visible:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)] aria-checked:shadow-[0_0_0_2px_var(--background),0_0_0_4px_var(--ring)]";
   const custom = (value: string) => update({ accent: "custom", customAccent: value });
   return (
     <div role="radiogroup" aria-label="Accent colour" className="flex items-center gap-2">

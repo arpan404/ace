@@ -62,7 +62,7 @@ export function FileDiffBlock(props: {
           aria-hidden
           size={14}
           className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-200 ease-spring",
+            "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
             !open && "-rotate-90",
           )}
         />
@@ -216,7 +216,7 @@ function SplitRowView(props: RowsProps & { pair: SplitRow }) {
               className={cn(
                 "group/line relative grid min-w-0 grid-cols-[40px_minmax(0,1fr)] overflow-hidden",
                 side === "right" && "border-l",
-                line && tone(line),
+                line ? tone(line) : empty,
                 target && props.highlighted(target) && commented,
               )}
             >
@@ -237,6 +237,9 @@ function SplitRowView(props: RowsProps & { pair: SplitRow }) {
   );
 }
 
+/** The side of a split row with no line (an add's left, a delete's right): faintly hatched. */
+const empty =
+  "bg-[repeating-linear-gradient(-45deg,transparent_0_5px,color-mix(in_oklab,var(--foreground)_4%,transparent)_5px_6px)]";
 const commented =
   "bg-[color-mix(in_oklab,var(--ring)_8%,transparent)] shadow-[inset_2px_0_0_var(--ring)]";
 const tone = (line: DiffLine) =>
@@ -273,7 +276,7 @@ function Code(props: {
           type="button"
           aria-label={`Comment on ${target.side === "old" ? "old " : ""}line ${target.line}`}
           onClick={() => props.onComment(target)}
-          className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-[4px] bg-ring text-white opacity-0 transition-opacity duration-150 group-hover/line:opacity-100 focus-visible:opacity-100"
+          className="absolute top-0.5 -left-2 grid size-4 place-items-center rounded-[4px] bg-ring text-white opacity-0 transition-opacity duration-(--dur-1) group-hover/line:opacity-100 focus-visible:opacity-100"
         >
           <PlusIcon aria-hidden size={10} weight="bold" />
         </button>

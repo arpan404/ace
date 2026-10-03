@@ -109,7 +109,7 @@ export function CardLines(props: { card: ThreadCard; title: ReactNode }) {
       </span>
       {props.title}
       <span className="flex min-w-0 items-center gap-[5px] font-mono text-[11px] text-subtle-foreground">
-        {card.branch && (
+        {card.branch ? (
           <>
             <Icon icon={card.branch.worktree ? FolderSimpleIcon : GitBranchIcon} size={12} />
             <span className="truncate">{card.branch.name}</span>
@@ -117,6 +117,9 @@ export function CardLines(props: { card: ThreadCard; title: ReactNode }) {
               <span className="shrink-0 font-sans text-xs">#{card.branch.pr}</span>
             )}
           </>
+        ) : (
+          // No branch reported yet: say where it runs rather than leave the line empty.
+          <span className="truncate font-sans text-xs">local checkout</span>
         )}
       </span>
       <span className="flex items-center justify-end gap-2 whitespace-nowrap">

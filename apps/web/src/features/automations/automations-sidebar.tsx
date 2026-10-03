@@ -1,5 +1,7 @@
 import type { Automation, AutomationRun } from "@ace/protocol";
 import {
+  ArrowsClockwiseIcon,
+  CalendarBlankIcon,
   CheckIcon,
   ClockIcon,
   FileIcon,
@@ -15,6 +17,7 @@ import type { ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
@@ -30,6 +33,17 @@ const triggerIcons: Record<Automation["trigger"]["kind"], PhosphorIcon> = {
   file: FileIcon,
   manual: HandPointingIcon,
 };
+
+/** The glyph says how it fires: a clock daily, arrows every few hours, a calendar weekly. */
+function triggerIcon(trigger: Automation["trigger"]): PhosphorIcon {
+  if (trigger.kind !== "schedule") return triggerIcons[trigger.kind];
+  const expression = trigger.schedule.expression.toUpperCase();
+  if (/FREQ=(HOURLY|MINUTELY)/.test(expression)) return ArrowsClockwiseIcon;
+  const weekly =
+    expression.includes("FREQ=WEEKLY") ||
+    (trigger.schedule.kind === "cron" && !expression.trim().endsWith("*"));
+  return weekly ? CalendarBlankIcon : ClockIcon;
+}
 
 /** Automations' second sidebar: every schedule and trigger, then the latest runs. */
 export function AutomationsSidebar() {
@@ -52,7 +66,9 @@ export function AutomationsSidebar() {
         </Tip>
       }
     >
-      {automations && !automations.length ? (
+      {!automations ? (
+        <ListSkeleton label="automations" shape="card" rows={4} />
+      ) : !automations.length ? (
         <EmptyState
           icon={ClockIcon}
           title="No automations"
@@ -67,7 +83,7 @@ export function AutomationsSidebar() {
                 key={automation.id}
                 to={automation.id}
                 selected={selected === automation.id}
-                icon={<Icon icon={triggerIcons[automation.trigger.kind]} size={16} />}
+                icon={<Icon icon={triggerIcon(automation.trigger)} size={16} />}
                 title={automation.title}
                 description={`${describeTrigger(automation.trigger)} · ${automation.workspace}`}
                 trailing={automation.enabled ? undefined : "off"}
@@ -126,7 +142,7 @@ function Row(props: {
         params={{ automationId: props.to }}
         aria-current={props.selected ? "page" : undefined}
         className={cn(
-          "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 rounded-[10px] px-[11px] py-[9px] outline-none transition-colors duration-150 hover:bg-sidebar-accent",
+          "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 rounded-[10px] px-[11px] py-[9px] outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent",
           props.selected && "bg-[color-mix(in_oklab,var(--foreground)_7%,transparent)]",
         )}
       >

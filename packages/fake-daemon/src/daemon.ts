@@ -99,9 +99,13 @@ export class FakeDaemon implements Host {
   accepts(credential: { token?: string | undefined; ticket?: string | undefined }): boolean {
     return credential.token === this.token;
   }
-  createThread(init: ThreadInit): void {
+  /** The daemon's clock, `agoMs` back. Never before the epoch, whatever a script asks for. */
+  private at(agoMs: number): number {
+    return Math.max(0, this.options.clock() - agoMs);
+  }
+  createThread(init: ThreadInit, agoMs = 0): void {
     if (this.threads.has(init.id)) throw new Error(`Thread ${init.id} already exists`);
-    const now = this.options.clock();
+    const now = this.at(agoMs);
     const thread = {
       id: ThreadId.parse(init.id),
       workspaceId: WorkspaceId.parse(init.workspaceId),
@@ -115,10 +119,13 @@ export class FakeDaemon implements Host {
     this.threads.set(init.id, host);
     this.append(host, [{ type: "thread.created", thread }], now);
   }
-  /** Apply adapter facts to a thread and publish the resulting events as one batch. */
-  apply(threadId: string, facts: readonly Fact[]): void {
+  /**
+   * Apply adapter facts to a thread and publish the resulting events as one batch, stamped
+   * `agoMs` before now (scripts backdate seeded history).
+   */
+  apply(threadId: string, facts: readonly Fact[], agoMs = 0): void {
     const host = this.thread(threadId);
-    const now = this.options.clock();
+    const now = this.at(agoMs);
     const payloads = facts.flatMap((fact) => host.fold(fact, now));
     // A queued message starts the next turn as soon as the root agent is free.
     const drained = facts.length ? drainQueue(host) : [];
@@ -146,6 +153,11 @@ export class FakeDaemon implements Host {
     const host = this.threads.get(id);
     if (!host) throw new Error(`Unknown thread ${id}`);
     return host;
+  }
+  /** The daemon item id a script's adapter key became, for seeding client-side state. */
+  itemId(threadId: string, key: Key): string | undefined {
+    const host = this.threads.get(threadId);
+    return host && Object.hasOwn(host.state.items, key) ? host.state.items[key]?.id : undefined;
   }
   isPending(threadId: string, key: Key): boolean {
     return this.thread(threadId).interaction(key)?.state === "pending";

@@ -3,3 +3,4 @@ export { ActivityNotifier } from "./activity-notifier.tsx";
 export { ActivityScreen } from "./activity-screen.tsx";
 export { ActivitySidebar } from "./activity-sidebar.tsx";
 export { ActivityProvider } from "./activity-state.tsx";
+export { useNeedsYouCount } from "./use-needs-you.ts";

@@ -1,9 +1,9 @@
-import { providerNames } from "@ace/ui-core";
+import { modelLabel, providerNames } from "@ace/ui-core";
 import type { Automation, AutomationRun } from "@ace/protocol";
 
-/** "Claude Code · sonnet-4.6, in a fresh worktree". */
+/** "Claude Code · Sonnet 4.6, in a fresh worktree". */
 export function runsOn(automation: Automation): string {
-  const model = automation.model ? ` · ${automation.model}` : "";
+  const model = automation.model ? ` · ${modelLabel(automation.model)}` : "";
   const where = automation.worktree ? "in a fresh worktree" : "in the project checkout";
   return `${providerNames[automation.provider]}${model}, ${where}`;
 }
