@@ -1,6 +1,6 @@
 # ACP registry verification
 
-Status: static review only. All tests, benchmarks and mutation cases below are **not executed (tests run at merge)**. No provider probes, sessions, prompts or recordings were run. The upstream schema/format and dependency manifests were read as primary-source metadata; fetching those documents is not provider execution. The canonical CDN refresh attempted during implementation returned HTTP 403, so no current production catalog refresh is claimed.
+Status: the owner-authorized merge-conflict verification passed 45 tests in 10 selected files after merging main at `6a26d03`. Other suites, benchmarks and mutation cases remain **not executed (tests run at merge)**. Earlier static-only evidence below records the pre-merge development gate. No provider probes, sessions, prompts or recordings were run. The upstream schema/format and dependency manifests were read as primary-source metadata; fetching those documents is not provider execution. The canonical CDN refresh attempted during implementation returned HTTP 403, so no current production catalog refresh is claimed.
 
 ## Behavior coverage to run at merge
 
@@ -85,3 +85,16 @@ Performance numbers remain **not measured**. The redaction workload now includes
 Main was merged without rebase, including integration train 2. The schema-driven protocol reference was regenerated as an artifact update. No integration-rehearsal comment was present when the review was reread. Architecture acceptance remains an owner decision in ADR 0044, as expressly required by the brief; this candidate does not mark it accepted on the owner's behalf.
 
 Final static gate after staging all additions: fmt, lint, typecheck and check:size passed; 1,586 source files are below 1,500 lines. Protocol artifacts were regenerated without running tests. `bun run check`, tests, mutation execution, flakiness runs, benchmark numbers and CI remain deferred or disabled by the owner.
+
+## Main reconciliation, 2026-10-02
+
+Merged main at `6a26d03` without rebase. Engine assembly retains Claude SDK/MCP registration alongside generic ACP launch plans. Account session binding preserves native MCP controls, ACP effective support and confirmed selectors. Model discovery uses the shared Claude SDK public API and skips generic ACP metadata execution. Dependencies were combined; the lockfile started from main and was regenerated with `bun install --ignore-scripts`. Protocol artifacts started from main and were regenerated from the merged schemas: 388 files; the drift check passes.
+
+The initial targeted run exposed installation failures under macOS's symlinked temporary root and a canonical-path expectation in the bridge test helper; it was interrupted while a publication barrier was waiting. The installer now canonicalizes the private installation root before enforcing entrypoint containment. The test uses an explicit symlinked root on every platform, checks cold restart and artifact replacement, and still denies archive escapes. The publication test reports an early failed installation instead of hanging at its barrier.
+
+Under the owner's explicit merge-conflict exception:
+
+- `bunx vitest run packages/models/src/discover.process.test.ts packages/models/src/registry.test.ts packages/accounts/src/acp.process.test.ts packages/accounts/src/acp-launch.process.test.ts apps/daemon/src/engine/model-selection.process.test.ts apps/daemon/src/acp-identity.process.test.ts apps/daemon/src/claude-registration.process.test.ts packages/agent-registry/src/persistence.process.test.ts packages/agent-registry/src/install.process.test.ts`: **41 tests passed, 9 files**.
+- `bunx vitest run packages/agent-registry/src/archive.process.test.ts`: **4 tests passed, 1 file**. Valid tar installs; traversal, absolute paths and link-following escapes remain denied.
+
+`bun run fmt`, `bun run lint`, `bun run typecheck`, `bun run check:size`, `bun run docs:protocol --check` and `git diff --check` passed. All 1,617 source files are below 1,500 lines. Full `bun run check`, the full suite, mutation execution and benchmarks were not run. CI is disabled and was not requested or watched. No provider prompts, sessions, probes or recordings were run. Performance numbers still need run at merge. No integration-rehearsal comment was present in the reread PR comments.

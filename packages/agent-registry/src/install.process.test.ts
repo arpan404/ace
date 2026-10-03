@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile, mkdir, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { registry, temporary, body, sample, executable } from "./testing/support.ts";
 import type { RegistryResult } from "@ace/protocol";
@@ -175,9 +175,13 @@ test("cancelled downloads remove staging and preserve an approved prior local in
     await work.close();
   }
 });
-test("approved installs persist across restart and artifact replacement needs new approval", async () => {
+test("approved installs through a symlinked root persist across restart and artifact replacement needs new approval", async () => {
   const work = await temporary();
-  let service = await registry(work.root, request, async () => new Response("synthetic artifact"));
+  const storage = join(work.root, "storage");
+  const selected = join(work.root, "selected");
+  await mkdir(storage);
+  await symlink(storage, selected, "dir");
+  let service = await registry(selected, request, async () => new Response("synthetic artifact"));
   try {
     await service.catalog.refresh();
     const digest = plan(
@@ -200,7 +204,7 @@ test("approved installs persist across restart and artifact replacement needs ne
     const launch = await service.resolve(identity);
     expect(await readFile(launch.command, "utf8")).toBe("synthetic artifact");
     await service.close();
-    service = await registry(work.root, request);
+    service = await registry(selected, request);
     expect((await service.resolve(identity)).command).toBe(launch.command);
     await writeFile(launch.command, "changed executable");
     await expect(service.resolve(identity)).rejects.toThrow("changed");

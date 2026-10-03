@@ -58,7 +58,12 @@ test("cancellation cannot acknowledge rollback after inventory publication begin
   });
   try {
     const pending = install(registry);
-    await started.promise;
+    await Promise.race([
+      started.promise,
+      pending.then((result) => {
+        throw new Error("Install ended before publication", { cause: result });
+      }),
+    ]);
     expect(
       (
         await registry.handle({

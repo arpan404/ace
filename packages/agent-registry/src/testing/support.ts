@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, chmod, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -45,7 +45,7 @@ export async function executable(
   const path = join(root, name);
   await writeFile(path, content);
   await chmod(path, 0o700);
-  return path;
+  return realpath(path);
 }
 export async function registry(
   root: string,

@@ -157,8 +157,8 @@ export async function executeInstall(
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
-  const stage = destination;
-  await mkdir(stage, { mode: 0o700 });
+  await mkdir(destination, { mode: 0o700 });
+  const stage = await realpath(destination);
   let published = false;
   try {
     let entrypoint: string;
@@ -191,7 +191,6 @@ export async function executeInstall(
     await chmod(resolved, 0o700);
     signal.throwIfAborted();
     // uv environments contain absolute paths; their private root becomes visible only in inventory.
-    if (stage !== destination) await rename(stage, destination);
     published = true;
     const installation = await bindLocal(
       {
@@ -223,6 +222,6 @@ export async function executeInstall(
     if (published) await rm(destination, { recursive: true, force: true });
     throw error;
   } finally {
-    if (stage !== destination || !published) await rm(stage, { recursive: true, force: true });
+    if (!published) await rm(stage, { recursive: true, force: true });
   }
 }
