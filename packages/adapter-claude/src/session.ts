@@ -5,8 +5,9 @@ import { probeOutput, type SupervisedProcess } from "@ace/provider-kit/process";
 import type { InteractionResolution } from "@ace/protocol";
 import { query, type Query } from "@anthropic-ai/claude-agent-sdk";
 import { capabilities } from "./capabilities.ts";
+import { SessionTasks } from "./session-tasks.ts";
 import { InputStream, content } from "./input.ts";
-import { list, object, string } from "./native.ts";
+import { object, string } from "./native.ts";
 import { PendingInteractions } from "./pending-interactions.ts";
 import {
   codingConfiguration,
@@ -53,12 +54,13 @@ export async function openSession(
   const sessionId = ctx.resume?.nativeSessionId ?? randomUUID();
   const input = new InputStream();
 
-  const toolParents = new Map<string, string>();
-  const tasks = new Map<string, { spawn: string; parent: string; live: boolean }>();
+  const taskIndex = new SessionTasks();
+  const tasks = taskIndex.live;
   let sequence = 0;
   const started = performance.now();
   let closed = false;
   let exited = false;
+  let failureMessage: string | undefined;
   let ownedProcess: SupervisedProcess | undefined;
   let closePromise: Promise<void> | undefined;
   let q: Query;
@@ -154,7 +156,11 @@ export async function openSession(
             if (handle.signal.aborted) pending.expire();
             else handle.signal.addEventListener("abort", () => pending.expire(), { once: true });
             void handle.exited.then((exit) =>
-              end(closed, `Claude process exited: ${exit.code ?? exit.signal ?? exit.reason}`),
+              end(
+                closed,
+                failureMessage ??
+                  `Claude process exited: ${exit.code ?? exit.signal ?? exit.reason}`,
+              ),
             );
           },
         }),
@@ -172,30 +178,7 @@ export async function openSession(
     try {
       for await (const message of q) {
         const data = object(message);
-        if (data["type"] === "assistant")
-          for (const value of list(object(data["message"])["content"])) {
-            const block = object(value);
-            if (block["type"] === "tool_use")
-              toolParents.set(string(block["id"]), string(data["parent_tool_use_id"]));
-          }
-        if (data["type"] === "system" && data["subtype"] === "task_started") {
-          const id = string(data["task_id"]);
-          const spawn = string(data["tool_use_id"]);
-          tasks.set(id, { spawn, parent: toolParents.get(spawn) ?? "", live: true });
-        }
-        if (
-          data["type"] === "system" &&
-          (data["subtype"] === "task_updated" || data["subtype"] === "task_notification")
-        ) {
-          const task = tasks.get(string(data["task_id"]));
-          if (
-            task &&
-            ["completed", "failed", "killed", "stopped"].includes(
-              string(data["status"], string(object(data["patch"])["status"])),
-            )
-          )
-            task.live = false;
-        }
+        taskIndex.observe(data);
         frame("recv", "sdk", message);
         if (data["type"] === "rate_limit_event") {
           const observation = ClaudeRateLimitObservation.safeParse(data["rate_limit_info"]);
@@ -210,8 +193,9 @@ export async function openSession(
       }
       end(closed);
     } catch (error) {
+      failureMessage = String(error);
       if (ownedProcess) await ownedProcess.stop();
-      end(closed, String(error));
+      end(closed, failureMessage);
     }
   })();
   ctx.signal.addEventListener("abort", abort, { once: true });
@@ -247,6 +231,7 @@ export async function openSession(
       ensureOpen();
       const failures: unknown[] = [];
       let targetId: string | undefined;
+      let targetSpawn = "";
       if (target.agent && target.agent !== (ctx.rootKey ?? "root") && target.agent !== sessionId) {
         const spawn = nativeKey(target.agent, "child");
         targetId = [...tasks].find(
@@ -254,6 +239,7 @@ export async function openSession(
             id === target.agent || id === spawn.replace(/^native:/, "") || task.spawn === spawn,
         )?.[0];
         if (!targetId) throw new Error("Unknown Claude child agent");
+        targetSpawn = tasks.get(targetId)?.spawn ?? "";
         try {
           await q.stopTask(targetId);
         } catch (error) {
@@ -268,23 +254,13 @@ export async function openSession(
         }
       }
       if (target.cascade) {
-        const spawns = new Set<string>();
-        if (targetId) spawns.add(tasks.get(targetId)?.spawn ?? "");
-        let changed = true;
-        while (changed) {
-          changed = false;
-          for (const task of tasks.values())
-            if (spawns.has(toolParents.get(task.spawn) ?? task.parent) && !spawns.has(task.spawn)) {
-              spawns.add(task.spawn);
-              changed = true;
-            }
-        }
-        for (const [id, task] of tasks)
-          if (
-            task.live &&
-            id !== targetId &&
-            (!targetId || spawns.has(toolParents.get(task.spawn) ?? task.parent))
-          )
+        const cascade = targetId
+          ? taskIndex.cascade(targetSpawn)
+          : { ids: [...tasks].filter(([, task]) => task.live).map(([id]) => id), uncertain: false };
+        if (cascade.uncertain)
+          failures.push(new Error("Claude cascade ancestry is no longer fully correlated"));
+        for (const id of cascade.ids)
+          if (id !== targetId)
             try {
               await q.stopTask(id);
             } catch (error) {

@@ -11,11 +11,34 @@ deliver({
   session_id: "bench",
   capabilities: ["interrupt_receipt_v1"],
 });
+deliver({
+  type: "system",
+  subtype: "task_started",
+  task_id: "child",
+  tool_use_id: "spawn",
+  task_type: "local_agent",
+});
 const operations = 100_000;
 const start = performance.now();
 for (let i = 0; i < operations; i++) {
   const uuid = `send-${i}`;
   deliver({ type: "user", uuid, message: { content: [] } }, "send");
+  // Exercise retained child refinements without allocating an unbounded transcript workload.
+  deliver({
+    type: "assistant",
+    parent_tool_use_id: "spawn",
+    message: {
+      id: `message-${i % 1024}`,
+      content: [],
+      usage: {
+        input_tokens: i + 1,
+        output_tokens: 3,
+        cache_read_input_tokens: 2,
+        cache_creation_input_tokens: 4,
+        cache_creation: { ephemeral_1h_input_tokens: 1, ephemeral_5m_input_tokens: 3 },
+      },
+    },
+  });
   deliver({
     type: "result",
     uuid: `result-${i}`,
@@ -40,6 +63,7 @@ console.log(
   JSON.stringify({
     turnsPerSecond: (operations / elapsed) * 1000,
     microsecondsPerTurn: (elapsed * 1000) / operations,
+    retainedChildMessages: 1024,
     peakRssKiB: process.resourceUsage().maxRSS,
   }),
 );

@@ -1,5 +1,6 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { harness, subtype } from "./session.test-helper.ts";
+import { createTranslator } from "./index.ts";
 import { object } from "./native.ts";
 for (const kind of ["form", "url"] as const)
   test(`${kind} elicitation stays pending until one typed answer reaches the provider`, async () => {
@@ -115,6 +116,9 @@ test("an unsupported native dialog returns cancellation without opening human wo
       object(object((await h.wait(subtype("fake_resolution"))).data)["response"])["response"],
     );
     expect(response).toEqual({ behavior: "cancelled" });
+    const translator = createTranslator({ rootKey: "root" });
+    const facts = h.frames.flatMap((frame) => translator.translate(frame, frame.t));
+    expect(facts.some((fact) => fact.type === "interaction.opened")).toBe(false);
   } finally {
     await h.session.close("shutdown");
   }
@@ -205,3 +209,88 @@ test("a failed Claude cascade still attempts remaining live tasks and reports th
     await h.session.close("shutdown");
   }
 });
+
+test("the SDK callback survives more than a minute while child progress and controls continue", async () => {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  let h: Awaited<ReturnType<typeof harness>> | undefined;
+  try {
+    h = await harness();
+    await h.session.send([{ type: "text", text: "form" }], "queue");
+    const request = await h.wait(
+      (frame) => frame.channel === "elicitation" && frame.dir === "recv",
+    );
+    vi.advanceTimersByTime(120_000);
+    await h.session.mcp?.status();
+    await h.wait((frame) => object(object(frame.data)["message"])["id"] === "waiting-progress");
+    const translator = createTranslator({ rootKey: "root" });
+    const facts = h.frames.flatMap((frame) => translator.translate(frame, frame.t));
+    expect(facts.some((fact) => fact.type === "interaction.closed")).toBe(false);
+    expect(
+      facts.some(
+        (fact) =>
+          fact.type === "item.upsert" &&
+          fact.draft.type === "message" &&
+          JSON.stringify(fact.draft).includes("Progress while you decide"),
+      ),
+    ).toBe(true);
+    await h.session.resolve(String(object(request.data)["requestId"]), {
+      kind: "elicitation",
+      action: "accept",
+      content: { color: "blue" },
+    });
+    const native = object(
+      object(object((await h.wait(subtype("fake_resolution"))).data)["response"])["response"],
+    );
+    expect(native).toEqual({ action: "accept", content: { color: "blue" } });
+  } finally {
+    vi.useRealTimers();
+    await h?.session.close("shutdown");
+  }
+});
+
+test("completed task churn releases control capacity while a later shell still stops", async () => {
+  const h = await harness();
+  try {
+    await h.session.send([{ type: "text", text: "task-churn" }], "queue");
+    await h.wait((frame) => object(frame.data)["task_id"] === "live-after-churn");
+    await h.session.interrupt({ cascade: true });
+    expect(
+      h.frames.some(
+        (frame) => object(object(frame.data)["request"])["task_id"] === "live-after-churn",
+      ),
+    ).toBe(true);
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+
+test("excess live task admission ends the provider visibly rather than evicting work", async () => {
+  const h = await harness();
+  try {
+    await h.session.send([{ type: "text", text: "task-capacity" }], "queue");
+    expect(await h.exit).toMatchObject({
+      deliberate: false,
+      message: expect.stringContaining("live task capacity reached"),
+    });
+    await expect(h.session.send([{ type: "text", text: "later" }], "queue")).rejects.toThrow(
+      "closed",
+    );
+  } finally {
+    await h.session.close("shutdown");
+  }
+});
+
+for (const scenario of ["completed-ancestor", "late-descendant"])
+  test(`a targeted cascade reaches descendants through completed ancestry in ${scenario}`, async () => {
+    const h = await harness();
+    try {
+      await h.session.send([{ type: "text", text: scenario }], "queue");
+      await h.wait(subtype("ancestry-ready"));
+      await h.session.interrupt({ agent: "ancestor", cascade: true });
+      expect(
+        h.frames.some((frame) => object(object(frame.data)["request"])["task_id"] === "descendant"),
+      ).toBe(true);
+    } finally {
+      await h.session.close("shutdown");
+    }
+  });

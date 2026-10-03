@@ -9,13 +9,18 @@ export class NativeQueue {
   private readonly sent = new Set<string>();
   private readonly survivors = new Set<string>();
   private readonly interrupts = new Set<string>();
-  private receiptSupported = false;
+  private receiptSupported: boolean | undefined;
   private overflow = false;
   observe(state: ClaudeState, frame: Frame, data: Data): void {
     const type = string(data["type"]);
-    if (type === "system" && data["subtype"] === "init")
+    if (type === "system" && data["subtype"] === "init") {
       this.receiptSupported = list(data["capabilities"]).includes("interrupt_receipt_v1");
-    if (frame.dir === "send" && type === "user") {
+      if (!this.receiptSupported) {
+        this.sent.clear();
+        this.retireOverflow(state);
+      }
+    }
+    if (frame.dir === "send" && type === "user" && this.receiptSupported !== false) {
       const uuid = string(data["uuid"]);
       if (uuid) this.sent.add(uuid);
       // Overflow must hold status uncertain rather than silently discard possible work.
@@ -56,16 +61,33 @@ export class NativeQueue {
       }
     }
     if (type === "result" && frame.dir === "recv") {
+      let consumedSurvivor = false;
       for (const uuid of [...list(data["user_message_uuids"]), data["user_message_uuid"]])
         if (typeof uuid === "string") {
           this.sent.delete(uuid);
-          this.survivors.delete(uuid);
+          consumedSurvivor = this.survivors.delete(uuid) || consumedSurvivor;
         }
       const queued = data["queued_turn_count"];
-      if (typeof queued === "number" && Number.isSafeInteger(queued) && queued >= 0)
+      if (typeof queued === "number" && Number.isSafeInteger(queued) && queued >= 0) {
+        // A completed turn with an authoritative empty native queue retires lost correlations,
+        // including producers that never echo consumed UUIDs. Background work is independent.
+        if (queued === 0) {
+          this.sent.clear();
+          this.survivors.clear();
+          this.retireOverflow(state);
+        }
         this.publish(state, Math.max(queued, this.survivors.size));
-      else if (this.survivors.size) this.publish(state, this.survivors.size);
+      } else if (consumedSurvivor || this.survivors.size) this.publish(state, this.survivors.size);
     }
+  }
+  private retireOverflow(state: ClaudeState): void {
+    if (!this.overflow) return;
+    this.overflow = false;
+    state.emit({
+      type: "background.ended",
+      task: state.key("queue-correlation", "overflow"),
+      status: "completed",
+    });
   }
   private publish(state: ClaudeState, count: number): void {
     if (state.nativeQueued === count) return;

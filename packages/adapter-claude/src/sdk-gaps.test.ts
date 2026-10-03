@@ -225,7 +225,7 @@ test("interrupt survivors hold a finished thread until their correlated result i
   h.result({ uuid: "interrupted", terminal_reason: "aborted_streaming" });
   expect(h.state.queueCount).toBe(1);
   expect(h.state.status.state).not.toBe("done");
-  h.result({ uuid: "finished", user_message_uuids: ["survivor"], queued_turn_count: 0 });
+  h.result({ uuid: "finished", user_message_uuids: ["survivor"] });
   expect(h.state.queueCount).toBe(0);
   expect(h.state.status.state).toBe("done");
 });
@@ -277,4 +277,118 @@ test("partial tool JSON stays raw until the provider supplies a completed tool i
   expect(h.items().find((item) => item.type === "tool_call")).toMatchObject({
     call: { detail: { kind: "file.read", path: "complete.ts" } },
   });
+});
+
+for (const echoes of [true, false])
+  test(`authoritative empty queue retires overflow with UUID echoes ${echoes}`, () => {
+    const h = harness();
+    h.system("init", { session_id: "s", capabilities: ["interrupt_receipt_v1"] });
+    for (let i = 0; i < 257; i++)
+      h.send({ type: "user", uuid: `send-${i}`, message: { content: [] } }, "sdk", "send");
+    h.result({ uuid: "not-authoritative" });
+    expect(h.state.status.state).not.toBe("done");
+    h.result({
+      uuid: "authoritative",
+      queued_turn_count: 0,
+      ...(echoes ? { user_message_uuids: Array.from({ length: 257 }, (_, i) => `send-${i}`) } : {}),
+    });
+    expect(h.state.queueCount).toBe(0);
+    expect(h.state.status.state).toBe("done");
+  });
+
+test("consuming a known survivor preserves independent queue uncertainty and background tasks", () => {
+  const h = harness();
+  h.system("init", { session_id: "s", capabilities: ["interrupt_receipt_v1"] });
+  for (let i = 0; i < 257; i++)
+    h.send({ type: "user", uuid: `send-${i}`, message: { content: [] } }, "sdk", "send");
+  h.system("task_started", { task_id: "shell", task_type: "local_bash", is_backgrounded: true });
+  h.send(
+    { type: "control_request", request_id: "interrupt", request: { subtype: "interrupt" } },
+    "wire",
+    "send",
+  );
+  h.send(
+    {
+      type: "control_response",
+      response: { request_id: "interrupt", response: { still_queued: ["send-256"] } },
+    },
+    "wire",
+  );
+  h.result({ uuid: "consumed", user_message_uuids: ["send-256"] });
+  expect(h.state.queueCount).toBe(0);
+  expect(h.state.status.state).not.toBe("done");
+  h.result({ uuid: "authoritative", queued_turn_count: 0 });
+  expect(h.state.status.state).not.toBe("done");
+  expect(
+    Object.values(h.state.tasks).some((task) => task.status === "running" && task.kind === "shell"),
+  ).toBe(true);
+});
+
+test("child accounting capacity omits new samples visibly while retained message refinements remain idempotent", () => {
+  const h = harness();
+  h.init();
+  h.system("task_started", { task_id: "child", tool_use_id: "spawn", task_type: "local_agent" });
+  const message = (id: string, input_tokens: number) =>
+    h.send({
+      type: "assistant",
+      parent_tool_use_id: "spawn",
+      message: {
+        id,
+        content: [],
+        usage: { input_tokens, output_tokens: 0 },
+      },
+    });
+  for (let i = 0; i < 1100; i++) message(`message-${i}`, 1);
+  message("message-0", 3);
+  message("message-0", 3);
+  const samples = h.events.filter((event) => event.type === "usage.updated");
+  expect(samples.at(-1)?.inputTokens).toBe(1026);
+  expect(
+    h
+      .items()
+      .filter(
+        (item) => item.type === "notice" && item.text.includes("accounting capacity reached"),
+      ),
+  ).toHaveLength(1);
+});
+
+test("older CLIs without receipt capability do not accumulate fictional queued work across many turns", () => {
+  const h = harness();
+  h.init();
+  for (let i = 0; i < 300; i++) {
+    h.send({ type: "user", uuid: `send-${i}`, message: { content: [] } }, "sdk", "send");
+    h.result({ uuid: `result-${i}` });
+  }
+  expect(h.state.status.state).toBe("done");
+  expect(h.state.queueCount).toBe(0);
+});
+
+test("SDK child usage with null cache metadata still reports ordinary activity", () => {
+  const h = harness();
+  h.init();
+  h.system("task_started", { task_id: "child", tool_use_id: "spawn", task_type: "local_agent" });
+  h.send({
+    type: "assistant",
+    parent_tool_use_id: "spawn",
+    message: {
+      id: "nullable-cache",
+      content: [],
+      usage: {
+        input_tokens: 5,
+        output_tokens: 1,
+        cache_read_input_tokens: null,
+        cache_creation_input_tokens: null,
+        cache_creation: null,
+      },
+    },
+  });
+  expect(h.events.filter((event) => event.type === "usage.updated")).toEqual([
+    expect.objectContaining({
+      inputTokens: 5,
+      outputTokens: 1,
+      cachedInputTokens: 0,
+      cacheWriteTokens: 0,
+      cacheWrite1hTokens: 0,
+    }),
+  ]);
 });

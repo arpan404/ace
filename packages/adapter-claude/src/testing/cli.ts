@@ -11,6 +11,7 @@ const write = (data: unknown) => console.log(JSON.stringify(data));
 const lines = createInterface({ input: process.stdin });
 let id = 0;
 let childText = false;
+let elicitationWaiting = false;
 const configIndex = process.argv.indexOf("--mcp-config");
 let mcp: Record<string, unknown> =
   configIndex >= 0
@@ -78,6 +79,17 @@ for await (const line of lines) {
                   : {},
       },
     });
+    if (request["subtype"] === "mcp_status" && elicitationWaiting)
+      write({
+        type: "assistant",
+        parent_tool_use_id: "waiting-child",
+        session_id: session,
+        message: {
+          id: "waiting-progress",
+          role: "assistant",
+          content: [{ type: "text", text: "Progress while you decide" }],
+        },
+      });
     if (request["subtype"] === "interrupt")
       write({
         type: "result",
@@ -94,6 +106,40 @@ for await (const line of lines) {
     write({ type: "system", subtype: "init", session_id: session, cwd: process.cwd() });
     write({ type: "system", subtype: "fake_input", input: data });
     if (text === "crash") process.exit(3);
+    if (text === "task-churn") {
+      for (let n = 0; n < 2000; n++) {
+        write({
+          type: "system",
+          subtype: "task_started",
+          task_id: `finished-${n}`,
+          tool_use_id: `spawn-${n}`,
+          task_type: "local_agent",
+        });
+        write({
+          type: "system",
+          subtype: "task_notification",
+          task_id: `finished-${n}`,
+          status: "completed",
+        });
+      }
+      write({
+        type: "system",
+        subtype: "task_started",
+        task_id: "live-after-churn",
+        tool_use_id: "live-spawn",
+        task_type: "local_bash",
+        is_backgrounded: true,
+      });
+    }
+    if (text === "task-capacity") {
+      for (let n = 0; n < 513; n++)
+        write({
+          type: "system",
+          subtype: "task_started",
+          task_id: `live-${n}`,
+          task_type: "local_bash",
+        });
+    }
     if (text === "future") {
       console.log("malformed JSON");
       console.log("null");
@@ -136,6 +182,44 @@ for await (const line of lines) {
           },
           session_id: session,
         });
+    }
+    if (text === "completed-ancestor" || text === "late-descendant") {
+      for (const [task_id, tool_use_id, parent] of [
+        ["ancestor", "top", ""],
+        ["middle", "middle-spawn", "top"],
+        ["descendant", "leaf", "middle-spawn"],
+      ]) {
+        if (text === "late-descendant" && task_id === "descendant")
+          write({
+            type: "system",
+            subtype: "task_notification",
+            task_id: "middle",
+            status: "completed",
+          });
+        write({
+          type: "assistant",
+          parent_tool_use_id: parent || null,
+          message: {
+            id: tool_use_id,
+            role: "assistant",
+            content: [{ type: "tool_use", id: tool_use_id, name: "Agent", input: {} }],
+          },
+        });
+        write({
+          type: "system",
+          subtype: "task_started",
+          task_id,
+          tool_use_id,
+          task_type: "local_agent",
+        });
+      }
+      write({
+        type: "system",
+        subtype: "task_notification",
+        task_id: "middle",
+        status: "completed",
+      });
+      write({ type: "system", subtype: "ancestry-ready" });
     }
     if (text === "nested-tasks") {
       for (const [task_id, tool_use_id] of [
@@ -183,6 +267,15 @@ for await (const line of lines) {
     }
     if (["form", "url", "elicitation-cancel", "dialog"].includes(text)) {
       const requestId = `request-${++id}`;
+      elicitationWaiting = text !== "dialog";
+      if (elicitationWaiting)
+        write({
+          type: "system",
+          subtype: "task_started",
+          task_id: "waiting-child-task",
+          tool_use_id: "waiting-child",
+          task_type: "local_agent",
+        });
       write({
         type: "control_request",
         request_id: requestId,
@@ -269,6 +362,7 @@ for await (const line of lines) {
         session_id: session,
       });
   } else if (data["type"] === "control_response") {
+    elicitationWaiting = false;
     write({ type: "system", subtype: "fake_resolution", response: data["response"] });
     write({
       type: "result",
