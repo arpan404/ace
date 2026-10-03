@@ -2,6 +2,8 @@
 
 Base: `4c2d6fb10115d2bb16dfa6191f812de6f79860de` (`origin/main`). Branch: `integration/train-1`.
 
+Four documentation-only main commits through `b69a26f` were merged after feature integration; no runtime source changed in that synchronization. Their provider SDK decisions and migration proposals remain separate implementation work.
+
 All 18 requested heads were fetched and merged in the requested order. None was already included in the base. Every final merge commit passes typecheck. No provider prompts or fixture recording were used.
 
 ## Included changes and conflict decisions
@@ -35,7 +37,7 @@ Exports, dependencies, NOTICE paragraphs and process-suite memberships were unio
 
 `apps/daemon/src/services/` owns ordered startup factories and per-socket service registration. Each feature module registers its own message handling, command types and scope checks. The server iterates those registrations. Engine and review commands have explicit routes; unknown orchestration/conductor commands return `not_implemented` without becoming provider intents. Transport authentication, replay, indexed reads and admission remain in the transport shell.
 
-Resources register their disposer immediately after opening. Shutdown closes request admission first, drains queued service work and maintenance, then closes services and Store in reverse ownership order. Cleanup attempts every registered disposer even if another fails. Diagnostics sampling remains disconnectable: arbitrary injected sampling promises do not block socket shutdown.
+Resources register their disposer immediately after opening. Feature-owned admission hooks run synchronously when shutdown begins, before waiting on transport or another service. Plugin preparations accepted earlier drain and reject publication during shutdown. Shutdown closes request admission first, drains queued service work and maintenance, then closes services and Store in reverse ownership order. Cleanup attempts every registered disposer even if another fails. Diagnostics sampling remains disconnectable: arbitrary injected sampling promises do not block socket shutdown.
 
 Default discovery registers installed Claude, Codex, OpenCode and Cursor adapters. Adapter imports happen only after discovery finds that provider. The daemon owns discovered adapters, including OpenCode's shared server, and closes provider sessions before adapters. An explicitly injected registry retains caller ownership. Generic ACP and experimental Antigravity need an explicit user-installed command/registry.
 
@@ -78,12 +80,23 @@ The first full gate exposed integration regressions and invalid fixtures. Focuse
 - Reserve Codex recovery capacity for admitted children so unknown timer floods cannot occupy every RPC slot.
 - Preserve child repository filter ownership when staging HEAD-seeded ignored nested repositories. Discovery also checks tracked leaf paths replaced by repository directories, preserving administrative data and safety checkpoints under hidden index flags. The deletion race fixture handles an already-written release marker.
 - Retry transient macOS readlink errors during atomic pointer replacement only while the path remains a symlink; malformed regular pointers still fail.
+- Signal only a spawned, live supervisor child with a positive PID. An injected asynchronous spawn failure previously signaled the runner process group during cleanup, terminating full gates. The unchanged spawn-failure, recovery and packaged supervisor regressions now pass.
 - Collect CLI probe bytes without synthetic newlines, preserving exact UTF-8 limits and cancellation.
+- Recover missing-directory settings changes with bounded stat polling until the actual parent can be watched. A deterministic native-notification-loss regression and the existing real watcher assertions keep the original timeout.
 - Keep read-only diagnostics available while draining. Prevent revoked commands from passing an asynchronous admission boundary.
 - Stage Playwright and the Claude SDK intact, with license inputs. Bundle the integrated review, history, usage, browser encoding and workspace helper processes at their runtime paths. The standalone daemon smoke test runs without a checkout.
+- Update the remote paging fixture for indexed text source descriptors while retaining exact private text assertions and checking the advertised source bytes over the authenticated socket.
 - Align fixtures with the settled interaction-close, empty-child-bucket and native MCP cwd contracts. Preserve every legacy MCP argument at the JSON byte limit. Inject invalid cache stdout through base64 arguments so NUL bytes reach the decoder.
 - Preserve printf escapes through nested terminal scripts and disable history expansion in their controlled Bash profile. Keeper, shell and pinned background-job exit assertions remain unchanged.
 
 ## Gate evidence
 
-Pending final full-suite results. Local runtime: Node 26.8.1, Bun 1.4.0. Vitest retains the repository's two-worker cap. Process tests use fake provider boundaries and recorded fixtures; no recorder or provider prompts are permitted.
+The full `bun run check` passed with exit code 0: formatting, lint, file-size checks, every workspace typecheck and the complete Vitest run. All 1,301 source files are within the 1,500-line limit.
+
+```text
+Test Files  407 passed | 6 skipped (413)
+     Tests  2699 passed | 10 skipped (2709)
+  Duration  296.41s
+```
+
+The skips are existing conditional suites; no test was newly skipped to clear the gate. The separate confirmation run is recorded in the PR's validation output. Local runtime: Node 26.8.1, Bun 1.4.0. Vitest retains the repository's two-worker cap. Process tests use fake provider boundaries and recorded fixtures; no recorder or provider prompts were used.

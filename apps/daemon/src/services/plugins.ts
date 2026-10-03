@@ -20,6 +20,7 @@ export async function startPlugins(context: ServiceContext): Promise<void> {
   const launches = new PluginLaunches((provider, root, options) =>
     launchPluginProcess(plugins, provider, root, options),
   );
+  resources.onShutdown(() => launches.stopAdmission());
   resources.own(() => launches.close());
   services.plugins = new PluginService(plugins);
   services.preparePlugins = (provider, root) => preparePluginSession(plugins, provider, root);
