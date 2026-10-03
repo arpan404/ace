@@ -1622,7 +1622,7 @@ Example:
 {
   "kind": "native",
   "metadata": {},
-  "provider": "opencode",
+  "provider": "cursor",
   "text": "example"
 }
 ```
@@ -1640,7 +1640,7 @@ Example:
 ```json
 {
   "kind": "prompt",
-  "provider": "cursor",
+  "provider": "antigravity",
   "text": "example"
 }
 ```
@@ -3188,7 +3188,7 @@ Example:
     "installationId": "example",
     "nativeId": "example",
     "path": "example",
-    "provider": "acp"
+    "provider": "pi"
   },
   "sourceId": "example"
 }
@@ -4026,7 +4026,7 @@ Example:
   "agentId": "example",
   "input": {
     "name": "example",
-    "provider": "antigravity",
+    "provider": "acp",
     "task": "example"
   },
   "sessionId": "example",
@@ -4552,6 +4552,91 @@ Example:
 }
 ```
 
+## PiControlRequest
+
+[JSON Schema](schema/PiControlRequest.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"pi.control"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| operation | yes | union | {"oneOf":[{"type":"object","properties":{"kind":{"type":"string","const":"profile"}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"fork"},"entryId":{"type":"string","minLength":1,"maxLength":128}},"required":["kind"]},{"type":"object","properties":{"kind":{"type":"string","const":"rollback"},"entryId":{"type":"string","minLength":1,"maxLength":128}},"required":["kind","entryId"]}]} |
+
+Example:
+
+```json
+{
+  "operation": {
+    "kind": "profile"
+  },
+  "requestId": "example",
+  "threadId": "example",
+  "type": "pi.control"
+}
+```
+
+## PiControlResult
+
+[JSON Schema](schema/PiControlResult.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"pi.result"` |  |
+| requestId | yes | string | {"minLength":1,"maxLength":128} |
+| result | yes | union | {"oneOf":[{"type":"object","properties":{"ok":{"type":"boolean","const":true},"nativeSessionId":{"type":"string"},"profile":{"$ref":"https://ace.local/protocol/v1/PiProfile.json"}},"required":["ok"]},{"type":"object","properties":{"ok":{"type":"boolean","const":false},"error":{"type":"string","maxLength":1024}},"required":["ok","error"]}]} |
+
+Example:
+
+```json
+{
+  "requestId": "example",
+  "result": {
+    "error": "example",
+    "ok": false
+  },
+  "type": "pi.result"
+}
+```
+
+## PiPermissionMode
+
+[JSON Schema](schema/PiPermissionMode.json), input validation.
+
+Type: ["unrestricted","read_only","supervised","auto_accept_edits"]. See JSON Schema for constraints.
+
+Example:
+
+```json
+"read_only"
+```
+
+## PiProfile
+
+[JSON Schema](schema/PiProfile.json), input validation.
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| version | yes | string |  |
+| supported | yes | boolean |  |
+| rollbackConversation | yes | boolean |  |
+| extensionDialogs | yes | boolean |  |
+| mcpExtension | yes | boolean |  |
+| permissions | yes | array | {"items":{"$ref":"https://ace.local/protocol/v1/PiPermissionMode.json"}} |
+
+Example:
+
+```json
+{
+  "extensionDialogs": true,
+  "mcpExtension": false,
+  "permissions": [],
+  "rollbackConversation": false,
+  "supported": false,
+  "version": "example"
+}
+```
+
 ## PluginClientMessage
 
 [JSON Schema](schema/PluginClientMessage.json), input validation.
@@ -4567,8 +4652,10 @@ Example:
 ```json
 {
   "request": {
-    "name": "y",
-    "type": "plugins.update"
+    "name": "g3iikc5fje",
+    "ref": "example",
+    "repository": "example",
+    "type": "plugins.prepare"
   },
   "requestId": "example",
   "type": "pluginRequest"
@@ -4584,7 +4671,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"7b30c966ddeb7cdcbe96fe3f5379fb76f4523f73"
+"e96fe3f5379fb76f4523f73874cabbb384c190f2"
 ```
 
 ## PluginExecution
@@ -4606,7 +4693,8 @@ Example:
 {
   "command": "example",
   "event": "example",
-  "kind": "hook"
+  "kind": "hook",
+  "matcher": "example"
 }
 ```
 
@@ -4630,7 +4718,7 @@ Example:
   "cwd": "example",
   "env": {},
   "kind": "stdio",
-  "name": "4be"
+  "name": "7"
 }
 ```
 
@@ -4650,8 +4738,8 @@ Example:
 {
   "headers": {},
   "kind": "remote",
-  "name": "dzfs-qnua9nb",
-  "type": "sse",
+  "name": "4",
+  "type": "http",
   "url": "example"
 }
 ```
@@ -4665,7 +4753,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"e9cb467d45672e639f60a117ba28b1bc2692dc9a92a4ef18dda8645c9ad80385"
+"cb467d45672e639f60a117ba28b1bc2692dc9a92a4ef18dda8645c9ad8038548"
 ```
 
 ## PluginInstall
@@ -4684,10 +4772,10 @@ Example:
 
 ```json
 {
-  "acceptedAt": 8,
-  "commit": "e821dab3a4b3a96bfdf6918677927131d0de1625",
-  "hash": "0fb87457604523e11a8c8f568544dd729766bae34bb0fac178accc6efec1fa25",
-  "name": "yq8tufa4g",
+  "acceptedAt": 2,
+  "commit": "22ca6c7e821dab3a4b3a96bfdf6918677927131d",
+  "hash": "de162570fb87457604523e11a8c8f568544dd729766bae34bb0fac178accc6ef",
+  "name": "x",
   "version": "example"
 }
 ```
@@ -4703,7 +4791,7 @@ Type: string. See JSON Schema for constraints.
 Example:
 
 ```json
-"h"
+"f"
 ```
 
 ## PluginRequest
@@ -4721,7 +4809,7 @@ Example:
 
 ```json
 {
-  "name": "oqh6fhoaqs",
+  "name": "n",
   "type": "plugins.update"
 }
 ```
@@ -4737,7 +4825,7 @@ Example:
 
 ```json
 {
-  "id": "1ysOPKj2D--QfqOBTQPlhD47mJItTz0tHLpbCQxPR4Keuq67H2tbyuHftfeWQQxopilqcwiFoeYMcP",
+  "id": "V1nwASYCl1jmyaBF91ysOPKj2D--QfqOBTQPlhD47",
   "type": "plugins.cancel"
 }
 ```
@@ -4755,7 +4843,7 @@ Example:
 
 ```json
 {
-  "name": "y64paln",
+  "name": "hl1p5luv",
   "ref": "example",
   "repository": "example",
   "type": "plugins.prepare"
@@ -4775,9 +4863,9 @@ Example:
 
 ```json
 {
-  "commit": "a9ed7969c2e0629e9f48321fb9006627ef44eb49",
-  "hash": "3338422b85032026756f91ff6f70b836f5a1f9df2746246986949ef762e28874",
-  "id": "FFcEgobXKet5BlufeF5smp0pjmKBbiLE4FkqomswA4WflA468fJn",
+  "commit": "ebb6440ddcceafc1db63a4482760aff411a1bda6",
+  "hash": "bf80cfbb18edd7dcd30ac3182ceddef086bc0889b2d6a9ed7969c2e0629e9f48",
+  "id": "bCQxPR4Keuq67H2tbyuH",
   "type": "plugins.accept"
 }
 ```
@@ -4793,7 +4881,7 @@ Example:
 
 ```json
 {
-  "name": "uc9q1zi5so",
+  "name": "vnc.pq1",
   "type": "plugins.remove"
 }
 ```
@@ -4824,7 +4912,7 @@ Example:
 
 ```json
 {
-  "id": "WURVG5CaF0OH31",
+  "id": "G0quQPteP-BJKN5OGHf6RzMIzHX2RVw8BuuVu1Af5KWvRbFw9pvI1NWGRX86X9",
   "type": "plugins.readReview"
 }
 ```
@@ -4844,7 +4932,7 @@ Example:
 
 ```json
 {
-  "id": "QEqi5VfcertTPlvcQGVbJjzPF8WZvIIFTIEb2V-",
+  "id": "tt1WHtI663PKYUd7BTRo0EAkWURVG5CaF0OH31GEQEqi5VfcertTPlvcQGVbJjzPF8WZvIIFTIEb2V-",
   "type": "plugins.cancelled"
 }
 ```
@@ -5412,7 +5500,7 @@ Example:
 
 [JSON Schema](schema/ProviderKind.json), input validation.
 
-Type: ["claude","codex","opencode","cursor","antigravity","acp"]. See JSON Schema for constraints.
+Type: ["claude","codex","opencode","cursor","antigravity","acp","pi"]. See JSON Schema for constraints.
 
 Example:
 
@@ -9002,7 +9090,7 @@ Example:
 {
   "filters": {
     "after": 2,
-    "provider": "antigravity",
+    "provider": "acp",
     "status": "unresponsive",
     "workspaceId": "example"
   },
@@ -9625,7 +9713,7 @@ Example:
   "plugins.enabled": [],
   "plugins.preferences": {},
   "providers.coder.model": "example",
-  "providers.coder.provider": "antigravity",
+  "providers.coder.provider": "acp",
   "providers.coder.reasoningEffort": "medium",
   "providers.coder.tier": "default",
   "providers.default": "opencode",
@@ -9702,12 +9790,12 @@ Example:
       "instanceId": "example",
       "native": {
         "installationId": "example",
-        "provider": "cursor"
+        "provider": "antigravity"
       },
       "sourceId": "example"
     },
     "instanceId": "example",
-    "provider": "cursor",
+    "provider": "antigravity",
     "status": {
       "on": "network",
       "state": "waiting"
@@ -9922,7 +10010,7 @@ Example:
   },
   "createdAt": 6,
   "id": "example",
-  "provider": "cursor",
+  "provider": "antigravity",
   "status": {
     "state": "failed"
   },
@@ -9987,7 +10075,7 @@ Example:
   },
   "createdAt": 1,
   "id": "example",
-  "provider": "acp",
+  "provider": "pi",
   "status": {
     "interactions": 5,
     "state": "needs_you"

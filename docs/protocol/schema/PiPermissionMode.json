@@ -1,0 +1,11 @@
+{
+  "$id": "https://ace.local/protocol/v1/PiPermissionMode.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "unrestricted",
+    "read_only",
+    "supervised",
+    "auto_accept_edits"
+  ],
+  "type": "string"
+}

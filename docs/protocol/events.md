@@ -61,7 +61,7 @@ Example:
     "createdAt": 3,
     "id": "example",
     "installationId": "example",
-    "provider": "acp",
+    "provider": "pi",
     "status": {
       "state": "unresponsive"
     },
@@ -145,7 +145,7 @@ Example:
       "aliases": [],
       "installationId": "example",
       "instanceId": "example",
-      "provider": "acp"
+      "provider": "pi"
     },
     "origin": "root",
     "parentId": "example",

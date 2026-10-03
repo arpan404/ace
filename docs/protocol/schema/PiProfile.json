@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/PiProfile.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "extensionDialogs": {
+      "type": "boolean"
+    },
+    "mcpExtension": {
+      "type": "boolean"
+    },
+    "permissions": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PiPermissionMode.json"
+      },
+      "type": "array"
+    },
+    "rollbackConversation": {
+      "type": "boolean"
+    },
+    "supported": {
+      "type": "boolean"
+    },
+    "version": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "supported",
+    "rollbackConversation",
+    "extensionDialogs",
+    "mcpExtension",
+    "permissions"
+  ],
+  "type": "object"
+}
