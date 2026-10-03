@@ -3,13 +3,12 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { BrowserWindow } from "electron";
-import type { DeepLink, DesktopSettings } from "../shared/contract.ts";
-import { BrowserBackend, type ControllerState } from "./browser/backend.ts";
-import { BackendConnection } from "./browser/connection.ts";
-import { readDesktopCredential } from "./browser/credential.ts";
-import { EmbeddedViews } from "./browser/views.ts";
+import type { BrowserPlacement, DeepLink, DesktopSettings } from "../shared/contract.ts";
+import type { ControllerState } from "./browser/backend.ts";
+import type { BackendConnection } from "./browser/connection.ts";
+import type { EmbeddedViews } from "./browser/views.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
-import { DesktopLink } from "./link/desktop-link.ts";
+import type { DesktopLink } from "./link/desktop-link.ts";
 import { LinkKeeper, runtimeLinkSource, type Endpoint } from "./link/link-keeper.ts";
 import { NativeNotifier } from "./notifications/native.ts";
 import { NotificationRouter, type Alert } from "./notifications/router.ts";
@@ -38,15 +37,19 @@ const timers = {
  * The parts that keep working with every window closed: the daemon link (notifications,
  * badge, power save) and the tray. The embedded browser backend is here too, but it is only
  * offered while a window exists to draw its views in.
+ *
+ * The link (`@ace/client` and most protocol schemas) and the browser backend are loaded on
+ * first use, so neither delays the first window: the link when a daemon is first ready, the
+ * browser once a daemon is running and a window exists.
  */
 export class Background {
   readonly router: NotificationRouter;
   readonly attention: Attention;
   readonly tray: StatusTray;
-  readonly views: EmbeddedViews;
   private links: LinkKeeper<DesktopLink> | undefined;
-  private backend: BrowserBackend;
-  private browser: BackendConnection | undefined;
+  private browser: { connection: BackendConnection; views: EmbeddedViews } | undefined;
+  private browserLoad: Promise<void> | undefined;
+  private stopped = false;
   private notifier: NativeNotifier;
   private options: BackgroundOptions;
 
@@ -66,16 +69,6 @@ export class Background {
         void options.runtime.pause(paused).catch((error: unknown) => options.log(String(error))),
       quitAll: options.quitAll,
     });
-    this.views = new EmbeddedViews({
-      window: options.window,
-      platform: process.platform,
-      log: options.log,
-    });
-    this.backend = new BrowserBackend(this.views, {
-      onController: options.onController,
-      onTakeover: (threadId) => this.browser?.takeover(threadId),
-      log: options.log,
-    });
     this.notifier = new NativeNotifier({
       open: (link) => options.open(link),
       send: (command) =>
@@ -90,8 +83,10 @@ export class Background {
    * ready, however many failed starts came first. The fake target has no daemon to link to.
    */
   start(): void {
-    if (this.options.runtime.target.kind === "fake") return;
-    this.startBrowser();
+    const { runtime } = this.options;
+    if (runtime.target.kind === "fake" || this.stopped) return;
+    runtime.onStatus(() => this.loadBrowser());
+    this.loadBrowser();
     this.links = new LinkKeeper(
       runtimeLinkSource(this.options.runtime),
       (endpoint) => this.createLink(endpoint),
@@ -104,7 +99,8 @@ export class Background {
     return this.links?.link();
   }
 
-  private createLink(endpoint: Endpoint): DesktopLink {
+  private async createLink(endpoint: Endpoint): Promise<DesktopLink> {
+    const { DesktopLink } = await import("./link/desktop-link.ts");
     return new DesktopLink({
       url: endpoint.url,
       token: endpoint.token,
@@ -131,13 +127,44 @@ export class Background {
   /**
    * The embedded browser backend, on its own socket (never the notification link). It is
    * local only: the credential lives in the daemon's ACE_HOME, so a remote daemon gets none.
+   * Its code loads the first time a local daemon is running while a window exists.
    */
-  private startBrowser(): void {
+  private loadBrowser(): void {
     const { runtime } = this.options;
     const target = runtime.target;
+    if (this.browserLoad || this.stopped) return;
     if (target.kind !== "managed" && target.kind !== "attach") return;
-    const home = target.home;
-    const browser = new BackendConnection(this.backend, {
+    if (runtime.current().state !== "running" || !this.hasWindow()) return;
+    this.browserLoad = this.startBrowser(target.home).catch((error: unknown) =>
+      this.options.log(`Embedded browser backend: ${String(error)}`),
+    );
+  }
+
+  private async startBrowser(home: string): Promise<void> {
+    const [
+      { BrowserBackend },
+      { BackendConnection },
+      { readDesktopCredential },
+      { EmbeddedViews },
+    ] = await Promise.all([
+      import("./browser/backend.ts"),
+      import("./browser/connection.ts"),
+      import("./browser/credential.ts"),
+      import("./browser/views.ts"),
+    ]);
+    if (this.stopped) return;
+    const { runtime, log } = this.options;
+    const views = new EmbeddedViews({
+      window: this.options.window,
+      platform: process.platform,
+      log,
+    });
+    const backend = new BrowserBackend(views, {
+      onController: this.options.onController,
+      onTakeover: (threadId) => this.browser?.connection.takeover(threadId),
+      log,
+    });
+    const connection = new BackendConnection(backend, {
       daemon: async () => {
         const daemon = await runtime.local();
         return { url: daemon.url, token: daemon.token };
@@ -146,26 +173,36 @@ export class Background {
       socket: (url) => new WebSocket(url),
       timers,
       id: randomUUID,
-      log: this.options.log,
+      log,
     });
-    this.browser = browser;
-    browser.onState((state) => this.options.log(`Embedded browser backend: ${state}`));
+    this.browser = { connection, views };
+    connection.onState((state) => log(`Embedded browser backend: ${state}`));
     runtime.onStatus((status) => {
-      if (status.state === "running") browser.wake();
+      if (status.state === "running") connection.wake();
     });
     this.windowChanged();
   }
 
+  private hasWindow(): boolean {
+    const window = this.options.window();
+    return Boolean(window && !window.isDestroyed());
+  }
+
   /** Views need a window to draw in: offer the backend only while one exists. */
   windowChanged(): void {
-    const window = this.options.window();
-    this.browser?.setAvailable(Boolean(window && !window.isDestroyed()));
+    this.loadBrowser();
+    this.browser?.connection.setAvailable(this.hasWindow());
+  }
+
+  /** Draw (or hide) a thread's embedded view where the renderer's Browser panel is. */
+  placeBrowser(placement: BrowserPlacement): void {
+    this.browser?.views.place(placement);
   }
 
   /** The person asked for control of a thread's view (`human`) or gave it back. */
   browserControl(threadId: string, controller: "agent" | "human"): void {
-    if (controller === "human") this.browser?.takeover(threadId);
-    else this.browser?.handback(threadId);
+    if (controller === "human") this.browser?.connection.takeover(threadId);
+    else this.browser?.connection.handback(threadId);
   }
 
   /** Route an alert and show it if the rules allow; true when shown. */
@@ -190,12 +227,13 @@ export class Background {
 
   wake(): void {
     this.links?.wake();
-    this.browser?.wake();
+    this.browser?.connection.wake();
   }
 
   /** Quit: dropping the backend socket tells the daemon to pause or move its sessions. */
   async stop(): Promise<void> {
-    this.browser?.close();
+    this.stopped = true;
+    this.browser?.connection.close();
     await this.links?.close().catch(() => {});
     this.tray.hide();
   }

@@ -2,7 +2,8 @@ import { Notification } from "@ace/protocol";
 import type { z } from "zod";
 import { describe, expect, it } from "vitest";
 import { DesktopSettings } from "../../shared/contract.ts";
-import { actionCommand, alertFromDaemon, NotificationRouter, type Alert } from "./router.ts";
+import { actionCommand } from "./actions.ts";
+import { alertFromDaemon, NotificationRouter, type Alert } from "./router.ts";
 
 const defaults = DesktopSettings.parse({}).notifications;
 

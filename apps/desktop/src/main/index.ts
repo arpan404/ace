@@ -50,7 +50,7 @@ function isDirectory(path: string): boolean {
 
 function main(): void {
   const paths = appPaths({
-    appDirectory: __dirname,
+    appDirectory: import.meta.dirname,
     packaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     platform: process.platform,

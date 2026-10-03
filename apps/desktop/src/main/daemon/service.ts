@@ -1,10 +1,14 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { serviceCommand } from "@ace/service";
 import { z } from "zod";
 import type { SupervisorPorts } from "./supervisor.ts";
 
 const ServiceState = z.object({ active: z.boolean() });
+
+/** `ace service …` through @ace/service, loaded on first use (it also carries the updater). */
+async function serviceCommand(home: string, args: string[]): Promise<unknown> {
+  return (await import("@ace/service")).serviceCommand(home, args);
+}
 
 /**
  * The login service installed by `ace service install` (launchd or systemd --user). It is
