@@ -24,8 +24,12 @@ export class Sessions {
     const generation = ++actor.generation;
     try {
       const state = this.dependencies.repo.requireState(actor.id);
-      const { adapter, capabilities } = this.dependencies.registry.get(state.config.provider);
       const metadata = this.dependencies.repo.session(actor.id);
+      const backend = this.dependencies.repo.backend(actor.id);
+      const { adapter, capabilities } = this.dependencies.registry.get(
+        state.config.provider,
+        backend,
+      );
       if (metadata.nativeSessionId && !capabilities.resume)
         throw new Error("Provider cannot resume this thread");
       const rootKey = state.rootKey ?? "root";
@@ -38,7 +42,14 @@ export class Sessions {
         ...(metadata.model === undefined ? {} : { model: metadata.model }),
         ...(metadata.nativeSessionId === undefined
           ? {}
-          : { resume: { nativeSessionId: metadata.nativeSessionId } }),
+          : {
+              resume: {
+                nativeSessionId: metadata.nativeSessionId,
+                ...(backend ? { backend } : {}),
+                ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
+              },
+            }),
+        ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
         signal: lifetime.signal,
         onFrame: (frame) => actor.frame(frame, generation),
         onExit: (exit) =>
@@ -62,7 +73,25 @@ export class Sessions {
         throw new Error("Provider session closed while opening");
       }
       actor.session = session;
-      this.dependencies.repo.nativeSession(actor.id, session.nativeSessionId);
+      this.dependencies.repo.nativeSession(
+        actor.id,
+        session.nativeSessionId,
+        session.backend ??
+          adapter.backend ??
+          (state.config.provider === "cursor" ? "acp" : undefined),
+        session.instanceId,
+      );
+      this.dependencies.repo.store.appendEvents(
+        actor.id,
+        [
+          {
+            type: "thread.updated",
+            capabilities,
+            ...((session.backend ?? backend) ? { backend: session.backend ?? backend } : {}),
+          },
+        ],
+        this.dependencies.clock.now(),
+      );
       this.dependencies.wake(actor.id);
     } catch (error) {
       await actor.flush();

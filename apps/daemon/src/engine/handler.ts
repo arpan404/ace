@@ -1,3 +1,4 @@
+import { portableContext } from "@ace/context";
 import { realpathSync, statSync } from "node:fs";
 import { validResolution } from "./resolution.ts";
 import { createThreadState } from "@ace/core";
@@ -17,6 +18,7 @@ export function engineHandler(
   return {
     handle(command: Command): CommandResult {
       const p = command.payload;
+      let deliveryCommand = command;
       const fail = (error: string): CommandResult => ({ commandId: command.id, ok: false, error });
       if (
         ![
@@ -43,12 +45,48 @@ export function engineHandler(
           } catch {
             return fail("workspace_unavailable");
           }
+          const entry = registry.get(p.provider);
+          let handoff: ReturnType<typeof portableContext> | undefined;
+          if (p.handoffFrom) {
+            const source = repo.store.getThread(p.handoffFrom);
+            if (!source) return fail("handoff_source_not_found");
+            const page = repo.store.readItemPage(
+              p.handoffFrom,
+              Number.MAX_SAFE_INTEGER,
+              100,
+              262144,
+            );
+            handoff = portableContext(
+              {
+                threadId: source.id,
+                provider: source.provider,
+                ...(source.backend ? { backend: source.backend } : {}),
+              },
+              page.items,
+              { maxBytes: 65536, maxItems: 100, historyTruncated: page.itemsBefore !== null },
+            );
+            deliveryCommand = {
+              ...command,
+              payload: { ...p, input: [{ type: "text", text: handoff.text }, ...p.input] },
+            };
+          }
           const at = now();
           const thread = Thread.parse({
             id: nextId(),
             workspaceId: p.workspaceId,
             title: p.title ?? "New thread",
             provider: p.provider,
+            capabilities: entry.capabilities,
+            ...(entry.adapter.backend ? { backend: entry.adapter.backend } : {}),
+            ...(handoff && p.handoffFrom
+              ? {
+                  handoff: {
+                    sourceThreadId: p.handoffFrom,
+                    truncated: handoff.truncated,
+                    bytes: handoff.bytes,
+                  },
+                }
+              : {}),
             status: { state: "new" },
             createdAt: at,
             updatedAt: at,
@@ -67,7 +105,13 @@ export function engineHandler(
             },
           });
           repo.save(state, [{ type: "thread.created", thread }], at);
-          repo.createSession(threadId, cwd, p.model);
+          repo.createSession(
+            threadId,
+            cwd,
+            p.model,
+            registry.get(p.provider).adapter.backend ??
+              (p.provider === "cursor" ? "acp" : undefined),
+          );
         } else if ("threadId" in p) {
           threadId = p.threadId;
           if (p.type === "thread.archive") {
@@ -85,6 +129,15 @@ export function engineHandler(
             )
           )
             return fail("agent_not_found");
+          if (p.type === "thread.interrupt" && p.agentId !== undefined) {
+            const state = repo.requireState(threadId);
+            const entry = registry.get(state.config.provider, repo.backend(threadId));
+            if (
+              entry.capabilities.childControls === "read-only" &&
+              state.agents[state.rootKey ?? ""]?.agent.id !== p.agentId
+            )
+              return fail("unsupported_child_control");
+          }
         } else if (p.type === "interaction.resolve" || p.type === "background_task.stop") {
           for (const state of repo.states()) {
             if (p.type === "interaction.resolve") {
@@ -110,7 +163,7 @@ export function engineHandler(
             return fail(p.type === "interaction.resolve" ? "already_resolved" : "task_not_found");
         } else return fail("not_implemented");
         if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
-        repo.add(command, threadId, resolutionId);
+        repo.add(deliveryCommand, threadId, resolutionId);
         // Microtasks execute only after the enclosing receipt transaction commits.
         queueMicrotask(() => wake(threadId));
         return { commandId: command.id, ok: true };

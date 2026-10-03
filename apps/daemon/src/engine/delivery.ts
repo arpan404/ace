@@ -13,12 +13,16 @@ export async function executeIntent(
   const p = intent.command.payload;
   if (p.type === "thread.create" || p.type === "thread.send") {
     await sessions.open(actor);
-    const capabilities = registry.get(repo.requireState(actor.id).config.provider).capabilities;
+    const capabilities = registry.get(
+      repo.requireState(actor.id).config.provider,
+      repo.backend(actor.id),
+    ).capabilities;
     const session = actor.session;
     if (!session) throw new Error("Provider session exited before send");
     await session.send(
       p.input,
       p.type === "thread.send" && p.delivery === "steer" && capabilities.steer ? "steer" : "queue",
+      { operationId: intent.command.id },
     );
     return;
   }
@@ -26,7 +30,7 @@ export async function executeIntent(
   const state = repo.requireState(actor.id);
   if (p.type === "thread.interrupt") {
     const agent = p.agentId === undefined ? undefined : state.indexes.agentKeysById[p.agentId];
-    const { capabilities } = registry.get(state.config.provider);
+    const { capabilities } = registry.get(state.config.provider, repo.backend(actor.id));
     if (p.cascade && !capabilities.interruptCascades) {
       const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
       const descendants = (id: string): string[] =>

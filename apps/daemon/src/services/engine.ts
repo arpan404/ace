@@ -10,7 +10,29 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   }
   const engineOptions = options.engine ?? {};
   const registry =
-    engineOptions.registry ?? (await discoverAdapters(engineOptions.adapterDiscovery));
+    engineOptions.registry ??
+    (await discoverAdapters(engineOptions.adapterDiscovery, {
+      ...engineOptions.cursor,
+      mcp:
+        engineOptions.cursor?.mcp ??
+        (async (session) => {
+          const mcp = services.mcp;
+          const root = store.getThread(session.threadId)?.rootAgentId;
+          if (!mcp || !root) throw new Error("Cursor MCP caller is not available");
+          // SDK task children inherit HTTP headers without caller attribution. Until
+          // native child leases exist, expose only read tools to this shared lease.
+          const lease = mcp.openSession(
+            {
+              sessionId: `${session.instanceId}:${session.threadId}`,
+              threadId: session.threadId,
+              agentId: root,
+              capabilities: [],
+            },
+            session.signal,
+          );
+          return { connection: { url: mcp.url, bearer: lease.bearer }, end: () => lease.end() };
+        }),
+    }));
   if (!engineOptions.registry) resources.own(() => registry.close());
   const engine = new Engine(store, {
     ...engineOptions,

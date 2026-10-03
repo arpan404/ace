@@ -1,3 +1,4 @@
+import type { CursorAdapterOptions } from "@ace/adapter-cursor";
 import type { Config } from "../config.ts";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineOptions } from "../engine/index.ts";
@@ -13,7 +14,10 @@ import type { DaemonHistoryOptions } from "../history.ts";
 export type DaemonOptions = {
   config?: Config;
   handler?: CommandHandler | undefined;
-  engine?: EngineOptions & { adapterDiscovery?: typeof discoverProviders };
+  engine?: EngineOptions & {
+    adapterDiscovery?: typeof discoverProviders;
+    cursor?: CursorAdapterOptions;
+  };
   toolkits?: readonly Toolkit[];
   notificationChannels?: Omit<NotificationChannels, "websocket">;
   modelInstances?: readonly InstanceInput[];

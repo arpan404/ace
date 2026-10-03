@@ -282,7 +282,8 @@ export class Engine {
     const state = this.repo.requireState(intent.threadId);
     return (
       this.registry.has(state.config.provider) &&
-      this.registry.get(state.config.provider).capabilities.steer
+      this.registry.get(state.config.provider, this.repo.backend(intent.threadId)).capabilities
+        .steer
     );
   }
   private async steer(actor: ThreadActor): Promise<void> {

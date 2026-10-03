@@ -1,3 +1,6 @@
+import type { ProviderBackend, Frame } from "@ace/engine-api";
+import { z } from "zod";
+import { boundedJson } from "@ace/provider-kit/ipc";
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import { randomUUID } from "node:crypto";
 import { Command, ThreadId, type EventPayload } from "@ace/protocol";
@@ -233,12 +236,24 @@ export class EngineRepository {
       return row ? String(row.path) : undefined;
     });
   }
-  session(id: ThreadId): { cwd: string; model?: string; nativeSessionId?: string } {
+  session(id: ThreadId): {
+    cwd: string;
+    model?: string;
+    nativeSessionId?: string;
+    backend?: ProviderBackend;
+    instanceId?: string;
+  } {
     return this.store.atomic((db) => {
       const row = db.prepare("SELECT * FROM engine_sessions WHERE thread_id = ?").get(id);
       if (!row) throw new Error("Missing engine session metadata");
       return {
         cwd: String(row.cwd),
+        ...(row.backend == null
+          ? {}
+          : { backend: z.enum(["acp", "cursor-sdk"]).parse(row.backend) }),
+        ...(row.instance_id == null
+          ? {}
+          : { instanceId: z.string().min(1).max(256).parse(row.instance_id) }),
         ...(row.model === null ? {} : { model: String(row.model) }),
         ...(row.native_session_id === null
           ? {}
@@ -246,16 +261,50 @@ export class EngineRepository {
       };
     });
   }
-  createSession(id: ThreadId, cwd: string, model?: string): void {
-    this.store.atomic((db) =>
-      db.prepare("INSERT INTO engine_sessions VALUES (?, ?, ?, NULL)").run(id, cwd, model ?? null),
-    );
-  }
-  nativeSession(id: ThreadId, nativeId: string): void {
+  createSession(id: ThreadId, cwd: string, model?: string, backend?: ProviderBackend): void {
     this.store.atomic((db) =>
       db
-        .prepare("UPDATE engine_sessions SET native_session_id = ? WHERE thread_id = ?")
-        .run(nativeId, id),
+        .prepare(
+          "INSERT INTO engine_sessions (thread_id,cwd,model,native_session_id,backend) VALUES (?, ?, ?, NULL, ?)",
+        )
+        .run(id, cwd, model ?? null, backend ?? null),
+    );
+  }
+  nativeSession(
+    id: ThreadId,
+    nativeId: string,
+    backend?: ProviderBackend,
+    instanceId?: string,
+  ): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "UPDATE engine_sessions SET native_session_id = ?, backend = COALESCE(?,backend), instance_id = COALESCE(?,instance_id) WHERE thread_id = ?",
+        )
+        .run(nativeId, backend ?? null, instanceId ?? null, id),
+    );
+  }
+  backend(id: ThreadId): ProviderBackend | undefined {
+    const metadata = this.session(id);
+    if (metadata.backend) return metadata.backend;
+    return this.requireState(id).config.provider === "cursor" ? "acp" : undefined;
+  }
+  captureFrame(id: ThreadId, frame: Frame): void {
+    if (frame.channel !== "sdk") return;
+    const generation = z
+      .object({ generation: z.string().min(1).max(512) })
+      .parse(frame.data).generation;
+    const json = boundedJson({
+      seq: frame.seq,
+      t: frame.t,
+      dir: frame.dir,
+      channel: frame.channel,
+      data: frame.data,
+    });
+    this.store.atomic((db) =>
+      db
+        .prepare("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)")
+        .run(id, generation, frame.seq, json),
     );
   }
 }

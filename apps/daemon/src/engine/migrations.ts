@@ -9,6 +9,7 @@ export function migrateEngine(db: DatabaseSync): void {
   const row = db.prepare("SELECT version FROM engine_schema_version WHERE id=1").get();
   if (row) {
     requireEngineVersion(row);
+    migrateBackendMetadata(db);
     return;
   }
   const legacy = db
@@ -48,4 +49,22 @@ export function migrateEngine(db: DatabaseSync): void {
   );
   CREATE INDEX engine_state_appends_by_key ON engine_state_appends(thread_id,section,key,id);`);
   db.prepare("INSERT INTO engine_schema_version VALUES (1, ?)").run(engineSchemaVersion);
+  migrateBackendMetadata(db);
+}
+
+/** Additive migration preserves pre-SDK native IDs; NULL on old Cursor records means ACP. */
+function migrateBackendMetadata(db: DatabaseSync): void {
+  const columns = new Set(
+    db
+      .prepare("PRAGMA table_info(engine_sessions)")
+      .all()
+      .map((row) => String(row.name)),
+  );
+  if (!columns.has("backend")) db.exec("ALTER TABLE engine_sessions ADD COLUMN backend TEXT");
+  if (!columns.has("instance_id"))
+    db.exec("ALTER TABLE engine_sessions ADD COLUMN instance_id TEXT");
+  db.exec(`CREATE TABLE IF NOT EXISTS engine_provider_frames (
+    thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE, generation TEXT NOT NULL, seq INTEGER NOT NULL,
+    frame JSON NOT NULL, PRIMARY KEY(thread_id,generation,seq)
+  )`);
 }

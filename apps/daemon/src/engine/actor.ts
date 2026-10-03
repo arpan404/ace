@@ -2,6 +2,8 @@ import { nextDeadline, type Fact } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId } from "@ace/protocol";
 import { z } from "zod";
+import { ProviderPayload } from "@ace/provider-kit/payload";
+import { boundedJson } from "@ace/provider-kit/ipc";
 import type { EngineLimits } from "./limits.ts";
 import type { EngineRepository } from "./repository.ts";
 
@@ -11,6 +13,7 @@ const frameSchema = z.object({
   dir: z.enum(["send", "recv", "stderr", "note"]),
   channel: z.string(),
   data: z.unknown(),
+  payload: z.custom<ProviderPayload>(ProviderPayload.is).optional(),
 });
 export interface EngineClock {
   now(): number;
@@ -134,7 +137,12 @@ export class ThreadActor {
     const decoded = result.data;
     let bytes: number;
     try {
-      bytes = Buffer.byteLength(JSON.stringify(decoded));
+      const payload = decoded.payload;
+      if (decoded.channel === "sdk" && (!payload || payload.data !== decoded.data))
+        throw new Error("SDK frame lacks matching encoded admission certificate");
+      bytes = payload && payload.data === decoded.data
+        ? payload.bytes + 512
+        : Buffer.byteLength(boundedJson(decoded, this.limits.maxFrameBytes));
     } catch (error) {
       this.enqueue(() => {
         throw error;
@@ -145,9 +153,15 @@ export class ThreadActor {
       if (generation !== this.generation) return;
       const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
       this.repo.store.atomic(() => {
+        this.repo.captureFrame(this.id, decoded);
         this.apply(facts);
         this.syncQueue();
       });
+      if (
+        decoded.channel === "sdk" &&
+        facts.some((fact) => fact.type === "process.exited" && !fact.deliberate)
+      )
+        this.lifetime?.abort();
       this.wake();
     }, bytes);
   }

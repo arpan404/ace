@@ -282,6 +282,11 @@ export class Store {
       workspaceId: row.workspace_id,
       title: row.title,
       provider: row.provider,
+      ...(row.provider_metadata == null
+        ? {}
+        : Thread.pick({ backend: true, capabilities: true, handoff: true }).parse(
+            JSON.parse(String(row.provider_metadata)),
+          )),
       status: JSON.parse(String(row.status)),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -333,13 +338,18 @@ export class Store {
         }
         updateThread(thread, event);
         this.statement(
-          "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ? WHERE id = ?",
+          "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ?, provider_metadata = ? WHERE id = ?",
         ).run(
           thread.title,
           JSON.stringify(thread.status),
           thread.updatedAt,
           thread.archivedAt ?? null,
           thread.rootAgentId ?? null,
+          JSON.stringify({
+            backend: thread.backend,
+            capabilities: thread.capabilities,
+            handoff: thread.handoff,
+          }),
           thread.id,
         );
         event.payload = this.payloads.cap(event.payload, threadId);
