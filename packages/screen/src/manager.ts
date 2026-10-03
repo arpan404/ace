@@ -8,6 +8,7 @@ import {
   ScreenTarget,
   ScreenUIActOptions,
   ScreenInput,
+  ScreenCapabilities,
   type ScreenState,
 } from "@ace/protocol";
 import { type Frame, type FrameSink } from "./frames.ts";
@@ -132,6 +133,7 @@ export class ScreenManager {
       const id = this.options.nextId();
       if (this.sessions.has(id)) throw new Error("Duplicate session id");
       helper = await this.host.open();
+      if (helper.capabilities && ((target.kind === "display" && !helper.capabilities.capture.displays) || (target.kind !== "display" && !helper.capabilities.capture.windows))) throw new Error("Helper does not support capture target");
       session = createSession(
         helper,
         id,
@@ -170,7 +172,14 @@ export class ScreenManager {
       if (helper.capabilities?.platform === "windows") {
         await helper.requestV2({ ...start, captureGeneration: session.pixels.startGeneration() });
         await session.pixels.initialize();
-      } else await helper.request(start);
+      } else {
+        const result = await helper.request(start);
+        if (helper.capabilities?.platform.startsWith("linux")) {
+          if (!result || typeof result !== "object" || !("capabilities" in result)) throw new Error("Missing capture capabilities");
+          helper.capabilities = ScreenCapabilities.parse(result.capabilities);
+          session.state.capabilities = helper.capabilities;
+        }
+      }
       this.authorize(target);
       if (epoch !== this.policy.epoch || session.state.lifecycle !== "starting")
         throw new Error("Screen start cancelled");
@@ -208,21 +217,25 @@ export class ScreenManager {
   subscribe(id: string, sink: FrameSink): () => void {
     const session = this.live(id);
     const lease = session.pixels.acquire();
+    session.viewers++;
+    session.hadViewer = true;
+    let released = false;
+    const release = () => { if (released) return; released = true; lease.release(); session.viewers--; this.releaseUnused(session); };
     try {
       const stop = session.hub.subscribe(async (frame) => {
         try {
           await sink(frame);
         } catch (error) {
-          lease.release();
+          release();
           throw error;
         }
       }, session.latest);
       return () => {
         stop();
-        lease.release();
+        release();
       };
     } catch (error) {
-      lease.release();
+      release();
       throw error;
     }
   }
@@ -235,7 +248,7 @@ export class ScreenManager {
   async captureScreenshot(id: string): Promise<Frame> {
     const session = this.live(id);
     this.authorize(session.state.target);
-    if (!session.helper.capabilities) return this.screenshot(id);
+    if (!session.helper.capabilities || session.helper.capabilities.platform.startsWith("linux")) return this.screenshot(id);
     return session.pixels.screenshot(
       this.options.scheduler ?? nodeScheduler,
       this.options.timeoutMs ?? 10_000,
@@ -249,15 +262,16 @@ export class ScreenManager {
     const session = this.live(id);
     this.authorize(session.state.target);
     const epoch = session.epoch;
+    const originalOwner = session.owner;
     const result = await read(session);
-    if (owner !== undefined && (session.owner !== owner || session.epoch !== epoch))
+    if (owner !== undefined && (session.owner !== originalOwner || session.epoch !== epoch))
       throw new Error("Controller ownership changed during UI read");
     this.authorize(session.state.target);
     if (session.state.lifecycle !== "live") throw new Error("Screen session is not live");
     return result;
   }
   uiTree(id: string, options: unknown, owner?: string) {
-    if (owner !== undefined && this.live(id).owner !== owner)
+    if (owner !== undefined && !this.live(id).helper.capabilities?.platform.startsWith("linux") && this.live(id).owner !== owner)
       throw new Error("Controller ownership required");
     return this.readUI(
       id,
@@ -266,7 +280,7 @@ export class ScreenManager {
     );
   }
   uiFind(id: string, options: unknown, owner?: string) {
-    if (owner !== undefined && this.live(id).owner !== owner)
+    if (owner !== undefined && !this.live(id).helper.capabilities?.platform.startsWith("linux") && this.live(id).owner !== owner)
       throw new Error("Controller ownership required");
     return this.readUI(
       id,
@@ -287,6 +301,9 @@ export class ScreenManager {
       if (!session.helper.capabilities) throw new Error("V2 input not supported by helper");
       return session.helper.request({ op: "input", input });
     });
+  }
+  async namedKey(id: string, input: {key: string; modifiers: ("control"|"shift"|"alt"|"meta"|"super"|"command"|"option")[]}, owner: string): Promise<void> {
+    await this.input(id, "agent", {kind: "key.press", ...input}, owner);
   }
   screenshotFresh(id: string): Promise<Frame> {
     return this.captureScreenshot(id);
@@ -318,6 +335,14 @@ export class ScreenManager {
     const session = this.live(id);
     Object.assign(session, takeControl(session, controller, owner));
     this.emit(session);
+    this.releaseUnused(session);
+  }
+  private releaseUnused(session: Session): void {
+    if (!session.helper.capabilities?.platform.startsWith("linux") || !session.hadViewer || session.viewers || session.state.controller === "agent" || session.recording || session.recordingStarting || session.releasing || session.state.lifecycle !== "live") return;
+    session.releasing = true;
+    void session.actionTail.then(async () => {
+      if (!session.viewers && session.state.controller !== "agent" && !session.recording && !session.recordingStarting && session.state.lifecycle === "live") await this.stop(session.state.sessionId);
+    }).catch(() => {}).finally(() => { session.releasing = false; });
   }
   async action(
     id: string,
@@ -326,9 +351,18 @@ export class ScreenManager {
     owner = "local",
   ): Promise<void> {
     const action = ScreenAction.parse(input);
-    await this.execute(id, actor, owner, (session) =>
-      session.helper.request({ op: "action", action }),
-    );
+    await this.execute(id, actor, owner, async (session) => {
+      if (!session.helper.capabilities?.platform.startsWith("linux")) return session.helper.request({ op: "action", action });
+      const scale = session.latest?.header.scale ?? 1;
+      switch (action.kind) {
+        case "click": return session.helper.requestV2({op: "pointer.click", x: action.x / scale, y: action.y / scale, button: action.button});
+        case "type": return session.helper.requestV2({op: "text.type", text: action.text});
+        case "scroll":
+          await session.helper.requestV2({op: "pointer.move", x: action.x / scale, y: action.y / scale});
+          return session.helper.requestV2({op: "scroll", dx: action.deltaX, dy: action.deltaY});
+        case "key": throw new Error("Use a named key on protocol v2 helpers");
+      }
+    });
   }
   private async execute(
     id: string,
@@ -448,7 +482,7 @@ export class ScreenManager {
       if (session.recording || session.completedRecording) await this.stopRecording(session.state.sessionId);
     } catch (error) { errors.push(error); }
     finally { this.sessions.delete(session.state.sessionId); }
-    if (errors.length) throw new AggregateError(errors, "Screen stop failed");
+    if (errors.length) throw new AggregateError(errors, errors.map(error => error instanceof Error ? error.message : "Screen stop failed").join("; "));
   }
   async close(): Promise<void> {
     await this.enable(false);

@@ -44,7 +44,7 @@ export const ScreenCapabilities = z.object({
     screen: z.enum(["granted", "denied", "prompt", "n/a"]),
     input: z.enum(["granted", "denied", "prompt", "n/a"]),
   }),
-});
+}).passthrough();
 export type ScreenCapabilities = z.infer<typeof ScreenCapabilities>;
 export const ScreenRect = z.object({
   x: z.number().finite(),
@@ -140,7 +140,7 @@ export const ScreenUIFindResult = z.object({
 });
 export const ScreenUIActResult = z.object({
   fallback: z.boolean(),
-  method: z.literal("input").optional(),
+  method: z.string().max(64).optional(),
   boundsCentre: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
 });
 export type ScreenUITreeResult = z.infer<typeof ScreenUITreeResult>;
@@ -148,7 +148,7 @@ export type ScreenUIFindResult = z.infer<typeof ScreenUIFindResult>;
 export type ScreenUIActOptions = z.infer<typeof ScreenUIActOptions>;
 const point = { x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() };
 const modifiers = z
-  .array(z.enum(["command", "shift", "option", "control", "alt", "meta"]))
+  .array(z.enum(["command", "shift", "option", "control", "alt", "meta", "super"]))
   .max(4)
   .default([]);
 export const ScreenInput = z.discriminatedUnion("kind", [
@@ -214,7 +214,7 @@ export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
     active: z.boolean(),
     captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   }),
-  Envelope.extend({ op: z.literal("ui.tree"), target: ScreenTarget, allowlist: z.array(ScreenBundle).max(64), ...ScreenUITreeOptions.shape }),
+  Envelope.extend({ op: z.literal("ui.tree"), target: ScreenTarget.optional(), allowlist: z.array(ScreenBundle).max(64), ...ScreenUITreeOptions.shape }),
   Envelope.extend({ op: z.literal("ui.find"), target: ScreenTarget.optional(), allowlist: z.array(ScreenBundle).max(64).optional(), ...ScreenUIFindOptions.shape }),
   Envelope.extend({ op: z.literal("ui.act"), target: ScreenTarget.optional(), allowlist: z.array(ScreenBundle).max(64).optional(), ...ScreenUIActOptions.shape }),
   Envelope.extend({
@@ -240,7 +240,7 @@ export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
     op: z.literal("key.press"),
     key: z.string().min(1).max(64),
     modifiers: z
-      .array(z.enum(["control", "shift", "alt", "meta"]))
+      .array(z.enum(["control", "shift", "alt", "meta", "super"]))
       .max(4)
       .default([]),
   }),
@@ -263,3 +263,10 @@ export const ScreenPermissionsV2 = z.object({
   screen: z.enum(["granted", "denied", "prompt", "n/a"]),
   input: z.enum(["granted", "denied", "prompt", "n/a"]),
 });
+
+export const ScreenUITreeInput = ScreenUITreeOptions;
+export const ScreenUIFindInput = ScreenUIFindOptions;
+export const ScreenUIActInput = ScreenUIActOptions;
+export const ScreenNamedKey = z.object({key: z.string().min(1).max(64), modifiers: z.array(z.enum(["control", "shift", "alt", "meta", "super", "super", "command", "option"])).max(4).default([])});
+export const ScreenTransportFrameHeader = z.union([ScreenFrameHeaderV2]);
+export type ScreenTransportFrameHeader = z.infer<typeof ScreenTransportFrameHeader>;

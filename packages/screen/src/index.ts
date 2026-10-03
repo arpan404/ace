@@ -17,3 +17,5 @@ export { HelperCommandError } from "./helper.ts";
 
 export { screenToolkit } from "./mcp.ts";
 export type { Scheduler } from "./runtime.ts";
+
+export { linuxBackend, installedLinuxHelper, type LinuxBackend } from "./linux.ts";

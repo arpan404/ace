@@ -15,6 +15,9 @@ export type Session = {
   actionTail: Promise<void>;
   queuedActions: number;
   recordingStarting: boolean;
+  viewers: number;
+  hadViewer: boolean;
+  releasing: boolean;
   stopping: Promise<void> | undefined;
   pixels: Pixels;
   recordingLease: { release(): void } | undefined;
@@ -38,6 +41,9 @@ export function createSession(
     actionTail: Promise.resolve(),
     queuedActions: 0,
     recordingStarting: false,
+    viewers: 0,
+    hadViewer: false,
+    releasing: false,
     stopping: undefined,
     recordingLease: undefined,
     pixels: new Pixels(helper, indicator, failure, nextGeneration),

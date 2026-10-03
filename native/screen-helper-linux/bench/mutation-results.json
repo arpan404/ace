@@ -1,0 +1,50 @@
+[
+  {
+    "behavior": "Wayland wins over XWayland",
+    "file": "policy.rs",
+    "mutation": "None if present(wayland) -> None if false && present(wayland)",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "behavior": "idle capture has no timer or repeated frames",
+    "file": "policy.rs",
+    "mutation": "self.dirty = false; -> self.dirty = true;",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "behavior": "damage is capped at requested fps",
+    "file": "policy.rs",
+    "mutation": "!self.dirty || now < self.deadline -> !self.dirty",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "behavior": "right edge is outside target",
+    "file": "policy.rs",
+    "mutation": "x >= f64::from(width) -> x > f64::from(width)",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "behavior": "portal pointer grants follow device bits",
+    "file": "policy.rs",
+    "mutation": "pointer: devices & 2 != 0 -> pointer: devices & 1 != 0",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "behavior": "RemoteDesktop v2 persistence is supported",
+    "file": "policy.rs",
+    "mutation": "persistent: version >= 2 -> persistent: version >= 3",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "behavior": "invalid fps cannot start capture",
+    "file": "protocol.rs",
+    "mutation": "!(1..=30).contains(&n) -> !(1..=31).contains(&n)",
+    "status": "not executed (tests run at merge)"
+  },
+  {
+    "behavior": "tree depth cannot exceed hard cap",
+    "file": "traversal.rs",
+    "mutation": "depth > 32 -> depth > 33",
+    "status": "not executed (tests run at merge)"
+  }
+]

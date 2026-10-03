@@ -1,3 +1,4 @@
+import { linuxBackend, installedLinuxHelper } from "./linux.ts";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { join, win32 } from "node:path";
@@ -6,9 +7,16 @@ import { dirname } from "node:path";
 import { ScreenManager } from "./manager.ts";
 /** Local daemon boundary. Each artifact has a small adjacent manifest for later indexing. */
 export function localScreenManager(helperPath: string, artifactDirectory: string): ScreenManager {
-  if (!["darwin", "win32"].includes(process.platform))
+  if (!["darwin", "win32", "linux"].includes(process.platform))
     throw new Error("No native helper for this platform");
+  const backend = process.platform === "linux" ? linuxBackend(process.env) : undefined;
   return new ScreenManager({
+    ...(backend ? {
+      protocolVersion: 2 as const,
+      expectedPlatform: backend === "x11" ? "linux-x11" as const : "linux-wayland" as const,
+      args: ["--backend", backend, "--restore-token", join(artifactDirectory, "portal", "restore-token")],
+      env: process.env,
+    } : {}),
     command: helperPath,
     ...(process.platform === "darwin"
       ? { prepare: () => installScreenHelper(helperPath, dirname(artifactDirectory)) }
@@ -29,6 +37,7 @@ export function screenHelperPath(
   dataDirectory: string,
   platform: NodeJS.Platform = process.platform,
 ): string {
+  if (platform === "linux") return installedLinuxHelper(dataDirectory, process.arch);
   if (platform === "win32")
     return win32.join(dataDirectory, "helpers", "screen", "ace-screen-helper-windows.exe");
   if (platform === "darwin")

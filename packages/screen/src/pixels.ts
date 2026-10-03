@@ -63,7 +63,7 @@ export class Pixels {
     };
   }
   private set(active: boolean): Promise<void> {
-    if (!this.helper.capabilities) return Promise.resolve();
+    if (!this.helper.capabilities || this.helper.capabilities.platform.startsWith("linux")) return Promise.resolve();
     this.desired = active;
     if (this.task) return this.task;
     if (this.actual === active || this.stopped) return Promise.resolve();
