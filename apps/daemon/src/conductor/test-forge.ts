@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 export function scriptedForge() {
   const publications: { number: number; branch: string; base: string }[] = [];
   let ci: "pending" | "success" = "pending";
+  let headOverride: string | undefined;
   let loseCreateResponse = false;
   const runner =
     (cwd: string): CommandRunner =>
@@ -21,7 +22,7 @@ export function scriptedForge() {
         draft: false,
         merged: false,
         mergeable: true,
-        head: { sha: revision, ref: publication.branch },
+        head: { sha: headOverride ?? revision, ref: publication.branch },
         base: { ref: publication.base },
       });
       let body: unknown = [];
@@ -78,6 +79,10 @@ export function scriptedForge() {
     publications,
     pass: () => {
       ci = "success";
+    },
+    passAt: (revision: string) => {
+      ci = "success";
+      headOverride = revision;
     },
     loseResponse: () => {
       loseCreateResponse = true;

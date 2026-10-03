@@ -308,7 +308,7 @@ describe("GitHub CLI boundary", () => {
 });
 
 describe("Deck publication recovery", () => {
-  it("finds the exact branch/base PR after remote creation without creating another", async () => {
+  it("looks up a remotely created PR by its exact branch and base", async () => {
     const fixtures = standard();
     const query = new URLSearchParams({
       state: "all",
@@ -333,7 +333,7 @@ describe("Deck publication recovery", () => {
     wrong[`repos/octo/ace/pulls?${query}`] = [{ body: [{ ...pr, base: { ref: "main" } }] }];
     const first = await setup(wrong);
     await expect(first.forge.findPr("deck/card", "main", signal())).rejects.toMatchObject({
-      code: "invalid_data",
+      kind: "invalid_data",
     });
     const ambiguous = standard();
     ambiguous[`repos/octo/ace/pulls?${query}`] = [
@@ -346,7 +346,7 @@ describe("Deck publication recovery", () => {
     ];
     const second = await setup(ambiguous);
     await expect(second.forge.findPr("deck/card", "main", signal())).rejects.toMatchObject({
-      code: "conflict",
+      kind: "conflict",
     });
   });
 });

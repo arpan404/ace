@@ -1,7 +1,10 @@
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { AgentId, InteractionId, ThreadId, type McpAttribution } from "@ace/protocol";
-import { deckFixture, git } from "./test-support.ts";
+import { deckFixture, git, closeDeckFixtures } from "./test-support.ts";
+import { ManualClock } from "../engine/test-support.ts";
 import { plan } from "./test-artifacts.ts";
+
+afterEach(closeDeckFixtures);
 
 // Not executed (tests run at merge). Scripted adapters never call provider CLIs.
 test("a Deck reaches done through attached real threads and integrates each card in its private branch", async () => {
@@ -83,7 +86,8 @@ test("a provider question appears in needsUser and answering its real interactio
 });
 
 test("cancel stops a lane and its streaming delegate_task subtree before publishing cancelled", async () => {
-  const h = await deckFixture({ hold: true, stallAfterMs: 1500 });
+  const clock = new ManualClock();
+  const h = await deckFixture({ hold: true, stallAfterMs: 1500, clock });
   expect(await h.startRun()).toMatchObject({ ok: true });
   await h.subscribe();
   await expect
@@ -114,8 +118,11 @@ test("cancel stops a lane and its streaming delegate_task subtree before publish
   expect((await h.read()).phase).toBe("running");
   await h.beginStream(child.childId);
   for (let index = 0; index < 10; index++) {
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    clock.advance(clock.now() + 1000);
     await h.stream(child.childId, " still working");
+    await h.daemon.engine?.flush();
+    // Socket snapshot is a public reconciliation milestone; no wall-clock sleep.
+    await h.read();
   }
   expect((await h.read()).needsUser).toEqual([]);
   expect(await h.commands({ type: "conductor.cancel", runId: h.runId })).toMatchObject({
