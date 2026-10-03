@@ -26,6 +26,7 @@ export function accessHttp(
     request.socket.remoteAddress ?? "unknown",
   maintenance?: MaintenanceGate,
   version = "development",
+  serviceStatus?: () => readonly import("./services/startup.ts").ServiceStatus[],
 ) {
   return (request: IncomingMessage, response: ServerResponse) => {
     void (async () => {
@@ -49,7 +50,12 @@ export function accessHttp(
       } else {
         auth.requireAdmin(actor());
         if (path === "/v1/status" && request.method === "GET")
-          result = { running: true, version, remote: pairing() ?? null };
+          result = {
+            running: true,
+            version,
+            remote: pairing() ?? null,
+            ...(serviceStatus ? { services: serviceStatus() } : {}),
+          };
         else if (path === "/v1/maintenance" && maintenance) {
           if (request.method === "POST") result = maintenance.enter();
           else if (request.method === "DELETE") result = maintenance.leave();

@@ -46,6 +46,7 @@ export async function startServer(options: ServerOptions): Promise<{
   maintenance: MaintenanceGate;
   url: string;
   notify(device: DeviceId, notification: Notification): boolean;
+  notificationDevices(): readonly DeviceId[];
   preview?: DaemonPreview;
   httpUrl: string;
   diagnosticsQueues(): { socketInput: number; healthRequests: number };
@@ -93,6 +94,7 @@ export async function startServer(options: ServerOptions): Promise<{
         options.pairingAddress,
         maintenance,
         options.version,
+        options.serviceStatus,
       ),
     ),
   );
@@ -108,6 +110,7 @@ export async function startServer(options: ServerOptions): Promise<{
             options.pairingAddress,
             undefined,
             options.version,
+            options.serviceStatus,
           ),
         ),
       )
@@ -532,6 +535,7 @@ export async function startServer(options: ServerOptions): Promise<{
           fingerprint: options.remote.identity.fingerprint,
         }
       : {}),
+    notificationDevices: () => [...receivers.keys()],
     notify(device, notification) {
       let delivered = false;
       for (const [socket, send] of receivers.get(device) ?? []) {

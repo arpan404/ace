@@ -15,78 +15,37 @@ import { startModels } from "./models.ts";
 import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
 import { startEngine } from "./engine.ts";
-import type { ServiceContext, Services } from "./types.ts";
-/** Ordered composition: provider sessions are admitted only after their services open. */
-export const serviceFactories = [
-  startScreen,
-  startAccounts,
-  startCommands,
-  startFiles,
-  startRelayKeys,
-  startPlugins,
-  startBrowser,
-  startContext,
-  startSettings,
-  startReview,
-  startHistory,
-  startUsage,
-  startModels,
-  startMcp,
-  startNotifications,
-  startAgentRegistry,
-  startEngine,
+import type { ServiceContext } from "./types.ts";
+import type { ServiceDefinition } from "./startup.ts";
+/** Dependencies are explicit; optional integration failures do not disable the engine. */
+export const serviceFactories: readonly ServiceDefinition[] = [
+  { name: "screen", phase: "core", requires: [], after: [], start: startScreen },
+  { name: "accounts", phase: "core", requires: [], after: [], start: startAccounts },
+  { name: "commands", phase: "core", requires: ["accounts"], after: [], start: startCommands },
+  { name: "files", phase: "core", requires: [], after: [], start: startFiles },
+  { name: "relay", phase: "core", requires: ["files"], after: [], start: startRelayKeys },
+  { name: "plugins", phase: "core", requires: [], after: [], start: startPlugins },
+  { name: "browser", phase: "core", requires: [], after: [], start: startBrowser },
+  { name: "settings", phase: "core", requires: [], after: [], start: startSettings },
+  { name: "models", phase: "core", requires: [], after: [], start: startModels },
+  { name: "mcp", phase: "core", requires: [], after: ["screen"], start: startMcp },
+  { name: "agentRegistry", phase: "core", requires: [], after: [], start: startAgentRegistry },
+  {
+    name: "engine",
+    phase: "core",
+    requires: [],
+    after: ["accounts", "plugins", "models", "mcp", "agentRegistry"],
+    start: startEngine,
+  },
+  { name: "context", phase: "listener", requires: [], after: [], start: startContext },
+  { name: "review", phase: "listener", requires: [], after: [], start: startReview },
+  { name: "history", phase: "listener", requires: [], after: [], start: startHistory },
+  { name: "usage", phase: "listener", requires: [], after: [], start: startUsage },
+  { name: "notifications", phase: "listener", requires: [], after: [], start: startNotifications },
 ];
-export function readyServices(services: Partial<Services>): Services {
-  const {
-    handler,
-    plugins,
-    preparePlugins,
-    launchPlugins,
-    browser,
-    context,
-    settings,
-    models,
-    mcp,
-    notifications,
-    review,
-    usage,
-  } = services;
-  if (
-    !handler ||
-    !plugins ||
-    !preparePlugins ||
-    !launchPlugins ||
-    !browser ||
-    !context ||
-    !settings ||
-    !models ||
-    !mcp ||
-    !notifications ||
-    !review ||
-    !usage
-  )
-    throw new Error("Incomplete daemon service composition");
-  return {
-    handler,
-    plugins,
-    preparePlugins,
-    launchPlugins,
-    browser,
-    context,
-    settings,
-    models,
-    mcp,
-    notifications,
-    review,
-    usage,
-    ...(services.agentRegistry ? { agentRegistry: services.agentRegistry } : {}),
-    ...(services.screen ? { screen: services.screen } : {}),
-    ...(services.accounts ? { accounts: services.accounts } : {}),
-    ...(services.commands ? { commands: services.commands } : {}),
-    ...(services.files ? { files: services.files } : {}),
-    ...(services.relay ? { relay: services.relay } : {}),
-    ...(services.engine ? { engine: services.engine } : {}),
-    ...(services.history ? { history: services.history } : {}),
-  };
+/** Public daemon access fails explicitly when a feature could not be initialized. */
+export function requireService<T>(service: T | undefined, name: string): T {
+  if (service === undefined) throw new Error(`Service ${name} is degraded`);
+  return service;
 }
 export type { ServiceContext };

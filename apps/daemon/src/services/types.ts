@@ -51,6 +51,7 @@ export interface Services {
   usage: ReturnType<typeof createDaemonUsage>;
 }
 export interface ServiceContext {
+  signal: AbortSignal;
   config: Config;
   options: DaemonOptions;
   store: Store;

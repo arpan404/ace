@@ -14,6 +14,8 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  /** Startup deadlines and scheduler are injected at the timer boundary. */
+  startup?: Partial<import("./startup.ts").StartupRuntime>;
   claude?: DaemonClaudeOptions;
   screen?: ScreenManager;
   commands?: DaemonCommandIntegration;
@@ -29,6 +31,10 @@ export type DaemonOptions = {
   handler?: CommandHandler | undefined;
   engine?: EngineOptions & { adapterDiscovery?: typeof discoverProviders };
   toolkits?: readonly Toolkit[];
+  /** Worker spawner is injectable without changing notification policy. */
+  notificationWorker?: ConstructorParameters<
+    typeof import("@ace/notify").NotificationWorker
+  >[0]["spawn"];
   notificationChannels?: Omit<NotificationChannels, "websocket">;
   modelInstances?: readonly InstanceInput[];
   workload?: HealthOptions["workload"];

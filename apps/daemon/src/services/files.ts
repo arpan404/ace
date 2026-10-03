@@ -18,6 +18,7 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
   if (config.workspaceRoot) {
     const eventStore = store;
     const workspaceRoot = await realpath(config.workspaceRoot);
+    owner.signal.throwIfAborted();
     const workspaceId = store.createWorkspace(config.workspaceRoot, basename(workspaceRoot));
     const artifactsDirectory = join(config.dataDir, "artifacts");
     await mkdir(artifactsDirectory, { recursive: true, mode: 0o700 });

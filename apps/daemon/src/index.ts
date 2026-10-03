@@ -11,10 +11,11 @@ import { logFields, createFileSink, createLogger, createHealthMonitor } from "@a
 import { readConfig } from "./config.ts";
 import { acquireLock, loadHostId, loadToken } from "./local-files.ts";
 import { remoteListener } from "./network.ts";
-import { startServer } from "./server.ts";
+import { startServer, type ServerOptions } from "./server.ts";
 import { Store } from "./store.ts";
 import { Resources } from "./services/resources.ts";
-import { serviceFactories, readyServices, type ServiceContext } from "./services/composition.ts";
+import { serviceFactories, requireService, type ServiceContext } from "./services/composition.ts";
+import { ServiceStartup, systemStartup } from "./services/startup.ts";
 import type { DaemonOptions } from "./services/options.ts";
 export type { DaemonOptions } from "./services/options.ts";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
@@ -76,13 +77,18 @@ export async function startDaemon(options: DaemonOptions = {}) {
     });
     resources.own(() => log.close());
     const serviceContext: ServiceContext = {
+      signal: new AbortController().signal,
       config,
       options,
       now: Date.now,
       id: randomUUID,
       log,
       resources,
-      services: {},
+      services: {
+        handler: {
+          handle: (command) => ({ commandId: command.id, ok: false, error: "engine_unavailable" }),
+        },
+      },
       onListen: [],
       store: new Store(join(config.dataDir, "events.sqlite"), (error) =>
         log.log("error", "Event subscriber failed", error),
@@ -108,13 +114,17 @@ export async function startDaemon(options: DaemonOptions = {}) {
       logs: log.stats,
     });
     resources.own(() => health.close());
-    for (const factory of serviceFactories) await factory(serviceContext);
-    const services = readyServices(serviceContext.services);
+    const startup = new ServiceStartup(serviceContext, { ...systemStartup, ...options.startup });
+    await startup.start(serviceFactories);
+    const services = serviceContext.services;
+    const handler = requireService(services.handler, "engine");
     const { token, tokenPath } = loadToken(config.dataDir);
     const hostId = loadHostId(config.dataDir);
     const remote = await remoteListener(config);
-    server = await startServer({
+    const serverOptions: ServerOptions = {
       ...services,
+      handler,
+      serviceStatus: startup.status,
       ...(remote ? { remote } : {}),
       maintenance: process.env.ACE_MAINTENANCE === "1",
       version: process.env.ACE_VERSION ?? "development",
@@ -125,12 +135,41 @@ export async function startDaemon(options: DaemonOptions = {}) {
       ...(options.preview ? { preview: options.preview } : {}),
       health: health.collect,
       log: (error) => log.log("error", "WebSocket failure", error),
-    });
+    };
+    // Feature services publish only after initialization. Socket handlers read the
+    // live registry, so a service can become available after endpoint discovery.
+    for (const key of [
+      "screen",
+      "accounts",
+      "commands",
+      "files",
+      "relay",
+      "handler",
+      "plugins",
+      "browser",
+      "context",
+      "settings",
+      "models",
+      "mcp",
+      "notifications",
+      "review",
+      "history",
+      "usage",
+      "agentRegistry",
+    ] as const)
+      Object.defineProperty(serverOptions, key, {
+        enumerable: true,
+        configurable: true,
+        get: () => services[key],
+      });
+    server = await startServer(serverOptions);
     log.log("info", "Daemon listening", logFields([["url", server.url]]));
-    for (const start of serviceContext.onListen) await start(server);
     const path = join(config.dataDir, "daemon-endpoint");
     writeFileSync(path, server.httpUrl, { mode: 0o600 });
     endpointPath = path;
+    // Endpoint readiness depends on the listener and core store/command port.
+    // Feature activation runs under named bounds without withholding discovery.
+    await startup.listening(server);
     let closing: Promise<void> | undefined;
     return {
       ...(server.relayHostId && services.relay
@@ -140,6 +179,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
           }
         : {}),
       ...(services.files ? { files: services.files } : {}),
+      serviceStatus: startup.status,
       maintenance: server.maintenance,
       url: server.url,
       tokenPath,
@@ -148,18 +188,36 @@ export async function startDaemon(options: DaemonOptions = {}) {
         ? { remoteUrl: server.remoteUrl, fingerprint: server.fingerprint }
         : {}),
       ...(server.preview ? { preview: server.preview } : {}),
-      preparePlugins: services.preparePlugins,
-      launchPlugins: services.launchPlugins,
-      browser: services.browser,
-      context: services.context,
-      settings: services.settings,
+      get preparePlugins() {
+        return requireService(services.preparePlugins, "preparePlugins");
+      },
+      get launchPlugins() {
+        return requireService(services.launchPlugins, "launchPlugins");
+      },
+      get browser() {
+        return requireService(services.browser, "browser");
+      },
+      get context() {
+        return requireService(services.context, "context");
+      },
+      get settings() {
+        return requireService(services.settings, "settings");
+      },
       engine: services.engine,
       accounts: services.accounts,
       commands: services.commands,
-      models: services.models,
-      notifications: services.notifications,
-      review: services.review,
-      mcp: services.mcp,
+      get models() {
+        return requireService(services.models, "models");
+      },
+      get notifications() {
+        return requireService(services.notifications, "notifications");
+      },
+      get review() {
+        return requireService(services.review, "review");
+      },
+      get mcp() {
+        return requireService(services.mcp, "mcp");
+      },
       close() {
         closing ??= closeResources();
         return closing;

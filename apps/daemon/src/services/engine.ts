@@ -18,6 +18,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       daemonClaudeAdapter(context, cli),
     ));
   if (!engineOptions.registry) resources.own(() => registry.close());
+  context.signal.throwIfAborted();
   const acp =
     services.agentRegistry && services.models && services.mcp
       ? acpEngineOptions({
