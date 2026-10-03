@@ -1,3 +1,4 @@
+import { DeviceSubscriptions } from "./subscriptions.ts";
 import { DeviceFrameWriter } from "./frame-writer.ts";
 import { DeviceClientMessage, type DeviceServerMessage } from "@ace/protocol/devices";
 import type { Frame } from "@ace/screen";
@@ -15,12 +16,17 @@ export interface DevicePeer {
 export function connectDevices(service: DevicesService, owner: string, peer: DevicePeer) {
   const frames = new DeviceFrameWriter(peer.frame);
   const actor: Actor = { kind: "human", owner };
-  const streams = new Map<string, () => void>();
-  const logs = new Map<string, () => void>();
+  const streams = new DeviceSubscriptions();
+  const logs = new DeviceSubscriptions();
   let closed = false;
   let pending = 0;
   const access = () => {
     if (closed || !peer.authorize()) throw new Error("Device access revoked");
+  };
+  const deviceAccess = (id: string) => {
+    access();
+    const thread = service.approvedThread(id);
+    if (thread && !peer.canReadThread(thread)) throw new Error("Device thread access denied");
   };
   const send = async (message: DeviceServerMessage) => {
     access();
@@ -35,10 +41,8 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
     closed = true;
     frames.close();
     unwatch();
-    for (const release of streams.values()) release();
-    for (const release of logs.values()) release();
-    streams.clear();
-    logs.clear();
+    streams.close();
+    logs.close();
     service.disconnect(owner);
   }
   return {
@@ -64,46 +68,55 @@ export function connectDevices(service: DevicesService, owner: string, peer: Dev
         )
           throw new Error("Unknown device agent");
         if ("deviceId" in operation) {
-          const state = service.states().find((entry) => entry.device.id === operation.deviceId);
-          if (state?.threadId && !peer.canReadThread(state.threadId))
-            throw new Error("Device thread access denied");
+          deviceAccess(operation.deviceId);
         }
         pending++;
         try {
           if (operation.op === "subscribe") {
-            streams.get(operation.deviceId)?.();
-            streams.delete(operation.deviceId);
-            if (streams.size >= 4) throw new Error("Device stream subscription limit");
-            const release = await service.subscribe(operation.deviceId, actor, async (frame) => {
-              access();
-              await frames.send(frame.packet);
-            });
-            if (closed) release();
-            else streams.set(operation.deviceId, release);
+            const slot = streams.reserve(operation.deviceId);
+            try {
+              const guard = () => {
+                deviceAccess(operation.deviceId);
+                if (!slot.active()) throw new Error("Device subscription superseded");
+              };
+              slot.attach(
+                await service.subscribe(operation.deviceId, actor, async (frame) => {
+                  guard();
+                  await frames.send(frame.packet, guard);
+                }),
+              );
+            } catch (error) {
+              slot.cancel();
+              throw error;
+            }
           } else if (operation.op === "unsubscribe") {
-            streams.get(operation.deviceId)?.();
-            streams.delete(operation.deviceId);
+            streams.remove(operation.deviceId);
           }
           if (operation.op === "logs.start") {
-            logs.get(operation.deviceId)?.();
-            logs.delete(operation.deviceId);
-            if (logs.size >= 4) throw new Error("Device log subscription limit");
-            const release = await service.subscribeLogs(operation.deviceId, actor, (batch) =>
-              send({ type: "devices.logs", deviceId: operation.deviceId, ...batch }),
-            );
-            if (closed) release();
-            else logs.set(operation.deviceId, release);
+            const slot = logs.reserve(operation.deviceId);
+            try {
+              slot.attach(
+                await service.subscribeLogs(operation.deviceId, actor, async (batch) => {
+                  deviceAccess(operation.deviceId);
+                  if (!slot.active()) throw new Error("Device log subscription superseded");
+                  await send({ type: "devices.logs", deviceId: operation.deviceId, ...batch });
+                }),
+              );
+            } catch (error) {
+              slot.cancel();
+              throw error;
+            }
           } else if (operation.op === "logs.stop") {
-            logs.get(operation.deviceId)?.();
-            logs.delete(operation.deviceId);
+            logs.remove(operation.deviceId);
           }
           const data =
             operation.op === "screenshot" ? undefined : await service.request(operation, actor);
           access();
+          if ("deviceId" in operation) deviceAccess(operation.deviceId);
           if (operation.op === "screenshot") {
             // Image bytes always use the screen binary protocol; JSON is metadata only.
             const frame = await service.screenshot(operation.deviceId, actor);
-            await frames.send(frame.packet);
+            await frames.send(frame.packet, () => deviceAccess(operation.deviceId));
             await send({
               type: "devices.result",
               requestId: message.requestId,

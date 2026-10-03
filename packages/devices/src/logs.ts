@@ -102,6 +102,9 @@ export class DeviceLogs {
   async close(): Promise<void> {
     for (const subscriber of this.listeners) subscriber.active = false;
     this.listeners.clear();
+    this.ring.length = 0;
+    this.cursor = 0;
+    this.count = 0;
     await this.stop();
   }
 }

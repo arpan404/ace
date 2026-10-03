@@ -1,41 +1,30 @@
-import {
-  type Frame,
-  type FrameSink,
-  type ScreenManager,
-  type RecordingArtifact,
-} from "@ace/screen";
-import {
-  AppDevice as Device,
-  DeviceOperation,
-  DeviceState,
-  DeviceFailure,
-} from "@ace/protocol/devices";
-import { DevicePlatform } from "./platform.ts";
+import { type Frame, type FrameSink } from "@ace/screen";
+import { AppDevice as Device, DeviceOperation, DeviceState } from "@ace/protocol/devices";
+import { deviceFailure } from "./failure.ts";
 import { DeviceError } from "./sdk.ts";
-import type { startCapture } from "./capture.ts";
-import { startDevice, stopDevice, recordDevice, type LifecycleOwner } from "./lifecycle.ts";
+import {
+  startDevice,
+  stopDevice,
+  recordDevice,
+  stopDeviceRecording,
+  type LifecycleOwner,
+  type LifecycleOptions,
+} from "./lifecycle.ts";
 import { createSession, type DeviceSession } from "./session.ts";
 import type { Actor } from "./lease.ts";
-import type { DeviceRuntime } from "./runtime.ts";
 import { performDeviceAction } from "./actions.ts";
+import { approveDevice } from "./approval.ts";
+import { enqueueDeviceInput } from "./input-queue.ts";
+import type { spawnSupervised } from "@ace/provider-kit/process";
 import { mirrorDeviceController } from "./screen-controller.ts";
 
-export interface DevicesOptions {
-  platform: DevicePlatform;
-  runtime: DeviceRuntime;
-  screen?: ScreenManager;
-  env: NodeJS.ProcessEnv;
-  recordingDirectory: string;
-  publishArtifact(
-    artifact: RecordingArtifact,
-    threadId: string,
-  ): Promise<{ id: string; bytes: number; mimeType: string } | void>;
-  recordingAvailable?(): boolean;
-  capture?: typeof startCapture;
+export interface DevicesOptions extends LifecycleOptions {
+  spawnLogs?: typeof spawnSupervised;
 }
 export class DevicesService {
   private enabled = false;
   private closed = false;
+  private disabling = false;
   private readonly sessions = new Map<string, DeviceSession>();
   private readonly listeners = new Set<(state: DeviceState) => void>();
   private readonly options: DevicesOptions;
@@ -96,6 +85,9 @@ export class DevicesService {
       error: session.error,
     });
   }
+  approvedThread(id: string): string | undefined {
+    return this.sessions.get(id)?.threadId;
+  }
   states(): DeviceState[] {
     return [...this.sessions.values()].map((session) => this.state(session));
   }
@@ -111,7 +103,7 @@ export class DevicesService {
     for (const listener of this.listeners) listener(state);
   }
   private authorize(session: DeviceSession, actor: Actor): void {
-    if (this.closed || !this.enabled)
+    if (this.closed || !this.enabled || session.changingApproval)
       throw new DeviceError(
         "permission_denied",
         "Devices are disabled",
@@ -132,37 +124,7 @@ export class DevicesService {
     actor: Actor,
     run: (authorize: () => void) => Promise<T>,
   ): Promise<T> {
-    this.authorize(session, actor);
-    const ticket = session.lease.ticket(actor);
-    if (session.pending >= 32)
-      throw new DeviceError(
-        "busy",
-        "Device input queue is full",
-        "Wait for pending device actions.",
-      );
-    session.pending++;
-    const next = session.tail
-      .then(async () => {
-        this.authorize(session, actor);
-        session.lease.assert(actor, ticket);
-        const guard = () => {
-          this.authorize(session, actor);
-          session.lease.assert(actor, ticket);
-        };
-        const result = await run(guard);
-        this.authorize(session, actor);
-        session.lease.assert(actor, ticket);
-        this.emit(session);
-        return result;
-      })
-      .finally(() => {
-        session.pending--;
-      });
-    session.tail = next.then(
-      () => {},
-      () => {},
-    );
-    return next;
+    return enqueueDeviceInput(session, actor, run, this.lifecycleOwner());
   }
   async request(raw: DeviceOperation, actor: Actor): Promise<unknown> {
     const operation = DeviceOperation.parse(raw);
@@ -173,16 +135,33 @@ export class DevicesService {
         "Ask the user to approve or delegate the device.",
       );
     if (operation.op === "enable") {
+      if (this.disabling)
+        throw new DeviceError("busy", "Devices are disabling", "Wait for resource cleanup.");
       this.enabled = operation.enabled;
       if (!this.enabled) {
-        await Promise.all(
-          [...this.sessions.values()].map(async (session) => {
-            delete session.threadId;
-            await this.stop(session);
-            await session.logs.close();
-          }),
-        );
-        this.sessions.clear();
+        this.disabling = true;
+        try {
+          const cleanup = await Promise.allSettled(
+            [...this.sessions.values()].map(async (session) => {
+              session.approvalEpoch++;
+              delete session.threadId;
+              const results = await Promise.allSettled([this.stop(session), session.logs.close()]);
+              delete session.completed;
+              delete session.recordingArtifact;
+              const errors = results.flatMap((result) =>
+                result.status === "rejected" ? [result.reason] : [],
+              );
+              if (errors.length) throw new AggregateError(errors, "Device disable cleanup failed");
+            }),
+          );
+          const errors = cleanup.flatMap((result) =>
+            result.status === "rejected" ? [result.reason] : [],
+          );
+          if (errors.length) throw new AggregateError(errors, "Devices disable cleanup failed");
+          this.sessions.clear();
+        } finally {
+          this.disabling = false;
+        }
       }
       return { enabled: this.enabled };
     }
@@ -206,15 +185,7 @@ export class DevicesService {
     if (operation.op === "approve") {
       if (!this.enabled)
         throw new DeviceError("permission_denied", "Devices are disabled", "Enable devices first.");
-      await this.stop(session);
-      if (operation.allowed) {
-        // This is a human approval operation. Agents never reach this branch.
-        if (session.device.platform === "ios" && this.options.screen) {
-          await this.options.screen.enable(true);
-          await this.options.screen.approve("com.apple.iphonesimulator", true);
-        }
-        session.threadId = operation.threadId;
-      } else delete session.threadId;
+      await approveDevice(session, operation, this.options, this.lifecycleOwner());
       this.emit(session);
       return this.state(session);
     }
@@ -311,20 +282,8 @@ export class DevicesService {
       case "record.start":
         await this.record(session);
         return { started: true };
-      case "record.stop": {
-        const recording = session.recording ?? session.completed;
-        if (!recording)
-          throw new DeviceError("not_found", "No recording", "Start recording first.");
-        delete session.recording;
-        const artifact = await recording.stop();
-        return (
-          session.recordingArtifact ?? {
-            id: artifact.id,
-            bytes: artifact.bytes,
-            mimeType: artifact.mimeType,
-          }
-        );
-      }
+      case "record.stop":
+        return stopDeviceRecording(session, actor, this.lifecycleOwner());
       default:
         return this.enqueue(session, actor, (guard) =>
           performDeviceAction(this.options.platform, session, actor, operation, guard),
@@ -344,7 +303,7 @@ export class DevicesService {
     this.authorize(session, actor);
     if (session.generation !== generation)
       throw new DeviceError("busy", "Device stopped during log startup", "Restart logs.");
-    await session.logs.start(spec, this.options.env);
+    await session.logs.start(spec, this.options.env, this.options.spawnLogs);
   }
   private lifecycleOwner(): LifecycleOwner {
     return {
@@ -382,7 +341,9 @@ export class DevicesService {
     this.authorize(session, actor);
     if (session.lifecycle !== "live")
       throw new DeviceError("not_found", "Device stream is not live", "Start the stream first.");
+    const epoch = session.approvalEpoch;
     return session.hub.subscribe(async (frame) => {
+      if (session.approvalEpoch !== epoch) throw new Error("Device approval changed");
       this.authorize(session, actor);
       await sink(frame);
     }, session.latest);
@@ -394,7 +355,9 @@ export class DevicesService {
   ): Promise<() => void> {
     const session = await this.session(id);
     this.authorize(session, actor);
+    const epoch = session.approvalEpoch;
     return session.logs.subscribe(async (batch) => {
+      if (session.approvalEpoch !== epoch) throw new Error("Device approval changed");
       this.authorize(session, actor);
       await sink(batch);
     });
@@ -414,25 +377,25 @@ export class DevicesService {
   async close(): Promise<void> {
     this.closed = true;
     this.enabled = false;
-    await Promise.all([...this.sessions.values()].map((session) => this.stop(session)));
-    await this.options.platform.close();
+    const results = await Promise.allSettled([
+      ...[...this.sessions.values()].map(async (session) => {
+        const resources = await Promise.allSettled([this.stop(session), session.logs.close()]);
+        const errors = resources.flatMap((result) =>
+          result.status === "rejected" ? [result.reason] : [],
+        );
+        if (errors.length) throw new AggregateError(errors, "Device close cleanup failed");
+      }),
+      this.options.platform.close(),
+    ]);
+    const errors = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
     this.sessions.clear();
     this.listeners.clear();
+    if (errors.length) throw new AggregateError(errors, "Devices close cleanup failed");
   }
 }
 export function agentOwner(threadId: string, agentId: string): string {
   return JSON.stringify([threadId, agentId]);
 }
-export function deviceFailure(error: unknown): DeviceFailure {
-  return error instanceof DeviceError
-    ? DeviceFailure.parse({
-        code: error.code,
-        message: error.message.slice(0, 2048),
-        hint: error.hint.slice(0, 2048),
-      })
-    : {
-        code: "command_failed",
-        message: error instanceof Error ? error.message.slice(0, 2048) : "Device operation failed",
-        hint: "Check installed tools and device state, then retry.",
-      };
-}
+export { deviceFailure } from "./failure.ts";

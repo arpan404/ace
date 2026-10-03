@@ -1,4 +1,4 @@
-import { FrameHub, type Frame, type Recording } from "@ace/screen";
+import { FrameHub, type Frame, type Recording, type RecordingArtifact } from "@ace/screen";
 import type { AppDevice as Device, DeviceFailure } from "@ace/protocol/devices";
 import { ControllerLease } from "./lease.ts";
 import { DeviceLogs } from "./logs.ts";
@@ -17,6 +17,11 @@ export interface DeviceSession {
   tail: Promise<void>;
   pending: number;
   generation: number;
+  approvalEpoch: number;
+  changingApproval: boolean;
+  startup?: { controller: AbortController; capture: Promise<DeviceCapture | undefined> };
+  recordingOpening?: Promise<Recording>;
+  recordingClosing?: Promise<RecordingArtifact>;
   recording?: Recording;
   completed?: Recording;
   recordingArtifact?: { id: string; bytes: number; mimeType: string };
@@ -34,6 +39,8 @@ export function createSession(device: Device, now: () => number): DeviceSession 
     tail: Promise.resolve(),
     pending: 0,
     generation: 0,
+    approvalEpoch: 0,
+    changingApproval: false,
     recordingStarting: false,
   };
 }

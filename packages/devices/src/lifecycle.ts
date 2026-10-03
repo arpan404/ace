@@ -1,4 +1,4 @@
-import { Recording, type RecordingArtifact, type ScreenManager } from "@ace/screen";
+import { type RecordingArtifact, type ScreenManager } from "@ace/screen";
 import { startCapture } from "./capture.ts";
 import { DeviceError } from "./sdk.ts";
 import type { DeviceSession } from "./session.ts";
@@ -19,6 +19,7 @@ export interface LifecycleOptions {
     threadId: string,
   ): Promise<{ id: string; bytes: number; mimeType: string } | void>;
   recordingAvailable?(): boolean;
+  recordingLimitBytes?: number;
   capture?: typeof startCapture;
 }
 export interface LifecycleOwner {
@@ -42,9 +43,15 @@ export async function startDevice(
       "Capture is changing state",
       "Wait for capture startup or shutdown.",
     );
+  if (session.capture || session.startup)
+    throw new DeviceError(
+      "busy",
+      "Previous capture still owns native resources",
+      "Stop capture successfully before restarting.",
+    );
   let active = 0;
   for (const entry of owner.sessions())
-    if (["live", "starting"].includes(entry.lifecycle)) active++;
+    if (entry.capture || ["live", "starting", "stopping"].includes(entry.lifecycle)) active++;
   if (active >= 4) throw new DeviceError("limit", "Capture limit", "Stop another device stream.");
   // Reserve before the first await so concurrent starts cannot open two captures.
   session.lifecycle = "starting";
@@ -63,27 +70,31 @@ export async function startDevice(
       new DeviceError("busy", "Capture startup cancelled", "Start the device stream again."),
     );
   session.cancelStart = cancelStart;
-  const cancel = options.runtime.after(10000, () =>
+  const controller = new AbortController();
+  const cancel = options.runtime.after(10000, () => {
+    controller.abort();
     firstReject?.(
       new DeviceError(
         "timeout",
         "No device frame arrived",
         "Check Screen Recording permission, ffmpeg and Android screenrecord support.",
       ),
-    ),
-  );
-  try {
+    );
+  });
+  const opening = Promise.resolve().then(async () => {
     const device = (await owner.list()).find((candidate) => candidate.id === session.device.id);
-    if (session.generation !== generation || !owner.enabled()) return;
+    if (controller.signal.aborted || session.generation !== generation || !owner.enabled()) return;
     if (device?.state !== "booted")
       throw new DeviceError("not_booted", "Device is not booted", "Boot the device first.");
     session.device = device;
-    session.streamId = options.runtime.id();
+    const streamId = options.runtime.id();
+    session.streamId = streamId;
     owner.emit(session);
-    const capture = await (options.capture ?? startCapture)({
+    return (options.capture ?? startCapture)({
       device,
-      streamId: session.streamId,
+      streamId,
       fps,
+      signal: controller.signal,
       platform: options.platform,
       ...(options.screen ? { screen: options.screen } : {}),
       runtime: options.runtime,
@@ -103,15 +114,25 @@ export async function startDevice(
         void stopDevice(session, owner).catch(() => {});
       },
     });
+  });
+  const startup = { controller, capture: opening };
+  session.startup = startup;
+  try {
+    const capture = await opening;
     if (session.generation !== generation || !owner.enabled()) {
-      await capture.stop();
+      await session.stopping;
+      return;
+    }
+    if (!capture) {
+      await first;
       return;
     }
     session.capture = capture;
+    if (session.startup === startup) delete session.startup;
     if (capture.streamId) session.streamId = capture.streamId;
     await first;
     if (session.generation !== generation || !owner.enabled()) {
-      await capture.stop();
+      await session.stopping;
       return;
     }
     session.lifecycle = "live";
@@ -133,6 +154,7 @@ export async function startDevice(
     throw error;
   } finally {
     cancel();
+    if (session.startup === startup) delete session.startup;
     if (session.cancelStart === cancelStart) delete session.cancelStart;
   }
 }
@@ -145,77 +167,66 @@ export function stopDevice(session: DeviceSession, owner: LifecycleOwner): Promi
   session.hub.clear();
   delete session.latest;
   session.lifecycle = "stopping";
-  owner.emit(session);
   const capture = session.capture;
-  delete session.capture;
-  session.stopping = (async () => {
-    try {
-      await capture?.stop();
-      await session.logs.stop();
-      const recording = session.recording;
+  const startup = session.startup;
+  startup?.controller.abort();
+  // Every resource is attempted independently. A failing native stop must not
+  // strand a log subprocess or an open recording file.
+  const stopping = Promise.resolve().then(async () => {
+    const cleanupCapture = async () => {
+      let owned = capture;
+      if (!owned && startup) {
+        try {
+          owned = await startup.capture;
+        } catch (error) {
+          if (
+            !(
+              startup.controller.signal.aborted &&
+              error instanceof DOMException &&
+              error.name === "AbortError"
+            )
+          )
+            throw error;
+        }
+      }
+      if (owned) session.capture = owned;
+      await owned?.stop();
+      if (session.capture === owned) delete session.capture;
+      if (session.startup === startup) delete session.startup;
+    };
+    const cleanupRecording = async () => {
+      const recording = session.recording ?? (await session.recordingOpening) ?? session.completed;
+      const results = await Promise.allSettled([recording?.stop(), session.recordingClosing]);
+      const errors = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
       delete session.recording;
-      await recording?.stop();
-    } finally {
-      delete session.streamId;
-      session.lifecycle = session.error ? "failed" : "idle";
+      if (errors.length) throw new AggregateError(errors, "Device recording cleanup failed");
+    };
+    const results = await Promise.allSettled([
+      cleanupCapture(),
+      session.logs.stop(),
+      cleanupRecording(),
+    ]);
+    const errors = results.flatMap((result) =>
+      result.status === "rejected" ? [result.reason] : [],
+    );
+    delete session.streamId;
+    if (errors.length) {
+      const failure = new AggregateError(errors, "Device resource cleanup failed");
+      session.error = owner.failure(failure);
+      session.lifecycle = "failed";
       delete session.stopping;
       owner.emit(session);
+      throw failure;
     }
-  })();
-  return session.stopping;
+    session.lifecycle = session.error ? "failed" : "idle";
+    delete session.stopping;
+    owner.emit(session);
+  });
+  session.stopping = stopping;
+  owner.emit(session);
+  return stopping;
 }
-export async function recordDevice(
-  session: DeviceSession,
-  options: LifecycleOptions,
-): Promise<void> {
-  if (!session.threadId)
-    throw new DeviceError(
-      "permission_denied",
-      "Recording needs an approved thread",
-      "Approve this device for a thread.",
-    );
-  if (session.lifecycle !== "live")
-    throw new DeviceError("not_found", "Capture is not live", "Start capture before recording.");
-  if (session.recording || session.recordingStarting)
-    throw new DeviceError("busy", "Recording already started", "Stop the recording first.");
-  if (options.recordingAvailable && !options.recordingAvailable())
-    throw new DeviceError(
-      "tool_missing",
-      "Device artifact registry is unavailable",
-      "Configure ACE_WORKSPACE_ROOT before recording devices.",
-    );
-  delete session.recordingArtifact;
-  session.recordingStarting = true;
-  const generation = session.generation;
-  const threadId = session.threadId;
-  try {
-    const recording = await Recording.open(
-      options.recordingDirectory,
-      options.runtime.id(),
-      async (artifact) => {
-        const result = await options.publishArtifact(artifact, threadId);
-        if (result)
-          session.recordingArtifact = {
-            id: result.id,
-            bytes: result.bytes,
-            mimeType: result.mimeType,
-          };
-      },
-      50 * 1024 * 1024,
-      () => {
-        if (session.recording === recording) {
-          delete session.recording;
-          session.completed = recording;
-        }
-      },
-    );
-    if (session.generation !== generation) {
-      await recording.stop();
-      throw new DeviceError("busy", "Capture stopped during recording startup", "Restart capture.");
-    }
-    session.recording = recording;
-    if (session.latest) recording.push(session.latest);
-  } finally {
-    session.recordingStarting = false;
-  }
-}
+
+export { recordDevice, stopDeviceRecording } from "./recording.ts";

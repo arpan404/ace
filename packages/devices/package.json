@@ -19,5 +19,8 @@
     "@ace/provider-kit": "workspace:*",
     "@ace/screen": "workspace:*",
     "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@ace/files": "workspace:*"
   }
 }
