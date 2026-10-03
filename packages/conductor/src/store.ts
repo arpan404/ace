@@ -1,7 +1,15 @@
 import { clientView, clientSummary } from "./client-view.ts";
 import { DatabaseSync } from "node:sqlite";
 import { retainReceipt } from "./receipt-policy.ts";
-import { Effect, Fact, Key, State, type Environment, type Transition } from "./schema.ts";
+import {
+  Effect,
+  Fact,
+  Key,
+  State,
+  type Environment,
+  type Transition,
+  type Account,
+} from "./schema.ts";
 import { Count, Payload, StoredRoot, freezeState } from "./persistence-schema.ts";
 import { StatePersistence } from "./persistence.ts";
 import { reduce, start } from "./reducer.ts";
@@ -127,12 +135,19 @@ export class ConductorStore {
     Key.parse(effectId);
     return this.sql.effect.get(id, effectId) !== undefined;
   }
-  create(id: string, spec: unknown, env: Environment): State {
+  create(id: string, spec: unknown, env: Environment, accounts?: readonly Account[]): State {
     const existing = this.load(id);
     if (existing) return existing;
     this.room(id);
     const next = this.atomic(() => {
-      const transition = start(id, spec, env);
+      const initial = start(id, spec, env);
+      const admitted = accounts
+        ? reduce(initial.state, { type: "accounts", accounts }, env)
+        : initial;
+      const transition = {
+        state: admitted.state,
+        effects: accounts ? [...initial.effects, ...admitted.effects] : initial.effects,
+      };
       // Parent row exists before content-addressed artifact FK inserts.
       this.sql.writeRun.run(id, "{}");
       this.write(transition, null, MAX_PENDING);

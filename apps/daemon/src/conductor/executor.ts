@@ -7,7 +7,7 @@ import {
   type ConductorSpec,
   type McpAttribution,
 } from "@ace/protocol";
-import { executionAccounts, capacityUse } from "./accounts.ts";
+import { executionAccounts, capacityUse, startAvailability } from "./accounts.ts";
 import { executionView } from "./client-view.ts";
 import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "../agent-control/delegations.ts";
@@ -38,6 +38,9 @@ export class NativeConductorExecutor {
   }
   accounts(spec?: ConductorSpec, run?: string): Account[] {
     return executionAccounts(this.context, this.delegations, this.journal, spec, run);
+  }
+  validateStart(spec: ConductorSpec): string | undefined {
+    return startAvailability(this.context, spec, this.accounts(spec));
   }
   private async root(state: State): Promise<RootBinding> {
     const saved = this.journal.root(state.id);

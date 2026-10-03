@@ -23,10 +23,14 @@ export function startConductor(context: ServiceContext): void {
       autostart: false,
       ...(native
         ? {
+            validateStart: (spec) => native.validateStart(spec),
             execute: (effect, state) => native.execute(effect, state),
             accounts: (spec, run) => native.accounts(spec, run),
             decorate: (view) => native.decorate(view),
             changed: (run) => observer?.changed(run),
+            observations: async () => {
+              await observer?.flush();
+            },
           }
         : {}),
     },

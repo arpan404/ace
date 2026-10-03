@@ -19,6 +19,7 @@ export interface DeckProviderOptions {
   crossProvider?: boolean;
   question?: boolean;
   quotaLimit?: boolean;
+  auth?: "logged_in" | "logged_out" | "unknown";
   onSwitchClose?(thread: ThreadId): Promise<void>;
   onSend?(entry: { thread: ThreadId; text: string; cwd: string; resumed: boolean }): void;
 }
@@ -197,11 +198,15 @@ export function deckProvider(
       };
     },
   };
-  registry.register(adapter, { installed: true, auth: "logged_in", loginHint: "unused" });
+  registry.register(adapter, {
+    installed: true,
+    auth: options.auth ?? "logged_in",
+    loginHint: "unused",
+  });
   if (options.crossProvider)
     registry.register(
       { ...adapter, provider: "claude" },
-      { installed: true, auth: "logged_in", loginHint: "unused" },
+      { installed: true, auth: options.auth ?? "logged_in", loginHint: "unused" },
     );
   return {
     registry,

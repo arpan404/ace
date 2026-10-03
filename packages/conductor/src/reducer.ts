@@ -1,15 +1,14 @@
 import { laneDeadline } from "./liveness.ts";
-import { ConductorSpec } from "@ace/protocol";
 import { advance, cancel } from "./advance.ts";
 import { approve } from "./approval.ts";
 import { applyLaneStatus } from "./lane-status.ts";
 import { admitOwnership, settle, validateReview } from "./completion.ts";
-import { Fact, Key, type Environment, type State, type Transition } from "./schema.ts";
+import { StartSpec, Fact, Key, type Environment, type State, type Transition } from "./schema.ts";
 import { control, emptyState, gate } from "./transition.ts";
 import type { Context } from "./transition.ts";
 
 export function start(id: string, spec: unknown, env: Environment): Transition {
-  const parsed = ConductorSpec.parse(spec);
+  const parsed = StartSpec.parse(spec);
   const ctx: Context = {
     state: emptyState(
       Key.parse(id),

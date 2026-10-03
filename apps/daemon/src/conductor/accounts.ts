@@ -1,3 +1,4 @@
+import { startRejection } from "./start-policy.ts";
 import type { Account } from "@ace/conductor";
 import type { ConductorSpec } from "@ace/protocol";
 import { pickInstance } from "@ace/accounts";
@@ -67,7 +68,8 @@ export function executionAccounts(
     )
       continue;
     try {
-      services.engine?.capabilities(provider);
+      const available = services.engine?.providerAvailability(provider);
+      if (!available?.installed || available.auth === "logged_out") continue;
     } catch {
       continue;
     }
@@ -81,4 +83,31 @@ export function executionAccounts(
     });
   }
   return accounts;
+}
+
+/** Validate every declared role candidate, including migration alternatives.
+ * Capacity is transient and queues normally; missing installations/accounts do not. */
+export function startAvailability(
+  context: ServiceContext,
+  spec: ConductorSpec,
+  accounts: readonly Account[],
+): string | undefined {
+  const installed = new Set<import("@ace/protocol").ProviderKind>();
+  for (const provider of new Set(
+    Object.values(spec.policies.roles)
+      .flat()
+      .map((model) => model.provider),
+  )) {
+    try {
+      if (context.services.engine?.providerAvailability(provider).installed)
+        installed.add(provider);
+    } catch {
+      // Registry absence is an availability fact, not an execution failure.
+    }
+  }
+  return startRejection(spec, {
+    workspaceExists: context.store.getWorkspacePath(spec.workspaceId) !== undefined,
+    installed,
+    accounts,
+  });
 }

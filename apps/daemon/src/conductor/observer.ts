@@ -277,6 +277,13 @@ export class DeckObserver {
     this.activity.clear();
     this.owners.clear();
   }
+  async flush() {
+    // changed() reserves a running slot before scheduling its microtask.
+    while (this.running.size) {
+      await Promise.resolve();
+      await Promise.allSettled(this.tasks);
+    }
+  }
   async close() {
     this.stopAdmission();
     await Promise.allSettled(this.tasks);

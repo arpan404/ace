@@ -1,4 +1,5 @@
 import {
+  StartSpec,
   ConductorStore,
   ConductorDriver,
   type Executor,
@@ -18,10 +19,13 @@ import {
 import type { Store } from "./store.ts";
 export interface ConductorRuntimeOptions {
   execute?: Executor;
+  validateStart?(spec: ConductorSpec): string | undefined;
   accounts?(spec?: ConductorSpec, run?: string): readonly Account[];
   decorate?(view: ConductorRunView): ConductorRunView;
   changed?(run: string): void;
   autostart?: boolean;
+  observations?(): Promise<void>;
+  onError?(error: unknown): void;
 }
 export class ConductorRuntime {
   private storage: ConductorStore;
@@ -125,20 +129,32 @@ export class ConductorRuntime {
       return { commandId: command.id, ok: false, error: "conductor_executor_unavailable" };
     const result = this.receipts.recordCommand(command.id, command.deviceId, () => {
       try {
-        this.driver.command(command.id, payload);
-        if (payload.type === "conductor.start" && this.options.accounts)
-          this.driver.fact(payload.runId, `accounts-${command.id}`.slice(0, 128), {
-            type: "accounts",
-            accounts: this.options.accounts(payload.spec, payload.runId),
-          });
+        if (payload.type === "conductor.start") {
+          const validated = StartSpec.safeParse(payload.spec);
+          if (!validated.success)
+            return { commandId: command.id, ok: false, error: "conductor_invalid_root_agent" };
+          // Replays of an admitted run do not re-check transient availability.
+          if (!this.storage.read(payload.runId)) {
+            const error = this.options.validateStart?.(validated.data);
+            if (error) return { commandId: command.id, ok: false, error };
+          }
+          this.storage.create(
+            payload.runId,
+            validated.data,
+            this.env,
+            this.options.accounts?.(validated.data, payload.runId),
+          );
+        } else this.driver.command(command.id, payload);
         return { commandId: command.id, ok: true };
       } catch {
         return { commandId: command.id, ok: false, error: "conductor_command_failed" };
       }
     });
-    this.options.changed?.(payload.runId);
-    this.publish(payload.runId);
-    if (result.ok) this.wake(payload.runId);
+    if (result.ok) {
+      this.options.changed?.(payload.runId);
+      this.publish(payload.runId);
+      this.wake(payload.runId);
+    }
     return result;
   }
   private wake(id: string): void {
@@ -156,6 +172,7 @@ export class ConductorRuntime {
         errorChanged = this.errors.delete(id);
       })
       .catch((error: unknown) => {
+        this.options.onError?.(error);
         if (this.errors.size >= 64) {
           const oldest = this.errors.keys().next().value;
           if (oldest) this.errors.delete(oldest);
@@ -176,6 +193,13 @@ export class ConductorRuntime {
         if (more) queueMicrotask(() => this.wake(id));
       });
     this.tasks.set(id, task);
+  }
+  /** Wait for admitted effects and observations, without advancing clocks. */
+  async flush(): Promise<void> {
+    do {
+      await Promise.allSettled(this.tasks.values());
+      await this.options.observations?.();
+    } while (this.tasks.size);
   }
   async close(): Promise<void> {
     this.closing = true;

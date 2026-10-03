@@ -256,6 +256,10 @@ export class Engine {
     }
     return actor;
   }
+  providerAvailability(provider: ProviderKind) {
+    const { installed, auth } = this.registry.get(provider).discovery;
+    return { installed, auth };
+  }
   capabilities(provider: ProviderKind) {
     return this.registry.get(provider).capabilities;
   }

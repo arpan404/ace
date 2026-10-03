@@ -40,6 +40,7 @@ export async function deckFixture(
     prOnly?: boolean;
     wrongReviewRevision?: boolean;
     quotaLimit?: boolean;
+    auth?: "logged_in" | "logged_out" | "unknown";
     stallAfterMs?: number;
     longReview?: boolean;
     removeWorkerTree?: boolean;
@@ -52,6 +53,7 @@ export async function deckFixture(
     onSend?(entry: { thread: ThreadId; text: string; cwd: string; resumed: boolean }): void;
   } = {},
 ) {
+  const clock = options.clock ?? new ManualClock();
   const home = options.home ?? mkdtempSync(join(tmpdir(), "ace-deck-"));
   const repo = join(home, "repo");
   if (!options.recover) {
@@ -71,6 +73,7 @@ export async function deckFixture(
     git(repo, "remote", "set-url", "--push", "origin", remote);
     git(repo, "push", "origin", "main");
   }
+  const executionErrors: string[] = [];
   let daemon: Awaited<ReturnType<typeof startDaemon>>;
   const provider = deckProvider(options, home, () => daemon?.store);
   const { registry, sends, contexts, finish } = provider;
@@ -97,7 +100,7 @@ export async function deckFixture(
       engine: {
         registry,
         idleMs: 10,
-        ...(options.clock ? { clock: options.clock } : {}),
+        clock,
         ...(options.engineCapacity ? { limits: { maxActiveThreads: options.engineCapacity } } : {}),
         recovery: {
           async preferences() {
@@ -114,6 +117,10 @@ export async function deckFixture(
             };
           },
         },
+      },
+      conductor: {
+        onError: (error) =>
+          executionErrors.push(error instanceof Error ? error.message : "unknown"),
       },
       modelInstances: [],
       workspaceActions: { forgeRunner: forge.runner },
@@ -163,10 +170,21 @@ export async function deckFixture(
   function waitFor(predicate: (view: ConductorRunView) => boolean): Promise<ConductorRunView> {
     const latest = changes.at(-1);
     if (latest && predicate(latest)) return Promise.resolve(latest);
-    return new Promise((resolve) => {
+    // Git subprocesses, SQLite and local socket delivery use real I/O; this is a
+    // safety deadline for an event milestone, not a delay controlling progress.
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        listeners.delete(listener);
+        reject(
+          new Error(
+            `Deck milestone timed out: ${JSON.stringify(changes.at(-1))}; effects: ${executionErrors.join(",")}`,
+          ),
+        );
+      }, 20_000);
       const listener = (view: ConductorRunView) => {
         if (!predicate(view)) return;
         listeners.delete(listener);
+        clearTimeout(timeout);
         resolve(view);
       };
       listeners.add(listener);
@@ -204,6 +222,16 @@ export async function deckFixture(
       client.socket.on("message", receive);
       client.send(message);
     });
+  }
+  async function listRuns() {
+    const requestId = randomUUID();
+    const reply = await request(
+      { type: "conductor.request", requestId, operation: { op: "list", limit: 16 } },
+      (response) => "requestId" in response && response.requestId === requestId,
+    );
+    if (reply.type !== "conductor.result" || !reply.ok || !reply.runs)
+      throw new Error("Deck list failed");
+    return reply.runs;
   }
   async function read() {
     const requestId = randomUUID();
@@ -246,7 +274,23 @@ export async function deckFixture(
   });
   return {
     home,
+    clock,
+    async settle() {
+      await daemon.engine?.flush();
+      await daemon.conductor?.flush();
+      await daemon.engine?.flush();
+      await daemon.conductor?.flush();
+    },
+    async advance(ms = 1000) {
+      await daemon.engine?.flush();
+      await daemon.conductor?.flush();
+      clock.advance(clock.now() + ms);
+      await daemon.engine?.flush();
+      await daemon.conductor?.flush();
+    },
     waitFor,
+    request,
+    listRuns,
     read,
     holdPreparation,
     subscribe,
