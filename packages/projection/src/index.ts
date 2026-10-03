@@ -111,6 +111,10 @@ function advance(view: { seq: number }, event: DeliveryEvent): ApplyResult {
 export function updateThread(thread: Thread, event: Event): void {
   const payload = event.payload;
   if (payload.type === "thread.updated") {
+    if (payload.provider !== undefined) thread.provider = payload.provider;
+    if (payload.lineage !== undefined) thread.lineage = structuredCopy(payload.lineage);
+    if (payload.execution !== undefined) thread.execution = structuredCopy(payload.execution);
+    if (payload.switch !== undefined) thread.switch = structuredCopy(payload.switch);
     if (payload.title !== undefined) thread.title = payload.title;
     if (payload.status !== undefined) thread.status = structuredCopy(payload.status);
     if (payload.archivedAt === null) delete thread.archivedAt;

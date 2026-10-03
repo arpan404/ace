@@ -16,6 +16,13 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
+        "mergedContext": {
+          "$ref": "https://ace.local/protocol/v1/MergedForkContext.json"
+        },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
+        },
         "parts": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/ContentPart.json"
@@ -73,6 +80,10 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
+        },
         "raw": {
           "default": [],
           "items": {
@@ -125,6 +136,10 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -163,6 +178,10 @@
             "warning",
             "error"
           ],
+          "type": "string"
+        },
+        "nativeId": {
+          "maxLength": 256,
           "type": "string"
         },
         "raw": {
@@ -214,6 +233,10 @@
         "id": {
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
+        "nativeId": {
+          "maxLength": 256,
+          "type": "string"
+        },
         "runId": {
           "$ref": "https://ace.local/protocol/v1/RunId.json"
         },
@@ -261,6 +284,10 @@
           "$ref": "https://ace.local/protocol/v1/ItemId.json"
         },
         "mimeType": {
+          "type": "string"
+        },
+        "nativeId": {
+          "maxLength": 256,
           "type": "string"
         },
         "path": {

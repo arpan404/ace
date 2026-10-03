@@ -1,0 +1,94 @@
+{
+  "$id": "https://ace.local/protocol/v1/PortableHandoff.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "excerpts": {
+      "items": {
+        "properties": {
+          "citation": {
+            "$ref": "https://ace.local/protocol/v1/HandoffCitation.json"
+          },
+          "text": {
+            "maxLength": 8192,
+            "type": "string"
+          }
+        },
+        "required": [
+          "citation",
+          "text"
+        ],
+        "type": "object"
+      },
+      "maxItems": 200,
+      "type": "array"
+    },
+    "history": {
+      "properties": {
+        "before": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "limit": {
+          "const": 50,
+          "type": "number"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "items.page",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "before",
+        "limit"
+      ],
+      "type": "object"
+    },
+    "limitations": {
+      "const": "Provider-private state is unavailable. Page history for omitted items, full text, reasoning, tools and attachments.",
+      "type": "string"
+    },
+    "lossy": {
+      "const": true,
+      "type": "boolean"
+    },
+    "omittedItems": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "policy": {
+      "const": "recent-complete-items",
+      "type": "string"
+    },
+    "sourceThreadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "throughSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "version": {
+      "const": 1,
+      "type": "number"
+    }
+  },
+  "required": [
+    "version",
+    "sourceThreadId",
+    "throughSeq",
+    "lossy",
+    "policy",
+    "excerpts",
+    "omittedItems",
+    "history",
+    "limitations"
+  ],
+  "type": "object"
+}

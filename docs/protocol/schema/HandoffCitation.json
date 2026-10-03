@@ -1,0 +1,17 @@
+{
+  "$id": "https://ace.local/protocol/v1/HandoffCitation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "itemId": {
+      "$ref": "https://ace.local/protocol/v1/ItemId.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "itemId"
+  ],
+  "type": "object"
+}

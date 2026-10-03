@@ -1,3 +1,4 @@
+import { TransitionCommands } from "./thread-transitions.ts";
 import { z } from "zod";
 import { DiagnosticsHealthCommand } from "./diagnostics.ts";
 import { MessageContext } from "./context.ts";
@@ -23,6 +24,7 @@ import {
 } from "./orchestration-execution.ts";
 
 export const CommandPayload = z.discriminatedUnion("type", [
+  ...TransitionCommands,
   DiagnosticsHealthCommand,
   ...ConductorCommandPayload.options,
   ...ReviewCommands,

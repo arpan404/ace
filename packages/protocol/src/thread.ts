@@ -1,3 +1,4 @@
+import { ThreadLineage, ExecutionSelection, ThreadSwitch } from "./thread-transitions.ts";
 import { z } from "zod";
 import { AgentId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
 import { ImportedProvenance } from "./history.ts";
@@ -68,5 +69,8 @@ export const Thread = z.object({
   updatedAt: Timestamp,
   archivedAt: Timestamp.optional(),
   imported: ImportedProvenance.optional(),
+  lineage: ThreadLineage.optional(),
+  execution: ExecutionSelection.optional(),
+  switch: ThreadSwitch.optional(),
 });
 export type Thread = z.infer<typeof Thread>;

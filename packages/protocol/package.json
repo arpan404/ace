@@ -9,7 +9,8 @@
     "./preview": "./src/preview.ts",
     "./history": "./src/history.ts",
     "./forge": "./src/forge.ts",
-    "./accounts": "./src/accounts.ts"
+    "./accounts": "./src/accounts.ts",
+    "./thread-transitions": "./src/thread-transitions.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

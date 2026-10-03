@@ -36,19 +36,20 @@ Example:
 
 ```json
 {
-  "contextWindow": 7,
-  "deprecated": true,
+  "defaultEffort": "example",
+  "deprecated": false,
   "displayName": "example",
-  "hidden": false,
+  "hidden": true,
   "id": "example",
   "inputModalities": [],
   "instance": "example",
-  "isDefault": false,
+  "isDefault": true,
   "nativeModelId": "example",
-  "provider": "claude",
+  "nativeProviderId": "example",
+  "provider": "cursor",
   "raw": {
     "json": "example",
-    "truncated": false
+    "truncated": true
   },
   "reasoningEfforts": [],
   "resolvedModelId": "example",
@@ -69,7 +70,7 @@ Example:
 
 ```json
 {
-  "provider": "claude"
+  "instance": "example"
 }
 ```
 
@@ -93,7 +94,7 @@ Example:
   "instance": "example",
   "provider": "claude",
   "refreshing": false,
-  "stale": false
+  "stale": true
 }
 ```
 
@@ -112,9 +113,7 @@ Example:
 
 ```json
 {
-  "instance": "example",
-  "offset": 0,
-  "provider": "claude"
+  "offset": 6
 }
 ```
 
@@ -134,7 +133,7 @@ Example:
 {
   "instances": [],
   "models": [],
-  "nextOffset": 9
+  "nextOffset": 1
 }
 ```
 
@@ -158,7 +157,8 @@ Example:
 ```json
 {
   "model": {
-    "deprecated": true,
+    "defaultEffort": "example",
+    "deprecated": false,
     "displayName": "example",
     "hidden": true,
     "id": "example",
@@ -166,13 +166,12 @@ Example:
     "instance": "example",
     "isDefault": true,
     "nativeModelId": "example",
-    "provider": "claude",
+    "provider": "codex",
     "raw": {
       "json": "example",
-      "truncated": true
+      "truncated": false
     },
     "reasoningEfforts": [],
-    "resolvedModelId": "example",
     "serviceTiers": []
   },
   "ok": true,
@@ -217,8 +216,8 @@ Example:
 
 ```json
 {
-  "effort": "example",
   "model": "example",
+  "provider": "antigravity",
   "role": "example",
   "tier": "example"
 }
@@ -238,10 +237,6 @@ Example:
 
 ```json
 {
-  "options": {
-    "instance": "example",
-    "limit": 7
-  },
   "requestId": "example",
   "type": "models.list"
 }
@@ -282,10 +277,10 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "effort": "example",
-    "preferenceOrder": [],
+    "model": "example",
     "role": "example",
-    "selection": "default"
+    "selection": "strongest",
+    "tier": "example"
   },
   "type": "models.resolve"
 }
@@ -307,8 +302,8 @@ Example:
 {
   "requestId": "example",
   "result": {
-    "ok": false,
-    "reason": "example"
+    "instances": [],
+    "models": []
   },
   "type": "models.result"
 }

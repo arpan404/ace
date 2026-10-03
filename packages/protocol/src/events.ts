@@ -1,3 +1,4 @@
+import { ThreadLineage, ExecutionSelection, ThreadSwitch } from "./thread-transitions.ts";
 import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
 import { UsageMetadata } from "./usage.ts";
@@ -35,6 +36,10 @@ export const EventPayload = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("thread.updated"),
     title: z.string().optional(),
+    provider: ExecutionSelection.shape.provider.optional(),
+    lineage: ThreadLineage.optional(),
+    execution: ExecutionSelection.optional(),
+    switch: ThreadSwitch.optional(),
     status: ThreadStatus.optional(),
     archivedAt: Timestamp.nullable().optional(),
   }),
@@ -46,6 +51,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     /** Placeholder agents are completed and re-parented after native linkage arrives. */
     parentId: AgentId.nullable().optional(),
     origin: AgentOrigin.optional(),
+    lineage: ThreadLineage.optional(),
     fidelity: AgentFidelity.optional(),
     native: NativeRef.optional(),
     cwd: z.string().optional(),

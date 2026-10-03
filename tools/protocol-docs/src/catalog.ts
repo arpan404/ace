@@ -1,3 +1,4 @@
+import * as transitions from "@ace/protocol/thread-transitions";
 import * as plugins from "@ace/protocol/plugins";
 import * as preview from "@ace/protocol/preview";
 import * as history from "@ace/protocol/history";
@@ -18,6 +19,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./preview", preview],
   ["./history", history],
   ["./accounts", accounts],
+  ["./thread-transitions", transitions],
 ]);
 
 export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] } {

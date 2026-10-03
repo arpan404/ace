@@ -1,3 +1,4 @@
+import { MergedForkContext } from "./thread-transitions.ts";
 import { z } from "zod";
 import { AgentId, ItemId, RunId, Timestamp } from "./ids.ts";
 import { RawPayload } from "./provider.ts";
@@ -22,6 +23,8 @@ const ItemBase = z.object({
   agentId: AgentId,
   runId: RunId.optional(),
   createdAt: Timestamp,
+  /** Exact inclusive native fork boundary, only when the adapter can establish it. */
+  nativeId: z.string().max(256).optional(),
   /** False while the provider is still streaming into this item. */
   complete: z.boolean(),
 });
@@ -34,6 +37,7 @@ export const AgentItem = z.discriminatedUnion("type", [
     parts: z.array(ContentPart),
     /** Message ace did not send itself: task notifications, injected results. */
     synthetic: z.boolean().default(false),
+    mergedContext: MergedForkContext.optional(),
     raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({
