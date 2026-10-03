@@ -5,6 +5,7 @@ import { App, AppFrame } from "./app.tsx";
 import { ConnectionGate } from "./app/connection-gate.tsx";
 import { defaultDaemonUrl } from "./boot/connection-settings.ts";
 import { createDaemonClient } from "./boot/daemon.ts";
+import { markSeen } from "./features/thread/index.ts";
 import "./styles/index.css";
 
 const environment = {
@@ -18,7 +19,8 @@ const forgetFragment = () => history.replaceState(null, "", location.pathname + 
 async function content() {
   // The fake daemon is only bundled in `vite --mode fake`.
   if (import.meta.env.MODE === "fake") {
-    const { client } = (await import("./boot/fake.ts")).bootFake();
+    const { client, seen } = (await import("./boot/fake.ts")).bootFake();
+    for (const mark of seen) markSeen(mark.threadId, mark.itemId);
     await client.start();
     return app(client);
   }

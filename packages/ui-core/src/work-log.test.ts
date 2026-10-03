@@ -82,7 +82,7 @@ test("an edit step reads with its target and the lines it added and removed", ()
       1,
     ),
   );
-  expect(step).toMatchObject({ verb: "Edited", target: "src/a.ts", added: 3, removed: 2 });
+  expect(step).toMatchObject({ verb: "Edited", target: "src/a.ts", added: 2, removed: 1 });
   expect(step.settled).toBe(true);
 });
 

@@ -70,9 +70,19 @@ const screens: Record<string, Setup> = {
     await page.getByRole("dialog").waitFor();
   },
   "new-thread": visit("/new", "New thread"),
-  thread: openThread("/t/thread-replay-cursor"),
+  // The design's hero: work log, answer, changed files, subagents, a background relay, the
+  // New activity divider and a message queued behind the busy agent.
+  thread: async (page) => {
+    await openThread("/t/thread-dedupe")(page);
+    await page.getByRole("separator", { name: "New activity" }).waitFor();
+    await page
+      .getByRole("combobox", { name: "Message" })
+      .fill("Also check the iOS cold-start path");
+    await page.keyboard.press("Enter");
+    await page.getByRole("list", { name: "Queued messages" }).waitFor();
+  },
   "thread-work-log": async (page) => {
-    await openThread("/t/thread-replay-cursor")(page);
+    await openThread("/t/thread-dedupe")(page);
     await page.getByRole("button", { name: /^Worked for/ }).click();
   },
   "thread-changes": rightTab("/t/thread-cold-start", /^Changes/),
@@ -80,7 +90,7 @@ const screens: Record<string, Setup> = {
     await rightTab("/t/thread-cold-start", /^Changes/)(page);
     await page.getByRole("button", { name: "Split" }).click();
   },
-  "thread-agents": rightTab("/t/thread-replay-cursor", "Agents"),
+  "thread-agents": rightTab("/t/thread-dedupe", "Agents"),
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
   "thread-terminal": bottomTab("/t/thread-cold-start", "Terminal"),
   "thread-logs": bottomTab("/t/thread-cold-start", "Logs"),

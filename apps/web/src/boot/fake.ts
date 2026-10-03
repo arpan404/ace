@@ -19,31 +19,37 @@ const timer = {
   },
 };
 
+const minute = 60_000;
+
+/** A thread the reader "left" partway through, so its transcript shows a New activity divider. */
+export interface SeenSeed {
+  threadId: string;
+  itemId: string;
+}
+
 /** `bun run --filter @ace/web dev:fake`: the whole app against scripted scenarios in-page. */
-export function bootFake(): { client: Client; daemon: FakeDaemon } {
-  // Scenarios that happened earlier are played with the daemon clock set back by their age.
-  let agoMs = 0;
-  const daemon = new FakeDaemon({ clock: () => Date.now() - agoMs, snapshotItems: 40 });
-  new ScenarioPlayer(daemon, longHistory(120)).runUntilBlocked();
-  for (const aged of homeList()) {
-    agoMs = aged.agoMs;
-    new ScenarioPlayer(daemon, aged.scenario).runUntilBlocked();
-  }
-  agoMs = 0;
-  const checkout = new ScenarioPlayer(daemon, flakyCheckout());
-  const settings = new ScenarioPlayer(daemon, failingSubagent());
-  checkout.autoplay(timer);
-  new ScenarioPlayer(daemon, replayCursor()).autoplay(timer);
+export function bootFake(): { client: Client; daemon: FakeDaemon; seen: SeenSeed[] } {
+  const daemon = new FakeDaemon({ clock: () => Date.now(), snapshotItems: 40 });
+  // Scenarios that happened earlier are stamped back by their age.
+  new ScenarioPlayer(daemon, longHistory(120), { agoMs: 2 * 24 * 60 * minute }).runUntilBlocked();
+  for (const aged of homeList())
+    new ScenarioPlayer(daemon, aged.scenario, { agoMs: aged.agoMs }).runUntilBlocked();
+  // Live threads keep moving while the app is open; they started a few minutes ago.
+  new ScenarioPlayer(daemon, flakyCheckout(), { agoMs: 3 * minute }).autoplay(timer);
+  new ScenarioPlayer(daemon, replayCursor(), { agoMs: 4 * minute }).autoplay(timer);
   // The thread the right and bottom panels are designed around (features/panels).
-  new ScenarioPlayer(daemon, coldStartReplay()).autoplay(timer);
-  settings.autoplay(timer, 0.5);
+  new ScenarioPlayer(daemon, coldStartReplay(), { agoMs: 8 * minute }).autoplay(timer);
+  new ScenarioPlayer(daemon, failingSubagent(), { agoMs: 12 * minute }).autoplay(timer, 0.5);
   const client = createBrowserClient({
     deviceId: "web-fake-device",
     transport: () => fakeTransport(daemon),
     credential: async () => daemon.token,
     storage: memoryStorage(),
   });
+  // The hero thread was last read before reconnect-audit's finding arrived.
+  const relay = daemon.itemId("thread-dedupe", "relay");
+  const seen = relay ? [{ threadId: "thread-dedupe", itemId: relay }] : [];
   // Exposed for poking at fault injection from the console, e.g. ace.daemon.disconnectAll().
   Object.assign(globalThis, { ace: { daemon, client } });
-  return { client, daemon };
+  return { client, daemon, seen };
 }

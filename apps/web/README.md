@@ -95,6 +95,12 @@ Components depend on the interface only, so wiring the real protocol later chang
 - Export it from `packages/fake-daemon/src/index.ts`.
 - To seed `dev:fake`, play it in `src/boot/fake.ts` (`runUntilBlocked()` for a static state, `autoplay(timer)` for a live one). `workbench()` is the realistic Home list from the design.
 - Use realistic content (projects, branches, commands, findings), not placeholder text.
+- Backdate seeded history: a step's `agoMs` stamps it that long before now, and
+  `new ScenarioPlayer(daemon, scenario, { agoMs })` plays a whole scenario earlier, so ages and
+  "Worked for" durations read as real time. `daemon.itemId(threadId, key)` gives the item id an
+  adapter key became (the fake boot uses it to seed where the reader left the hero thread).
+- `dedupeReconnect()` is the design's hero thread (work log, answer, changed files, subagents,
+  background relay, a finding after the reader left); `bun run web:screens` shoots it.
 - In tests, `harness()` (`src/test/harness.tsx`) gives you the real app, a real client and a `FakeDaemon`: `app.play(scenario)`, `await app.open(path)`.
 
 ## Tests
