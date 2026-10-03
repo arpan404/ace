@@ -116,8 +116,8 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   {
     name: "conductor",
     phase: "listener",
-    requires: [],
-    after: ["engine", "accounts"],
+    requires: ["engine", "agentControl"],
+    after: ["accounts", "notifications", "workspaceActions"],
     start: startConductor,
   },
 ];
