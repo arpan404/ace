@@ -195,6 +195,48 @@ test("with a linked PR, the git menu opens it and says why a draft PR can't be c
   opened.mockRestore();
 });
 
+test("the commit dialog counts the checkout's uncommitted files and can push too, with ⌘↵", async () => {
+  const app = await openThread("checkout");
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Commit" }).getAttribute("aria-disabled")).toBeNull(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Commit" }));
+  const commit = await screen.findByRole("dialog", { name: "Commit changes" });
+  expect(within(commit).getByText(/uncommitted files? in the checkout/)).toBeTruthy();
+  await userEvent.click(within(commit).getByRole("checkbox", { name: "Push after committing" }));
+  expect(within(commit).getByRole("button", { name: "Commit & push" })).toBeTruthy();
+  await userEvent.click(within(commit).getByRole("textbox", { name: "Commit details" }));
+  await userEvent.keyboard("{Control>}{Enter}{/Control}");
+  expect(await screen.findByText("Committed and pushed")).toBeTruthy();
+  const details = app.daemon.snapshot({
+    kind: "thread",
+    threadId: ThreadId.parse("thread-checkout"),
+  });
+  expect(details && "thread" in details && details.thread.details).toMatchObject({
+    ahead: 0,
+    diff: { files: 0 },
+  });
+});
+
+test("the PR dialog's Draft switch opens a draft pull request", async () => {
+  const app = harness();
+  app.play(flakyCheckout()).runThrough("explorer-spawned");
+  await app.open("/t/thread-checkout");
+  await screen.findByRole("feed", { name: "Transcript" });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Commit" }).getAttribute("aria-disabled")).toBeNull(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Commit" }));
+  const commit = await screen.findByRole("dialog", { name: "Commit changes" });
+  await userEvent.click(within(commit).getByRole("checkbox", { name: "Push after committing" }));
+  await userEvent.click(within(commit).getByRole("button", { name: "Commit & push" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Create PR" }));
+  const pr = await screen.findByRole("dialog", { name: "Open a pull request" });
+  await userEvent.click(within(pr).getByRole("switch", { name: /Draft/ }));
+  await userEvent.click(within(pr).getByRole("button", { name: "Create draft PR" }));
+  expect(await screen.findByText(/^Draft pull request #\d+ opened$/)).toBeTruthy();
+});
+
 test("View diff in the git menu shows the Changes tab", async () => {
   await openThread();
   await userEvent.click(await screen.findByRole("button", { name: "Git actions" }));
