@@ -26,6 +26,8 @@ export function transitionHarness(
     configure?: boolean;
     closeFails?: boolean;
     configureFails?: boolean;
+    maxActiveThreads?: number;
+    beforeFork?(context: SessionContext): Promise<void>;
   } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-transition-"));
@@ -77,6 +79,7 @@ export function transitionHarness(
         }),
       createTranslator: () => ({ translate: frames.translate, tick: () => [] }),
       async openSession(context) {
+        if (context.fork) await options.beforeFork?.(context);
         const nativeId =
           context.resume?.nativeSessionId ??
           `00000000-0000-4000-8000-${String(++serial).padStart(12, "0")}`;
@@ -187,6 +190,7 @@ export function transitionHarness(
     registry,
     clock,
     onError: (error: unknown) => errors.push(error),
+    ...(options.maxActiveThreads ? { limits: { maxActiveThreads: options.maxActiveThreads } } : {}),
     ...(options.io ? { transitions: options.io } : {}),
   };
   let engine = new Engine(store, engineOptions);
@@ -195,6 +199,7 @@ export function transitionHarness(
     return store.recordCommand(value.id, value.deviceId, () => engine.handler.handle(value, store));
   }
   async function create() {
+    const existing = new Set(store.listThreads().map((thread) => thread.id));
     const result = command({
       type: "thread.create",
       workspaceId: workspace,
@@ -204,7 +209,7 @@ export function transitionHarness(
     });
     if (!result.ok) throw new Error(result.error);
     await engine.flush();
-    const thread = store.listThreads()[0];
+    const thread = store.listThreads().find((thread) => !existing.has(thread.id));
     if (!thread) throw new Error("No created thread");
     return thread.id;
   }

@@ -103,12 +103,17 @@ test("cross-account switching migrates the native session and ancestors before f
   expect(h.sessions.at(-1)?.context.instanceId).toBe("account-b");
   expect(h.sessions.at(-1)?.context.fork?.nativeSessionId).toBe(original);
   expect(h.inputs.at(-1)?.nativeId).not.toBe(original);
-  const answers = Object.values(h.store.snapshotThread(id).items).flatMap((item) =>
-    item.type === "message" ? item.parts : [],
-  );
+  const answers = h.store
+    .readItemPage(id, h.store.headSeq() + 1, 1)
+    .items.flatMap((item) => (item.type === "message" ? item.parts : []));
   expect(answers).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ text: expect.stringContaining("source history") }),
+    ]),
+  );
+  expect(answers).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ text: expect.stringContaining("answer: continue on B") }),
     ]),
   );
 });

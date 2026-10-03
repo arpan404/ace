@@ -56,7 +56,14 @@ test("omitted historical pages remain reachable even when no excerpt fits", () =
   );
   expect(result.excerpts).toEqual([]);
   expect(result.omittedItems).toBe(999999);
-  expect(result.history).toEqual({ type: "items.page", threadId, before: 901, limit: 50 });
+  expect(result.history).toEqual({
+    type: "items.page",
+    tool: "ace_read_handoff",
+    chunkTool: "ace_read_handoff_chunk",
+    threadId,
+    before: 901,
+    limit: 50,
+  });
   expect(JSON.parse(renderHandoff(result))).toMatchObject({
     sourceThreadId: threadId,
     lossy: true,
@@ -75,10 +82,37 @@ test("tool and attachment context carries provenance and tells the reader how to
     createdAt: 1,
   });
   const result = selectHandoff(
-    { threadId, throughSeq: 10, totalItems: 2, items: [message("message", "text"), artifact] },
+    {
+      threadId,
+      throughSeq: 10,
+      totalItems: 3,
+      items: [
+        message("message", "text"),
+        Item.parse({
+          id: "tool",
+          agentId: "root",
+          type: "tool_call",
+          complete: true,
+          createdAt: 1,
+          call: {
+            id: "tool",
+            agentId: "root",
+            title: "Build",
+            status: "completed",
+            detail: { kind: "shell", command: "build" },
+            raw: [],
+          },
+        }),
+        artifact,
+      ],
+    },
     4096,
   );
   expect(result.excerpts[1]).toMatchObject({
+    citation: { threadId, itemId: "tool" },
+    text: expect.stringContaining("Tool Build: completed"),
+  });
+  expect(result.excerpts[2]).toMatchObject({
     citation: { threadId, itemId: "artifact" },
     text: expect.stringContaining("/artifact.png"),
   });
