@@ -10,7 +10,8 @@
     "./sse": "./src/sse.ts",
     "./discovery": "./src/discovery/index.ts",
     "./process-bytes": "./src/process-bytes.ts",
-    "./testing": "./src/testing/cli.ts"
+    "./testing": "./src/testing/cli.ts",
+    "./jsonl": "./src/jsonl.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

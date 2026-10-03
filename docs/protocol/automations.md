@@ -29,19 +29,22 @@ Example:
 
 ```json
 {
-  "concurrency": 7,
+  "concurrency": 5,
   "enabled": true,
   "id": "example",
-  "jitterMs": 8,
-  "missedRun": "skip",
+  "jitterMs": 4,
+  "missedRun": "run_once",
   "prompt": "example",
-  "provider": "acp",
+  "provider": "pi",
   "title": "example",
   "trigger": {
-    "kind": "file",
-    "paths": [
-      "example"
-    ]
+    "kind": "schedule",
+    "schedule": {
+      "expression": "example",
+      "kind": "rrule",
+      "startAt": 0,
+      "timezone": "example"
+    }
   },
   "workspace": "example",
   "worktree": false
@@ -79,7 +82,7 @@ Example:
 
 ```json
 {
-  "before": 2,
+  "before": 3,
   "runs": []
 }
 ```
@@ -101,26 +104,22 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 10,
+    "concurrency": 5,
     "enabled": false,
     "id": "example",
-    "jitterMs": 6,
+    "jitterMs": 1,
     "missedRun": "run_once",
-    "model": "example",
     "prompt": "example",
-    "provider": "opencode",
+    "provider": "codex",
     "title": "example",
     "trigger": {
-      "kind": "schedule",
-      "schedule": {
-        "expression": "example",
-        "kind": "rrule",
-        "startAt": 0,
-        "timezone": "example"
-      }
+      "kind": "file",
+      "paths": [
+        "example"
+      ]
     },
     "workspace": "example",
-    "worktree": false
+    "worktree": true
   },
   "requestId": "example",
   "type": "automation.put"
@@ -218,7 +217,7 @@ Example:
 
 ```json
 {
-  "ok": true,
+  "ok": false,
   "requestId": "example",
   "type": "automation.result"
 }
@@ -249,9 +248,8 @@ Example:
   "eventKey": "example",
   "id": "example",
   "result": "example",
-  "startedAt": 1,
-  "status": "failed",
-  "threadId": "example",
+  "startedAt": 6,
+  "status": "skipped",
   "title": "example",
   "trigger": "file"
 }
@@ -335,8 +333,9 @@ Example:
 {
   "event": "pr_changed",
   "kind": "github",
-  "pollIntervalMs": 60001,
-  "repository": "7GkM/NvP8.ASJz"
+  "label": "example",
+  "pollIntervalMs": 60003,
+  "repository": "b967okol/lfYFL"
 }
 ```
 

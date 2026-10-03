@@ -1,6 +1,14 @@
 import { z } from "zod";
 
-export const ProviderKind = z.enum(["claude", "codex", "opencode", "cursor", "antigravity", "acp"]);
+export const ProviderKind = z.enum([
+  "claude",
+  "codex",
+  "opencode",
+  "cursor",
+  "antigravity",
+  "acp",
+  "pi",
+]);
 export type ProviderKind = z.infer<typeof ProviderKind>;
 
 /**
