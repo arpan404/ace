@@ -94,6 +94,10 @@ export class IntentStore {
       this.queue.track(Number(row.lastInsertRowid), id, command);
     });
   }
+  commandStatus(commandId: CommandId) {
+    const row = this.sql("SELECT status FROM intents WHERE command_id=? LIMIT 1").get(commandId);
+    return row ? Header.shape.status.parse(row.status) : undefined;
+  }
   *headers(id?: ThreadId): Iterable<IntentHeader> {
     let after = 0;
     for (;;) {

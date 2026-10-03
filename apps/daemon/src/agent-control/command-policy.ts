@@ -14,21 +14,37 @@ export function delegationCommandPolicy(deps: {
   admits(): boolean;
   cancel(thread: ThreadId, request: string): void;
   changed(): void;
+  suspending?(thread: ThreadId): boolean;
 }) {
   return (command: Command, accept: () => CommandResult): CommandResult => {
     const p = command.payload;
     const fail = (error: string) => ({ commandId: command.id, ok: false, error });
     if (p.type === "thread.interrupt") {
       const accepted = accept();
-      if (accepted.ok && p.cascade && deps.journal.get(p.threadId)?.phase !== "cancelling")
+      if (
+        accepted.ok &&
+        p.cascade &&
+        !deps.suspending?.(p.threadId) &&
+        deps.journal.get(p.threadId)?.phase !== "cancelling"
+      )
         deps.cancel(p.threadId, command.id);
       return accepted;
     }
-    if (p.type !== "thread.send") return accept();
+    if (
+      p.type !== "thread.send" &&
+      p.type !== "thread.resume" &&
+      p.type !== "queue.resume" &&
+      p.type !== "thread.limit"
+    )
+      return accept();
     const edge = deps.journal.get(p.threadId);
     if (!edge) return accept();
     if (!deps.admits()) return fail("Admission closed");
-    if (p.trigger === "subagent_result" && deps.journal.stopped(p.threadId))
+    if (
+      p.type === "thread.send" &&
+      p.trigger === "subagent_result" &&
+      deps.journal.stopped(p.threadId)
+    )
       return fail("cancelled");
     if (edge.phase === "cancelling" || deps.journal.ancestorStopped(p.threadId))
       return fail("cancelled");

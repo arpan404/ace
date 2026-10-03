@@ -1,4 +1,5 @@
 import { PermissionMode } from "./permissions.ts";
+import { DeckOwnership } from "./deck-ownership.ts";
 import { z } from "zod";
 import { AgentId, ThreadId, Timestamp, WorkspaceId, InteractionId } from "./ids.ts";
 import { ProviderKind } from "./provider.ts";
@@ -65,6 +66,7 @@ export const DelegationRecord = z.object({
   phase: z.enum(["created", "running", "cancelling", "settled"]),
   generation: z.number().int().nonnegative().default(0),
   outcome: DelegationOutcome.optional(),
+  resultDelivery: z.enum(["parent", "owner"]).optional(),
 });
 export type DelegationRecord = z.infer<typeof DelegationRecord>;
 export const ControlThreadInput = z.strictObject({ threadId: ThreadId });
@@ -179,7 +181,9 @@ export const AgentControlResult = z.object({
 export type AgentControlResult = z.infer<typeof AgentControlResult>;
 
 export const ThreadPrepareCommand = z.object({
+  deck: DeckOwnership.optional(),
   type: z.literal("thread.prepare"),
+  handoffFrom: ThreadId.optional(),
   mode: z.enum(["local", "worktree"]).optional(),
   baseBranch: z.string().min(1).max(1024).optional(),
   threadId: ThreadId,

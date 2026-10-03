@@ -98,7 +98,7 @@ Fast static checks only: typecheck, lint, formatting of edited backend/tests/doc
 
 ## Second verifier fix round (2026-10-03)
 
-Reviewed the round-2 report at head 72fb6412 and the newest PR comment. origin/main remains a6230291 and is already merged. There are still no separate integration-rehearsal findings in issue comments, reviews or inline comments. The pre-round-1 report remains unavailable; no historical executed mutation outcomes are claimed.
+Reviewed the round-2 report at head 72fb6412 and the newest PR comment. The initial fetch found origin/main at a6230291, already merged. A later fetch found PR #83 merged at c270841c; this round merges that commit without rebasing. There are still no separate integration-rehearsal findings in issue comments, reviews or inline comments. The pre-round-1 report remains unavailable; no historical executed mutation outcomes are claimed.
 
 B4 is fixed by preserving generic ACP read categories as acp/read. Kinds and follow-along locations cannot establish the exact operation or exhaustive accessed paths. Wildcard, absent, mismatched and apparently exact inputs all reach the public translator and engine with an ordinary file location and a secrets.json fixture. Each case requires one durable escalation, needs_you, a pending request and no native grant. Known provider-specific exact Read operations retain their existing approval path. ACP's reported guarantee limitations now disclose the generic-read escalation.
 
@@ -119,4 +119,11 @@ All runtime assertions **need run at merge**. The B4 regression was written befo
 | Lose physical secret classification through a symlink                       | permissions.process.test.ts ordinary filename pointing to workspace .env                                     | not executed (tests run at merge) |
 | Lose ancestor links on restart or trust only the intermediate cached mode   | permission-ancestry.process.test.ts cold SQLite/Engine reopen before descendant admission                    | not executed (tests run at merge) |
 
-Only the permitted static checks run locally. Tests, bun run check, CI, probes, benchmarks, provider prompts and recorder sessions remain unexecuted.
+The #83 merge preserves Deck ownership/handoff fields together with engine spawn inheritance, host plan gates together with permission-option validation, and provider availability together with the read-only guarantee API. Combined protocol documentation is regenerated from schemas. No conductor executor code was edited for the still-pending per-deck mode override. The merged deterministic turn provider now advertises its simulated permission modes; otherwise default engine admission would refuse it. Public engine behavior coverage requires its reply and done state under default auto-review and each explicit mode. A public delegation case requires Deck display ownership, ask inheritance and widening refusal on the same child.
+
+| Integration mutation                                                         | Guarding behavior                                                                                                      | Result                            |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| Omit permission capability metadata on the scripted turn provider            | turn-provider-permissions.process.test.ts completes real engine turns under default auto-review and all explicit modes | not executed (tests run at merge) |
+| Drop Deck ownership or permission parent while combining delegation creation | permission-ownership.process.test.ts public prepared root and delegate retain ownership and ask ceiling                | not executed (tests run at merge) |
+
+Only the permitted static checks run locally. Dependency links were refreshed with bun install --ignore-scripts --frozen-lockfile after merging main; no lifecycle scripts ran. Tests, bun run check, CI, probes, benchmarks, provider prompts and recorder sessions remain unexecuted.

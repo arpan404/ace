@@ -3,44 +3,64 @@ import { useSidebar, useSidebarIds, type SidebarKey } from "@ace/client-react";
 import { useCallback, useMemo } from "react";
 import { useThreadIdsWhere } from "@/features/shell/index.ts";
 import { inProject, useActivityState } from "./activity-state.tsx";
-import { useEscalations } from "./escalations.ts";
+import { useDeckEvents } from "./escalations.ts";
 import type { FeedEvent } from "./feed-events.ts";
 
 const none: readonly string[] = [];
 
-/** Threads waiting on a person (live from the daemon) and open Deck escalations, filtered. */
+/**
+ * A stable set of the threads decks own, so selectors keep their identity while the decks'
+ * views change without adding or removing a thread.
+ */
+function useOwned(threads: ReadonlyMap<string, unknown>): ReadonlySet<string> {
+  const key = [...threads.keys()].toSorted().join("\u0000");
+  return useMemo(() => new Set(key ? key.split("\u0000") : []), [key]);
+}
+
+/**
+ * Threads waiting on a person (live from the daemon) and open Deck decisions, filtered. A
+ * deck's own threads are left out: their requests are the deck's decisions.
+ */
 export function useNeedsYou(): { threadIds: readonly string[]; escalations: FeedEvent[] } {
   const { project } = useActivityState();
+  const deck = useDeckEvents();
+  const owned = useOwned(deck.threads);
   const predicate = useCallback(
     (reader: SidebarReader, id: string) => {
       const thread = reader.thread(id);
-      return thread?.status.state === "needs_you" && inProject(project, thread.workspaceId);
+      return (
+        thread?.status.state === "needs_you" &&
+        !owned.has(id) &&
+        inProject(project, thread.workspaceId)
+      );
     },
-    [project],
+    [project, owned],
   );
   const threadIds = useThreadIdsWhere(predicate);
-  const events = useEscalations();
   const escalations = useMemo(
-    () => events.filter((event) => inProject(project, event.project)),
-    [events, project],
+    () => deck.events.filter((event) => inProject(project, event.project)),
+    [deck.events, project],
   );
   return { threadIds, escalations };
 }
 
-const pendingTotal = (reader: SidebarReader) =>
-  reader.ids.reduce((sum, id) => {
-    const status = reader.thread(id)?.status;
-    return status?.state === "needs_you" ? sum + status.interactions : sum;
-  }, 0);
-
-/** Every open request across threads (the daemon's per-thread counts) plus escalations. */
+/** Every open request across threads (the daemon's per-thread counts) plus Deck decisions. */
 export function useNeedsYouCount(): number {
   const ids = useSidebarIds() ?? none;
+  const deck = useDeckEvents();
+  const owned = useOwned(deck.threads);
   const keys = useMemo<SidebarKey[]>(
     () => ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)],
     [ids],
   );
+  const pendingTotal = useCallback(
+    (reader: SidebarReader) =>
+      reader.ids.reduce((sum, id) => {
+        const status = reader.thread(id)?.status;
+        return status?.state === "needs_you" && !owned.has(id) ? sum + status.interactions : sum;
+      }, 0),
+    [owned],
+  );
   const pending = useSidebar(keys, pendingTotal) ?? 0;
-  const escalations = useEscalations();
-  return pending + escalations.length;
+  return pending + deck.events.length;
 }

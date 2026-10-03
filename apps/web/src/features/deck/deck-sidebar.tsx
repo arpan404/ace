@@ -13,7 +13,8 @@ import {
   ViewSidebarError,
 } from "@/components/ui/view-row.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
-import { deckGroup, deckRunSummary, type DeckRun, type DeckGroup } from "@ace/ui-core";
+import { deckGroup, deckRunSummary, formatAge, type DeckRun, type DeckGroup } from "@ace/ui-core";
+import { useNow } from "@/lib/time.ts";
 import { useDeckRetry, useDeckRuns } from "./deck-source.ts";
 import { useProjectName } from "@/lib/projects.ts";
 
@@ -67,7 +68,9 @@ export function DeckSidebar() {
       ) : (
         <nav aria-label="Decks">
           {groups.map((group) => {
-            const members = shown.filter((run) => deckGroup(run) === group.id);
+            const members = shown
+              .filter((run) => deckGroup(run) === group.id)
+              .toSorted(group.id === "gated" ? longestWaiting : latest);
             return members.length ? (
               <ViewRowSection key={group.id} label={group.label}>
                 {members.map((run) => (
@@ -84,13 +87,22 @@ export function DeckSidebar() {
   );
 }
 
+/** Gated decks by how long they have waited; the rest by their latest change. */
+const longestWaiting = (a: DeckRun, b: DeckRun) => (a.gate?.gatedAt ?? 0) - (b.gate?.gatedAt ?? 0);
+const latest = (a: DeckRun, b: DeckRun) => b.updatedAt - a.updatedAt;
+
 function DeckRow(props: { run: DeckRun }) {
+  const now = useNow();
+  const { run } = props;
+  const at = run.gate?.gatedAt || run.updatedAt;
   return (
-    <Link to="/deck/$runId" params={{ runId: props.run.id }} className={viewRowClass}>
+    <Link to="/deck/$runId" params={{ runId: run.id }} className={viewRowClass}>
       <ViewRowBody
         icon={CardsIcon}
-        title={props.run.title}
-        description={deckRunSummary(props.run)}
+        title={run.title}
+        strong={!!run.gate}
+        description={deckRunSummary(run)}
+        meta={at ? formatAge(at, now) : undefined}
       />
     </Link>
   );

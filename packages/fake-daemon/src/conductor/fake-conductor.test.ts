@@ -52,7 +52,8 @@ test("pause and resume return the deck to the phase it was in", () => {
 });
 
 test("every lane runs on an account the fake accounts.list serves", () => {
-  const conductor = new FakeConductor({ clock: () => 1 });
+  // Seeded decks are dated hours back from now, so now is a real moment.
+  const conductor = new FakeConductor({ clock: () => 1_800_000_000_000 });
   const listed = new Set(accountSummaries(1).map((account) => account.id));
   const lanes = conductor.runs().flatMap((run) => runView(run).lanes);
   expect(lanes.length).toBeGreaterThan(0);

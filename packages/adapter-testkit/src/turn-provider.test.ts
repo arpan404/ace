@@ -1,9 +1,12 @@
 import { expect, test } from "vitest";
 import type { Fact } from "@ace/core";
-import { ThreadId } from "@ace/protocol";
-import { createTurnProvider, ScriptedTurnConfig } from "./index.ts";
+import { InteractionRequest, ThreadId } from "@ace/protocol";
+import { createTurnProvider, ScriptedTurnConfig, type ScriptedTurnResponse } from "./index.ts";
 
-async function fixture() {
+async function fixture(
+  respond?: (text: string, cwd: string) => ScriptedTurnResponse | undefined,
+  config = ScriptedTurnConfig.parse({ delayMs: 500, limitAfterTurns: 1, resetMs: 1000 }),
+) {
   let now = 1000;
   const timers = new Set<{ at: number; callback(): void | Promise<void> }>();
   const facts: Fact[] = [];
@@ -11,7 +14,9 @@ async function fixture() {
   const adapter = createTurnProvider({
     provider: "codex",
     reply: "done",
-    config: ScriptedTurnConfig.parse({ delayMs: 500, limitAfterTurns: 1, resetMs: 1000 }),
+    config,
+    ...(respond ? { respond } : {}),
+    markers: { hold: "hold-marker", limit: "limit-marker", notice: "Limit reached" },
     now: () => now,
     schedule(delay, callback) {
       const timer = { at: now + delay, callback };
@@ -214,5 +219,99 @@ test("the e2e hold and limit markers still expose working turns to queue and sto
     );
   } finally {
     await session.close("shutdown");
+  }
+});
+
+test("custom Deck artifacts and questions use the same delayed turns as ordinary messages", async () => {
+  const request = InteractionRequest.parse({
+    kind: "question",
+    questions: [{ id: "where", text: "Should the note live at the root?", options: [] }],
+  });
+  const f = await fixture(
+    (text, cwd) => {
+      if (text.startsWith("plan")) return { kind: "reply", text: "plan-artifact", delayMs: 700 };
+      if (text.startsWith("worker"))
+        return { kind: "question", request, answer: () => `completed:${cwd}`, delayMs: 700 };
+      return undefined;
+    },
+    ScriptedTurnConfig.parse({ delayMs: 500 }),
+  );
+  try {
+    await f.session.send([{ type: "text", text: "plan hold-marker" }], "queue");
+    await f.advance(699);
+    expect(f.facts.some((fact) => fact.type === "turn.ended")).toBe(false);
+    await f.advance(1);
+    expect(f.facts).toContainEqual(
+      expect.objectContaining({
+        type: "item.upsert",
+        draft: expect.objectContaining({ parts: [{ type: "text", text: "plan-artifact" }] }),
+      }),
+    );
+    await f.session.send([{ type: "text", text: "worker limit-marker" }], "queue");
+    await f.advance(700);
+    const opened = f.facts.find((fact) => fact.type === "interaction.opened");
+    if (!opened || opened.type !== "interaction.opened") throw new Error("No question opened");
+    expect(opened.request).toEqual(request);
+    expect(f.facts.filter((fact) => fact.type === "turn.ended")).toHaveLength(1);
+    await f.session.resolve("wrong-question", { kind: "question", answers: { where: ["root"] } });
+    expect(f.facts.filter((fact) => fact.type === "turn.ended")).toHaveLength(1);
+    await f.session.resolve(opened.interaction, { kind: "question", answers: { where: ["root"] } });
+    expect(f.facts).toContainEqual(
+      expect.objectContaining({
+        type: "item.upsert",
+        draft: expect.objectContaining({ parts: [{ type: "text", text: "completed:/fixture" }] }),
+      }),
+    );
+    const started = f.facts.filter((fact) => fact.type === "turn.started");
+    const ended = f.facts.filter((fact) => fact.type === "turn.ended");
+    expect(ended.map((fact) => fact.nativeTurnId)).toEqual(
+      started.map((fact) => fact.nativeTurnId),
+    );
+    await f.session.send([{ type: "text", text: "ordinary" }], "queue");
+    await f.advance(500);
+    expect(f.facts.filter((fact) => fact.type === "turn.ended")).toHaveLength(3);
+    expect(f.facts).toContainEqual(
+      expect.objectContaining({
+        type: "item.upsert",
+        draft: expect.objectContaining({ parts: [{ type: "text", text: "done" }] }),
+      }),
+    );
+  } finally {
+    await f.session.close("shutdown");
+  }
+});
+
+test("interruption and close fence delayed Deck questions and their answers", async () => {
+  const f = await fixture(
+    () => ({
+      kind: "question",
+      request: InteractionRequest.parse({ kind: "question", questions: [] }),
+      answer: () => "must not complete",
+      delayMs: 700,
+    }),
+    ScriptedTurnConfig.parse({}),
+  );
+  try {
+    await f.session.send([{ type: "text", text: "worker limit-marker" }], "queue");
+    await f.session.interrupt({ cascade: false });
+    await f.advance(700);
+    expect(f.facts.some((fact) => fact.type === "interaction.opened")).toBe(false);
+    await f.session.send([{ type: "text", text: "worker limit-marker" }], "queue");
+    await f.advance(700);
+    const opened = f.facts.find((fact) => fact.type === "interaction.opened");
+    if (!opened || opened.type !== "interaction.opened") throw new Error("No question opened");
+    await f.session.interrupt({ cascade: false });
+    await f.session.resolve(opened.interaction, { kind: "question", answers: {} });
+    expect(f.facts.filter((fact) => fact.type === "turn.ended")).toEqual([
+      expect.objectContaining({ outcome: "interrupted" }),
+      expect.objectContaining({ outcome: "interrupted" }),
+    ]);
+    await f.session.send([{ type: "text", text: "worker limit-marker" }], "queue");
+    await f.session.close("shutdown");
+    const before = f.facts.length;
+    await f.advance(700);
+    expect(f.facts).toHaveLength(before);
+  } finally {
+    await f.session.close("shutdown");
   }
 });

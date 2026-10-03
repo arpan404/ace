@@ -106,6 +106,7 @@ export function acceptTransition(
           id,
           workspaceId: thread.workspaceId,
           title: p.title ?? `${thread.title} (fork)`,
+          ...(thread.deck ? { client: { deck: { ...thread.deck, role: "delegate" } } } : {}),
           selection,
           capabilities,
           ...(entry.adapter.backend ? { backend: entry.adapter.backend } : {}),

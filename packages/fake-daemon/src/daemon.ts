@@ -125,12 +125,15 @@ export class FakeDaemon implements Host {
     this.servicesWire = new FakeServicesWire(
       {
         now: options.clock,
+        createThread: (input) => this.createThread(input),
+        apply: (id, facts) => this.apply(id, facts),
         thread: (id) => {
           const host = this.threads.get(id);
           return host?.view.thread.deletedAt === undefined ? host?.view : undefined;
         },
         threads: () => [...this.threads.values()].map((host) => host.view.thread),
         update: (id, payload) => this.append(this.thread(id), [payload], options.clock()),
+        onResolved: (listener) => this.onResolved(listener),
       },
       this.services.settings,
     );
@@ -418,6 +421,13 @@ export class FakeDaemon implements Host {
   /** Never answer these requests, so the page stays on its loading state. */
   holdRequests(...types: ClientMessage["type"][]): void {
     for (const type of types) this.faults.set(type, "hold");
+  }
+  /**
+   * The conductor couldn't run a deck's next step (`executionError`), as after a restart that
+   * lost its project: the deck reports it until it is resumed.
+   */
+  failDeck(runId: string, code: string): void {
+    this.servicesWire.failDeck(runId, code);
   }
   /** Serve every request again. */
   restoreRequests(): void {

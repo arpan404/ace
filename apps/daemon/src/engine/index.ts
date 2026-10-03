@@ -6,8 +6,9 @@ import {
   limitPermissionMode as resolveChildMode,
 } from "@ace/core";
 import type { PermissionSettings } from "./permissions.ts";
+import { z } from "zod";
 import { changeEngineWorkspace } from "./workspace-change.ts";
-import { ThreadId } from "@ace/protocol";
+import { ProviderKind, ThreadId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
 import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
 import { ContextMeters } from "./context-meter.ts";
@@ -19,14 +20,7 @@ import { randomUUID } from "node:crypto";
 import { deriveThreadStatus, readyForChildResults, type IdSource } from "@ace/core";
 import type { CommandHandler } from "../commands.ts";
 import type { Store } from "../store.ts";
-import type {
-  AgentId,
-  Thread,
-  ProviderKind,
-  Command,
-  QueueSnapshot,
-  QueueGet,
-} from "@ace/protocol";
+import type { AgentId, Thread, Command, QueueSnapshot, QueueGet } from "@ace/protocol";
 import { ThreadActor, systemClock, type EngineClock } from "./actor.ts";
 import { engineLimits, type EngineLimits } from "./limits.ts";
 import { IntentWorkers } from "./workers.ts";
@@ -88,6 +82,9 @@ export class Engine {
   private readyState = false;
   private closing = false;
   private closePromise?: Promise<void>;
+  private hostInteractionHandler?: (
+    command: Command,
+  ) => import("@ace/protocol").CommandResult | undefined;
   private commandPolicy?: (
     command: Command,
     accept: () => import("@ace/protocol").CommandResult,
@@ -215,10 +212,12 @@ export class Engine {
             ? { commandId: command.id, ok: false, error: "daemon_shutting_down" }
             : !this.readyState
               ? { commandId: command.id, ok: false, error: "engine_starting" }
-              : store.atomic(() =>
-                  this.commandPolicy
-                    ? this.commandPolicy(command, () => handler.handle(command, context))
-                    : handler.handle(command, context),
+              : store.atomic(
+                  () =>
+                    this.hostInteractionHandler?.(command) ??
+                    (this.commandPolicy
+                      ? this.commandPolicy(command, () => handler.handle(command, context))
+                      : handler.handle(command, context)),
                 ),
     };
     const recover = () =>
@@ -273,6 +272,10 @@ export class Engine {
       this.actors.set(id, actor);
     }
     return actor;
+  }
+  providerAvailability(provider: ProviderKind) {
+    const { installed, auth } = this.registry.get(provider).discovery;
+    return { installed, auth };
   }
   capabilities(provider: ProviderKind, backend?: import("@ace/engine-api").ProviderBackend) {
     return structuredClone(this.registry.get(provider, backend).capabilities);
@@ -393,6 +396,64 @@ export class Engine {
     }
     return { activeSessions, queues };
   }
+  bindHostInteractions(
+    handler: (command: Command) => import("@ace/protocol").CommandResult | undefined,
+  ): void {
+    this.hostInteractionHandler = handler;
+  }
+  /**
+   * A thread's root agent id. A prepared thread has only its configured root until a fact
+   * arrives, so a harmless tick materializes it for hosts that attach children before any turn.
+   */
+  rootAgent(threadId: ThreadId): string | undefined {
+    const rootOf = () => {
+      const state = this.repo.requireState(threadId);
+      return state.rootKey === undefined ? undefined : state.agents[state.rootKey]?.agent.id;
+    };
+    if (rootOf() === undefined) this.actor(threadId).apply([{ type: "tick" }]);
+    return rootOf();
+  }
+  openHostGate(threadId: ThreadId, key: string, message: string) {
+    const state = this.repo.requireState(threadId);
+    this.actor(threadId).apply([
+      {
+        type: "interaction.opened",
+        agent: state.rootKey ?? "root",
+        interaction: key,
+        blocking: true,
+        request: { kind: "plan_review", title: "Deck needs your decision", markdown: message },
+        raw: [{ type: "ace.conductor.gate", data: { key } }],
+      },
+    ]);
+    const interaction = this.repo.requireState(threadId).interactions[key];
+    if (!interaction) throw new Error("Host interaction was not admitted");
+    return interaction.id;
+  }
+  closeHostGate(threadId: ThreadId, key: string, state: "resolved" | "cancelled"): void {
+    this.actor(threadId).apply([{ type: "interaction.closed", interaction: key, state }]);
+  }
+  activeExecutionSelections() {
+    const row = z.object({
+      thread_id: ThreadId,
+      provider: ProviderKind,
+      instance_id: z.string().nullable(),
+    });
+    return this.repo.store
+      .atomic((db) =>
+        db
+          .prepare(`SELECT s.thread_id,t.provider,s.instance_id FROM threads t JOIN engine_sessions s ON s.thread_id=t.id
+      WHERE s.native_session_id IS NOT NULL AND json_extract(t.status,'$.state') NOT IN ('new','done','failed') LIMIT 65`)
+          .all(),
+      )
+      .map((value) => row.parse(value));
+  }
+  /** Host suspension captures the engine-owned continuation before interrupting work. */
+  discardRecovery(id: ThreadId): void {
+    this.recovery.discard(id);
+  }
+  captureContinuation(id: ThreadId): void {
+    this.recovery.capture(id);
+  }
   async changeWorkspace(
     id: ThreadId,
     commandId: string,
@@ -424,6 +485,9 @@ export class Engine {
   }
   sessionMetadata(id: ThreadId) {
     return this.repo.session(id);
+  }
+  commandExecution(commandId: import("@ace/protocol").CommandId) {
+    return this.repo.pending.commandStatus(commandId);
   }
   queuePage(request: Pick<QueueGet, "threadId" | "after" | "expectedRevision" | "limit">) {
     return this.repo.queue.page(request);

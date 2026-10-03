@@ -22,13 +22,13 @@ test("answering an approval in Activity resolves it and takes it off the rail's 
 
   const approval = await card(approvalTitle);
   const rail = screen.getByRole("navigation", { name: "Views" });
-  // The approval and the Deck escalation the Activity feed also holds.
-  expect(await within(rail).findByLabelText("2 need you")).toBeTruthy();
+  // The approval and the three Deck decisions the Activity feed also holds.
+  expect(await within(rail).findByLabelText("4 need you")).toBeTruthy();
 
   await userEvent.click(within(approval).getByRole("button", { name: "Approve" }));
 
   await waitFor(() => expect(screen.queryByRole("article", { name: approvalTitle })).toBeNull());
-  expect(within(rail).getByLabelText("1 need you")).toBeTruthy();
+  expect(within(rail).getByLabelText("3 need you")).toBeTruthy();
   expect(await screen.findByText("Approved · the agent continues")).toBeTruthy();
 
   // The daemon's interaction.closed event, not the click, is what the store now holds.

@@ -50,6 +50,8 @@ export {
 } from "./permissions.ts";
 export { oppositeFollowUpBehavior } from "./follow-up.ts";
 
+export { ConductorClient } from "./conductor.ts";
+export type { ConductorWatch } from "./conductor.ts";
 export { DeviceClient, DeviceClientError } from "@ace/devices/client";
 export type {
   DeviceClientSnapshot,

@@ -9,6 +9,11 @@ import {
   ProviderKind,
 } from "@ace/protocol";
 
+/** Execution intents require a native root identity; the wire stays additive. */
+export const StartSpec = ConductorSpec.refine(
+  (spec) => z.uuid().safeParse(spec.rootAgentId).success,
+  { path: ["rootAgentId"], message: "Native conductor root must be a UUID" },
+);
 export const Key = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/);
 const Text = z.string().min(1).max(16_384);
 export const Completion = z.object({
@@ -110,11 +115,14 @@ export const Gate = z.object({
   lane: Key.nullable(),
   generation: z.number().int().nonnegative().nullable(),
   message: Text,
+  gatedAt: z.number().int().nonnegative().default(0),
 });
 export type Gate = z.infer<typeof Gate>;
 export const State = z
   .object({
     version: z.literal(1),
+    startedAt: z.number().int().nonnegative().default(0),
+    updatedAt: z.number().int().nonnegative().default(0),
     id: Key,
     spec: ConductorSpec,
     phase: z.enum(["planning", "running", "paused", "cancelling", "cancelled", "done"]),

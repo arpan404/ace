@@ -8,8 +8,9 @@ import {
 } from "../src/real-daemon-config.ts";
 
 /**
- * Deck, automations and skills against a real apps/daemon (src/real-daemon.ts): its conductor,
- * automation service and plugin service, over the wire. No provider CLI runs.
+ * Automations and skills against a real apps/daemon (src/real-daemon.ts): its automation and
+ * plugin services, over the wire. No provider CLI runs. Deck has its own journey
+ * (real-daemon-deck.spec.ts).
  */
 async function connect(page: Page, path: string) {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
@@ -78,19 +79,4 @@ test("an automation created in the app is stored by the daemon and listed back",
   await expect(
     page.getByRole("main").getByRole("list", { name: "Recent runs" }).getByRole("listitem"),
   ).not.toHaveCount(0);
-});
-
-test("a deck the daemon can't run says why instead of pretending to start", async ({ page }) => {
-  await connect(page, "/deck");
-  await expect(
-    page.getByRole("heading", { name: "Deal a goal to a team of agents" }),
-  ).toBeVisible();
-  await page.getByRole("link", { name: "New deck" }).first().click();
-  const form = page.getByRole("form", { name: "New deck" });
-  await form
-    .getByLabel("Goal")
-    .fill("Add a health endpoint to the e2e project and document it in the README.");
-  await form.getByRole("button", { name: /Start deck/ }).click();
-
-  await expect(form.getByRole("alert")).toContainText("can't run decks yet");
 });

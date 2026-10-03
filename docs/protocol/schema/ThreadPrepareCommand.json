@@ -15,6 +15,12 @@
       "minLength": 1,
       "type": "string"
     },
+    "deck": {
+      "$ref": "https://ace.local/protocol/v1/DeckOwnership.json"
+    },
+    "handoffFrom": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
     "installationId": {
       "maxLength": 256,
       "minLength": 1,

@@ -6,6 +6,8 @@ import { delegationCommandPolicy } from "./command-policy.ts";
 import { delegationBudget, childResultPrompt } from "@ace/orchestrator";
 import { type AccountRegistry } from "@ace/accounts";
 import {
+  CommandId,
+  DeviceId,
   Command,
   ThreadId,
   DelegationPolicy,
@@ -47,6 +49,7 @@ export class DelegationService {
   private unsubscribe: () => void;
   private cancelTimer: (() => void) | undefined;
   private closed = false;
+  private suspending = new Set<ThreadId>();
   private reservationLifetimes = new ReservationLifetimes();
   private waiters = new OutcomeWaiters();
   constructor(deps: DelegationDependencies) {
@@ -69,6 +72,7 @@ export class DelegationService {
         admits: () => !this.closed && deps.admitsWork?.() !== false,
         cancel: (thread, request) => this.cancelDescendants(thread, request),
         changed: () => this.arm(),
+        suspending: (thread) => this.suspending.has(thread),
       }),
     );
     this.unsubscribe = deps.store.subscribe((events) => this.observe(events));
@@ -90,6 +94,9 @@ export class DelegationService {
   canFork(threadId: ThreadId) {
     const thread = this.deps.store.getThread(threadId);
     return !!thread && this.deps.engine.capabilities(thread.provider).fork;
+  }
+  commandReceipt(id: string) {
+    return this.deps.store.commandReceipt(CommandId.parse(id), DeviceId.parse("ace-agent"));
   }
   command(id: string, payload: CommandPayload) {
     const command = Command.parse({ id, deviceId: "ace-agent", payload });
@@ -155,8 +162,8 @@ export class DelegationService {
       return record;
     });
   }
-  reserve(caller: McpAttribution, value: DelegationRequest) {
-    const reservation = this.admission.reserve(caller, value);
+  reserve(caller: McpAttribution, value: DelegationRequest, resultDelivery?: "owner") {
+    const reservation = this.admission.reserve(caller, value, resultDelivery);
     this.arm();
     return reservation;
   }
@@ -164,8 +171,13 @@ export class DelegationService {
     caller: McpAttribution,
     reservation: DelegationReservation,
     workspace: WorkspaceId,
+    ownership?: {
+      resultDelivery: "owner";
+      handoffFrom?: ThreadId;
+      deck?: import("@ace/protocol").DeckOwnership;
+    },
   ) {
-    return this.admission.commit(caller, reservation, workspace);
+    return this.admission.commit(caller, reservation, workspace, ownership);
   }
   watchReservation(reservation: DelegationReservation) {
     return this.reservationLifetimes.watch(reservation);
@@ -198,10 +210,21 @@ export class DelegationService {
       this.journal.save(current);
     });
   }
+  /** Host-owned pause preserves recovery history and does not write subtree stop markers. */
+  suspend(thread: ThreadId, request: string) {
+    this.deps.engine.captureContinuation(thread);
+    this.suspending.add(thread);
+    try {
+      return this.command(request, { type: "thread.interrupt", threadId: thread, cascade: true });
+    } finally {
+      this.suspending.delete(thread);
+    }
+  }
   cancelDescendants(thread: ThreadId, request = this.deps.id()) {
     this.deps.store.atomic(() => {
       const tree = this.journal.tree(thread, this.deps.clock.now());
       this.journal.cancel(thread);
+      if (this.deps.store.getThread(thread)) this.deps.engine.discardRecovery(thread);
       this.reservationLifetimes.cancel(thread, (target, ancestor) =>
         this.journal.isDescendant(target, ancestor),
       );
@@ -218,6 +241,8 @@ export class DelegationService {
         .toSorted((a, b) => b.depth - a.depth);
       for (const child of children) {
         this.journal.stop(child.childId);
+        if (this.deps.store.getThread(child.childId))
+          this.deps.engine.discardRecovery(child.childId);
         child.phase = "cancelling";
         this.journal.save(child);
         const result = this.command(

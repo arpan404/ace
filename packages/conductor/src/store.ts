@@ -1,7 +1,15 @@
 import { clientView, clientSummary } from "./client-view.ts";
 import { DatabaseSync } from "node:sqlite";
 import { retainReceipt } from "./receipt-policy.ts";
-import { Effect, Fact, Key, State, type Environment, type Transition } from "./schema.ts";
+import {
+  Effect,
+  Fact,
+  Key,
+  State,
+  type Environment,
+  type Transition,
+  type Account,
+} from "./schema.ts";
 import { Count, Payload, StoredRoot, freezeState } from "./persistence-schema.ts";
 import { StatePersistence } from "./persistence.ts";
 import { reduce, start } from "./reducer.ts";
@@ -26,6 +34,7 @@ export class ConductorStore {
       CREATE TABLE IF NOT EXISTS conductor_outbox (ordinal INTEGER PRIMARY KEY, run TEXT NOT NULL REFERENCES conductor_runs(id) ON DELETE CASCADE, id TEXT UNIQUE NOT NULL, payload TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS conductor_outbox_run ON conductor_outbox(run,ordinal);
       CREATE INDEX IF NOT EXISTS conductor_pending_runs ON conductor_runs(id) WHERE pending>0;
+      CREATE INDEX IF NOT EXISTS conductor_active_runs ON conductor_runs(id) WHERE pending>0 OR json_extract(payload,'$.phase') NOT IN ('done','cancelled');
       CREATE TRIGGER IF NOT EXISTS conductor_inputs_count AFTER INSERT ON conductor_inputs BEGIN UPDATE conductor_runs SET inputs=inputs+1 WHERE id=NEW.run; END;
       CREATE TRIGGER IF NOT EXISTS conductor_pending_add AFTER INSERT ON conductor_outbox BEGIN UPDATE conductor_runs SET pending=pending+1 WHERE id=NEW.run; END;
       CREATE TRIGGER IF NOT EXISTS conductor_pending_remove AFTER DELETE ON conductor_outbox BEGIN UPDATE conductor_runs SET pending=pending-1 WHERE id=OLD.run; END;`);
@@ -72,10 +81,12 @@ export class ConductorStore {
     const last = ids.at(-1);
     return { ids, ...(rows.length > limit && last ? { next: last } : {}) };
   }
-  /** Restart admission visits indexed pending runs only. */
+  /** Restart admission visits indexed nonterminal runs, including empty outboxes. */
   resumable(): string[] {
     return this.db
-      .prepare("SELECT id FROM conductor_runs WHERE pending>0 ORDER BY id LIMIT 8")
+      .prepare(
+        "SELECT id FROM conductor_runs WHERE pending>0 OR json_extract(payload,'$.phase') NOT IN ('done','cancelled') ORDER BY id LIMIT 8",
+      )
       .all()
       .map((row) => Key.parse(row.id));
   }
@@ -124,12 +135,19 @@ export class ConductorStore {
     Key.parse(effectId);
     return this.sql.effect.get(id, effectId) !== undefined;
   }
-  create(id: string, spec: unknown, env: Environment): State {
+  create(id: string, spec: unknown, env: Environment, accounts?: readonly Account[]): State {
     const existing = this.load(id);
     if (existing) return existing;
     this.room(id);
     const next = this.atomic(() => {
-      const transition = start(id, spec, env);
+      const initial = start(id, spec, env);
+      const admitted = accounts
+        ? reduce(initial.state, { type: "accounts", accounts }, env)
+        : initial;
+      const transition = {
+        state: admitted.state,
+        effects: accounts ? [...initial.effects, ...admitted.effects] : initial.effects,
+      };
       // Parent row exists before content-addressed artifact FK inserts.
       this.sql.writeRun.run(id, "{}");
       this.write(transition, null, MAX_PENDING);

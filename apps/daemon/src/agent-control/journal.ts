@@ -266,6 +266,7 @@ export class DelegationJournal {
     record.phase = "settled";
     record.outcome = outcome;
     this.save(record);
+    if (record.resultDelivery === "owner") return;
     this.sql("UPDATE delegated_threads SET result_pending=1 WHERE child_id=?").run(record.childId);
     this.sql("INSERT INTO delegation_wakes VALUES (?,?) ON CONFLICT(parent_id) DO NOTHING").run(
       record.parentId,
