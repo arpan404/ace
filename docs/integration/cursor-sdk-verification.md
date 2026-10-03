@@ -13,7 +13,10 @@ checks before merge. Behavior tests are written for merge-time execution. CI is
 disabled by the owner; no CI run, rerun or watch was requested.
 
 Static validation: `bun run fmt`, `bun run lint`, `bun run typecheck` and
-`bun run check:size` passed, with 2,186 sources within the 1,500-line limit. These do not establish runtime correctness.
+`bun run check:size` passed, with 2,328 sources within the 1,500-line limit. These do not establish runtime correctness.
+Main through `6d9a0118` was merged without rebasing. Its browser and desktop
+integration was preserved without UI edits, and its shared handoff/transition
+owner now retains SDK backend and account metadata.
 
 ## Written behavior tests — needs run at merge
 
