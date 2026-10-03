@@ -1,3 +1,4 @@
+import { SessionTotalsRequest, SessionTotalPage } from "./session-totals.ts";
 import { Worker } from "node:worker_threads";
 import { UsageBurn, UsageQuery, UsageResult } from "@ace/protocol";
 import { WorkerConfig, WorkerRequest, WorkerResponse, type WorkerCall } from "./worker-wire.ts";
@@ -71,6 +72,11 @@ export class UsageWorker {
     const value = await this.call({ method: "ingest", batch: UsageBatch.parse(batch) });
     if (typeof value !== "number") throw new Error("Invalid usage cursor");
     return value;
+  }
+  async sessionTotalsFor(query: unknown) {
+    return SessionTotalPage.parse(
+      await this.call({ method: "sessionTotals", query: SessionTotalsRequest.parse(query) }),
+    );
   }
   async summary(query: unknown) {
     return UsageResult.parse(

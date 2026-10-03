@@ -13,6 +13,7 @@ import { createBrowserSession } from "./browser.ts";
 import { createContextSession } from "./context.ts";
 import { createSettingsSession } from "./settings.ts";
 import { createHistorySession } from "./history.ts";
+import { createMcpSession } from "./mcp.ts";
 import { createUsageSession } from "./usage.ts";
 import { createModelsSession } from "./models.ts";
 import { createReviewSession } from "./review.ts";
@@ -31,6 +32,7 @@ export const socketServiceFactories = [
   createSettingsSession,
   createHistorySession,
   createUsageSession,
+  createMcpSession,
   createModelsSession,
   createAgentRegistrySession,
   createReviewSession,

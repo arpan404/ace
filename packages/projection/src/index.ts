@@ -1,3 +1,5 @@
+import { usageSnapshotKey } from "./usage.ts";
+export { usageSnapshotKey } from "./usage.ts";
 import { applyDelta } from "./delta.ts";
 export {
   acceptsDelta,
@@ -37,6 +39,7 @@ export function createThreadView(thread: Thread, seq = 0): ThreadView {
     interactions: {},
     backgroundTasks: {},
     usage: {},
+    usageSnapshots: {},
   };
 }
 export function createThreadListView(threads: Thread[] = [], seq = 0): ThreadListView {
@@ -234,7 +237,9 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       break;
     }
     case "usage.updated":
-      put(view.usage, p.agentId, structuredCopy(p));
+      if (p.usageScope === "provider_session" || p.usageScope === "model_session")
+        put(view.usageSnapshots, usageSnapshotKey(p), structuredCopy(p));
+      else put(view.usage, p.agentId, structuredCopy(p));
       break;
     default: {
       const exhaustive: never = p;

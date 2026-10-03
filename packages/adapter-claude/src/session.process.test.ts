@@ -1,62 +1,9 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
-import type { Frame } from "@ace/engine-api";
+import { expect, test } from "vitest";
+import { harness, subtype } from "./session.test-helper.ts";
+import { object } from "./native.ts";
 import { apply, createThreadState } from "@ace/core";
 import { createTranslator } from "./index.ts";
 import { ThreadId } from "@ace/protocol";
-import { afterEach, beforeEach, expect, test } from "vitest";
-import { createClaudeAdapter } from "./index.ts";
-import { object } from "./native.ts";
-let directory: string;
-let executable: string;
-beforeEach(async () => {
-  directory = await mkdtemp(join(tmpdir(), "ace-claude-test-"));
-  executable = join(directory, "claude");
-  const script = fileURLToPath(new URL("./testing/cli.ts", import.meta.url));
-  await writeFile(executable, `#!/bin/sh\nexec '${process.execPath}' '${script}' "$@"\n`);
-  await chmod(executable, 0o755);
-});
-afterEach(async () => {
-  await rm(directory, { recursive: true, force: true });
-});
-async function harness(resume?: string, rootKey = "root") {
-  const frames: Frame[] = [];
-  const waiters: { predicate(frame: Frame): boolean; resolve(frame: Frame): void }[] = [];
-  const exit = Promise.withResolvers<{ deliberate: boolean; message?: string }>();
-  const exits: { deliberate: boolean; message?: string }[] = [];
-  const controller = new AbortController();
-  const adapter = createClaudeAdapter({ executable });
-  const session = await adapter.openSession({
-    rootKey,
-    threadId: ThreadId.parse("session-test"),
-    cwd: directory,
-    signal: controller.signal,
-    onFrame(frame) {
-      frames.push(frame);
-      for (let i = waiters.length - 1; i >= 0; i--) {
-        const waiter = waiters[i];
-        if (waiter?.predicate(frame)) {
-          waiters.splice(i, 1);
-          waiter.resolve(frame);
-        }
-      }
-    },
-    ...(resume ? { resume: { nativeSessionId: resume } } : {}),
-    onExit: (value) => {
-      exits.push(value);
-      exit.resolve(value);
-    },
-  });
-  function wait(predicate: (frame: Frame) => boolean) {
-    const prior = frames.find(predicate);
-    if (prior) return Promise.resolve(prior);
-    return new Promise<Frame>((resolve) => waiters.push({ predicate, resolve }));
-  }
-  return { session, wait, frames, exit: exit.promise, exits, controller };
-}
-const subtype = (value: string) => (frame: Frame) => object(frame.data)["subtype"] === value;
 test("the installed executable handshakes and receives queued input with a native session id", async () => {
   const h = await harness();
   try {
@@ -88,7 +35,7 @@ for (const scenario of ["approval", "question", "plan"] as const)
           ? { kind: "question", answers: { "Tabs?": ["Tabs"] } }
           : scenario === "plan"
             ? { kind: "plan_review", decision: "reject", feedback: "Revise it" }
-            : { kind: "approval", optionId: "allow_session:0" },
+            : { kind: "approval", optionId: "allow_updates" },
       );
       const response = object(
         object(object((await h.wait(subtype("fake_resolution"))).data)["response"])["response"],

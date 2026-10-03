@@ -88,7 +88,7 @@ test("ACP default accounts share the user's existing home with distinct agent id
     await rm(root, { recursive: true, force: true });
   }
 });
-test("account session binding preserves confirmed ACP selectors and negotiated support", async () => {
+test("account session binding preserves confirmed ACP selectors, negotiated support and MCP controls", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-acp-binding-"));
   const registry = await openRegistry(join(root, "accounts.sqlite"));
   try {
@@ -108,6 +108,7 @@ test("account session binding preserves confirmed ACP selectors and negotiated s
       steps: [],
     });
     let selected = "initial";
+    let servers: Record<string, unknown> = {};
     const bound = service.bindAdapter({
       ...adapter,
       create: () => ({
@@ -116,6 +117,18 @@ test("account session binding preserves confirmed ACP selectors and negotiated s
           return {
             ...session,
             effectiveCapabilities: { ...genericQuirks.capabilities(), resume: true },
+            mcp: {
+              async status() {
+                return servers;
+              },
+              async replace(next: Record<string, unknown>) {
+                servers = next;
+                return servers;
+              },
+              async reconnect() {},
+              async enable() {},
+              async disable() {},
+            },
             async setModel(model: string) {
               selected = model;
             },
@@ -140,6 +153,10 @@ test("account session binding preserves confirmed ACP selectors and negotiated s
       expect(selected).toBe("confirmed");
       await session.setMode?.("plan");
       expect(selected).toBe("plan");
+      await session.mcp?.replace({ user: { type: "http", url: "http://127.0.0.1/mcp" } });
+      expect(await session.mcp?.status()).toEqual({
+        user: { type: "http", url: "http://127.0.0.1/mcp" },
+      });
     } finally {
       await session.close("user");
     }

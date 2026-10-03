@@ -56,6 +56,11 @@
                 },
                 "type": "array"
               },
+              "forkedFromNativeId": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
               "installationId": {
                 "maxLength": 256,
                 "minLength": 1,

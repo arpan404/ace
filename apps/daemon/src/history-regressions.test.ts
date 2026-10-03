@@ -33,9 +33,10 @@ for (const boundary of ["exit", "restart"] as const)
       expect(Object.values(f.store.snapshotThread(f.threadId).items)).toContainEqual(
         expect.objectContaining({ text: "work added to branch B" }),
       );
-      expect(Object.values(f.store.snapshotThread(f.threadId).agents)[0]?.native.nativeId).toBe(
-        "fork-2",
-      );
+      expect(Object.values(f.store.snapshotThread(f.threadId).agents)[0]?.native).toMatchObject({
+        nativeId: "fork-2",
+        forkedFromNativeId: "fork-1",
+      });
     } finally {
       await f.close();
     }

@@ -38,6 +38,8 @@ export interface ProviderAdapter {
     acpIdentity?: AcpIdentity;
   }): Translator;
   openSession(ctx: SessionContext): Promise<ProviderSession>;
+  /** Idle provider history clone, bound to this adapter's private home. Never sends input. */
+  forkSession?(input: { nativeSessionId: string; signal: AbortSignal }): Promise<string>;
 }
 
 export interface Translator {
@@ -78,7 +80,16 @@ export interface SessionContext {
   signal: AbortSignal;
 }
 
+/** Configuration owners use these controls; no authentication operations are exposed. */
+export interface ProviderMcpControl {
+  status(): Promise<unknown>;
+  replace(servers: Record<string, unknown>): Promise<unknown>;
+  reconnect(name: string): Promise<void>;
+  enable(name: string): Promise<void>;
+  disable(name: string): Promise<void>;
+}
 export interface ProviderSession {
+  readonly mcp?: ProviderMcpControl;
   readonly instanceId?: string;
   readonly nativeSessionId: string;
   readonly effectiveCapabilities?: Capabilities | undefined;

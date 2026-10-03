@@ -287,6 +287,7 @@ export class AccountService {
                   Promise.reject(new Error("Mode selection unavailable")),
               }
             : {}),
+          ...(session.mcp ? { mcp: session.mcp } : {}),
           get nativeSessionId() {
             return session.nativeSessionId;
           },
