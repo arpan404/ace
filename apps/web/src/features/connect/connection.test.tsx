@@ -11,11 +11,16 @@ const token = "ab".repeat(32);
 const url = "ws://127.0.0.1:4242/";
 
 /** The real gate and app, with a fake daemon behind whatever address is entered. */
-function boot(options: { fragment?: string; onDemand?: boolean } = {}) {
+function boot(options: { fragment?: string; onDemand?: boolean; rememberedToken?: string } = {}) {
   const daemon = new FakeDaemon({ clock: () => 1, token });
   new ScenarioPlayer(daemon, flakyCheckout()).runThrough("explorer-spawned");
   const local = memoryKeyValue();
   const session = memoryKeyValue();
+  // A person who connected before and asked to be remembered on this device.
+  if (options.rememberedToken) {
+    local.setItem("ace.daemon.url", url);
+    local.setItem("ace.daemon.token", options.rememberedToken);
+  }
   render(
     <AppFrame environment={{}}>
       <ConnectionGate
@@ -75,6 +80,40 @@ test("the daemon's #token= hand-off connects straight away", async () => {
   const { local } = boot({ fragment: `#token=${token}` });
   await screen.findByRole("link", { name: /Fix flaky checkout test/ });
   expect(local.getItem("ace.daemon.token")).toBeNull();
+});
+
+test("a link to a daemon on another machine asks first, and declining keeps the remembered one", async () => {
+  const attacker = "cd".repeat(32);
+  const { local, session } = boot({
+    rememberedToken: token,
+    fragment: `#token=${attacker}&daemon=wss://evil.example/`,
+  });
+  await screen.findByRole("heading", { name: "Connect to this daemon?" });
+  expect(screen.getByText("wss://evil.example/")).toBeTruthy();
+  // Nothing is saved or forgotten while the question is open.
+  expect(local.getItem("ace.daemon.url")).toBe(url);
+  expect(local.getItem("ace.daemon.token")).toBe(token);
+  expect(session.getItem("ace.daemon.token")).toBeNull();
+
+  await userEvent.click(screen.getByRole("button", { name: "Don't connect" }));
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
+  expect(local.getItem("ace.daemon.url")).toBe(url);
+  expect(local.getItem("ace.daemon.token")).toBe(token);
+});
+
+test("agreeing to a link for another machine connects to it", async () => {
+  const { local, session } = boot({ fragment: `#token=${token}&daemon=wss://ace.example/` });
+  await userEvent.click(await screen.findByRole("button", { name: "Connect" }));
+  await screen.findByRole("link", { name: /Fix flaky checkout test/ });
+  expect(local.getItem("ace.daemon.url")).toBe("wss://ace.example/");
+  expect(session.getItem("ace.daemon.token")).toBe(token);
+});
+
+test("a link for this computer never silently replaces the remembered token", async () => {
+  const other = "cd".repeat(32);
+  const { local } = boot({ rememberedToken: token, fragment: `#token=${other}` });
+  await screen.findByText(/replaces the token remembered on this device/);
+  expect(local.getItem("ace.daemon.token")).toBe(token);
 });
 
 test("disconnecting forgets the token and returns to the connection screen", async () => {
