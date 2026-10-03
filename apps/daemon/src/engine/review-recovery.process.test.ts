@@ -195,20 +195,23 @@ test("pausing an opening provider retains its slot until the operation settles",
     provider: "codex",
     input: text("first"),
   });
-  await entered.promise;
-  const id = h.store.listThreads()[0]?.id;
-  if (!id) throw new Error("Missing thread");
-  h.command({ type: "queue.pause", threadId: id, expectedRevision: h.engine.queue(id).revision });
-  expect(
-    h.command({
-      type: "thread.create",
-      workspaceId: h.workspace,
-      provider: "codex",
-      input: text("second"),
-    }).error,
-  ).toBe("engine_capacity_exceeded");
-  release.resolve();
-  await h.engine.flush();
+  try {
+    await entered.promise;
+    const id = h.store.listThreads()[0]?.id;
+    if (!id) throw new Error("Missing thread");
+    h.command({ type: "queue.pause", threadId: id, expectedRevision: h.engine.queue(id).revision });
+    expect(
+      h.command({
+        type: "thread.create",
+        workspaceId: h.workspace,
+        provider: "codex",
+        input: text("second"),
+      }).error,
+    ).toBe("engine_capacity_exceeded");
+  } finally {
+    release.resolve();
+    await h.engine.flush();
+  }
 });
 
 test("durable acknowledgement survives a crash while the send response is still pending", async () => {

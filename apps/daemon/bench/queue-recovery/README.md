@@ -81,3 +81,16 @@ drop send correlation at account binding; acknowledge a newer input from an olde
 run; lose the continuation trigger between admission and delayed run start;
 reclassify durable admission as uncertain after an RPC rejection; automatically
 resume provider-owned work on restart with auto-continue disabled.
+
+Verifier regression cases, **not executed (tests run at merge)**:
+
+- Mark admitted recovery failed after a rejected RPC: its delayed run must retain
+  `limit_resume` and completion must leave no phantom work.
+- Ignore provider-owned recovery in resume admission: a second resume must refuse
+  without submitting another continuation.
+- Send queued or steering follow-ups before the admitted continuation starts:
+  both delivery modes must wait behind it.
+- Retain ownership after provider exit or crash: native resume must send one fresh
+  restart notice, preserve `restart`, and reach done without replaying old input.
+- Bypass default exclusion refusal or ignore a real outside writer: migration must
+  leave source history, destination files and source binding unchanged.

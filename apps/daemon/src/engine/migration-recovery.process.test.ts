@@ -2,6 +2,8 @@ import { afterEach, expect, test } from "vitest";
 import { DatabaseSync } from "node:sqlite";
 import { mkdir, writeFile, readFile, access } from "node:fs/promises";
 import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { AccountRegistry, AccountService, createInstance } from "@ace/accounts";
 import { fixture, cleanupRecovery, text, replaceProvider } from "./recovery-test-support.ts";
 import { scriptFrames, start, end } from "./test-support.ts";
@@ -10,10 +12,11 @@ import type { RecoveryPorts } from "./recovery.ts";
 
 afterEach(cleanupRecovery);
 const nativeId = "11111111-1111-4111-8111-111111111111";
-for (const locked of [false, true]) {
+for (const scenario of ["offline", "native_lock", "external_writer", "unverified"] as const) {
+  const refused = scenario !== "offline";
   test(
-    locked
-      ? "native migration refuses a writer lock and preserves source history and binding"
+    refused
+      ? `native migration refuses ${scenario} and preserves source history and binding`
       : "native migration copies history before resuming the destination through the accounts service",
     async () => {
       const frames = scriptFrames(),
@@ -42,25 +45,47 @@ for (const locked of [false, true]) {
       const relative = join("sessions", `rollout-${nativeId}.jsonl`);
       const history = `${JSON.stringify({ type: "session_meta", payload: { id: nativeId } })}\n${JSON.stringify({ type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "synthetic durable history" }] } })}\n`;
       await writeFile(join(source, relative), history);
-      if (locked) {
+      if (scenario === "native_lock") {
         await mkdir(join(source, "thread-writer-locks"));
         await writeFile(join(source, "thread-writer-locks", `${nativeId}.lock`), "external writer");
       }
+      const writer =
+        scenario === "external_writer"
+          ? spawn(
+              process.execPath,
+              ["-e", "process.stdout.write('ready');setInterval(() => {}, 1000)"],
+              { stdio: ["ignore", "pipe", "pipe"] },
+            )
+          : undefined;
       const registry = new AccountRegistry(new DatabaseSync(join(h.home, "accounts.sqlite")));
       try {
+        if (writer) await once(writer.stdout, "data");
         await registry.register(
           createInstance({ id: "account-a", provider: "codex", label: "A", homeDir: source }),
         );
         await registry.register(
           createInstance({ id: "account-b", provider: "codex", label: "B", homeDir: target }),
         );
-        // Only the independent exclusion boundary is injected; copying and native lock checks are real.
+        // The independent exclusion boundary is injected, with a real outside writer
+        // in the refusal case. No production lease can be inferred from ace shutdown.
         const accounts = new AccountService({
           registry,
           now: h.clock.now,
           timeZone: "UTC",
           env: {},
-          safety: { acquire: async () => ({ release: async () => {} }) },
+          ...(scenario === "unverified"
+            ? {}
+            : {
+                safety: {
+                  acquire: async () => {
+                    if (writer?.pid !== undefined) {
+                      process.kill(writer.pid, 0);
+                      return undefined;
+                    }
+                    return { release: async () => {} };
+                  },
+                },
+              }),
         });
         let native = h.registry.get("codex").adapter;
         const original = native;
@@ -140,7 +165,7 @@ for (const locked of [false, true]) {
         ).toBe(true);
         await h.engine.flush();
         expect(await readFile(join(source, relative), "utf8")).toBe(history);
-        if (locked) {
+        if (refused) {
           await expect(access(join(target, relative))).rejects.toMatchObject({ code: "ENOENT" });
           expect(h.engine.sessionMetadata(id).instanceId).toBe("account-a");
           expect(h.engine.queue(id)).toMatchObject({
@@ -171,6 +196,11 @@ for (const locked of [false, true]) {
       } finally {
         await h.engine.close();
         registry.close();
+        if (writer) {
+          const exited = once(writer, "exit");
+          writer.kill();
+          await exited;
+        }
       }
     },
   );
