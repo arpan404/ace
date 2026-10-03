@@ -349,7 +349,9 @@ it("legacy and scoped routes share upload recovery, trash and artifact catalogs 
   const { version } = z
     .object({ version: z.string() })
     .parse(await files.request("owner", { op: "stat", path: "trash-me" }));
-  await files.request("owner", { op: "delete", path: "trash-me", expected: version });
+  const removed = z
+    .object({ trashId: z.string() })
+    .parse(await files.request("owner", { op: "delete", path: "trash-me", expected: version }));
   client.send({
     type: "files.request",
     requestId: "trash",
@@ -358,7 +360,12 @@ it("legacy and scoped routes share upload recovery, trash and artifact catalogs 
   });
   expect(await fileReply(client)).toMatchObject({
     type: "files.result",
-    value: [expect.objectContaining({ path: "trash-me" })],
+    value: {
+      entries: [
+        expect.objectContaining({ id: removed.trashId, path: "trash-me", size: 4, version }),
+      ],
+      nextCursor: null,
+    },
   });
   client.send({
     type: "files.request",

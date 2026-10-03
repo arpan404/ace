@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, rm, writeFile, readFile, symlink } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -241,6 +241,7 @@ test("legacy pending worktrees fail closed after restart even when the registere
 
 test("prepared threads retain mode and base branch and workspace commands rebind subsequent provider sessions", async () => {
   const h = transitionHarness();
+  const canonicalHome = await realpath(h.home);
   const data = await mkdtemp(join(tmpdir(), "ace-workspace-switch-"));
   await writeFile(join(h.home, ".gitignore"), "events.sqlite*\n");
   await repository(h.home);
@@ -267,7 +268,7 @@ test("prepared threads retain mode and base branch and workspace commands rebind
     });
     expect(h.sessions).toHaveLength(0);
     const prepared = await runtime.prepare(threadId);
-    expect(prepared).not.toBe(h.home);
+    expect(prepared).not.toBe(canonicalHome);
     const switchTo = (
       id: string,
       payload: { mode: "local" | "worktree"; branch: string; allowUncommitted?: boolean },
@@ -282,7 +283,10 @@ test("prepared threads retain mode and base branch and workspace commands rebind
     expect(await switchTo("local", { mode: "local", branch: "feature" })).toMatchObject({
       ok: true,
     });
-    expect(h.store.executionWorkspace(threadId)).toMatchObject({ path: h.home, ready: true });
+    expect(h.store.executionWorkspace(threadId)).toMatchObject({
+      path: canonicalHome,
+      ready: true,
+    });
     expect(h.store.getThread(threadId)?.details).toMatchObject({
       mode: "local",
       branch: "feature",
@@ -306,7 +310,7 @@ test("prepared threads retain mode and base branch and workspace commands rebind
       }).ok,
     ).toBe(true);
     await h.engine.flush();
-    expect(h.sessions.at(-1)?.context.cwd).toBe(h.home);
+    expect(h.sessions.at(-1)?.context.cwd).toBe(canonicalHome);
     expect(h.sessions.at(-1)?.context.resume).toBeUndefined();
   } finally {
     await runtime.close();
