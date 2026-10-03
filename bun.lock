@@ -497,6 +497,12 @@
         "zod": "^4.6.5",
       },
     },
+    "tools/dev": {
+      "name": "@ace/dev",
+      "dependencies": {
+        "zod": "^4.6.5",
+      },
+    },
     "tools/protocol-docs": {
       "name": "@ace/protocol-docs",
       "dependencies": {
@@ -571,6 +577,8 @@
     "@ace/core": ["@ace/core@workspace:packages/core"],
 
     "@ace/daemon": ["@ace/daemon@workspace:apps/daemon"],
+
+    "@ace/dev": ["@ace/dev@workspace:tools/dev"],
 
     "@ace/diagnostics": ["@ace/diagnostics@workspace:packages/diagnostics"],
 
