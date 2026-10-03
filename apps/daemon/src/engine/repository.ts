@@ -8,18 +8,12 @@ import { QueueStore } from "./queue-store.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
 
-export interface Intent {
-  id: number;
-  threadId: ThreadId;
-  command: Command;
-  status: string;
-  attempts: number;
-  awaiting: boolean;
-  ackTarget: number | undefined;
-}
+import { IntentStore, type IntentHeader } from "./intents.ts";
+export type { Intent, IntentHeader } from "./intents.ts";
 export class EngineRepository {
   readonly store: Store;
   readonly queue: QueueStore;
+  readonly pending: IntentStore;
   observe?: (state: ThreadState, facts: Fact[], events: EventPayload[], at: number) => void;
   private ids: IdSource;
   private capacity: number;
@@ -38,6 +32,7 @@ export class EngineRepository {
     this.store = store;
     store.atomic(migrateEngine);
     this.queue = new QueueStore(store);
+    this.pending = new IntentStore(store, this.queue);
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
   }
   nextCommandId() {
@@ -174,7 +169,7 @@ export class EngineRepository {
           )
             this.store.atomic((db) => {
               const acknowledged = db
-                .prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND awaiting=1 AND ack_target=(
+                .prepare(`UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND awaiting=1 AND ack_target=(
                 SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
               ) RETURNING id`)
                 .all(id, id);
@@ -193,20 +188,7 @@ export class EngineRepository {
   }
 
   add(command: Command, id: ThreadId, resolutionId?: string): void {
-    this.store.atomic((db) => {
-      const row = db
-        .prepare(`INSERT INTO intents
-        (command_id,thread_id,kind,payload,status,resolution_id,position) VALUES (?,?,?,?,'pending',?,?)`)
-        .run(
-          command.id,
-          id,
-          command.payload.type,
-          JSON.stringify(command),
-          resolutionId ?? null,
-          this.queue.position(id),
-        );
-      this.queue.track(Number(row.lastInsertRowid), id, command);
-    });
+    this.pending.add(command, id, resolutionId);
   }
   reserve(id: ThreadId): boolean {
     return this.store.atomic((db) => {
@@ -239,30 +221,8 @@ export class EngineRepository {
       Boolean(db.prepare("SELECT id FROM intents WHERE resolution_id = ?").get(id)),
     );
   }
-  intents(id?: ThreadId): Intent[] {
-    return this.store.atomic((db) => {
-      const rows =
-        id === undefined
-          ? db
-              .prepare(
-                "SELECT * FROM intents WHERE status IN ('pending', 'queued', 'running') UNION ALL SELECT * FROM intents WHERE awaiting=1 AND status NOT IN ('pending', 'queued', 'running') ORDER BY position,id",
-              )
-              .all()
-          : db
-              .prepare(
-                "SELECT * FROM intents WHERE thread_id=? AND status IN ('pending', 'queued', 'running') UNION ALL SELECT * FROM intents WHERE thread_id=? AND awaiting=1 AND status NOT IN ('pending', 'queued', 'running') ORDER BY position,id",
-              )
-              .all(id, id);
-      return rows.map((row) => ({
-        id: Number(row.id),
-        threadId: ThreadId.parse(row.thread_id),
-        command: Command.parse(JSON.parse(String(row.payload))),
-        status: String(row.status),
-        attempts: Number(row.attempts),
-        awaiting: Number(row.awaiting) === 1,
-        ackTarget: row.ack_target == null ? undefined : Number(row.ack_target),
-      }));
-    });
+  sessionOpening(id: ThreadId): boolean {
+    return this.opening.has(id);
   }
   queuedCount(id: ThreadId): number {
     return this.store.atomic((db) =>
@@ -275,40 +235,14 @@ export class EngineRepository {
       ),
     );
   }
-  claim(intent: Intent): Intent | undefined {
-    return this.store.atomic((db) => {
-      const row = db
-        .prepare("SELECT payload,status FROM intents WHERE id=? AND status IN ('pending','queued')")
-        .get(intent.id);
-      if (!row) return undefined;
-      const fresh = {
-        ...intent,
-        command: Command.parse(JSON.parse(String(row.payload))),
-        status: String(row.status),
-      };
-      this.mark(fresh, "running");
-      return fresh;
-    });
+  claim(intent: IntentHeader) {
+    return this.pending.claim(intent);
   }
-  beginSend(intent: Intent, target: number | undefined): void {
-    this.store.atomic((db) =>
-      db
-        .prepare("UPDATE intents SET awaiting=?, ack_target=? WHERE id=?")
-        .run(target === undefined ? 0 : 1, target ?? null, intent.id),
-    );
+  beginSend(intent: IntentHeader, target: number | undefined): void {
+    this.pending.beginSend(intent, target);
   }
-  mark(intent: Intent, status: string, error?: string): void {
-    this.store.atomic((db) => {
-      db.prepare(`UPDATE intents SET status = ?, error = ?, awaiting = CASE WHEN ? = 'failed' THEN 0 ELSE awaiting END,
-      attempts = attempts + ? WHERE id = ?`).run(
-        status,
-        error ?? null,
-        status,
-        status === "running" ? 1 : 0,
-        intent.id,
-      );
-      if (status === "done" || status === "failed") this.queue.prune(intent.id);
-    });
+  mark(intent: IntentHeader, status: string, error?: string): void {
+    this.pending.mark(intent, status, error);
   }
   workspace(id: string): string | undefined {
     return this.store.atomic((db) => {

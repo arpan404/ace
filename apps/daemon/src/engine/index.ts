@@ -14,7 +14,7 @@ import { engineLimits, type EngineLimits } from "./limits.ts";
 import { IntentWorkers } from "./workers.ts";
 import { engineHandler } from "./handler.ts";
 import { AdapterRegistry } from "./registry.ts";
-import { EngineRepository, type Intent } from "./repository.ts";
+import { EngineRepository, type IntentHeader } from "./repository.ts";
 export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
@@ -80,7 +80,7 @@ export class Engine {
       wake: (id) => this.wake(id),
       expireDelivery: (actor) => this.delivery.expire(actor),
       released: (id) => {
-        this.repo.release(id);
+        this.releaseDormant(id);
         this.wakeQueued();
       },
     });
@@ -224,16 +224,28 @@ export class Engine {
 
   private wakeQueued(): void {
     if (this.closing) return;
-    for (const intent of this.repo.intents())
-      if (
-        !this.repo.queue.get(intent.threadId).paused &&
-        ["pending", "queued"].includes(intent.status) &&
-        this.repo.reserve(intent.threadId)
-      )
-        this.wake(intent.threadId);
+    for (const id of this.repo.pending.runnableThreads(this.limits.maxActiveThreads))
+      if (this.repo.reserve(id)) this.wake(id);
+  }
+  private releaseDormant(id: ThreadId): void {
+    const actor = this.actors.get(id);
+    if (actor?.session || this.repo.sessionOpening(id) || this.repo.pending.running(id)) return;
+    const queue = this.repo.queue.get(id);
+    if (
+      this.repo.pending.recovery(id) ||
+      this.repo.pending.controls(id).length ||
+      (!queue.paused && !queue.limited && this.repo.pending.message(id))
+    )
+      return;
+    if (this.repo.reservedSlot(id)) {
+      this.repo.release(id);
+      this.wakeQueued();
+    }
   }
   private wake(id: ThreadId): void {
     if (this.closing) return;
+    this.releaseDormant(id);
+    if (!this.repo.reservedSlot(id)) return;
     this.sends.wake(id);
     this.controls.wake(id);
     this.steering.wake(id);
@@ -244,30 +256,16 @@ export class Engine {
     if (actor.idleDue && actor.session) await this.sessions.close(actor, "idle");
     if (
       !actor.session &&
-      this.repo
-        .intents(actor.id)
-        .some((intent) =>
-          [
-            "thread.create",
-            "thread.send",
-            "thread.resume",
-            "queue.resume",
-            "thread.limit",
-          ].includes(intent.command.payload.type),
-        )
+      (this.repo.pending.message(actor.id) || this.repo.pending.recovery(actor.id))
     )
       return;
-    for (const intent of this.repo.intents(actor.id)) {
+    const controls = this.repo.pending.controls(actor.id);
+    for (const intent of controls) {
       if (this.closing) return;
-      if (
-        intent.status !== "pending" ||
-        ["thread.create", "thread.send", "thread.resume", "queue.resume", "thread.limit"].includes(
-          intent.command.payload.type,
-        )
-      )
-        continue;
       await this.delivery.run(actor, intent);
     }
+    this.releaseDormant(actor.id);
+    if (controls.length === 64) this.wake(actor.id);
   }
   private syncQueue(actor: ThreadActor): void {
     actor.syncQueue();
@@ -276,7 +274,7 @@ export class Engine {
     await actor.flush();
     if (actor.poisoned) {
       if (actor.session) await this.sessions.close(actor, "user");
-      for (const intent of this.repo.intents(actor.id))
+      for (const intent of this.repo.pending.headers(actor.id))
         if (["pending", "queued"].includes(intent.status))
           this.delivery.fail(
             intent,
@@ -286,43 +284,40 @@ export class Engine {
       return;
     }
     if (actor.idleDue && actor.session) await this.sessions.close(actor, "idle");
-    for (const intent of this.repo.intents(actor.id)) {
-      if (this.closing) return;
-      if (!["pending", "queued"].includes(intent.status)) continue;
-      const p = intent.command.payload;
-      const send = [
-        "thread.send",
-        "thread.create",
-        "thread.resume",
-        "queue.resume",
-        "thread.limit",
-      ].includes(p.type);
-      if (!send) continue;
-      if (p.type === "thread.resume" || p.type === "queue.resume" || p.type === "thread.limit") {
-        await this.delivery.run(actor, intent);
-        this.wake(actor.id);
-        return;
-      }
-      if (this.repo.queue.get(actor.id).paused || this.repo.queue.get(actor.id).limited) continue;
-      if (this.isSteer(intent)) continue;
+    if (this.closing) return;
+    const recovery = this.repo.pending.recovery(actor.id);
+    if (recovery) {
+      await this.delivery.run(actor, recovery);
+      this.wake(actor.id);
+      return;
+    }
+    const queue = this.repo.queue.get(actor.id);
+    if (queue.paused || queue.limited) {
+      this.releaseDormant(actor.id);
+      actor.schedule();
+      return;
+    }
+    const first = this.repo.pending.message(actor.id);
+    const intent = first && this.isSteer(first) ? this.repo.pending.queuedMessage(actor.id) : first;
+    if (intent) {
       this.repo.mark(intent, "queued");
       this.syncQueue(actor);
       const state = this.repo.requireState(actor.id);
       const status = deriveThreadStatus({ ...state, queueCount: state.queueSources.provider });
       if (
-        this.repo.intents(actor.id).some((pending) => pending.awaiting) ||
-        !["new", "done", "failed"].includes(status.state)
-      )
-        continue;
-      await this.delivery.run(actor, intent);
-      this.wake(actor.id);
-      return;
+        !this.repo.pending.awaiting(actor.id) &&
+        ["new", "done", "failed"].includes(status.state)
+      ) {
+        await this.delivery.run(actor, intent);
+        this.wake(actor.id);
+        return;
+      }
     }
+    this.releaseDormant(actor.id);
     actor.schedule();
   }
-  private isSteer(intent: Intent): boolean {
-    const payload = intent.command.payload;
-    if (payload.type !== "thread.send" || payload.delivery !== "steer") return false;
+  private isSteer(intent: IntentHeader): boolean {
+    if (intent.kind !== "thread.send" || intent.delivery !== "steer") return false;
     const state = this.repo.requireState(intent.threadId);
     return (
       Boolean(this.actors.get(intent.threadId)?.session) &&
@@ -337,15 +332,13 @@ export class Engine {
   }
   private async steer(actor: ThreadActor): Promise<void> {
     await actor.flush();
-    if (actor.poisoned) return;
-    for (const intent of this.repo.intents(actor.id)) {
-      if (this.closing) return;
-      if (["pending", "queued"].includes(intent.status) && this.isSteer(intent)) {
-        if (!actor.session) return;
-        await this.delivery.run(actor, intent);
-        this.wake(actor.id);
-        return;
-      }
+    if (actor.poisoned || this.closing || !actor.session) return;
+    const queue = this.repo.queue.get(actor.id);
+    if (queue.paused || queue.limited) return;
+    const intent = this.repo.pending.steerMessage(actor.id);
+    if (intent && this.isSteer(intent)) {
+      await this.delivery.run(actor, intent);
+      this.wake(actor.id);
     }
   }
   /** Read the original JSON bytes of an oversized raw payload's data envelope. */

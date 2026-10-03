@@ -50,10 +50,10 @@ export function handleQueue(
       if (after === undefined || !dependencies.repo.queue.move(p.threadId, entry.id, after))
         return fail("invalid_queue_position");
     } else if (p.type === "queue.pause") {
-      for (const intent of dependencies.repo.intents(p.threadId))
+      for (const intent of dependencies.repo.pending.headers(p.threadId))
         if (
           intent.status === "pending" &&
-          ["thread.resume", "queue.resume", "thread.limit"].includes(intent.command.payload.type)
+          ["thread.resume", "queue.resume", "thread.limit"].includes(intent.kind)
         )
           dependencies.repo.mark(intent, "failed", "Cancelled by queue pause");
       dependencies.repo.queue.set(
@@ -68,6 +68,7 @@ export function handleQueue(
         dependencies.clock.now(),
       );
       dependencies.schedule();
+      queueMicrotask(() => dependencies.wake(p.threadId));
       return { commandId: command.id, ok: true };
     } else if (
       p.type === "thread.limit" ||
@@ -98,17 +99,7 @@ export function handleQueue(
         dependencies.schedule();
         return { commandId: command.id, ok: true };
       }
-      if (
-        dependencies.repo
-          .intents(p.threadId)
-          .some(
-            (intent) =>
-              ["thread.resume", "queue.resume", "thread.limit"].includes(
-                intent.command.payload.type,
-              ) && ["pending", "running"].includes(intent.status),
-          )
-      )
-        return fail("recovery_in_progress");
+      if (dependencies.repo.pending.recovering(p.threadId)) return fail("recovery_in_progress");
       if (dependencies.repo.queue.hasUncertain(p.threadId)) return fail("uncertain_delivery");
       if (!dependencies.repo.reserve(p.threadId)) return fail("engine_capacity_exceeded");
       dependencies.repo.add(command, p.threadId);
@@ -130,10 +121,7 @@ export function handleQueue(
     } else return fail("invalid_queue_command");
     dependencies.repo.queue.set(p.threadId, {}, dependencies.clock.now());
     dependencies.sync(p.threadId);
-    if (
-      dependencies.repo.reservedSlot(p.threadId) &&
-      !dependencies.repo.queue.get(p.threadId).paused
-    )
+    if (dependencies.repo.reservedSlot(p.threadId))
       queueMicrotask(() => dependencies.wake(p.threadId));
     return { commandId: command.id, ok: true };
   });

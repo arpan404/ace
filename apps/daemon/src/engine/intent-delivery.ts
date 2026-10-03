@@ -1,6 +1,6 @@
 import type { PrepareInput } from "./input.ts";
 import type { Recovery } from "./recovery.ts";
-import type { EngineRepository, Intent } from "./repository.ts";
+import type { EngineRepository, Intent, IntentHeader } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { ThreadActor, EngineClock } from "./actor.ts";
 import type { Sessions } from "./sessions.ts";
@@ -13,7 +13,7 @@ interface Dependencies {
   sessions: Sessions;
   recovery: Recovery;
   prepareInput: PrepareInput | undefined;
-  isSteer(intent: Intent): boolean;
+  isSteer(intent: IntentHeader): boolean;
 }
 /** Claims, acknowledgements and uncertain delivery have one owner. */
 export class IntentDelivery {
@@ -21,18 +21,15 @@ export class IntentDelivery {
   constructor(dependencies: Dependencies) {
     this.dependencies = dependencies;
   }
-  async run(actor: ThreadActor, intent: Intent): Promise<void> {
-    const send = ["thread.create", "thread.send"].includes(intent.command.payload.type);
-    const claimed = this.dependencies.repo.claim(intent);
-    if (!claimed) return;
-    intent = claimed;
+  async run(actor: ThreadActor, candidate: IntentHeader): Promise<void> {
+    const send = ["thread.create", "thread.send"].includes(candidate.kind);
+    const intent = this.dependencies.repo.claim(candidate);
+    if (!intent) return;
     if (send) this.dependencies.repo.queue.set(actor.id, {}, this.dependencies.clock.now());
     if (send) {
       const state = this.dependencies.repo.requireState(actor.id);
       const active = state.agents[state.rootKey ?? ""]?.activeRun;
-      const outstanding = this.dependencies.repo
-        .intents(actor.id)
-        .find((pending) => pending.awaiting);
+      const outstanding = this.dependencies.repo.pending.awaiting(actor.id);
       const target = this.dependencies.isSteer(intent)
         ? active
           ? undefined
@@ -58,20 +55,17 @@ export class IntentDelivery {
       this.dependencies.repo.mark(intent, "done");
     } catch (error) {
       await actor.flush();
-      if (
-        (this.dependencies.repo.queue.get(actor.id).limited || error instanceof DeliveryDeferred) &&
-        (intent.command.payload.type === "thread.send" ||
-          intent.command.payload.type === "thread.create")
-      ) {
-        if (error instanceof DeliveryDeferred)
-          this.dependencies.repo.queue.clearUncertain(intent.id);
+      const acknowledged = this.dependencies.repo.pending.acknowledged(intent.id);
+      if (send && error instanceof DeliveryDeferred && !acknowledged) {
+        this.dependencies.repo.queue.clearUncertain(intent.id);
         this.dependencies.repo.mark(intent, "queued");
         this.dependencies.repo.beginSend(intent, undefined);
         this.dependencies.repo.queue.set(actor.id, {}, this.dependencies.clock.now());
       } else {
-        if (send) this.dependencies.repo.queue.uncertain(intent.id);
+        // RPC failure cannot undo native consumption, nor prove nonconsumption.
+        if (send && !acknowledged) this.dependencies.repo.queue.uncertain(intent.id);
         this.fail(intent, error instanceof Error ? error.message : String(error));
-        if (send)
+        if (send && !acknowledged)
           this.dependencies.repo.queue.set(
             actor.id,
             { paused: true, reason: "uncertain" },
@@ -109,10 +103,10 @@ export class IntentDelivery {
     await actor.flush();
     this.dependencies.recovery.release(actor.id, token);
   }
-  fail(intent: Intent, message: string): void {
+  fail(intent: IntentHeader, message: string): void {
     this.dependencies.repo.store.atomic(() => {
       this.dependencies.repo.mark(intent, "failed", message);
-      if (["thread.resume", "queue.resume", "thread.limit"].includes(intent.command.payload.type))
+      if (["thread.resume", "queue.resume", "thread.limit"].includes(intent.kind))
         this.dependencies.repo.queue.set(
           intent.threadId,
           { paused: true, reason: "manual" },
@@ -125,7 +119,7 @@ export class IntentDelivery {
         draft: {
           type: "notice",
           level: "error",
-          text: `${intent.command.payload.type}: ${message}`,
+          text: `${intent.kind}: ${message}`,
           complete: true,
           raw: [],
         },
@@ -134,24 +128,16 @@ export class IntentDelivery {
     });
   }
   expire(actor: ThreadActor): void {
-    for (const intent of this.dependencies.repo.intents(actor.id))
+    for (const intent of this.dependencies.repo.pending.headers(actor.id))
       if (intent.awaiting) {
-        if (this.dependencies.repo.queue.get(actor.id).limited) {
-          this.dependencies.repo.mark(intent, "queued");
-          this.dependencies.repo.beginSend(intent, undefined);
-        } else {
-          if (
-            intent.command.payload.type === "thread.send" ||
-            intent.command.payload.type === "thread.create"
-          )
-            this.dependencies.repo.queue.uncertain(intent.id);
-          this.fail(intent, "Provider exited before turn acknowledgement; execution is uncertain");
-          this.dependencies.repo.queue.set(
-            actor.id,
-            { paused: true, reason: "uncertain" },
-            this.dependencies.clock.now(),
-          );
-        }
+        if (intent.kind === "thread.send" || intent.kind === "thread.create")
+          this.dependencies.repo.queue.uncertain(intent.id);
+        this.fail(intent, "Provider exited before turn acknowledgement; execution is uncertain");
+        this.dependencies.repo.queue.set(
+          actor.id,
+          { paused: true, reason: "uncertain" },
+          this.dependencies.clock.now(),
+        );
       }
     actor.syncQueue();
   }

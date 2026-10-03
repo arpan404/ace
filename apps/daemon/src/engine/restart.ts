@@ -1,4 +1,4 @@
-import type { EngineRepository, Intent } from "./repository.ts";
+import type { EngineRepository, IntentHeader } from "./repository.ts";
 import type { EngineClock } from "./actor.ts";
 import type { Recovery } from "./recovery.ts";
 import type { ThreadId } from "@ace/protocol";
@@ -7,7 +7,7 @@ export function recoverEngine(
   repo: EngineRepository,
   recovery: Recovery,
   clock: EngineClock,
-  fail: (intent: Intent, message: string) => void,
+  fail: (intent: IntentHeader, message: string) => void,
   wake: (id: ThreadId) => void,
 ): void {
   repo.store.atomic(() => {
@@ -65,11 +65,11 @@ export function recoverEngine(
           clock.now(),
         );
     }
-    for (const intent of repo.intents()) {
+    for (const intent of repo.pending.headers()) {
       if (intent.status === "running" || intent.awaiting) {
         if (
-          intent.command.payload.type === "thread.send" ||
-          intent.command.payload.type === "thread.create"
+          !intent.acknowledged &&
+          (intent.kind === "thread.send" || intent.kind === "thread.create")
         )
           repo.queue.uncertain(intent.id);
         fail(
@@ -79,16 +79,16 @@ export function recoverEngine(
       } else if (
         intent.status === "pending" &&
         !["thread.send", "thread.create", "thread.resume", "queue.resume", "thread.limit"].includes(
-          intent.command.payload.type,
+          intent.kind,
         )
       )
         fail(intent, "Control interrupted by daemon restart; retry explicitly");
     }
     for (const state of repo.states()) {
       const queue = repo.queue.get(state.threadId);
-      const pending = repo
-        .intents(state.threadId)
-        .some((intent) => ["pending", "queued"].includes(intent.status));
+      const pending = Boolean(
+        repo.pending.message(state.threadId) || repo.pending.recovery(state.threadId),
+      );
       recovery.sync(state.threadId);
       if (!pending && !queue.continuation && !repo.queue.count(state.threadId)) continue;
       const uncertain = repo.queue.hasUncertain(state.threadId);
@@ -101,18 +101,7 @@ export function recoverEngine(
       if (!uncertain && !queue.limited && recovery.preferences(state.threadId).continueAfterRestart)
         recovery.automatic(state.threadId);
       // Recovery controls already accepted before a crash are safe only when unclaimed.
-      if (
-        repo
-          .intents(state.threadId)
-          .some(
-            (intent) =>
-              intent.status === "pending" &&
-              ["thread.resume", "queue.resume", "thread.limit"].includes(
-                intent.command.payload.type,
-              ),
-          ) &&
-        repo.reserve(state.threadId)
-      )
+      if (repo.pending.recovery(state.threadId) && repo.reserve(state.threadId))
         wake(state.threadId);
     }
   });

@@ -1,5 +1,5 @@
 import type { PrepareInput } from "./input.ts";
-import { Command } from "@ace/protocol";
+import { Command, ContextDiagnostic } from "@ace/protocol";
 import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -61,6 +61,22 @@ export async function executeIntent(
           : undefined,
       );
     try {
+      for (const [index, diagnostic] of (prepared?.diagnostics ?? []).slice(0, 64).entries()) {
+        const parsed = ContextDiagnostic.parse(diagnostic);
+        actor.apply([
+          {
+            type: "item.upsert",
+            agent: state.rootKey ?? "root",
+            item: `intent:${intent.id}:context:${index}`,
+            draft: {
+              type: "notice",
+              level: "warning",
+              complete: true,
+              text: `Context ${parsed.code}: ${parsed.message.slice(0, 4096)}${parsed.path ? ` (${parsed.path.slice(0, 1024)})` : ""}`,
+            },
+          },
+        ]);
+      }
       await session.send(
         prepared?.input ?? p.input,
         p.type === "thread.send" && p.delivery === "steer" && capabilities.steer

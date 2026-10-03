@@ -135,7 +135,8 @@ export function engineHandler(
         } else return fail("not_implemented");
         const admitted = recovery.admit(command, threadId);
         if (!admitted) return fail("queue_capacity_exceeded");
-        if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
+        const heldSend = p.type === "thread.send" && repo.queue.get(threadId).paused;
+        if (!heldSend && !repo.reserve(threadId)) return fail("engine_capacity_exceeded");
         repo.add(admitted, threadId, resolutionId);
         if (p.type === "thread.create" || p.type === "thread.send") {
           repo.queue.set(threadId, {}, now());

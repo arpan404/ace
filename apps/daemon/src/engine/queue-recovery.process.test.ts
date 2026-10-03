@@ -286,6 +286,17 @@ test("crash recovery reports dead shells monitors and subagents before native co
   await recovered.engine.flush();
   expect(recovered.store.getThread(id)?.status.state).toBe("done");
   expect(sends(replacement)).toHaveLength(1);
+  const continuation = replacement.commands.find((command) => command.type === "send");
+  expect(continuation?.type === "send" ? continuation.input : []).toEqual([
+    { type: "text", text: expect.stringContaining("shell: Background build") },
+  ]);
+  if (continuation?.type !== "send") throw new Error("Missing continuation");
+  expect(continuation.input).toEqual([
+    { type: "text", text: expect.stringContaining("monitor: Watch tests") },
+  ]);
+  expect(continuation.input).toEqual([
+    { type: "text", text: expect.stringContaining("subagent: Research") },
+  ]);
 });
 
 test("an unacknowledged send is never replayed automatically and must be removed before resuming", async () => {

@@ -233,7 +233,11 @@ export class QueueStore {
     ).run(intent, intent);
   }
   edit(id: number, command: Command): void {
-    this.sql("UPDATE intents SET payload=? WHERE id=?").run(JSON.stringify(command), id);
+    this.sql("UPDATE intents SET payload=?,delivery=? WHERE id=?").run(
+      JSON.stringify(command),
+      command.payload.type === "thread.send" ? (command.payload.delivery ?? "queue") : "queue",
+      id,
+    );
     const thread = this.sql("SELECT thread_id FROM intents WHERE id=?").get(id)?.thread_id;
     this.track(id, QueueSnapshot.shape.threadId.parse(thread), command);
   }

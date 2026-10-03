@@ -10,7 +10,7 @@ import type { SocketContext, SocketService } from "./socket.ts";
 import { commandContext } from "../commands.ts";
 /** Trusted integration ports reuse settings, quota and migration owners. */
 export function recoveryPorts(
-  context: ServiceContext,
+  context: Pick<ServiceContext, "services" | "store" | "now">,
   metadata: (id: ThreadId) => ReturnType<EngineRepository["session"]>,
 ): RecoveryPorts {
   const { services, store, now } = context;
@@ -160,7 +160,7 @@ export function createRecoverySession(context: SocketContext): SocketService {
   };
 }
 
-export function prepareQueuedInput(context: ServiceContext): PrepareInput {
+export function prepareQueuedInput(context: Pick<ServiceContext, "services">): PrepareInput {
   return async (command, provider, capabilities) => {
     const p = command.payload;
     if (p.type !== "thread.send" && p.type !== "thread.create")
@@ -187,6 +187,7 @@ export function prepareQueuedInput(context: ServiceContext): PrepareInput {
     try {
       return {
         input: [...p.input, ...canonicalContext(prepared.projection)],
+        diagnostics: prepared.diagnostics,
         release: prepared.release,
       };
     } catch (error) {
