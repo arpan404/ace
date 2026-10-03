@@ -68,6 +68,7 @@ const allowed: Record<Fact["type"], string[]> = {
   "agent.reconnected": ["agent"],
   retry: ["agent", "on", "attempt", "until", "message"],
   "retry.cleared": ["agent"],
+  "limit.cleared": ["agent"],
   "wake.expected": ["agent", "until"],
   "context.sample": ["agent", "usedTokens", "windowTokens", "sessionId", "model"],
   usage: [
@@ -302,6 +303,7 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
     case "agent.disconnected":
     case "agent.reconnected":
     case "retry.cleared":
+    case "limit.cleared":
     case "signal":
     case "tick":
     case "process.started":

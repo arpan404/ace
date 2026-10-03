@@ -137,7 +137,20 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
     }
     case "retry.cleared": {
       const record = ensureAgent(state, fact.agent, ctx, events);
+      if (!record.retry || record.retry.on === "rate_limit") {
+        if (transportRecovered || hasUnresponsiveAncestor(state, fact.agent)) {
+          reconcileLinks(state, ctx, events);
+          recomputeStatuses(state, ctx.now, events);
+        }
+        flushNotices(state, ctx, events);
+        return events;
+      }
       delete record.retry;
+      break;
+    }
+    case "limit.cleared": {
+      const record = ensureAgent(state, fact.agent, ctx, events);
+      if (record.retry?.on === "rate_limit") delete record.retry;
       delete record.limited;
       break;
     }

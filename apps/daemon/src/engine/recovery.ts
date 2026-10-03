@@ -129,8 +129,8 @@ export class Recovery {
     if (
       !facts.some(
         (fact) =>
-          fact.type === "retry" ||
-          fact.type === "retry.cleared" ||
+          (fact.type === "retry" && fact.on === "rate_limit") ||
+          fact.type === "limit.cleared" ||
           (fact.type === "turn.ended" && fact.error?.kind === "quota"),
       )
     )
@@ -305,7 +305,7 @@ export class Recovery {
       id,
       Object.entries(state.agents)
         .filter(([, record]) => record.limited)
-        .map(([agent]) => ({ type: "retry.cleared", agent })),
+        .map(([agent]) => ({ type: "limit.cleared", agent })),
       this.clock.now(),
     );
     return true;

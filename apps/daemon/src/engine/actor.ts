@@ -180,7 +180,18 @@ export class ThreadActor {
       const before = this.repo.requireState(this.id).status;
       this.repo.store.atomic(() => {
         this.apply(facts);
-        this.syncQueue();
+        if (
+          facts.some(
+            (fact) =>
+              fact.type === "turn.started" ||
+              fact.type === "turn.ended" ||
+              fact.type === "process.exited" ||
+              fact.type === "queue.changed" ||
+              fact.type === "limit.cleared" ||
+              (fact.type === "retry" && fact.on === "rate_limit"),
+          )
+        )
+          this.syncQueue();
       });
       if (
         before !== this.repo.requireState(this.id).status ||
@@ -191,8 +202,7 @@ export class ThreadActor {
             fact.type === "queue.changed" ||
             fact.type === "process.exited" ||
             fact.type === "background.ended" ||
-            fact.type === "interaction.closed" ||
-            fact.type === "retry.cleared",
+            fact.type === "interaction.closed",
         )
       )
         this.wake();
