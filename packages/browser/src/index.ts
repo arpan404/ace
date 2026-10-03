@@ -7,3 +7,7 @@ export { allowedOrigin, type OriginPolicy, type OriginRequest } from "./policy.t
 export type { Actor } from "./session.ts";
 
 export type { ContextLauncher, ProcessSpawner } from "./io.ts";
+
+export { browserToolkit } from "./mcp.ts";
+
+export { Recording as BrowserRecording } from "./recording.ts";

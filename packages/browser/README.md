@@ -149,3 +149,20 @@ These seams support host-specific launchers and tests with real child processes.
 Clock and id generation remain injectable through `now` and `id`.
 Capture detaches before context closure; shutdown does not wait for a CDP stop
 response before closing the transport that can abort it.
+
+## Agent tools
+
+`browserToolkit(service)` registers `ace_browser_navigate`, `click`, `type`,
+`press`, `scroll`, `snapshot`, `screenshot`, `evaluate`, `wait_for`, `logs`,
+`resize` and `emulate`, each with the `ace_browser_` prefix. The daemon composes
+this toolkit before opening provider sessions. Arguments cannot override the
+credential's thread identity. Agents use a browser already opened by a human;
+the toolkit cannot open sessions or approve origins or evaluation.
+
+MCP screenshots return bounded JPEG image content directly from the owned page.
+The client browser screenshot command still writes a PNG artifact. Human takeover
+blocks agent input, and ending the MCP credential cancels input awaiting dispatch.
+The queue and origin/evaluation policy checks are the same as the public browser API.
+
+The MCP browser and provider-composition behavior tests were written but not run.
+They need run at merge under the owner's current verification policy.

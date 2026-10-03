@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { join } from "node:path";
 import type { BrowserContext, CDPSession, Page } from "playwright-core";
 import {
@@ -33,6 +34,10 @@ export interface SessionOptions {
   state: (state: BrowserState) => void;
   cleanup: () => Promise<void>;
 }
+const ScreenshotBytes = z
+  .instanceof(Uint8Array)
+  .refine((bytes) => bytes.byteLength <= 8 * 1024 * 1024, "Browser screenshot exceeds image limit");
+
 const inputActions = new Set([
   "navigate",
   "click",
@@ -123,7 +128,8 @@ export class BrowserSession {
   disconnect(connectionId: string): void {
     if (this.owner === connectionId) this.handback(connectionId);
   }
-  private check(actor: Actor): void {
+  private check(actor: Actor, signal?: AbortSignal): void {
+    signal?.throwIfAborted();
     if (this.closed) throw new Error("Browser closed");
     if (actor.kind === "agent" && this.controller !== "agent")
       throw new Error("Browser controlled by human");
@@ -145,40 +151,54 @@ export class BrowserSession {
       });
     return result;
   }
-  execute(raw: unknown, actor: Actor = { kind: "agent" }): Promise<unknown> {
+  execute(raw: unknown, actor: Actor = { kind: "agent" }, signal?: AbortSignal): Promise<unknown> {
     const command = BrowserCommand.parse(raw);
     return this.enqueue(async () => {
+      signal?.throwIfAborted();
       if (this.closed) throw new Error("Browser closed");
-      if (inputActions.has(command.action)) this.check(actor);
-      return this.run(command, actor);
+      if (inputActions.has(command.action)) this.check(actor, signal);
+      return this.run(command, actor, signal);
     });
   }
-  private async run(command: BrowserCommand, actor: Actor): Promise<unknown> {
+  screenshot(signal?: AbortSignal): Promise<Uint8Array> {
+    return this.enqueue(async () => {
+      signal?.throwIfAborted();
+      if (this.closed) throw new Error("Browser closed");
+      const bytes = await this.options.page.screenshot({
+        type: "jpeg",
+        quality: 70,
+        timeout: 10_000,
+      });
+      signal?.throwIfAborted();
+      return ScreenshotBytes.parse(bytes);
+    });
+  }
+  private async run(command: BrowserCommand, actor: Actor, signal?: AbortSignal): Promise<unknown> {
     const { page, cdp, dir, id, evaluatePolicy, threadId } = this.options;
     switch (command.action) {
       case "navigate":
         if (!(await this.options.navigatePolicy(command.url)))
           throw new Error("Browser origin requires approval");
-        this.check(actor);
+        this.check(actor, signal);
         await page.goto(command.url, { waitUntil: "domcontentloaded", timeout: command.timeout });
         return this.state;
       case "snapshot":
         return this.refs.snapshot();
       case "click": {
         const rect = await this.refs.bounds(command.ref);
-        this.check(actor);
+        this.check(actor, signal);
         if (rect.width <= 0 || rect.height <= 0) throw new Error("Browser element is not visible");
         await page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
         return { ok: true };
       }
       case "type":
         await this.refs.select(command.ref);
-        this.check(actor);
+        this.check(actor, signal);
         await page.keyboard.insertText(command.text);
         return { ok: true };
       case "press":
         if (command.ref) await this.refs.focus(command.ref);
-        this.check(actor);
+        this.check(actor, signal);
         await page.keyboard.press(command.key);
         return { ok: true };
       case "scroll":
@@ -212,7 +232,7 @@ export class BrowserSession {
       case "evaluate": {
         if (!(await evaluatePolicy?.(threadId, page.url())))
           throw new Error("Browser evaluate requires approval");
-        this.check(actor);
+        this.check(actor, signal);
         return evaluatePage(cdp, command.expression);
       }
     }

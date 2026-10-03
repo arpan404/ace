@@ -100,6 +100,11 @@ export class Recording {
       });
     return true;
   }
+  /** Await the admitted frame without changing live capture's drop policy. */
+  async flush(): Promise<void> {
+    await this.busy;
+    if (this.failure) throw this.failure;
+  }
   async stop(): Promise<BrowserArtifact> {
     this.closed = true;
     await this.busy;
