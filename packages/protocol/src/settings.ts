@@ -19,6 +19,8 @@ export const SettingsValues = z.object({
   "providers.planner.model": name,
   "providers.planner.tier": tier,
   "providers.planner.reasoningEffort": effort,
+  "browser.backend": z.enum(["auto", "embedded", "headless"]),
+  "browser.backendLoss": z.enum(["pause", "headless"]),
   "approvals.policy": z.enum(["ask", "on-failure", "never"]),
   "notifications.enabled": z.boolean(),
   "notifications.sound": z.boolean(),

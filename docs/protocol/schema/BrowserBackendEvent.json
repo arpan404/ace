@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserBackendEvent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "backendId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "method": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "params": {},
+    "sessionId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "browser.backend.event",
+      "type": "string"
+    }
+  },
+  "required": [
+    "backendId",
+    "sessionId",
+    "type",
+    "method",
+    "params"
+  ],
+  "type": "object"
+}

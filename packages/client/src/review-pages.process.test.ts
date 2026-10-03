@@ -186,6 +186,7 @@ test("authoritative text replacement invalidates an active detail read rather th
   if (part?.type !== "text" || !part.source) throw new Error("source");
   const reader = client.text(part.source);
   expect((await reader.next()).value).toBe("x".repeat(128 * 1024));
+  const throughSeq = h.daemon.store.headSeq();
   h.daemon.store.appendEvents(h.thread.id, [
     {
       type: "item.updated",
@@ -193,6 +194,23 @@ test("authoritative text replacement invalidates an active detail read rather th
     },
   ]);
   await expect(reader.next()).rejects.toMatchObject({ name: "ClientError", code: "daemon" });
+  // Retention serves a frozen handoff, but must not resurrect the old live detail handle.
+  expect(
+    h.daemon.store
+      .readHistoricalStream(h.thread.id, part.source.streamId, throughSeq, 0, 16)
+      .bytes.toString("utf16le"),
+  ).toBe("x".repeat(8));
+  const replacement = (await client.itemsPage({ threadId: h.thread.id, limit: 1 })).items[0];
+  if (
+    replacement?.type !== "message" ||
+    replacement.parts[0]?.type !== "text" ||
+    !replacement.parts[0].source
+  )
+    throw new Error("Missing replacement source");
+  expect(replacement.parts[0].source.streamId).not.toBe(part.source.streamId);
+  const fresh = client.text(replacement.parts[0].source);
+  expect((await fresh.next()).value).toBe("replacement");
+  expect((await fresh.next()).done).toBe(true);
   await barrier(client, h.thread.id);
   expect(client.state).toBe("ready");
 });

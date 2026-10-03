@@ -79,6 +79,10 @@ export const BrowserState = z.object({
   owner: short.optional(),
   url: z.string().max(8192),
   closed: z.boolean(),
+  backend: z.enum(["embedded", "headless"]).optional(),
+  status: z.enum(["ready", "paused", "recovering"]).optional(),
+  reason: z.string().max(2048).optional(),
+  pageStateLost: z.boolean().optional(),
 });
 export type BrowserState = z.infer<typeof BrowserState>;
 export const BrowserFrame = z.object({
@@ -110,7 +114,28 @@ export const BrowserClientMessage = z.discriminatedUnion("type", [
   base.extend({ type: z.literal("browser.recording.stop") }),
 ]);
 export type BrowserClientMessage = z.infer<typeof BrowserClientMessage>;
+export const BrowserBackendLost = z.object({
+  type: z.literal("browser.backend.lost"),
+  threadId: ThreadId,
+  backend: z.literal("embedded"),
+  recovery: z.enum(["pause", "headless"]),
+  url: z.string().max(8192),
+  pageStateLost: z.literal(true),
+  reason: z.string().max(2048),
+});
+export type BrowserBackendLost = z.infer<typeof BrowserBackendLost>;
+export const BrowserDownloadProgress = z.object({
+  type: z.literal("browser.download.progress"),
+  version: short,
+  phase: z.enum(["downloading", "verifying", "extracting", "ready"]),
+  received: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative().optional(),
+});
+export type BrowserDownloadProgress = z.infer<typeof BrowserDownloadProgress>;
+
 export const BrowserServerMessage = z.discriminatedUnion("type", [
+  BrowserBackendLost,
+  BrowserDownloadProgress,
   z.object({
     type: z.literal("browser.result"),
     requestId: short,

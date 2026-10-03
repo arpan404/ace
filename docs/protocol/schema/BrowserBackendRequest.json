@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserBackendRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "backendId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "operation": {
+      "$ref": "https://ace.local/protocol/v1/BrowserBackendOperation.json"
+    },
+    "sessionId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "browser.backend.request",
+      "type": "string"
+    }
+  },
+  "required": [
+    "backendId",
+    "sessionId",
+    "type",
+    "id",
+    "operation"
+  ],
+  "type": "object"
+}

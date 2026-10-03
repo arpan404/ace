@@ -41,22 +41,23 @@ Example:
 
 ```json
 {
-  "defaultEffort": "example",
+  "acpAgentId": "example",
+  "defaultTier": "example",
   "deprecated": false,
   "displayName": "example",
   "hidden": true,
   "id": "example",
   "inputModalities": [],
-  "installationId": "example",
   "instance": "example",
-  "isDefault": false,
+  "isDefault": true,
   "nativeModelId": "example",
-  "provider": "opencode",
+  "provider": "cursor",
   "raw": {
     "json": "example",
     "truncated": false
   },
   "reasoningEfforts": [],
+  "resolvedModelId": "example",
   "serviceTiers": []
 }
 ```
@@ -99,13 +100,10 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "error": "timeout",
-  "installationId": "example",
   "instance": "example",
-  "provider": "codex",
-  "refreshing": false,
-  "stale": true
+  "provider": "cursor",
+  "refreshing": true,
+  "stale": false
 }
 ```
 
@@ -127,8 +125,8 @@ Example:
 
 ```json
 {
-  "instance": "example",
-  "provider": "claude"
+  "installationId": "example",
+  "instance": "example"
 }
 ```
 
@@ -170,22 +168,26 @@ Example:
 
 ```json
 {
-  "effort": "example",
   "model": {
-    "deprecated": true,
+    "contextWindow": 8,
+    "defaultEffort": "example",
+    "deprecated": false,
     "displayName": "example",
     "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
     "isDefault": true,
+    "modelConfigId": "example",
     "nativeModelId": "example",
-    "provider": "pi",
+    "provider": "cursor",
     "raw": {
       "json": "example",
       "truncated": false
     },
     "reasoningEfforts": [],
+    "resolvedModelId": "example",
+    "selectorMethod": "session/set_model",
     "serviceTiers": []
   },
   "ok": true,
@@ -234,9 +236,11 @@ Example:
 ```json
 {
   "effort": "example",
-  "preferenceOrder": [],
-  "role": "example",
-  "tier": "example"
+  "imageInput": true,
+  "instance": "example",
+  "instanceId": "example",
+  "provider": "opencode",
+  "role": "example"
 }
 ```
 
@@ -255,8 +259,10 @@ Example:
 ```json
 {
   "options": {
-    "installationId": "example",
-    "provider": "claude"
+    "acpAgentId": "example",
+    "instance": "example",
+    "instanceId": "example",
+    "limit": 7
   },
   "requestId": "example",
   "type": "models.list"
@@ -298,8 +304,9 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "imageInput": true,
-    "model": "example",
+    "effort": "example",
+    "installationId": "example",
+    "instanceId": "example",
     "provider": "claude",
     "role": "example"
   },

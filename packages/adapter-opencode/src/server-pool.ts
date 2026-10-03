@@ -9,6 +9,7 @@ type Entry = { server: OpenCodeServer; env: NodeJS.ProcessEnv | undefined; users
 export class ServerPool {
   private entries = new Map<string, Entry>();
   private anonymous = new WeakMap<NodeJS.ProcessEnv, string>();
+  private mcp = new WeakMap<NonNullable<SessionContext["aceMcp"]>, string>();
   private serial = 0;
   private closed = false;
   constructor(privateOptions: ServerOptions) {
@@ -25,7 +26,13 @@ export class ServerPool {
       ctx.instanceId === undefined
         ? "default"
         : `account:${z.string().min(1).max(512).parse(ctx.instanceId)}`;
-    if (ctx.instanceId === undefined && ctx.env) {
+    // MCP credentials are scoped to one engine session. Never reuse another thread's overlay,
+    // even within the same account. Weak identities do not retain expired lease objects.
+    if (ctx.aceMcp) {
+      const identity = this.mcp.get(ctx.aceMcp) ?? `mcp:${++this.serial}`;
+      this.mcp.set(ctx.aceMcp, identity);
+      key = `${key}:${identity}`;
+    } else if (ctx.instanceId === undefined && ctx.env) {
       key = this.anonymous.get(ctx.env) ?? `anonymous:${++this.serial}`;
       this.anonymous.set(ctx.env, key);
     }

@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ExecutionSelection.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "model": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "options": {
+      "$ref": "https://ace.local/protocol/v1/ExecutionOptions.json",
+      "default": {}
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    }
+  },
+  "required": [
+    "provider"
+  ],
+  "type": "object"
+}

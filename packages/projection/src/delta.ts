@@ -2,15 +2,20 @@ import type { Item, OutputSummary, TextSource } from "@ace/protocol";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
+/** Decode a byte suffix, dropping only an incomplete leading UTF-8 character. */
+export function utf8Tail(bytes: Uint8Array, limit: number): string {
+  let start = Math.max(0, bytes.length - limit);
+  while (((bytes[start] ?? 0) & 0xc0) === 0x80) start++;
+  return decoder.decode(bytes.subarray(start));
+}
 /** Return whole UTF-8 characters within the byte budget. */
 export function utf8Slice(text: string, limit: number, tail = false): string {
   const bytes = encoder.encode(text);
+  if (tail) return utf8Tail(bytes, limit);
   if (bytes.length <= limit) return decoder.decode(bytes);
-  let start = tail ? bytes.length - limit : 0;
-  let end = tail ? bytes.length : limit;
-  if (tail) while (((bytes[start] ?? 0) & 0xc0) === 0x80) start++;
-  else while (((bytes[end] ?? 0) & 0xc0) === 0x80) end--;
-  return decoder.decode(bytes.subarray(start, end));
+  let end = limit;
+  while (((bytes[end] ?? 0) & 0xc0) === 0x80) end--;
+  return decoder.decode(bytes.subarray(0, end));
 }
 // JSON escaping is part of the transport budget: controls can expand sixfold.
 function characterBytes(byte: number): number {
