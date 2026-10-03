@@ -25,6 +25,7 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  pi?: import("./pi.ts").PiService;
   screen?: ScreenManager;
   devices?: DevicesService;
   accounts?: AccountService;

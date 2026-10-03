@@ -1,4 +1,5 @@
 import { BrowserClientMessage, BrowserServerMessage } from "./browser.ts";
+import { PiControlRequest, PiControlResult } from "./pi.ts";
 import { RegistryRequest, RegistryResult } from "./agent-registry.ts";
 import { FilesClientMessage, FilesServerMessage } from "./files.ts";
 import {
@@ -144,6 +145,7 @@ export const ItemsPage = z.object({
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  PiControlRequest,
   RegistryRequest,
   ContextRequest,
   SettingsGet,
@@ -221,6 +223,7 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  PiControlResult,
   RegistryResult,
   ContextResult,
   SettingsResult,

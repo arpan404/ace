@@ -10,7 +10,8 @@
     "./history": "./src/history.ts",
     "./forge": "./src/forge.ts",
     "./accounts": "./src/accounts.ts",
-    "./devices": "./src/devices.ts"
+    "./devices": "./src/devices.ts",
+    "./pi": "./src/pi.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

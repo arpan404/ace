@@ -2,6 +2,7 @@ import * as appDevices from "@ace/protocol/devices";
 import * as plugins from "@ace/protocol/plugins";
 import * as preview from "@ace/protocol/preview";
 import * as history from "@ace/protocol/history";
+import * as pi from "@ace/protocol/pi";
 import * as accounts from "@ace/protocol/accounts";
 import * as protocol from "@ace/protocol";
 import * as forge from "@ace/protocol/forge";
@@ -20,6 +21,7 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   ["./history", history],
   ["./accounts", accounts],
   ["./devices", appDevices],
+  ["./pi", pi],
 ]);
 
 export function protocolCatalog(): { entries: SchemaEntry[]; tools: ToolEntry[] } {
