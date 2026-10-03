@@ -50,12 +50,15 @@ export async function restart(h: RecoveryHarness, options: EngineOptions = {}) {
 }
 export async function crashCopy(h: RecoveryHarness, options: EngineOptions = {}) {
   const path = join(h.home, "crash.sqlite");
-  await h.store.atomic((db) => backup(db, path));
+  await backup(
+    h.store.atomic((db) => db),
+    path,
+  );
   const store = new Store(path);
   const engine = new Engine(store, { registry: h.registry, clock: h.clock, ...options });
   cleanups.push(async () => {
     await engine.close();
-    store.close();
+    await store.close();
   });
   await engine.flush();
   return { store, engine };

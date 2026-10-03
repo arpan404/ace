@@ -206,7 +206,7 @@ export async function harness(
       for (const client of clients) await client.close();
       await server.close();
       await engine.close();
-      store.close();
+      await store.close();
       rmSync(home, { recursive: true, force: true });
     },
   };
