@@ -1,7 +1,7 @@
-import { z } from "zod";
 import type { DatabaseSync } from "node:sqlite";
 
-const migrations = [
+/** Frozen schemas 1-12, starting from the oldest event-store fixture. Do not import live migrations. */
+const historicalSteps = [
   `CREATE TABLE events (
     seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, thread_id TEXT NOT NULL,
     at INTEGER NOT NULL, type TEXT NOT NULL, payload JSON NOT NULL
@@ -88,7 +88,7 @@ const migrations = [
    CREATE TABLE history_blob_chunks(blob_id TEXT NOT NULL REFERENCES history_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));`,
   `CREATE TABLE usage_deletions (seq INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, at INTEGER NOT NULL);`,
   `ALTER TABLE threads ADD COLUMN acp JSON;`,
-  ensureThreadMetadataColumns,
+  `ALTER TABLE threads ADD COLUMN transitions JSON;`,
   `ALTER TABLE item_text_streams RENAME TO item_text_streams_old;
    CREATE TABLE item_text_streams (
      id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
@@ -115,51 +115,12 @@ const migrations = [
   `CREATE TABLE IF NOT EXISTS streamed_blobs(id TEXT PRIMARY KEY,thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,size INTEGER NOT NULL,sha256 TEXT,storage_id TEXT NOT NULL,chunks INTEGER NOT NULL DEFAULT 0);
    CREATE TABLE IF NOT EXISTS streamed_blob_chunks(blob_id TEXT NOT NULL REFERENCES streamed_blobs(id) ON DELETE CASCADE,offset INTEGER NOT NULL,bytes BLOB NOT NULL,PRIMARY KEY(blob_id,offset));
    CREATE INDEX IF NOT EXISTS streamed_blob_hash ON streamed_blobs(thread_id,sha256);`,
-  // The Store owns threads.status, guaranteed by migration 1. Engine metadata has its own version.
-  `CREATE INDEX IF NOT EXISTS engine_live_threads ON threads(id)
-    WHERE json_extract(status,'$.state') NOT IN ('new','done','failed');`,
 ];
-export function migrate(db: DatabaseSync): void {
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    db.exec(
-      "CREATE TABLE IF NOT EXISTS schema_version (id INTEGER PRIMARY KEY CHECK(id = 1), version INTEGER NOT NULL)",
-    );
-    const row = db.prepare("SELECT version FROM schema_version WHERE id = 1").get();
-    const version = Number(row?.version ?? 0);
-    if (version > migrations.length) throw new Error("Database schema is newer than this daemon");
-    for (let i = version; i < migrations.length; i++) {
-      const sql = migrations[i];
-      if (sql === undefined) throw new Error("Missing migration");
-      if (typeof sql === "string") db.exec(sql);
-      else sql(db);
-      db.prepare(
-        "INSERT INTO schema_version VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET version = excluded.version",
-      ).run(i + 1);
-    }
-    // SDK and ACP branches independently appended the same numbered migration.
-    // Upgrade either historical shape by columns, without rewriting its metadata.
-    const columns = new Set(
-      db
-        .prepare("PRAGMA table_info(threads)")
-        .all()
-        .map((value) => z.object({ name: z.string() }).parse(value).name),
-    );
-    if (!columns.has("acp")) db.exec("ALTER TABLE threads ADD COLUMN acp JSON");
-    if (!columns.has("provider_metadata"))
-      db.exec("ALTER TABLE threads ADD COLUMN provider_metadata JSON");
-    ensureThreadMetadataColumns(db);
-    db.exec("COMMIT");
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
-}
 
-/** Both branches used migration 9; accept either installed metadata column. */
-function ensureThreadMetadataColumns(db: DatabaseSync): void {
-  for (const name of ["acp", "transitions"]) {
-    if (!db.prepare("SELECT name FROM pragma_table_info('threads') WHERE name=?").get(name))
-      db.exec(`ALTER TABLE threads ADD COLUMN ${name} JSON`);
-  }
+export const historicalStoreVersions = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+export function historicalStore(db: DatabaseSync, version: number): void {
+  db.exec("CREATE TABLE schema_version (id INTEGER PRIMARY KEY, version INTEGER NOT NULL)");
+  for (const step of historicalSteps.slice(0, version)) db.exec(step);
+  db.prepare("INSERT INTO schema_version VALUES (1,?)").run(version);
 }

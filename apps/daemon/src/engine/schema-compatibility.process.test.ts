@@ -72,7 +72,7 @@ async function savedShell() {
   return { id, store, construct, state, legacyOutput, output };
 }
 
-test.each([1, 6, 7, 8, 999, 0, "invalid"])(
+test.each([1, 2, 3, 4, 5, 6, 7, 8, 999, 0, "invalid"])(
   "development engine schema %s is rejected before recovering or rewriting shell output",
   async (version) => {
     const saved = await savedShell();

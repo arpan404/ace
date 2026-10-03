@@ -7,9 +7,6 @@ export function migrateEngine(db: DatabaseSync): void {
   db.exec(`CREATE TABLE IF NOT EXISTS engine_schema_version (
     id INTEGER PRIMARY KEY CHECK(id = 1), version INTEGER NOT NULL
   )`);
-  db.exec(
-    "CREATE INDEX IF NOT EXISTS engine_live_threads ON threads(id) WHERE json_extract(status,'$.state') NOT IN ('new','done','failed')",
-  );
   const row = db.prepare("SELECT version FROM engine_schema_version WHERE id=1").get();
   if (row) {
     requireEngineVersion(row);
