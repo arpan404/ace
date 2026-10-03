@@ -32,17 +32,17 @@ Example:
   "concurrency": 10,
   "enabled": false,
   "id": "example",
-  "jitterMs": 6,
+  "jitterMs": 8,
   "missedRun": "run_once",
+  "model": "example",
   "prompt": "example",
-  "provider": "claude",
+  "provider": "antigravity",
   "title": "example",
   "trigger": {
-    "event": "ci_failed",
+    "event": "pr_changed",
     "kind": "github",
-    "pollIntervalMs": 60001,
-    "pullRequest": 8,
-    "repository": "oFQII/mbceD9fTD5"
+    "pollIntervalMs": 60002,
+    "repository": "fy6dmTMzHT/8zAM"
   },
   "workspace": "example",
   "worktree": true
@@ -102,23 +102,22 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 5,
-    "enabled": false,
+    "concurrency": 7,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 2,
-    "missedRun": "run_once",
-    "model": "example",
+    "jitterMs": 1,
+    "missedRun": "skip",
     "prompt": "example",
-    "provider": "codex",
+    "provider": "claude",
     "title": "example",
     "trigger": {
-      "event": "review_comment",
-      "kind": "github",
-      "pollIntervalMs": 60001,
-      "repository": "0u/ddZ.4_-K"
+      "kind": "file",
+      "paths": [
+        "example"
+      ]
     },
     "workspace": "example",
-    "worktree": true
+    "worktree": false
   },
   "requestId": "example",
   "type": "automation.put"
@@ -192,7 +191,8 @@ Example:
 
 ```json
 {
-  "limit": 5,
+  "before": 8,
+  "limit": 1,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -216,7 +216,7 @@ Example:
 
 ```json
 {
-  "ok": true,
+  "ok": false,
   "requestId": "example",
   "type": "automation.result"
 }
@@ -246,10 +246,11 @@ Example:
   "automationId": "example",
   "eventKey": "example",
   "id": "example",
-  "startedAt": 2,
-  "status": "succeeded",
+  "result": "example",
+  "startedAt": 3,
+  "status": "skipped",
   "title": "example",
-  "trigger": "file"
+  "trigger": "schedule"
 }
 ```
 
@@ -329,11 +330,10 @@ Example:
 
 ```json
 {
-  "event": "issue_labelled",
+  "event": "pr_changed",
   "kind": "github",
-  "label": "example",
-  "pollIntervalMs": 60002,
-  "repository": "NCJ8XQU7/kM"
+  "pollIntervalMs": 60001,
+  "repository": "1wl/Zn7"
 }
 ```
 

@@ -1,23 +1,22 @@
 {
-  "$id": "https://ace.local/protocol/v1/HistoryScanResponse.json",
+  "$id": "https://ace.local/protocol/v1/HistoryScanStatus.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
-    "files": {
-      "maximum": 9007199254740991,
-      "minimum": 0,
-      "type": "integer"
-    },
-    "requestId": {
-      "maxLength": 256,
-      "minLength": 1,
+    "error": {
+      "maxLength": 8192,
       "type": "string"
     },
-    "scan": {
-      "$ref": "https://ace.local/protocol/v1/HistoryScanStatus.json"
-    },
-    "type": {
-      "const": "history.scan",
+    "state": {
+      "enum": [
+        "idle",
+        "scanning",
+        "ready",
+        "failed"
+      ],
       "type": "string"
+    },
+    "stats": {
+      "$ref": "https://ace.local/protocol/v1/HistoryScanStats.json"
     },
     "unsupported": {
       "items": {
@@ -40,8 +39,8 @@
     }
   },
   "required": [
-    "type",
-    "files",
+    "state",
+    "stats",
     "unsupported"
   ],
   "type": "object"
