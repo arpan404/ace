@@ -103,6 +103,7 @@ export function ingestQuota(
   return {
     state: {
       auth: auth ?? state.auth,
+      ...(state.cursorSdkAuth ? { cursorSdkAuth: state.cursorSdkAuth } : {}),
       observedAt: fact.observedAt,
       windows,
       blockers,

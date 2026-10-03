@@ -2,7 +2,13 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdir, open, chmod, lstat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
-import { AccountId, AccountEnvKey, ProviderInstance, AccountQuota } from "@ace/protocol/accounts";
+import {
+  AccountId,
+  AccountEnvKey,
+  ProviderInstance,
+  AccountQuota,
+  CursorSdkAuth,
+} from "@ace/protocol/accounts";
 import { object } from "./quota-decode.ts";
 import { initialQuota, ingestQuota, availability, type QuotaFact } from "./quota.ts";
 import { instanceEnv } from "./instances.ts";
@@ -74,6 +80,13 @@ export class AccountRegistry {
   get(id: string) {
     const value = this.select.get(AccountId.parse(id));
     return value === undefined ? undefined : this.decode(value);
+  }
+  setCursorSdkAuth(id: string, input: unknown): void {
+    const status = CursorSdkAuth.parse(input);
+    const account = this.get(id);
+    if (!account || account.instance.provider !== "cursor")
+      throw new Error("Unknown Cursor instance");
+    this.updateQuota.run(JSON.stringify({ ...account.quota, cursorSdkAuth: status }), id);
   }
   list() {
     const rows = this.all.all();

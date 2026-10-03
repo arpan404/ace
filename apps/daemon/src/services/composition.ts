@@ -84,6 +84,7 @@ export function readyServices(services: Partial<Services>): Services {
     ...(services.relay ? { relay: services.relay } : {}),
     ...(services.engine ? { engine: services.engine } : {}),
     ...(services.cursorHosts ? { cursorHosts: services.cursorHosts } : {}),
+    ...(services.cursorAccounts ? { cursorAccounts: services.cursorAccounts } : {}),
     ...(services.history ? { history: services.history } : {}),
   };
 }

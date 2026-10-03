@@ -1,6 +1,7 @@
 import type { CursorHostSlots } from "@ace/adapter-cursor";
 import type { ScreenManager } from "@ace/screen";
 import type { AccountService, AccountRegistry } from "@ace/accounts";
+import type { bindCursorSdk } from "@ace/accounts";
 import type { CommandLibrary } from "@ace/commands";
 import type { FilesService } from "@ace/files";
 import type { KeyPair } from "@ace/secure-channel";
@@ -34,6 +35,7 @@ export interface Services {
   handler: CommandHandler;
   engine?: Engine;
   cursorHosts?: CursorHostSlots;
+  cursorAccounts?: ReturnType<typeof bindCursorSdk>;
   plugins: PluginService;
   preparePlugins(provider: Provider, root: string): ReturnType<typeof preparePluginSession>;
   launchPlugins(

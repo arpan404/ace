@@ -34,13 +34,18 @@ export class AdapterRegistry {
       );
     return entry;
   }
-  bindSessions(bind: (adapter: ProviderAdapter) => ProviderAdapter): void {
+  bindSessions(
+    bind: (adapter: ProviderAdapter) => ProviderAdapter & { close?(): Promise<void> },
+  ): void {
     for (const entry of new Set([...this.entries.values(), ...this.backends.values()])) {
       const original = entry.source;
       const bound = bind(original);
       entry.adapter = {
         ...bound,
-        ...(original.close ? { close: () => original.close?.() ?? Promise.resolve() } : {}),
+        close: async () => {
+          await bound.close?.();
+          if (bound !== original) await original.close?.();
+        },
       };
     }
   }

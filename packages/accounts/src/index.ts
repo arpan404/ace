@@ -9,3 +9,5 @@ export { migrateSession, type MigrationSafety, type MigrationRequest } from "./m
 export type { MigrationObserver, MigrationProgress } from "./migration-files.ts";
 export { AccountService, type AccountAdapterFactory } from "./service.ts";
 export { runAccountsCommand } from "./commands-cli.ts";
+
+export { bindCursorSdk, cursorSdkLoginDriver } from "./cursor-sdk.ts";

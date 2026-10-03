@@ -13,7 +13,7 @@ import { migrateSession, type MigrationSafety } from "./migration.ts";
 import { accountFrame } from "./frames.ts";
 export type AccountAdapterFactory = Pick<
   ProviderAdapter,
-  "provider" | "capabilities" | "createTranslator"
+  "provider" | "capabilities" | "createTranslator" | "backend"
 > & {
   /** Called after assignment, so native adapters using constructor env also select this account. */
   create(
@@ -68,6 +68,7 @@ export class AccountService {
     AccountProvider.parse(factory.provider);
     const adapter: ProviderAdapter = {
       provider: factory.provider,
+      ...(factory.backend ? { backend: factory.backend } : {}),
       capabilities: (cli) => factory.capabilities(cli),
       createTranslator: (init) => factory.createTranslator(init),
       openSession: async (context) =>
@@ -182,8 +183,9 @@ export class AccountService {
       const session = await adapter.openSession({
         ...context,
         instanceId: chosen.id,
+        instanceHomeDir: chosen.homeDir,
         signal: lifetime.signal,
-        env: instanceEnv(chosen, { ...this.env, ...context.env }),
+        env: instanceEnv(chosen, { ...this.env, ...context.env }, adapter.backend),
         onFrame: (input) => {
           if (released || frameFailed) return;
           const frame = accountFrame(input);
@@ -220,11 +222,12 @@ export class AccountService {
         instanceId: chosen.id,
         session: {
           instanceId: chosen.id,
+          ...(session.backend ? { backend: session.backend } : {}),
           ...(session.mcp ? { mcp: session.mcp } : {}),
           get nativeSessionId() {
             return session.nativeSessionId;
           },
-          send: (input, delivery) => session.send(input, delivery),
+          send: (input, delivery, intent) => session.send(input, delivery, intent),
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
           stopTask: (task) => session.stopTask(task),

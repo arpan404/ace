@@ -12,6 +12,7 @@
     "bench": "node bench/quota.ts"
   },
   "dependencies": {
+    "@ace/adapter-cursor": "workspace:*",
     "@ace/engine-api": "workspace:*",
     "@ace/protocol": "workspace:*",
     "@ace/provider-kit": "workspace:*",

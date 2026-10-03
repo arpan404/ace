@@ -70,7 +70,9 @@ export function createCursorAdapter(
       admissions.set(admission, selected.id);
       let lease: Awaited<ReturnType<NonNullable<CursorAdapterOptions["mcp"]>>> | undefined;
       try {
-        const env = context.env ?? cursorSdkEnvironment(selected, options.env ?? process.env);
+        if (context.env && context.env.HOME !== join(selected.homeDir, "user"))
+          throw new Error("Cursor SDK host home must match the selected instance");
+        const env = cursorSdkEnvironment(selected, context.env ?? options.env ?? process.env);
         // An accounts-composed environment must already carry the private SDK default home.
         if (env.HOME !== join(selected.homeDir, "user"))
           throw new Error("Cursor SDK host home must match the selected instance");

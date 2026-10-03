@@ -12,7 +12,7 @@ bun run --filter @ace/accounts accounts accounts status codex-work
 bun run --filter @ace/accounts accounts accounts list
 ```
 
-The daemon's `ace` bin delegates `ace accounts ...` to this package; there is one host CLI bin. `ACE_ACCOUNTS_DB` overrides the default `$ACE_HOME/accounts.sqlite` (`ACE_HOME` defaults to `~/.ace`), shared with the daemon. Login inherits the terminal and runs the CLI's own login flow. Its injected supervised spawner owns the process group; cancellation escalates from SIGTERM to SIGKILL and waits for the child to be reaped. For a Claude API key, configure the CLI's home directly; `--console` selects its Console login. ace does not accept a key argument.
+The daemon's `ace` bin delegates `ace accounts ...` to this package; there is one host CLI bin. `ACE_ACCOUNTS_DB` overrides the default `$ACE_HOME/accounts.sqlite` (`ACE_HOME` defaults to `~/.ace`), shared with the daemon. Cursor SDK sign-in is separate from CLI/editor login. When the exact supported SDK is installed, Cursor add/status use isolated SDK hosts and safe auth-source metadata; SDK absence retains ACP login. Its one-time browser URL is displayed only in the calling terminal. API authentication inherits the existing launch environment, with no key entry UI. Other providers inherit the terminal and run their CLI login flow. Its injected supervised spawner owns the process group; cancellation escalates from SIGTERM to SIGKILL and waits for the child to be reaped. For a Claude API key, configure the CLI's home directly; `--console` selects its Console login. ace does not accept a key argument.
 
 ## Engine integration
 
@@ -47,3 +47,5 @@ bun run check:size
 ```
 
 The fork-verification command is opt-in and invokes the installed Codex only on synthetic histories with no prompt argument and ignored stdin. It creates no model turn. Tests use fake CLIs or synthetic files and a real local process for live-lease refusal. Sample rate-limit fixtures come from the repository's existing recordings, not a new recorder run. See [ADR 0018](../../docs/adr/0018-accounts-and-session-portability.md) for format limits and provider evidence.
+
+Cursor SDK factories use `bindCursorSdk` and preserve the selected backend/home before host import. `cursorSdkLoginDriver` requires a selected-instance stop fence for logout; share one `CursorHostSlots` across auth, catalog and session workers. Safe SDK source/status is `quota.cursorSdkAuth`. The default credential store is `<instance.homeDir>/user/.cursor/sdk/auth.json`. Sign-out retains checkpoints/history and does not revoke the dashboard key; launch-environment authentication remains active until removed. Native SDK checkpoint migration is unsupported. See [integration limits](../../docs/integration/cursor-sdk-accounts.md).

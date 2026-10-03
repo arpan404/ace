@@ -99,6 +99,8 @@ export async function discoverSdk(
     if (Buffer.byteLength(helperText) > 65536)
       throw new Error("SDK helper manifest exceeds admission budget");
     const metadata = manifest.parse(JSON.parse(helperText));
+    if (metadata.name !== `${name}-${platform}-${arch}`)
+      throw new Error("SDK platform helper identity mismatch");
     if (metadata.version !== version) throw new Error("SDK platform helper version mismatch");
     const executable = options.executable ?? ((path: string) => access(path, constants.X_OK));
     await executable(join(dirname(helper), "bin", "rg"));

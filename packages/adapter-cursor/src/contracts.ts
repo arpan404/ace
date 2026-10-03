@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ContentPart } from "@ace/protocol";
+import { CursorSdkAuth } from "@ace/protocol/accounts";
 
 export const sdkVersion = "1.0.35";
 const identity = z.string().min(1).max(512);
@@ -53,10 +54,7 @@ export const Send = z.strictObject({
   input: z.array(ContentPart).max(64),
 });
 export type SendOptions = z.infer<typeof Send>;
-export const SafeAuth = z.strictObject({
-  status: z.enum(["logged-in", "logged-out"]),
-  source: z.enum(["environment", "sdk-store", "none"]),
-});
+export const SafeAuth = CursorSdkAuth;
 export type CursorAuthStatus = z.infer<typeof SafeAuth>;
 export const NativeMessage = z
   .object({ type: z.string(), agent_id: identity.optional(), run_id: identity.optional() })
