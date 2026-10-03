@@ -24,7 +24,7 @@ Example:
   "id": "example",
   "payload": {
     "threadId": "example",
-    "type": "thread.delete"
+    "type": "thread.unarchive"
   }
 }
 ```
@@ -42,6 +42,7 @@ Example:
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | title | yes | string | {"minLength":1,"maxLength":256} |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| permissionMode | no | [PermissionMode.json](schema/PermissionMode.json) |  |
 | acpAgentId | no | string | {"minLength":1,"maxLength":256} |
 | installationId | no | string | {"minLength":1,"maxLength":256} |
 | instanceId | no | string | {"minLength":1,"maxLength":256} |
@@ -53,14 +54,32 @@ Example:
 
 ```json
 {
-  "installationId": "example",
-  "model": "example",
-  "options": {},
+  "accountId": "example",
+  "acpAgentId": "example",
+  "instanceId": "example",
   "provider": "claude",
   "threadId": "example",
   "title": "example",
   "type": "thread.prepare",
   "workspaceId": "example"
+}
+```
+
+### thread.permission.set
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.permission.set"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| permissionMode | yes | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/PermissionMode.json"},{"type":"null"}]} |
+
+Example:
+
+```json
+{
+  "permissionMode": null,
+  "threadId": "example",
+  "type": "thread.permission.set"
 }
 ```
 
@@ -1167,6 +1186,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"thread.create"` |  |
+| permissionMode | no | [PermissionMode.json](schema/PermissionMode.json) |  |
 | handoffFrom | no | [ThreadId.json](schema/ThreadId.json) |  |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
@@ -1189,22 +1209,25 @@ Example:
 
 ```json
 {
-  "accountId": "example",
   "acpAgentId": "example",
+  "baseBranch": "example",
+  "context": {
+    "attachments": [],
+    "draftId": "Y9Bmh9",
+    "mentions": []
+  },
   "input": [
     {
-      "text": "example",
-      "type": "text"
+      "mimeType": "example",
+      "type": "image",
+      "url": "example"
     }
   ],
-  "installationId": "example",
-  "instanceId": "example",
-  "mode": "worktree",
-  "options": {
-    "serviceTier": "priority"
-  },
-  "provider": "pi",
+  "model": "example",
+  "provider": "opencode",
+  "threadId": "example",
   "title": "example",
+  "trigger": "spawn",
   "type": "thread.create",
   "workspaceId": "example"
 }
@@ -1227,19 +1250,14 @@ Example:
 
 ```json
 {
-  "context": {
-    "attachments": [],
-    "draftId": "O3HJMGTY"
-  },
-  "delivery": "steer",
   "input": [
     {
-      "path": "example",
-      "type": "file"
+      "mimeType": "example",
+      "type": "image",
+      "url": "example"
     }
   ],
   "threadId": "example",
-  "trigger": "restart",
   "type": "thread.send"
 }
 ```
@@ -1257,7 +1275,6 @@ Example:
 
 ```json
 {
-  "agentId": "example",
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -1329,8 +1346,8 @@ Example:
 {
   "interactionId": "example",
   "resolution": {
-    "decision": "cancel",
-    "kind": "plan_review"
+    "action": "cancel",
+    "kind": "elicitation"
   },
   "type": "interaction.resolve"
 }
@@ -1377,7 +1394,54 @@ Example:
 {
   "commandId": "example",
   "error": "example",
-  "ok": false,
+  "forkThreadId": "example",
+  "health": {
+    "activeSessions": null,
+    "at": 8,
+    "eventLoop": {
+      "maxMs": null,
+      "meanMs": null,
+      "p99Ms": null
+    },
+    "logs": {
+      "dropped": 9,
+      "failed": 3,
+      "queued": 7
+    },
+    "memory": {
+      "heapTotalBytes": 8,
+      "heapUsedBytes": 5,
+      "rssBytes": 1
+    },
+    "openHandles": 9,
+    "queues": {},
+    "sqlite": {
+      "pageBytes": 4,
+      "walBytes": null
+    }
+  },
+  "ok": true,
+  "prStatus": {
+    "checks": [],
+    "ci": "none",
+    "comments": [],
+    "headSha": "example",
+    "mergeability": "conflicting",
+    "raw": null,
+    "ref": {
+      "number": 10,
+      "repository": {
+        "forge": "gitlab",
+        "host": "aRk2lDHKF",
+        "name": "XVNWBC",
+        "owner": "DUV.rSt4/tgtBmwP0x/LEw64/WSqBn/7a2eI44"
+      }
+    },
+    "reviewThreads": [],
+    "state": "closed",
+    "title": "example",
+    "url": "example"
+  },
   "threadId": "example"
 }
 ```

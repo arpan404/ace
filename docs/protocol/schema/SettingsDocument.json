@@ -128,6 +128,9 @@
         "notifications.suppressWhenActive": {
           "type": "boolean"
         },
+        "permissions.defaultMode": {
+          "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+        },
         "plugins.enabled": {
           "items": {
             "maxLength": 256,

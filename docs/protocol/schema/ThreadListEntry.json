@@ -87,6 +87,9 @@
     "live": {
       "$ref": "https://ace.local/protocol/v1/ThreadRunMetadata.json"
     },
+    "permission": {
+      "$ref": "https://ace.local/protocol/v1/PermissionState.json"
+    },
     "pinned": {
       "type": "boolean"
     },

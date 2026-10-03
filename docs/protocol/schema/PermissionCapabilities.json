@@ -1,0 +1,25 @@
+{
+  "$id": "https://ace.local/protocol/v1/PermissionCapabilities.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "modes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+      },
+      "maxItems": 4,
+      "type": "array"
+    },
+    "nativeAutoReview": {
+      "type": "boolean"
+    },
+    "toolGate": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "modes",
+    "nativeAutoReview",
+    "toolGate"
+  ],
+  "type": "object"
+}

@@ -29,13 +29,13 @@ Example:
 
 ```json
 {
-  "concurrency": 5,
-  "enabled": false,
+  "concurrency": 9,
+  "enabled": true,
   "id": "example",
   "jitterMs": 9,
-  "missedRun": "skip",
+  "missedRun": "run_once",
   "prompt": "example",
-  "provider": "claude",
+  "provider": "cursor",
   "title": "example",
   "trigger": {
     "kind": "manual"
@@ -76,7 +76,7 @@ Example:
 
 ```json
 {
-  "before": 9,
+  "before": 7,
   "runs": []
 }
 ```
@@ -98,13 +98,13 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 10,
-    "enabled": false,
+    "concurrency": 3,
+    "enabled": true,
     "id": "example",
-    "jitterMs": 6,
-    "missedRun": "skip",
+    "jitterMs": 8,
+    "missedRun": "run_once",
     "prompt": "example",
-    "provider": "codex",
+    "provider": "antigravity",
     "title": "example",
     "trigger": {
       "kind": "file",
@@ -113,7 +113,7 @@ Example:
       ]
     },
     "workspace": "example",
-    "worktree": false
+    "worktree": true
   },
   "requestId": "example",
   "type": "automation.put"
@@ -187,6 +187,7 @@ Example:
 
 ```json
 {
+  "before": 7,
   "limit": 6,
   "requestId": "example",
   "type": "automation.inbox"
@@ -212,8 +213,20 @@ Example:
 
 ```json
 {
+  "automations": [],
   "ok": false,
   "requestId": "example",
+  "run": {
+    "automationId": "example",
+    "eventKey": "example",
+    "finishedAt": 9,
+    "id": "example",
+    "startedAt": 8,
+    "status": "failed",
+    "threadId": "example",
+    "title": "example",
+    "trigger": "file"
+  },
   "type": "automation.result"
 }
 ```
@@ -241,12 +254,11 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
-  "finishedAt": 0,
   "id": "example",
-  "startedAt": 6,
+  "startedAt": 1,
   "status": "running",
   "title": "example",
-  "trigger": "file"
+  "trigger": "manual"
 }
 ```
 
@@ -304,7 +316,7 @@ Example:
   "kind": "schedule",
   "schedule": {
     "expression": "example",
-    "kind": "cron",
+    "kind": "rrule",
     "startAt": 0,
     "timezone": "example"
   }
@@ -326,10 +338,10 @@ Example:
 
 ```json
 {
-  "event": "ci_failed",
+  "event": "review_comment",
   "kind": "github",
-  "pollIntervalMs": 60006,
-  "repository": "WQ/59BKiXSBVKQ"
+  "pollIntervalMs": 60000,
+  "repository": "w/aA7W2"
 }
 ```
 

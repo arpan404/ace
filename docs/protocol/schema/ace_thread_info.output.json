@@ -196,6 +196,36 @@
               "maxItems": 2,
               "type": "array"
             },
+            "permissions": {
+              "additionalProperties": false,
+              "properties": {
+                "modes": {
+                  "items": {
+                    "enum": [
+                      "read-only",
+                      "ask",
+                      "auto-review",
+                      "full-access"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 4,
+                  "type": "array"
+                },
+                "nativeAutoReview": {
+                  "type": "boolean"
+                },
+                "toolGate": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "modes",
+                "nativeAutoReview",
+                "toolGate"
+              ],
+              "type": "object"
+            },
             "planMode": {
               "type": "boolean"
             },
@@ -525,6 +555,36 @@
               },
               "maxItems": 2,
               "type": "array"
+            },
+            "permissions": {
+              "additionalProperties": false,
+              "properties": {
+                "modes": {
+                  "items": {
+                    "enum": [
+                      "read-only",
+                      "ask",
+                      "auto-review",
+                      "full-access"
+                    ],
+                    "type": "string"
+                  },
+                  "maxItems": 4,
+                  "type": "array"
+                },
+                "nativeAutoReview": {
+                  "type": "boolean"
+                },
+                "toolGate": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "modes",
+                "nativeAutoReview",
+                "toolGate"
+              ],
+              "type": "object"
             },
             "planMode": {
               "type": "boolean"
@@ -907,6 +967,45 @@
               "type": "integer"
             }
           },
+          "type": "object"
+        },
+        "permission": {
+          "additionalProperties": false,
+          "properties": {
+            "effective": {
+              "enum": [
+                "read-only",
+                "ask",
+                "auto-review",
+                "full-access"
+              ],
+              "type": "string"
+            },
+            "override": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "read-only",
+                    "ask",
+                    "auto-review",
+                    "full-access"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "pending": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "override",
+            "effective",
+            "pending"
+          ],
           "type": "object"
         },
         "pinned": {
