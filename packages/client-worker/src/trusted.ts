@@ -4,7 +4,7 @@ import type { ErrorShape } from "./wire.ts";
 /**
  * A value that crossed the worker port from this package's other end. It came from the
  * worker's client, which decoded it with @ace/protocol schemas; a structured clone of that data
- * is not decoded again (ADR 0050). Use only for such payloads.
+ * is not decoded again (ADR 0056). Use only for such payloads.
  */
 export function trusted<T>(value: unknown): T {
   return value as T;

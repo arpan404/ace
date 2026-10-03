@@ -2,7 +2,7 @@ import { z } from "zod";
 
 /*
  * Heavy derived work (markdown, highlighting, diffs) runs in a dedicated worker, never on the
- * main thread (ADR 0050). Where the platform has no Worker (tests, very old engines) the same
+ * main thread (ADR 0056). Where the platform has no Worker (tests, very old engines) the same
  * function runs in place, so callers see one asynchronous interface either way.
  */
 

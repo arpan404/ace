@@ -8,7 +8,7 @@ import {
 } from "../src/real-daemon-config.ts";
 
 /**
- * The client runs in a SharedWorker (ADR 0050): tabs hold mirrors of its stores and never open
+ * The client runs in a SharedWorker (ADR 0056): tabs hold mirrors of its stores and never open
  * a socket themselves, and every tab of the origin shares the worker's one connection.
  */
 test("two tabs share the worker's daemon connection: neither opens a socket, both follow the thread", async ({

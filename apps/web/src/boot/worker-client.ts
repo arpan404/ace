@@ -4,7 +4,7 @@ import type { DaemonTarget } from "./connection-settings.ts";
 import { outboxKey, type WorkerTarget } from "./worker-target.ts";
 
 /**
- * A client whose connection, decoding, projection and outbox run in a worker (ADR 0050):
+ * A client whose connection, decoding, projection and outbox run in a worker (ADR 0056):
  * shared by all tabs through a SharedWorker, else one dedicated Worker per tab. Undefined
  * where neither exists, and the caller runs the client in the page.
  */

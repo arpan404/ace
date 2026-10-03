@@ -7,7 +7,7 @@ import { z } from "zod";
 import { budgets } from "./budgets.ts";
 
 /*
- * Bundle budgets per route (ADR 0050): builds the web app once into a temporary directory and
+ * Bundle budgets per route (ADR 0056): builds the web app once into a temporary directory and
  * weighs, gzipped, what the first paint needs, what each lazily loaded route adds on top, the
  * CSS and each worker.
  */

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /*
- * Messages between a tab and the worker that runs `@ace/client` (ADR 0050). Both ends are the
+ * Messages between a tab and the worker that runs `@ace/client` (ADR 0056). Both ends are the
  * same build of this package on one origin, so envelopes are checked here and payloads that the
  * worker's client already decoded with @ace/protocol schemas are not decoded a second time.
  */

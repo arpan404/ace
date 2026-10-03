@@ -5,7 +5,7 @@ import { idbOutbox } from "./idb-storage.ts";
 import { WorkerTarget, outboxKey } from "./worker-target.ts";
 
 /*
- * Entry of the client worker (ADR 0050): a SharedWorker serving every tab of this origin, or a
+ * Entry of the client worker (ADR 0056): a SharedWorker serving every tab of this origin, or a
  * dedicated Worker per tab where SharedWorker is missing. It owns the socket, frame decoding,
  * projection and the intents outbox; tabs hold mirrors of the stores they read.
  */

@@ -11,7 +11,7 @@ import { callArgs, iterateArgs } from "./calls.ts";
 import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire.ts";
 
 /*
- * The worker side (ADR 0050). One `Client` per daemon target is shared by every tab attached
+ * The worker side (ADR 0056). One `Client` per daemon target is shared by every tab attached
  * to this worker: one socket, one decode, one projection and one intents outbox. Each tab holds
  * leases on stores; the host forwards the keys those stores emit, coalesced per frame, and
  * nothing at all to a hidden tab until it is visible again.

@@ -1,11 +1,11 @@
 /*
- * Web performance budgets (ADR 0050). `bun run check:perf` fails when one is exceeded. Change a
+ * Web performance budgets (ADR 0056). `bun run check:perf` fails when one is exceeded. Change a
  * number only with a reason in the ADR.
  */
 export const budgets = {
   bundle: {
     /**
-     * Shell, router, first route, gzip. A ratchet at today's size (ADR 0050): the ADR 0045
+     * Shell, router, first route, gzip. A ratchet at today's size (ADR 0056): the ADR 0045
      * target is 200 KB and needs the shell's view chrome split by route.
      */
     initialKb: 345,

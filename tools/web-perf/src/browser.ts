@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { budgets } from "./budgets.ts";
 
 /*
- * Main-thread budgets in a real browser (ADR 0050): the production build in `--mode perf`,
+ * Main-thread budgets in a real browser (ADR 0056): the production build in `--mode perf`,
  * whose client worker streams an endless agent at 5,000 events/s, while a person types into
  * the composer and scrolls the transcript. Long tasks and Event Timing entries are recorded
  * from first paint; interaction latency is input to next paint per interaction.

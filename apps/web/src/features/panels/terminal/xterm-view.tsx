@@ -3,7 +3,7 @@ import { tokenColor } from "@/lib/css-color.ts";
 import type { TerminalSessions } from "./sessions.ts";
 
 /*
- * A terminal drawn by xterm.js with its WebGL renderer (ADR 0050): full-screen programs,
+ * A terminal drawn by xterm.js with its WebGL renderer (ADR 0056): full-screen programs,
  * cursor addressing and true colour, at GPU speed for long builds. xterm loads only when a
  * terminal is shown. If the WebGL context is lost, xterm keeps drawing with its DOM renderer.
  */

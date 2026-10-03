@@ -27,7 +27,7 @@ function measureCell(): Cell {
 }
 
 /**
- * Very large monospace text drawn by the GPU (ADR 0050): the canvas covers the visible box and
+ * Very large monospace text drawn by the GPU (ADR 0056): the canvas covers the visible box and
  * redraws only what is in view on scroll, at most once per frame. If the backend cannot start,
  * `onFail` hands the document back to the DOM view.
  */

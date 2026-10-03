@@ -35,7 +35,7 @@ import {
 } from "./wire.ts";
 
 /*
- * The tab side (ADR 0050): a ClientApi whose stores are mirrors of the worker's. Reads are
+ * The tab side (ADR 0056): a ClientApi whose stores are mirrors of the worker's. Reads are
  * synchronous against the mirror; requests travel to the worker's client and back.
  */
 
@@ -46,7 +46,7 @@ export interface Visibility {
 }
 export interface RemoteOptions {
   scheduler: Scheduler;
-  /** While the page is hidden the worker sends it nothing (ADR 0050). Always visible if absent. */
+  /** While the page is hidden the worker sends it nothing (ADR 0056). Always visible if absent. */
   visibility?: Visibility;
   /** Called once the worker's client has loaded its outbox for this tab. */
   attached?(): void;

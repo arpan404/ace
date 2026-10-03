@@ -5,7 +5,7 @@ import { serveOffThread } from "@/lib/off-thread.ts";
 import { FileChangesInput, decodeFileDiff } from "./diff-schema.ts";
 
 /*
- * File diffs off the main thread (ADR 0050): an LCS per changed file, persisted in IndexedDB
+ * File diffs off the main thread (ADR 0056): an LCS per changed file, persisted in IndexedDB
  * by content key so a reload or another tab does not diff the same content again. Stored
  * diffs are decoded here, not in the page.
  */

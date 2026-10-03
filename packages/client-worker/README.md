@@ -1,6 +1,6 @@
 # @ace/client-worker
 
-Runs `@ace/client` off the main thread (ADR 0050). `ClientHost` lives in a SharedWorker (or a dedicated Worker where SharedWorker is missing) and owns one `Client` per daemon target: the socket, frame decoding, projection and the intents outbox. `RemoteClient` lives in each tab and implements `ClientApi` over a `MessagePort`.
+Runs `@ace/client` off the main thread (ADR 0056). `ClientHost` lives in a SharedWorker (or a dedicated Worker where SharedWorker is missing) and owns one `Client` per daemon target: the socket, frame decoding, projection and the intents outbox. `RemoteClient` lives in each tab and implements `ClientApi` over a `MessagePort`.
 
 - Tabs lease stores. The host forwards the change keys each leased store emits, coalesced per frame, as fine-grained patches: the key's new value, or only the text a streaming message gained. A tab's mirror applies them and notifies the same keys, so `@ace/client-react` selectors behave as they do in-process.
 - A hidden tab (`Visibility`) receives nothing; when it is shown it receives every key that changed meanwhile.

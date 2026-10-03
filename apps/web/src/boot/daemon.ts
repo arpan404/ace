@@ -5,7 +5,7 @@ import { createWorkerClient } from "./worker-client.ts";
 import { outboxKey } from "./worker-target.ts";
 
 /**
- * A client for a real daemon: in the client worker where the browser has one (ADR 0050),
+ * A client for a real daemon: in the client worker where the browser has one (ADR 0056),
  * else in the page. The token stays in memory for the socket's hello.
  */
 export function createDaemonClient(target: DaemonTarget): ClientApi {

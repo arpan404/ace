@@ -16,7 +16,7 @@ import type { ClientError, ConnectionState, RequestOptions } from "./types.ts";
 
 /*
  * The surface UI code depends on. `Client` implements it in-process; a client running in a
- * worker implements it in the page from forwarded changes (ADR 0050). Readers stay synchronous
+ * worker implements it in the page from forwarded changes (ADR 0056). Readers stay synchronous
  * either way: a selector always reads a local copy.
  */
 
