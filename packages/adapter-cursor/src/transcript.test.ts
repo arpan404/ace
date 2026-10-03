@@ -247,6 +247,25 @@ it("settles a late failed tool without splitting replacement text or ending the 
   ).toEqual(["failed"]);
   expect(Object.values(r.state.runs)).toHaveLength(1);
   expect(Object.values(r.state.runs)[0]?.state).toBe("active");
+  expect(Object.values(r.state.tasks).map((task) => task.status)).toEqual(["failed"]);
+});
+
+it("settles surviving tool uncertainty only after an authoritative late completion", () => {
+  const r = replay();
+  r.frame("delta", {
+    type: "tool-call-started",
+    callId: "surviving-shell",
+    toolCall: { type: "shell", args: { command: "synthetic operation" } },
+  });
+  r.frame("result", { status: "finished" });
+  expect(deriveThreadStatus(r.state)).toEqual({ state: "waiting", on: "background_task" });
+  r.frame("delta", {
+    type: "tool-call-completed",
+    callId: "surviving-shell",
+    toolCall: { type: "shell", result: { status: "success", value: { exitCode: 0 } } },
+  });
+  expect(Object.values(r.state.tasks).map((task) => task.status)).toEqual(["completed"]);
+  expect(deriveThreadStatus(r.state).state).toBe("done");
 });
 
 it("fences the host when an old segment overflows its shared checkpoint or callback budget", () => {

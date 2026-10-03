@@ -12,7 +12,7 @@ The owner explicitly permits only formatting, lint, typecheck and source-size
 checks before merge. Behavior tests are written for merge-time execution.
 
 Static validation: `bun run fmt`, `bun run lint`, `bun run typecheck` and
-`bun run check:size` passed (all tracked sources within the hard limit). These
+`bun run check:size` passed (2,168 tracked sources within the hard limit). These
 do not establish runtime correctness.
 
 ## Written behavior tests — needs run at merge
@@ -53,7 +53,7 @@ Additional continuation behavior guards (all need run at merge):
 - Native queued/running records become interrupted after restart without resending input or changing already completed outcomes.
 - Torn journals, torn legacy native records and cursors beyond their journal refuse recovery without truncating evidence; metadata without native conversation state requires explicit handoff.
 - Oversized native checkpoint writes visibly fence further writes while retaining the previous checkpoint.
-- Late failed tools settle their original call without splitting replacement text or ending the logical steering run.
+- Late failed tools settle their original call and surviving-work marker without splitting replacement text or ending the logical steering run; authoritative success clears execution uncertainty.
 - An old segment's callback/checkpoint overflow fences the shared host instead of letting replacement execution continue.
 
 Existing engine restart tests cover committed input, acknowledged/pending intents
@@ -115,6 +115,8 @@ live SDK evidence at merge; static review is not runtime proof.
 45. Admit a linked or oversized SDK credential store: cross-home source-preservation refusal.
 
 46. Resolve the shared migration number as only SDK or only ACP: cold-store identity assertions for both historical shapes.
+
+47. Leave a surviving tool uncertain after authoritative completion: late-success whole-tree settlement and late-failure marker assertions.
 
 These are designed mutation cases, not evidence that executed mutations were killed.
 

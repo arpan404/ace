@@ -18,6 +18,7 @@ interface Tool {
   terminal: boolean;
   failed: boolean;
   output: boolean;
+  surviving: boolean;
 }
 export interface CursorTranslatorOptions {
   threadId: ThreadId;
@@ -414,6 +415,7 @@ export class CursorTranslator implements Translator {
           terminal: false,
           failed: false,
           output: false,
+          surviving: false,
         };
         this.tools.set(call, tool);
       }
@@ -435,6 +437,14 @@ export class CursorTranslator implements Translator {
       const staleCompletion =
         this.current?.operationId !== this.operation || this.current?.segment !== this.segment;
       const facts = staleCompletion ? [] : this.transcript.boundary(agent);
+      if (tool.terminal && tool.surviving) {
+        tool.surviving = false;
+        facts.push({
+          type: "background.ended",
+          task: `surviving:${call}`,
+          status: tool.failed ? "failed" : "completed",
+        });
+      }
       if (toolKind(name) === "agent.spawn") {
         facts.push(...this.children.ensure(call, agent, tool.args, this.cwd));
         if (tool.terminal)
@@ -487,7 +497,8 @@ export class CursorTranslator implements Translator {
   private preserveTools(): Fact[] {
     const facts: Fact[] = [];
     for (const [item, tool] of this.tools)
-      if (!tool.terminal && toolKind(tool.name) !== "agent.spawn") {
+      if (!tool.terminal && !tool.surviving && toolKind(tool.name) !== "agent.spawn") {
+        tool.surviving = true;
         facts.push({
           type: "background.started",
           agent: tool.agent,
