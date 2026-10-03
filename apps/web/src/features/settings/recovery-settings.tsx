@@ -1,7 +1,7 @@
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { formatKeys } from "@/lib/keymap.ts";
-import { settingKeys, type FollowUp, type LimitPolicy } from "./data/setting-keys.ts";
+import { settingKeys, type FollowUp } from "./data/setting-keys.ts";
 import { useSetting } from "./data/use-settings.ts";
 import { SettingSwitch } from "./setting-switch.tsx";
 
@@ -9,20 +9,14 @@ const followUps: { value: FollowUp; label: string }[] = [
   { value: "queue", label: "Queue" },
   { value: "steer", label: "Steer" },
 ];
-const limitPolicies: { value: LimitPolicy; label: string }[] = [
-  { value: "manual", label: "Wait for me" },
-  { value: "resume_at_reset", label: "Resume at reset" },
-  { value: "snooze_until_reset", label: "Snooze until reset" },
-  { value: "migrate_now", label: "Move to another account" },
-];
 
 /**
- * How threads carry on: a message sent while the agent works, work cut off by a restart, and a
- * provider's usage limit. All are daemon settings, so every device follows them.
+ * How threads carry on: a message sent while the agent works and work cut off by a restart. Both
+ * are daemon settings, so every device follows them. What happens at a usage limit lives with the
+ * accounts it concerns (Accounts › When an account runs out).
  */
 export function RecoverySettings() {
   const [followUp, setFollowUp] = useSetting(settingKeys.followUp);
-  const [limitPolicy, setLimitPolicy] = useSetting(settingKeys.limitPolicy);
   return (
     <SettingSection label="While agents work">
       <SettingRow
@@ -41,17 +35,6 @@ export function RecoverySettings() {
         title="Continue threads after a restart"
         description="Work cut off by an update or reboot picks up again on its own. Off, it waits for you."
       />
-      <SettingRow
-        title="When a usage limit is reached"
-        description="Queued messages are held either way; this is what happens next."
-      >
-        <Select
-          label="When a usage limit is reached"
-          value={limitPolicy}
-          options={limitPolicies}
-          onValueChange={(value) => void setLimitPolicy(value)}
-        />
-      </SettingRow>
     </SettingSection>
   );
 }

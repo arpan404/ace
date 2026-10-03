@@ -32,25 +32,24 @@ test("a switched-off General setting stays off after leaving the page and coming
   ).toBe("false");
 });
 
-test("follow-ups, restart recovery and the usage-limit policy are stored on the daemon", async () => {
+test("follow-ups and restart recovery are stored on the daemon", async () => {
   const app = harness();
   await app.open("/settings/general");
   await pick("Messages sent while the agent works", "Steer");
   await userEvent.click(
     await screen.findByRole("switch", { name: "Continue threads after a restart" }),
   );
-  await pick("When a usage limit is reached", "Resume at reset");
   await waitFor(() => {
     expect(app.daemon.services.settings.get("threads.followUpBehavior")).toBe("steer");
     expect(app.daemon.services.settings.get("threads.continueAfterRestart")).toBe(true);
-    expect(app.daemon.services.settings.get("threads.limitPolicy")).toBe("resume_at_reset");
   });
 
   await goTo("Notifications");
   await goTo("General");
   expect(
-    (await screen.findByRole("combobox", { name: "When a usage limit is reached" })).textContent,
-  ).toContain("Resume at reset");
+    (await screen.findByRole("combobox", { name: "Messages sent while the agent works" }))
+      .textContent,
+  ).toContain("Steer");
 });
 
 test("the default provider lists only installed, signed-in CLIs and remembers the choice", async () => {
