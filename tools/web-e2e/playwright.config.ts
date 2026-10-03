@@ -10,6 +10,7 @@ const web = new URL("../../apps/web", import.meta.url).pathname;
  * - `fake`: the app against the in-page fake daemon (`vite --mode fake`).
  * - `real-daemon`: the app against apps/daemon with scripted providers (src/real-daemon.ts).
  * - `screens`: renders every screen in Dark and Light to /tmp/aceshots-web (run on demand).
+ * - `walkthrough`: records the core journeys to /tmp/aceshots-web/walkthrough.webm (on demand).
  */
 export default defineConfig({
   testDir: "./e2e",
@@ -39,7 +40,12 @@ export default defineConfig({
     },
     {
       name: "screens",
-      testMatch: /screens\.spec\.ts/,
+      testMatch: /(?<!real-daemon-)screens\.spec\.ts/,
+      use: { baseURL: `http://127.0.0.1:${fakePort}` },
+    },
+    {
+      name: "walkthrough",
+      testMatch: /walkthrough\.spec\.ts/,
       use: { baseURL: `http://127.0.0.1:${fakePort}` },
     },
   ],
