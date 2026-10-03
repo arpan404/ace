@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { SettingsKey, type SettingsEntry } from "@ace/protocol";
 import { z } from "zod";
 import type { SettingsValuesMap, ValuesStore } from "./backend.ts";
@@ -22,7 +22,7 @@ export const isDaemonKey = (key: string) => SettingsKey.safeParse(key).success;
  * TODO(client-gaps): feat/client-protocol-gaps adds them to SettingsValues; they then route to
  * the daemon with no change here.
  */
-export function daemonValues(client: Client, keys: readonly string[]): DaemonValues {
+export function daemonValues(client: ClientApi, keys: readonly string[]): DaemonValues {
   const watched = keys
     .flatMap((key) => {
       const parsed = SettingsKey.safeParse(key);

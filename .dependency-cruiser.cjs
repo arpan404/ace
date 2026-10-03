@@ -15,7 +15,7 @@
  */
 const web = "^apps/web/src/";
 /** What this config guards; everything else is resolved but neither followed nor reported. */
-const scope = "^(apps/web/|packages/(client|client-react|fake-daemon|ui-core)/)";
+const scope = "^(apps/web/|packages/(client|client-worker|client-react|fake-daemon|ui-core)/)";
 /** Test-only code may reach a daemon or fixtures that production code must not. */
 const testOnly = "(\\.test\\.tsx?|\\.fixture\\.ts|/test-support\\.ts)$";
 const feature = `${web}features/([^/]+)/`;

@@ -1,7 +1,7 @@
 // `@` mentions and uploads through the daemon's context service (`context.request`):
 // mention.complete over the thread's checkout, and the resumable upload sequence (begin, chunks at
 // the acknowledged offset, commit) that turns a file into an attachment the next message carries.
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import {
   ThreadId,
   type Attachment,
@@ -60,7 +60,7 @@ function base64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-export function daemonContextSource(client: Client): ContextSource {
+export function daemonContextSource(client: ClientApi): ContextSource {
   const ask = async (operation: ContextOperation, signal?: AbortSignal) =>
     (await client.request({ type: "context.request", operation }, signal ? { signal } : {})).result;
   return {

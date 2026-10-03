@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient, useConnectionState } from "@ace/client-react";
 import {
   useQuery,
@@ -12,12 +12,12 @@ type Options<T> = Omit<UseQueryOptions<T, Error, T, QueryKey>, "queryFn" | "enab
 };
 
 /**
- * A one-off daemon read (`Client.request`) through TanStack Query. It waits for a ready
+ * A one-off daemon read (`ClientApi.request`) through TanStack Query. It waits for a ready
  * connection, since requests never queue while offline, and runs again after a reconnect, so a
  * page opened during a daemon restart fills in once the daemon is back.
  */
 export function useDaemonQuery<T>(
-  options: Options<T> & { read(client: Client, signal: AbortSignal): Promise<T> },
+  options: Options<T> & { read(client: ClientApi, signal: AbortSignal): Promise<T> },
 ): UseQueryResult<T, Error> {
   const client = useClient();
   const ready = useConnectionState() === "ready";

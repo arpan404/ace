@@ -38,8 +38,9 @@ export function Transcript(props: { threadId: string }) {
   const feed = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const [pinned, setPinned] = useState(true);
-  // React Compiler is not used; the virtualizer's unstable callbacks are fine here.
-  // oxlint-disable-next-line react/incompatible-library
+  // The compiler skips this component (the virtualizer's callbacks are unstable by design);
+  // the rows it renders are still compiled.
+  // oxlint-disable-next-line react-compiler/incompatible-library
   const virtualizer = useVirtualizer({
     count: blocks.length,
     getScrollElement: () => viewport.current,

@@ -3,7 +3,7 @@
 // serves an in-memory feed with realistic content; a real daemon's feed is empty (its open
 // requests still come from the live interaction store). Components depend only on `FeedSource`;
 // swapping in the daemon changes this file alone.
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useSyncExternalStore } from "react";
@@ -126,7 +126,7 @@ export function memoryFeedSource(events: FeedEvent[]): FeedSource {
 }
 
 // One source per daemon client, so each connection (and each test) starts from the seed.
-const sources = new WeakMap<Client, FeedSource>();
+const sources = new WeakMap<ClientApi, FeedSource>();
 
 export function useFeedSource(): FeedSource {
   const client = useClient();

@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
@@ -47,7 +47,7 @@ export function prefsStore(storage: KeyValueStorage | undefined): PrefsStore {
 
 // One store per daemon client over this window's localStorage: device-wide values, but a fresh
 // in-memory copy whenever the app reconnects (and in every test).
-const stores = new WeakMap<Client, PrefsStore>();
+const stores = new WeakMap<ClientApi, PrefsStore>();
 
 export function useNotificationPrefs(): [
   NotificationPrefs,

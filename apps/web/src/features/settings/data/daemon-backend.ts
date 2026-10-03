@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import type { CatalogModel, ProviderKind } from "@ace/protocol";
 import { accountView, providerNames, type AccountView } from "@ace/ui-core";
 import type { AccessSource } from "./access-source.ts";
@@ -71,7 +71,7 @@ function distinct(models: readonly CatalogModel[]): CatalogModel[] {
  * and ACP agents added by command go through `access` until the daemon serves them.
  */
 export function daemonSettingsBackend(
-  client: Client,
+  client: ClientApi,
   options: { access: AccessSource; defaults: Readonly<Record<string, unknown>> },
 ): SettingsBackend {
   const { access, defaults } = options;

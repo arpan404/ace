@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import type { ProviderKind } from "@ace/protocol";
 import { use, useCallback, useMemo, useSyncExternalStore } from "react";
@@ -8,7 +8,7 @@ import { unavailableAccess } from "./access-source.ts";
 import { daemonSettingsBackend } from "./daemon-backend.ts";
 import { settingKeys, type SettingDef } from "./setting-keys.ts";
 
-const backends = new WeakMap<Client, SettingsBackend>();
+const backends = new WeakMap<ClientApi, SettingsBackend>();
 type FakeAccessModule = typeof import("./access-fake.ts");
 let fakeModule: Promise<FakeAccessModule> | undefined;
 

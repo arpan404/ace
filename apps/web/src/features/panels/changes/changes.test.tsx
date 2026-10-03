@@ -134,3 +134,17 @@ test("the diff follows the thread live as a later turn edits more files", async 
   await act(async () => script.runThrough("turn-2"));
   await within(panel).findByRole("region", { name: "apps/web/src/relay/outbox.ts" });
 });
+
+test("a collapsed file stays collapsed after looking at another tab and coming back", async () => {
+  const { panel } = await openChanges();
+  const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
+  await userEvent.click(within(replay).getByRole("button", { name: /replay\.ts/, expanded: true }));
+  await userEvent.click(within(panel).getByRole("tab", { name: /Agents/ }));
+  await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
+  const again = within(panel).getByRole("region", { name: "apps/server/src/replay.ts" });
+  expect(
+    within(again)
+      .getByRole("button", { name: /replay\.ts/ })
+      .getAttribute("aria-expanded"),
+  ).toBe("false");
+});

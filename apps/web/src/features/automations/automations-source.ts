@@ -3,7 +3,7 @@
 // tests) serves them from memory with the approved design's content; a real daemon gets an
 // empty list and writes that report the service unavailable. Components depend only on
 // `AutomationsSource`; wiring the daemon replaces `useAutomationsSource` here and nothing else.
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { UnavailableError } from "@/boot/fake-backend.ts";
@@ -157,7 +157,7 @@ const timer = {
 };
 
 // One source per daemon client, so each connection (and each test) starts from the seed.
-const sources = new WeakMap<Client, AutomationsSource>();
+const sources = new WeakMap<ClientApi, AutomationsSource>();
 
 export function useAutomationsSource(): AutomationsSource {
   const client = useClient();

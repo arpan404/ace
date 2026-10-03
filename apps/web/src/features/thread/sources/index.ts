@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { useDaemonConnection } from "@/boot/connection.tsx";
 import { daemonCommandSource, type CommandSource } from "./command-source.ts";
@@ -20,7 +20,7 @@ export interface ThreadSources {
   actions: ThreadActionsSource;
 }
 
-function createSources(client: Client, fake: boolean): ThreadSources {
+function createSources(client: ClientApi, fake: boolean): ThreadSources {
   return {
     // TODO(client-gaps): feat/client-protocol-gaps routes workspace and organization commands.
     workspace: fake ? fakeWorkspaceSource() : unavailableWorkspaceSource(),
@@ -31,7 +31,7 @@ function createSources(client: Client, fake: boolean): ThreadSources {
 }
 
 // One set per client, so each connection (and each test's client) gets its own state.
-const perClient = new WeakMap<Client, ThreadSources>();
+const perClient = new WeakMap<ClientApi, ThreadSources>();
 
 export function useThreadSources(): ThreadSources {
   const client = useClient();

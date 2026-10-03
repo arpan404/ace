@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ConnectionScreen } from "@/features/connect/index.ts";
@@ -19,11 +19,11 @@ import {
 export function ConnectionGate(props: {
   stores: ConnectionStores;
   defaultUrl: string;
-  createClient(target: DaemonTarget): Client;
+  createClient(target: DaemonTarget): ClientApi;
   /** `location.hash` at boot, for the daemon's `#token=` hand-off. */
   fragment?: string;
   onFragmentRead?(): void;
-  children(client: Client): ReactNode;
+  children(client: ClientApi): ReactNode;
 }) {
   const { stores, defaultUrl, createClient, fragment, onFragmentRead } = props;
   const [state, setState] = useState(() => {
@@ -38,17 +38,17 @@ export function ConnectionGate(props: {
 
   // Each client gets a fresh app tree (router, caches) keyed by its generation.
   const generation = useRef(0);
-  const [client, setClient] = useState<{ client: Client; key: number } | undefined>(undefined);
+  const [client, setClient] = useState<{ client: ClientApi; key: number } | undefined>(undefined);
   useEffect(() => {
     // The client is an external resource with a start/close lifecycle. Creating it here (not
     // in render) keeps StrictMode's mount-unmount-mount from starting a closed client.
     if (!state.target) {
-      // oxlint-disable-next-line react/set-state-in-effect
+      // oxlint-disable-next-line react-compiler/set-state-in-effect
       setClient(undefined);
       return;
     }
     const next = createClient(state.target);
-    // oxlint-disable-next-line react/set-state-in-effect
+    // oxlint-disable-next-line react-compiler/set-state-in-effect
     setClient({ client: next, key: ++generation.current });
     void next.start().catch(() => {
       /* The client reports a fatal state; the shell shows it. */

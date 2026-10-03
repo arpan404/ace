@@ -8,11 +8,12 @@ import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Select } from "@/components/ui/select.tsx";
 import { usePanelServices } from "../services.ts";
 import { useLocal } from "../store.ts";
-import { countChanges, fileDiffs } from "@ace/ui-core";
+import { countChanges, type FileDiff } from "@ace/ui-core";
 import { DiffStat } from "./diff-stat.tsx";
 import { discardDraft, draftKey, saveDraft, sendDrafts, type ReviewDraft } from "./drafts.ts";
 import { FileDiffBlock, type LineTarget } from "./file-diff.tsx";
 import { CommentComposer, DraftCard } from "./line-comment.tsx";
+import { useFileDiffs } from "./use-file-diffs.ts";
 import { useTurns } from "./use-turns.ts";
 
 const all = "all";
@@ -41,10 +42,11 @@ export function ChangesTab(props: { threadId: string }) {
   // Default to the latest turn that edited something; "All turns" shows the whole thread.
   const current =
     picked === all ? undefined : (edited.find((turn) => turn.id === picked) ?? edited.at(-1));
-  const files = useMemo(
-    () => fileDiffs(current ? current.edits : edited.flatMap((turn) => turn.edits)),
+  const shown = useMemo(
+    () => (current ? current.edits : edited.flatMap((turn) => turn.edits)),
     [current, edited],
   );
+  const { files, pending } = useFileDiffs(shown);
   const stat = countChanges(files.flatMap((file) => file.rows));
   const unsent = drafts.filter((draft) => draft.state === "draft" || draft.state === "failed");
 
@@ -104,6 +106,11 @@ export function ChangesTab(props: { threadId: string }) {
         />
       </div>
       {files.length > 1 && <FileList files={files} anchor={anchor} />}
+      {pending > 0 && (
+        <p role="status" className="px-3.5 py-2 text-xs text-subtle-foreground">
+          Preparing {pending === 1 ? "1 file" : `${pending} files`}…
+        </p>
+      )}
       {files.map((file, index) => {
         const forFile = drafts.filter((draft) => draft.file === file.path);
         const find = (target: LineTarget) =>
@@ -167,7 +174,7 @@ export function ChangesTab(props: { threadId: string }) {
 const identity = <T,>(value: T) => value;
 const textOf = (draft: ReviewDraft | undefined) => (draft ? { initial: draft.text } : {});
 
-function FileList(props: { files: ReturnType<typeof fileDiffs>; anchor: string }) {
+function FileList(props: { files: readonly FileDiff[]; anchor: string }) {
   return (
     <nav aria-label="Changed files" className="border-b px-1.5 py-1.5">
       <ul>

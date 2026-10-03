@@ -63,18 +63,21 @@ export function turnsEqual(a: readonly Turn[], b: readonly Turn[]): boolean {
 
 export interface FileDiff {
   path: string;
-  movedFrom?: string;
+  movedFrom?: string | undefined;
   status: "added" | "modified" | "deleted" | "moved";
   rows: DiffRow[];
   additions: number;
   deletions: number;
 }
 
-/**
- * One diff per path, in first-touched order. Successive full-text edits of a file compose
- * into one before/after diff; provider patches are shown hunk by hunk.
- */
-export function fileDiffs(items: readonly ToolItem[]): FileDiff[] {
+/** The changes one path received, in order, keyed for caching its diff. */
+export interface FileChanges {
+  path: string;
+  changes: readonly FileChange[];
+}
+
+/** File changes grouped by path, in first-touched order. Cheap: no diffing. */
+export function groupFileChanges(items: readonly ToolItem[]): FileChanges[] {
   const byPath = new Map<string, FileChange[]>();
   for (const item of items)
     for (const change of changesOf(item)) {
@@ -83,24 +86,57 @@ export function fileDiffs(items: readonly ToolItem[]): FileDiff[] {
       list.push(change);
       byPath.set(path, list);
     }
-  return [...byPath].map(([path, changes]) => {
-    const first = changes[0];
-    const last = changes.at(-1);
-    const rows = rowsFor(changes);
-    const status =
-      first?.kind === "add"
-        ? "added"
-        : last?.kind === "delete"
-          ? "deleted"
-          : changes.some((change) => change.kind === "move")
-            ? "moved"
-            : "modified";
-    const { additions, deletions } = countChanges(rows);
-    const diff: FileDiff = { path, status, rows, additions, deletions };
-    const moved = changes.find((change) => change.kind === "move");
-    if (moved) diff.movedFrom = moved.path;
-    return diff;
-  });
+  return [...byPath].map(([path, changes]) => ({ path, changes }));
+}
+
+/**
+ * The cache key of a file's diff: the content of every change (like old and new blob ids) plus
+ * the diff options. Equal keys give equal diffs, so a diff is computed once per content.
+ */
+export function fileDiffKey(file: FileChanges, hash: (text: string) => string): string {
+  const parts = [`v1|ctx3|${file.path}`];
+  for (const change of file.changes)
+    parts.push(
+      [
+        change.kind,
+        change.path,
+        change.movePath ?? "",
+        change.oldText === undefined || change.oldText === null ? "-" : hash(change.oldText),
+        change.newText === undefined ? "-" : hash(change.newText),
+        change.diff === undefined ? "-" : hash(change.diff),
+      ].join(":"),
+    );
+  return hash(parts.join("|"));
+}
+
+/**
+ * One file's diff. Successive full-text edits compose into one before/after diff; provider
+ * patches are shown hunk by hunk. Linear to quadratic in the file's size: run it off the main
+ * thread (the web app's diff worker).
+ */
+export function diffFile(file: FileChanges): FileDiff {
+  const { path, changes } = file;
+  const first = changes[0];
+  const last = changes.at(-1);
+  const rows = rowsFor(changes);
+  const status =
+    first?.kind === "add"
+      ? "added"
+      : last?.kind === "delete"
+        ? "deleted"
+        : changes.some((change) => change.kind === "move")
+          ? "moved"
+          : "modified";
+  const { additions, deletions } = countChanges(rows);
+  const diff: FileDiff = { path, status, rows, additions, deletions };
+  const moved = changes.find((change) => change.kind === "move");
+  if (moved) diff.movedFrom = moved.path;
+  return diff;
+}
+
+/** One diff per path, in first-touched order (groupFileChanges, then diffFile). */
+export function fileDiffs(items: readonly ToolItem[]): FileDiff[] {
+  return groupFileChanges(items).map(diffFile);
 }
 
 function rowsFor(changes: readonly FileChange[]): DiffRow[] {

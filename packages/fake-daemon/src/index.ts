@@ -1,6 +1,8 @@
 export { FakeDaemon } from "./daemon.ts";
 export type { FakeDaemonOptions, ThreadInit } from "./daemon.ts";
 export { fakeTransport } from "./transport.ts";
+export { SoakDaemon } from "./soak.ts";
+export type { SoakOptions } from "./soak.ts";
 export { ScenarioPlayer } from "./scenario.ts";
 export type { Scenario, Step, Timer } from "./scenario.ts";
 export { flakyCheckout } from "./scenarios/flaky-checkout.ts";

@@ -1,6 +1,6 @@
 // Slash commands from the daemon's command library (`commands.list`): the provider CLI's own
 // commands, the project's prompt files and ace's built-ins, for the thread's provider.
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import { ThreadId, type PaletteCommand } from "@ace/protocol";
 import type { ThreadRef } from "./workspace-source.ts";
 
@@ -32,7 +32,7 @@ export function matchCommands(list: readonly SlashCommand[], query: string): Sla
   return [...prefix, ...inner];
 }
 
-export function daemonCommandSource(client: Client): CommandSource {
+export function daemonCommandSource(client: ClientApi): CommandSource {
   return {
     async commands(thread, signal) {
       // TODO(client-gaps): feat/client-protocol-gaps. A thread that doesn't exist yet (New

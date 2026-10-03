@@ -6,8 +6,8 @@
 export interface DiffLine {
   kind: "context" | "add" | "del";
   /** Line numbers on the old and new side; absent on the side the line does not exist. */
-  old?: number;
-  new?: number;
+  old?: number | undefined;
+  new?: number | undefined;
   text: string;
 }
 export type DiffRow =
@@ -17,7 +17,7 @@ export type DiffRow =
       /** Unchanged lines hidden here; null when the size is unknown (end of a patch). */
       count: number | null;
       /** The hidden lines, when known, so the fold can expand. */
-      lines?: DiffLine[];
+      lines?: DiffLine[] | undefined;
     };
 
 const contextLines = 3;

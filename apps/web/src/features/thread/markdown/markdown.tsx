@@ -1,7 +1,9 @@
 // oxlint-disable react/no-array-index-key -- lexer tokens have no identity; position is it.
-import { Lexer, type MarkedToken, type Token } from "marked";
-import { memo, useMemo, type ReactNode } from "react";
+import type { MarkedToken, Token } from "marked";
+import { memo, type ReactNode } from "react";
+import type { MarkdownBlock } from "./blocks.ts";
 import { CodeBlock } from "./code-block.tsx";
+import { useMarkdown } from "./use-markdown.ts";
 
 /*
  * Agent prose rendered from marked's lexer tokens into React elements. No HTML string is ever
@@ -118,7 +120,7 @@ const headingClass = [
   "mt-4 mb-1.5 text-[1em] font-semibold",
 ];
 
-function Block(props: { token: Token }): ReactNode {
+function Block(props: { token: Token; code?: MarkdownBlock["code"] }): ReactNode {
   const token = props.token;
   if (!isKnown(token)) return <p>{token.raw}</p>;
   switch (token.type) {
@@ -136,7 +138,13 @@ function Block(props: { token: Token }): ReactNode {
       );
     }
     case "code":
-      return <CodeBlock code={token.text} lang={token.lang} />;
+      return (
+        <CodeBlock
+          code={token.text}
+          lang={token.lang}
+          {...(props.code ? { tokens: props.code } : {})}
+        />
+      );
     case "blockquote":
       return (
         <blockquote className="my-3 border-l-2 pl-3 text-muted-foreground">
@@ -222,16 +230,25 @@ function Blocks(props: { tokens: readonly Token[] }) {
   return props.tokens.map((token, index) => <Block key={index} token={token} />);
 }
 
-function lex(text: string): readonly Token[] {
-  return Lexer.lex(text, { gfm: true, breaks: false });
-}
+/** One top-level block. Its object is shared while its source is unchanged, so it skips. */
+const TopBlock = memo(function TopBlock(props: { block: MarkdownBlock }) {
+  return (
+    <Block token={props.block.token} {...(props.block.code ? { code: props.block.code } : {})} />
+  );
+});
 
-/** Transcript prose (15.5/1.6). Streaming text re-lexes only the message it belongs to. */
+/**
+ * Transcript prose (15.5/1.6), lexed and highlighted in the markdown worker. A streaming
+ * message re-renders only its last block; until its first document is ready it shows as text.
+ */
 export const Markdown = memo(function Markdown(props: { text: string; className?: string }) {
-  const tokens = useMemo(() => lex(props.text), [props.text]);
+  const doc = useMarkdown(props.text);
+  if (!doc) return <p className={`whitespace-pre-wrap ${props.className ?? ""}`}>{props.text}</p>;
   return (
     <div className={props.className}>
-      <Blocks tokens={tokens} />
+      {doc.blocks.map((block) => (
+        <TopBlock key={block.key} block={block} />
+      ))}
     </div>
   );
 });

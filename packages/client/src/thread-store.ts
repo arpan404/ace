@@ -3,49 +3,16 @@ import { pageWindow } from "./page-window.ts";
 import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
 import { applyDelivery, usageSnapshotKey } from "@ace/projection";
-import type { ThreadView, EventBatch, Progress, Item, ItemsPage } from "@ace/protocol";
-import { Notifications, type Selection } from "./observable.ts";
+import type { ThreadView, EventBatch, Progress, ItemsPage } from "@ace/protocol";
+import type { Mirrorable, ThreadExport, ThreadSource } from "./api.ts";
+import type { ThreadKey, ThreadReader } from "./readers.ts";
+import { Notifications, type ChangeTap, type Selection } from "./observable.ts";
 import { ClientError, type Limits } from "./types.ts";
 
-export type ThreadKey =
-  | "error"
-  | "thread"
-  | "order"
-  | "cursor"
-  | "history"
-  | "agents"
-  | "interactions"
-  | "tasks"
-  | `item:${string}`
-  | `agent:${string}`
-  | `run:${string}`
-  | `interaction:${string}`
-  | `task:${string}`
-  | `usage:${string}`
-  | `usageSnapshot:${string}`;
-export interface ThreadReader {
-  readonly error: ClientError | undefined;
-  readonly thread: ThreadView["thread"] | undefined;
-  readonly order: readonly string[];
-  readonly cursor: number | undefined;
-  readonly itemsBefore: number | null | undefined;
-  /** Fresh membership lists: select with the "agents", "interactions" or "tasks" key and
-   * an array equality, because each call returns a new array. */
-  agentIds(): readonly string[];
-  children(agentId: string): readonly string[];
-  interactionIds(): readonly string[];
-  taskIds(): readonly string[];
-  item(id: string): Item | undefined;
-  agent(id: string): ThreadView["agents"][string] | undefined;
-  run(id: string): ThreadView["runs"][string] | undefined;
-  interaction(id: string): ThreadView["interactions"][string] | undefined;
-  task(id: string): ThreadView["backgroundTasks"][string] | undefined;
-  usage(id: string): ThreadView["usage"][string] | undefined;
-  usageSnapshot(key: string): ThreadView["usageSnapshots"][string] | undefined;
-  truncated(id: string): boolean;
-}
+export type { ThreadKey, ThreadReader } from "./readers.ts";
+
 const emptyOrder: readonly string[] = [];
-export class ThreadStore implements ThreadReader {
+export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   private messageDeltas = new MessageDeltas();
   private journal: PageJournal;
   private hydrated = new Map<string, number>();
@@ -127,7 +94,35 @@ export class ThreadStore implements ThreadReader {
   ): Selection<T> {
     return this.notifications.select(keys, () => selector(this), equal);
   }
+  observe(tap: ChangeTap): () => void {
+    return this.notifications.tap(tap);
+  }
+  /** Shares the store's own objects; a structured clone (postMessage) copies them. */
+  export(): ThreadExport {
+    const failure = this.failure;
+    const view = this.view;
+    return {
+      error: failure && { code: failure.code, message: failure.message },
+      view: view && {
+        seq: view.seq,
+        thread: view.thread,
+        agents: view.agents,
+        agentChildren: view.agentChildren,
+        runs: view.runs,
+        items: view.items,
+        itemOrder: view.itemOrder,
+        itemsBefore: view.itemsBefore,
+        interactions: view.interactions,
+        backgroundTasks: view.backgroundTasks,
+        usage: view.usage,
+        usageSnapshots: view.usageSnapshots,
+      },
+      truncated: [...this.clipped],
+    };
+  }
   snapshot(view: ThreadView): void {
+    const runs = Object.keys(view.runs).length;
+    if (runs > this.limits.entities) endedRuns(view, runs - this.limits.entities);
     if (view.itemOrder.length > 200 || Object.keys(view.items).length > 200)
       throw new ClientError("limit", "Snapshot item capacity exceeded");
     if (Object.keys(view.itemSeqs ?? {}).length > 200)
@@ -174,9 +169,11 @@ export class ThreadStore implements ThreadReader {
     // Entities are individually bounded. No full view or history copy on deltas.
     if (value !== undefined) record[id] = { ...value };
   }
-  private capacity(name: string, exists: boolean): void {
+  private capacity(name: string, exists: boolean, keys?: Set<ThreadKey>): void {
     if (exists) return;
-    const count = (this.counts.get(name) ?? 0) + 1;
+    let count = (this.counts.get(name) ?? 0) + 1;
+    if (count > this.limits.entities && name === "runs" && this.view)
+      count -= endedRuns(this.view, Math.ceil(this.limits.entities / 4), keys);
     if (count > this.limits.entities) throw new ClientError("limit", "Entity capacity exceeded");
     this.counts.set(name, count);
   }
@@ -240,7 +237,7 @@ export class ThreadStore implements ThreadReader {
           if (p.type === "agent.updated" && p.parentId !== undefined) keys.add("agents");
           break;
         case "run.started":
-          if (!keys.has(`run:${p.run.id}`)) this.capacity("runs", !!this.run(p.run.id));
+          if (!keys.has(`run:${p.run.id}`)) this.capacity("runs", !!this.run(p.run.id), keys);
           keys.add(`run:${p.run.id}`);
           break;
         case "run.ended":
@@ -405,4 +402,26 @@ export class ThreadStore implements ThreadReader {
     const item = this.item(id);
     if (item && clipItem(item, this.limits)) this.clipped.add(id);
   }
+}
+
+/**
+ * Drop up to `count` of the oldest ended runs that no loaded item belongs to, so a thread with
+ * more turns than the entity limit keeps working for as long as it runs. Active runs and the
+ * runs of loaded items stay: status and turn grouping never depend on an evicted run.
+ */
+function endedRuns(view: ThreadView, count: number, keys?: Set<ThreadKey>): number {
+  const referenced = new Set<string>();
+  for (const id of view.itemOrder) {
+    const runId = Object.hasOwn(view.items, id) ? view.items[id]?.runId : undefined;
+    if (runId) referenced.add(runId);
+  }
+  let freed = 0;
+  for (const [id, run] of Object.entries(view.runs)) {
+    if (freed >= count) break;
+    if (run.state === "active" || referenced.has(id)) continue;
+    delete view.runs[id];
+    keys?.add(`run:${id}`);
+    freed++;
+  }
+  return freed;
 }

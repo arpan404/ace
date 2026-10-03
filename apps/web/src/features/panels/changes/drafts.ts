@@ -1,4 +1,4 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
 import type { CommandPayload, ReviewData, ThreadId, WorkspaceId } from "@ace/protocol";
 import type { LocalStore } from "../store.ts";
 
@@ -34,7 +34,7 @@ export function discardDraft(store: LocalStore<readonly ReviewDraft[]>, key: str
   store.set((drafts) => drafts.filter((draft) => draft.key !== key));
 }
 
-async function review(client: Client, payload: CommandPayload): Promise<ReviewData> {
+async function review(client: ClientApi, payload: CommandPayload): Promise<ReviewData> {
   const result = await client.command(payload);
   if (!result.ok) throw new Error(result.error ?? "The daemon refused the review command");
   return result.review ?? {};
@@ -45,7 +45,7 @@ async function review(client: Client, payload: CommandPayload): Promise<ReviewDa
  * each comment on its line, then ask the daemon to deliver them to the thread's agent.
  */
 export async function sendDrafts(
-  client: Client,
+  client: ClientApi,
   store: LocalStore<readonly ReviewDraft[]>,
   thread: { id: ThreadId; workspaceId: WorkspaceId },
   keys: readonly string[],

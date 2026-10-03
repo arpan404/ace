@@ -1,12 +1,11 @@
 import type { Transport } from "@ace/client";
-import type { Connection } from "./connection.ts";
-import type { FakeDaemon } from "./daemon.ts";
+import type { Connection, Wire } from "./connection.ts";
 
 /**
  * `@ace/client` transport backed by a FakeDaemon. Every hop is a microtask, so neither side
  * re-enters the other synchronously, matching socket ordering without real I/O.
  */
-export function fakeTransport(daemon: FakeDaemon): Transport {
+export function fakeTransport(daemon: { connect(wire: Wire): Connection }): Transport {
   let connection: Connection | undefined;
   let detach: (() => void) | undefined;
   return {

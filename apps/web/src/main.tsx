@@ -1,4 +1,5 @@
-import type { Client } from "@ace/client";
+import type { ClientApi } from "@ace/client";
+import { frameBatch } from "@ace/client-react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, AppFrame } from "./app.tsx";
@@ -12,13 +13,21 @@ const environment = {
   matchMedia: (query: string) => matchMedia(query),
   root: document.documentElement,
 };
-const app = (client: Client) => <App client={client} storage={localStorage} />;
+// Store changes reach React once per animation frame (none while the tab is hidden).
+const batch = frameBatch((flush) => requestAnimationFrame(flush));
+const app = (client: ClientApi) => <App client={client} storage={localStorage} batch={batch} />;
 const forgetFragment = () => history.replaceState(null, "", location.pathname + location.search);
 
 async function content() {
   // The fake daemon is only bundled in `vite --mode fake`.
   if (import.meta.env.MODE === "fake") {
     const { client } = (await import("./boot/fake.ts")).bootFake();
+    await client.start();
+    return app(client);
+  }
+  // The endless-agent load test (tools/web-perf); only bundled in `vite --mode perf`.
+  if (import.meta.env.MODE === "perf") {
+    const { client } = (await import("./boot/perf.ts")).bootPerf();
     await client.start();
     return app(client);
   }

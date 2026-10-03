@@ -15,6 +15,7 @@ import {
   ItemsPage,
   type CommandPayload,
 } from "@ace/protocol";
+import type { ClientApi, RegistryQuery } from "./api.ts";
 import { Connection } from "./connection.ts";
 import { Intents, type Intent } from "./intents.ts";
 import { Notifications, type Selection } from "./observable.ts";
@@ -29,10 +30,9 @@ import {
   type ConnectionState,
 } from "./types.ts";
 
-type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
-export type RegistryQuery = WithoutRequestId<RegistryRequest>;
+export type { RegistryQuery } from "./api.ts";
 
-export class Client {
+export class Client implements ClientApi {
   private options: ClientOptions;
   private connection: Connection;
   private requests: Requests;
@@ -260,6 +260,13 @@ export class Client {
       },
       options,
     );
+  }
+  async loadOlder(threadId: string, limit: number, options: RequestOptions = {}): Promise<void> {
+    const store = this.subscriptions.held(threadId);
+    if (!store) throw new ClientError("offline", "Thread is not leased");
+    const before = store.itemsBefore;
+    if (before === null || before === undefined) return;
+    store.page(await this.itemsPage({ threadId, before, limit }, options));
   }
   outputRead(
     payload: { streamId: string; offset: number; limit: number },

@@ -1,9 +1,9 @@
-import type { Sidebar, SidebarReader } from "@ace/client";
+import type { SidebarKey, SidebarReader } from "@ace/client";
 import { useCallback, useMemo } from "react";
 import { useSidebarStore } from "./leases.ts";
 import { arrayEqual, useSelection } from "./selection.ts";
 
-export type SidebarKey = Parameters<Sidebar["select"]>[0][number];
+export type { SidebarKey };
 
 /** Select from the shared thread list with the same key and equality rules as useThread. */
 export function useSidebar<T>(
