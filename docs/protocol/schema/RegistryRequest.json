@@ -1,0 +1,140 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "limit": {
+          "default": 50,
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "maximum": 2048,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "registry.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "registry.refresh",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "acpAgentId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runtime": {
+          "enum": [
+            "binary",
+            "npm",
+            "uv"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "registry.install-plan",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "acpAgentId",
+        "runtime"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "digest": {
+          "pattern": "^[a-f0-9]{64}$",
+          "type": "string"
+        },
+        "intentId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "registry.install-intent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "digest",
+        "intentId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "intentId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "registry.install-cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "intentId"
+      ],
+      "type": "object"
+    }
+  ]
+}

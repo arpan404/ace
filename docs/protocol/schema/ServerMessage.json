@@ -6,6 +6,9 @@
       "$ref": "https://ace.local/protocol/v1/PiControlResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/RegistryResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ContextResult.json"
     },
     {

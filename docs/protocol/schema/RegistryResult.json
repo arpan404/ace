@@ -1,0 +1,166 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "result": {
+      "anyOf": [
+        {
+          "properties": {
+            "ok": {
+              "const": false,
+              "type": "boolean"
+            },
+            "reason": {
+              "maxLength": 512,
+              "type": "string"
+            }
+          },
+          "required": [
+            "ok",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "activeInstall": {
+              "$ref": "https://ace.local/protocol/v1/RegistryInstallProgress.json"
+            },
+            "agents": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/RegistryAgent.json"
+              },
+              "maxItems": 50,
+              "type": "array"
+            },
+            "digest": {
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            },
+            "error": {
+              "enum": [
+                "refresh_failed",
+                "cache_failed"
+              ],
+              "type": "string"
+            },
+            "fetchedAt": {
+              "minimum": 0,
+              "type": "number"
+            },
+            "installations": {
+              "items": {
+                "$ref": "https://ace.local/protocol/v1/RegistryInstallation.json"
+              },
+              "maxItems": 512,
+              "type": "array"
+            },
+            "nextOffset": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "ok": {
+              "const": true,
+              "type": "boolean"
+            },
+            "refreshing": {
+              "type": "boolean"
+            },
+            "release": {
+              "maxLength": 256,
+              "type": "string"
+            },
+            "schemaVersion": {
+              "maxLength": 128,
+              "type": "string"
+            },
+            "source": {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            "stale": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ok",
+            "agents",
+            "installations",
+            "stale",
+            "refreshing",
+            "source"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "ok": {
+              "const": true,
+              "type": "boolean"
+            },
+            "plan": {
+              "$ref": "https://ace.local/protocol/v1/RegistryInstallPlan.json"
+            }
+          },
+          "required": [
+            "ok",
+            "plan"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "durability": {
+              "const": "uncertain",
+              "type": "string"
+            },
+            "installation": {
+              "$ref": "https://ace.local/protocol/v1/RegistryInstallation.json"
+            },
+            "ok": {
+              "const": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ok",
+            "installation"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "cancelled": {
+              "type": "boolean"
+            },
+            "ok": {
+              "const": true,
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "ok",
+            "cancelled"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "type": {
+      "const": "registry.result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "result"
+  ],
+  "type": "object"
+}

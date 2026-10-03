@@ -1,7 +1,6 @@
+import { findExecutable } from "./executable.ts";
+export { findExecutable, isPackageRunner } from "./executable.ts";
 import { z } from "zod";
-import { constants } from "node:fs";
-import { access, stat } from "node:fs/promises";
-import { delimiter, isAbsolute, resolve } from "node:path";
 import { probeOutput } from "../process.ts";
 import {
   parseClaudeAuth,
@@ -21,14 +20,9 @@ export {
 export type { AuthStatus } from "./parsers.ts";
 
 const ProviderSchema = z.enum(["claude", "codex", "opencode", "cursor"]);
-export type Provider = z.infer<typeof ProviderSchema>;
-export type DiscoveryResult = AuthStatus & {
-  installed: boolean;
-  path?: string;
-  version?: string;
-  loginHint: string;
-  error?: string;
-};
+export type Provider = "claude" | "codex" | "opencode" | "cursor";
+export type { DiscoveryResult } from "./types.ts";
+import type { DiscoveryResult } from "./types.ts";
 export type DiscoveryOptions = {
   overrides?: Partial<Record<Provider, string>>;
   /** Explicit environment overrides, including PATH, for resolution and probes. */
@@ -66,31 +60,6 @@ const specs = {
   Provider,
   { command: string; authArgs: string[]; parse: (text: string) => AuthStatus; loginHint: string }
 >;
-
-async function executable(path: string): Promise<boolean> {
-  try {
-    await access(path, constants.X_OK);
-    return (await stat(path)).isFile();
-  } catch {
-    return false;
-  }
-}
-
-/** Resolve directly, without a shell or a platform-specific `which` subprocess. */
-export async function findExecutable(
-  command: string,
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<string | undefined> {
-  if (isAbsolute(command) || command.includes("/") || command.includes("\\")) {
-    const path = resolve(command);
-    return (await executable(path)) ? path : undefined;
-  }
-  const candidates = (env["PATH"] ?? "")
-    .split(delimiter)
-    .map((directory) => resolve(directory, command));
-  const found = await Promise.all(candidates.map(executable));
-  return candidates.find((_, index) => found[index]);
-}
 
 function probeError(label: string, error: unknown): string {
   // Exception messages and CLI stderr can contain credentials or identities.
@@ -215,3 +184,8 @@ export async function discoverPi(
   }
   return result;
 }
+export {
+  discoverDescriptor,
+  type DiscoveryDescriptor,
+  type DescriptorOptions,
+} from "./descriptor.ts";

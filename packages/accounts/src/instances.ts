@@ -1,16 +1,20 @@
 import { opendir } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { discoverProvider, type DiscoveryOptions } from "@ace/provider-kit/discovery";
-import { ProviderInstance, type AccountProvider } from "@ace/protocol/accounts";
+import { ProviderInstance, type NativeAccountProvider } from "@ace/protocol/accounts";
 import type { z } from "zod";
 
-type Provider = z.infer<typeof AccountProvider>;
+type Provider = z.infer<typeof NativeAccountProvider>;
 export function createInstance(input: {
   id: string;
-  provider: Provider;
+  provider: ProviderInstance["provider"];
   label: string;
   homeDir: string;
 }): ProviderInstance {
+  if (input.provider === "acp")
+    throw new Error(
+      "ACP account isolation is unsupported; use createAcpInstance for the CLI default",
+    );
   const homeDir = resolve(input.homeDir);
   const env: ProviderInstance["env"] =
     input.provider === "codex"
@@ -50,6 +54,7 @@ export function instanceEnv(
   base: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
   const parsed = ProviderInstance.parse(instance);
+  if (parsed.provider === "acp") return { ...base };
   const allowed =
     parsed.provider === "codex"
       ? ["CODEX_HOME"]
@@ -81,6 +86,13 @@ export function instanceEnv(
   return { ...env, ...parsed.env };
 }
 export async function loginStatus(instance: ProviderInstance, options: DiscoveryOptions = {}) {
+  if (instance.provider === "acp")
+    return {
+      installed: false,
+      auth: "unknown" as const,
+      loginHint: "Use the selected agent’s own CLI login",
+      error: "ACP login status is unverified",
+    };
   const result = await discoverProvider(instance.provider, {
     ...options,
     env: instanceEnv(instance, options.env ?? process.env),

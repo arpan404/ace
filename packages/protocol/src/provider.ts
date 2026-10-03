@@ -1,3 +1,4 @@
+import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 
 export const ProviderKind = z.enum([
@@ -18,6 +19,7 @@ export type ProviderKind = z.infer<typeof ProviderKind>;
  */
 export const NativeRef = z.object({
   provider: ProviderKind,
+  ...AcpIdentity.partial().shape,
   nativeId: z.string().optional(),
   /** Hierarchical name when the provider has one (Codex `agent_path`, e.g. `/root/explorer`). */
   path: z.string().optional(),
