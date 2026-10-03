@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, onTestFinished } from "vitest";
@@ -60,4 +60,15 @@ it("oversized manifests are rejected without creating an executable installation
     "manifest exceeds limit",
   );
   await expect(stat(join(f.root, "data/screen-helper"))).rejects.toMatchObject({ code: "ENOENT" });
+});
+
+it("installs a helper whose manifest is kept outside its directory, as in the desktop bundle", async () => {
+  const f = await fixture();
+  // Contents/Helpers may hold only code; the desktop keeps the manifest in its resources.
+  const manifest = join(f.root, "Resources/screen-helper-manifest.json");
+  await mkdir(join(f.root, "Resources"));
+  await rename(join(f.root, "source/manifest.json"), manifest);
+  await expect(installScreenHelper(f.app, join(f.root, "data"))).rejects.toThrow();
+  const path = await installScreenHelper(f.app, join(f.root, "data"), manifest);
+  expect(await readFile(path)).toEqual(f.binary);
 });

@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserControllerLease.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "controller": {
+      "enum": [
+        "agent",
+        "human",
+        "none"
+      ],
+      "type": "string"
+    },
+    "generation": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "owner": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "generation",
+    "controller"
+  ],
+  "type": "object"
+}

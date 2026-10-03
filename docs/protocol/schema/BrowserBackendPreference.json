@@ -1,0 +1,10 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserBackendPreference.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "auto",
+    "embedded",
+    "headless"
+  ],
+  "type": "string"
+}

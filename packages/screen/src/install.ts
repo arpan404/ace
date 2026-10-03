@@ -48,14 +48,23 @@ async function verify(app: string, expected: z.infer<typeof Manifest>): Promise<
   return executable;
 }
 /** Copy only on first install. Runtime startup never rewrites a stable executable. */
-export async function installScreenHelper(source: string, dataDirectory: string): Promise<string> {
+/**
+ * `manifestPath` defaults to `manifest.json` beside the app. A host app that ships the helper
+ * in `Contents/Helpers` keeps the manifest in its own sealed resources instead, because
+ * codesign rejects non-code files in `Contents/Helpers`.
+ */
+export async function installScreenHelper(
+  source: string,
+  dataDirectory: string,
+  manifestPath?: string,
+): Promise<string> {
   const resolved = await realpath(source);
   const app = resolved.endsWith(".app") ? resolved : dirname(dirname(dirname(resolved)));
   if (!app.endsWith(".app"))
     throw new Error(
       "V2 requires an app bundle; use explicit legacy transport for a standalone v1 helper",
     );
-  const expected = await manifest(join(dirname(app), "manifest.json"));
+  const expected = await manifest(manifestPath ?? join(dirname(app), "manifest.json"));
   const root = join(dataDirectory, "screen-helper");
   const installed = join(root, "AceScreenHelper.app");
   try {

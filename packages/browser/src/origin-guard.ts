@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { CDPSession } from "playwright-core";
+import type { BrowserCdp } from "./backend.ts";
 
 const Paused = z.object({ requestId: z.string(), request: z.object({ url: z.string() }) });
 const Attached = z.object({
@@ -14,14 +14,14 @@ const Response = z.object({
   error: z.unknown().optional(),
 });
 type Send = (
-  method: Parameters<CDPSession["send"]>[0],
+  method: Parameters<BrowserCdp["send"]>[0],
   params?: Record<string, unknown>,
 ) => Promise<unknown>;
 
 /** Fetch must be enabled on out-of-process frames and dedicated workers too.
  * Nested target sessions use the public CDP Target API, not Playwright internals. */
 export async function installOriginGuard(
-  cdp: CDPSession,
+  cdp: BrowserCdp,
   allowed: (url: string) => Promise<boolean>,
 ) {
   const children = new Map<string, { send: Send; parent: Send }>();

@@ -1,4 +1,4 @@
-import type { CDPSession } from "playwright-core";
+import type { BrowserCdp } from "./backend.ts";
 import { AXTree, Bounds, CallResult, ResolvedNode, snapshotNodes } from "./cdp.ts";
 import { z } from "zod";
 
@@ -6,9 +6,13 @@ import { z } from "zod";
 export class SnapshotRefs {
   private epoch = 0;
   private refs = new Map<string, number>();
-  private cdp: CDPSession;
-  constructor(cdp: CDPSession) {
+  private cdp: BrowserCdp;
+  constructor(cdp: BrowserCdp) {
     this.cdp = cdp;
+  }
+  replace(cdp: BrowserCdp): void {
+    this.cdp = cdp;
+    this.invalidate();
   }
   invalidate(): void {
     this.epoch++;

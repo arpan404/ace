@@ -24,3 +24,6 @@ native/screen-helper/build/
 /native/screen-helper/.build/
 
 native/screen-helper-windows/target/
+
+# Isolated development data (daemon home, Electron userData)
+.ace-dev/

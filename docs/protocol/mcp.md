@@ -37,12 +37,25 @@ Example:
 ```json
 {
   "thread": {
-    "createdAt": 2,
-    "deletedAt": 3,
+    "activityAt": 8,
+    "createdAt": 4,
     "details": {
-      "ahead": 9,
+      "baseBranch": "example",
       "behind": 6,
-      "head": "7dcd30ac3182ceddef086bc0889b2d6a9ed7969c2e0629",
+      "diff": {
+        "additions": 1,
+        "deletions": 7,
+        "files": 1
+      },
+      "head": "74f77c8cd11842d833736bf9a1f26444d52bc8143491a38abe695cc3f5851cf2",
+      "linkedPr": {
+        "number": 10,
+        "state": "open"
+      },
+      "machine": {
+        "host": "example",
+        "name": "example"
+      },
       "mode": "local",
       "workspace": {
         "id": "example",
@@ -51,22 +64,30 @@ Example:
       }
     },
     "id": "example",
+    "installationId": "example",
     "lineage": {
-      "lossy": false,
+      "lossy": true,
       "mode": "portable",
       "parentAgentId": "example",
       "parentThreadId": "example",
       "point": {
-        "runId": "example",
-        "type": "turn"
+        "itemId": "example",
+        "type": "item"
       }
     },
-    "provider": "claude",
-    "readAt": 4,
-    "settledAt": 2,
-    "settledReason": "pr_closed",
+    "live": {
+      "backgroundTaskCount": 3,
+      "contextMeter": {
+        "at": 0,
+        "limit": 2,
+        "used": 3
+      }
+    },
+    "provider": "opencode",
+    "readAt": 1,
+    "rootAgentId": "example",
     "status": {
-      "state": "done"
+      "state": "failed"
     },
     "title": "example",
     "updatedAt": 3,
@@ -93,7 +114,9 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{}
+{
+  "cursor": "example"
+}
 ```
 
 ## ace_list_agents.output
@@ -110,7 +133,7 @@ Example:
 ```json
 {
   "agents": [],
-  "nextCursor": null
+  "nextCursor": "example"
 }
 ```
 
@@ -217,7 +240,7 @@ Example:
 
 ```json
 {
-  "before": 10,
+  "before": 5,
   "sourceThreadId": "example"
 }
 ```
@@ -237,7 +260,7 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 7,
+  "itemsBefore": 10,
   "threadId": "example"
 }
 ```
@@ -286,6 +309,6 @@ Example:
   "bytes": "example",
   "encoding": "utf-8",
   "eof": false,
-  "nextOffset": 7
+  "nextOffset": 8
 }
 ```

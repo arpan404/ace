@@ -1,0 +1,124 @@
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { build } from "esbuild";
+import { _electron as electron, type ElectronApplication, type Page } from "playwright-core";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  appEnvironment,
+  desktop,
+  electronBinary,
+  electronBundles,
+  repo,
+} from "../scripts/common.ts";
+
+/**
+ * Launches the real Electron app against the in-page fake daemon: main and preload as
+ * bundled for release, the renderer built in fake mode and served from `app://ace/` with the
+ * production CSP. Opt in with ACE_E2E_ELECTRON=1 (`bun run desktop:e2e`).
+ */
+const enabled = process.env.ACE_E2E_ELECTRON === "1";
+const out = join(desktop, "dist/e2e");
+let app: ElectronApplication;
+let page: Page;
+let userData: string;
+
+describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
+  beforeAll(async () => {
+    await Promise.all(electronBundles(out, process.env).map((options) => build(options)));
+    execFileSync(
+      "bun",
+      [
+        "x",
+        "vite",
+        "build",
+        "--mode",
+        "fake",
+        "--outDir",
+        join(out, "renderer"),
+        "--emptyOutDir",
+        "--logLevel",
+        "warn",
+      ],
+      { cwd: join(repo, "apps/web"), stdio: "inherit" },
+    );
+    userData = await mkdtemp(join(tmpdir(), "ace-e2e-"));
+    app = await electron.launch({
+      executablePath: await electronBinary(),
+      args: [join(out, "main.cjs")],
+      env: {
+        ...appEnvironment(process.env),
+        ACE_DESKTOP_DAEMON: "fake",
+        ACE_DESKTOP_USER_DATA: userData,
+        ACE_DESKTOP_RENDERER_URL: "",
+      },
+    });
+    page = await app.firstWindow();
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    if (userData) await rm(userData, { recursive: true, force: true });
+  });
+
+  it("renders the app shell from the bundled renderer", async () => {
+    await page.getByRole("navigation", { name: "Views" }).waitFor({ timeout: 30_000 });
+    expect(new URL(page.url()).protocol).toBe("app:");
+    await expect(page.getByRole("heading", { level: 1 }).first().isVisible()).resolves.toBe(true);
+  });
+
+  it("exposes a working window.ace bridge and no Node APIs", async () => {
+    const result = await page.evaluate(async () => {
+      const bridge = (
+        globalThis as unknown as { ace: import("../src/preload/bridge.ts").AceBridge }
+      ).ace;
+      const connection = await bridge.daemon.connection();
+      const settings = await bridge.settings.get();
+      const updated = await bridge.settings.update({ attention: false });
+      const refused = await bridge.shell.openExternal("file:///etc/passwd").then(
+        () => "sent",
+        (error: unknown) => (error instanceof Error ? error.message : "error"),
+      );
+      return {
+        version: bridge.version,
+        platform: bridge.platform,
+        connection,
+        background: settings.background,
+        attention: updated.attention,
+        refused,
+        node: typeof (globalThis as { require?: unknown }).require,
+        process: typeof (globalThis as { process?: unknown }).process,
+      };
+    });
+    expect(result).toMatchObject({
+      platform: process.platform,
+      connection: { mode: "fake" },
+      background: true,
+      attention: false,
+      refused: expect.stringContaining("Invalid shell.openExternal request"),
+      node: "undefined",
+      process: "undefined",
+    });
+    expect(result.version).toBe(
+      JSON.parse(readFileSync(join(desktop, "package.json"), "utf8")).version,
+    );
+  });
+
+  it("follows an ace:// deep link to the right screen", async () => {
+    await app.evaluate(({ app: electronApp }) => {
+      electronApp.emit("open-url", { preventDefault() {} }, "ace://settings/appearance");
+    });
+    await page.waitForURL(/\/settings\/appearance$/, { timeout: 15_000 });
+  });
+
+  it("keeps navigation inside the app", async () => {
+    const before = page.url();
+    await page.evaluate(() => {
+      location.href = "https://example.com/";
+    });
+    await page.waitForTimeout(500);
+    expect(page.url()).toBe(before);
+  });
+});

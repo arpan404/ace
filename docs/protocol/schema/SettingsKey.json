@@ -15,6 +15,8 @@
     "providers.planner.model",
     "providers.planner.tier",
     "providers.planner.reasoningEffort",
+    "browser.backend",
+    "browser.backendLoss",
     "approvals.policy",
     "notifications.enabled",
     "notifications.sound",

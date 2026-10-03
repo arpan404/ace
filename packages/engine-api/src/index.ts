@@ -60,6 +60,8 @@ export interface SessionContext {
   cwd: string;
   /** Instance-specific environment; adapters must pass it to every owned provider process. */
   env?: NodeJS.ProcessEnv;
+  /** Daemon-issued loopback MCP connection, valid only for this session lifetime. */
+  aceMcp?: { url: string; bearer: string };
   /** Persist this assignment with the native session ID; resume must reuse the same instance. */
   instanceId?: string;
   model?: string;
