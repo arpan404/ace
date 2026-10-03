@@ -1,10 +1,10 @@
-# 0060: Permission modes with auto-review by default
+# 0061: Permission modes with auto-review by default
 
 Date: 2026-10-03. Status: accepted for implementation.
 
 ## Number allocation
 
-Checked origin/main and open PRs #82 and #83 before writing this record. Main ends at 0057, has two records numbered 0056, and the open PRs reserve 0058 and 0059. This record uses 0060. Renumbering existing records belongs to a separate change.
+Checked origin/main and open PRs #82 and #83 before writing this record. Main ends at 0057 and has two records numbered 0056. PR #82 reserves 0058 and 0059; PR #83 now reserves 0060. This record moves from 0060 to the next free number, 0061. Renumbering existing records belongs to a separate change.
 
 ## Decision
 
@@ -22,16 +22,24 @@ Keep approvals.policy as a deprecated wire key. Explicit stored ask maps to ask,
 
 ## Provider enforcement
 
-Capabilities advertise supported ace modes, nativeAutoReview and whether native approval requests can be routed to ace. Missing declarations fail closed for real adapters. Test providers must explicitly declare their gate.
+Owner decision on PR #84: every provider launches in auto-review using its best available native guard. Incomplete coverage is explicit; it does not cause an ace launch refusal or a full-access fallback. Installed/version compatibility checks still apply.
 
-- Codex app-server exposes on-request approval routing plus read-only/workspace-write sandbox and native approvalsReviewer auto_review. Current [official security guidance](https://learn.chatgpt.com/docs/agent-approvals-security) retires untrusted despite its continued presence in the generated 0.159.1 wire enum. Native auto-review evaluates only approval-triggering actions; sandbox-permitted reads have no comprehensive protected-file gate or canonical audit. Do not claim restricted ace modes until a verified permissions profile and complete tool gate exist. Capability metadata exposes nativeAutoReview and the approval callback, but ace read-only/ask/auto-review fail closed before launching. Explicit full access uses danger-full-access, never and user reviewer routing. Legacy non-engine callers without an ace mode get read-only/on-request rather than implicit full access. Exact native approval commands/cwd remain translated for the future gate.
-- Claude Agent SDK exposes default, plan, auto and bypassPermissions. Native auto can precede canUseTool and cannot supply ace's audit contract. Restricted ace modes use default, empty ambient setting sources, and a PreToolUse hook that routes every tool through the existing permission callback, including native children. Read-only denies mutation requests. Full access explicitly selects bypassPermissions. Provider option permissionMode is rejected as an independent grant.
-- OpenCode v2 uses session permission rules: ask for all tools under ask/auto-review, ask for all tools under read-only with ace denying mutations, and allow for full access. Rules are supplied on create and reapplied on resume. No native auto-review is claimed. Its permission requests carry exact tool metadata; incomplete pattern-only requests escalate.
-- Cursor SDK provides autoReview with enabled sandbox under restricted policy, requires verified classifier availability and disables ambient setting sources and hidden retries. The pinned SDK has no host approval callback or complete native-decision audit stream. Capability metadata reports nativeAutoReview but does not claim ace ask, read-only or auto-review until the protected-action escalation and durable-review contract can be enforced. Default auto-review fails closed with an unsupported-mode result; explicit full access maps to disabled sandbox and autoReview false. Never downgrade automatically. The existing restricted mapping remains documented for a future complete gate.
-- Pi 0.85.1 has a native read_only option that disables extensions and selects read,grep,find,ls, but it cannot gate protected reads or workspace escapes. It therefore cannot claim ace read-only/ask/auto-review. Reject those modes before discovery or spawning. Explicit full access maps to unrestricted tools. Preserve the separate native PiProfile read_only declaration for existing direct callers; no ace restricted mode or native auto-review is claimed.
-- ACP request_permission permits reviewing requests that the agent chooses to send, but ACP does not guarantee coverage of all tools or a standard sandbox/mode selector. Generic ACP cannot claim restricted ace modes from a provider name or a selector named plan. Explicit full access retains provider execution. A future reviewed compatibility profile may declare comprehensive gating; until then auto-review is unsupported, never silently unrestricted.
+Capabilities expose supported modes, nativeAutoReview, toolGate and an additive auto-review guarantee. A guarantee has a level, gates for writes/network/protectedReads/shell, and limitations. A true gate means the provider constrains that action class through sandboxing, tool exclusion or a pre-execution approval gate. It does not mean every action receives an ace review. False means ace cannot promise coverage. toolGate means surfaced approval requests can be answered, not that the provider surfaces every action. Missing guarantee metadata is unknown to clients, never full protection.
 
-These limitations are intentional: a native label is insufficient proof that an ace mode is enforceable. Sources: [Cursor SDK](https://cursor.com/docs/sdk/typescript), [Claude SDK permissions](https://platform.claude.com/docs/en/agent-sdk/permissions), the pinned SDK declarations, Codex generated app-server 0.159.1 schemas, OpenCode v2 SDK declarations, ADR 0050 and ADR 0044.
+| Provider | Auto-review native guard | Level | Writes / network / protected reads / shell | Audit limits |
+| --- | --- | --- | --- | --- |
+| Codex app-server | workspace-write, network disabled, on-request, approvalsReviewer user | sandbox | true / true / false / true | Workspace writes and sandbox-allowed commands can execute without approval; secret-file reads inside the workspace aren't gated. Native auto_review stays off. |
+| Cursor SDK 1.0.35 | sandbox enabled, autoReview true, isolated settings | sandbox | true / false / false / true | SandboxOptions exposes only enabled. Network and protected-read coverage are unverified. No public permission/escalation decision callback; native decisions and classifier availability cannot be audited by ace. |
+| Claude Agent SDK | default native mode, isolated settings, PreToolUse asks for every tool including children | tool-gate | true / true / true / true | Native auto is available but unused because ace owns decisions. |
+| OpenCode v2 | wildcard ask rules reapplied on resume | tool-gate | true / true / true / true | Exact targets are reviewed; permission patterns alone escalate. |
+| Pi 0.85.1 | no ambient extensions; read,grep,find,ls tools only; no MCP tools | tool-selection | true / true / false / true | Writes, shell and network tools are excluded. Native read tools can read secrets. RPC has no tool permission callback; generic extension questions remain human questions. |
+| Generic ACP | request_permission routed to ace; choose advertised read-only/plan selector when present | permission-requests | false / false / false / false | No portable tool allowlist or comprehensive gate. Selector names are best available hints, not an enforceable sandbox guarantee. Agents may perform unsurfaced actions. |
+
+Every approval request a provider surfaces enters the same ace reviewer and durable decision path. Cursor 1.0.35 and Pi 0.85.1 expose no native approval decision callback, so ace cannot synthesize decisions for their unsurfaced operations. Generic ACP without selectors still launches with client filesystem/terminal capabilities disabled and explicitly limited guarantees. Never select a native unrestricted/bypass mode as a restricted-mode fallback.
+
+Codex thread start/resume/fork and every turn explicitly set the policy. Turn workspaceWrite uses only the thread workspace as writableRoots, excludes temporary-directory write exceptions, and disables network. Network escalation requests remain uncertain human work; ace never automatically enables network. The pinned generated AskForApproval enum accepts on-request; the [official config reference](https://learn.chatgpt.com/docs/config-file/config-reference) confirms on-request is current, untrusted unsupported and on-failure deprecated. approvalsReviewer user ensures ace decides each surfaced request.
+
+Sources: pinned official SDK declarations, Codex generated app-server 0.159.1 schemas, [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server), [Claude SDK permissions](https://platform.claude.com/docs/en/agent-sdk/permissions), ADR 0050 and ADR 0044. No provider prompts or recorder sessions are used to infer coverage.
 
 ## Reviewer and audit
 
