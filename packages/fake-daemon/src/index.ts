@@ -7,4 +7,5 @@ export { flakyCheckout } from "./scenarios/flaky-checkout.ts";
 export { failingSubagent } from "./scenarios/failing-subagent.ts";
 export { longHistory } from "./scenarios/long-history.ts";
 export { workbench } from "./scenarios/workbench.ts";
+export { replayCursor } from "./scenarios/replay-cursor.ts";
 export * as facts from "./scenarios/facts.ts";

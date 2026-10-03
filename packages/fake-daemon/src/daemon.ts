@@ -20,6 +20,14 @@ import { Connection, matches, type Host, type Wire } from "./connection.ts";
 import { fakeHealth } from "./health.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
+import {
+  drainQueue,
+  interruptFacts,
+  sendFacts,
+  startTurn,
+  stopTaskFacts,
+  type ThreadCommandOutcome,
+} from "./thread-commands.ts";
 
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
@@ -85,11 +93,10 @@ export class FakeDaemon implements Host {
   apply(threadId: string, facts: readonly Fact[]): void {
     const host = this.thread(threadId);
     const now = this.options.clock();
-    this.append(
-      host,
-      facts.flatMap((fact) => host.fold(fact, now)),
-      now,
-    );
+    const payloads = facts.flatMap((fact) => host.fold(fact, now));
+    // A queued message starts the next turn as soon as the root agent is free.
+    const drained = facts.length ? drainQueue(host) : [];
+    this.append(host, [...payloads, ...drained.flatMap((fact) => host.fold(fact, now))], now);
   }
   private append(host: ThreadHost, payloads: EventPayload[], now: number): void {
     if (!payloads.length) return;
@@ -158,6 +165,18 @@ export class FakeDaemon implements Host {
     this.receipts.set(command.id, result);
     return result;
   }
+  private run(
+    commandId: Command["id"],
+    threadId: string,
+    decide: (host: ThreadHost) => ThreadCommandOutcome,
+  ): CommandResult {
+    const host = this.threads.get(threadId);
+    if (!host) return { commandId, ok: false, error: "thread_not_found" };
+    const outcome = decide(host);
+    if (!outcome.ok) return { commandId, ok: false, error: outcome.error };
+    this.apply(threadId, outcome.facts);
+    return { commandId, ok: true };
+  }
   private execute(command: Command): CommandResult {
     const payload = command.payload;
     const commandId = command.id;
@@ -183,6 +202,51 @@ export class FakeDaemon implements Host {
           return { commandId, ok: true };
         }
         return { commandId, ok: false, error: "not_found" };
+      }
+      case "thread.create": {
+        const threadId = `thread-${commandId}`;
+        if (this.threads.has(threadId)) return { commandId, ok: true };
+        this.createThread({
+          id: threadId,
+          workspaceId: payload.workspaceId,
+          title: payload.title ?? "New thread",
+          provider: payload.provider,
+        });
+        const host = this.thread(threadId);
+        this.apply(threadId, [
+          {
+            type: "agent.seen",
+            agent: "root",
+            origin: "root",
+            fidelity: "full",
+            native: { provider: payload.provider, nativeId: "root" },
+            cwd: `/Users/dev/${payload.workspaceId}`,
+            ...(payload.model ? { model: payload.model } : {}),
+          },
+        ]);
+        const text = payload.input.flatMap((part) => (part.type === "text" ? [part.text] : []));
+        this.apply(threadId, startTurn(host, commandId, text.join("")));
+        return { commandId, ok: true };
+      }
+      case "thread.send":
+        return this.run(commandId, payload.threadId, (host) => sendFacts(host, commandId, payload));
+      case "thread.interrupt":
+        return this.run(commandId, payload.threadId, (host) =>
+          interruptFacts(host, payload.agentId, payload.cascade),
+        );
+      case "background_task.stop": {
+        for (const host of this.threads.values()) {
+          const outcome = stopTaskFacts(host, payload.taskId);
+          if (outcome) return this.run(commandId, host.id, () => outcome);
+        }
+        return { commandId, ok: false, error: "not_found" };
+      }
+      case "thread.archive": {
+        const host = this.threads.get(payload.threadId);
+        if (!host) return { commandId, ok: false, error: "thread_not_found" };
+        const now = this.options.clock();
+        this.append(host, [{ type: "thread.updated", archivedAt: now }], now);
+        return { commandId, ok: true };
       }
       default:
         return { commandId, ok: false, error: "unsupported_by_fake_daemon" };
