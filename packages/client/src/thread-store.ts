@@ -1,3 +1,4 @@
+import { closedInteractions, endedRuns, endedTasks } from "./eviction.ts";
 import { clipItem } from "./item-window.ts";
 import { pageWindow } from "./page-window.ts";
 import { MessageDeltas } from "./message-deltas.ts";
@@ -186,8 +187,12 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   private capacity(name: string, exists: boolean, keys?: Set<ThreadKey>): void {
     if (exists) return;
     let count = (this.counts.get(name) ?? 0) + 1;
-    if (count > this.limits.entities && name === "runs" && this.view)
-      count -= endedRuns(this.view, Math.ceil(this.limits.entities / 4), keys);
+    if (count > this.limits.entities && this.view) {
+      const batch = Math.ceil(this.limits.entities / 4);
+      if (name === "runs") count -= endedRuns(this.view, batch, keys);
+      else if (name === "interactions") count -= closedInteractions(this.view, batch, keys);
+      else if (name === "tasks") count -= endedTasks(this.view, batch, keys);
+    }
     if (count > this.limits.entities) throw new ClientError("limit", "Entity capacity exceeded");
     this.counts.set(name, count);
   }
@@ -291,16 +296,19 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           break;
         case "interaction.opened":
           if (!keys.has(`interaction:${p.interaction.id}`))
-            this.capacity("interactions", !!this.interaction(p.interaction.id));
+            this.capacity("interactions", !!this.interaction(p.interaction.id), keys);
           keys.add(`interaction:${p.interaction.id}`);
           keys.add("interactions");
           break;
         case "interaction.closed":
           this.copy(view.interactions, p.interactionId);
           keys.add(`interaction:${p.interactionId}`);
+          // `interactions` changes when one opens or closes, so lists of open requests follow
+          // one key instead of one per interaction.
+          keys.add("interactions");
           break;
         case "background_task.started":
-          if (!keys.has(`task:${p.task.id}`)) this.capacity("tasks", !!this.task(p.task.id));
+          if (!keys.has(`task:${p.task.id}`)) this.capacity("tasks", !!this.task(p.task.id), keys);
           keys.add(`task:${p.task.id}`);
           keys.add("tasks");
           break;
@@ -425,26 +433,4 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     const item = this.item(id);
     if (item && clipItem(item, this.limits)) this.clipped.add(id);
   }
-}
-
-/**
- * Drop up to `count` of the oldest ended runs that no loaded item belongs to, so a thread with
- * more turns than the entity limit keeps working for as long as it runs. Active runs and the
- * runs of loaded items stay: status and turn grouping never depend on an evicted run.
- */
-function endedRuns(view: ThreadView, count: number, keys?: Set<ThreadKey>): number {
-  const referenced = new Set<string>();
-  for (const id of view.itemOrder) {
-    const runId = Object.hasOwn(view.items, id) ? view.items[id]?.runId : undefined;
-    if (runId) referenced.add(runId);
-  }
-  let freed = 0;
-  for (const [id, run] of Object.entries(view.runs)) {
-    if (freed >= count) break;
-    if (run.state === "active" || referenced.has(id)) continue;
-    delete view.runs[id];
-    keys?.add(`run:${id}`);
-    freed++;
-  }
-  return freed;
 }

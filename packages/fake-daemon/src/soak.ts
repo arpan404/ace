@@ -52,12 +52,14 @@ export interface SoakOptions {
   deltas?: number;
   /** Items the daemon keeps for snapshots and history pages. */
   windowItems?: number;
+  /** Each exchange also asks for an approval and runs a background task, then ends both. */
+  interactive?: boolean;
 }
 
 const answer =
   "The replay window now caps at 200 events, and the resume handshake carries lastAckedSeq so the server can drop frames the client already has. ";
 
-function exchange(deltas: number): Fact[] {
+function exchange(deltas: number, interactive: boolean): Fact[] {
   const facts: Fact[] = [
     turn("root"),
     message("root", "ask", "user", "Run the relay suite again and summarise what changed."),
@@ -81,8 +83,41 @@ function exchange(deltas: number): Fact[] {
     output("root", "test", " ✓ relay/replay.test.ts (12 tests)\n"),
     output("root", "test", " ✓ relay/outbox.test.ts (4 tests)\n"),
     toolDone("root", "test"),
-    endTurn("root"),
   );
+  if (interactive)
+    facts.push(
+      tool("root", "serve", {
+        kind: "shell",
+        title: "bun run relay --watch",
+        status: "awaiting_approval",
+        detail: { kind: "shell", command: "bun run relay --watch" },
+      }),
+      {
+        type: "interaction.opened",
+        agent: "root",
+        interaction: "approve-serve",
+        blocking: true,
+        item: "serve",
+        request: {
+          kind: "approval",
+          title: "Run bun run relay --watch?",
+          options: [{ id: "allow", label: "Allow once", kind: "allow_once" }],
+        },
+      },
+      { type: "interaction.closed", interaction: "approve-serve", state: "resolved" },
+      {
+        type: "background.started",
+        agent: "root",
+        task: "relay",
+        kind: "shell",
+        title: "relay (watch)",
+        item: "serve",
+        stoppable: true,
+      },
+      { type: "background.ended", task: "relay", status: "completed" },
+      toolDone("root", "serve"),
+    );
+  facts.push(endTurn("root"));
   return facts;
 }
 
@@ -120,7 +155,9 @@ export class SoakDaemon implements Host {
       { type: "thread.created", thread },
       ...host.fold(rootAgent("claude"), now),
     ];
-    const cycle = exchange(options.deltas ?? 24).flatMap((fact) => host.fold(fact, now));
+    const cycle = exchange(options.deltas ?? 24, options.interactive ?? false).flatMap((fact) =>
+      host.fold(fact, now),
+    );
     this.template = JSON.stringify(cycle);
     // Ids core made during the exchange (items, runs, tools) are renumbered every cycle; ids
     // made during setup (the root agent) stay.
@@ -242,7 +279,9 @@ export class SoakDaemon implements Host {
         this.creation.delete(id);
       }
     }
-    const runs = Object.keys(view.runs);
-    if (runs.length > 128) for (const id of runs.slice(0, runs.length - 64)) delete view.runs[id];
+    for (const record of [view.runs, view.interactions, view.backgroundTasks]) {
+      const ids = Object.keys(record);
+      if (ids.length > 128) for (const id of ids.slice(0, ids.length - 64)) delete record[id];
+    }
   }
 }
