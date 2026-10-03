@@ -104,7 +104,7 @@ the source and exposing truncation. No opaque ACP/SDK store is copied.
 ## Bounds and verification limits
 
 Defaults: 8 live hosts, 256 MiB old space each, 1 MiB IPC frames, 2 MiB pending
-IPC/callback and retained-tool-argument bytes, 32 callbacks, 2,048 identities, 256 KiB input/body admission,
+IPC/callback and retained-tool-argument bytes, 32 callbacks, 2,048 identities, 256 KiB input admission, bounded body previews,
 8 MiB checkpoint inventory, 100 snapshot items and 30-second worker operations.
 The daemon also admits at most 32 outstanding SDK inputs per thread, with a
 256 KiB input budget before persistence. Both daemon admission limits are injectable.
@@ -112,15 +112,26 @@ Inject limits, spawner, Node entry, environment, clock and identity sources at
 public boundaries. Reuse `CursorHostSlots` across session/auth/catalog owners.
 Provider-kit owns process groups, framed ingress, byte admission and graceful
 termination. Parent pipe EOF terminates the owned POSIX group even when SDK
-cleanup hangs. Tool/unknown bodies exceeding admission fail visibly and cancel;
-admitted large raw data uses the daemon's existing ADR 0006 blob owner.
+cleanup hangs. Tool/unknown bodies stream as redacted JSON into the daemon's
+shared ADR 0006 raw storage owner, capped at 16 MiB per body. Bounded chunks await
+durable storage acknowledgements; the terminal envelope carries a blob reference
+and semantic preview. Explicitly associated shell deltas and final-only output
+use canonical output streams; opaque shell events remain evidence. Live/final
+output overlap has no shared cursor and is disclosed without appending twice.
+Larger text/thinking deltas retain full content through ordered chunks. Depth,
+node, redaction, callback and byte overflow still fence execution visibly.
 
 Checkpoint inventory gates the SDK's full-conversation load before pagination.
-Native store writes and journal appends have byte/inventory gates and visible
-failure fences; symlink ancestors are refused. A failed budget stops the host and
-retains its checkpoint. Old-space limits bound JS heap, not helper/native RSS.
-The SDK can buffer internally, and disk admission can discover growth after a
-native write. Resource limits and parent-death behavior need run at merge; they
+Native writes and journal appends share a serialized aggregate quota. Writes
+reserve conservative growth before SDK I/O, including SQLite pages/WAL and
+allocation slack; rejection leaves the prior store untouched. One startup
+inventory initializes incremental accounting, and only known changed paths are
+rechecked. Journals retain one handle and fsync each durable callback. Failed I/O
+fences further writes rather than releasing uncertain allocations. Conservative
+headroom can refuse before the raw disk ceiling, requiring explicit handoff or
+an owner-configured larger recovery budget. Unexpected SDK allocation/format
+changes remain fenced faults; the version gate protects the accounting contract.
+Old-space limits bound JS heap, not helper/native RSS. The SDK can buffer internally. Resource limits and parent-death behavior need run at merge; they
 are not measured guarantees.
 
 Behavior tests, non-gating delta/IPC/checkpoint benchmarks and synthetic process tests are

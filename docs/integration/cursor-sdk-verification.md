@@ -9,11 +9,11 @@ for static review, with runtime validation deferred to merge under owner policy.
 fixture recording, benchmark, mutation or test was executed.
 
 The owner explicitly permits only formatting, lint, typecheck and source-size
-checks before merge. Behavior tests are written for merge-time execution.
+checks before merge. Behavior tests are written for merge-time execution. CI is
+disabled by the owner; no CI run, rerun or watch was requested.
 
 Static validation: `bun run fmt`, `bun run lint`, `bun run typecheck` and
-`bun run check:size` passed (2,168 tracked sources within the hard limit). These
-do not establish runtime correctness.
+`bun run check:size` passed, with 2,186 sources within the 1,500-line limit. These do not establish runtime correctness.
 
 ## Written behavior tests — needs run at merge
 
@@ -55,6 +55,19 @@ Additional continuation behavior guards (all need run at merge):
 - Oversized native checkpoint writes visibly fence further writes while retaining the previous checkpoint.
 - Late failed tools settle their original call and surviving-work marker without splitting replacement text or ending the logical steering run; authoritative success clears execution uncertainty.
 - An old segment's callback/checkpoint overflow fences the shared host instead of letting replacement execution continue.
+
+Review-round behavior guards, all need run at merge:
+
+- Foreground child success closes child text and preserves an unresolved nested shell before core end-turn cleanup; the tree remains waiting.
+- Aggregate checkpoint admission rejects a one-MiB write into a 7.9-MiB store without changing the previous checkpoint bytes.
+- Concurrent reservations admit only the write that fits, and a rejected SQLite replacement preserves the checkpoint through close/reopen.
+- CLI creation of a fresh SDK account receives the daemon browser challenge, polls completion and keeps the registered home, without persisting the challenge.
+- Recovery reads its committed ObserveRun cursor and emits only the later native event, even when subsequent Send callbacks have larger boundary offsets.
+- Live shell output is visible before completion; final stdout overlap is not appended twice, and nonzero exit stays failed.
+- The public SDK host admits a megabyte tool result through bounded frames; the engine stores complete output and raw provenance in SQLite chunks and rejects cross-thread chunk access.
+- Large text deltas retain complete content through ordered chunks; raw redaction excludes cross-chunk sentinel secrets and numeric secret fields while preserving usage counters and refusing getters.
+- A real synthetic host waits for the engine's durable frame acknowledgement before completing send.
+- Typed client auth errors stay outside the durable command outbox.
 
 Existing engine restart tests cover committed input, acknowledged/pending intents
 and uncertain delivery without automatic resend. Parent-death, slow-consumer,
@@ -118,6 +131,22 @@ live SDK evidence at merge; static review is not runtime proof.
 
 47. Leave a surviving tool uncertain after authoritative completion: late-success whole-tree settlement and late-failure marker assertions.
 
+48. Remove recovery's committed observe lookup: only the second native event may be emitted by actual recovery.
+49. End a foreground child before preserving its shell: running shell, completed child text and waiting-tree assertions.
+50. Commit aggregate overshoot before admission: unchanged JSONL bytes and preserved SQLite checkpoint after reopening.
+51. Allow concurrent checkpoint admission against one stale inventory: only the first write may commit.
+52. Restore the CLI's always-throwing login fence: public account-add browser challenge and completion assertions.
+53. Bypass SDK body streaming or terminate on a normal megabyte result: public host and engine output/raw completeness assertions.
+54. Duplicate final stdout after live output: exactly one incremental output stream assertion before and after terminal success.
+55. Remove storage acknowledgement waiting: a real synthetic host's send must remain pending before the commit barrier.
+56. Leak numeric or cross-chunk secrets, or execute payload getters: raw reconstruction, sentinel exclusion and untouched getter assertions.
+57. Render a large text preview as fresh content: one complete assistant message must contain every original chunk.
+58. Append raw bytes to another thread: cross-thread storage refusal.
+
+59. Keep a partial call's unknown kind after shell identity arrives: visible live shell output assertion.
+
+60. Treat an empty environment override as authenticated or silently fall back to the SDK store: logged-out environment-source assertion and host admission fence.
+
 These are designed mutation cases, not evidence that executed mutations were killed.
 
 ## Performance — needs run at merge
@@ -125,7 +154,11 @@ These are designed mutation cases, not evidence that executed mutations were kil
 `packages/adapter-cursor/bench/translate.ts` measures admitted delta translation
 without accumulated transcript scans; `bench/ipc.ts` covers payload admission and
 shared writer backpressure. `bench/checkpoints.ts` measures callback journal
-fsync/replay and the public native SQLite metadata store. All report ops/s,
+fsync/replay with a retained handle and the production `boundedCheckpointStore`
+decorator, sharing its quota with the journal. `bench/body-stream.ts` measures
+redacted raw JSON and output chunk preparation. `bench/children.ts` exercises
+owner-indexed child terminal preservation; `apps/daemon/bench/cursor-raw.ts`
+measures the shared SQLite append/read path. All report ops/s,
 microseconds/op and peak RSS. **No numbers are available:** the owner prohibits benchmark execution.
 Long-session identity eviction, terminal boundaries, IPC/backpressure throughput
 and SDK full-conversation/native-helper RSS still need measured coverage. The SDK
@@ -183,13 +216,21 @@ rate-limit scenario is proposed.
 - SDK task children inherit MCP credentials without reliable caller attribution.
   The daemon grants a read-only lease to the entire SDK host, including root;
   mutating ace MCP calls remain unavailable. No privileged custom-tool bypass.
-- Raw bodies above 256 KiB fail visibly rather than streaming directly from the
-  SDK callback into blobs. Admitted raw data uses the existing daemon blob owner.
+- Large SDK bodies stream into shared ADR 0006 storage in bounded redacted chunks,
+  with full raw references and bounded semantic previews. Explicitly identified
+  shell output and large text use canonical streams; unknown shell association
+  remains evidence. Final/live overlap is disclosed without guessed suffixes.
+  Chunk storage commits atomically with provider offsets and acknowledges the
+  host before further intake. Raw chunk hydration retains positions, not a second
+  copy of the bytes. Each raw body has a 16-MiB ceiling.
 - Heap/checkpoint/IPC/callback limits, native write guards and ancestor-symlink
   refusal are implemented. Auth workers also reject linked/oversized credential
   stores before SDK import without reading their contents. The SDK may buffer internally; heap limits do not
-  establish total native/helper RSS. Post-write disk checks may retain oversized
-  evidence and fence recovery for explicit context handoff. Measurements need
+  establish total native/helper RSS. Serialized pre-write aggregate reservations
+  preserve the previous checkpoint on admission rejection; only changed known
+  paths update the ledger. Failed SDK I/O or unexpected allocation/format changes
+  fence execution without assuming rollback. Conservative page/WAL headroom can
+  refuse before the configured raw ceiling. Measurements need
   run at merge; no unbounded resume or total RSS guarantee is claimed.
 - Windows home/sandbox/process ownership is unsupported. POSIX parent-death and
   idle cleanup need execution at merge. Exact 1.0.35 remains the admission gate;
@@ -207,3 +248,15 @@ rate-limit scenario is proposed.
   or cross-account checkpoint copying; bounded context handoff preserves source.
 
 Do not merge this branch without the orchestrator's instruction.
+
+## UI follow-up for the Claude web agent
+
+No web, desktop, mobile or UI package was edited. Use
+`Client.cursorAuth({ type: "cursor.auth.start", instanceId, label })`, poll by
+`loginId`, open a browser-state URL on the client's device, and cancel on explicit
+user action. Status/select/logout use the same typed API. Do not store URLs in
+client persistence or telemetry. Show effective auth source, including the
+environment override after sign-out. Thread creation can specify `instanceId`;
+`handoffFrom` preserves source context. Existing `@ace/client` provider controls
+expose sandbox-only approvals, interrupt/restart steering, context-handoff fork
+and read-only task children. Recovery/uncertain-delivery notices must stay visible.

@@ -57,3 +57,18 @@ environment policy and shared host capacity.
 
 Offline socket/process behavior tests are written but **need run at merge**.
 Actual browser sign-in is a separate owner action and is never a model fixture.
+
+## Client API and CLI
+
+`Client.cursorAuth(query, { signal, timeoutMs })` accepts typed start, poll,
+cancel, status, select and logout requests. It returns a typed auth event and
+never adds challenges to the durable intent outbox. Disconnection rejects the
+request; clients must explicitly inspect status/job state after reconnect.
+Browser URLs must be opened on the client's device and retained only in memory.
+
+`ace accounts add cursor <id> <homeDir> <label>` registers the isolated account
+locally, then uses the running daemon's auth start/poll flow. The daemon owns
+selected-instance fencing and login, including writer retention on failed exit.
+The CLI presents the safe ephemeral browser URL; it does not import the SDK or
+provide a throwing substitute for the host fence. Start the daemon first. SDK
+absence preserves the ACP login path; unsupported versions refuse explicitly.
