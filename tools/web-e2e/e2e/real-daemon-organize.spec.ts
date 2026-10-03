@@ -31,8 +31,13 @@ test("a settled thread moves under Settled and comes back when unsettled, across
   page,
 }) => {
   await connect(page);
-  await row(page, settleTitle).hover();
-  await page.getByRole("button", { name: `Settle ${settleTitle}` }).click();
+  // From the thread's ⋯ menu: other journeys reorder the list while this one runs.
+  await threads(page)
+    .getByRole("link", { name: new RegExp(settleTitle) })
+    .click();
+  await expect(page.getByRole("heading", { level: 1, name: settleTitle })).toBeVisible();
+  await page.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Settle", exact: true }).click();
   // The toast confirms the daemon accepted it.
   await expect(page.getByText(`Settled · ${settleTitle}`)).toBeVisible();
   await expect(threads(page).getByRole("link", { name: new RegExp(settleTitle) })).toHaveCount(0);
@@ -61,15 +66,17 @@ test("a snoozed thread shows when it wakes, and Wake now clears it across a relo
   page,
 }) => {
   await connect(page);
-  await row(page, snoozeTitle).hover();
-  await page.getByRole("button", { name: `Snooze ${snoozeTitle}` }).click();
-  await page.getByRole("menuitem", { name: /^Tomorrow/ }).click();
-  const wake = row(page, snoozeTitle).getByRole("img", { name: /^Snoozed until tomorrow/ });
-  await expect(wake).toBeVisible();
-
   await threads(page)
     .getByRole("link", { name: new RegExp(snoozeTitle) })
     .click();
+  await expect(page.getByRole("heading", { level: 1, name: snoozeTitle })).toBeVisible();
+  await page.getByRole("button", { name: "More actions" }).click();
+  await page.getByRole("menuitem", { name: "Snooze" }).hover();
+  await page.getByRole("menuitem", { name: /^Tomorrow/ }).click();
+  await expect(page.getByText(/^Snoozed until tomorrow/)).toBeVisible();
+  const wake = row(page, snoozeTitle).getByRole("img", { name: /^Snoozed until tomorrow/ });
+  await expect(wake).toBeVisible();
+
   await page.getByRole("button", { name: "More actions" }).click();
   await page.getByRole("menuitem", { name: "Snooze" }).hover();
   await page.getByRole("menuitem", { name: "Wake now" }).click();
