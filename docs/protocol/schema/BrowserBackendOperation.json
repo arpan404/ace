@@ -1,0 +1,164 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserBackendOperation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "open",
+          "type": "string"
+        },
+        "lease": {
+          "$ref": "https://ace.local/protocol/v1/BrowserControllerLease.json"
+        },
+        "options": {
+          "$ref": "https://ace.local/protocol/v1/BrowserOpen.json"
+        },
+        "viewport": {
+          "properties": {
+            "height": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            },
+            "width": {
+              "maximum": 9007199254740991,
+              "minimum": -9007199254740991,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "width",
+            "height"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "options",
+        "viewport",
+        "lease"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "cdp",
+          "type": "string"
+        },
+        "method": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {},
+          "propertyNames": {
+            "type": "string"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "method"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "navigate",
+          "type": "string"
+        },
+        "timeout": {
+          "maximum": 30000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "url": {
+          "maxLength": 8192,
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "url",
+        "timeout"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "key": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "press",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "key"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "height": {
+          "maximum": 4096,
+          "minimum": 100,
+          "type": "integer"
+        },
+        "kind": {
+          "const": "resize",
+          "type": "string"
+        },
+        "width": {
+          "maximum": 4096,
+          "minimum": 100,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "width",
+        "height"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "controller",
+          "type": "string"
+        },
+        "lease": {
+          "$ref": "https://ace.local/protocol/v1/BrowserControllerLease.json"
+        }
+      },
+      "required": [
+        "kind",
+        "lease"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "close",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    }
+  ]
+}

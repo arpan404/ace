@@ -133,7 +133,7 @@ Example:
 ```json
 {
   "keys": [
-    "notifications.enabled"
+    "approvals.policy"
   ],
   "requestId": "example",
   "scope": {

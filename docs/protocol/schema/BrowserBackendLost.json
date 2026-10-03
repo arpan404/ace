@@ -1,0 +1,46 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserBackendLost.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "backend": {
+      "const": "embedded",
+      "type": "string"
+    },
+    "pageStateLost": {
+      "const": true,
+      "type": "boolean"
+    },
+    "reason": {
+      "maxLength": 2048,
+      "type": "string"
+    },
+    "recovery": {
+      "enum": [
+        "pause",
+        "headless"
+      ],
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "type": {
+      "const": "browser.backend.lost",
+      "type": "string"
+    },
+    "url": {
+      "maxLength": 8192,
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "threadId",
+    "backend",
+    "recovery",
+    "url",
+    "pageStateLost",
+    "reason"
+  ],
+  "type": "object"
+}

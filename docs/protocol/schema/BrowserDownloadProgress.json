@@ -1,0 +1,41 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserDownloadProgress.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "phase": {
+      "enum": [
+        "downloading",
+        "verifying",
+        "extracting",
+        "ready"
+      ],
+      "type": "string"
+    },
+    "received": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "total": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "type": {
+      "const": "browser.download.progress",
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "version",
+    "phase",
+    "received"
+  ],
+  "type": "object"
+}

@@ -1,4 +1,4 @@
-import { access, mkdir } from "node:fs/promises";
+import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { delimiter, join } from "node:path";
 import { spawnProcess, type ProcessSpawner } from "./io.ts";
@@ -109,32 +109,11 @@ function cacheExecutable(dataDir: string, spawn: ProcessSpawner = spawnProcess):
   });
 }
 
-/** Explicit opt-in; never downloads during detection or service startup. */
+/** Explicit install uses the same pinned acquisition as lazy headless startup. */
 export async function installChromium(
   dataDir: string,
-  spawn: ProcessSpawner = spawnProcess,
+  options: Omit<import("./acquisition.ts").ChromiumAcquisitionOptions, "dataDir"> = {},
 ): Promise<string> {
-  const cache = join(dataDir, "chromium");
-  await mkdir(cache, { recursive: true, mode: 0o700 });
-  const require = createRequire(import.meta.url);
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      process.execPath,
-      [
-        join(require.resolve("playwright-core/package.json"), "..", "cli.js"),
-        "install",
-        "chromium",
-      ],
-      {
-        env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: cache },
-        stdio: "inherit",
-        timeout: 600_000,
-      },
-    );
-    child.once("error", reject);
-    child.once("exit", (code) =>
-      code === 0 ? resolve() : reject(new Error(`Chromium install exited ${code}`)),
-    );
-  });
-  return cacheExecutable(dataDir, spawn);
+  const { acquireChromium } = await import("./acquisition.ts");
+  return acquireChromium({ ...options, dataDir });
 }
