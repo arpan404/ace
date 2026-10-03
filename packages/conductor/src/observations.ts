@@ -15,6 +15,13 @@ export function threadObservation(input: unknown): Fact | null {
   const observation = Observation.parse(input);
   const state = observation.status.state;
   if (state === "new") return null;
+  if (state === "limited")
+    return Fact.parse({
+      type: "usage_limit",
+      laneId: observation.laneId,
+      generation: observation.generation,
+      at: observation.at,
+    });
   return Fact.parse({
     type: "status",
     laneId: observation.laneId,

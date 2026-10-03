@@ -1,5 +1,5 @@
 import type { Key } from "@ace/core";
-import type { Data } from "./native.ts";
+import { object, type Data } from "./native.ts";
 import { tokenCounts, zeroCounts, type TokenCounts } from "./token-counts.ts";
 import type { ClaudeState } from "./state.ts";
 
@@ -12,9 +12,24 @@ export type ChildUsage = Map<Key, Accounting>;
 const zero = zeroCounts;
 /** SDK blocks repeat message usage; refinements replace that message's contribution. */
 export function childUsage(state: ClaudeState, agent: Key, id: string, message: Data): void {
-  if (agent === state.root || !message["usage"]) return;
+  if (!message["usage"]) return;
+  const sample = object(message["usage"]);
   const next = tokenCounts(message["usage"]);
   if (!next) return;
+  const occupied = next.inputTokens + next.outputTokens;
+  if (
+    typeof sample["input_tokens"] === "number" &&
+    Number.isSafeInteger(sample["input_tokens"]) &&
+    sample["input_tokens"] >= 0 &&
+    Number.isSafeInteger(occupied)
+  )
+    state.emit({
+      type: "context.sample",
+      agent,
+      usedTokens: occupied,
+      ...(typeof message["model"] === "string" ? { model: message["model"] } : {}),
+    });
+  if (agent === state.root) return;
   const prior = state.childUsage.get(agent);
   if (
     (!prior && state.childUsage.size >= 256) ||

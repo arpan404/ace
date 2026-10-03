@@ -1,9 +1,12 @@
-import type { Command, ThreadId, ContentPart } from "@ace/protocol";
+import type { PrepareInput } from "./input.ts";
 import type { ThreadTransitions } from "./transitions.ts";
+import { Command, ContextDiagnostic } from "@ace/protocol";
 import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import type { Sessions } from "./sessions.ts";
+
+export class DeliveryDeferred extends Error {}
 
 export async function executeIntent(
   actor: ThreadActor,
@@ -12,15 +15,13 @@ export async function executeIntent(
   registry: AdapterRegistry,
   sessions: Sessions,
   transitions: ThreadTransitions,
-  prepareInput?: (
-    command: Command,
-    threadId: ThreadId,
-    signal: AbortSignal,
-  ) => Promise<ContentPart[]>,
+  prepare?: PrepareInput,
 ): Promise<void> {
   const p = intent.command.payload;
   if (p.type === "thread.create" || p.type === "thread.send" || p.type === "thread.fork") {
     if (p.type === "thread.fork") await transitions.freezeForkSource(p.threadId, actor.id);
+    if ("context" in p && p.context && !prepare)
+      throw new Error("Context preparation is unavailable");
     await sessions.open(actor);
     if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
     const capabilities =
@@ -28,29 +29,81 @@ export async function executeIntent(
       registry.get(repo.requireState(actor.id).config.provider).capabilities;
     const session = actor.session;
     if (!session) throw new Error("Provider session exited before send");
-    if (p.type !== "thread.fork" && (p.context?.items?.length ?? 0) > 0 && !prepareInput)
-      throw new Error("Thread context unavailable");
-    const input: ContentPart[] =
-      p.type === "thread.fork"
-        ? [{ type: "text", text: p.input }]
-        : prepareInput
-          ? await prepareInput(
-              intent.command,
-              actor.id,
-              actor.lifetime?.signal ?? AbortSignal.abort(),
-            )
-          : p.input;
-    actor.lifetime?.signal.throwIfAborted();
-    if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
-    await session.send(
-      [
-        ...transitions.input(actor.id).map((text): ContentPart => ({ type: "text", text })),
-        ...input,
-      ],
-      p.type === "thread.send" && p.delivery === "steer" && capabilities.steer ? "steer" : "queue",
-      intent.command.id,
-    );
-    transitions.delivered(actor.id);
+    const state = repo.requireState(actor.id);
+    const generation = actor.generation;
+    const prepared =
+      "context" in p && p.context
+        ? await prepare?.(
+            p.type === "thread.create"
+              ? Command.parse({
+                  ...intent.command,
+                  payload: {
+                    type: "thread.send",
+                    threadId: actor.id,
+                    input: p.input,
+                    context: p.context,
+                    delivery: "queue",
+                  },
+                })
+              : intent.command,
+            state.config.provider,
+            capabilities,
+          )
+        : undefined;
+    if (
+      repo.cancelled(intent.id) ||
+      actor.lifetime?.signal.aborted ||
+      generation !== actor.generation ||
+      actor.session !== session ||
+      repo.queue.get(actor.id).paused
+    ) {
+      prepared?.release();
+      throw new DeliveryDeferred("Delivery was superseded before provider consumption");
+    }
+    if (prepared)
+      actor.retainInput(
+        intent.id,
+        prepared.release,
+        p.type === "thread.send" && p.delivery === "steer"
+          ? state.agents[state.rootKey ?? ""]?.activeRun
+          : undefined,
+      );
+    try {
+      for (const [index, diagnostic] of (prepared?.diagnostics ?? []).slice(0, 64).entries()) {
+        const parsed = ContextDiagnostic.parse(diagnostic);
+        actor.apply([
+          {
+            type: "item.upsert",
+            agent: state.rootKey ?? "root",
+            item: `intent:${intent.id}:context:${index}`,
+            draft: {
+              type: "notice",
+              level: "warning",
+              complete: true,
+              text: `Context ${parsed.code}: ${parsed.message.slice(0, 4096)}${parsed.path ? ` (${parsed.path.slice(0, 1024)})` : ""}`,
+            },
+          },
+        ]);
+      }
+      if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
+      actor.lifetime?.signal.throwIfAborted();
+      await session.send(
+        [
+          ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
+          ...(prepared?.input ??
+            (p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input)),
+        ],
+        p.type === "thread.send" && p.delivery === "steer" && capabilities.steer
+          ? "steer"
+          : "queue",
+        intent.command.id,
+      );
+      transitions.delivered(actor.id);
+    } catch (error) {
+      actor.releaseInput(intent.id);
+      throw error;
+    }
+
     return;
   }
   if (!actor.session) {

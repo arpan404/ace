@@ -32,6 +32,15 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         state.wakeDuringTurn = false;
         return true;
       }
+      if (subtype === "compact_boundary") {
+        state.emit({
+          type: "item.upsert",
+          agent: state.root,
+          item: state.key("compact", String(frame.seq)),
+          draft: { type: "compaction", complete: true },
+        });
+        return true;
+      }
       if (subtype === "status" || subtype === "thinking_tokens") {
         state.emit({
           type: "activity",

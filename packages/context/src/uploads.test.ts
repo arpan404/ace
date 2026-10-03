@@ -429,3 +429,27 @@ test("WebP lossless version bits cannot bypass container validation", async () =
   });
   expect(attachment(await f.put(webpFrame("VP8L", 1, 1))).mimeType).toBe("image/webp");
 });
+
+test("durable queue ownership prevents blob removal until the message releases its reference", async () => {
+  let retained = true;
+  const f = await uploads({}, { retained: () => retained });
+  cleanups.push(f.close);
+  const bytes = Buffer.from("queued document");
+  await f.put(bytes);
+  await f.restart();
+  await expect(
+    f.store.handle("device", { op: "attachment.release", threadId: thread, sha256: hash(bytes) }),
+  ).rejects.toMatchObject({ code: "busy" });
+  await f.store.collect();
+  const blob = await f.store.attachment("device", thread, hash(bytes));
+  expect(await readFile(blob.path)).toEqual(bytes);
+  retained = false;
+  await f.store.handle("device", {
+    op: "attachment.release",
+    threadId: thread,
+    sha256: hash(bytes),
+  });
+  await expect(f.store.attachment("device", thread, hash(bytes))).rejects.toMatchObject({
+    code: "not_found",
+  });
+});

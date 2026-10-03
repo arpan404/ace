@@ -30,23 +30,49 @@ Example:
 
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
-| thread | yes | object | {"properties":{"id":{"type":"string","minLength":1},"workspaceId":{"type":"string","minLength":1},"title":{"type":"string"},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"effectiveCapabilities":{"type":"object","properties":{"steer":{"type":"boolean"},"launchOptions":{"maxItems":2,"type":"array","items":{"type":"string","enum":["effort","serviceTier"]}},"interruptCascades":{"type":"boolean"},"resume":{"type":"boolean"},"fork":{"type":"boolean"},"forkSubagents":{"type":"boolean"},"sessionOptions":{"type":"boolean"},"forkPoints":{"maxItems":2,"type":"array","items":{"type":"string","enum":["turn","item","end"]}},"subagentTranscripts":{"type":"boolean"},"backgroundTaskControl":{"type":"boolean"},"backgroundVisibility":{"type":"string","enum":["full","partial","none"]},"planMode":{"type":"boolean"},"tokenUsage":{"type":"boolean"},"imageInput":{"type":"boolean"},"rewindFiles":{"type":"boolean"}},"required":["steer","interruptCascades","resume","fork","subagentTranscripts","backgroundTaskControl","backgroundVisibility","planMode","tokenUsage","imageInput","rewindFiles"],"additionalProperties":false},"acpSupport":{"type":"object","properties":{"capabilities":{"type":"object","properties":{"resume":{"type":"boolean"},"imageInput":{"type":"boolean"},"planMode":{"type":"boolean"}},"required":["resume","imageInput","planMode"],"additionalProperties":false},"mcp":{"type":"string","enum":["http","stdio","unavailable"]},"modelSelection":{"type":"boolean"},"modeSelection":{"type":"boolean"},"subagentSessions":{"default":false,"type":"boolean"},"coverage":{"type":"string","enum":["source_profile","generic","legacy"]},"visibility":{"type":"string","const":"limited"},"raw":{"type":"object","properties":{"json":{"type":"string","maxLength":2048},"truncated":{"type":"boolean"}},"required":["json","truncated"],"additionalProperties":false}},"required":["capabilities","mcp","modelSelection","modeSelection","subagentSessions","coverage","visibility","raw"],"additionalProperties":false},"rootAgentId":{"type":"string","minLength":1},"status":{"oneOf":[{"type":"object","properties":{"state":{"type":"string","const":"needs_you"},"interactions":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","interactions"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"working"},"agents":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","agents"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"waiting"},"on":{"type":"string","enum":["background_task","rate_limit","network","upstream","queue"]}},"required":["state","on"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"failed"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"unresponsive"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"done"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"new"}},"required":["state"],"additionalProperties":false}]},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"archivedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"imported":{"type":"object","properties":{"sourceId":{"type":"string","minLength":1},"instanceId":{"type":"string","minLength":1},"native":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"nativeId":{"type":"string"},"path":{"type":"string"},"forkedFromNativeId":{"type":"string","minLength":1,"maxLength":1024},"aliases":{"type":"array","items":{"type":"string"}}},"required":["provider"],"additionalProperties":false},"importedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["sourceId","instanceId","native","importedAt"],"additionalProperties":false},"lineage":{"type":"object","properties":{"parentThreadId":{"type":"string","minLength":1},"parentAgentId":{"type":"string","minLength":1},"point":{"oneOf":[{"type":"object","properties":{"type":{"type":"string","const":"turn"},"runId":{"type":"string","minLength":1}},"required":["type","runId"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"item"},"itemId":{"type":"string","minLength":1}},"required":["type","itemId"],"additionalProperties":false}]},"mode":{"type":"string","enum":["native","portable"]},"lossy":{"type":"boolean"}},"required":["parentThreadId","parentAgentId","point","mode","lossy"],"additionalProperties":false},"execution":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false},"switch":{"type":"object","properties":{"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false},"state":{"type":"string","enum":["queued","applied","failed"]},"lossy":{"type":"boolean"},"recommendation":{"type":"string","const":"delegate_task"},"error":{"type":"string","maxLength":2048},"at":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["selection","state","lossy","at"],"additionalProperties":false}},"required":["id","workspaceId","title","provider","status","createdAt","updatedAt"],"additionalProperties":false} |
+| thread | yes | object | {"properties":{"id":{"type":"string","minLength":1},"workspaceId":{"type":"string","minLength":1},"title":{"type":"string"},"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"effectiveCapabilities":{"type":"object","properties":{"steer":{"type":"boolean"},"launchOptions":{"maxItems":2,"type":"array","items":{"type":"string","enum":["effort","serviceTier"]}},"interruptCascades":{"type":"boolean"},"resume":{"type":"boolean"},"fork":{"type":"boolean"},"forkSubagents":{"type":"boolean"},"sessionOptions":{"type":"boolean"},"forkPoints":{"maxItems":2,"type":"array","items":{"type":"string","enum":["turn","item","end"]}},"subagentTranscripts":{"type":"boolean"},"backgroundTaskControl":{"type":"boolean"},"backgroundVisibility":{"type":"string","enum":["full","partial","none"]},"planMode":{"type":"boolean"},"tokenUsage":{"type":"boolean"},"imageInput":{"type":"boolean"},"rewindFiles":{"type":"boolean"}},"required":["steer","interruptCascades","resume","fork","subagentTranscripts","backgroundTaskControl","backgroundVisibility","planMode","tokenUsage","imageInput","rewindFiles"],"additionalProperties":false},"acpSupport":{"type":"object","properties":{"capabilities":{"type":"object","properties":{"resume":{"type":"boolean"},"imageInput":{"type":"boolean"},"planMode":{"type":"boolean"}},"required":["resume","imageInput","planMode"],"additionalProperties":false},"mcp":{"type":"string","enum":["http","stdio","unavailable"]},"modelSelection":{"type":"boolean"},"modeSelection":{"type":"boolean"},"subagentSessions":{"default":false,"type":"boolean"},"coverage":{"type":"string","enum":["source_profile","generic","legacy"]},"visibility":{"type":"string","const":"limited"},"raw":{"type":"object","properties":{"json":{"type":"string","maxLength":2048},"truncated":{"type":"boolean"}},"required":["json","truncated"],"additionalProperties":false}},"required":["capabilities","mcp","modelSelection","modeSelection","subagentSessions","coverage","visibility","raw"],"additionalProperties":false},"rootAgentId":{"type":"string","minLength":1},"status":{"oneOf":[{"type":"object","properties":{"state":{"type":"string","const":"needs_you"},"interactions":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","interactions"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"working"},"agents":{"type":"integer","exclusiveMinimum":0,"maximum":9007199254740991}},"required":["state","agents"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"waiting"},"on":{"type":"string","enum":["background_task","rate_limit","network","upstream","queue"]}},"required":["state","on"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"limited"},"until":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"failed"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"unresponsive"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"done"}},"required":["state"],"additionalProperties":false},{"type":"object","properties":{"state":{"type":"string","const":"new"}},"required":["state"],"additionalProperties":false}]},"createdAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"updatedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"archivedAt":{"type":"integer","minimum":0,"maximum":9007199254740991},"imported":{"type":"object","properties":{"sourceId":{"type":"string","minLength":1},"instanceId":{"type":"string","minLength":1},"native":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"acpAgentId":{"type":"string","minLength":1,"maxLength":256},"installationId":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"nativeId":{"type":"string"},"path":{"type":"string"},"forkedFromNativeId":{"type":"string","minLength":1,"maxLength":1024},"aliases":{"type":"array","items":{"type":"string"}}},"required":["provider"],"additionalProperties":false},"importedAt":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["sourceId","instanceId","native","importedAt"],"additionalProperties":false},"lineage":{"type":"object","properties":{"parentThreadId":{"type":"string","minLength":1},"parentAgentId":{"type":"string","minLength":1},"point":{"oneOf":[{"type":"object","properties":{"type":{"type":"string","const":"turn"},"runId":{"type":"string","minLength":1}},"required":["type","runId"],"additionalProperties":false},{"type":"object","properties":{"type":{"type":"string","const":"item"},"itemId":{"type":"string","minLength":1}},"required":["type","itemId"],"additionalProperties":false}]},"mode":{"type":"string","enum":["native","portable"]},"lossy":{"type":"boolean"}},"required":["parentThreadId","parentAgentId","point","mode","lossy"],"additionalProperties":false},"execution":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false},"switch":{"type":"object","properties":{"selection":{"type":"object","properties":{"provider":{"type":"string","enum":["claude","codex","opencode","cursor","antigravity","acp","pi"]},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"default":{},"type":"object","propertyNames":{"type":"string","maxLength":128},"additionalProperties":{"anyOf":[{"type":"string","maxLength":1024},{"type":"number"},{"type":"boolean"},{"type":"null"}]},"x-ace-constraint":"At most 32 provider option entries."}},"required":["provider","options"],"additionalProperties":false},"state":{"type":"string","enum":["queued","applied","failed"]},"lossy":{"type":"boolean"},"recommendation":{"type":"string","const":"delegate_task"},"error":{"type":"string","maxLength":2048},"at":{"type":"integer","minimum":0,"maximum":9007199254740991}},"required":["selection","state","lossy","at"],"additionalProperties":false}},"required":["id","workspaceId","title","provider","status","createdAt","updatedAt"],"additionalProperties":false} |
 
 Example:
 
 ```json
 {
   "thread": {
-    "createdAt": 1,
+    "acpAgentId": "example",
+    "acpSupport": {
+      "capabilities": {
+        "imageInput": true,
+        "planMode": true,
+        "resume": true
+      },
+      "coverage": "generic",
+      "mcp": "stdio",
+      "modeSelection": false,
+      "modelSelection": false,
+      "raw": {
+        "json": "example",
+        "truncated": false
+      },
+      "subagentSessions": false,
+      "visibility": "limited"
+    },
+    "archivedAt": 4,
+    "createdAt": 4,
     "id": "example",
-    "installationId": "example",
-    "provider": "pi",
-    "rootAgentId": "example",
+    "imported": {
+      "importedAt": 5,
+      "instanceId": "example",
+      "native": {
+        "installationId": "example",
+        "provider": "acp"
+      },
+      "sourceId": "example"
+    },
+    "provider": "codex",
     "status": {
-      "state": "failed"
+      "state": "new"
     },
     "title": "example",
-    "updatedAt": 9,
+    "updatedAt": 4,
     "workspaceId": "example"
   }
 }
@@ -70,7 +96,9 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{}
+{
+  "limit": 9
+}
 ```
 
 ## ace_list_agents.output
@@ -87,7 +115,7 @@ Example:
 ```json
 {
   "agents": [],
-  "nextCursor": null
+  "nextCursor": "example"
 }
 ```
 
@@ -110,7 +138,6 @@ Example:
 
 ```json
 {
-  "level": "warning",
   "text": "example"
 }
 ```
@@ -153,6 +180,7 @@ Example:
 
 ```json
 {
+  "provider": "claude",
   "task": "example"
 }
 ```
@@ -204,12 +232,10 @@ Example:
 
 ```json
 {
-  "accountId": "example",
-  "provider": "pi",
-  "requestId": "u",
+  "provider": "acp",
+  "requestId": "Zy",
   "role": "example",
-  "task": "example",
-  "wait": false
+  "task": "example"
 }
 ```
 
@@ -227,9 +253,7 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -259,11 +283,12 @@ Example:
 
 ```json
 {
+  "acpAgentId": "example",
   "options": {
-    "serviceTier": "flex"
+    "effort": "none"
   },
-  "provider": "claude",
-  "requestId": "dIZ.XVuJD",
+  "provider": "opencode",
+  "requestId": "um2V8hC",
   "title": "example"
 }
 ```
@@ -282,8 +307,8 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": true
+  "code": "unavailable",
+  "ok": false
 }
 ```
 
@@ -307,7 +332,7 @@ Example:
 
 ```json
 {
-  "requestId": "HMuGuTJny",
+  "requestId": "C",
   "text": "example",
   "threadId": "example"
 }
@@ -327,8 +352,6 @@ Example:
 
 ```json
 {
-  "code": "not_found",
-  "data": null,
   "ok": true
 }
 ```
@@ -354,8 +377,7 @@ Example:
 
 ```json
 {
-  "delivery": "steer",
-  "requestId": "h",
+  "requestId": "Hao-L",
   "text": "example",
   "threadId": "example"
 }
@@ -375,7 +397,6 @@ Example:
 
 ```json
 {
-  "data": null,
   "ok": true
 }
 ```
@@ -417,6 +438,7 @@ Example:
 ```json
 {
   "code": "invalid",
+  "data": null,
   "ok": false
 }
 ```
@@ -441,6 +463,8 @@ Example:
 
 ```json
 {
+  "before": 5,
+  "limit": 1,
   "threadId": "example"
 }
 ```
@@ -459,6 +483,7 @@ Example:
 
 ```json
 {
+  "data": null,
   "ok": true
 }
 ```
@@ -484,8 +509,7 @@ Example:
 
 ```json
 {
-  "limit": 7,
-  "offset": 3,
+  "offset": 4,
   "streamId": "example",
   "threadId": "example"
 }
@@ -505,7 +529,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "not_found",
+  "ok": true
 }
 ```
 
@@ -530,6 +555,7 @@ Example:
 
 ```json
 {
+  "cursor": "example",
   "query": "example",
   "threadId": "example"
 }
@@ -549,8 +575,7 @@ Example:
 
 ```json
 {
-  "code": "forbidden",
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -573,7 +598,7 @@ Example:
 
 ```json
 {
-  "requestId": "7u-x",
+  "requestId": "-zT7tr",
   "threadId": "example"
 }
 ```
@@ -592,6 +617,8 @@ Example:
 
 ```json
 {
+  "code": "unavailable",
+  "data": null,
   "ok": false
 }
 ```
@@ -616,8 +643,7 @@ Example:
 
 ```json
 {
-  "requestId": "e90YYIhG",
-  "runId": "_",
+  "requestId": "6SZoEis",
   "threadId": "example"
 }
 ```
@@ -636,7 +662,8 @@ Example:
 
 ```json
 {
-  "ok": false
+  "code": "not_ready",
+  "ok": true
 }
 ```
 
@@ -659,7 +686,7 @@ Example:
 
 ```json
 {
-  "requestId": "cKBi",
+  "requestId": "iOpdNtvTfg",
   "threadId": "example"
 }
 ```
@@ -703,8 +730,8 @@ Example:
 
 ```json
 {
-  "entryId": "F4n2L",
-  "requestId": "v-7.HZC",
+  "entryId": "I1qNmuNVY4p",
+  "requestId": "fgGd",
   "text": "example",
   "threadId": "example"
 }
@@ -749,9 +776,9 @@ Example:
 ```json
 {
   "entryIds": [
-    "ff58RKzE"
+    "w6rdKWAtS_p"
   ],
-  "requestId": "Dj06p",
+  "requestId": "k2oO2fFn9U",
   "threadId": "example"
 }
 ```
@@ -770,8 +797,7 @@ Example:
 
 ```json
 {
-  "data": null,
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -799,11 +825,10 @@ Example:
   "answer": {
     "answers": {},
     "dismissed": false,
-    "feedback": "example",
     "kind": "question"
   },
   "interactionId": "example",
-  "requestId": "egQ",
+  "requestId": "i97qZXRkD",
   "threadId": "example"
 }
 ```
@@ -864,7 +889,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -904,7 +929,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "not_ready",
+  "ok": false
 }
 ```
 
@@ -946,7 +972,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "not_found",
+  "ok": false
 }
 ```
 
@@ -986,7 +1013,6 @@ Example:
 
 ```json
 {
-  "data": null,
   "ok": true
 }
 ```
@@ -1011,7 +1037,7 @@ Example:
 ```json
 {
   "threadId": "example",
-  "until": 7
+  "until": null
 }
 ```
 
@@ -1029,7 +1055,6 @@ Example:
 
 ```json
 {
-  "code": "not_ready",
   "data": null,
   "ok": true
 }
@@ -1054,9 +1079,9 @@ Example:
 ```json
 {
   "request": {
-    "id": "example",
+    "limit": 5,
     "requestId": "example",
-    "type": "automation.remove"
+    "type": "automation.inbox"
   }
 }
 ```
@@ -1076,7 +1101,7 @@ Example:
 ```json
 {
   "data": null,
-  "ok": false
+  "ok": true
 }
 ```
 
@@ -1159,7 +1184,7 @@ Example:
 
 ```json
 {
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1184,7 +1209,7 @@ Example:
 ```json
 {
   "branch": "example",
-  "requestId": "8oC3zZ_",
+  "requestId": "JDbK",
   "threadId": "example"
 }
 ```
@@ -1203,8 +1228,7 @@ Example:
 
 ```json
 {
-  "code": "invalid",
-  "ok": true
+  "ok": false
 }
 ```
 
@@ -1244,7 +1268,9 @@ Example:
 
 ```json
 {
-  "ok": true
+  "code": "not_ready",
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -1267,7 +1293,7 @@ Example:
 
 ```json
 {
-  "previewId": "AAX0PPMU",
+  "previewId": "sJgZHMuGu",
   "threadId": "example"
 }
 ```
@@ -1286,7 +1312,8 @@ Example:
 
 ```json
 {
-  "ok": true
+  "data": null,
+  "ok": false
 }
 ```
 
@@ -1310,7 +1337,6 @@ Example:
 
 ```json
 {
-  "before": 6,
   "sourceThreadId": "example"
 }
 ```
@@ -1330,7 +1356,7 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": null,
+  "itemsBefore": 4,
   "threadId": "example"
 }
 ```
@@ -1356,6 +1382,8 @@ Example:
 
 ```json
 {
+  "limit": 4,
+  "offset": 0,
   "sourceThreadId": "example",
   "streamId": "example"
 }
@@ -1377,8 +1405,8 @@ Example:
 ```json
 {
   "bytes": "example",
-  "encoding": "utf-16le",
+  "encoding": "utf-8",
   "eof": false,
-  "nextOffset": 8
+  "nextOffset": 4
 }
 ```

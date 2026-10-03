@@ -2,7 +2,7 @@ import { chmod, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
-import { AgentId } from "@ace/protocol";
+import { AgentId, type ExecutionSelection } from "@ace/protocol";
 import { z } from "zod";
 import { createCodexAdapter } from "@ace/adapter-codex";
 import { createOpenCodeAdapter } from "@ace/adapter-opencode";
@@ -39,6 +39,77 @@ const cases = [
   { provider: "acp", http: false, resume: false },
   { provider: "acp", http: false, resume: true },
 ] as const;
+
+it("daemon MCP wrapping preserves model configuration and the lease when native close refuses", async () => {
+  const f = await setup("codex");
+  let connection: { url: string; bearer: string } | undefined;
+  let model = "original",
+    refuseClose = true;
+  const observed: Frame[] = [];
+  const native = createCodexAdapter({
+    cli: { installed: false, auth: "unknown", loginHint: "synthetic" },
+  });
+  const source: ProviderAdapter = {
+    ...native,
+    async openSession(context) {
+      connection = context.aceMcp;
+      class NativeSession {
+        nativeSessionId = "native";
+        async configure(selection: ExecutionSelection) {
+          model = selection.model ?? model;
+        }
+        async send(input: unknown, delivery: unknown, commandId?: string) {
+          void input;
+          void delivery;
+          context.onFrame({
+            seq: 1,
+            t: 1,
+            dir: "recv",
+            channel: "configured-input",
+            data: { model, commandId },
+          });
+        }
+        async interrupt() {}
+        async resolve() {}
+        async stopTask() {}
+        async close() {
+          if (refuseClose) {
+            refuseClose = false;
+            throw new Error("Native process still live");
+          }
+        }
+      }
+      return new NativeSession();
+    },
+  };
+  const adapter = withDaemonMcp(
+    { store: f.store, services: { mcp: f.mcp }, id: () => "recovery-mcp" },
+    source,
+  );
+  const session = await adapter.openSession({
+    threadId: f.thread.id,
+    cwd: f.home,
+    signal: new AbortController().signal,
+    onFrame: (frame) => observed.push(frame),
+    onExit() {},
+  });
+  cleanups.push(async () => {
+    refuseClose = false;
+    await session.close("shutdown");
+  });
+  await session.configure?.({ provider: "codex", model: "replacement", options: {} });
+  await session.send([{ type: "text", text: "synthetic input" }], "queue", "preserved-command");
+  expect(observed.at(-1)?.data).toEqual({ model: "replacement", commandId: "preserved-command" });
+  await expect(session.close("user")).rejects.toThrow("Native process still live");
+  if (!connection) throw new Error("Missing injected connection");
+  expect(
+    (await invoke(connection, "ace_browser_open", { url: "http://localhost:3000/after-refusal" }))
+      .status,
+  ).toBe(200);
+  expect(f.browser.state(f.thread.id)?.url).toBe("http://localhost:3000/after-refusal");
+  await session.close("user");
+  expect((await invoke(connection, "ace_browser_open", {})).status).toBe(401);
+});
 
 it.each(cases)(
   "$provider CLI consumes injected MCP configuration, http=$http resume=$resume, and calls its thread's browser",

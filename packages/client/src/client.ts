@@ -7,6 +7,8 @@ import {
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
+  QueueResult,
+  SettingsResult,
   TextSource,
   RegistryRequest,
   RegistryResult,
@@ -15,6 +17,9 @@ import {
   ServerMessage,
   ItemsPage,
   type CommandPayload,
+  type SettingsKey,
+  type SettingsScope,
+  type SettingsLayer,
 } from "@ace/protocol";
 import { Connection } from "./connection.ts";
 import { Intents, type Intent } from "./intents.ts";
@@ -86,6 +91,8 @@ export class Client {
             }
             if (message.requestId) this.requests.resolve(message.requestId, message);
             break;
+          case "queue.result":
+          case "settings.result":
           case "registry.result":
           case "items.page":
           case "output.data":
@@ -252,7 +259,16 @@ export class Client {
   }
   private async read<T>(
     payload:
+      | {
+          type: "queue.get";
+          threadId: string;
+          after?: string;
+          expectedRevision?: number;
+          limit?: number;
+        }
       | { type: "items.page"; threadId: string; before: number; limit: number }
+      | { type: "settings.get"; key: SettingsKey; scope: SettingsScope }
+      | { type: "settings.set"; key: string; value: unknown; layer: SettingsLayer }
       | { type: "output.read"; streamId: string; offset: number; limit: number },
     decode: (value: unknown) => T,
     options: RequestOptions,
@@ -264,6 +280,25 @@ export class Client {
     return this.requests.wait(id, decode, options, () => {
       if (!this.connection.send(parsed.data)) throw new ClientError("offline");
     });
+  }
+  queue(threadId: string, options: RequestOptions = {}) {
+    return this.queuePage({ threadId }, options);
+  }
+  settingsGet(key: SettingsKey, scope: SettingsScope = {}, options: RequestOptions = {}) {
+    return this.read({ type: "settings.get", key, scope }, SettingsResult.parse, options);
+  }
+  settingsSet(key: string, value: unknown, layer: SettingsLayer, options: RequestOptions = {}) {
+    return this.read({ type: "settings.set", key, value, layer }, SettingsResult.parse, options);
+  }
+  queuePage(
+    payload: { threadId: string; after?: string; expectedRevision?: number; limit?: number },
+    options: RequestOptions = {},
+  ) {
+    return this.read(
+      { type: "queue.get", ...payload },
+      (value) => QueueResult.parse(value).queue,
+      options,
+    );
   }
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },

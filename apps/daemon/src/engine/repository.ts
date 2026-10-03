@@ -5,28 +5,27 @@ import { TransitionState } from "./transition-state.ts";
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import type { StatementSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
-import { ExecutionOptions, Command, ThreadId, type EventPayload } from "@ace/protocol";
+import { ExecutionOptions, Command, CommandId, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
 import { capFact, readRawBlob } from "./raw.ts";
+import { QueueStore } from "./queue-store.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
 
-export interface Intent {
-  id: number;
-  threadId: ThreadId;
-  command: Command;
-  status: string;
-  attempts: number;
-  awaiting: boolean;
-  ackTarget: number | undefined;
-}
+import { IntentStore, type IntentHeader } from "./intents.ts";
+export type { Intent, IntentHeader } from "./intents.ts";
 export class EngineRepository {
   readonly store: Store;
-  readonly transitions: TransitionState;
+  readonly queue: QueueStore;
+  readonly pending: IntentStore;
+  observe?: (state: ThreadState, facts: Fact[], events: EventPayload[], at: number) => void;
   private ids: IdSource;
   private capacity: number;
   private snapshotSeq = new WeakMap<Snapshot, number>();
+  private commandId: () => string;
+  private opening = new Set<ThreadId>();
+  readonly transitions: TransitionState;
   private readiness: TransitionReadiness;
   private snapshots = new Map<ThreadId, Snapshot>();
   private admissionStatements: {
@@ -35,11 +34,19 @@ export class EngineRepository {
     ack: StatementSync;
     correlated: StatementSync;
   };
-  constructor(store: Store, ids: IdSource = { next: () => randomUUID() }, capacity = 64) {
+  constructor(
+    store: Store,
+    ids: IdSource = { next: () => randomUUID() },
+    capacity = 64,
+    commandId: () => string = randomUUID,
+  ) {
     this.capacity = capacity;
+    this.commandId = commandId;
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    this.queue = new QueueStore(store);
+    this.pending = new IntentStore(store, this.queue);
     this.transitions = new TransitionState(store);
     this.readiness = store.atomic((db) => new TransitionReadiness(db));
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
@@ -50,11 +57,34 @@ export class EngineRepository {
       mark: db.prepare(
         "INSERT OR IGNORE INTO engine_state_records VALUES (?, 'engineAdmission', 'root', 'true')",
       ),
-      correlated: db.prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND command_id=?`),
-      ack: db.prepare(`UPDATE intents SET awaiting=0 WHERE thread_id=? AND awaiting=1 AND ack_target=(
+      correlated: db.prepare(
+        `UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND command_id=? AND awaiting=1 RETURNING id`,
+      ),
+      ack: db.prepare(`UPDATE intents SET awaiting=0, acknowledged=1 WHERE thread_id=? AND awaiting=1 AND ack_target=(
         SELECT ack_target FROM intents WHERE thread_id=? AND awaiting=1 ORDER BY id LIMIT 1
-      )`),
+      ) RETURNING id`),
     }));
+  }
+  nextCommandId() {
+    return CommandId.parse(this.commandId());
+  }
+  beginSessionOpen(id: ThreadId): void {
+    this.opening.add(id);
+  }
+  resetAdmission(id: ThreadId): void {
+    this.store.atomic((db) =>
+      db
+        .prepare(
+          "DELETE FROM engine_state_records WHERE thread_id=? AND section='engineAdmission' AND key='root'",
+        )
+        .run(id),
+    );
+  }
+  finishSessionOpen(id: ThreadId): void {
+    this.opening.delete(id);
+  }
+  private recoveryAcknowledgement(id: ThreadId): boolean {
+    return !this.opening.has(id) && this.pending.recoveryAcknowledgement(id);
   }
   state(id: ThreadId): ThreadState | undefined {
     return this.store.atomic((db) => {
@@ -138,17 +168,25 @@ export class EngineRepository {
         const state = this.state(id);
         if (!state) throw new Error("Missing engine state");
         this.snapshots.get(id)?.begin();
+        let continuationStarted = false;
         const events = facts.flatMap((input) => {
+          const queue = input.type === "turn.started" ? this.queue.get(id) : undefined;
+          if (
+            input.type === "turn.started" &&
+            input.agent === (state.rootKey ?? "root") &&
+            queue?.trigger &&
+            this.recoveryAcknowledgement(id)
+          )
+            input = { ...input, trigger: queue.trigger };
           let fact = capFact((raw) => this.store.capRaw(raw, id), input);
           if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
-            const pending = this.intents(id).find((intent) => intent.awaiting);
-            const payload = pending?.command.payload;
+            const pending = this.pending.awaiting(id);
             if (
-              payload &&
-              (payload.type === "thread.create" || payload.type === "thread.send") &&
-              payload.trigger
+              pending &&
+              (pending.kind === "thread.create" || pending.kind === "thread.send") &&
+              pending.trigger
             )
-              fact = { ...fact, trigger: payload.trigger };
+              fact = { ...fact, trigger: pending.trigger };
           }
           if (fact.type === "turn.ended" && fact.agent === (state.rootKey ?? "root")) {
             const record = state.agents[fact.agent];
@@ -178,6 +216,12 @@ export class EngineRepository {
           const finish = snapshot?.prepare(fact) ?? (() => {});
           try {
             const emitted = apply(state, fact, { now, ids: this.ids });
+            if (
+              fact.type === "turn.started" &&
+              (fact.trigger === "restart" || fact.trigger === "limit_resume") &&
+              emitted.some((event) => event.type === "run.started")
+            )
+              continuationStarted = true;
             if (fact.type === "item.delta" && emitted.some((event) => event.type === "item.delta"))
               snapshot?.delta(fact);
             snapshot?.remember(fact, emitted);
@@ -192,10 +236,12 @@ export class EngineRepository {
         // so a later run cannot acknowledge the next, unrelated engine input.
         const root = state.agents[state.rootKey ?? ""]?.agent.id;
         for (const event of events) {
-          const admitted = event.type === "input.admitted" && event.agentId === root;
+          const admitted =
+            event.type === "input.admitted" && event.agentId === root && !this.opening.has(id);
           if (admitted) this.admissionStatements.mark.run(id);
           const started =
             event.type === "run.started" &&
+            !this.opening.has(id) &&
             event.run.agentId === root &&
             [
               "user",
@@ -205,13 +251,24 @@ export class EngineRepository {
               "parent_agent",
               "subagent_result",
               "schedule",
+              "restart",
+              "limit_resume",
             ].includes(event.run.trigger) &&
             !this.admissionStatements.has.get(id);
-          if (event.type === "input.admitted" && admitted && event.commandId !== undefined)
-            this.admissionStatements.correlated.run(id, event.commandId);
-          else if (admitted || started) this.admissionStatements.ack.run(id, id);
+          const acknowledged =
+            event.type === "input.admitted" && admitted && event.commandId !== undefined
+              ? this.admissionStatements.correlated.all(id, event.commandId)
+              : admitted || started
+                ? this.admissionStatements.ack.all(id, id)
+                : [];
+          for (const row of acknowledged) this.queue.prune(Number(row.id));
+        }
+        if (continuationStarted && this.queue.get(id).trigger) {
+          this.queue.set(id, { continuation: null, trigger: null }, now);
+          this.pending.finishContinuation(id);
         }
         this.save(state, events, now);
+        this.observe?.(state, facts, events, now);
         return state;
       });
     } catch (error) {
@@ -223,13 +280,12 @@ export class EngineRepository {
   cancelPending(id: ThreadId, now: number): ThreadId[] {
     return this.store.atomic((db) => {
       const released = new Set<ThreadId>();
-      for (const intent of this.intents(id)) {
+      for (const intent of this.pending.headers(id)) {
         if (!["pending", "queued"].includes(intent.status)) continue;
-        const kind = intent.command.payload.type;
+        const kind = intent.kind;
         if (kind !== "thread.switch" && kind !== "thread.merge") continue;
         this.mark(intent, "failed", "Cancelled before delivery");
-        for (const thread of this.transitions.releaseGuards(intent.command.id))
-          released.add(thread);
+        for (const thread of this.transitions.releaseGuards(intent.commandId)) released.add(thread);
         if (kind === "thread.switch") {
           const pending = this.store.getThread(id)?.switch;
           if (pending)
@@ -251,14 +307,16 @@ export class EngineRepository {
         }
       }
       // Fork intents belong to their new thread, never to the lineage source.
-      for (const intent of this.intents(id)) {
-        if (intent.command.payload.type !== "thread.fork" || intent.status === "running") continue;
-        for (const thread of this.transitions.releaseGuards(intent.command.id))
-          released.add(thread);
+      for (const intent of this.pending.headers(id)) {
+        if (intent.kind !== "thread.fork" || intent.status === "running") continue;
+        for (const thread of this.transitions.releaseGuards(intent.commandId)) released.add(thread);
       }
       db.prepare(
         "UPDATE intents SET status='failed', awaiting=0, error='Cancelled before delivery' WHERE thread_id=? AND kind IN ('thread.send','thread.create','thread.fork') AND (status IN ('pending','queued','running') OR awaiting=1)",
       ).run(id);
+      for (const intent of this.pending.headers(id))
+        if (this.cancelled(intent.id)) this.queue.prune(intent.id);
+      this.queue.set(id, {}, now);
       return [...released];
     });
   }
@@ -277,12 +335,7 @@ export class EngineRepository {
   }
 
   add(command: Command, id: ThreadId, resolutionId?: string): void {
-    this.store.atomic((db) =>
-      db
-        .prepare(`INSERT INTO intents
-      (command_id, thread_id, kind, payload, status, resolution_id) VALUES (?, ?, ?, ?, 'pending', ?)`)
-        .run(command.id, id, command.payload.type, JSON.stringify(command), resolutionId ?? null),
-    );
+    this.pending.add(command, id, resolutionId);
   }
   reserve(id: ThreadId): boolean {
     return this.store.atomic((db) => {
@@ -315,56 +368,28 @@ export class EngineRepository {
       Boolean(db.prepare("SELECT id FROM intents WHERE resolution_id = ?").get(id)),
     );
   }
-  intents(id?: ThreadId): Intent[] {
-    return this.store.atomic((db) => {
-      const rows =
-        id === undefined
-          ? db
-              .prepare(
-                "SELECT * FROM intents WHERE status IN ('pending', 'queued', 'running') UNION ALL SELECT * FROM intents WHERE awaiting=1 AND status NOT IN ('pending', 'queued', 'running') ORDER BY id",
-              )
-              .all()
-          : db
-              .prepare(
-                "SELECT * FROM intents WHERE thread_id=? AND status IN ('pending', 'queued', 'running') UNION ALL SELECT * FROM intents WHERE thread_id=? AND awaiting=1 AND status NOT IN ('pending', 'queued', 'running') ORDER BY id",
-              )
-              .all(id, id);
-      return rows.map((row) => ({
-        id: Number(row.id),
-        threadId: ThreadId.parse(row.thread_id),
-        command: Command.parse(JSON.parse(String(row.payload))),
-        status: String(row.status),
-        attempts: Number(row.attempts),
-        awaiting: Number(row.awaiting) === 1,
-        ackTarget: row.ack_target == null ? undefined : Number(row.ack_target),
-      }));
-    });
+  sessionOpening(id: ThreadId): boolean {
+    return this.opening.has(id);
   }
   queuedCount(id: ThreadId): number {
     return this.store.atomic((db) =>
       Number(
         db
           .prepare(
-            "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND status='queued') + (SELECT COUNT(DISTINCT ack_target) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') AS count",
+            "SELECT (SELECT COUNT(*) FROM intents WHERE thread_id=? AND (status IN ('pending','queued') OR uncertain=1) AND kind IN ('thread.send','thread.create','thread.fork','thread.switch','thread.merge')) + (SELECT COUNT(DISTINCT ack_target) FROM intents WHERE thread_id=? AND awaiting=1 AND status<>'queued') + (SELECT COUNT(*) FROM engine_queue q WHERE q.thread_id=? AND q.continuation IS NOT NULL AND NOT EXISTS(SELECT 1 FROM intents i WHERE i.thread_id=q.thread_id AND i.kind IN ('thread.resume','queue.resume','thread.limit') AND i.awaiting=1)) AS count",
           )
-          .get(id, id)?.count,
+          .get(id, id, id)?.count,
       ),
     );
   }
-  beginSend(intent: Intent, target: number | undefined): void {
-    this.store.atomic((db) =>
-      db
-        .prepare("UPDATE intents SET awaiting=?, ack_target=? WHERE id=?")
-        .run(target === undefined ? 0 : 1, target ?? null, intent.id),
-    );
+  claim(intent: IntentHeader) {
+    return this.pending.claim(intent);
   }
-  mark(intent: Intent, status: string, error?: string): void {
-    this.store.atomic((db) =>
-      db
-        .prepare(`UPDATE intents SET status = ?, error = ?, awaiting = CASE WHEN ? = 'failed' THEN 0 ELSE awaiting END,
-      attempts = attempts + ? WHERE id = ?`)
-        .run(status, error ?? null, status, status === "running" ? 1 : 0, intent.id),
-    );
+  beginSend(intent: IntentHeader, target: number | undefined): void {
+    this.pending.beginSend(intent, target);
+  }
+  mark(intent: IntentHeader, status: string, error?: string): void {
+    this.pending.mark(intent, status, error);
   }
   workspace(id: string): string | undefined {
     return this.store.atomic((db) => {

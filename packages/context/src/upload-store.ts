@@ -199,6 +199,11 @@ export class UploadStore {
       );
   }
   private release(thread: string, hash: string): void {
+    requireContext(
+      !this.options.retained?.(thread, hash),
+      "busy",
+      "Attachment is referenced by queued or unacknowledged work",
+    );
     const existing = this.metadata.get(
       "SELECT sha256 FROM refs WHERE thread=? AND sha256=?",
       thread,

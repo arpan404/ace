@@ -81,7 +81,7 @@ test("an interrupted run can fork at an exact native item", async () => {
 test("a usage-limited finished run forks without waiting for a reset", async () => {
   const h = setup({ native: true, outcome: "failed", limited: true });
   const source = await h.create();
-  expect(h.store.getThread(source)?.status).toMatchObject({ state: "waiting", on: "rate_limit" });
+  expect(h.store.getThread(source)?.status).toMatchObject({ state: "limited" });
   const fork = await h.fork(source);
   expect(h.store.getThread(fork)?.lineage?.parentThreadId).toBe(source);
   expect(h.sessions.at(-1)?.context.fork).toBeDefined();

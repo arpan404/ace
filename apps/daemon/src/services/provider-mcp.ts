@@ -50,6 +50,12 @@ export function withDaemonMcp(
           get acpSupport() {
             return session.acpSupport;
           },
+          ...(session.configure
+            ? {
+                configure: (execution: ExecutionSelection) =>
+                  session.configure?.(execution) ?? Promise.resolve(),
+              }
+            : {}),
           ...(session.setModel
             ? { setModel: (model: string) => session.setModel?.(model) ?? Promise.resolve() }
             : {}),
@@ -67,11 +73,8 @@ export function withDaemonMcp(
           resolve: (key, answer) => session.resolve(key, answer),
           stopTask: (key) => session.stopTask(key),
           async close(reason) {
-            try {
-              await session.close(reason);
-            } finally {
-              lease.end();
-            }
+            await session.close(reason);
+            lease.end();
           },
         };
         return bound;

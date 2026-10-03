@@ -33,6 +33,15 @@ export function translateItem(
     facts.push(note(agent.key, method, frame.data));
     return;
   }
+  if (type === "contextCompaction") {
+    facts.push({
+      type: "item.upsert",
+      agent: agent.key,
+      item: itemId,
+      draft: { type: "compaction", complete },
+    });
+    return;
+  }
   agent.items.add(itemId);
   if (type === "subAgentActivity") {
     const child = str(item["agentThreadId"]);

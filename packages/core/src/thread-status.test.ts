@@ -49,7 +49,9 @@ describe("thread status precedence through facts", () => {
       h.send({ type: "retry", agent: "root", on });
       h.background();
       h.send({ type: "queue.changed", count: 1 });
-      expect(deriveThreadStatus(h.state)).toEqual({ state: "waiting", on });
+      expect(deriveThreadStatus(h.state)).toEqual(
+        on === "rate_limit" ? { state: "limited" } : { state: "waiting", on },
+      );
     },
   );
 
@@ -61,8 +63,8 @@ describe("thread status precedence through facts", () => {
       h.start(on);
       h.send({ type: "retry", agent: on, on });
     }
-    expect(deriveThreadStatus(h.state)).toEqual({ state: "waiting", on: "rate_limit" });
-    h.send({ type: "retry.cleared", agent: "root" });
+    expect(deriveThreadStatus(h.state)).toEqual({ state: "limited" });
+    h.send({ type: "limit.cleared", agent: "root" });
     expect(deriveThreadStatus(h.state)).toEqual({ state: "waiting", on: "network" });
   });
 
@@ -130,4 +132,16 @@ describe("thread status precedence through facts", () => {
     h.send({ type: "background.ended", task: "task", status: "unknown" });
     expect(deriveThreadStatus(h.state)).toEqual({ state: "done" });
   });
+});
+
+it("activity clears a transient retry while quota recovery requires explicit evidence", () => {
+  const h = endedRoot();
+  h.send({ type: "retry", agent: "root", on: "rate_limit", until: 5000 });
+  h.send({ type: "retry.cleared", agent: "root" });
+  expect(deriveThreadStatus(h.state)).toEqual({ state: "limited", until: 5000 });
+  h.send({ type: "retry", agent: "root", on: "network" });
+  h.send({ type: "retry.cleared", agent: "root" });
+  expect(deriveThreadStatus(h.state)).toEqual({ state: "limited", until: 5000 });
+  h.send({ type: "limit.cleared", agent: "root" });
+  expect(deriveThreadStatus(h.state)).toEqual({ state: "done" });
 });

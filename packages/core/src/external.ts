@@ -14,6 +14,13 @@ export function externalAgentStatus(status: ThreadStatus, threadId: ThreadId): A
         on: status.on === "queue" ? "subagents" : status.on,
         refs: [threadId],
       };
+    case "limited":
+      return {
+        state: "blocked",
+        on: "rate_limit",
+        refs: [threadId],
+        ...(status.until === undefined ? {} : { until: status.until }),
+      };
     case "unresponsive":
       return { state: "unresponsive", lastSignalAt: 0 };
     case "new":
@@ -29,7 +36,8 @@ export function readyForChildResults(state: ThreadState): boolean {
   if (state.queueSources.provider > 0) return false;
   for (const record of Object.values(state.agents)) {
     if (record.externalStatus) continue;
-    if (record.activeRun || record.retry || record.disconnectedAt !== undefined) return false;
+    if (record.activeRun || record.retry || record.limited || record.disconnectedAt !== undefined)
+      return false;
   }
   return (
     Object.keys(state.indexes.pendingInteractions).length === 0 &&

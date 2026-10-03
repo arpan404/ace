@@ -25,11 +25,16 @@ interface SessionDependencies {
 }
 export class Sessions {
   private dependencies: SessionDependencies;
+  private closing = new Set<ThreadId>();
+  isClosing(id: ThreadId): boolean {
+    return this.closing.has(id);
+  }
   constructor(dependencies: SessionDependencies) {
     this.dependencies = dependencies;
   }
   async open(actor: ThreadActor): Promise<void> {
     if (actor.session) return;
+    this.dependencies.repo.beginSessionOpen(actor.id);
     const lifetime = new AbortController();
     actor.lifetime = lifetime;
     const generation = ++actor.generation;
@@ -148,6 +153,8 @@ export class Sessions {
         }
       }
       throw error;
+    } finally {
+      this.dependencies.repo.finishSessionOpen(actor.id);
     }
   }
 
@@ -155,35 +162,40 @@ export class Sessions {
     const session = actor.session;
     if (!session) return;
     const lifetime = actor.lifetime;
-    actor.session = undefined;
     const generation = actor.generation;
-    await actor.flush();
+    this.closing.add(actor.id);
+    actor.session = undefined;
     try {
-      await session.close(reason);
-    } catch (error) {
       await actor.flush();
-      // No exit acknowledgement means the old process still owns its session.
-      if (actor.generation === generation) actor.session = session;
-      actor.idleDue = false;
-      throw error;
+      try {
+        await session.close(reason);
+      } catch (error) {
+        await actor.flush();
+        // Without exit acknowledgement, the old process still owns the session.
+        if (actor.generation === generation) actor.session = session;
+        actor.idleDue = false;
+        throw error;
+      }
+      await actor.flush();
+      lifetime?.abort();
+      if (actor.generation === generation) {
+        actor.generation++;
+        this.dependencies.expireDelivery(actor);
+        actor.idleDue = false;
+        this.dependencies.repo.apply(
+          actor.id,
+          [
+            { type: "process.exited", deliberate: !actor.poisoned },
+            { type: "queue.changed", source: "provider", count: 0 },
+          ],
+          this.dependencies.clock.now(),
+        );
+        actor.releaseInputs();
+      }
+      actor.schedule();
+    } finally {
+      this.closing.delete(actor.id);
+      if (!actor.session && !actor.poisoned) this.dependencies.released(actor.id);
     }
-    await actor.flush();
-    lifetime?.abort();
-    const ownsGeneration = actor.generation === generation;
-    if (ownsGeneration) {
-      actor.generation++;
-      this.dependencies.expireDelivery(actor);
-      actor.idleDue = false;
-      this.dependencies.repo.apply(
-        actor.id,
-        [
-          { type: "process.exited", deliberate: !actor.poisoned },
-          { type: "queue.changed", source: "provider", count: 0 },
-        ],
-        this.dependencies.clock.now(),
-      );
-    }
-    actor.schedule();
-    if (ownsGeneration && !actor.session && !actor.poisoned) this.dependencies.released(actor.id);
   }
 }

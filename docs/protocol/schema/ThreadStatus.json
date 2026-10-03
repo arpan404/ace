@@ -64,6 +64,21 @@
     {
       "properties": {
         "state": {
+          "const": "limited",
+          "type": "string"
+        },
+        "until": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "state": {
           "const": "failed",
           "type": "string"
         }

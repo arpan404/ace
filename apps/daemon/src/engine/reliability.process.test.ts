@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { type ThreadId } from "@ace/protocol";
+import { Command, type ThreadId } from "@ace/protocol";
 import { Store, Engine } from "@ace/daemon";
 import { harness, scriptFrames, start, end, question, task } from "./test-support.ts";
 
@@ -118,7 +118,7 @@ test("an interaction withdrawn by the provider cannot receive a late device answ
   expect(h.adapter.commands.some((command) => command.type === "resolve")).toBe(false);
 });
 
-test("a committed send that has never been attempted runs after restart", async () => {
+test("a committed unattempted send waits after restart and runs after explicit resume", async () => {
   const frames = scriptFrames();
   const h = track(await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames));
   h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex", input });
@@ -128,7 +128,24 @@ test("a committed send that has never been attempted runs after restart", async 
   const recovered = new Engine(restartedStore, { registry: h.registry, clock: h.clock });
   try {
     await recovered.flush();
-    expect(restartedStore.listThreads()[0]?.status.state).toBe("done");
+    const id = restartedStore.listThreads()[0]?.id;
+    if (!id) throw new Error("Missing recovered thread");
+    expect(recovered.queue(id).paused).toBe(true);
+    expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(0);
+    const resumeCommand = Command.parse({
+      id: "resume-first",
+      deviceId: "device",
+      payload: {
+        type: "queue.resume",
+        threadId: id,
+        expectedRevision: recovered.queue(id).revision,
+      },
+    });
+    restartedStore.recordCommand(resumeCommand.id, resumeCommand.deviceId, () =>
+      recovered.handler.handle(resumeCommand, restartedStore),
+    );
+    await recovered.flush();
+    expect(restartedStore.getThread(id)?.status.state).toBe("done");
     expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
   } finally {
     await recovered.close();

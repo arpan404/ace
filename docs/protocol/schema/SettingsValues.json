@@ -205,9 +205,31 @@
         "relay"
       ],
       "type": "string"
+    },
+    "threads.continueAfterRestart": {
+      "type": "boolean"
+    },
+    "threads.followUpBehavior": {
+      "enum": [
+        "steer",
+        "queue"
+      ],
+      "type": "string"
+    },
+    "threads.limitPolicy": {
+      "enum": [
+        "manual",
+        "resume_at_reset",
+        "snooze_until_reset",
+        "migrate_now"
+      ],
+      "type": "string"
     }
   },
   "required": [
+    "threads.followUpBehavior",
+    "threads.continueAfterRestart",
+    "threads.limitPolicy",
     "providers.default",
     "providers.coder.provider",
     "providers.coder.model",

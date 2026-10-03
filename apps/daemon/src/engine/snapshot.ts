@@ -55,6 +55,7 @@ const record = z.object({
   wakeUntil: Timestamp.optional(),
   parentKey: z.string().optional(),
   spawnedByKey: z.string().optional(),
+  limited: z.object({ until: Timestamp.optional(), message: z.string().optional() }).optional(),
   retry: z
     .object({
       on: z.enum(["rate_limit", "network", "upstream"]),

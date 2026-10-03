@@ -10,6 +10,8 @@ import {
 import { DiagnosticsHealth } from "./diagnostics.ts";
 import { ReviewData } from "./review.ts";
 import { z } from "zod";
+import { QueueGet, QueueResult, QueueState } from "./queue.ts";
+import { ContextMeter } from "./context-meter.ts";
 import { ContextRequest, ContextResult } from "./context.ts";
 import {
   HistoryListRequest,
@@ -92,6 +94,8 @@ const records = <T>(schema: z.ZodType<T>) =>
         "Plain JSON object with every own opaque ID, including __proto__, validated and retained.",
     });
 export const ThreadView = z.object({
+  queue: QueueState.optional(),
+  contextMeters: records(ContextMeter).optional(),
   kind: z.literal("thread"),
   seq,
   thread: Thread,
@@ -144,7 +148,9 @@ export const ItemsPage = z.object({
 });
 export type ItemsPage = z.infer<typeof ItemsPage>;
 export const ClientMessage = z.discriminatedUnion("type", [
+  QueueGet,
   PiControlRequest,
+
   RegistryRequest,
   ContextRequest,
   SettingsGet,
@@ -221,7 +227,9 @@ export const CommandResult = z.object({
 });
 export type CommandResult = z.infer<typeof CommandResult>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  QueueResult,
   PiControlResult,
+
   RegistryResult,
   ContextResult,
   SettingsResult,

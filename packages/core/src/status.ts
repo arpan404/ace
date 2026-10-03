@@ -149,6 +149,7 @@ function statusResolver(state: ThreadState, now: number) {
       !record.externalStatus &&
       state.config.liveness === "transport" &&
       !state.processExit &&
+      !record.limited &&
       !isSettled(status) &&
       now - lastTransportSignalAt > state.config.silenceMs
     ) {
@@ -164,6 +165,7 @@ function statusResolver(state: ThreadState, now: number) {
     if (record.externalStatus && agent.childThreadId)
       return externalAgentStatus(record.externalStatus, agent.childThreadId);
     const exit = state.processExit;
+    if (record.limited) return { state: "blocked", on: "rate_limit", refs: [], ...record.limited };
     if (exit?.unsettled?.includes(key)) {
       return exit.deliberate
         ? { state: "interrupted" }
@@ -323,6 +325,15 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
   if (working.length > 0) return { state: "working", agents: working.length };
   for (const reason of ["rate_limit", "network", "upstream"] as const) {
     if (statuses.some((status) => status.state === "blocked" && status.on === reason)) {
+      if (reason === "rate_limit") {
+        const limits = statuses.flatMap((status) =>
+          status.state === "blocked" && status.on === "rate_limit" ? [status.until] : [],
+        );
+        const until = limits.every((value) => value !== undefined)
+          ? Math.max(...limits.filter((value): value is number => value !== undefined))
+          : undefined;
+        return { state: "limited", ...(until === undefined ? {} : { until }) };
+      }
       return { state: "waiting", on: reason };
     }
   }

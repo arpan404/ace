@@ -23,7 +23,7 @@ export function nextDeadline(state: ThreadState, providerDeadline?: number): num
     next = next === undefined ? candidate : Math.min(next, candidate);
   }
   for (const [key, record] of Object.entries(state.agents)) {
-    if (record.externalStatus) continue;
+    if (record.externalStatus || record.limited) continue;
     if (
       state.config.liveness !== "transport" &&
       key === state.rootKey &&

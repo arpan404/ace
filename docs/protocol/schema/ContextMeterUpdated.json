@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/ContextMeterUpdated.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "meter": {
+      "$ref": "https://ace.local/protocol/v1/ContextMeter.json"
+    },
+    "type": {
+      "const": "context_meter.updated",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "meter"
+  ],
+  "type": "object"
+}

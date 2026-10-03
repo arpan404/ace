@@ -4,6 +4,7 @@ import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
+import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
 import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
@@ -54,6 +55,7 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       },
     });
   });
+  const ports = recoveryPorts(context, (id) => engine.sessionMetadata(id));
   const engine = new Engine(store, {
     ...acp,
     ...engineOptions,
@@ -86,41 +88,23 @@ export async function startEngine(context: ServiceContext): Promise<void> {
           end: lease.end,
         };
       }),
-    prepareInput:
-      engineOptions.prepareInput ??
-      (async (command, threadId, signal) => {
-        const payload = command.payload;
-        if (payload.type !== "thread.create" && payload.type !== "thread.send") return [];
-        if (!payload.context?.items?.length) return payload.input;
-        const contextService = services.context;
-        if (!contextService) throw new Error("Context unavailable");
-        const references = await contextService.resolveThreadReferences(
-          command.deviceId,
-          threadId,
-          payload.context,
-        );
-        signal.throwIfAborted();
-        return [
-          ...payload.input,
-          ...references.map((reference) => ({
-            type: "text" as const,
-            text: `${reference.summary}\nPointer: ${JSON.stringify(reference.pointer)}`,
-          })),
-        ];
-      }),
+    recovery: engineOptions.recovery ?? ports,
+    prepareInput: engineOptions.prepareInput ?? prepareQueuedInput(context),
     ...((engineOptions.transitions ?? services.transitions)
       ? { transitions: engineOptions.transitions ?? services.transitions }
       : {}),
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());
+  await engine.ready();
   services.engine = engine;
   services.handler = engine.handler;
 }
 
 import { commandContext } from "../commands.ts";
 import type { SocketContext, SocketService } from "./socket.ts";
-export function createEngineSession({ options, send }: SocketContext): SocketService {
+export function createEngineSession(context: SocketContext): SocketService {
+  const { options, send } = context;
   return {
     command: {
       types: [
@@ -135,7 +119,9 @@ export function createEngineSession({ options, send }: SocketContext): SocketSer
         "background_task.stop",
       ],
       scope: () => "operate",
-      accept(command, device) {
+      async accept(command, device) {
+        await options.engine?.prepareCommand(command);
+        if (!context.connected() || !context.authorize("operate")) return;
         const result = options.store.recordCommand(command.id, device, () =>
           options.handler.handle(command, commandContext(options.store)),
         );

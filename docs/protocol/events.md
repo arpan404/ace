@@ -25,22 +25,11 @@ Example:
   "at": 2,
   "id": "example",
   "payload": {
-    "item": {
-      "agentId": "example",
-      "complete": false,
-      "createdAt": 9,
-      "id": "example",
-      "raw": [],
-      "runId": "example",
-      "source": {
-        "bytes": 8,
-        "encoding": "utf-16le",
-        "streamId": "example"
-      },
-      "text": "example",
-      "type": "reasoning"
-    },
-    "type": "item.created"
+    "agentId": "example",
+    "append": "example",
+    "field": "text",
+    "itemId": "example",
+    "type": "item.delta"
   },
   "seq": 5,
   "threadId": "example"
@@ -63,12 +52,28 @@ Example:
 ```json
 {
   "thread": {
+    "acpSupport": {
+      "capabilities": {
+        "imageInput": false,
+        "planMode": true,
+        "resume": false
+      },
+      "coverage": "generic",
+      "mcp": "stdio",
+      "modeSelection": false,
+      "modelSelection": false,
+      "raw": {
+        "json": "example",
+        "truncated": false
+      },
+      "visibility": "limited"
+    },
     "createdAt": 3,
     "execution": {
       "provider": "acp"
     },
     "id": "example",
-    "provider": "cursor",
+    "provider": "claude",
     "status": {
       "interactions": 2,
       "state": "needs_you"
@@ -254,7 +259,7 @@ Example:
     "startedAt": 4,
     "state": "interrupted",
     "threadId": "example",
-    "trigger": "spawn"
+    "trigger": "restart"
   },
   "type": "run.started"
 }
@@ -465,6 +470,71 @@ Example:
 }
 ```
 
+### queue.updated
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| revision | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| paused | yes | boolean |  |
+| reason | yes | union | {"anyOf":[{"type":"string","enum":["manual","restart","limit","snooze","uncertain"]},{"type":"null"}]} |
+| resumeAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
+| type | yes | `"queue.updated"` |  |
+
+Example:
+
+```json
+{
+  "paused": false,
+  "reason": "uncertain",
+  "resumeAt": 7,
+  "revision": 3,
+  "type": "queue.updated"
+}
+```
+
+### context_meter.updated
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"context_meter.updated"` |  |
+| meter | yes | [ContextMeter.json](schema/ContextMeter.json) |  |
+
+Example:
+
+```json
+{
+  "meter": {
+    "agentId": "example",
+    "epoch": 7,
+    "source": "provider",
+    "usedTokens": 7,
+    "windowTokens": null
+  },
+  "type": "context_meter.updated"
+}
+```
+
+### context.sampled
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"context.sampled"` |  |
+| agentId | yes | [AgentId.json](schema/AgentId.json) |  |
+| usedTokens | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| windowTokens | no | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| sessionId | no | string |  |
+| model | no | string |  |
+
+Example:
+
+```json
+{
+  "agentId": "example",
+  "type": "context.sampled",
+  "usedTokens": 7
+}
+```
+
 ### usage.updated
 
 Semantic rule: If usageScope is provider_session or model_session, counterKey is required.
@@ -473,6 +543,8 @@ Semantic rule: If usageScope is provider_session or model_session, counterKey is
 | --- | --- | --- | --- |
 | usageScope | no | ["agent","provider_session","model_session"] |  |
 | counterKey | no | string | {"minLength":1,"maxLength":512} |
+| contextTokens | no | integer | {"minimum":0,"maximum":9007199254740991} |
+| contextSessionId | no | string | {"minLength":1,"maxLength":512} |
 | reasoningTokens | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | cacheWriteTokens | no | integer | {"minimum":0,"maximum":9007199254740991} |
 | cacheWrite1hTokens | no | integer | {"minimum":0,"maximum":9007199254740991} |
@@ -492,14 +564,14 @@ Example:
 
 ```json
 {
+  "accountId": "example",
   "agentId": "example",
-  "cacheWriteTokens": 7,
-  "counterKey": "example",
-  "inputTokens": 3,
-  "model": "example",
-  "outputTokens": 7,
-  "type": "usage.updated",
-  "usageScope": "model_session"
+  "contextSessionId": "example",
+  "contextTokens": 0,
+  "inputTokens": 0,
+  "outputTokens": 9,
+  "reasoningTokens": 7,
+  "type": "usage.updated"
 }
 ```
 

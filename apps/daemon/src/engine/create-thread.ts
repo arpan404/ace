@@ -49,6 +49,7 @@ export function createEngineThread(
   });
   repo.save(state, [{ type: "thread.created", thread }], at);
   repo.createSession(id, cwd, selection.model, selection.instanceId, selection.options);
+  repo.queue.ensure(id);
   repo.transitions.set(id, { selection, context: [] });
   repo.transitions.remember(id, selection);
 }

@@ -2,6 +2,8 @@ import { ThreadLineage, ExecutionSelection, ThreadSwitch } from "./thread-transi
 import { AcpSessionSupport } from "./agent-registry.ts";
 import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
+import { QueueUpdated } from "./queue.ts";
+import { ContextMeterUpdated, ContextSampled } from "./context-meter.ts";
 import { UsageMetadata } from "./usage.ts";
 import { Agent, AgentFidelity, AgentOrigin, AgentStatus } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
@@ -114,6 +116,9 @@ export const EventPayload = z.discriminatedUnion("type", [
     status: BackgroundTask.shape.status,
     endedAt: Timestamp.optional(),
   }),
+  QueueUpdated,
+  ContextMeterUpdated,
+  ContextSampled,
   UsageUpdated,
   WorkspaceFilesChanged,
 ]);

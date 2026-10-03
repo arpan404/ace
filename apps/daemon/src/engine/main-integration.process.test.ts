@@ -21,7 +21,10 @@ function resumedProvider(
     nativeSessionId: "native-1",
     capabilities: h.adapter.capabilities(discovery),
     createTranslator: () => ({ translate: frames.translate, tick: () => [] }),
-    steps: [{ on: "send", frames: [frames.frame(start, end)] }],
+    steps: [
+      { on: "send", frames: [frames.frame(start, end)] },
+      { on: "send", frames: [frames.frame(start, end)] },
+    ],
   });
   h.registry.register(resumed, discovery);
   return resumed;
@@ -79,7 +82,7 @@ test("provider settlement fires at its deadline before the next core deadline", 
   expect(h.errors).toEqual([]);
 });
 
-test("restart retires provider queued work without replaying it or leaving a ghost queue", async () => {
+test("restart holds interrupted provider work until explicit native resume without replaying original input", async () => {
   const frames = scriptFrames();
   const h = await harness(
     [
@@ -105,7 +108,7 @@ test("restart retires provider queued work without replaying it or leaving a gho
     store.close();
   });
   await engine.flush();
-  expect(store.getThread(id)?.status.state).not.toBe("waiting");
+  expect(store.getThread(id)?.status).toEqual({ state: "waiting", on: "queue" });
   expect(
     Object.values(store.snapshotThread(id).items).some(
       (item) => item.type === "notice" && item.text.includes("uncertain"),
@@ -113,6 +116,22 @@ test("restart retires provider queued work without replaying it or leaving a gho
   ).toBe(true);
   expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
   // Resume via the recovered handler, not the crashed engine.
+  const resume = Command.parse({
+    id: "resume-native",
+    deviceId: "device",
+    payload: {
+      type: "thread.resume",
+      threadId: id,
+      expectedRevision: engine.queue(id).revision,
+    },
+  });
+  expect(
+    store.recordCommand(resume.id, resume.deviceId, () => engine.handler.handle(resume, store)).ok,
+  ).toBe(true);
+  await engine.flush();
+  expect(
+    Object.values(store.snapshotThread(id).runs).some((run) => run.trigger === "restart"),
+  ).toBe(true);
   const value = Command.parse({
     id: "recovered-send",
     deviceId: "device",
@@ -127,7 +146,10 @@ test("restart retires provider queued work without replaying it or leaving a gho
     store.recordCommand(value.id, value.deviceId, () => engine.handler.handle(value, store)).ok,
   ).toBe(true);
   await engine.flush();
-  expect(resumed.commands.filter((entry) => entry.type === "send")).toHaveLength(1);
+  const sent = resumed.commands.filter((entry) => entry.type === "send");
+  expect(sent).toHaveLength(2);
+  expect(sent.map((entry) => entry.input)).not.toContainEqual([{ type: "text", text: "first" }]);
+  expect(sent[1]?.input).toEqual(input);
   expect(store.getThread(id)?.status.state).toBe("done");
 });
 
@@ -287,6 +309,24 @@ test("a recovered admission for a failed send cannot acknowledge a newer steerin
     { installed: true, auth: "logged_in", loginHint: "unused" },
   );
   const id = await h.create();
+  const uncertain = h.engine.queue(id).messages[0];
+  if (!uncertain) throw new Error("Missing uncertain input");
+  expect(
+    h.command({
+      type: "queue.remove",
+      threadId: id,
+      messageId: uncertain.id,
+      expectedRevision: h.engine.queue(id).revision,
+    }).ok,
+  ).toBe(true);
+  expect(
+    h.command({
+      type: "thread.resume",
+      threadId: id,
+      expectedRevision: h.engine.queue(id).revision,
+    }).ok,
+  ).toBe(true);
+  await h.engine.flush();
   h.command({ type: "thread.send", threadId: id, input, delivery: "steer" });
   await h.engine.flush();
   const [first, second] = commands;

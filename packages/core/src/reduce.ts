@@ -93,6 +93,8 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
       break;
     case "turn.ended":
       endTurn(state, fact, ctx, events);
+      if (fact.error?.kind === "quota")
+        ensureAgent(state, fact.agent, ctx, events).limited = { message: fact.error.message };
       break;
     case "input.admitted":
       emit(events, {
@@ -149,14 +151,41 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
       const record = ensureAgent(state, fact.agent, ctx, events);
       const { type: _type, agent: _agent, ...retry } = fact;
       record.retry = { ...retry };
+      if (fact.on === "rate_limit")
+        record.limited = {
+          ...(fact.until === undefined ? {} : { until: fact.until }),
+          ...(fact.message === undefined ? {} : { message: fact.message }),
+        };
       break;
     }
-    case "retry.cleared":
-      delete ensureAgent(state, fact.agent, ctx, events).retry;
+    case "retry.cleared": {
+      const record = ensureAgent(state, fact.agent, ctx, events);
+      if (!record.retry || record.retry.on === "rate_limit") {
+        if (transportRecovered || hasUnresponsiveAncestor(state, fact.agent)) {
+          reconcileLinks(state, ctx, events);
+          recomputeStatuses(state, ctx.now, events);
+        }
+        flushNotices(state, ctx, events);
+        return events;
+      }
+      delete record.retry;
       break;
+    }
+    case "limit.cleared": {
+      const record = ensureAgent(state, fact.agent, ctx, events);
+      if (record.retry?.on === "rate_limit") delete record.retry;
+      delete record.limited;
+      break;
+    }
     case "wake.expected":
       ensureAgent(state, fact.agent, ctx, events).wakeUntil = fact.until;
       break;
+    case "context.sample": {
+      const record = ensureAgent(state, fact.agent, ctx, events);
+      const { type: _type, agent: _agent, ...sample } = fact;
+      emit(events, { type: "context.sampled", agentId: record.agent.id, ...sample });
+      break;
+    }
     case "usage": {
       const record = ensureAgent(state, fact.agent, ctx, events);
       const { type: _type, agent: _agent, ...usage } = fact;
