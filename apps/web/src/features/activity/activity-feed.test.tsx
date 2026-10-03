@@ -1,4 +1,4 @@
-import { workbench } from "@ace/fake-daemon";
+import { workbench, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -7,6 +7,8 @@ import { harness } from "@/test/harness.tsx";
 async function openActivity() {
   const app = harness();
   for (const scenario of workbench()) app.play(scenario).runUntilBlocked();
+  // Decks, automation runs and the pull requests linked to the threads.
+  app.daemon.seedServices(workbenchServices(Date.now()));
   await app.open("/activity");
   const sidebar = await screen.findByRole("complementary", { name: "Activity" });
   const feed = await within(sidebar).findByRole("list", { name: "Activity" });
@@ -16,16 +18,21 @@ async function openActivity() {
 
 const tab = (name: RegExp | string) => screen.getByRole("tab", { name });
 
-test("the feed lists what needs you first, then mentions, CI, pull requests and automation results", async () => {
+test("the feed lists what needs you first, then CI, mentions, pull requests and automation results", async () => {
   const { feed } = await openActivity();
+  await within(feed).findByText("Checks failed on #74");
   const titles = within(feed)
     .getAllByRole("button")
     .map((row) => row.textContent ?? "");
   const index = (text: string) => titles.findIndex((title) => title.includes(text));
   expect(index("Allow a force push")).toBeGreaterThanOrEqual(0);
-  expect(index("Lane failed review twice")).toBeGreaterThan(index("Allow a force push"));
-  expect(index("Tests failed on #74")).toBeGreaterThan(index("Lane failed review twice"));
-  expect(index("PR #212 merged")).toBeGreaterThan(index("Tests failed on #74"));
+  expect(index("Escalated: Defer the first relay sync")).toBeGreaterThan(
+    index("Allow a force push"),
+  );
+  expect(index("Checks failed on #74")).toBeGreaterThan(
+    index("Escalated: Defer the first relay sync"),
+  );
+  expect(index("PR #212 merged")).toBeGreaterThan(index("Checks failed on #74"));
   expect(index("Review pull requests on open")).toBeGreaterThan(0);
   expect(screen.getByRole("heading", { level: 1, name: "Activity" })).toBeTruthy();
   expect(screen.getByText("4 need you")).toBeTruthy();
@@ -35,17 +42,18 @@ test("the feed lists what needs you first, then mentions, CI, pull requests and 
 test("tabs narrow the feed to mentions or to automation results", async () => {
   const { feed } = await openActivity();
 
+  await within(feed).findByText("Checks failed on #74");
   await userEvent.click(tab("Mentions"));
   expect(
-    within(feed).getByText("@you Which port does the daemon default to in docker?"),
+    within(feed).getByText("mira: @you Which port does the daemon default to in docker?"),
   ).toBeTruthy();
-  expect(within(feed).queryByText("Tests failed on #74")).toBeNull();
+  expect(within(feed).queryByText("Checks failed on #74")).toBeNull();
   expect(within(feed).queryByText("Allow a force push to fix/restart-retry?")).toBeNull();
 
   await userEvent.click(tab("Automations"));
   expect(await within(feed).findByText("Failed: npm registry timeout, retried once")).toBeTruthy();
   expect(
-    within(feed).queryByText("@you Which port does the daemon default to in docker?"),
+    within(feed).queryByText("mira: @you Which port does the daemon default to in docker?"),
   ).toBeNull();
 
   await userEvent.click(tab(/Needs you/));
@@ -83,17 +91,18 @@ test("selecting a feed row focuses its card in Needs you", async () => {
 
 test("Mark all read quiets every feed row and then has nothing left to do", async () => {
   const { feed } = await openActivity();
+  await within(feed).findByText("Checks failed on #74");
   const markAll = screen.getByRole("button", { name: "Mark all read" });
   const row = (text: string) => {
     const li = within(feed).getByText(text).closest("li");
     if (!li) throw new Error(`No row for ${text}`);
     return within(li);
   };
-  expect(row("Tests failed on #74").getByText("Unread")).toBeTruthy();
+  expect(row("Checks failed on #74").getByText("Unread")).toBeTruthy();
 
   await userEvent.click(markAll);
 
-  expect(row("Tests failed on #74").queryByText("Unread")).toBeNull();
+  expect(row("Checks failed on #74").queryByText("Unread")).toBeNull();
   expect(row("PR #212 merged").queryByText("Unread")).toBeNull();
   expect(screen.getByRole<HTMLButtonElement>("button", { name: "Mark all read" }).disabled).toBe(
     true,
@@ -102,27 +111,24 @@ test("Mark all read quiets every feed row and then has nothing left to do", asyn
   expect(row("Allow a force push to fix/restart-retry?").getByText("Needs you")).toBeTruthy();
 });
 
-test("taking an escalation's proposal clears it from Needs you", async () => {
+test("approving a deck's escalation clears it from Needs you", async () => {
   const { feed } = await openActivity();
-  const escalation = screen.getByRole("article", {
-    name: "Lane failed review twice: Mobile cold-start replay",
-  });
+  const name = "Escalated: Defer the first relay sync";
+  const escalation = await screen.findByRole("article", { name });
+  expect(within(escalation).getByText(/leaves the inbox empty/)).toBeTruthy();
 
-  await userEvent.click(within(escalation).getByRole("button", { name: "Move to this Mac" }));
+  await userEvent.click(within(escalation).getByRole("button", { name: /^Approve/ }));
 
-  await waitFor(() =>
-    expect(
-      screen.queryByRole("article", { name: "Lane failed review twice: Mobile cold-start replay" }),
-    ).toBeNull(),
-  );
-  expect(await screen.findByText("Move to this Mac · the deck replans")).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole("article", { name })).toBeNull());
+  expect(await screen.findByText("Approve · the deck carries on")).toBeTruthy();
   expect(screen.getByText("3 need you")).toBeTruthy();
-  // The event stays in the feed as history, no longer asking for anything.
-  expect(within(feed).getByText("Lane failed review twice: Mobile cold-start replay")).toBeTruthy();
+  // The deck has moved on: nothing about the decision is left to answer.
+  expect(within(feed).queryByText(name)).toBeNull();
 });
 
 test("the project filter narrows both the feed and the cards", async () => {
   const { feed } = await openActivity();
+  await within(feed).findByText("Checks failed on #74");
 
   await userEvent.click(screen.getByRole("button", { name: "Filter" }));
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "billing-api" }));
@@ -133,7 +139,7 @@ test("the project filter narrows both the feed and the cards", async () => {
     ).toBeNull(),
   );
   expect(screen.getByRole("article", { name: "Install @fontsource/noto-sans-jp?" })).toBeTruthy();
-  expect(within(feed).getByText("Tests failed on #74")).toBeTruthy();
+  expect(within(feed).getByText("Checks failed on #74")).toBeTruthy();
   expect(within(feed).queryByText("PR #212 merged")).toBeNull();
   expect(screen.getByRole("button", { name: "Filter: billing-api" })).toBeTruthy();
 });

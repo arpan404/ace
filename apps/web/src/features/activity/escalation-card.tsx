@@ -1,6 +1,6 @@
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { eventKey } from "./activity-state.tsx";
@@ -8,8 +8,8 @@ import { ButtonKey, CardActions, CardError, CardFrame, useCardFocused } from "./
 import { useFeedSource, type FeedEvent } from "./feed-source.ts";
 
 /**
- * A Deck escalation: a lane that keeps failing review. The deck proposes what to do; the
- * primary proposal takes A, every proposal its number, and O opens the deck.
+ * A Deck escalation: a lane that keeps failing review, a budget or a deadline. Approve takes
+ * A, and O opens the deck.
  */
 export function EscalationCard(props: { event: FeedEvent }) {
   const { event } = props;
@@ -25,17 +25,25 @@ export function EscalationCard(props: { event: FeedEvent }) {
   const take = (actionId: string, label: string) => {
     setSending(true);
     setFailure(undefined);
-    source.resolve(event.id, actionId).then(
-      () => toast.add({ title: `${label} · the deck replans` }),
-      () => {
+    source.resolve(event, actionId).then(
+      () => toast.add({ title: `${label} · the deck carries on` }),
+      (error: unknown) => {
         setSending(false);
-        setFailure("The deck didn't accept that. Open the deck to see why.");
+        setFailure(
+          error instanceof Error && error.message !== "not_found"
+            ? error.message
+            : "The deck didn't accept that. Open the deck to see why.",
+        );
       },
     );
   };
   const live = focused && !sending;
   useHotkey("a", () => primary && take(primary.id, primary.label), { enabled: live && !!primary });
-  useHotkey("o", () => void navigate({ to: "/deck" }), { enabled: focused });
+  const openDeck = () =>
+    event.runId
+      ? void navigate({ to: "/deck/$runId", params: { runId: event.runId } })
+      : void navigate({ to: "/deck" });
+  useHotkey("o", openDeck, { enabled: focused });
   return (
     <CardFrame
       cardKey={key}
@@ -47,10 +55,10 @@ export function EscalationCard(props: { event: FeedEvent }) {
         <p className="text-[13.5px] leading-normal text-muted-foreground">{event.body}</p>
       )}
       <CardActions>
-        <Link to="/deck" className={buttonVariants({ variant: "ghost" })}>
+        <Button variant="ghost" onClick={openDeck}>
           Open deck
           <ButtonKey>O</ButtonKey>
-        </Link>
+        </Button>
         {actions.map((action) => (
           <Button
             key={action.id}

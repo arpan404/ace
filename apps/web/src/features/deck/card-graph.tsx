@@ -1,4 +1,4 @@
-import { CheckIcon, LockSimpleIcon } from "@phosphor-icons/react";
+import { CheckIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -99,11 +99,11 @@ export function CardGraph(props: {
         {Array.from({ length: count }, (_, index) => (
           <section
             key={index}
-            aria-label={props.run.stages[index] ?? `Stage ${index + 1}`}
+            aria-label={`Stage ${index + 1}`}
             className="relative z-[1] flex flex-col gap-3"
           >
             <h3 className="px-0.5 pb-0.5 text-xs font-medium text-subtle-foreground">
-              {props.run.stages[index] ?? `Stage ${index + 1}`}
+              Stage {index + 1}
             </h3>
             {/* The first column centres on its dependants, as the plan reads left to right. */}
             {index === 0 && <div aria-hidden className="flex-1" />}
@@ -126,7 +126,7 @@ export function CardGraph(props: {
 
 function CardTile(props: { card: DeckCard; run: DeckRun; selected: boolean; onSelect(): void }) {
   const status = cardStatus(props.card, props.run);
-  const provider = props.card.lane?.worker.provider;
+  const provider = props.card.lane?.worker?.provider;
   return (
     <button
       data-card-id={props.card.id}
@@ -138,7 +138,6 @@ function CardTile(props: { card: DeckCard; run: DeckRun; selected: boolean; onSe
         "hover:bg-[color-mix(in_oklab,var(--card),var(--foreground)_3%)] focus-visible:shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ring)_60%,transparent)]",
         props.selected &&
           "shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--ring)_60%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_12%,transparent)]",
-        props.card.kind === "merge" && props.card.state === "merge" && "opacity-75",
       )}
     >
       <span className="block text-[13.5px] leading-[1.3] font-medium tracking-[-0.005em]">
@@ -165,8 +164,6 @@ export function StatusMark(props: { mark: CardMark; tone: CardTone }) {
   switch (props.mark) {
     case "check":
       return <Icon icon={CheckIcon} size={14} />;
-    case "lock":
-      return <Icon icon={LockSimpleIcon} size={14} />;
     case "spinner":
       return <Spinner />;
     case "dot":

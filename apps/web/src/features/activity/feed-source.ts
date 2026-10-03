@@ -1,150 +1,129 @@
-// TODO(client-gaps): feat/client-protocol-gaps. Mentions, CI and pull-request events (forge,
-// ADR 0016) and Deck escalations (ADR 0017) have no daemon wire messages on main yet. Fake mode
-// serves an in-memory feed with realistic content; a real daemon's feed is empty (its open
-// requests still come from the live interaction store). Components depend only on `FeedSource`;
-// swapping in the daemon changes this file alone.
-import type { ClientApi } from "@ace/client";
-import { useClient } from "@ace/client-react";
-import { useDaemonConnection } from "@/boot/connection.tsx";
-import { useSyncExternalStore } from "react";
+/*
+ * The Activity feed from the daemon: pull-request, CI and mention events from the forge for
+ * threads with a linked PR (`workspace.request` `pr.status`), and Deck escalations from the
+ * conductor (`@/features/deck`). Which events this device has read is kept per client here.
+ */
+import type { SidebarReader } from "@ace/client";
+import { useClient, useConnectionState, useSidebar, useSidebarIds } from "@ace/client-react";
+import type { SidebarKey } from "@ace/client-react";
+import { useQueries } from "@tanstack/react-query";
+import { useMemo, useSyncExternalStore } from "react";
+import { useDeckSender } from "@/features/deck/index.ts";
+import { useEscalations } from "./escalations.ts";
+import { pullRequestEvents, type FeedEvent, type LinkedThread } from "./feed-events.ts";
+import { useReadState } from "./read-state.ts";
 
-export type FeedKind = "escalation" | "mention" | "ci" | "pr";
+export type { FeedAction, FeedEvent, FeedKind } from "./feed-events.ts";
 
-export interface FeedAction {
-  id: string;
-  label: string;
-  primary?: boolean;
-}
-export interface FeedEvent {
-  id: string;
-  kind: FeedKind;
-  title: string;
-  /** Project, or "Deck" for escalations. */
-  project: string;
-  /** The thread or deck title, plus detail ("2 failing"). */
-  context: string;
-  at: number;
-  threadId?: string;
-  outcome?: "failed" | "done";
-  /** Escalations: the explanation and the choices offered. Open until one is taken. */
-  body?: string;
-  actions?: readonly FeedAction[];
-  resolved?: boolean;
-}
 export interface FeedSnapshot {
   events: readonly FeedEvent[];
   /** Ids read on this device: feed events and automation runs share the set. */
   read: ReadonlySet<string>;
 }
+
 export interface FeedSource {
-  subscribe(listener: () => void): () => void;
-  snapshot(): FeedSnapshot;
   markRead(ids: readonly string[]): void;
-  /** Take one of an escalation's actions; it leaves Needs you once accepted. */
-  resolve(eventId: string, actionId: string): Promise<void>;
+  /** Take an escalation's decision; it leaves Needs you once the deck reports the gate closed. */
+  resolve(event: FeedEvent, actionId: string): Promise<void>;
 }
-
-const minute = 60_000;
-
-/** The approved design's feed, timed relative to `now`. */
-export function seedFeed(now: number): FeedEvent[] {
-  return [
-    {
-      id: "feed-escalation-cold-start",
-      kind: "escalation",
-      title: "Lane failed review twice: Mobile cold-start replay",
-      project: "Deck",
-      context: "Resumable relay streams",
-      at: now - 22 * minute,
-      body: "The reviewer keeps rejecting the lane because it cannot run the iOS simulator on build-box. The deck suggests moving the lane to this Mac or splitting the simulator test into its own card.",
-      actions: [
-        { id: "split", label: "Split the lane" },
-        { id: "move", label: "Move to this Mac", primary: true },
-      ],
-    },
-    {
-      id: "feed-mention-docker-port",
-      kind: "mention",
-      title: "@you Which port does the daemon default to in docker?",
-      project: "docs-site",
-      context: "Rewrite the install page for the daemon",
-      at: now - 31 * minute,
-      threadId: "thread-install-page",
-    },
-    {
-      id: "feed-ci-74",
-      kind: "ci",
-      title: "Tests failed on #74",
-      project: "billing-api",
-      context: "Invoice PDF locale fallback · 2 failing",
-      at: now - 26 * minute,
-      threadId: "thread-pdf-locale",
-      outcome: "failed",
-    },
-    {
-      id: "feed-pr-212",
-      kind: "pr",
-      title: "PR #212 merged",
-      project: "ace",
-      context: "Bump Codex app-server to 0.48",
-      at: now - 41 * minute,
-      threadId: "thread-bump-codex",
-      outcome: "done",
-    },
-  ];
-}
-
-export function memoryFeedSource(events: FeedEvent[]): FeedSource {
-  let state: FeedSnapshot = { events, read: new Set() };
-  const listeners = new Set<() => void>();
-  const set = (next: FeedSnapshot) => {
-    state = next;
-    for (const listener of listeners) listener();
-  };
-  return {
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    snapshot: () => state,
-    markRead(ids) {
-      if (ids.every((id) => state.read.has(id))) return;
-      set({ ...state, read: new Set([...state.read, ...ids]) });
-    },
-    async resolve(eventId, actionId) {
-      const event = state.events.find((candidate) => candidate.id === eventId);
-      if (!event?.actions?.some((action) => action.id === actionId)) throw new Error("not_found");
-      if (event.resolved) throw new Error("already_resolved");
-      set({
-        events: state.events.map((candidate) =>
-          candidate === event ? { ...candidate, resolved: true } : candidate,
-        ),
-        read: new Set([...state.read, eventId]),
-      });
-    },
-  };
-}
-
-// One source per daemon client, so each connection (and each test) starts from the seed.
-const sources = new WeakMap<ClientApi, FeedSource>();
 
 export function useFeedSource(): FeedSource {
-  const client = useClient();
-  const fake = useDaemonConnection().mode === "fake";
-  let source = sources.get(client);
-  if (!source) {
-    source = fake ? fakeFeedSource() : memoryFeedSource([]);
-    sources.set(client, source);
-  }
-  return source;
+  const reads = useReadState();
+  const send = useDeckSender();
+  return {
+    markRead: (ids) => reads.mark(ids),
+    async resolve(event, actionId) {
+      const action = event.actions?.find((candidate) => candidate.id === actionId);
+      if (!event.runId || !event.gateId || !action) throw new Error("not_found");
+      await send({
+        type: "conductor.approve",
+        runId: event.runId,
+        approval: { gateId: event.gateId, decision: action.id },
+      });
+      reads.mark([event.id]);
+    },
+  };
 }
 
-/** The in-memory stand-in, seeded with the design's feed at the wall clock. */
-function fakeFeedSource(): FeedSource {
-  return memoryFeedSource(seedFeed(Date.now()));
+/** At most this many linked pull requests are read, the most recently active first. */
+const linkedLimit = 12;
+const prRefreshMs = 120_000;
+const noIds: readonly string[] = [];
+
+function readLinked(reader: SidebarReader): LinkedThread[] {
+  return reader.ids
+    .flatMap((id) => {
+      const thread = reader.thread(id);
+      const pr = thread?.details?.linkedPr;
+      if (!thread || !pr || thread.deletedAt !== undefined) return [];
+      return [
+        {
+          id: thread.id,
+          title: thread.title,
+          workspaceId: thread.workspaceId,
+          updatedAt: thread.updatedAt,
+          settledAt: thread.settledAt,
+          settledReason: thread.settledReason,
+          pr: { number: pr.number, state: pr.state },
+        },
+      ];
+    })
+    .toSorted((a, b) => b.updatedAt - a.updatedAt)
+    .slice(0, linkedLimit);
+}
+
+const sameLinked = (a: LinkedThread, b: LinkedThread) =>
+  a.id === b.id &&
+  a.title === b.title &&
+  a.updatedAt === b.updatedAt &&
+  a.settledAt === b.settledAt &&
+  a.pr.number === b.pr.number &&
+  a.pr.state === b.pr.state;
+const sameList = (a: readonly LinkedThread[], b: readonly LinkedThread[]) =>
+  a.length === b.length &&
+  a.every((thread, index) => {
+    const other = b[index];
+    return other !== undefined && sameLinked(thread, other);
+  });
+
+function useLinkedThreads(): LinkedThread[] {
+  const ids = useSidebarIds() ?? noIds;
+  const keys = useMemo<SidebarKey[]>(
+    () => ["ids", ...ids.map((id): SidebarKey => `thread:${id}`)],
+    [ids],
+  );
+  return useSidebar(keys, readLinked, sameList) ?? [];
+}
+
+/** The forge's view of each linked PR: checks and comments, read again every two minutes. */
+function usePullRequestEvents(): FeedEvent[] {
+  const client = useClient();
+  const ready = useConnectionState() === "ready";
+  const threads = useLinkedThreads();
+  const statuses = useQueries({
+    queries: threads.map((thread) => ({
+      queryKey: ["feed", "pr", thread.id, thread.pr.number, thread.pr.state],
+      enabled: ready,
+      staleTime: prRefreshMs / 2,
+      refetchInterval: prRefreshMs,
+      queryFn: async ({ signal }: { signal: AbortSignal }) => {
+        const reply = await client.request(
+          { type: "workspace.request", operation: { op: "pr.status", threadId: thread.id } },
+          { signal },
+        );
+        return reply.result.kind === "pr" ? reply.result.status : null;
+      },
+    })),
+  });
+  return threads.flatMap((thread, index) =>
+    pullRequestEvents(thread, statuses[index]?.data ?? null),
+  );
 }
 
 export function useFeed(): FeedSnapshot {
-  const source = useFeedSource();
-  return useSyncExternalStore(source.subscribe, source.snapshot, source.snapshot);
+  const reads = useReadState();
+  const read = useSyncExternalStore(reads.subscribe, reads.snapshot, reads.snapshot);
+  const escalations = useEscalations();
+  const forge = usePullRequestEvents();
+  return { events: [...escalations, ...forge], read };
 }

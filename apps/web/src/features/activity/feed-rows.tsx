@@ -111,7 +111,7 @@ export function EventRow(props: { event: FeedEvent; read: boolean }) {
   const navigate = useNavigate();
   const now = useNow();
   const key = eventKey(event.id);
-  const needsYou = event.kind === "escalation" && !event.resolved;
+  const needsYou = event.kind === "escalation";
   const select = () => {
     source.markRead([event.id]);
     if (needsYou) setFocused(key);

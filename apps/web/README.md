@@ -127,7 +127,9 @@ server queue with its recovery and limit controls (`queue.get`, `queue.*`, `thre
 `workspace.editor.open`, `git.commit`, `git.push` and `forge.pr.create` commands), terminals
 (`terminal.request`, credit-paced `terminal.output`), the browser relay (`browser.*`, ACKed
 frames), dev servers (`preview.request`), shell output (`output.read`) and More › Files (each
-thread's `items.page`). In fake mode `@ace/fake-daemon` serves the same messages from its catalogs
+thread's `items.page`), Deck runs (`conductor.request` and `conductor.*` commands), automations
+(`automation.*`), skills and plugins (`pluginRequest`), and the Activity feed (forge `pr.status`
+and Deck escalations). In fake mode `@ace/fake-daemon` serves the same messages from its catalogs
 (`packages/fake-daemon/src/services/`), so a feature has one code path.
 
 Beside the socket, the connection carries its `endpoint` (`boot/connection.tsx`): the daemon's HTTP
@@ -140,8 +142,8 @@ What `main` cannot carry yet sits behind one adapter per feature marked
 `// TODO(client-gaps): feat/client-protocol-gaps`. In fake mode it serves the fake daemon's
 stand-in; against a real daemon it reports the feature empty or unavailable, never fixture data.
 Today: a list of machines and adding an ACP agent by command
-(`features/settings/data/access-gaps.ts`), automations, the Activity feed, Deck runs, skills and
-plugins, and file uploads. When the backend lands, wiring a feature changes only its adapter.
+(`features/settings/data/access-gaps.ts`), and file uploads (`features/files/files-source.ts`).
+When the backend lands, wiring a feature changes only its adapter.
 
 ## Fake-daemon scenarios
 

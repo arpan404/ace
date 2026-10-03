@@ -1,120 +1,174 @@
-// TODO(client-gaps): feat/client-protocol-gaps. Fake mode only; a real daemon reports
-// this feature unavailable.
 /*
- * The Skills catalog: skills, plugins (plugins service) and slash commands (command library,
- * #46). None is readable over the wire on this branch, so the catalog comes from the fake
- * backend in fake mode and is unavailable against a real daemon. Components use the hooks
- * below only.
+ * Skills from the daemon's plugin service (ADR 0014): the catalog (`plugins.list` and the paged
+ * `plugins.catalog`), a component's source, availability per plugin, removal, and installing
+ * through the mandatory trust review (`plugins.prepare`, `readReview`, `accept` or `cancel`).
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { z } from "zod";
-import { UnavailableError, useFakeBackend, type FakeBackend } from "@/boot/fake-backend.ts";
+import type { ClientApi } from "@ace/client";
+import { useClient } from "@ace/client-react";
+import type {
+  PluginComponent,
+  PluginRequest,
+  PluginResponse,
+  PluginReviewEntry,
+  PluginReviewSummary,
+  ProviderKind,
+} from "@ace/protocol";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { z } from "zod";
+import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { skillCatalog, type Skill } from "./skills-model.ts";
 
-export type SkillKind = "skill" | "plugin" | "command";
-export type SkillSource = "repo" | "user" | "plugin";
-export interface Skill {
-  id: string;
-  kind: SkillKind;
-  name: string;
-  description: string;
-  source: SkillSource;
-  location: string;
-  /** The file that defines it, on the daemon's machine, when it has one. */
-  sourcePath?: string | undefined;
-  usage: string;
-  availability: string;
-  enabled: boolean;
-  preview: string;
+type Request = z.input<typeof PluginRequest>;
+type Response<T extends PluginResponse["type"]> = Extract<PluginResponse, { type: T }>;
+
+async function plugins<T extends PluginResponse["type"]>(
+  client: ClientApi,
+  request: Request,
+  expected: T,
+  signal?: AbortSignal,
+): Promise<Response<T>> {
+  const reply = await client.request({ type: "pluginRequest", request }, signal ? { signal } : {});
+  const response = reply.response;
+  if (!answers(response, expected)) throw new Error("The plugin service answered something else.");
+  return response;
 }
 
-/** Where a skill may run. Labels double as the catalog's "Available to" sentence. */
-export const availabilities = [
-  "Every provider that supports skills. Codex and OpenCode load it as a prompt.",
-  "Claude Code only.",
-  "Codex only.",
-] as const;
+function answers<T extends PluginResponse["type"]>(
+  response: PluginResponse,
+  expected: T,
+): response is Response<T> {
+  return response.type === expected;
+}
 
-/** A plugin repository as `owner/name`, or a git URL. */
-export const PluginRepository = z
-  .string()
-  .trim()
-  .regex(
-    /^(?:[\w.-]+\/[\w.-]+|https:\/\/\S+\.git)$/,
-    "Use owner/name or an https URL ending in .git.",
-  );
+/** At most this many catalog pages (50 components each) are read. */
+const maxPages = 20;
 
-/** "getsentry/sentry-mcp" → "sentry-mcp": the plugin's id and name. */
-export function pluginName(repository: string): string {
-  return (
-    repository
-      .replace(/\.git$/, "")
-      .split("/")
-      .at(-1)
-      ?.toLowerCase() ?? ""
-  );
+async function readCatalog(client: ClientApi, signal: AbortSignal): Promise<Skill[]> {
+  const list = await plugins(client, { type: "plugins.list" }, "plugins.list", signal);
+  const components: PluginComponent[] = [];
+  let offset: number | undefined = 0;
+  for (let page = 0; offset !== undefined && page < maxPages; page++) {
+    const catalog: Response<"plugins.catalog"> = await plugins(
+      client,
+      { type: "plugins.catalog", offset, limit: 50 },
+      "plugins.catalog",
+      signal,
+    );
+    components.push(...catalog.components);
+    offset = catalog.nextOffset;
+  }
+  return skillCatalog(list.installs, list.availability ?? [], components);
 }
 
 const key = ["skills"] as const;
 
-async function loaded(backend: Promise<FakeBackend> | null): Promise<FakeBackend> {
-  if (!backend) throw new UnavailableError("Skills");
-  return backend;
+export function useSkills() {
+  return useDaemonQuery({ queryKey: key, read: readCatalog });
 }
 
-export function useSkills() {
-  const backend = useFakeBackend();
-  return useQuery({
-    queryKey: key,
-    queryFn: async (): Promise<Skill[]> => [...(await loaded(backend)).skills],
+/** The first page (64 KiB) of a component's source, as accepted at install. */
+export function useSkillSource(skill: Skill) {
+  return useDaemonQuery({
+    queryKey: [...key, "source", skill.plugin, skill.path ?? ""],
+    enabled: skill.path !== undefined,
+    read: async (client, signal) => {
+      const page = await plugins(
+        client,
+        { type: "plugins.source", name: skill.plugin, path: skill.path ?? "" },
+        "plugins.source",
+        signal,
+      );
+      return { text: page.text, truncated: page.nextOffset < page.bytes };
+    },
   });
 }
 
-function useUpdate<T>(change: (backend: FakeBackend, input: T) => void) {
-  const backend = useFakeBackend();
+function usePluginMutation<T, R>(run: (client: ClientApi, input: T) => Promise<R>) {
+  const client = useClient();
   const queries = useQueryClient();
   return useMutation({
-    mutationFn: async (input: T) => change(await loaded(backend), input),
-    onSuccess: () => queries.invalidateQueries({ queryKey: key }),
+    mutationFn: (input: T) => run(client, input),
+    // Not awaited: the caller can move on (open the new plugin) while the catalog reloads.
+    onSuccess: () => void queries.invalidateQueries({ queryKey: key }),
   });
 }
 
-const patch = (backend: FakeBackend, id: string, next: Partial<Skill>) => {
-  backend.skills = backend.skills.map((skill) => (skill.id === id ? { ...skill, ...next } : skill));
-};
-
-export function useSetSkillEnabled() {
-  return useUpdate((backend, input: { id: string; enabled: boolean }) =>
-    patch(backend, input.id, { enabled: input.enabled }),
-  );
-}
-
+/** Turn a plugin on or off, and choose which providers may load it. */
 export function useSetAvailability() {
-  return useUpdate((backend, input: { id: string; availability: string }) =>
-    patch(backend, input.id, { availability: input.availability }),
+  return usePluginMutation(
+    (client, input: { plugin: string; enabled: boolean; providers: readonly ProviderKind[] }) =>
+      plugins(
+        client,
+        {
+          type: "plugins.availability",
+          name: input.plugin,
+          enabled: input.enabled,
+          providers: [...input.providers],
+        },
+        "plugins.availability",
+      ),
   );
 }
 
-/** Install a plugin from a repository. The real flow reviews its executions first. */
-export function useInstallPlugin() {
-  return useUpdate((backend, repository: string) => {
-    const name = pluginName(PluginRepository.parse(repository));
-    if (!name) throw new Error("That repository has no name.");
-    if (backend.skills.some((skill) => skill.id === name))
-      throw new Error(`${name} is already installed.`);
-    backend.skills = [
-      ...backend.skills,
-      {
-        id: name,
-        kind: "plugin",
-        name,
-        description: `Installed from ${repository}`,
-        source: "plugin",
-        location: `Plugin · ${repository}`,
-        usage: "Not used yet",
-        availability: availabilities[0],
-        enabled: true,
-        preview: `${name} plugin\n\nInstalled from ${repository}.`,
-      },
-    ];
+export function useRemovePlugin() {
+  return usePluginMutation((client, name: string) =>
+    plugins(client, { type: "plugins.remove", name }, "plugins.removed"),
+  );
+}
+
+export interface PreparedPlugin {
+  review: PluginReviewSummary;
+  /** What the plugin runs once enabled: hooks, MCP servers, remote endpoints, diagnostics. */
+  entries: readonly PluginReviewEntry[];
+}
+
+/** Fetch a plugin from its repository and pin it for review; nothing runs until accepted. */
+export function usePreparePlugin() {
+  const client = useClient();
+  return useMutation({
+    mutationFn: async (input: { repository: string; ref: string; name: string }) => {
+      const prepared = await plugins(
+        client,
+        { type: "plugins.prepare", ...input },
+        "plugins.review",
+      );
+      const entries: PluginReviewEntry[] = [];
+      let offset: number | undefined = 0;
+      let review: PluginReviewSummary | undefined;
+      // A review pages its executions; read them all (the daemon caps one review at 1,024).
+      while (offset !== undefined) {
+        const page: Response<"plugins.reviewPage"> = await plugins(
+          client,
+          { type: "plugins.readReview", id: prepared.review.id, offset },
+          "plugins.reviewPage",
+        );
+        review = page.review;
+        entries.push(...page.entries);
+        offset = page.nextOffset;
+      }
+      return { review: review ?? summary(prepared.review), entries } satisfies PreparedPlugin;
+    },
   });
+}
+
+function summary(review: Response<"plugins.review">["review"]): PluginReviewSummary {
+  const { executions, unsupported, ...rest } = review;
+  return { ...rest, executionCount: executions.length, unsupportedCount: unsupported.length };
+}
+
+/** Accept the reviewed pin: the daemon installs exactly the commit and hash shown. */
+export function useAcceptPlugin() {
+  return usePluginMutation((client, review: PluginReviewSummary) =>
+    plugins(
+      client,
+      { type: "plugins.accept", id: review.id, commit: review.commit, hash: review.hash },
+      "plugins.installed",
+    ),
+  );
+}
+
+export function useCancelReview() {
+  return usePluginMutation((client, id: string) =>
+    plugins(client, { type: "plugins.cancel", id }, "plugins.cancelled"),
+  );
 }

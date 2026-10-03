@@ -11,7 +11,7 @@ import type { FakeServiceContext } from "./service-context.ts";
 export class FakeWorkspaceWire {
   readonly terminals = new FakeTerminals();
   private context: FakeServiceContext;
-  private forge: FakeForgeWire;
+  readonly forge: FakeForgeWire;
   constructor(context: FakeServiceContext) {
     this.context = context;
     this.forge = new FakeForgeWire(context);

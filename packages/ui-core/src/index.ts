@@ -12,6 +12,8 @@ export * from "./checkout.ts";
 export * from "./content-hash.ts";
 export * from "./deck.ts";
 export * from "./devices.ts";
+export * from "./deck-view.ts";
+export * from "./deck-gate.ts";
 export * from "./diff.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";

@@ -36,7 +36,7 @@ import { FakeReviewDesk } from "./review-desk.ts";
 import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
-import { FakeServicesWire, type FakeWireSession } from "./services-wire.ts";
+import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
 import { FakeOutputStore } from "./output-store.ts";
 import type { FakeBrowser } from "./browser.ts";
 import type { FakeTerminals } from "./terminals.ts";
@@ -139,6 +139,13 @@ export class FakeDaemon implements Host {
   /** The browser and previews clients reach through `browser.*` and `preview.request`. */
   get browser(): FakeBrowser {
     return this.servicesWire.browser;
+  }
+  /**
+   * Seed what a long-running daemon's services hold: decks, automations and their runs,
+   * installed plugins and the forge's pull requests. Threads a seed links to must exist.
+   */
+  seedServices(seed: ServicesSeed): void {
+    this.servicesWire.seed(seed);
   }
   session(send: (message: ServerMessage) => void): FakeWireSession {
     return this.servicesWire.session(send);

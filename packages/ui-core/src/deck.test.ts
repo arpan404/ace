@@ -3,7 +3,6 @@ import { cardColumns, deckStepper, landingDeck, type DeckCard, type DeckRun } fr
 
 const card = (id: string, dependencies: string[] = []): DeckCard => ({
   id,
-  kind: "work",
   title: id,
   dependencies,
   state: "planned",
@@ -41,27 +40,22 @@ const run = (patch: Partial<DeckRun>): DeckRun => ({
   title: "Resumable streams",
   goal: "",
   workspaceId: "ace",
-  branch: "deck/streams",
   phase: "planning",
   planApproved: false,
   gate: null,
-  stages: [],
+  gates: 0,
   cards: [],
-  log: [],
-  pullRequest: null,
-  createdAt: 0,
-  updatedAt: 0,
+  spent: 0,
+  budget: 0,
+  error: undefined,
+  partial: false,
   ...patch,
 });
 const labels = (r: DeckRun) => deckStepper(r).steps.map((s) => `${s.state}:${s.label}`);
 
 test("the stepper moves from plan to dealing with merged progress, then to merged", () => {
   expect(labels(run({}))).toEqual(["done:Goal", "current:Plan", "todo:Dealing", "todo:Merge"]);
-  const cards = [
-    { ...card("a"), state: "merged" as const },
-    card("b"),
-    { ...card("merge"), kind: "merge" as const },
-  ];
+  const cards = [{ ...card("a"), state: "merged" as const }, card("b")];
   expect(labels(run({ phase: "dealing", planApproved: true, cards }))).toEqual([
     "done:Goal",
     "done:Plan approved",
@@ -82,7 +76,7 @@ test("a paused or cancelled deck's stepper stops moving", () => {
 });
 
 test("Deck lands on a gated deck first, then an active one, then the latest", () => {
-  const gate = { id: "g", kind: "plan" as const, title: "", body: "", revision: 1, changes: [] };
+  const gate = { id: "g", kind: "plan" as const, title: "", body: "", workstream: null };
   const finished = run({ id: "finished", phase: "merged" });
   const active = run({ id: "active", phase: "dealing" });
   const gated = run({ id: "gated", gate });

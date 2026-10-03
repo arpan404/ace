@@ -4,7 +4,7 @@ const hour = 3_600_000;
 const day = 24 * hour;
 
 /** The approved design's automations: three schedules and a pull-request trigger. */
-export function seedAutomations(startAt: number, zone: string): Automation[] {
+export function automationList(startAt: number, zone: string): Automation[] {
   const common = { missedRun: "run_once", concurrency: 1, jitterMs: 0 } as const;
   return [
     {
@@ -100,17 +100,18 @@ const run = (
   id,
   automationId,
   title,
-  eventKey: `${automationId}:${now - ago}`,
+  eventKey: `${automationId}:${id}`,
   trigger,
   status,
-  startedAt: now - ago,
-  finishedAt: now - ago + 4 * 60_000,
+  // Never before the epoch, whatever clock a test starts from.
+  startedAt: Math.max(0, now - ago),
+  finishedAt: Math.max(0, now - ago) + 4 * 60_000,
   result,
   ...(threadId ? { threadId } : {}),
 });
 
 /** Recent runs, newest first, timed relative to `now`. */
-export function seedRuns(now: number): AutomationRun[] {
+export function automationRuns(now: number): AutomationRun[] {
   const audit = "Nightly dependency audit";
   const review = "Review pull requests on open";
   return [

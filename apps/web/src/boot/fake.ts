@@ -1,4 +1,11 @@
-import { FakeDaemon, ScenarioPlayer, devWorld, fakeTransport, seedPanels } from "@ace/fake-daemon";
+import {
+  FakeDaemon,
+  ScenarioPlayer,
+  devWorld,
+  fakeTransport,
+  seedPanels,
+  workbenchServices,
+} from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
 import { createBrowserClient, memoryStorage } from "./client.ts";
 import { fallback, type DaemonConnection } from "./connection.tsx";
@@ -36,6 +43,10 @@ export function bootFake(): {
   }
   // The panels' terminals, browser and dev server, in the daemon's own services.
   seedPanels(daemon);
+  // Decks, automations, plugins and linked pull requests, served over the wire like a daemon's.
+  daemon.seedServices(
+    workbenchServices(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
+  );
   const client = createBrowserClient({
     deviceId: "web-fake-device",
     transport: () => fakeTransport(daemon),
