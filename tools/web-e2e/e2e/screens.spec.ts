@@ -291,7 +291,10 @@ const screens: Record<string, Setup> = {
   }),
   "state-deck-loading": staged('daemon.holdRequests("conductor.request");', async (page) => {
     await page.goto("/deck");
-    await page.getByRole("status", { name: /^Loading/ }).first().waitFor();
+    await page
+      .getByRole("status", { name: /^Loading/ })
+      .first()
+      .waitFor();
   }),
   "state-deck-error": staged('daemon.failRequests("conductor.request");', async (page) => {
     await page.goto("/deck");
