@@ -61,6 +61,21 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
     return events;
   }
   switch (fact.type) {
+    case "agent.external": {
+      const record = ensureAgent(state, fact.agent, ctx, events);
+      if (fact.status.state === "failed" && record.externalStatus?.state !== "failed")
+        record.lastOutcomeOrder = ++state.outcomeOrder;
+      record.externalStatus = fact.status;
+      if (record.agent.childThreadId !== fact.threadId) {
+        record.agent.childThreadId = fact.threadId;
+        emit(events, {
+          type: "agent.updated",
+          agentId: record.agent.id,
+          childThreadId: fact.threadId,
+        });
+      }
+      break;
+    }
     case "agent.disconnected":
       ensureAgent(state, fact.agent, ctx, events).disconnectedAt = ctx.now;
       break;

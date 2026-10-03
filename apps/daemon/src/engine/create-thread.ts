@@ -48,12 +48,7 @@ export function createEngineThread(
     },
   });
   repo.save(state, [{ type: "thread.created", thread }], at);
-  repo.createSession(id, cwd, selection.model);
+  repo.createSession(id, cwd, selection.model, selection.instanceId, selection.options);
   repo.transitions.set(id, { selection, context: [] });
   repo.transitions.remember(id, selection);
-  repo.store.atomic((db) =>
-    db
-      .prepare("UPDATE engine_sessions SET instance_id=? WHERE thread_id=?")
-      .run(selection.instanceId ?? null, id),
-  );
 }

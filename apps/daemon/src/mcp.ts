@@ -7,10 +7,15 @@ import {
   registerBuiltins,
   startMcpServer,
   type Toolkit,
+  type McpIntentPort,
 } from "@ace/mcp-server";
 import type { Store } from "./store.ts";
 
-export async function startDaemonMcp(store: Store, toolkits: readonly Toolkit[] = []) {
+export async function startDaemonMcp(
+  store: Store,
+  toolkits: readonly Toolkit[] = [],
+  spawn?: McpIntentPort["spawn"],
+) {
   const registry = new ToolRegistry({ scheduler: nodeScheduler });
   registerBuiltins(
     registry,
@@ -57,6 +62,7 @@ export async function startDaemonMcp(store: Store, toolkits: readonly Toolkit[] 
         return { intentId };
       },
       async spawn(intent, signal) {
+        if (spawn) return spawn(intent, signal);
         const intentId = randomUUID();
         signal.throwIfAborted();
         store.enqueueMcpIntent(intentId, intent, [], Date.now());

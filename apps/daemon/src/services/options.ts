@@ -19,6 +19,12 @@ export type DaemonOptions = {
   files?: Pick<import("@ace/files").FilesOptions, "workspaceRuntime" | "maxReservedBytes">;
   /** Startup deadlines and scheduler are injected at the timer boundary. */
   startup?: Partial<import("./startup.ts").StartupRuntime>;
+  agentControl?: {
+    policy?: Partial<import("@ace/protocol").DelegationPolicy>;
+    /** Inject the host Git boundary; never exposed as MCP input. */
+    handoffGit?: () => import("../agent-control/handoffs.ts").HandoffGit;
+    extensions?: import("../agent-control/tools.ts").AgentControlExtensions;
+  };
   claude?: DaemonClaudeOptions;
   pi?: import("./pi.ts").PiDaemonOptions;
   screen?: ScreenManager;

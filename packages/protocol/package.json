@@ -10,6 +10,7 @@
     "./history": "./src/history.ts",
     "./forge": "./src/forge.ts",
     "./accounts": "./src/accounts.ts",
+    "./agent-control": "./src/agent-control.ts",
     "./thread-transitions": "./src/thread-transitions.ts",
     "./handoff-read": "./src/handoff-read.ts",
     "./pi": "./src/pi.ts"

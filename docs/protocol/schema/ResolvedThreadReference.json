@@ -1,0 +1,52 @@
+{
+  "$id": "https://ace.local/protocol/v1/ResolvedThreadReference.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "pointer": {
+      "properties": {
+        "before": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        }
+      },
+      "required": [
+        "threadId",
+        "before"
+      ],
+      "type": "object"
+    },
+    "summary": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "type": {
+      "const": "thread_ref",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "threadId",
+    "summary",
+    "truncated",
+    "pointer"
+  ],
+  "type": "object"
+}

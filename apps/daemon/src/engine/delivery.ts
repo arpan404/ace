@@ -1,3 +1,4 @@
+import type { Command, ThreadId, ContentPart } from "@ace/protocol";
 import type { ThreadTransitions } from "./transitions.ts";
 import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
@@ -11,20 +12,40 @@ export async function executeIntent(
   registry: AdapterRegistry,
   sessions: Sessions,
   transitions: ThreadTransitions,
+  prepareInput?: (
+    command: Command,
+    threadId: ThreadId,
+    signal: AbortSignal,
+  ) => Promise<ContentPart[]>,
 ): Promise<void> {
   const p = intent.command.payload;
   if (p.type === "thread.create" || p.type === "thread.send" || p.type === "thread.fork") {
     if (p.type === "thread.fork") await transitions.freezeForkSource(p.threadId, actor.id);
     await sessions.open(actor);
+    if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
     const capabilities =
       actor.effectiveCapabilities ??
       registry.get(repo.requireState(actor.id).config.provider).capabilities;
     const session = actor.session;
     if (!session) throw new Error("Provider session exited before send");
+    if (p.type !== "thread.fork" && (p.context?.items?.length ?? 0) > 0 && !prepareInput)
+      throw new Error("Thread context unavailable");
+    const input: ContentPart[] =
+      p.type === "thread.fork"
+        ? [{ type: "text", text: p.input }]
+        : prepareInput
+          ? await prepareInput(
+              intent.command,
+              actor.id,
+              actor.lifetime?.signal ?? AbortSignal.abort(),
+            )
+          : p.input;
+    actor.lifetime?.signal.throwIfAborted();
+    if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
     await session.send(
       [
-        ...transitions.input(actor.id).map((text) => ({ type: "text" as const, text })),
-        ...(p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input),
+        ...transitions.input(actor.id).map((text): ContentPart => ({ type: "text", text })),
+        ...input,
       ],
       p.type === "thread.send" && p.delivery === "steer" && capabilities.steer ? "steer" : "queue",
       intent.command.id,
@@ -32,7 +53,14 @@ export async function executeIntent(
     transitions.delivered(actor.id);
     return;
   }
-  if (!actor.session) throw new Error("Provider session is not live");
+  if (!actor.session) {
+    if (p.type === "thread.interrupt") {
+      if (actor.lifetime) actor.lifetime.abort();
+      else actor.apply([{ type: "process.exited", deliberate: true }]);
+      return;
+    }
+    throw new Error("Provider session is not live");
+  }
   const state = repo.requireState(actor.id);
   if (p.type === "thread.model.set") {
     if (!actor.session.setModel) throw new Error("Provider model selection unavailable");
@@ -60,9 +88,9 @@ export async function executeIntent(
     if (p.cascade && !capabilities.interruptCascades) {
       const target = p.agentId ?? state.agents[state.rootKey ?? ""]?.agent.id;
       const descendants = (id: string): string[] =>
-        Object.keys(state.indexes.childrenByParent[id] ?? {}).flatMap((key) =>
-          descendants(state.agents[key]?.agent.id ?? "").concat(key),
-        );
+        Object.keys(state.indexes.childrenByParent[id] ?? {})
+          .filter((key) => !state.agents[key]?.externalStatus)
+          .flatMap((key) => descendants(state.agents[key]?.agent.id ?? "").concat(key));
       for (const key of target ? descendants(target) : [])
         await actor.session.interrupt({ agent: key, cascade: false });
     }

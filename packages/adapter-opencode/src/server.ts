@@ -23,6 +23,8 @@ export type ServerConsumer = {
   exited(deliberate: boolean, message?: string): void;
 };
 export type ServerOptions = {
+  /** Ephemeral scoped MCP credentials must be redacted from observed server frames. */
+  redactSecrets?: readonly string[];
   discovery?: DiscoveryOptions;
   startupTimeoutMs?: number;
   shutdownTimeoutMs?: number;
@@ -143,7 +145,7 @@ export class OpenCodeServer {
         expected = this.options.attach.version;
         this.base = loopback(this.options.attach.url);
         this.authorization = this.options.attach.authorization;
-        this.secrets = [this.authorization];
+        this.secrets = [this.authorization, ...(this.options.redactSecrets ?? [])];
       } else {
         const cli = (
           await this.runtime.discover({ ...this.options.discovery, signal: this.controller.signal })
@@ -154,7 +156,12 @@ export class OpenCodeServer {
           throw new Error("OpenCode 2.0.22 is required; upgrade v1 or review the new contract");
         const password = this.runtime.entropy(32);
         this.authorization = `Basic ${Buffer.from(`opencode:${password}`).toString("base64")}`;
-        this.secrets = [password, this.authorization, this.authorization.slice(6)];
+        this.secrets = [
+          password,
+          this.authorization,
+          this.authorization.slice(6),
+          ...(this.options.redactSecrets ?? []),
+        ];
         this.controller.signal.throwIfAborted();
         const proc = this.runtime.spawn({
           command: cli.path,

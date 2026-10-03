@@ -25,6 +25,14 @@ import { ServiceStartup, systemStartup } from "./services/startup.ts";
 import type { DaemonOptions } from "./services/options.ts";
 export type { DaemonOptions } from "./services/options.ts";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
+export { AgentPreviews } from "./agent-control/owners.ts";
+export { DelegationService, type DelegationDependencies } from "./agent-control/delegations.ts";
+export type { HandoffGit } from "./agent-control/handoffs.ts";
+export {
+  createAgentControlPort,
+  type AgentControlExtensions,
+  type ThreadOwnerOperation,
+} from "./agent-control/tools.ts";
 export { Store, type StoreOptions } from "./store.ts";
 export { readConfig } from "./config.ts";
 export type { SearchScheduler } from "./search-runtime.ts";
@@ -231,6 +239,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
         return requireService(services.settings, "settings");
       },
       engine: services.engine,
+      agentControl: services.agentControl,
       accounts: services.accounts,
       get commands() {
         return services.commands;

@@ -16,6 +16,8 @@ import {
   RawPayload,
   RunTrigger,
   Timestamp,
+  ThreadId,
+  ThreadStatus,
 } from "@ace/protocol";
 import type { Fact, ItemDraft, ToolDetailDraft } from "./facts.ts";
 import { get } from "./emit.ts";
@@ -28,6 +30,7 @@ const raw = RawPayload.array();
 const agentId = AgentId.parse("validation_agent");
 const itemId = ItemId.parse("validation_item");
 const allowed: Record<Fact["type"], string[]> = {
+  "agent.external": ["agent", "threadId", "status"],
   "agent.seen": [
     "agent",
     "parent",
@@ -217,6 +220,12 @@ function itemError(state: ThreadState, fact: Fields, now: number): string | unde
 
 function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: number): boolean {
   switch (type) {
+    case "agent.external":
+      return (
+        ThreadId.safeParse(fact.threadId).success &&
+        validData(ThreadStatus, fact.status) &&
+        get(state.agents, String(fact.agent))?.agent.origin === "ace"
+      );
     case "agent.seen":
       return (
         Agent.safeParse({

@@ -15,6 +15,8 @@ import type {
   RunTrigger,
   ToolCall,
   ToolDetail,
+  ThreadStatus,
+  ThreadId,
 } from "@ace/protocol";
 
 /** Adapter-owned identity, unique within an entity kind and provider process. */
@@ -67,6 +69,7 @@ export type AgentError = Extract<AgentStatus, { state: "failed" }>["error"];
  * creates a minimal streaming item, which later upserts can enrich.
  */
 export type Fact =
+  | { type: "agent.external"; agent: Key; threadId: ThreadId; status: ThreadStatus }
   | {
       type: "agent.seen";
       agent: Key;

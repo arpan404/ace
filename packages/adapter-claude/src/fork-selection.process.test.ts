@@ -61,3 +61,36 @@ test("Claude changes model and effort without replacing its native session", asy
     await h.session.close("shutdown");
   }
 });
+
+test("Claude retains both user MCP servers and a lifetime-scoped ace lease", async () => {
+  const h = await harness(
+    undefined,
+    "root",
+    {
+      mcpServers: { user: { type: "http", url: "http://127.0.0.1:23456/mcp" } },
+    },
+    {
+      options: { effort: null },
+      aceMcp: {
+        url: "http://127.0.0.1:12345/mcp",
+        bearer: "a".repeat(64),
+        signal: new AbortController().signal,
+        end: () => {},
+      },
+    },
+  );
+  try {
+    const status = await h.session.mcp?.status();
+    expect(status).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "ace", status: "connected" }),
+        expect.objectContaining({ name: "user", status: "connected" }),
+      ]),
+    );
+    await h.session.send([{ type: "text", text: "continue with scoped tools" }], "queue");
+    await h.wait(subtype("fake_input"));
+    expect(JSON.stringify(h.frames)).not.toContain("a".repeat(64));
+  } finally {
+    await h.session.close("shutdown");
+  }
+});

@@ -1,3 +1,4 @@
+import { claudeInjection } from "@ace/mcp-server";
 import { ClaudeSelectionOptions } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { randomUUID } from "node:crypto";
@@ -41,6 +42,9 @@ export async function openSession(
   if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
   if (ctx.fork?.point.type === "turn") throw new Error("Claude requires a native message boundary");
   ctx.signal.throwIfAborted();
+  const injection = ctx.aceMcp
+    ? claudeInjection({ url: ctx.aceMcp.url, bearer: ctx.aceMcp.bearer })
+    : undefined;
   const env = { ...process.env, ...options.env, ...ctx.env };
   const executable = await findExecutable(options.executable ?? "claude", env);
   if (!executable) throw new Error("Claude CLI is not installed");
@@ -72,7 +76,11 @@ export async function openSession(
   let q: Query;
   const processId = randomUUID();
   const frame = (dir: Frame["dir"], channel: string, data: unknown) => {
-    const payload = new ProviderPayload(JSON.stringify(data));
+    const payload = new ProviderPayload(
+      ctx.aceMcp
+        ? JSON.stringify(data).replaceAll(ctx.aceMcp.bearer, "[ace credential redacted]")
+        : JSON.stringify(data),
+    );
     ctx.onFrame({
       seq: sequence++,
       t: Math.round(performance.now() - started),
@@ -117,6 +125,15 @@ export async function openSession(
     prompt: input,
     options: {
       cwd: ctx.cwd,
+      ...(injection
+        ? {
+            systemPrompt: {
+              type: "preset",
+              preset: "claude_code",
+              append: injection.developerInstructions,
+            },
+          }
+        : {}),
       ...(ctx.model ? { model: ctx.model } : {}),
       ...(ctx.fork
         ? {
@@ -132,7 +149,7 @@ export async function openSession(
       pathToClaudeCodeExecutable: executable,
       ...configuration,
       ...(selectedOptions.permissionMode ? { permissionMode: selectedOptions.permissionMode } : {}),
-      mcpServers: nativeMcpServers(options.mcpServers ?? {}),
+      mcpServers: nativeMcpServers({ ...options.mcpServers, ...injection?.mcpServers }),
       includePartialMessages: true,
       forwardSubagentText: true,
       perTaskStopAffordance: true,

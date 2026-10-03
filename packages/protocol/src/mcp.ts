@@ -8,6 +8,9 @@ export const McpCapability = z.enum([
   "terminal",
   "notify",
   "agents",
+  "thread_control",
+  "automations",
+  "projects",
   "forge",
   "screen",
 ]);
@@ -16,7 +19,7 @@ export const McpScope = z.object({
   sessionId: z.string().min(1).max(256),
   threadId: ThreadId,
   agentId: AgentId,
-  capabilities: z.array(McpCapability).max(7),
+  capabilities: z.array(McpCapability).max(10),
 });
 export type McpScope = z.infer<typeof McpScope>;
 export const McpAttribution = McpScope.omit({ capabilities: true });

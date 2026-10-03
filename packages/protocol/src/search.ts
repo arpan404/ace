@@ -22,6 +22,7 @@ export const SearchState = z.enum([
 ]);
 export const SearchFilters = z
   .object({
+    threadId: ThreadId.optional(),
     workspaceId: WorkspaceId.optional(),
     provider: ProviderKind.optional(),
     after: Timestamp.optional(),

@@ -1,0 +1,32 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_thread_read_output.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "limit": {
+      "default": 8192,
+      "maximum": 16384,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "offset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "streamId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "streamId",
+    "offset"
+  ],
+  "type": "object"
+}

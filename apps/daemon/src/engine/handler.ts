@@ -24,6 +24,7 @@ export function engineHandler(
       if (
         ![
           "thread.create",
+          "thread.prepare",
           "thread.send",
           "thread.interrupt",
           "thread.archive",
@@ -37,7 +38,7 @@ export function engineHandler(
       return repo.store.atomic(() => {
         let threadId: ThreadId | undefined;
         let resolutionId: string | undefined;
-        if (p.type === "thread.create") {
+        if (p.type === "thread.create" || p.type === "thread.prepare") {
           const identity = p.provider === "acp" ? AcpIdentity.safeParse(p) : undefined;
           if (p.provider === "acp" && !identity?.success) return fail("acp_identity_required");
           const acpIdentity = identity?.success ? identity.data : undefined;
@@ -51,8 +52,18 @@ export function engineHandler(
           } catch {
             return fail("workspace_unavailable");
           }
+          if (
+            p.options &&
+            Object.keys(p.options).some(
+              (option) =>
+                !registry
+                  .get(p.provider)
+                  .capabilities.launchOptions?.some((supported) => supported === option),
+            )
+          )
+            return fail("launch_options_unsupported");
           const at = now();
-          threadId = ThreadId.parse(nextId());
+          threadId = ThreadId.parse(p.threadId ?? nextId());
           if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
           createEngineThread(repo, {
             id: threadId,
@@ -61,13 +72,21 @@ export function engineHandler(
             ...(acpIdentity ? { acpIdentity } : {}),
             selection: {
               provider: p.provider,
-              options: {},
+              options: {
+                ...(p.options?.effort ? { effort: p.options.effort } : {}),
+                ...(p.options?.serviceTier ? { serviceTier: p.options.serviceTier } : {}),
+              },
+              ...(p.accountId ? { instanceId: p.accountId } : {}),
               ...(p.model === undefined ? {} : { model: p.model }),
             },
             cwd,
             at,
             silenceMs,
           });
+          if (p.type === "thread.prepare") {
+            repo.release(threadId);
+            return { commandId: command.id, ok: true, threadId };
+          }
         } else if ("threadId" in p) {
           threadId = p.threadId;
           if (p.type === "thread.archive") {
@@ -112,10 +131,14 @@ export function engineHandler(
             return fail(p.type === "interaction.resolve" ? "already_resolved" : "task_not_found");
         } else return fail("not_implemented");
         if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
+        const released = p.type === "thread.interrupt" ? repo.cancelPending(threadId, now()) : [];
         repo.add(command, threadId, resolutionId);
         // Microtasks execute only after the enclosing receipt transaction commits.
-        queueMicrotask(() => wake(threadId));
-        return { commandId: command.id, ok: true };
+        queueMicrotask(() => {
+          if (repo.state(threadId)) wake(threadId);
+          for (const id of released) wake(id);
+        });
+        return { commandId: command.id, ok: true, threadId };
       });
     },
   };

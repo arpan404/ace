@@ -23,7 +23,7 @@ export async function harness(
   resume?: string,
   rootKey = "root",
   options: ClaudeOptions = {},
-  execution: Pick<SessionContext, "fork" | "options"> = {},
+  execution: Pick<SessionContext, "fork" | "options" | "aceMcp"> = {},
 ) {
   const frames: Frame[] = [];
   const waiters: { predicate(frame: Frame): boolean; resolve(frame: Frame): void }[] = [];

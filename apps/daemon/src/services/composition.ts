@@ -15,6 +15,7 @@ import { startUsage } from "./usage.ts";
 import { startModels } from "./models.ts";
 import { startMcp } from "./mcp.ts";
 import { startNotifications } from "./notifications.ts";
+import { startAgentControl } from "./agent-control.ts";
 import { startPi } from "./pi.ts";
 import { startEngine } from "./engine.ts";
 import type { ServiceContext, Services } from "./types.ts";
@@ -52,6 +53,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "history", phase: "listener", requires: [], after: [], start: startHistory },
   { name: "usage", phase: "listener", requires: [], after: [], start: startUsage },
   { name: "notifications", phase: "listener", requires: [], after: [], start: startNotifications },
+  {
+    name: "agentControl",
+    phase: "listener",
+    requires: ["engine"],
+    after: ["accounts", "context", "notifications"],
+    start: startAgentControl,
+  },
 ];
 /** Public daemon access fails explicitly when a feature could not be initialized. */
 export function requireService<T>(service: T | undefined, name: string): T {

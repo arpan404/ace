@@ -36,6 +36,7 @@ export interface ApplyContext {
 
 export interface AgentRecord {
   agent: Agent;
+  externalStatus?: ThreadStatus;
   activeRun?: RunId;
   lastRun?: RunId;
   /** Process-namespaced native turn ids index the canonical run history. */

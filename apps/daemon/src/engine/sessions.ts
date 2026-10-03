@@ -13,6 +13,11 @@ interface SessionDependencies {
   wake(id: ThreadId): void;
   expireDelivery(actor: ThreadActor): void;
   released(id: ThreadId): void;
+  mcp?(
+    threadId: ThreadId,
+    agentId: string,
+    lifetime: AbortSignal,
+  ): NonNullable<SessionContext["aceMcp"]>;
   context?(
     threadId: ThreadId,
     signal: AbortSignal,
@@ -44,9 +49,16 @@ export class Sessions {
         ...(identity ? { acpIdentity: identity } : {}),
       });
       actor.apply([{ type: "process.started" }]);
+      const rootAgent = state.agents[rootKey]?.agent;
+      const aceMcp =
+        rootAgent && state.config.provider !== "acp"
+          ? this.dependencies.mcp?.(actor.id, rootAgent.id, lifetime.signal)
+          : undefined;
       const context = await this.dependencies.context?.(actor.id, lifetime.signal);
       const session = await adapter.openSession({
         ...context,
+        ...(aceMcp ? { aceMcp } : {}),
+        options: transition.selection?.options ?? metadata.options ?? {},
         ...(identity ? { acpIdentity: identity } : {}),
         onCapabilities: (effectiveCapabilities, acpSupport) => {
           if (generation !== actor.generation) return;
@@ -68,7 +80,6 @@ export class Sessions {
         threadId: actor.id,
         rootKey,
         cwd: metadata.cwd,
-        ...(transition.selection ? { options: transition.selection.options } : {}),
         ...(transition.fork && metadata.nativeSessionId === undefined
           ? { fork: transition.fork }
           : {}),
@@ -95,7 +106,12 @@ export class Sessions {
           }),
       });
       await actor.flush();
-      if (generation !== actor.generation || actor.poisoned || this.dependencies.closing()) {
+      if (
+        generation !== actor.generation ||
+        actor.poisoned ||
+        lifetime.signal.aborted ||
+        this.dependencies.closing()
+      ) {
         await session.close("shutdown");
         throw new Error("Provider session closed while opening");
       }

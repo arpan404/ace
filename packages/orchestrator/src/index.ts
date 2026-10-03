@@ -6,3 +6,10 @@ export { commandHandler, type OrchestrationCommandPort } from "./commands.ts";
 export { compare, mergeWinner } from "./git.ts";
 export { sideBySide } from "./summary.ts";
 export { spawnAgent } from "./spawn.ts";
+
+export {
+  admitDelegation,
+  delegationBudget,
+  childResultPrompt,
+  type DelegationCapacity,
+} from "./delegation.ts";

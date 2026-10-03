@@ -2,10 +2,10 @@ import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
 import { executeIntent } from "./delivery.ts";
 import { Sessions } from "./sessions.ts";
 import { randomUUID } from "node:crypto";
-import { deriveThreadStatus, type Fact, type IdSource } from "@ace/core";
+import { deriveThreadStatus, readyForChildResults, type Fact, type IdSource } from "@ace/core";
 import type { CommandHandler } from "../commands.ts";
 import type { Store } from "../store.ts";
-import type { ThreadId } from "@ace/protocol";
+import type { ThreadId, AgentId, Thread, ProviderKind, Command, ContentPart } from "@ace/protocol";
 import { ThreadActor, systemClock, type EngineClock } from "./actor.ts";
 import { engineLimits, type EngineLimits } from "./limits.ts";
 import { IntentWorkers } from "./workers.ts";
@@ -26,6 +26,16 @@ export interface EngineOptions {
   idleMs?: number;
   silenceMs?: number;
   onError?: (error: unknown) => void;
+  prepareInput?: (
+    command: Command,
+    threadId: ThreadId,
+    signal: AbortSignal,
+  ) => Promise<ContentPart[]>;
+  mcp?: (
+    threadId: ThreadId,
+    agentId: string,
+    lifetime: AbortSignal,
+  ) => NonNullable<import("@ace/engine-api").SessionContext["aceMcp"]>;
 }
 export class Engine {
   readonly handler: CommandHandler;
@@ -43,7 +53,13 @@ export class Engine {
   private transitions: ThreadTransitions;
   private closing = false;
   private closePromise?: Promise<void>;
+  private commandPolicy?: (
+    command: Command,
+    accept: () => import("@ace/protocol").CommandResult,
+  ) => import("@ace/protocol").CommandResult;
+  private prepareInput: EngineOptions["prepareInput"];
   constructor(store: Store, options: EngineOptions = {}) {
+    this.prepareInput = options.prepareInput;
     this.limits = engineLimits(options.limits);
     this.repo = new EngineRepository(store, options.ids, this.limits.maxActiveThreads);
     this.registry = options.registry ?? new AdapterRegistry();
@@ -57,6 +73,7 @@ export class Engine {
     this.steering = new IntentWorkers((id) => this.steer(this.actor(id)), this.report);
     this.controls = new IntentWorkers((id) => this.control(this.actor(id)), this.report);
     this.sessions = new Sessions({
+      ...(options.mcp ? { mcp: options.mcp } : {}),
       ...(options.sessionContext ? { context: options.sessionContext } : {}),
       repo: this.repo,
       registry: this.registry,
@@ -102,9 +119,17 @@ export class Engine {
       handle: (command, context) =>
         this.closing
           ? { commandId: command.id, ok: false, error: "daemon_shutting_down" }
-          : handler.handle(command, context),
+          : store.atomic(() =>
+              this.commandPolicy
+                ? this.commandPolicy(command, () => handler.handle(command, context))
+                : handler.handle(command, context),
+            ),
     };
     this.recover();
+  }
+  /** One trusted host policy for accepted commands, inside the receipt transaction. */
+  bindCommandPolicy(policy: NonNullable<Engine["commandPolicy"]>): void {
+    this.commandPolicy = policy;
   }
   private actor(id: ThreadId): ThreadActor {
     let actor = this.actors.get(id);
@@ -131,6 +156,59 @@ export class Engine {
       this.actors.set(id, actor);
     }
     return actor;
+  }
+  capabilities(provider: ProviderKind) {
+    return this.registry.get(provider).capabilities;
+  }
+  /** Host-owned summary attachment. Child transcript and native session stay independent. */
+  attachChild(
+    parentId: ThreadId,
+    parentAgentId: AgentId,
+    child: Thread,
+    role: string,
+    background: boolean,
+  ): void {
+    const state = this.repo.requireState(parentId);
+    const parent = state.indexes.agentKeysById[parentAgentId];
+    if (!parent) throw new Error("Unknown parent agent");
+    this.repo.apply(
+      parentId,
+      [
+        {
+          type: "agent.seen",
+          agent: `ace-child:${child.id}`,
+          parent,
+          origin: "ace",
+          fidelity: "summary",
+          native: { provider: child.provider },
+          cwd: this.repo.session(child.id).cwd,
+          role,
+          background,
+        },
+        {
+          type: "agent.external",
+          agent: `ace-child:${child.id}`,
+          threadId: child.id,
+          status: child.status,
+        },
+      ],
+      this.clock.now(),
+    );
+  }
+  updateChild(parentId: ThreadId, child: Thread): void {
+    this.repo.apply(
+      parentId,
+      [
+        {
+          type: "agent.external",
+          agent: `ace-child:${child.id}`,
+          threadId: child.id,
+          status: child.status,
+        },
+      ],
+      this.clock.now(),
+    );
+    this.wake(parentId);
   }
   /** On-demand metrics visit bounded live actors and indexed outstanding intents only. */
   workload(): { activeSessions: number; queues: Record<string, number> } {
@@ -270,10 +348,16 @@ export class Engine {
       !actor.session &&
       this.repo
         .intents(actor.id)
-        .some((intent) =>
-          ["thread.create", "thread.send", "thread.fork", "thread.switch", "thread.merge"].includes(
-            intent.command.payload.type,
-          ),
+        .some(
+          (intent) =>
+            ["pending", "queued", "running"].includes(intent.status) &&
+            [
+              "thread.create",
+              "thread.send",
+              "thread.fork",
+              "thread.switch",
+              "thread.merge",
+            ].includes(intent.command.payload.type),
         )
     )
       return;
@@ -342,8 +426,12 @@ export class Engine {
         if (!this.repo.quiescent(state)) continue;
       } else {
         const status = deriveThreadStatus({ ...state, queueCount: state.queueSources.provider });
-        if (!["new", "done", "failed"].includes(status.state) && !this.repo.quiescent(state))
-          continue;
+        const ready =
+          (p.type === "thread.send" || p.type === "thread.create") &&
+          p.trigger === "subagent_result"
+            ? readyForChildResults(state)
+            : ["new", "done", "failed"].includes(status.state) || this.repo.quiescent(state);
+        if (!ready) continue;
       }
       await this.runIntent(actor, intent);
     }
@@ -429,10 +517,11 @@ export class Engine {
           this.registry,
           this.sessions,
           this.transitions,
+          this.prepareInput,
         );
       await actor.flush();
       if (actor.poisoned) throw new Error("Provider frames could not be persisted");
-      this.repo.mark(intent, "done");
+      if (!this.repo.cancelled(intent.id)) this.repo.mark(intent, "done");
       this.releaseGuards(intent);
     } catch (error) {
       await actor.flush();

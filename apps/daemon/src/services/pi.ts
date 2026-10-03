@@ -26,6 +26,12 @@ export async function startPi(context: ServiceContext): Promise<void> {
         ...context.options.pi,
         cli: source,
         openMcp(ctx, lifetime) {
+          if (ctx.aceMcp)
+            return {
+              url: ctx.aceMcp.url,
+              bearer: ctx.aceMcp.bearer,
+              end: () => ctx.aceMcp?.end?.(),
+            };
           const mcp = context.services.mcp;
           const root = context.store.getThread(ctx.threadId)?.rootAgentId;
           if (!mcp || !root) throw new Error("Pi MCP caller unavailable");
@@ -34,7 +40,14 @@ export async function startPi(context: ServiceContext): Promise<void> {
               threadId: ctx.threadId,
               agentId: AgentId.parse(root),
               sessionId: context.id(),
-              capabilities: ["agents", "notify", "browser"],
+              capabilities: [
+                "agents",
+                "notify",
+                "thread_control",
+                "automations",
+                "projects",
+                "browser",
+              ],
             },
             lifetime,
           );

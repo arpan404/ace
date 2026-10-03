@@ -30,7 +30,7 @@ export function developerInstructions(provider: ProviderKind): string {
     acp: "Use the ace MCP server for ace operations.",
     pi: "Use ace_* extension tools for ace operations.",
   };
-  return `${prefix[provider]} Inspect the thread and agent tree for live status. Spawn returns acceptance, not completion. Notify the user when their input is needed. Browser and preview tools appear only when authorized.`;
+  return `${prefix[provider]} Inspect the thread and agent tree for live status. Use delegate_task to start independent child threads on any available provider. Choose wait to await the outcome or continue working; completed children wake you in a batched turn. Creation returns acceptance, not completion. Agents may answer questions but must never resolve approvals. Notify the user when their input is needed. Browser and preview tools appear only when authorized.`;
 }
 export function codexInjection(input: AceMcpConnection) {
   const { url, bearer } = AceMcpConnectionSchema.parse(input);

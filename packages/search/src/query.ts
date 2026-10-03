@@ -89,6 +89,7 @@ export function querySearch(
     values.push(expression);
   }
   for (const [value, column, operator] of [
+    [q.filters.threadId, "t.id", "="],
     [q.filters.workspaceId, "t.workspace", "="],
     [q.filters.provider, "t.provider", "="],
     [q.filters.status, "t.status", "="],

@@ -211,6 +211,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 export const CommandResult = z.object({
+  threadId: ThreadId.optional(),
   commandId: CommandId,
   ok: z.boolean(),
   forkThreadId: ThreadId.optional(),

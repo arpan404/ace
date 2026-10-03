@@ -189,7 +189,7 @@ it.each(cases)(
           .object({
             body: z.object({
               data: z.object({
-                echoedSecret: z.literal("[REDACTED]"),
+                echoedSecret: z.literal("[redacted]"),
                 transportDebug: z.literal("[redacted]"),
               }),
             }),

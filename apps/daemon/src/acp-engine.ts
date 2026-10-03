@@ -73,7 +73,14 @@ export function acpEngineOptions(input: {
           sessionId: `${threadId}:${identity.installationId}`,
           threadId,
           agentId: root,
-          capabilities: ["notify", "agents", "browser"],
+          capabilities: [
+            "notify",
+            "agents",
+            "thread_control",
+            "automations",
+            "projects",
+            "browser",
+          ],
         },
         signal,
       );

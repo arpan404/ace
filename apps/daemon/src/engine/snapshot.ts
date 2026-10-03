@@ -39,6 +39,7 @@ const root = z.object({
 });
 const record = z.object({
   agent: Agent,
+  externalStatus: ThreadStatus.optional(),
   activity: AgentActivity,
   lastSignalAt: Timestamp,
   activeRun: RunId.optional(),
