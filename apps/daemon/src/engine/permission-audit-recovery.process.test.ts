@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { Engine, Store } from "@ace/daemon";
 import type { Fact } from "@ace/core";
+import { Command, PermissionReview } from "@ace/protocol";
 import { harness, scriptFrames, start, end } from "./test-support.ts";
 
 function approval(command: string): Fact {
@@ -22,7 +23,7 @@ function approval(command: string): Fact {
 }
 
 test.each(["pwd", "curl example.com"])(
-  "a cold store reopen retains the exact review and resolution for %s",
+  "a cold store reopen retains the durable review and refuses a second grant for %s",
   async (command) => {
     const frames = scriptFrames();
     const request = approval(command);
@@ -44,6 +45,34 @@ test.each(["pwd", "curl example.com"])(
       await h.store.close();
       reopened = new Store(h.path);
       engine = new Engine(reopened, { registry: h.registry, clock: h.clock });
+      await engine.flush();
+      const restoredStore = reopened;
+      const restoredEngine = engine;
+      const durableReviews = () =>
+        restoredStore.atomic((db) =>
+          db
+            .prepare("SELECT review FROM engine_permission_reviews WHERE thread_id=?")
+            .all(id)
+            .map((row) => PermissionReview.parse(JSON.parse(String(row.review)))),
+        );
+      expect(durableReviews()).toEqual([review]);
+      // The stopped process cannot receive a second grant for this canonical request.
+      // Retrying its public resolution after cold recovery must preserve the audit.
+      const replay = Command.parse({
+        id: "cold-replay",
+        deviceId: "device",
+        payload: {
+          type: "interaction.resolve",
+          interactionId: original.id,
+          resolution: { kind: "approval", optionId: "once" },
+        },
+      });
+      const result = reopened.recordCommand(replay.id, replay.deviceId, () =>
+        restoredEngine.handler.handle(replay, restoredStore),
+      );
+      expect(result).toMatchObject({ ok: false });
+      await engine.flush();
+      expect(durableReviews()).toEqual([review]);
       const restored = Object.values(reopened.snapshotThread(id).interactions)[0];
       expect(restored?.review).toEqual(original.review);
       expect(restored?.id).toBe(original.id);

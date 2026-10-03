@@ -13,23 +13,38 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       sessionId: "native",
       ...(process.argv.includes("--no-selectors")
         ? {}
-        : {
-            configOptions: [
-              {
-                id: "tools",
-                category: "mode",
-                type: "select",
-                currentValue: "build",
-                options: [
-                  { value: "read-only", name: "Read only" },
-                  { value: "build", name: "Build" },
-                  { value: "bypassPermissions", name: "Bypass" },
+        : process.argv.includes("--legacy")
+          ? {
+              modes: {
+                currentModeId: "build",
+                availableModes: [
+                  { id: "read-only", name: "Read only" },
+                  { id: "build", name: "Build" },
+                  { id: "bypassPermissions", name: "Bypass" },
                 ],
               },
-            ],
-          }),
+            }
+          : {
+              configOptions: [
+                {
+                  id: "tools",
+                  category: "mode",
+                  type: "select",
+                  currentValue: "build",
+                  options: [
+                    { value: "read-only", name: "Read only" },
+                    { value: "build", name: "Build" },
+                    { value: "bypassPermissions", name: "Bypass" },
+                  ],
+                },
+              ],
+            }),
     });
-  else if (message["method"] === "session/set_config_option") result({});
+  else if (
+    message["method"] === "session/set_config_option" ||
+    message["method"] === "session/set_mode"
+  )
+    result({});
   else if (message["method"] === "session/prompt") {
     prompt = message["id"];
     if (process.argv.includes("--no-permission")) {

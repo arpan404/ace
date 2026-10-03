@@ -187,6 +187,36 @@ test("a read through a workspace symlink cannot obtain automatic permission outs
   }
 });
 
+test("an ordinary workspace filename pointing to a secret cannot earn automatic permission", async () => {
+  const frames = scriptFrames();
+  const h = await harness([], frames);
+  try {
+    writeFileSync(join(h.home, ".env"), "FIXTURE=not-a-credential");
+    symlinkSync(join(h.home, ".env"), join(h.home, "ordinary.txt"));
+    const request = approval("pwd");
+    if (request.type !== "interaction.opened" || request.request.kind !== "approval")
+      throw new Error("Bad request");
+    request.request.target = {
+      tool: "Read",
+      paths: [join(h.home, "ordinary.txt")],
+      access: "read",
+    };
+    const id = await h.create();
+    h.contexts[0]?.onFrame(frames.frame(start, request));
+    await h.engine.flush();
+    const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
+    expect(interaction?.review).toMatchObject({
+      decision: "escalate",
+      reason: "Secret or credential access requires a human",
+    });
+    expect(interaction?.state).toBe("pending");
+    expect(h.store.getThread(id)?.status.state).toBe("needs_you");
+    expect(h.adapter.commands.filter((command) => command.type === "resolve")).toEqual([]);
+  } finally {
+    await h.close();
+  }
+});
+
 test("scoped settings apply at admission while delegated children inherit a stricter parent", async () => {
   const frames = scriptFrames();
   const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames, {

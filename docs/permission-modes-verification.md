@@ -95,3 +95,28 @@ All behavior assertions below **need run at merge**. Reproductions were written 
 | Permit a human answer to replace a reserved automatic resolution                       | Same file, human answer racing automatic decision case                                                           | not executed (tests run at merge) |
 
 Fast static checks only: typecheck, lint, formatting of edited backend/tests/docs files, check:size, check:deps and docs:protocol --check. CI remains disabled and was not run or watched. No UI files were edited.
+
+## Second verifier fix round (2026-10-03)
+
+Reviewed the round-2 report at head 72fb6412 and the newest PR comment. origin/main remains a6230291 and is already merged. There are still no separate integration-rehearsal findings in issue comments, reviews or inline comments. The pre-round-1 report remains unavailable; no historical executed mutation outcomes are claimed.
+
+B4 is fixed by preserving generic ACP read categories as acp/read. Kinds and follow-along locations cannot establish the exact operation or exhaustive accessed paths. Wildcard, absent, mismatched and apparently exact inputs all reach the public translator and engine with an ordinary file location and a secrets.json fixture. Each case requires one durable escalation, needs_you, a pending request and no native grant. Known provider-specific exact Read operations retain their existing approval path. ACP's reported guarantee limitations now disclose the generic-read escalation.
+
+The cold reopen case now parses the persisted decision rows through Store.atomic and requires the exact audited reason, target, identity and mode. Retrying the old canonical interaction's public resolution after reopening must fail, retain one row/event/notice and send no additional grant. This closes R1-19's drop-review-insertion mutation gap. Recovery expires the old process's requests; they must not be silently submitted to a replacement process. This is distinct from a fresh canonical request, which needs its own review.
+
+Additional coverage exercises both native session/set_config_option and legacy session/set_mode through public engine commands and the public adapter session. Read-only, ask and auto-review reject build/bypass selectors; explicit full-access accepts them. Unknown selections retain their availability error. The read-only session case asserts only the selector restriction; generic ACP still does not advertise a comprehensive read-only guarantee. A symlink with an ordinary filename pointing to a workspace .env fixture escalates. The complete ancestor scenario now also closes/reopens SQLite and Engine before descendant setters, turns, spawns and forks.
+
+The TypeScript 7 dependency-cruiser warning remains disclosed above; the supported SWC parser remains configured. Composer/New thread guarantee rendering, controls and audit APIs remain documented in the PR's UI follow-up. No UI files changed.
+
+All runtime assertions **need run at merge**. The B4 regression was written before changing its translator mapping; no failing or passing test execution is claimed. These tests were statically traced through their public boundaries.
+
+| Mutation                                                                    | Guarding behavior                                                                                            | Result                            |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------- |
+| Map generic ACP read categories back to trusted read                        | provider-permissions.process.test.ts wildcard, absent, mismatched and apparently exact native inputs         | not executed (tests run at merge) |
+| Drop review-table insertion while retaining events (R1-19)                  | permission-audit-recovery.process.test.ts parses exact durable review rows after cold reopen                 | not executed (tests run at merge) |
+| Regrant or rereview an expired/resolved canonical interaction after restart | Same cold reopen case retries interaction.resolve and requires no extra row, event, notice or provider grant | not executed (tests run at merge) |
+| Permit build/bypass via legacy session/set_mode or read-only selectors      | permission-selectors.process.test.ts and acp-permission-selectors.process.test.ts public commands/native RPC | not executed (tests run at merge) |
+| Lose physical secret classification through a symlink                       | permissions.process.test.ts ordinary filename pointing to workspace .env                                     | not executed (tests run at merge) |
+| Lose ancestor links on restart or trust only the intermediate cached mode   | permission-ancestry.process.test.ts cold SQLite/Engine reopen before descendant admission                    | not executed (tests run at merge) |
+
+Only the permitted static checks run locally. Tests, bun run check, CI, probes, benchmarks, provider prompts and recorder sessions remain unexecuted.

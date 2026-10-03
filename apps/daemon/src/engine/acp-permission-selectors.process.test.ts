@@ -4,9 +4,13 @@ import { fileURLToPath } from "node:url";
 import type { Frame } from "@ace/engine-api";
 import { harness, scriptFrames } from "./test-support.ts";
 
-test.each(["auto-review", "ask", "full-access"] as const)(
-  "public mode changes keep ACP's %s permission contract",
-  async (mode) => {
+test.each(
+  [false, true].flatMap((legacy) =>
+    (["auto-review", "ask", "full-access"] as const).map((mode) => ({ legacy, mode })),
+  ),
+)(
+  "public mode changes keep ACP's $mode permission contract, legacy: $legacy",
+  async ({ mode, legacy }) => {
     const native = createAcpAdapter(genericQuirks);
     const frames: Frame[] = [];
     const h = await harness([], scriptFrames(), {
@@ -42,6 +46,7 @@ test.each(["auto-review", "ask", "full-access"] as const)(
                   ),
                 ),
                 "--no-permission",
+                ...(legacy ? ["--legacy"] : []),
               ],
             },
           );
@@ -56,7 +61,9 @@ test.each(["auto-review", "ask", "full-access"] as const)(
         .filter(
           (frame) =>
             frame.dir === "send" &&
-            JSON.stringify(frame.data).includes('"session/set_config_option"'),
+            JSON.stringify(frame.data).includes(
+              legacy ? '"session/set_mode"' : '"session/set_config_option"',
+            ),
         )
         .map((frame) => frame.data);
       expect(JSON.stringify(selected).includes('"bypassPermissions"')).toBe(mode === "full-access");
