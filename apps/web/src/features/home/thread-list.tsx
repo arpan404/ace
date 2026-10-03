@@ -82,7 +82,13 @@ export function ThreadList(props: { arrangement: Arrangement }) {
                 inert={leaving}
                 ref={virtualizer.measureElement}
                 data-index={item.index}
-                className="absolute inset-x-0 top-0 pb-px"
+                className={cn(
+                  "absolute inset-x-0 top-0 pb-px",
+                  // While rows slide past each other each is opaque, and the one moving up
+                  // passes over the others: a swap never shows two rows through each other.
+                  moving && "bg-[rgb(var(--sidebar-rgb))]",
+                  moving && entry.rising && "z-[1]",
+                )}
                 style={{ transform: `translateY(${item.start}px)` }}
               >
                 <div className={rowMotion(entry.phase)}>
