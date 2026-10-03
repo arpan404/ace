@@ -124,7 +124,7 @@ export class ModelCatalog implements ModelCatalogApi {
     this.#persisted.delete(config.id);
   }
   /** Metadata from an already authorized session. No process, session or inference is started. */
-  updateFromSession(input: InstanceInput, metadata: unknown): Promise<void> {
+  async updateFromSession(input: InstanceInput, metadata: unknown): Promise<void> {
     if (this.#closed) return Promise.reject(new Error("Catalog closed"));
     if (this.#sessionWrites.size >= 64)
       return Promise.reject(new Error("Session metadata capacity reached"));

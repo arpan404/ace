@@ -234,6 +234,13 @@ test.each([
     payload = { configOptions: [model, invalid] };
     await expect(catalog.updateFromSession(instance("acp"), payload)).rejects.toThrow();
     expect(catalog.list().models.map((row) => row.id)).toEqual(["a", "b"]);
+    await catalog.updateFromSession(instance("acp"), {
+      configOptions: [{ ...model, currentValue: "b" }],
+    });
+    expect(catalog.list().models.map((row) => [row.id, row.isDefault])).toEqual([
+      ["a", false],
+      ["b", true],
+    ]);
   } finally {
     await catalog.close();
   }
