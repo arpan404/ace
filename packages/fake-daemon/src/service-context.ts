@@ -1,4 +1,4 @@
-import type { ThreadView, EventPayload, Thread } from "@ace/protocol";
+import type { ThreadView, EventPayload, InteractionResolution, Thread } from "@ace/protocol";
 export interface FakeServiceContext {
   now(): number;
   createThread?(input: {
@@ -11,4 +11,8 @@ export interface FakeServiceContext {
   thread(id: string): ThreadView | undefined;
   threads(): Thread[];
   update(id: string, payload: EventPayload): void;
+  /** Runs after `interaction.resolve` closes an interaction: its thread and adapter key. */
+  onResolved?(
+    listener: (threadId: string, key: string, resolution?: InteractionResolution) => void,
+  ): () => void;
 }

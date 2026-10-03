@@ -8,7 +8,12 @@ import {
   type ConductorCommandPayload,
 } from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
-import { fakeDeckRoot, fakeDelegations } from "./conductor/delegations.ts";
+import {
+  fakeDeckAnswer,
+  fakeDeckRoot,
+  fakeDelegations,
+  fakeProviderGates,
+} from "./conductor/delegations.ts";
 import type { FakeConductor } from "./conductor/fake-conductor.ts";
 import { runView } from "./conductor/run-view.ts";
 import type { FakeDeckRun } from "./conductor/types.ts";
@@ -38,6 +43,28 @@ export class FakePlanningWire {
       if (run.gate) this.gateTimes.set(run.gate.id, run.updatedAt);
     this.now = now;
     this.enabled = enabled;
+    // As on the daemon: a deck gate answered on its root thread is the conductor's decision,
+    // and a worker's answered question lets its card carry on.
+    host?.onResolved?.((threadId, key, resolution) => {
+      const answer = fakeDeckAnswer(this.conductor.runs(), threadId, String(key));
+      if (!answer) return;
+      if ("cardId" in answer) this.conductor.answer(answer.runId, answer.cardId);
+      else
+        this.command({
+          type: "conductor.approve",
+          runId: answer.runId,
+          approval: {
+            gateId: answer.gateId,
+            decision:
+              resolution?.kind === "plan_review" && resolution.decision === "approve"
+                ? "approve"
+                : "reject",
+          },
+        });
+    });
+  }
+  failDeck(runId: string, code: string): void {
+    this.conductor.fail(runId, code);
   }
   command(payload: ConductorCommandPayload) {
     const result = this.conductor.command(payload);
@@ -50,6 +77,7 @@ export class FakePlanningWire {
     fakeDeckRoot(run, this.host);
     return runView(run, {
       delegations: fakeDelegations(run, this.host),
+      providerGates: fakeProviderGates(run, this.host),
       ...(run.gate ? { gatedAt: this.gateTime(run.gate.id, run.updatedAt) } : {}),
     });
   }

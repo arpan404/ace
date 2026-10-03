@@ -74,7 +74,12 @@ function lanes(run: FakeDeckRun, cards: readonly FakeDeckCard[]) {
 /** One fake run as `conductor.result` and `conductor.changed` carry it. */
 export function runView(
   run: FakeDeckRun,
-  execution: { delegations?: ConductorRunView["delegations"]; gatedAt?: number } = {},
+  execution: {
+    delegations?: ConductorRunView["delegations"];
+    gatedAt?: number;
+    /** Workers' open questions (`fakeProviderGates`). */
+    providerGates?: ConductorRunView["needsUser"];
+  } = {},
 ): ConductorRunView {
   const work = run.cards.filter((card) => card.kind === "work");
   const ids = new Set(work.map((card) => card.id));
@@ -111,19 +116,22 @@ export function runView(
         }
       : null,
     planApproved: run.planApproved,
-    needsUser: run.gate
-      ? [
-          {
-            id: run.gate.id,
-            kind: run.gate.kind,
-            workstream: run.gate.kind === "escalation" ? (escalated?.id ?? null) : null,
-            lane: null,
-            generation: run.gate.revision,
-            message: run.gate.body.slice(0, 2048),
-            gatedAt: execution.gatedAt ?? run.updatedAt,
-          },
-        ]
-      : [],
+    needsUser: [
+      ...(run.gate
+        ? [
+            {
+              id: run.gate.id,
+              kind: run.gate.kind,
+              workstream: run.gate.kind === "escalation" ? (escalated?.id ?? null) : null,
+              lane: null,
+              generation: run.gate.revision,
+              message: run.gate.body.slice(0, 2048),
+              gatedAt: execution.gatedAt ?? run.updatedAt,
+            },
+          ]
+        : []),
+      ...(["cancelled", "merged"].includes(run.phase) ? [] : (execution.providerGates ?? [])),
+    ],
     lanes: ["cancelled", "merged"].includes(run.phase)
       ? []
       : lanes(
@@ -146,5 +154,6 @@ export function runView(
       revision: card.state === "merged" ? "5d1f0c2a9b7e4d3c8a6f0e1b2c3d4e5f6a7b8c9d" : null,
     })),
     truncated: false,
+    ...(run.executionError ? { executionError: run.executionError } : {}),
   });
 }

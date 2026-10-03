@@ -47,6 +47,12 @@ export interface FakeDeckCard {
   lane: FakeLane | null;
   /** One sentence for cards without a lane (planned, merged, merge). */
   note: string;
+  /** The worker's open question to the person: a provider gate until it is answered. */
+  question?: FakeQuestion | null;
+}
+export interface FakeQuestion {
+  text: string;
+  options: { id: string; label: string }[];
 }
 export interface FakePlanChange {
   kind: "moved" | "added" | "removed" | "changed";
@@ -93,4 +99,6 @@ export interface FakeDeckRun {
   pullRequest: number | null;
   createdAt: number;
   updatedAt: number;
+  /** Why the conductor couldn't run the deck's next step; cleared when it resumes. */
+  executionError?: string;
 }

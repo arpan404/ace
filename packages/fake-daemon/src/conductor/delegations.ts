@@ -1,6 +1,56 @@
 import { ThreadId, type ConductorRunView } from "@ace/protocol";
 import type { FakeServiceContext } from "../service-context.ts";
-import type { FakeDeckRun } from "./types.ts";
+import type { FakeDeckCard, FakeDeckRun } from "./types.ts";
+
+/*
+ * The fake Deck's threads, as the native executor leaves them: a root thread per deck that holds
+ * the conductor's gates as host interactions, and a delegated thread per lane, titled the way the
+ * daemon titles them ("Deck worker: <card>"). A worker's question is a real interaction on its
+ * thread, so it is answered with `interaction.resolve` like any provider question.
+ */
+
+/** The raw marker the daemon puts on a deck gate mirrored onto its root thread. */
+export const deckGateMarker = "ace.conductor.gate";
+/** The raw marker on a fake worker's question. */
+const questionMarker = "fake.deck.question";
+
+export const deckRootId = (run: FakeDeckRun) => `${run.id}.root`;
+const questionKey = (card: FakeDeckCard) => `ask.${card.id}`;
+
+function workerThread(run: FakeDeckRun, card: FakeDeckCard) {
+  return card.lane?.threadId ?? `${run.id}.${card.id}.thread`;
+}
+
+/** Opens a card's question on its worker thread once; the daemon closes it when answered. */
+function ask(host: FakeServiceContext, threadId: string, card: FakeDeckCard): void {
+  const question = card.question;
+  if (!question) return;
+  const open = Object.values(host.thread(threadId)?.interactions ?? {}).some((interaction) =>
+    interaction.raw.some((raw) => raw.type === questionMarker && raw.name === card.id),
+  );
+  if (open) return;
+  host.apply?.(threadId, [
+    {
+      type: "interaction.opened",
+      agent: "root",
+      interaction: questionKey(card),
+      blocking: true,
+      request: {
+        kind: "question",
+        questions: [
+          {
+            id: "choice",
+            text: question.text,
+            options: question.options,
+            multiSelect: false,
+            allowOther: false,
+          },
+        ],
+      },
+      raw: [{ type: questionMarker, name: card.id, data: {} }],
+    },
+  ]);
+}
 
 /** Fake lane links open ordinary fake threads through the same client thread API. */
 export function fakeDelegations(
@@ -12,14 +62,14 @@ export function fakeDelegations(
     .slice(0, 64)
     .flatMap((card) =>
       (["worker", "reviewer"] as const).map((role) => {
-        const workerId = card.lane?.threadId ?? `${run.id}.${card.id}.thread`;
+        const workerId = workerThread(run, card);
         const threadId = role === "worker" ? workerId : `${workerId}.review`;
         const provider = card.lane?.[role].provider ?? "codex";
         if (host && !host.thread(threadId)) {
           host.createThread?.({
             id: threadId,
             workspaceId: run.workspaceId,
-            title: card.title,
+            title: `Deck ${role}: ${card.id}`,
             provider,
           });
           host.apply?.(threadId, [
@@ -35,8 +85,11 @@ export function fakeDelegations(
           ]);
         }
         const settled = card.state === "merged" || ["cancelled", "merged"].includes(run.phase);
+        const asking = role === "worker" && !settled && !!card.question;
+        if (host && asking) ask(host, threadId, card);
         const thread = host?.thread(threadId)?.thread;
-        if (host && thread) {
+        // An open question keeps the thread waiting on the person; the engine owns that status.
+        if (host && thread && !asking) {
           const status = settled
             ? { state: "done" as const }
             : run.phase === "paused" ||
@@ -48,7 +101,7 @@ export function fakeDelegations(
           if (JSON.stringify(status) !== JSON.stringify(thread.status))
             host.update(threadId, { type: "thread.updated", status });
         }
-        const rootId = `${run.id}.root`;
+        const rootId = deckRootId(run);
         const child = host?.thread(threadId)?.thread;
         if (host && child)
           host.apply?.(rootId, [
@@ -74,7 +127,7 @@ export function fakeDelegations(
           workstream: card.id,
           threadId,
           agentId: host?.thread(threadId)?.thread.rootAgentId ?? `${run.id}.${card.id}.agent`,
-          parentThreadId: `${run.id}.root`,
+          parentThreadId: rootId,
           parentAgentId: host?.thread(rootId)?.thread.rootAgentId ?? `${run.id}.root.agent`,
           provider,
           account: card.lane?.[role].account ?? `local.${provider}`,
@@ -85,12 +138,66 @@ export function fakeDelegations(
     );
 }
 
+/** Each open worker question as the daemon lists it under needsUser: a provider gate. */
+export function fakeProviderGates(
+  run: FakeDeckRun,
+  host?: FakeServiceContext,
+): ConductorRunView["needsUser"] {
+  if (!host) return [];
+  return run.cards.flatMap((card) => {
+    if (!card.question) return [];
+    const threadId = workerThread(run, card);
+    const interaction = Object.values(host.thread(threadId)?.interactions ?? {}).find(
+      (entry) =>
+        entry.state === "pending" &&
+        entry.raw.some((raw) => raw.type === questionMarker && raw.name === card.id),
+    );
+    if (!interaction) return [];
+    return [
+      {
+        id: interaction.id,
+        kind: "provider" as const,
+        workstream: card.id,
+        lane: `${card.id}.worker`,
+        generation: Math.max(card.round - 1, 0),
+        message: "question needs your answer",
+        gatedAt: interaction.createdAt,
+        interactionId: interaction.id,
+        threadId,
+      },
+    ];
+  });
+}
+
+/** What an answered interaction meant to the fake Deck: a gate decision or a worker's answer. */
+export function fakeDeckAnswer(
+  runs: readonly FakeDeckRun[],
+  threadId: string,
+  key: string,
+): { runId: string; gateId: string } | { runId: string; cardId: string } | undefined {
+  for (const run of runs) {
+    if (deckRootId(run) === threadId && run.gate?.id === key)
+      return { runId: run.id, gateId: run.gate.id };
+    const card = run.cards.find(
+      (entry) =>
+        entry.question && workerThread(run, entry) === threadId && questionKey(entry) === key,
+    );
+    if (card) return { runId: run.id, cardId: card.id };
+  }
+  return undefined;
+}
+
 /** Human gates keep the fake root's canonical status at needs_you, like the real engine. */
 export function fakeDeckRoot(run: FakeDeckRun, host?: FakeServiceContext) {
   if (!host) return;
-  const id = `${run.id}.root`;
+  const id = deckRootId(run);
   if (!host.thread(id)) {
-    host.createThread?.({ id, workspaceId: run.workspaceId, title: run.goal, provider: "codex" });
+    host.createThread?.({
+      id,
+      workspaceId: run.workspaceId,
+      title: `Deck: ${run.goal}`,
+      provider: "codex",
+    });
     host.apply?.(id, [
       {
         type: "agent.seen",
@@ -103,7 +210,7 @@ export function fakeDeckRoot(run: FakeDeckRun, host?: FakeServiceContext) {
     ]);
   }
   for (const interaction of Object.values(host.thread(id)?.interactions ?? {})) {
-    const marker = interaction.raw.find((raw) => raw.type === "fake.conductor.gate");
+    const marker = interaction.raw.find((raw) => raw.type === deckGateMarker);
     if (interaction.state === "pending" && marker?.name && marker.name !== run.gate?.id)
       host.apply?.(id, [
         {
@@ -120,8 +227,14 @@ export function fakeDeckRoot(run: FakeDeckRun, host?: FakeServiceContext) {
         agent: "root",
         interaction: run.gate.id,
         blocking: true,
-        request: { kind: "plan_review", markdown: run.gate.body },
-        raw: [{ type: "fake.conductor.gate", name: run.gate.id, data: {} }],
+        request: {
+          kind: "plan_review",
+          title: "Deck needs your decision",
+          markdown: run.gate.body,
+        },
+        raw: [
+          { type: deckGateMarker, name: run.gate.id, data: { key: `deck.gate.${run.gate.id}` } },
+        ],
       },
     ]);
 }

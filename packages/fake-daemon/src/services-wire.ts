@@ -74,6 +74,9 @@ export class FakeServicesWire {
     for (const [threadId, status] of Object.entries(seed.pullRequests ?? {}))
       if (this.host.thread(threadId)) this.workspace.forge.seed(threadId, status);
   }
+  failDeck(runId: string, code: string): void {
+    this.planning.failDeck(runId, code);
+  }
   command(payload: CommandPayload): Omit<CommandResult, "commandId"> | undefined {
     const conductor = ConductorCommandPayload.safeParse(payload);
     if (conductor.success) return this.planning.command(conductor.data);
