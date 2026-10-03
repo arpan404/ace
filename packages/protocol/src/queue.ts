@@ -20,6 +20,7 @@ export const QueuedMessage = z.object({
   delivery: FollowUpBehavior,
   state: z.enum(["queued", "uncertain"]),
 });
+export type QueuedMessage = z.infer<typeof QueuedMessage>;
 export const QueueState = z.object({
   revision: z.number().int().nonnegative(),
   paused: z.boolean(),
