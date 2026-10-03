@@ -2,11 +2,8 @@ import { useThreadError, useThreadMeta } from "@ace/client-react";
 import { RobotIcon } from "@phosphor-icons/react";
 import { useLayout } from "@/lib/layout.tsx";
 import { MenuItem } from "@/components/ui/menu.tsx";
-import { AgentPanel } from "@/features/agents/agent-panel.tsx";
-import { ChangesPanel } from "@/features/review/changes-panel.tsx";
-import { PreviewPanel } from "@/features/preview/preview-panel.tsx";
+import { threadPanels } from "@/features/panels/thread-panels.tsx";
 import { Screen } from "@/features/shell/screen.tsx";
-import { LogsPanel, TerminalPanel } from "@/features/terminal/terminal-panel.tsx";
 import { Transcript } from "./transcript.tsx";
 
 /**
@@ -31,31 +28,7 @@ export function ThreadView(props: { threadId: string }) {
           Agents
         </MenuItem>
       }
-      right={{
-        label: "Thread panel",
-        tabs: [
-          {
-            id: "changes",
-            label: "Changes",
-            shortcut: "changes",
-            content: <ChangesPanel threadId={id} />,
-          },
-          { id: "preview", label: "Preview", content: <PreviewPanel threadId={id} /> },
-          {
-            id: "agents",
-            label: "Agents",
-            shortcut: "agents",
-            content: <AgentPanel threadId={id} />,
-          },
-        ],
-      }}
-      bottom={{
-        label: "Bottom panel",
-        tabs: [
-          { id: "terminal", label: "Terminal", content: <TerminalPanel threadId={id} /> },
-          { id: "logs", label: "Logs", content: <LogsPanel threadId={id} /> },
-        ],
-      }}
+      {...threadPanels(id)}
     >
       {error ? (
         <p role="alert" className="p-4 text-ui text-status-failed">

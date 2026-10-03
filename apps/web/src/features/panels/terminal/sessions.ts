@@ -1,0 +1,138 @@
+import type { TerminalEvent, TerminalInfo, TerminalSource } from "../sources.ts";
+import { TerminalScreen } from "./screen.ts";
+
+interface Attached {
+  screen: TerminalScreen;
+  /** Next output offset this client has not drawn. Reattach resumes here. */
+  offset: number;
+  detach: (() => void) | undefined;
+  exitCode: number | null;
+  version: number;
+  listeners: Set<() => void>;
+}
+
+/**
+ * The client side of the daemon's terminals: one screen per PTY that outlives the tab that
+ * shows it, attach-from-offset so a reconnect replays only what was missed, and overlap
+ * dropping so a replay that repeats drawn output never draws it twice. Also remembers which
+ * terminal tab each thread shows.
+ */
+export class TerminalSessions {
+  readonly source: TerminalSource;
+  private attached = new Map<string, Attached>();
+  private selected = new Map<string, string>();
+  private selectionListeners = new Set<() => void>();
+  private link: TerminalSource["link"];
+  constructor(source: TerminalSource) {
+    this.source = source;
+    this.link = source.link;
+    source.subscribe(() => this.linkChanged());
+  }
+  /** The screen for a terminal, attached on first use. */
+  screen(id: string): TerminalScreen {
+    return this.ensure(id).screen;
+  }
+  exitCode(id: string): number | null {
+    return this.attached.get(id)?.exitCode ?? null;
+  }
+  /** Bumps on every redraw of a terminal's screen. */
+  version(id: string): number {
+    return this.attached.get(id)?.version ?? 0;
+  }
+  watch(id: string, listener: () => void): () => void {
+    const entry = this.ensure(id);
+    entry.listeners.add(listener);
+    return () => entry.listeners.delete(listener);
+  }
+  write(id: string, data: string): void {
+    this.source.write(id, data);
+  }
+  resize(id: string, cols: number, rows: number): void {
+    this.source.resize(id, cols, rows);
+  }
+  clear(id: string): void {
+    const entry = this.attached.get(id);
+    if (!entry) return;
+    entry.screen.clear();
+    this.redraw(entry);
+  }
+  async open(threadId: string, cwd: string): Promise<TerminalInfo> {
+    const info = await this.source.open({ threadId, cwd, cols: 100, rows: 24 });
+    this.select(threadId, info.id);
+    return info;
+  }
+  close(id: string): void {
+    const entry = this.attached.get(id);
+    entry?.detach?.();
+    this.attached.delete(id);
+    this.source.close(id);
+  }
+  selection(threadId: string): string | undefined {
+    return this.selected.get(threadId);
+  }
+  select(threadId: string, tab: string): void {
+    this.selected.set(threadId, tab);
+    for (const listener of this.selectionListeners) listener();
+  }
+  watchSelection = (listener: () => void): (() => void) => {
+    this.selectionListeners.add(listener);
+    return () => this.selectionListeners.delete(listener);
+  };
+  private ensure(id: string): Attached {
+    let entry = this.attached.get(id);
+    if (!entry) {
+      entry = {
+        screen: new TerminalScreen(),
+        offset: 0,
+        detach: undefined,
+        exitCode: null,
+        version: 0,
+        listeners: new Set(),
+      };
+      this.attached.set(id, entry);
+      this.attach(id, entry);
+    }
+    return entry;
+  }
+  private attach(id: string, entry: Attached): void {
+    if (this.source.link !== "connected") return;
+    entry.detach = this.source.attach(id, entry.offset, (event) => this.receive(entry, event));
+  }
+  private receive(entry: Attached, event: TerminalEvent): void {
+    switch (event.type) {
+      case "data": {
+        if (event.endOffset <= entry.offset) return;
+        if (event.truncatedBefore)
+          entry.screen.write("\r\n\x1b[2m[earlier output was dropped]\x1b[0m\r\n");
+        const skip = Math.max(0, entry.offset - event.offset);
+        entry.screen.write(event.data.slice(skip));
+        entry.offset = event.endOffset;
+        break;
+      }
+      case "resync":
+        // The daemon's ring no longer holds our offset: start over from what it has.
+        entry.screen.clear();
+        entry.offset = event.oldestOffset;
+        break;
+      case "exit":
+        entry.exitCode = event.code;
+        entry.offset = Math.max(entry.offset, event.nextOffset);
+        break;
+    }
+    this.redraw(entry);
+  }
+  private redraw(entry: Attached): void {
+    entry.version++;
+    for (const listener of entry.listeners) listener();
+  }
+  private linkChanged(): void {
+    const link = this.source.link;
+    if (link === this.link) return;
+    this.link = link;
+    for (const [id, entry] of this.attached) {
+      entry.detach?.();
+      entry.detach = undefined;
+      if (link === "connected") this.attach(id, entry);
+    }
+  }
+}
