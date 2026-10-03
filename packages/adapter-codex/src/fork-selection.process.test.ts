@@ -8,6 +8,17 @@ test("native forks copy the requested source through the chosen turn into a diff
   });
   try {
     expect(h.session.nativeSessionId).toBe("fork-native");
+    await h.session.send([{ type: "text", text: "continue this fork" }], "queue");
+    const continuation = await h.wait(
+      (frame) =>
+        frame.dir === "recv" &&
+        obj(obj(obj(frame.data)["params"])["item"])["id"] === "fork-history-proof",
+    );
+    const text = str(obj(obj(obj(continuation.data)["params"])["item"])["text"]);
+    expect(text).toContain("private native earlier context");
+    expect(text).toContain("private native selected context");
+    expect(text).toContain("answer: continue this fork");
+    expect(text).not.toContain("private native future secret");
   } finally {
     await h.dispose();
   }

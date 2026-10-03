@@ -97,8 +97,10 @@ test("tool and attachment context carries provenance and tells the reader how to
           call: {
             id: "tool",
             agentId: "root",
+            kind: "shell",
             title: "Build",
-            status: "completed",
+            status: "succeeded",
+            startedAt: 1,
             detail: { kind: "shell", command: "build" },
             raw: [],
           },
@@ -110,7 +112,7 @@ test("tool and attachment context carries provenance and tells the reader how to
   );
   expect(result.excerpts[1]).toMatchObject({
     citation: { threadId, itemId: "tool" },
-    text: expect.stringContaining("Tool Build: completed"),
+    text: expect.stringContaining("Tool Build: succeeded"),
   });
   expect(result.excerpts[2]).toMatchObject({
     citation: { threadId, itemId: "artifact" },
