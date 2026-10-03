@@ -1,21 +1,19 @@
-import { FakeTerminals, coldStartReplay } from "@ace/fake-daemon";
+import { coldStartReplay, seedPanels } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
-import { panelServices } from "../services.ts";
 
 async function openTerminal(through = "turn-2") {
   const app = harness();
   const script = app.play(coldStartReplay());
   script.runThrough(through);
+  seedPanels(app.daemon);
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
   await userEvent.keyboard("{Control>}`{/Control}");
   const panel = await screen.findByRole("region", { name: "Bottom panel" });
-  const terminals = (await panelServices(app.client)).terminals.source;
-  if (!(terminals instanceof FakeTerminals)) throw new Error("expected the fake terminal service");
-  return { app, script, panel, terminals };
+  return { app, script, panel, terminals: app.daemon.terminals };
 }
 const tab = (panel: HTMLElement, name: string | RegExp) =>
   within(within(panel).getByRole("tablist", { name: "Terminals" })).getByRole("tab", { name });
@@ -58,42 +56,45 @@ test("typing into a terminal runs the command in the thread's worktree", async (
   expect(terminals.received.map((entry) => entry.data).join("")).toBe("git branch\r");
 });
 
-test("New terminal opens another shell in the thread's directory and Close ends it", async () => {
+test("New terminal opens another shell in the thread's checkout and Close ends it", async () => {
   const { panel, terminals } = await openTerminal();
-  await userEvent.click(within(panel).getByRole("button", { name: "New terminal" }));
-  const opened = await within(panel).findByRole("tab", { name: "zsh 2", selected: true });
-  await userEvent.type(within(panel).getByRole("textbox", { name: "zsh 2 input" }), "pwd{Enter}");
+  await userEvent.click(await within(panel).findByRole("button", { name: "New terminal" }));
+  await waitFor(() => expect(tab(panel, "Terminal").getAttribute("aria-selected")).toBe("true"));
+  const opened = tab(panel, "Terminal");
+  await userEvent.type(
+    await within(panel).findByRole("textbox", { name: "Terminal input" }),
+    "pwd{Enter}",
+  );
   await waitFor(() =>
-    expect(output(panel, "zsh 2 output").textContent).toContain("/Users/dev/ace"),
+    expect(output(panel, "Terminal output").textContent).toContain("/Users/dev/ace"),
   );
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Close zsh 2" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Close Terminal" }));
   await waitFor(() => expect(opened.isConnected).toBe(false));
   expect(terminals.list("thread-cold-start").map((info) => info.name)).toEqual(["tests", "zsh"]);
 });
 
 test("after a dropped connection the terminal replays only the output it missed", async () => {
-  const { panel, terminals } = await openTerminal();
+  const { app, panel, terminals } = await openTerminal();
   await userEvent.click(await within(panel).findByRole("tab", { name: "tests" }));
-  const before = output(panel, "tests output").textContent ?? "";
-  expect(before).toContain("3 pass");
+  await waitFor(() => expect(output(panel, "tests output").textContent).toContain("3 pass"));
   const tests = terminals.list("thread-cold-start").find((info) => info.name === "tests");
   if (!tests) throw new Error("expected the tests terminal");
 
-  act(() => terminals.disconnect());
-  await within(panel).findByRole("status");
-  expect(within(panel).getByRole("status").textContent).toContain("Reconnecting");
-  act(() => terminals.output(tests.id, "watching for changes…\r\n"));
+  // Output written while the socket is down reaches the page only through the replay.
+  act(() => {
+    app.daemon.disconnectAll();
+    terminals.output(tests.id, "watching for changes…\r\n");
+  });
   expect(output(panel, "tests output").textContent).not.toContain("watching for changes");
 
-  act(() => terminals.reconnect());
   await waitFor(() =>
     expect(output(panel, "tests output").textContent).toContain("watching for changes…"),
   );
   const after = output(panel, "tests output").textContent ?? "";
   expect(after.split("3 pass").length - 1).toBe(1);
   expect(after.split("watching for changes").length - 1).toBe(1);
-  expect(within(panel).queryByRole("status")).toBeNull();
+  await waitFor(() => expect(within(panel).queryByRole("status")).toBeNull());
 });
 
 test("Clear empties the terminal that is showing", async () => {

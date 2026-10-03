@@ -1,5 +1,5 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useAgent, useItem, useTaskIds, useThread, useThreadMeta } from "@ace/client-react";
+import { useItem, useTaskIds, useThread } from "@ace/client-react";
 import type { BackgroundTask } from "@ace/protocol";
 import { TerminalWindowIcon, XIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
@@ -50,21 +50,19 @@ function useTerminalList(sessions: TerminalSessions, threadId: string) {
   const selected = useSyncExternalStore(sessions.watchSelection, () =>
     sessions.selection(threadId),
   );
-  return { list, selected, link: source.link, available: source.available };
+  return { list, selected, link: source.link };
 }
 
-/** Opens a terminal in the thread's working directory and shows it. */
+/** Opens a terminal in the thread's checkout and shows it. */
 export function useOpenTerminal(threadId: string) {
   const { terminals } = usePanelServices();
-  const thread = useThreadMeta(threadId);
-  const root = useAgent(threadId, thread?.rootAgentId ?? "");
+  const link = useVersion(terminals.source) >= 0 ? terminals.source.link : "disconnected";
   const [error, setError] = useState<string>();
   const open = useCallback(() => {
-    if (!root) return;
     setError(undefined);
-    terminals.open(threadId, root.cwd).catch(() => setError("Couldn't open a terminal."));
-  }, [terminals, threadId, root]);
-  return { open, error, ready: !!root && terminals.source.available };
+    terminals.open(threadId).catch(() => setError("Couldn't open a terminal."));
+  }, [terminals, threadId]);
+  return { open, error, ready: link === "connected" };
 }
 
 /** Terminal tab: the agents' background shells and your own terminals, each in its own tab. */
@@ -72,7 +70,8 @@ export function TerminalTab(props: { threadId: string }) {
   const { threadId } = props;
   const { terminals: sessions } = usePanelServices();
   const shells = useBackgroundShells(threadId);
-  const { list, selected, link, available } = useTerminalList(sessions, threadId);
+  const { list, selected, link } = useTerminalList(sessions, threadId);
+  const [closeError, setCloseError] = useState<string>();
   const opener = useOpenTerminal(threadId);
   const tabs = [
     ...shells.map((task) => ({
@@ -92,11 +91,7 @@ export function TerminalTab(props: { threadId: string }) {
       <EmptyState
         icon={TerminalWindowIcon}
         title="No terminals"
-        description={
-          available
-            ? "Open a terminal in this thread's worktree, or watch the agents' background shells here."
-            : "This daemon doesn't share terminals with clients yet. Agents' background shells still show here."
-        }
+        description="Open a terminal in this thread's checkout, or watch the agents' background shells here."
         action={
           opener.ready ? (
             <Button size="sm" onClick={opener.open}>
@@ -135,7 +130,10 @@ export function TerminalTab(props: { threadId: string }) {
               <button
                 type="button"
                 aria-label={`Close ${tab.label}`}
-                onClick={() => sessions.close(tab.id)}
+                onClick={() => {
+                  setCloseError(undefined);
+                  sessions.close(tab.id).catch(() => setCloseError(`Couldn't close ${tab.label}.`));
+                }}
                 className="absolute top-1 right-1 hidden size-4 place-items-center rounded-[4px] text-subtle-foreground group-hover/tt:grid hover:bg-accent hover:text-foreground focus-visible:grid"
               >
                 <XIcon aria-hidden size={10} />
@@ -144,7 +142,7 @@ export function TerminalTab(props: { threadId: string }) {
           </span>
         ))}
       </div>
-      {available && link === "disconnected" && (
+      {link === "disconnected" && (
         <p
           role="status"
           className="flex items-center gap-2 px-4 pt-2 text-xs text-muted-foreground"
@@ -152,9 +150,9 @@ export function TerminalTab(props: { threadId: string }) {
           <Spinner /> Reconnecting to the terminal…
         </p>
       )}
-      {opener.error && (
+      {(opener.error ?? closeError) && (
         <p role="alert" className="px-4 pt-2 text-xs text-status-failed">
-          {opener.error}
+          {opener.error ?? closeError}
         </p>
       )}
       {shell && <BackgroundShell threadId={threadId} task={shell} />}

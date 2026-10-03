@@ -5,7 +5,8 @@ import {
   HandIcon,
   LockSimpleIcon,
 } from "@phosphor-icons/react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useThreadMeta } from "@ace/client-react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog.tsx";
@@ -21,13 +22,15 @@ import { usePanelServices } from "../services.ts";
 import { useVersion } from "../store.ts";
 import { useBrowserDriver } from "./use-browser-driver.ts";
 import { useViewportSync } from "./use-viewport-sync.ts";
-import type { BrowserView, PreviewSource, ScreenFrame } from "../sources.ts";
+import type { BrowserView, PreviewServer, PreviewSource, ScreenFrame } from "../sources.ts";
 
 function usePreview(source: PreviewSource, threadId: string) {
   // The source's reads change whenever its version does; React Compiler would memoize them
   // by their arguments, so this hook opts out and re-reads on every version.
   "use no memo";
   useVersion(source);
+  // Follow the thread's browser and dev servers only while this tab shows them.
+  useEffect(() => source.watch(threadId), [source, threadId]);
   return {
     view: source.view(threadId),
     frame: source.frame(threadId),
@@ -45,11 +48,38 @@ export function PreviewTab(props: { threadId: string }) {
   if (view && !view.closed && frame)
     return <LiveBrowser source={preview} threadId={props.threadId} view={view} frame={frame} />;
   if (servers.length) return <DevServer servers={servers} />;
+  return <NoPreview source={preview} threadId={props.threadId} />;
+}
+
+/** Nothing to show yet: say so, and offer to open a browser for the thread. */
+function NoPreview(props: { source: PreviewSource; threadId: string }) {
+  const workspaceId = useThreadMeta(props.threadId)?.workspaceId;
+  const [state, setState] = useState<"idle" | "opening" | "failed">("idle");
+  const open = () => {
+    if (!workspaceId) return;
+    setState("opening");
+    props.source.open(props.threadId, workspaceId).then(
+      () => setState("idle"),
+      () => setState("failed"),
+    );
+  };
   return (
     <EmptyState
       icon={BrowserIcon}
       title="Nothing to preview"
-      description="When an agent opens a browser or starts a dev server, its page shows here."
+      description={
+        state === "failed"
+          ? "The daemon couldn't open a browser for this thread."
+          : "When an agent opens a browser or starts a dev server, its page shows here."
+      }
+      action={
+        workspaceId ? (
+          <Button size="sm" disabled={state === "opening"} onClick={open}>
+            {state === "opening" && <Spinner />}
+            Open a browser
+          </Button>
+        ) : undefined
+      }
     />
   );
 }
@@ -127,6 +157,18 @@ function useControl(source: PreviewSource, threadId: string, view: BrowserView) 
 
 function ControlStatus(props: { view: BrowserView }) {
   const driver = useBrowserDriver(props.view.threadId);
+  if (props.view.status === "paused" || props.view.status === "recovering")
+    return (
+      <span className="flex min-w-0 items-center gap-2">
+        {props.view.status === "recovering" ? <Spinner /> : <Dot tone="needs-you" />}
+        <span className="truncate">
+          {props.view.status === "recovering"
+            ? "Reconnecting the browser"
+            : "The browser is paused"}
+          {props.view.reason && ` · ${props.view.reason}`}
+        </span>
+      </span>
+    );
   if (props.view.controller === "human")
     return (
       <span className="flex min-w-0 items-center gap-2">
@@ -259,12 +301,10 @@ function LiveFrame(props: {
   );
 }
 
-const label = (server: { port: number; name?: string }) =>
+const label = (server: PreviewServer) =>
   server.name ? `${server.name} · :${server.port}` : `:${server.port}`;
 
-function DevServer(props: {
-  servers: readonly { port: number; origin?: string; name?: string }[];
-}) {
+function DevServer(props: { servers: readonly PreviewServer[] }) {
   const [port, setPort] = useState(props.servers[0]?.port);
   const server = props.servers.find((candidate) => candidate.port === port) ?? props.servers[0];
   if (!server) return null;

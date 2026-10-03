@@ -1,4 +1,4 @@
-import { FakeDaemon, ScenarioPlayer, devWorld, fakeTransport } from "@ace/fake-daemon";
+import { FakeDaemon, ScenarioPlayer, devWorld, fakeTransport, seedPanels } from "@ace/fake-daemon";
 import type { Client } from "@ace/client";
 import { createBrowserClient, memoryStorage } from "./client.ts";
 
@@ -31,6 +31,8 @@ export function bootFake(): {
     else if (!thread.live) player.runUntilBlocked();
     if (thread.live) player.autoplay(timer, thread.live.speed);
   }
+  // The panels' terminals, browser and dev server, in the daemon's own services.
+  seedPanels(daemon);
   const client = createBrowserClient({
     deviceId: "web-fake-device",
     transport: () => fakeTransport(daemon),
