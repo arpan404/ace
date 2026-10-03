@@ -1,3 +1,4 @@
+import { browserToolkit } from "../browser-toolkit.ts";
 import { screenToolkit } from "@ace/screen";
 import { startDaemonMcp } from "../mcp.ts";
 import type { ServiceContext } from "./types.ts";
@@ -6,6 +7,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
 
   const mcp = await startDaemonMcp(store, [
     ...(options.toolkits ?? []),
+    ...(services.browser ? [browserToolkit(services.browser, store)] : []),
     ...(services.screen ? [screenToolkit(services.screen)] : []),
   ]);
   resources.own(() => mcp.close());

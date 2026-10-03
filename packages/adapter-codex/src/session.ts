@@ -1,3 +1,4 @@
+import { codexInjection } from "@ace/mcp-server";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { isInteractiveRequest } from "./interactions.ts";
 import { runtime, type CodexRuntime } from "./runtime.ts";
@@ -32,11 +33,12 @@ export async function openCodexSession(
     throw new Error(
       `Codex ${cli.version ?? "unknown version"} is unsupported; need 0.159.1 or newer.`,
     );
+  const ace = ctx.aceMcp ? codexInjection(ctx.aceMcp) : undefined;
   const proc = io.spawn({
     command: cli.path,
-    args: ["app-server"],
+    args: ["app-server", ...(ace?.args ?? [])],
     cwd: ctx.cwd,
-    env: ctx.env ?? options.discovery?.env ?? {},
+    env: { ...(ctx.env ?? options.discovery?.env), ...ace?.env },
     name: "ace-codex",
   });
   const started = io.now();
@@ -65,7 +67,11 @@ export async function openCodexSession(
   const recovering = new Set<string>();
   let unknownRecoveries = 0;
   const emit = (dir: "send" | "recv" | "stderr" | "note", data: unknown, channel = "stdio") => {
-    const payload = new ProviderPayload(JSON.stringify(data));
+    const encoded = JSON.stringify(data);
+    const bearer = ctx.aceMcp?.bearer;
+    const payload = new ProviderPayload(
+      bearer && encoded.includes(bearer) ? encoded.replaceAll(bearer, "[REDACTED]") : encoded,
+    );
     ctx.onFrame({
       seq: sequence++,
       t: Math.round(io.now() - started),
@@ -330,6 +336,7 @@ export async function openCodexSession(
     rpc.notify("initialized");
     const params = {
       cwd: ctx.cwd,
+      ...(ace ? { developerInstructions: ace.developerInstructions } : {}),
       ...(ctx.model ? { model: ctx.model } : {}),
     } satisfies ThreadStartParams;
     const result = obj(

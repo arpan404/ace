@@ -1,3 +1,4 @@
+import { acpInjection } from "@ace/mcp-server";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { ShellSettlement } from "./shell-settlement.ts";
 import { cancellationGraceMs, promptStop } from "./settlement.ts";
@@ -155,7 +156,11 @@ class AcpSession implements ProviderSession {
     void this.close("shutdown");
   };
   frame(dir: "send" | "recv" | "stderr" | "note", channel: string, data: unknown): void {
-    const payload = new ProviderPayload(JSON.stringify(data));
+    const encoded = JSON.stringify(data);
+    const bearer = this.ctx.aceMcp?.bearer;
+    const payload = new ProviderPayload(
+      bearer && encoded.includes(bearer) ? encoded.replaceAll(bearer, "[REDACTED]") : encoded,
+    );
     this.ctx.onFrame({
       seq: this.sequence++,
       t: Math.round(this.now() - this.started),
@@ -194,7 +199,7 @@ class AcpSession implements ProviderSession {
         resume ? "session/load" : "session/new",
         {
           cwd: this.ctx.cwd,
-          mcpServers: [],
+          mcpServers: this.ctx.aceMcp ? acpInjection(this.ctx.aceMcp).mcpServers : [],
           ...(resume ? { sessionId: resume.nativeSessionId } : {}),
         },
         { signal: this.ctx.signal },

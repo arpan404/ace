@@ -171,7 +171,11 @@ export class OpenCodeSession implements ProviderSession {
     };
     this.translator.translate(clock, t);
     this.ctx.onFrame(clock);
-    const payload = new ProviderPayload(JSON.stringify(data));
+    const encoded = JSON.stringify(data);
+    const bearer = this.ctx.aceMcp?.bearer;
+    const payload = new ProviderPayload(
+      bearer && encoded.includes(bearer) ? encoded.replaceAll(bearer, "[REDACTED]") : encoded,
+    );
     const frame: Frame = { seq: this.sequence++, t, dir, channel, data: payload.data, payload };
     this.translator.translate(frame, t);
     this.ctx.onFrame(frame);

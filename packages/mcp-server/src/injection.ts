@@ -1,3 +1,4 @@
+import { parse as parseJsonc, type ParseError } from "jsonc-parser";
 import { z } from "zod";
 import type { ProviderKind } from "@ace/protocol";
 
@@ -51,12 +52,26 @@ export function claudeInjection(input: AceMcpConnection) {
     developerInstructions: developerInstructions("claude"),
   };
 }
-export function openCodeInjection(input: AceMcpConnection) {
+export function openCodeInjection(input: AceMcpConnection, previous?: string) {
   const { url, bearer } = connection.parse(input);
+  let configuration: Record<string, unknown> = {};
+  let servers: Record<string, unknown> = {};
+  if (previous !== undefined) {
+    if (Buffer.byteLength(previous) > 64 * 1024)
+      throw new Error("OpenCode MCP configuration exceeds limit");
+    const errors: ParseError[] = [];
+    const value: unknown = parseJsonc(previous, errors, { allowTrailingComma: true });
+    if (errors.length) throw new Error("Invalid OpenCode MCP configuration");
+    configuration = z.record(z.string(), z.json()).parse(value);
+    if (configuration["mcp"] !== undefined)
+      servers = z.record(z.string(), z.json()).parse(configuration["mcp"]);
+  }
   return {
     env: {
       OPENCODE_CONFIG_CONTENT: JSON.stringify({
+        ...configuration,
         mcp: {
+          ...servers,
           ace: {
             type: "remote",
             url,

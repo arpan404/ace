@@ -1,3 +1,4 @@
+import { withDaemonMcp } from "./provider-mcp.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { Engine } from "../engine/index.ts";
@@ -19,20 +20,20 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   if (!engineOptions.registry) resources.own(() => registry.close());
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
-  if (accounts && accountRegistry)
-    registry.bindSessions((adapter) => {
-      if (!AccountProvider.safeParse(adapter.provider).success) return adapter;
-      const bound = accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
-      return {
-        ...adapter,
-        openSession(session) {
-          return session.instanceId ||
-            accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
-            ? bound.openSession(session)
-            : adapter.openSession(session);
-        },
-      };
+  registry.bindSessions((adapter) => {
+    if (!accounts || !accountRegistry || !AccountProvider.safeParse(adapter.provider).success)
+      return withDaemonMcp(context, adapter);
+    const bound = accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
+    return withDaemonMcp(context, {
+      ...adapter,
+      openSession(session) {
+        return session.instanceId ||
+          accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
+          ? bound.openSession(session)
+          : adapter.openSession(session);
+      },
     });
+  });
   const engine = new Engine(store, {
     ...engineOptions,
     registry,
