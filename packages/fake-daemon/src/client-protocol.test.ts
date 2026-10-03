@@ -411,3 +411,94 @@ test("fake automations publish no next run or admission while globally disabled"
     await f.client.close();
   }
 });
+
+test("fake deletion refuses owned terminals and retries the successful delete after release", async () => {
+  const f = await fixture();
+  f.daemon.createThread({
+    id: "owned-terminal",
+    workspaceId: "workspace",
+    title: "Shell",
+    provider: "codex",
+  });
+  const threadId = ThreadId.parse("owned-terminal");
+  try {
+    const opened = await f.client.request({
+      type: "terminal.request",
+      operation: { op: "open", threadId },
+    });
+    if (!opened.terminal) throw new Error("Expected terminal");
+    expect(
+      await f.client.command({ type: "thread.delete", threadId }, {}, "busy-delete"),
+    ).toMatchObject({ ok: false, error: "thread_busy" });
+    expect(
+      (await f.client.request({ type: "terminal.request", operation: { op: "list", threadId } }))
+        .terminals,
+    ).toHaveLength(1);
+    expect(
+      await f.client.request({
+        type: "terminal.request",
+        operation: { op: "close", threadId, terminalId: opened.terminal.id },
+      }),
+    ).toMatchObject({ ok: true });
+    const deleted = await f.client.command({ type: "thread.delete", threadId }, {}, "delete-owned");
+    expect(deleted).toMatchObject({ ok: true });
+    expect(await f.client.command({ type: "thread.delete", threadId }, {}, "delete-owned")).toEqual(
+      deleted,
+    );
+    expect(f.daemon.snapshot({ kind: "thread", threadId })).toBeUndefined();
+  } finally {
+    await f.client.close();
+  }
+});
+
+test("fake inline commands expose virtual source and edits become visible only after acceptance", async () => {
+  const f = await fixture();
+  const request = (input: import("@ace/protocol").PluginClientMessage["request"]) =>
+    f.client.request({ type: "pluginRequest", request: input });
+  try {
+    const prepared = await request({
+      type: "plugins.prepare",
+      name: "inline-example",
+      repository: "fixture",
+      ref: "main",
+    });
+    if (prepared.response.type !== "plugins.review") throw new Error("Expected review");
+    await request({
+      type: "plugins.accept",
+      id: prepared.response.review.id,
+      commit: prepared.response.review.commit,
+      hash: prepared.response.review.hash,
+    });
+    const path = ".ace-inline/commands/example.md";
+    expect(
+      (await request({ type: "plugins.catalog", offset: 0, limit: 50 })).response,
+    ).toMatchObject({ components: [{ kind: "command", path }] });
+    const read = () =>
+      request({ type: "plugins.source", name: "inline-example", path, offset: 0, limit: 65536 });
+    const before = await read();
+    if (before.response.type !== "plugins.source") throw new Error("Expected source");
+    expect(before.response).toMatchObject({
+      virtual: true,
+      manifestPath: ".claude-plugin/plugin.json",
+      path: "/fake/plugins/inline-example/.claude-plugin/plugin.json",
+    });
+    const edited = await request({
+      type: "plugins.edit",
+      name: "inline-example",
+      path,
+      expectedHash: before.response.hash,
+      text: "Revised command",
+    });
+    expect((await read()).response).toMatchObject({ text: before.response.text });
+    if (edited.response.type !== "plugins.review") throw new Error("Expected edit review");
+    await request({
+      type: "plugins.accept",
+      id: edited.response.review.id,
+      commit: edited.response.review.commit,
+      hash: edited.response.review.hash,
+    });
+    expect((await read()).response).toMatchObject({ text: "Revised command", virtual: true });
+  } finally {
+    await f.client.close();
+  }
+});

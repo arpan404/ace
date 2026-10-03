@@ -31,6 +31,16 @@ export class Registry {
       CREATE TABLE IF NOT EXISTS availability (name TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS installs (name TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS reviews (id TEXT PRIMARY KEY, name TEXT NOT NULL, data TEXT NOT NULL, summary TEXT);`);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS install_revision (id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL);
+      INSERT OR IGNORE INTO install_revision VALUES (1,0);
+      CREATE TRIGGER IF NOT EXISTS installs_insert_revision AFTER INSERT ON installs BEGIN
+        UPDATE install_revision SET revision=revision+1 WHERE id=1; END;
+      CREATE TRIGGER IF NOT EXISTS installs_update_revision AFTER UPDATE ON installs BEGIN
+        UPDATE install_revision SET revision=revision+1 WHERE id=1; END;
+      CREATE TRIGGER IF NOT EXISTS installs_delete_revision AFTER DELETE ON installs BEGIN
+        UPDATE install_revision SET revision=revision+1 WHERE id=1; END;
+    `);
     const columns = this.db
       .prepare("PRAGMA table_info(reviews)")
       .all()
@@ -47,6 +57,8 @@ export class Registry {
       'unsupportedCount', json_array_length(data, '$.review.unsupported')
     ) WHERE summary IS NULL`);
     this.selects = {
+      revision: this.db.prepare("SELECT revision FROM install_revision WHERE id=1"),
+      availability: this.db.prepare("SELECT data FROM availability WHERE name=?"),
       installs: this.db.prepare("SELECT data FROM installs ORDER BY name LIMIT 257"),
       reviews: this.db.prepare("SELECT data FROM reviews ORDER BY id LIMIT 33"),
       summaries: this.db.prepare("SELECT summary FROM reviews ORDER BY id LIMIT 33"),
@@ -62,13 +74,16 @@ export class Registry {
       deleteNamedReviews: this.db.prepare("DELETE FROM reviews WHERE name = ?"),
     };
   }
+  revision(): number {
+    return z.number().int().nonnegative().parse(this.selects.revision.get()?.revision);
+  }
   installs(): StoredInstall[] {
     return this.selects.installs
       .all()
       .map((row) => StoredInstall.parse(JSON.parse(z.string().parse(row.data))));
   }
   availability(name: string): import("@ace/protocol/plugins").PluginAvailability | undefined {
-    const row = this.db.prepare("SELECT data FROM availability WHERE name=?").get(name);
+    const row = this.selects.availability.get(name);
     return row ? PluginAvailability.parse(JSON.parse(z.string().parse(row.data))) : undefined;
   }
   configure(input: import("@ace/protocol/plugins").PluginAvailability): void {

@@ -73,7 +73,7 @@ export class FakeDaemon implements Host {
   private threads = new Map<string, ThreadHost>();
   private list: ThreadListView = createThreadListView();
   private connections = new Set<Connection>();
-  private receipts = new Map<string, CommandResult>();
+  private receipts = new Map<string, { deviceId: Command["deviceId"]; result: CommandResult }>();
   private resolvedListeners = new Set<ResolvedListener>();
   /** Review mode sessions and comments; sent comments arrive in the thread as a user message. */
   readonly review: FakeReviewDesk;
@@ -267,7 +267,10 @@ export class FakeDaemon implements Host {
   }
   command(command: Command): CommandResult {
     const previous = this.receipts.get(command.id);
-    if (previous) return previous;
+    if (previous)
+      return previous.deviceId === command.deviceId
+        ? previous.result
+        : { commandId: command.id, ok: false, error: "forbidden" };
     let result: CommandResult;
     try {
       result = this.execute(command);
@@ -278,7 +281,7 @@ export class FakeDaemon implements Host {
         error: error instanceof Error ? error.message : "command_failed",
       };
     }
-    this.receipts.set(command.id, result);
+    this.receipts.set(command.id, { deviceId: command.deviceId, result });
     return result;
   }
   private run(
@@ -303,7 +306,10 @@ export class FakeDaemon implements Host {
       const host = this.threads.get(payload.threadId);
       if (!host || host.view.thread.deletedAt !== undefined)
         return { commandId, ok: false, error: "thread_not_found" };
-      if (payload.type === "thread.delete" && host.queued.length)
+      if (
+        payload.type === "thread.delete" &&
+        (host.queued.length || this.servicesWire.workspace.terminals.hasOwnedWork(host.id))
+      )
         return { commandId, ok: false, error: "thread_busy" };
       const decision = organizationDecision(host.view.thread, command, this.options.clock());
       if (typeof decision === "string") return { commandId, ok: false, error: decision };

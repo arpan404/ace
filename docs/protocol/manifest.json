@@ -925,8 +925,8 @@
       "sha256": "a5eebe48186242dc4120f1c3e303954ee854fc68892ffe1123d25c4a221e7cb6"
     },
     "schema/PluginResponse.json": {
-      "bytes": 5180,
-      "sha256": "09682cc34f22c5be4d7d522e6e0971f50b268c764c2fc6eed8c3e01088835884"
+      "bytes": 5332,
+      "sha256": "c78131dd37924dd016d056c4da288a683b43c306543e0c9313ff1971076bdf92"
     },
     "schema/PluginReview.json": {
       "bytes": 1044,
@@ -1753,10 +1753,10 @@
       "sha256": "e3fe64b4a5ad4a439aae3988497070741618418f51e60b02fc6bc654203e49fd"
     },
     "types.md": {
-      "bytes": 311833,
-      "sha256": "887636861a487a85e4d5313a52dac7526693f2fa353ac0413e07a5d8a3450547"
+      "bytes": 312990,
+      "sha256": "f9d53e0495da9099f85ccd1cac1d3c40a84b279c8c240327a2ed67a9aff88701"
     }
   },
-  "input": "9c0f14d155332c96a87251ff3b061e3aff12261a228c09c6d5a697297af829e9",
+  "input": "29d393440516621fa7fc770d836cbb658647880972a15a569096597a2e39e5b5",
   "version": 1
 }

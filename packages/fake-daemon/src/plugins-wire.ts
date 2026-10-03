@@ -8,9 +8,15 @@ import {
 } from "@ace/protocol";
 import { FakeByteRing } from "./byte-ring.ts";
 const sourcePath = "skills/example/SKILL.md";
+const inlinePath = ".ace-inline/commands/example.md";
+interface Source {
+  text: string;
+  hash: string;
+  virtual: boolean;
+}
 export class FakePluginsWire {
-  private source = new Map<string, { text: string; hash: string }>();
-  private prepared = new Map<string, { text: string; hash: string }>();
+  private source = new Map<string, Source>();
+  private prepared = new Map<string, Source>();
   private reviews = new Map<string, PluginReview>();
   private installs = new Map<string, PluginInstall>();
   private policies = new Map<string, PluginAvailability>();
@@ -39,7 +45,13 @@ export class FakePluginsWire {
           unsupported: [],
         });
         this.reviews.set(review.id, review);
-        this.prepared.set(review.id, await source("# Example skill\nA synthetic fixture skill.\n"));
+        this.prepared.set(
+          review.id,
+          await source(
+            "# Example skill\nA synthetic fixture skill.\n",
+            request.name === "inline-example",
+          ),
+        );
         return reply({ type: "plugins.review", review });
       }
       case "plugins.accept": {
@@ -93,8 +105,8 @@ export class FakePluginsWire {
                 {
                   plugin: install.name,
                   name: "example",
-                  kind: "skill",
-                  path: sourcePath,
+                  kind: this.source.get(install.name)?.virtual ? "command" : "skill",
+                  path: this.source.get(install.name)?.virtual ? inlinePath : sourcePath,
                   description: "A synthetic fixture skill.",
                 },
                 this.availability(install.name),
@@ -107,7 +119,8 @@ export class FakePluginsWire {
       }
       case "plugins.source": {
         const content = this.source.get(request.name);
-        if (!content || request.path !== sourcePath) throw new Error("not_found");
+        if (!content || request.path !== (content.virtual ? inlinePath : sourcePath))
+          throw new Error("not_found");
         const bytes = new TextEncoder().encode(content.text);
         const ring = new FakeByteRing(Math.max(1, bytes.length));
         ring.append(bytes);
@@ -116,7 +129,8 @@ export class FakePluginsWire {
         const text = ring.read(request.offset, request.limit);
         return reply({
           type: "plugins.source",
-          path: `/fake/plugins/${request.name}/${sourcePath}`,
+          path: `/fake/plugins/${request.name}/${content.virtual ? ".claude-plugin/plugin.json" : sourcePath}`,
+          ...(content.virtual ? { virtual: true, manifestPath: ".claude-plugin/plugin.json" } : {}),
           hash: content.hash,
           bytes: bytes.length,
           offset: request.offset,
@@ -128,11 +142,12 @@ export class FakePluginsWire {
       case "plugins.edit": {
         const content = this.source.get(request.name),
           install = this.installs.get(request.name);
-        if (!content || !install || request.path !== sourcePath) throw new Error("not_found");
+        if (!content || !install || request.path !== (content.virtual ? inlinePath : sourcePath))
+          throw new Error("not_found");
         if (content.hash !== request.expectedHash) throw new Error("source_changed");
         if (new TextEncoder().encode(request.text).length > 262144 || this.reviews.size >= 32)
           throw new Error("review_limit");
-        const edited = await source(request.text);
+        const edited = await source(request.text, content.virtual);
         const review = PluginReview.parse({
           id: `review-${++this.counter}`,
           name: install.name,
@@ -196,9 +211,13 @@ export class FakePluginsWire {
   }
 }
 
-async function source(text: string) {
+async function source(text: string, virtual = false) {
   const digest = new Uint8Array(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)),
   );
-  return { text, hash: Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join("") };
+  return {
+    text,
+    virtual,
+    hash: Array.from(digest, (byte) => byte.toString(16).padStart(2, "0")).join(""),
+  };
 }

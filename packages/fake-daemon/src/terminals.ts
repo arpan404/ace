@@ -37,6 +37,7 @@ interface Session {
 const prompt = (cwd: string) => `\x1b[2m${cwd.split("/").pop() ?? cwd}\x1b[0m $ `;
 
 export class FakeTerminals {
+  private owned = new Map<string, number>();
   private sessions = new Map<string, Session>();
   private watchers = new Set<() => void>();
   private counter = 0;
@@ -66,6 +67,9 @@ export class FakeTerminals {
       .filter((session) => session.info.threadId === threadId)
       .map((session) => session.info);
   }
+  hasOwnedWork(threadId: string): boolean {
+    return (this.owned.get(threadId) ?? 0) > 0;
+  }
   async open(request: OpenRequest): Promise<TerminalInfo> {
     return this.openNow(request);
   }
@@ -92,6 +96,7 @@ export class FakeTerminals {
       line: "",
       listeners: new Set(),
     });
+    this.owned.set(info.threadId, (this.owned.get(info.threadId) ?? 0) + 1);
     this.output(info.id, prompt(info.cwd));
     this.changed();
     return info;
@@ -157,7 +162,12 @@ export class FakeTerminals {
     session.info = { ...session.info, cols, rows };
   }
   close(id: string): void {
-    if (this.sessions.delete(id)) this.changed();
+    const session = this.sessions.get(id);
+    if (!session || !this.sessions.delete(id)) return;
+    const remaining = (this.owned.get(session.info.threadId) ?? 1) - 1;
+    if (remaining > 0) this.owned.set(session.info.threadId, remaining);
+    else this.owned.delete(session.info.threadId);
+    this.changed();
   }
   /** Output from the shell's side, e.g. a long build still printing. */
   output(id: string, data: string): void {

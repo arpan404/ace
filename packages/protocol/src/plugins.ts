@@ -142,6 +142,8 @@ export const PluginResponse = z.discriminatedUnion("type", [
     nextOffset: z.number().int().nonnegative(),
     text: z.string().max(65536),
     readonly: z.literal(true),
+    virtual: z.boolean().optional(),
+    manifestPath: z.string().max(512).optional(),
   }),
 
   z.strictObject({ type: z.literal("plugins.cancelled"), id: PluginReview.shape.id }),

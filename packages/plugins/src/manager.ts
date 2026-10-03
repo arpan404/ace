@@ -36,13 +36,14 @@ export class PluginManager {
   private root: string;
   private options: PluginManagerOptions;
   private git: GitRuntime;
+  private cachedCatalog: { revision: number; snapshots: PluginSnapshot[] } | undefined;
   private constructor(root: string, options: PluginManagerOptions) {
     this.root = root;
     this.options = options;
     this.git = options.git ?? gitRuntime();
     this.registry = new Registry(join(root, "registry.sqlite"));
     this.client = new PluginClientOperations(this.registry, root, options.id, () =>
-      this.installed(),
+      this.catalogSnapshots(),
     );
   }
   static async open(options: PluginManagerOptions): Promise<PluginManager> {
@@ -208,33 +209,46 @@ export class PluginManager {
   list(): PluginInstall[] {
     return this.registry.installs().map((value) => value.install);
   }
-  async installed(): Promise<PluginSnapshot[]> {
+  private async catalogSnapshots(): Promise<PluginSnapshot[]> {
+    const currentRevision = this.registry.revision();
+    if (this.cachedCatalog?.revision === currentRevision) return this.cachedCatalog.snapshots;
     return this.lock(async () => {
-      const snapshots: PluginSnapshot[] = [];
-      let total = 0;
-      let selectedFiles = 0;
-      for (const { install } of this.registry.installs()) {
-        const root = join(this.root, "versions", install.hash);
-        const digest = await inspectPackage(root);
-        if (digest.hash !== install.hash) throw new Error("Integrity mismatch");
-        selectedFiles += digest.files.length;
-        if (selectedFiles > limits.files) throw new Error("Selected plugins exceed file limit");
-        for (const file of digest.files) total += file.bytes;
-        if (total > limits.total) throw new Error("Selected plugins exceed projection byte limit");
-        const text = await readPackageText(root, digest.files);
-        const imported = importPlugin(text);
-        validateComponents(imported, text);
-        snapshots.push({
-          install,
-          manifest: imported.manifest,
-          root,
-          files: digest.files,
-          text: { ...text, ...imported.inlineFiles },
-          unsupported: imported.unsupported,
-        });
-      }
+      const revision = this.registry.revision();
+      if (this.cachedCatalog?.revision === revision) return this.cachedCatalog.snapshots;
+      const snapshots = await this.readSnapshots();
+      this.cachedCatalog = { revision, snapshots };
       return snapshots;
     });
+  }
+  async installed(): Promise<PluginSnapshot[]> {
+    // Execution always verifies files again; catalog caching cannot authorize modified code.
+    return this.lock(() => this.readSnapshots());
+  }
+  private async readSnapshots(): Promise<PluginSnapshot[]> {
+    const snapshots: PluginSnapshot[] = [];
+    let total = 0;
+    let selectedFiles = 0;
+    for (const { install } of this.registry.installs()) {
+      const root = join(this.root, "versions", install.hash);
+      const digest = await inspectPackage(root);
+      if (digest.hash !== install.hash) throw new Error("Integrity mismatch");
+      selectedFiles += digest.files.length;
+      if (selectedFiles > limits.files) throw new Error("Selected plugins exceed file limit");
+      for (const file of digest.files) total += file.bytes;
+      if (total > limits.total) throw new Error("Selected plugins exceed projection byte limit");
+      const text = await readPackageText(root, digest.files);
+      const imported = importPlugin(text);
+      validateComponents(imported, text);
+      snapshots.push({
+        install,
+        manifest: imported.manifest,
+        root,
+        files: digest.files,
+        text: { ...text, ...imported.inlineFiles },
+        unsupported: imported.unsupported,
+      });
+    }
+    return snapshots;
   }
   availability(name: string) {
     return this.client.availability(name);
@@ -242,8 +256,8 @@ export class PluginManager {
   configure(value: PluginAvailability) {
     return this.client.configure(value);
   }
-  selected(provider: import("./types.ts").Provider) {
-    return this.client.selected(provider);
+  async selected(provider: import("./types.ts").Provider) {
+    return this.client.selected(provider, await this.installed());
   }
   catalog(offset: number, limit: number) {
     return this.client.catalog(offset, limit);
