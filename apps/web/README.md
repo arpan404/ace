@@ -87,6 +87,7 @@ Each slice owns `src/features/<slice>/` and the route files for its screens:
 | Home (thread list, New thread)                                     | `features/home`                                                              | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx`   |
 | Thread (transcript, composer, header actions)                      | `features/thread`                                                            | `_home.t.$threadId.tsx`                                         |
 | Right and bottom panels (Changes, Preview, Agents, Terminal, Logs) | `features/panels`                                                            | panel tabs of the thread screen (`threadPanels(threadId)`)      |
+| Devices (simulators and emulators, a right-panel tab)              | `features/devices`                                                           | none; loaded with the panel tabs                                |
 | Activity                                                           | `features/activity`                                                          | `activity.tsx`, `activity.index.tsx`                            |
 | Deck (`@ace/conductor`)                                            | `features/deck`                                                              | `deck.tsx`, `deck.index.tsx`, `deck.new.tsx`, `deck.$runId.tsx` |
 | Automations                                                        | `features/automations`                                                       | `automations.tsx`, `automations.index.tsx`                      |
@@ -112,21 +113,26 @@ One-off daemon reads and writes go through `Client.request` (correlated, never q
 offline) with `useDaemonQuery` from `lib/daemon-query.ts`, which waits for a ready connection
 and reads again after a reconnect. Live state still comes only from `@ace/client-react`.
 
-Wired on the wire in every mode: accounts and usage (`accounts.list`, `usage.series`), search
-(`search.query`), models (`models.list`, `models.refresh`), settings (`settings.subscribe` /
-`settings.set`), slash commands (`commands.list`), mentions and uploads (`context.request`). In
-fake mode `@ace/fake-daemon` serves the same messages from its catalogs
+Wired on the wire in every mode: accounts and usage (`accounts.list`, `usage.series`), threads
+per account from the live list and moving a limited thread (`queue.get`, `thread.limit` /
+`migrate_now`), search (`search.query`), models (`models.list`, `models.refresh`), settings
+(`settings.subscribe` / `settings.set`, every key in the protocol's `SettingsValues`, including the
+run-out policy `threads.limitPolicy`), slash commands (`commands.list`), mentions and uploads
+(`context.request`). In fake mode `@ace/fake-daemon` serves the same messages from its catalogs
 (`packages/fake-daemon/src/services/`), so a feature has one code path.
+
+Beside the socket, the connection carries its `endpoint` (`boot/connection.tsx`): the daemon's HTTP
+access routes for paired devices, pairing and revoking (`AccessClient`; the daemon allows these
+bearer-token routes from the app's origin), and the dedicated devices channel for the Devices panel
+(`DeviceClient` over `deviceTransport` from `@ace/client/devices`). Fake mode points both at the
+fake daemon (`FakeAccess`, `FakeAppDevices`).
 
 What `main` cannot carry yet sits behind one adapter per feature marked
 `// TODO(client-gaps): feat/client-protocol-gaps`. In fake mode it serves the fake daemon's
 stand-in; against a real daemon it reports the feature empty or unavailable, never fixture data.
-Today: workspace and forge actions, scripts and editors, thread organization (rename, fork,
-settle, snooze, pin, delete, unqueue), card details, New thread's branches and pre-thread
-mentions, account details and the run-out policy, settings keys outside the protocol schema,
-machines, devices and pairing, ACP agents added by command, automations, the Activity feed,
-Deck runs, skills and plugins, changed files and transfers, and the terminal, browser and
-preview panels. When the backend lands, wiring a feature changes only its adapter.
+Settings still waits for a list of machines and for adding an ACP agent by command
+(`features/settings/data/access-gaps.ts`); other slices list theirs in their own adapters. When the
+backend lands, wiring a feature changes only its adapter.
 
 ## Fake-daemon scenarios
 

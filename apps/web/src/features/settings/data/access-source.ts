@@ -30,6 +30,14 @@ export function pairing(response: { url: string; expiresAt: number }): Pairing {
   return { url: response.url, code, expiresAt: response.expiresAt };
 }
 
+/**
+ * A phone or browser a person paired and can revoke. The daemon also lists the desktop app's
+ * own embedded-browser credential (desktop scope only), which is not a paired device.
+ */
+function paired(device: Device): boolean {
+  return device.revokedAt === null && device.scopes.some((scope) => scope !== "desktop");
+}
+
 /** A failed access call, in words a person can act on. */
 function explain(error: unknown, origin: string): Error {
   if (error instanceof ClientError && error.code === "daemon") {
@@ -73,10 +81,7 @@ export function accessSource(endpoint: DaemonEndpoint | undefined, gaps: AccessG
   };
   return {
     ...gaps,
-    devices: () =>
-      run((access) => access.devices()).then((all) =>
-        all.filter((device) => device.revokedAt === null),
-      ),
+    devices: () => run((access) => access.devices()).then((all) => all.filter(paired)),
     pair: (scopes) =>
       run((access) => access.pairing(scopes.filter((scope) => scope !== "desktop"))).then(pairing),
     revoke: (deviceId) => run((access) => access.revoke(deviceId)).then(() => undefined),

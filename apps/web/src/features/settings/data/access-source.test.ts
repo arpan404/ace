@@ -45,3 +45,28 @@ test("a pairing carries the one-time code from its link, for typing by hand", as
   expect(pairing.code).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
   expect(pairing.expiresAt).toBe(5_000 + 10 * 60_000);
 });
+
+test("the desktop app's own browser credential isn't listed as a paired device", async () => {
+  const listed = [
+    {
+      id: "phone",
+      name: "Pixel",
+      scopes: ["read", "operate"],
+      createdAt: 1,
+      lastSeenAt: 2,
+      revokedAt: null,
+    },
+    {
+      id: "desk",
+      name: "ace desktop browser",
+      scopes: ["desktop"],
+      createdAt: 1,
+      lastSeenAt: 2,
+      revokedAt: null,
+    },
+    { id: "old", name: "Old phone", scopes: ["read"], createdAt: 1, lastSeenAt: 2, revokedAt: 3 },
+  ];
+  const access = endpoint(async () => new Response(JSON.stringify(listed), { status: 200 }));
+
+  expect((await access.devices()).map((device) => device.name)).toEqual(["Pixel"]);
+});
