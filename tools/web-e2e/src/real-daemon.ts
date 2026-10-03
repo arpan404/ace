@@ -7,7 +7,9 @@ import type { Fact } from "@ace/core";
 import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
 import type { Frame, SessionContext } from "@ace/engine-api";
 import { Capabilities, ServerMessage, type ContentPart, type ProviderKind } from "@ace/protocol";
+import { deckTurn } from "./deck-script.ts";
 import {
+  deckStepMs,
   daemonHome,
   daemonPort,
   pluginMarketPath,
@@ -91,6 +93,8 @@ function scriptedProvider(provider: ProviderKind) {
       // A turn started by a message carrying `holdMarker` keeps working until the person
       // steers into it or stops it, so the server queue has a running turn to queue behind.
       let holding = false;
+      // A Deck worker's open question, answered through `resolve`.
+      let asking: { turn: number; answer(): string } | undefined;
       return {
         ...session,
         async send(input: ContentPart[], delivery: "steer" | "queue") {
@@ -101,6 +105,44 @@ function scriptedProvider(provider: ProviderKind) {
           const turn = ++seq;
           const ask = message(`ask-${turn}`, "user", text);
           const reply = message(`reply-${turn}`, "assistant", scriptedReply);
+          const deck = deckTurn(text, ctx.cwd);
+          if (deck) {
+            // A Deck lane works for a moment, then returns its role's artifact (or asks first).
+            ctx.onFrame(frame({ type: "turn.started", agent: "root", trigger: "user" }, ask));
+            setTimeout(() => {
+              if (deck.kind === "reply") {
+                ctx.onFrame(
+                  frame(message(`reply-${turn}`, "assistant", deck.text), end("completed")),
+                );
+                return;
+              }
+              asking = { turn, answer: deck.answer };
+              ctx.onFrame(
+                frame({
+                  type: "interaction.opened",
+                  agent: "root",
+                  interaction: `ask-${turn}`,
+                  blocking: true,
+                  request: {
+                    kind: "question",
+                    questions: [
+                      {
+                        id: "where",
+                        text: deck.question,
+                        options: [
+                          { id: "root", label: "Yes, at the root" },
+                          { id: "docs", label: "No, under docs/" },
+                        ],
+                        multiSelect: false,
+                        allowOther: false,
+                      },
+                    ],
+                  },
+                }),
+              );
+            }, deckStepMs);
+            return;
+          }
           if (holding) {
             // Steered into the held turn: answer it and finish.
             holding = false;
@@ -127,6 +169,16 @@ function scriptedProvider(provider: ProviderKind) {
               ),
             );
           }
+        },
+        async resolve() {
+          // The testkit's script has no resolve step. The engine closes the question; the
+          // worker then finishes its card.
+          const open = asking;
+          if (!open) return;
+          asking = undefined;
+          ctx.onFrame(
+            frame(message(`reply-${open.turn}`, "assistant", open.answer()), end("completed")),
+          );
         },
         async close(reason: Parameters<typeof session.close>[0]) {
           // The testkit's script has no close step; the session still exits, which is all a
