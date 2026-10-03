@@ -1,4 +1,5 @@
 import type {
+  ThreadLineage,
   UsageMetadata,
   AgentActivity,
   AgentFidelity,
@@ -75,6 +76,7 @@ export type Fact =
       parent?: Key;
       spawnedBy?: Key;
       origin: AgentOrigin;
+      lineage?: ThreadLineage;
       fidelity: AgentFidelity;
       native: NativeRef;
       cwd: string;

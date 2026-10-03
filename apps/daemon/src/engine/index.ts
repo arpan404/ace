@@ -1,3 +1,4 @@
+import { ThreadTransitions, type TransitionIO } from "./transitions.ts";
 import { executeIntent } from "./delivery.ts";
 import { Sessions } from "./sessions.ts";
 import { randomUUID } from "node:crypto";
@@ -15,6 +16,7 @@ export { AdapterRegistry } from "./registry.ts";
 export type { EngineClock } from "./actor.ts";
 
 export interface EngineOptions {
+  transitions?: TransitionIO;
   limits?: Partial<EngineLimits>;
   sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
   ids?: IdSource;
@@ -48,6 +50,7 @@ export class Engine {
   private controls: IntentWorkers;
   private steering: IntentWorkers;
   private sessions: Sessions;
+  private transitions: ThreadTransitions;
   private closing = false;
   private closePromise?: Promise<void>;
   private commandPolicy?: (
@@ -79,10 +82,31 @@ export class Engine {
       wake: (id) => this.wake(id),
       expireDelivery: (actor) => this.expireDelivery(actor),
       released: (id) => {
-        this.repo.release(id);
-        this.wakeQueued();
+        const actor = this.actors.get(id);
+        if (actor) this.releaseUnused(actor);
       },
     });
+    this.transitions = new ThreadTransitions(
+      this.repo,
+      this.registry,
+      this.sessions,
+      options.transitions ?? {
+        migrate: async () => ({ status: "refused", reason: "Accounts migration is unavailable" }),
+        applyPatch: async () => {
+          throw new Error("Git service is unavailable");
+        },
+      },
+      () => this.clock.now(),
+      async (id) => {
+        const target = this.actor(id);
+        await target.flush();
+        if (!this.repo.quiescent(this.repo.requireState(id)))
+          throw new Error("Transition tree became live");
+        await this.sessions.close(target, "idle");
+        if (!this.repo.quiescent(this.repo.requireState(id)))
+          throw new Error("Transition tree has unsettled work");
+      },
+    );
     const handler = engineHandler(
       this.repo,
       this.registry,
@@ -200,6 +224,7 @@ export class Engine {
     return { activeSessions, queues };
   }
   private recover(): void {
+    this.repo.transitions.pruneGuards();
     const uncertain = new Set<ThreadId>();
     for (const state of this.repo.states()) {
       const live =
@@ -241,12 +266,20 @@ export class Engine {
         intent.status === "running" ||
         intent.awaiting ||
         (intent.status === "pending" &&
-          !["thread.send", "thread.create"].includes(intent.command.payload.type))
+          ![
+            "thread.send",
+            "thread.create",
+            "thread.fork",
+            "thread.switch",
+            "thread.merge",
+          ].includes(intent.command.payload.type))
       ) {
         uncertain.add(intent.threadId);
         this.fail(
           intent,
-          "Provider delivery was interrupted by daemon restart; execution is uncertain",
+          ["thread.switch", "thread.merge", "thread.fork"].includes(intent.command.payload.type)
+            ? "Thread transition was interrupted by daemon restart; delivery and patch effects are uncertain"
+            : "Provider delivery was interrupted by daemon restart; execution is uncertain",
         );
       }
     }
@@ -292,6 +325,15 @@ export class Engine {
       if (["pending", "queued"].includes(intent.status) && this.repo.reserve(intent.threadId))
         this.wake(intent.threadId);
   }
+  private releaseUnused(actor: ThreadActor): void {
+    if (actor.session || (actor.lifetime && !actor.lifetime.signal.aborted)) return;
+    if (this.repo.intents(actor.id).length) return;
+    this.repo.release(actor.id);
+    this.wakeQueued();
+  }
+  private releaseGuards(intent: Intent): void {
+    for (const id of this.repo.transitions.releaseGuards(intent.command.id)) this.wake(id);
+  }
   private wake(id: ThreadId): void {
     if (this.closing) return;
     this.sends.wake(id);
@@ -309,7 +351,13 @@ export class Engine {
         .some(
           (intent) =>
             ["pending", "queued", "running"].includes(intent.status) &&
-            ["thread.create", "thread.send"].includes(intent.command.payload.type),
+            [
+              "thread.create",
+              "thread.send",
+              "thread.fork",
+              "thread.switch",
+              "thread.merge",
+            ].includes(intent.command.payload.type),
         )
     )
       return;
@@ -317,7 +365,9 @@ export class Engine {
       if (this.closing) return;
       if (
         intent.status !== "pending" ||
-        ["thread.create", "thread.send"].includes(intent.command.payload.type)
+        ["thread.create", "thread.send", "thread.fork", "thread.switch", "thread.merge"].includes(
+          intent.command.payload.type,
+        )
       )
         continue;
       await this.runIntent(actor, intent);
@@ -340,24 +390,49 @@ export class Engine {
       return;
     }
     if (actor.idleDue && actor.session) await this.sessions.close(actor, "idle");
+    // A queued selection applies at the next boundary, even if input was queued first.
+    if (
+      !this.repo.transitions.guarded(actor.id) &&
+      this.repo.quiescent(this.repo.requireState(actor.id))
+    ) {
+      const pending = this.repo.intents(actor.id);
+      const change = pending.find(
+        (intent) =>
+          intent.command.payload.type === "thread.switch" &&
+          ["pending", "queued"].includes(intent.status),
+      );
+      if (change && !pending.some((intent) => intent.awaiting)) await this.runIntent(actor, change);
+    }
     for (const intent of this.repo.intents(actor.id)) {
       if (this.closing) return;
       if (!["pending", "queued"].includes(intent.status)) continue;
+      const guard = this.repo.transitions.guardOwner(actor.id);
+      if (guard && guard !== intent.command.id) continue;
       const p = intent.command.payload;
-      const send = p.type === "thread.send" || p.type === "thread.create";
+      const send = [
+        "thread.send",
+        "thread.create",
+        "thread.fork",
+        "thread.switch",
+        "thread.merge",
+      ].includes(p.type);
       if (!send) continue;
       if (this.isSteer(intent)) continue;
       this.repo.mark(intent, "queued");
       this.queue(actor);
       const state = this.repo.requireState(actor.id);
-      const status = deriveThreadStatus({ ...state, queueCount: state.queueSources.provider });
-      if (
-        this.repo.intents(actor.id).some((pending) => pending.awaiting) ||
-        !(p.trigger === "subagent_result"
-          ? readyForChildResults(state)
-          : ["new", "done", "failed"].includes(status.state))
-      )
-        continue;
+      if (this.repo.intents(actor.id).some((pending) => pending.awaiting)) continue;
+      if (p.type === "thread.switch" || p.type === "thread.merge") {
+        if (!this.repo.quiescent(state)) continue;
+      } else {
+        const status = deriveThreadStatus({ ...state, queueCount: state.queueSources.provider });
+        const ready =
+          (p.type === "thread.send" || p.type === "thread.create") &&
+          p.trigger === "subagent_result"
+            ? readyForChildResults(state)
+            : ["new", "done", "failed"].includes(status.state) || this.repo.quiescent(state);
+        if (!ready) continue;
+      }
       await this.runIntent(actor, intent);
     }
     actor.schedule();
@@ -365,7 +440,18 @@ export class Engine {
   private isSteer(intent: Intent): boolean {
     const payload = intent.command.payload;
     if (payload.type !== "thread.send" || payload.delivery !== "steer") return false;
+    if (this.repo.transitions.guarded(intent.threadId)) return false;
     const state = this.repo.requireState(intent.threadId);
+    if (
+      this.repo
+        .intents(intent.threadId)
+        .some(
+          (pending) =>
+            ["thread.switch", "thread.merge"].includes(pending.command.payload.type) &&
+            (pending.status === "running" || this.repo.quiescent(state)),
+        )
+    )
+      return false;
     return (
       this.registry.has(state.config.provider) &&
       (
@@ -387,7 +473,13 @@ export class Engine {
             .some(
               (pending) =>
                 ["pending", "queued", "running"].includes(pending.status) &&
-                ["thread.create", "thread.send"].includes(pending.command.payload.type) &&
+                [
+                  "thread.create",
+                  "thread.send",
+                  "thread.fork",
+                  "thread.switch",
+                  "thread.merge",
+                ].includes(pending.command.payload.type) &&
                 !this.isSteer(pending),
             )
         )
@@ -397,7 +489,9 @@ export class Engine {
     }
   }
   private async runIntent(actor: ThreadActor, intent: Intent): Promise<void> {
-    const send = ["thread.create", "thread.send"].includes(intent.command.payload.type);
+    const send = ["thread.create", "thread.send", "thread.fork"].includes(
+      intent.command.payload.type,
+    );
     this.repo.mark(intent, "running");
     if (send) {
       const state = this.repo.requireState(actor.id);
@@ -412,27 +506,54 @@ export class Engine {
     }
     this.queue(actor);
     try {
-      await executeIntent(
-        actor,
-        intent,
-        this.repo,
-        this.registry,
-        this.sessions,
-        this.prepareInput,
-      );
+      const payload = intent.command.payload;
+      if (payload.type === "thread.switch" || payload.type === "thread.merge")
+        await this.transitions.execute(actor, intent);
+      else
+        await executeIntent(
+          actor,
+          intent,
+          this.repo,
+          this.registry,
+          this.sessions,
+          this.transitions,
+          this.prepareInput,
+        );
       await actor.flush();
       if (actor.poisoned) throw new Error("Provider frames could not be persisted");
       if (!this.repo.cancelled(intent.id)) this.repo.mark(intent, "done");
+      this.releaseGuards(intent);
     } catch (error) {
       await actor.flush();
       this.fail(intent, error instanceof Error ? error.message : String(error));
     }
     this.queue(actor);
     actor.schedule();
+    this.releaseUnused(actor);
   }
   private fail(intent: Intent, message: string): void {
     this.repo.store.atomic(() => {
       this.repo.mark(intent, "failed", message);
+      this.releaseGuards(intent);
+      if (intent.command.payload.type === "thread.switch") {
+        const pending = this.repo.store.getThread(intent.threadId)?.switch;
+        if (pending)
+          this.repo.store.appendEvents(
+            intent.threadId,
+            [
+              {
+                type: "thread.updated",
+                switch: {
+                  ...pending,
+                  state: "failed",
+                  error: message.slice(0, 2048),
+                  at: this.clock.now(),
+                },
+              },
+            ],
+            this.clock.now(),
+          );
+      }
       const fact: Fact = {
         type: "item.upsert",
         agent: "root",

@@ -22,10 +22,9 @@ Example:
 
 ```json
 {
-  "budget": 2,
-  "deadline": 7,
-  "decision": "reject",
-  "gateId": "vaRRJQ8r_UPB5hjA4hZWRgAKtoxd9dsHAJnfGm3yU8hT1rjuLSUlzxs81MBjpRBl0.a_9FT3Ucj60hSSn8LEB893uotYEFnq0nAk.NDlPu1CTUZP-T2",
+  "deadline": 9,
+  "decision": "approve",
+  "gateId": "HfGm3yU8hT1rjuLSUlzxs81MBjpR",
   "plan": {
     "summary": "Example plan",
     "workstreams": [
@@ -94,7 +93,7 @@ Example:
 
 ```json
 {
-  "runId": "A67OKOLALFyflngAwSA_mRxOrpMHy.MCpjUm0j.ZrpzFgnTztqYpqS1ZBaxW-qEk6g31LX2.G0bJLIEEOqT9M_H5Yd2AdT9P2dL6xFciOLycOhYGr4t.5ivja",
+  "runId": "6T3Ucj60hSSn8LEB893uotYEFnq0nAk.NDlPu1CTUZP-T2WabipmTB967OKOLAL",
   "spec": {
     "constraints": {
       "accounts": [
@@ -176,10 +175,11 @@ Example:
 ```json
 {
   "approval": {
+    "deadline": 6,
     "decision": "reject",
-    "gateId": "ItJ6dfiYwYQbaL2M.PVmWI8dSjchm.rIdszj1ARDNCEvHaMqz"
+    "gateId": "wrpMHy.MCpjUm0j.ZrpzFgnTztqYpqS1ZBaxW-qEk6g31LX2.G0bJLIEEOqT9M_H5Yd2AdT9P2dL6xFci"
   },
-  "runId": "qidPgK",
+  "runId": "xlngAwSA_mR",
   "type": "conductor.approve"
 }
 ```
@@ -195,7 +195,7 @@ Example:
 
 ```json
 {
-  "runId": "RO3jb1q8WpQNc9ZwbHKVrqWsz.DCYFRa2TwDWiFZDnEEKQ.5iRAqOdhhXryEK2PHm",
+  "runId": "hGr4t.5ivja8rcidPgKKytJ6dfiYwYQbaL2M.PVmWI8dSjchm.rIdszj1ARDNCEvHaMqzVL5TTGO3jb1q8WpQNc9ZwbHKVrqWsz.D",
   "type": "conductor.pause"
 }
 ```
@@ -211,7 +211,7 @@ Example:
 
 ```json
 {
-  "runId": "iCnhKPGxeJ5h3QcBfNHfdy48N9gyi_8Rxz25mTM7u720Cc-mvttXblHh4Dygk6M0",
+  "runId": "BFRa2TwDWiFZDnEEKQ.5iRAqOdhhXryEK2PHmjGCnhKPGxeJ5h3QcBfNHfdy48N9gyi_8Rxz25mTM7u720Cc-mvttXblHh4Dygk6",
   "type": "conductor.resume"
 }
 ```
@@ -227,7 +227,7 @@ Example:
 
 ```json
 {
-  "runId": "YCRgCiBtjjZrhpiN3WMG3kqjbuMrB26ElpY.GhXArASyPysmR_j-54lTjWbGBFkTAZJNYmiq",
+  "runId": "K1KCRgCiBtjjZrhpiN3WMG3kqjbuMrB26ElpY.GhXArASyPysmR_j-54lTjWbGBFkTAZJNYmiqViSvg.GflLf6ax.cXwiBFENRxgCUu",
   "type": "conductor.cancel"
 }
 ```
@@ -248,10 +248,10 @@ Example:
 
 ```json
 {
-  "cost": 5,
-  "model": "ivg.GflLf6ax.cXwiBFENRxgCUuRfXDULnR2DeSBk3ibi-rTpi45drgI_gzGEf0CUNp3RSH3lwy4zHItpnM-nnR3",
-  "provider": "acp",
-  "quota": 5,
+  "cost": 0,
+  "model": "eDULnR2DeSBk3ibi-rTpi45drgI_gzGEf0CUNp3RSH3lwy4zHItpnM-nnR3YKFoEQOEbOyeEq7Lb8eH4a1GMYvfJ6coH5qfPmm",
+  "provider": "antigravity",
+  "quota": 9,
   "tier": "normal"
 }
 ```
@@ -567,8 +567,8 @@ Example:
     "risks": []
   },
   "dependencies": [],
-  "id": "COye",
-  "priority": 4,
+  "id": "fRkVrbc8KyFEWALjk95L9ZPoM2IravvmRmOgeMCcPnDgM9o4O7CKsip7GgoTJmsvAS8gEQv1XtxbCjKc8vxDqjF7",
+  "priority": 3,
   "title": "example"
 }
 ```

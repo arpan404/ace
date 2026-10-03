@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ProviderSession } from "@ace/engine-api";
-import type { ContentPart, AgentLaunchOptions } from "@ace/protocol";
+import type { ContentPart } from "@ace/protocol";
 import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
 import type { TurnStartParams } from "./generated/v2/TurnStartParams.ts";
 import type { TurnSteerParams } from "./generated/v2/TurnSteerParams.ts";
@@ -30,7 +30,7 @@ export type Pending = {
 };
 export type SessionCommandsContext = {
   nativeSessionId: string;
-  launchOptions?: AgentLaunchOptions;
+  getLaunchOptions?(): Pick<TurnStartParams, "effort" | "serviceTier">;
   active: Map<string, string>;
   parents: Map<string, string>;
   shells: Map<string, string>;
@@ -85,10 +85,7 @@ export function createSessionCommands(
         {
           threadId,
           input: input(parts),
-          ...(config.launchOptions?.effort ? { effort: config.launchOptions.effort } : {}),
-          ...(config.launchOptions?.serviceTier
-            ? { serviceTier: config.launchOptions.serviceTier }
-            : {}),
+          ...config.getLaunchOptions?.(),
         } satisfies TurnStartParams,
         true,
       );

@@ -1,0 +1,38 @@
+{
+  "$id": "https://ace.local/protocol/v1/ForkPoint.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/RunId.json"
+        },
+        "type": {
+          "const": "turn",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "runId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "itemId": {
+          "$ref": "https://ace.local/protocol/v1/ItemId.json"
+        },
+        "type": {
+          "const": "item",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "itemId"
+      ],
+      "type": "object"
+    }
+  ]
+}

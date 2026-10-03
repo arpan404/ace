@@ -1,5 +1,6 @@
 import { agentControlToolkit } from "@ace/mcp-server";
 import { screenToolkit } from "@ace/screen";
+import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startMcp(context: ServiceContext): Promise<void> {
@@ -8,6 +9,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   const mcp = await startDaemonMcp(
     store,
     [
+      handoffToolkit(store),
       agentControlToolkit({
         async execute(caller, operation, signal) {
           return services.agentControl

@@ -23,18 +23,8 @@ Example:
   "deviceId": "example",
   "id": "example",
   "payload": {
-    "source": {
-      "from": {
-        "kind": "commit",
-        "ref": "example"
-      },
-      "threadId": "example",
-      "to": {
-        "kind": "working-tree"
-      },
-      "workspaceId": "example"
-    },
-    "type": "review.open"
+    "runId": "foybDh4_3GP3Mfj985JlJq91k1EdbI12SyMTUU_DgmDiXM0zorbsv5-m4Lvui.g70CUthHhpNT",
+    "type": "conductor.pause"
   }
 }
 ```
@@ -64,12 +54,89 @@ Example:
 ```json
 {
   "acpAgentId": "example",
-  "instanceId": "example",
-  "provider": "opencode",
+  "installationId": "example",
+  "provider": "cursor",
   "threadId": "example",
   "title": "example",
   "type": "thread.prepare",
   "workspaceId": "example"
+}
+```
+
+### thread.fork
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.fork"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| point | yes | [ForkPoint.json](schema/ForkPoint.json) |  |
+| title | no | string | {"maxLength":256} |
+| selection | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
+| input | yes | string | {"minLength":1,"maxLength":16384} |
+| budgetBytes | no | integer | {"default":16384,"minimum":2048,"maximum":65536} |
+
+Example:
+
+```json
+{
+  "input": "example",
+  "point": {
+    "itemId": "example",
+    "type": "item"
+  },
+  "selection": {
+    "provider": "claude"
+  },
+  "threadId": "example",
+  "type": "thread.fork"
+}
+```
+
+### thread.merge
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.merge"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| summary | yes | string | {"minLength":1,"maxLength":16384} |
+| citations | yes | array | {"minItems":1,"maxItems":100,"items":{"$ref":"https://ace.local/protocol/v1/HandoffCitation.json"}} |
+| patch | no | string | {"minLength":1,"maxLength":65536,"x-ace-constraint":"Patch is at most 65536 encoded UTF-8 bytes."} |
+
+Example:
+
+```json
+{
+  "citations": [
+    {
+      "itemId": "example",
+      "threadId": "example"
+    }
+  ],
+  "summary": "example",
+  "threadId": "example",
+  "type": "thread.merge"
+}
+```
+
+### thread.switch
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.switch"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| selection | yes | object | {"properties":{"provider":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"},"model":{"type":"string","minLength":1,"maxLength":256},"instanceId":{"type":"string","minLength":1,"maxLength":256},"options":{"$ref":"https://ace.local/protocol/v1/ExecutionOptions.json"}},"required":["provider"]} |
+
+Example:
+
+```json
+{
+  "selection": {
+    "instanceId": "example",
+    "model": "example",
+    "provider": "cursor"
+  },
+  "threadId": "example",
+  "type": "thread.switch"
 }
 ```
 
@@ -99,7 +166,7 @@ Example:
 
 ```json
 {
-  "runId": "E3Mfj985JlJq91k1EdbI12SyMTUU_DgmDiXM0zorbsv5-m4Lvui.g70CUthHhpNTFnoT51T2AjiJQ_BWBcf",
+  "runId": "8kzsF27muIrAaQxEqMTJNpyB8p79L8bqJG9.T1uKSdwDX.cLtPREqUGc2V6WI_.OZdJOqWb9DwLLbAMejhqsKB.RMxTs75KQWMsjpgw",
   "spec": {
     "constraints": {
       "accounts": [
@@ -181,12 +248,10 @@ Example:
 ```json
 {
   "approval": {
-    "budget": 8,
-    "deadline": 2,
     "decision": "reject",
-    "gateId": "BP1sTBxVIWSr0-Z5kMHTaCd1oz.RNhGL8jj1-XhoZ443fS8OL5XXCYpGMpkBjZSoof0.zCig2qDMxUtp-Xd4ltv70EdYC6cTfVsq"
+    "gateId": "lv70EdYC6cTfVsq3Td1lpVlz.XCHUmeHQ_py5Lr8"
   },
-  "runId": "8kzsF27muIrAaQxEqMTJNpyB8p79L8bqJG9.T1uKSdwDX.cLtPREqUGc2V6WI_.OZdJOqWb9DwLLbAMejhqsKB.RMxTs75KQWMsjpgw",
+  "runId": "W1sTBxVIWSr0-Z5kMHTaCd1oz.RNhGL8jj1-XhoZ443fS8OL5XXCYpGMpkBjZSoof0.zCig2qDMxUtp-Xd4",
   "type": "conductor.approve"
 }
 ```
@@ -202,7 +267,7 @@ Example:
 
 ```json
 {
-  "runId": "Tz.XCHUmeHQ_py5Lr89RQ_w",
+  "runId": "vXJffU4PYDXijyHroccXxEC1zJ4",
   "type": "conductor.pause"
 }
 ```
@@ -218,7 +283,7 @@ Example:
 
 ```json
 {
-  "runId": "mJffU4PYDXijyHroccXxEC1zJ4qMkHnEr_AY_K1sz6MoJt.wiTZ_KRl0Ax53StNkjdWmZFQUhdKV3vy_sZn8tus4ZtQyec5ID6z",
+  "runId": "qkHnEr_AY_K1sz6MoJt.wiTZ_KRl0Ax53StNkjdWmZFQUhdKV3vy_sZn8tus4ZtQyec5ID6z3iBFm",
   "type": "conductor.resume"
 }
 ```
@@ -234,7 +299,7 @@ Example:
 
 ```json
 {
-  "runId": "1BFm6t_wMgeZi5VQA",
+  "runId": "3_wMgeZi5VQApdvYCkeKLwe4e.U5YqLiKPSDnNM",
   "type": "conductor.cancel"
 }
 ```
@@ -252,9 +317,9 @@ Example:
 {
   "source": {
     "from": {
-      "kind": "working-tree"
+      "id": "example",
+      "kind": "checkpoint"
     },
-    "threadId": "example",
     "to": {
       "kind": "working-tree"
     },
@@ -324,7 +389,7 @@ Example:
 ```json
 {
   "commentId": "example",
-  "resolved": true,
+  "resolved": false,
   "sessionId": "example",
   "type": "review.resolve"
 }
@@ -402,7 +467,8 @@ Example:
 ```json
 {
   "from": {
-    "kind": "working-tree"
+    "id": "example",
+    "kind": "checkpoint"
   },
   "sessionId": "example",
   "to": {
@@ -445,8 +511,6 @@ Example:
 
 ```json
 {
-  "commentId": "example",
-  "limit": 10,
   "sessionId": "example",
   "type": "review.list"
 }
@@ -464,28 +528,28 @@ Example:
 ```json
 {
   "input": {
-    "baseRef": "6e3c2451d3388eb17833f6666f150fc71f0f29f2e302cd49c58303062d38a4b5",
+    "baseRef": "150fc71f0f29f2e302cd49c58303062d38a4b5c58d7d8dc511c9cf589f723890",
     "prompt": "example",
     "targetBranch": "example",
     "template": {
       "budget": {
-        "cost": 2,
-        "durationMs": 10,
-        "maxAttempts": 3,
+        "cost": 1,
+        "durationMs": 8,
+        "maxAttempts": 1,
         "maxDepth": 7,
         "maxLanes": 3,
-        "tokens": 3
+        "tokens": 8
       },
       "checks": {
         "command": [
           "example"
         ]
       },
-      "kind": "fanout",
+      "kind": "race",
       "lanes": [
         {
           "model": "example",
-          "provider": "antigravity"
+          "provider": "claude"
         }
       ]
     },
@@ -506,7 +570,7 @@ Example:
 
 ```json
 {
-  "orchestrationId": "SDj-iv",
+  "orchestrationId": "NF0DIJo82v",
   "type": "orchestration.cancel"
 }
 ```
@@ -524,8 +588,8 @@ Example:
 
 ```json
 {
-  "laneId": "B2e",
-  "orchestrationId": "T.u4JN5-BJh",
+  "laneId": "jOI",
+  "orchestrationId": "1VGFxYrk.",
   "type": "orchestration.pick"
 }
 ```
@@ -553,16 +617,17 @@ Example:
 
 ```json
 {
-  "context": {},
+  "accountId": "example",
   "input": [
     {
+      "mimeType": "example",
       "path": "example",
       "type": "file"
     }
   ],
+  "options": {},
   "provider": "acp",
   "threadId": "example",
-  "title": "example",
   "type": "thread.create",
   "workspaceId": "example"
 }
@@ -583,7 +648,7 @@ Example:
 
 ```json
 {
-  "delivery": "queue",
+  "delivery": "steer",
   "input": [
     {
       "mimeType": "example",
@@ -609,8 +674,6 @@ Example:
 
 ```json
 {
-  "agentId": "example",
-  "cascade": false,
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -682,9 +745,9 @@ Example:
 {
   "interactionId": "example",
   "resolution": {
-    "kind": "approval",
-    "message": "example",
-    "optionId": "example"
+    "decision": "reject",
+    "feedback": "example",
+    "kind": "plan_review"
   },
   "type": "interaction.resolve"
 }
@@ -715,6 +778,7 @@ Example:
 | threadId | no | [ThreadId.json](schema/ThreadId.json) |  |
 | commandId | yes | [CommandId.json](schema/CommandId.json) |  |
 | ok | yes | boolean |  |
+| forkThreadId | no | [ThreadId.json](schema/ThreadId.json) |  |
 | health | no | [DiagnosticsHealth.json](schema/DiagnosticsHealth.json) |  |
 | error | no | string |  |
 | review | no | [ReviewData.json](schema/ReviewData.json) |  |
@@ -724,26 +788,34 @@ Example:
 ```json
 {
   "commandId": "example",
-  "ok": false,
-  "review": {
-    "nextCursor": "example",
-    "session": {
-      "createdAt": 7,
-      "id": "example",
-      "source": {
-        "from": {
-          "kind": "commit",
-          "ref": "example"
-        },
-        "threadId": "example",
-        "to": {
-          "kind": "commit",
-          "ref": "example"
-        },
-        "workspaceId": "example"
-      },
-      "status": "changes-requested"
+  "error": "example",
+  "forkThreadId": "example",
+  "health": {
+    "activeSessions": 8,
+    "at": 1,
+    "eventLoop": {
+      "maxMs": 8,
+      "meanMs": 0,
+      "p99Ms": 3
+    },
+    "logs": {
+      "dropped": 7,
+      "failed": 9,
+      "queued": 6
+    },
+    "memory": {
+      "heapTotalBytes": 7,
+      "heapUsedBytes": 3,
+      "rssBytes": 5
+    },
+    "openHandles": 9,
+    "queues": {},
+    "sqlite": {
+      "pageBytes": null,
+      "walBytes": null
     }
-  }
+  },
+  "ok": false,
+  "threadId": "example"
 }
 ```

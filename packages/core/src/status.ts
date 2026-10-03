@@ -331,7 +331,8 @@ export function deriveThreadStatus(state: ThreadState): ThreadStatus {
   if (
     records.some(
       (record) =>
-        record.disconnectedAt !== undefined && record.agent.status.state === "unresponsive",
+        (record.disconnectedAt !== undefined || record.externalStatus?.state === "unresponsive") &&
+        record.agent.status.state === "unresponsive",
     )
   )
     return { state: "unresponsive" };

@@ -2,7 +2,7 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Frame } from "@ace/engine-api";
+import type { Frame, SessionContext } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
 import { afterEach, beforeEach } from "vitest";
 import { createClaudeAdapter, type ClaudeOptions } from "./index.ts";
@@ -19,7 +19,12 @@ beforeEach(async () => {
 afterEach(async () => {
   await rm(directory, { recursive: true, force: true });
 });
-export async function harness(resume?: string, rootKey = "root", options: ClaudeOptions = {}) {
+export async function harness(
+  resume?: string,
+  rootKey = "root",
+  options: ClaudeOptions = {},
+  execution: Pick<SessionContext, "fork" | "options" | "aceMcp"> = {},
+) {
   const frames: Frame[] = [];
   const waiters: { predicate(frame: Frame): boolean; resolve(frame: Frame): void }[] = [];
   const exit = Promise.withResolvers<{ deliberate: boolean; message?: string }>();
@@ -42,6 +47,7 @@ export async function harness(resume?: string, rootKey = "root", options: Claude
       }
     },
     ...(resume ? { resume: { nativeSessionId: resume } } : {}),
+    ...execution,
     onExit: (value) => {
       exits.push(value);
       exit.resolve(value);

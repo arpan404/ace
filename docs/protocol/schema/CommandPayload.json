@@ -6,6 +6,123 @@
       "$ref": "https://ace.local/protocol/v1/ThreadPrepareCommand.json"
     },
     {
+      "properties": {
+        "budgetBytes": {
+          "default": 16384,
+          "maximum": 65536,
+          "minimum": 2048,
+          "type": "integer"
+        },
+        "input": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        },
+        "point": {
+          "$ref": "https://ace.local/protocol/v1/ForkPoint.json"
+        },
+        "selection": {
+          "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "title": {
+          "maxLength": 256,
+          "type": "string"
+        },
+        "type": {
+          "const": "thread.fork",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "point",
+        "input"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "citations": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/HandoffCitation.json"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "type": "array"
+        },
+        "patch": {
+          "maxLength": 65536,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Patch is at most 65536 encoded UTF-8 bytes."
+        },
+        "summary": {
+          "maxLength": 16384,
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.merge",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "summary",
+        "citations"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "selection": {
+          "properties": {
+            "instanceId": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "model": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "options": {
+              "$ref": "https://ace.local/protocol/v1/ExecutionOptions.json"
+            },
+            "provider": {
+              "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+            }
+          },
+          "required": [
+            "provider"
+          ],
+          "type": "object"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "thread.switch",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "threadId",
+        "selection"
+      ],
+      "type": "object"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/DiagnosticsHealthCommand.json"
     },
     {

@@ -43,14 +43,7 @@ test("near-simultaneous completions wake once with every outcome while another c
   h.clock.advance(1050);
   await h.engine.flush();
   expect(wakes(h.events, parent.threadId)).toHaveLength(1);
-  const page = h.store.readItemPage(parent.threadId, h.store.headSeq() + 1, 20);
-  const text = page.items
-    .flatMap((item) =>
-      item.type === "message" && item.role === "user"
-        ? item.parts.flatMap((part) => (part.type === "text" ? [part.text] : []))
-        : [],
-    )
-    .join("\n");
+  const text = h.inputs.get(parent.threadId)?.join("\n") ?? "";
   expect(text).toContain(a.childId);
   expect(text).toContain(b.childId);
   expect(text).toContain('"result":"A"');
@@ -279,6 +272,7 @@ test("a silent child stays relevant and a child's permission request makes the p
   const edge = h.delegate(parent, "human");
   await h.engine.flush();
   await h.emit(edge.childId, { type: "agent.disconnected", agent: "root" });
+  expect(h.store.getThread(edge.childId)?.status.state).toBe("unresponsive");
   expect(h.store.getThread(parent.threadId)?.status.state).toBe("unresponsive");
   await h.emit(edge.childId, { type: "agent.reconnected", agent: "root" }, question);
   expect(h.store.getThread(parent.threadId)?.status).toMatchObject({

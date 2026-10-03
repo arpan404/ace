@@ -1,3 +1,4 @@
+import { TransitionCommands } from "./thread-transitions.ts";
 import { AcpIdentity } from "./agent-registry.ts";
 import { z } from "zod";
 import { AgentLaunchOptions, ThreadPrepareCommand } from "./agent-control.ts";
@@ -27,6 +28,7 @@ import {
 
 export const CommandPayload = z.discriminatedUnion("type", [
   ThreadPrepareCommand,
+  ...TransitionCommands,
   DiagnosticsHealthCommand,
   ...ConductorCommandPayload.options,
   ...ReviewCommands,

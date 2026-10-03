@@ -1,7 +1,11 @@
+import { TransitionReadiness } from "./transition-readiness.ts";
+import { captureExecutionSources } from "./execution-provenance.ts";
+import { quiescent } from "./transition-history.ts";
+import { TransitionState } from "./transition-state.ts";
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import type { StatementSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
-import { AgentLaunchOptions, Command, ThreadId, type EventPayload } from "@ace/protocol";
+import { ExecutionOptions, Command, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
 import { capFact, readRawBlob } from "./raw.ts";
@@ -19,9 +23,11 @@ export interface Intent {
 }
 export class EngineRepository {
   readonly store: Store;
+  readonly transitions: TransitionState;
   private ids: IdSource;
   private capacity: number;
   private snapshotSeq = new WeakMap<Snapshot, number>();
+  private readiness: TransitionReadiness;
   private snapshots = new Map<ThreadId, Snapshot>();
   private admissionStatements: {
     has: StatementSync;
@@ -34,6 +40,8 @@ export class EngineRepository {
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    this.transitions = new TransitionState(store);
+    this.readiness = store.atomic((db) => new TransitionReadiness(db));
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
     this.admissionStatements = store.atomic((db) => ({
       has: db.prepare(
@@ -87,6 +95,23 @@ export class EngineRepository {
     this.store.atomic((db) => {
       let snapshot = this.snapshots.get(state.threadId);
       if (!snapshot || snapshot.state !== state) snapshot = new Snapshot(db, state);
+      if (
+        payloads.some(
+          (event) =>
+            event.type === "run.started" ||
+            event.type === "item.created" ||
+            event.type === "item.updated",
+        )
+      ) {
+        const session = this.session(state.threadId);
+        const selection = this.transitions.get(state.threadId).selection ?? {
+          provider: state.config.provider,
+          options: {},
+          ...session,
+        };
+        captureExecutionSources(state, payloads, selection, session.nativeSessionId);
+      }
+      this.readiness.capture(state, payloads);
       snapshot.retainChanges(payloads);
       this.store.appendEvents(state.threadId, payloads, at);
       db.prepare(`INSERT INTO thread_state VALUES (?, ?, ?)
@@ -156,6 +181,7 @@ export class EngineRepository {
             if (fact.type === "item.delta" && emitted.some((event) => event.type === "item.delta"))
               snapshot?.delta(fact);
             snapshot?.remember(fact, emitted);
+            if (fact.type === "tick") this.readiness.refreshBlocked(state);
             return emitted;
           } finally {
             finish();
@@ -194,14 +220,47 @@ export class EngineRepository {
     }
   }
 
-  cancelPending(id: ThreadId): void {
-    this.store.atomic((db) =>
-      db
-        .prepare(
-          "UPDATE intents SET status='failed', awaiting=0, error='Cancelled before delivery' WHERE thread_id=? AND kind IN ('thread.send','thread.create') AND (status IN ('pending','queued','running') OR awaiting=1)",
-        )
-        .run(id),
-    );
+  cancelPending(id: ThreadId, now: number): ThreadId[] {
+    return this.store.atomic((db) => {
+      const released = new Set<ThreadId>();
+      for (const intent of this.intents(id)) {
+        if (!["pending", "queued"].includes(intent.status)) continue;
+        const kind = intent.command.payload.type;
+        if (kind !== "thread.switch" && kind !== "thread.merge") continue;
+        this.mark(intent, "failed", "Cancelled before delivery");
+        for (const thread of this.transitions.releaseGuards(intent.command.id))
+          released.add(thread);
+        if (kind === "thread.switch") {
+          const pending = this.store.getThread(id)?.switch;
+          if (pending)
+            this.store.appendEvents(
+              id,
+              [
+                {
+                  type: "thread.updated",
+                  switch: {
+                    ...pending,
+                    state: "failed",
+                    error: "Cancelled before delivery",
+                    at: now,
+                  },
+                },
+              ],
+              now,
+            );
+        }
+      }
+      // Fork intents belong to their new thread, never to the lineage source.
+      for (const intent of this.intents(id)) {
+        if (intent.command.payload.type !== "thread.fork" || intent.status === "running") continue;
+        for (const thread of this.transitions.releaseGuards(intent.command.id))
+          released.add(thread);
+      }
+      db.prepare(
+        "UPDATE intents SET status='failed', awaiting=0, error='Cancelled before delivery' WHERE thread_id=? AND kind IN ('thread.send','thread.create','thread.fork') AND (status IN ('pending','queued','running') OR awaiting=1)",
+      ).run(id);
+      return [...released];
+    });
   }
   cancelled(intentId: number): boolean {
     return this.store.atomic(
@@ -213,6 +272,10 @@ export class EngineRepository {
           .get(intentId) !== undefined,
     );
   }
+  quiescent(state: ThreadState): boolean {
+    return quiescent(state, this.readiness.agentsReady(state));
+  }
+
   add(command: Command, id: ThreadId, resolutionId?: string): void {
     this.store.atomic((db) =>
       db
@@ -314,7 +377,7 @@ export class EngineRepository {
     model?: string;
     nativeSessionId?: string;
     instanceId?: string;
-    options?: AgentLaunchOptions;
+    options?: ExecutionOptions;
   } {
     return this.store.atomic((db) => {
       const row = db.prepare("SELECT * FROM engine_sessions WHERE thread_id = ?").get(id);
@@ -323,7 +386,7 @@ export class EngineRepository {
         cwd: String(row.cwd),
         ...(row.options == null
           ? {}
-          : { options: AgentLaunchOptions.parse(JSON.parse(String(row.options))) }),
+          : { options: ExecutionOptions.parse(JSON.parse(String(row.options))) }),
         ...(typeof row.instance_id === "string" ? { instanceId: row.instance_id } : {}),
         ...(row.model === null ? {} : { model: String(row.model) }),
         ...(row.native_session_id === null
@@ -337,7 +400,7 @@ export class EngineRepository {
     cwd: string,
     model?: string,
     instanceId?: string,
-    options?: AgentLaunchOptions,
+    options?: ExecutionOptions,
   ): void {
     this.store.atomic((db) =>
       db

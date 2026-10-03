@@ -24,6 +24,9 @@
     "id": {
       "$ref": "https://ace.local/protocol/v1/AgentId.json"
     },
+    "lineage": {
+      "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
+    },
     "model": {
       "type": "string"
     },

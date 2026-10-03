@@ -41,6 +41,7 @@ export function setup(
   let admitting = true;
   let nativeSequence = 0;
   const nativeHistories = new Map<string, string[]>();
+  const inputs = new Map<ThreadId, string[]>();
   const contexts = new Map<ThreadId, SessionContext>();
   const registry = new AdapterRegistry();
   const capabilities = Capabilities.parse({
@@ -117,7 +118,9 @@ export function setup(
             nativeSessionId,
             async send(input, delivery) {
               await session.send(input, delivery);
-              history.push(...input.flatMap((part) => (part.type === "text" ? [part.text] : [])));
+              const text = input.flatMap((part) => (part.type === "text" ? [part.text] : []));
+              history.push(...text);
+              inputs.set(ctx.threadId, [...(inputs.get(ctx.threadId) ?? []), ...text]);
               if (provider === "claude") ctx.onFrame(frames.frame(start));
             },
             async interrupt(target) {
@@ -219,6 +222,7 @@ export function setup(
   return {
     home,
     nativeHistories,
+    inputs,
     closeAdmission: () => {
       admitting = false;
     },

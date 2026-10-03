@@ -291,6 +291,12 @@ export class AccountService {
           get nativeSessionId() {
             return session.nativeSessionId;
           },
+          ...(session.configure
+            ? {
+                configure: (execution: import("@ace/protocol").ExecutionSelection) =>
+                  session.configure?.(execution) ?? Promise.resolve(),
+              }
+            : {}),
           send: (input, delivery) => session.send(input, delivery),
           interrupt: (target) => session.interrupt(target),
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),

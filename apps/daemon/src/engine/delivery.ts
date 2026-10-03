@@ -1,4 +1,5 @@
 import type { Command, ThreadId, ContentPart } from "@ace/protocol";
+import type { ThreadTransitions } from "./transitions.ts";
 import type { ThreadActor } from "./actor.ts";
 import type { EngineRepository, Intent } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -10,6 +11,7 @@ export async function executeIntent(
   repo: EngineRepository,
   registry: AdapterRegistry,
   sessions: Sessions,
+  transitions: ThreadTransitions,
   prepareInput?: (
     command: Command,
     threadId: ThreadId,
@@ -17,7 +19,8 @@ export async function executeIntent(
   ) => Promise<ContentPart[]>,
 ): Promise<void> {
   const p = intent.command.payload;
-  if (p.type === "thread.create" || p.type === "thread.send") {
+  if (p.type === "thread.create" || p.type === "thread.send" || p.type === "thread.fork") {
+    if (p.type === "thread.fork") await transitions.freezeForkSource(p.threadId, actor.id);
     await sessions.open(actor);
     if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
     const capabilities =
@@ -25,18 +28,29 @@ export async function executeIntent(
       registry.get(repo.requireState(actor.id).config.provider).capabilities;
     const session = actor.session;
     if (!session) throw new Error("Provider session exited before send");
-    if ((p.context?.items?.length ?? 0) > 0 && !prepareInput)
+    if (p.type !== "thread.fork" && (p.context?.items?.length ?? 0) > 0 && !prepareInput)
       throw new Error("Thread context unavailable");
-    const input = prepareInput
-      ? await prepareInput(intent.command, actor.id, actor.lifetime?.signal ?? AbortSignal.abort())
-      : p.input;
+    const input: ContentPart[] =
+      p.type === "thread.fork"
+        ? [{ type: "text", text: p.input }]
+        : prepareInput
+          ? await prepareInput(
+              intent.command,
+              actor.id,
+              actor.lifetime?.signal ?? AbortSignal.abort(),
+            )
+          : p.input;
     actor.lifetime?.signal.throwIfAborted();
     if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
     await session.send(
-      input,
+      [
+        ...transitions.input(actor.id).map((text): ContentPart => ({ type: "text", text })),
+        ...input,
+      ],
       p.type === "thread.send" && p.delivery === "steer" && capabilities.steer ? "steer" : "queue",
       intent.command.id,
     );
+    transitions.delivered(actor.id);
     return;
   }
   if (!actor.session) {

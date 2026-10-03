@@ -160,9 +160,7 @@ export class PayloadStore {
       this.db
         .prepare("DELETE FROM items WHERE id = ? AND thread_id = ?")
         .run(p.itemId, event.threadId);
-      this.db
-        .prepare("DELETE FROM output_streams WHERE item_id = ? AND thread_id = ?")
-        .run(p.itemId, event.threadId);
+      // Historical handoffs retain output revisions until the thread is deleted.
     } else if (p.type === "item.created" || p.type === "item.updated") {
       this.items.upsert(event, p.item);
     } else if (p.type === "item.delta") {
@@ -204,7 +202,7 @@ export class PayloadStore {
   }
   private writeOutput(streamId: string, offset: number, text: string): number {
     const insert = (this.outputInsert ??= this.statement(
-      "INSERT INTO output_chunks VALUES (?, ?, ?)",
+      "INSERT OR IGNORE INTO output_chunks VALUES (?, ?, ?)",
     ));
     const initial = offset;
     for (let start = 0; start < text.length;) {
@@ -220,6 +218,29 @@ export class PayloadStore {
       start = end;
     }
     return offset - initial;
+  }
+  /** Startup replay restores retired streams without replacing their existing prefix. */
+  archiveOutput(
+    threadId: ThreadId,
+    itemId: ItemId,
+    streamId: string,
+    offset: number,
+    text: string,
+  ): void {
+    this.statement(
+      "INSERT INTO output_streams (id,thread_id,item_id) VALUES (?,?,?) ON CONFLICT(id) DO NOTHING",
+    ).run(streamId, threadId, itemId);
+    const row = this.statement("SELECT thread_id,item_id FROM output_streams WHERE id=?").get(
+      streamId,
+    );
+    const owner = z.object({ thread_id: ThreadId, item_id: ItemId }).parse(row);
+    if (owner.thread_id !== threadId || owner.item_id !== itemId)
+      throw new Error("Stream outside item scope");
+    const bytes = this.writeOutput(streamId, offset, text);
+    this.statement("UPDATE output_streams SET size=MAX(size,?) WHERE id=?").run(
+      offset + bytes,
+      streamId,
+    );
   }
   streamThread(streamId: string): ThreadId | undefined {
     const row = this.statement(
@@ -264,9 +285,29 @@ export class PayloadStore {
       .parse(row);
   }
   readOutput(streamId: string, offset: number, limit: number) {
-    const result = this.readOutputBytes(streamId, offset, limit);
+    const result = this.readLiveOutputBytes(streamId, offset, limit);
     return { ...result, bytes: result.bytes.toString("base64") };
   }
+  /** Retired bytes are readable only through a cutoff-authorized historical read. */
+  readLiveOutputBytes(streamId: string, offset: number, limit: number) {
+    if (!this.liveStreamThread(streamId)) throw new Error("Unknown output stream");
+    return this.readOutputBytes(streamId, offset, limit);
+  }
+  liveStreamThread(streamId: string): ThreadId | undefined {
+    const current = this.readStatement(`
+      SELECT s.thread_id FROM output_streams s JOIN item_previews p ON p.id=s.item_id
+      WHERE s.id=? AND json_extract(p.item,'$.type')='tool_call'
+        AND json_extract(p.item,'$.call.detail.kind')='shell'
+      UNION ALL
+      SELECT s.thread_id FROM item_text_streams s JOIN item_previews p ON p.id=s.item_id
+      WHERE s.id=? AND (
+        json_extract(p.item,'$.source.streamId')=s.id OR
+        json_extract(p.item,'$.parts[' || s.part || '].source.streamId')=s.id
+      ) LIMIT 1
+    `).get(streamId, streamId);
+    return current ? ThreadId.parse(current.thread_id) : undefined;
+  }
+  /** Internal archive read; historical callers check ownership and frozen length first. */
   readOutputBytes(streamId: string, offset: number, limit: number) {
     if (
       !Number.isSafeInteger(offset) ||

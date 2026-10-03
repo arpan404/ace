@@ -1,6 +1,22 @@
 # Agent control verification
 
-Only static verification is permitted in this run. All behaviour tests, mutation cases and benchmark measurements below are **not executed (tests run at merge)**. No real-provider prompts or recorder sessions were used.
+Earlier fix rounds used static verification only. The subsequent main-merge round used the owner's explicit merge-conflict exception: 113 unique tests passed in 19 selected files touching the conflicted engine, service composition, native sessions and MCP interfaces. No full suite, mutation runs, benchmarks, CI, real-provider prompts or recorder sessions were used. Coverage outside those selected files and performance measurements still **need run at merge**.
+
+## Merge-conflict verification after #69
+
+Merged main `2af0ce68` without rebasing. Took main's lockfile, installed the union of workspace dependencies and regenerated protocol documentation with `bun run docs:protocol`.
+
+- Fork lineage stays separate from delegation ownership: cancelling a fork's children leaves source children running, and source results wake only their original parent.
+- A switched delegated thread retains its root identity, parent summary and follow-up concurrency accounting; original-owner cancellation still reaches prepared grandchildren.
+- Interrupting a queued whole-session fork releases its source guard and never opens the cancelled fork, allowing the independent source to continue.
+- Switches require whole-tree quiescence, while `subagent_result` turns can run beside independent live children. Cancelling a subtree fails its queued switch rather than applying it after interruption.
+- Native Codex turns use the current effort/tier after reconfiguration. Native Claude merges user MCP servers with the scoped ace lease and accepts cleared effort.
+- Claude and Codex injection project the URL/bearer connection from the lifetime-scoped lease before strict schema parsing. Credentials remain redacted from recorded frames.
+- A disconnected external child makes its parent unresponsive rather than hiding behind an aggregate background-wait status. The batched-result regression inspects input received by the fake provider, which does not emit synthetic user-message items.
+
+The selected passing files were `engine/{thread-fork,thread-switch,transition-regressions,thread-merge-account,transition-acp}.process.test.ts`, `agent-control/{control,lifecycle,preparation,context-delivery,transitions,accounts,recovery,owners}.process.test.ts`, daemon `claude-registration.process.test.ts`, both adapters' `{fork-selection,session}.process.test.ts`, and MCP `injection.test.ts`. The initial expanded run was interrupted after discovering the strict lease boundary error; the final grouped run passed 112 tests in these 19 files. After adding a queued-fork interruption regression, the updated five-test transitions file also passed (113 unique passing tests). Before fixes, public tests demonstrated the queued-switch cancellation and lifetime-lease failures; the original control regression demonstrated the unresponsive-parent failure.
+
+The remaining MCP fork/merge owner bridge is deliberately gated. Main's fork command requires continuation input and a finished boundary; merge requires authored summary/citations and authorization on its source. The older MCP operations do not carry that full contract. Adapting them requires a schema and ownership change, not an unchecked translation. Editable queues and Deck executor registration remain host integration boundaries.
 
 ## Behaviour coverage
 
@@ -110,4 +126,19 @@ Additional review regression mutations are all **not executed (tests run at merg
 
 Admission uses counters and bounded indexed active rows. Status/usage events point-read their edge; the root active counter and partial deadline index exclude completed trees. Ancestor propagation is bounded by maximum depth. Paged transcript summaries cap bytes. Journal receipts reject at capacity, preserving existing idempotency identities. Waiters, preview descriptors and handoff promises are explicitly capped.
 
-The service integrations and native MCP injection require integration execution at merge; static type safety does not prove SDK/runtime interoperability. ACP HTTP MCP support, unsupported option values, fork/queue executor registration, preview registration and optional watcher automation ports remain capability boundaries.
+The selected fake-provider service/native MCP integrations passed under the merge-conflict exception. Real installed-provider interoperability still needs run at merge. ACP HTTP MCP support, unsupported option values, fork/queue executor registration, preview registration and optional watcher automation ports remain capability boundaries.
+
+## Additional designed mutations for the merge
+
+All mutation applications are **not executed (tests run at merge)**.
+
+- Inherit source delegation edges into a fork: independent-fork cancellation/result test.
+- Reparent switched-thread children or bypass reopened admission: switched-child ownership/concurrency test.
+- Execute a switch before delegated children settle: queued-switch/result-wake test.
+- Cancel sends but leave a queued switch alive: subtree cancellation test.
+- Reuse opening-time Codex options after configure: native effort/tier follow-up test.
+- Replace Claude user MCP servers with ace, or ace with user servers: combined native MCP test.
+- Pass lifetime fields into strict connection schemas: native scoped-lease tests.
+- Ignore disconnected external children in whole-tree status: unresponsive parent test.
+
+- Retain a queued cancelled fork's source guard: queued whole-session fork interruption test.

@@ -1,13 +1,8 @@
 import { realpathSync, statSync } from "node:fs";
 import { validResolution } from "./resolution.ts";
-import { createThreadState } from "@ace/core";
-import {
-  AcpIdentity,
-  Thread,
-  type Command,
-  type CommandResult,
-  type ThreadId,
-} from "@ace/protocol";
+import { createEngineThread } from "./create-thread.ts";
+import { acceptTransition } from "./transition-handler.ts";
+import { AcpIdentity, ThreadId, type Command, type CommandResult } from "@ace/protocol";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
@@ -22,6 +17,8 @@ export function engineHandler(
 ): CommandHandler {
   return {
     handle(command: Command): CommandResult {
+      const transition = acceptTransition(repo, registry, command, now(), nextId, wake);
+      if (transition) return transition;
       const p = command.payload;
       const fail = (error: string): CommandResult => ({ commandId: command.id, ok: false, error });
       if (
@@ -66,31 +63,26 @@ export function engineHandler(
           )
             return fail("launch_options_unsupported");
           const at = now();
-          const thread = Thread.parse({
-            id: p.threadId ?? nextId(),
+          threadId = ThreadId.parse(p.threadId ?? nextId());
+          if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
+          createEngineThread(repo, {
+            id: threadId,
             workspaceId: p.workspaceId,
             title: p.title ?? "New thread",
-            provider: p.provider,
-            ...acpIdentity,
-            status: { state: "new" },
-            createdAt: at,
-            updatedAt: at,
-          });
-          threadId = thread.id;
-          if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
-          const state = createThreadState({
-            threadId,
-            config: { provider: p.provider, silenceMs },
-            rootAgent: {
-              agent: "root",
-              fidelity: "full",
-              native: { provider: p.provider, ...acpIdentity },
-              cwd,
+            ...(acpIdentity ? { acpIdentity } : {}),
+            selection: {
+              provider: p.provider,
+              options: {
+                ...(p.options?.effort ? { effort: p.options.effort } : {}),
+                ...(p.options?.serviceTier ? { serviceTier: p.options.serviceTier } : {}),
+              },
+              ...(p.accountId ? { instanceId: p.accountId } : {}),
               ...(p.model === undefined ? {} : { model: p.model }),
             },
+            cwd,
+            at,
+            silenceMs,
           });
-          repo.save(state, [{ type: "thread.created", thread }], at);
-          repo.createSession(threadId, cwd, p.model, p.accountId, p.options);
           if (p.type === "thread.prepare") {
             repo.release(threadId);
             return { commandId: command.id, ok: true, threadId };
@@ -104,6 +96,8 @@ export function engineHandler(
             return { commandId: command.id, ok: true };
           }
           if (!repo.state(threadId)) return fail("thread_not_found");
+          if (p.type === "thread.send" && repo.transitions.guarded(threadId))
+            return fail("thread_transition_in_progress");
           if (
             p.type === "thread.interrupt" &&
             p.agentId !== undefined &&
@@ -137,11 +131,12 @@ export function engineHandler(
             return fail(p.type === "interaction.resolve" ? "already_resolved" : "task_not_found");
         } else return fail("not_implemented");
         if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
-        if (p.type === "thread.interrupt") repo.cancelPending(threadId);
+        const released = p.type === "thread.interrupt" ? repo.cancelPending(threadId, now()) : [];
         repo.add(command, threadId, resolutionId);
         // Microtasks execute only after the enclosing receipt transaction commits.
         queueMicrotask(() => {
           if (repo.state(threadId)) wake(threadId);
+          for (const id of released) wake(id);
         });
         return { commandId: command.id, ok: true, threadId };
       });

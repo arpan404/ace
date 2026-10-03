@@ -213,6 +213,7 @@ export const CommandResult = z.object({
   threadId: ThreadId.optional(),
   commandId: CommandId,
   ok: z.boolean(),
+  forkThreadId: ThreadId.optional(),
   health: DiagnosticsHealth.optional(),
   error: z.string().optional(),
   review: ReviewData.optional(),
