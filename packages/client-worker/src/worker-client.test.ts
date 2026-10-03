@@ -334,3 +334,55 @@ test("a malformed service request is refused before it reaches the daemon", asyn
     remote.request({ type: "settings.get", key: 42 }),
   ).rejects.toMatchObject({ code: "protocol" });
 });
+
+test("terminal output held for credit resumes when a tab grants credit through the worker", async () => {
+  const { daemon, tab } = world();
+  daemon.createThread({
+    id: "thread-shell",
+    workspaceId: "acme-relay",
+    title: "Shell",
+    provider: "codex",
+  });
+  const threadId = ThreadId.parse("thread-shell");
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  const output: string[] = [];
+  const stop = remote.onMessage((message) => {
+    if (message.type === "terminal.output" && message.event.type === "data")
+      output.push(message.event.data);
+  });
+  const opened = await remote.request({
+    type: "terminal.request",
+    operation: { op: "open", threadId },
+  });
+  if (!opened.terminal) throw new Error("Expected a terminal");
+  const terminalId = opened.terminal.id;
+  await remote.request({
+    type: "terminal.request",
+    operation: { op: "subscribe", threadId, terminalId, subscriptionId: "shell" },
+  });
+  await vi.waitFor(() => expect(output).toHaveLength(1));
+  await remote.request({
+    type: "terminal.request",
+    operation: { op: "write", threadId, terminalId, data: "echo relay\r" },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  expect(output).toHaveLength(1);
+
+  remote.send({ type: "terminal.credit", subscriptionId: "shell" });
+  await vi.waitFor(() => expect(output.join("")).toContain("relay"));
+  stop();
+});
+
+test("a one-way control is refused, not queued, while the worker's client is disconnected", async () => {
+  const { daemon, tab } = world();
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  daemon.disconnectAll();
+  await vi.waitFor(() => expect(remote.state).not.toBe("ready"));
+  expect(() => remote.send({ type: "terminal.credit", subscriptionId: "shell" })).toThrow(
+    expect.objectContaining({ code: "offline" }),
+  );
+});

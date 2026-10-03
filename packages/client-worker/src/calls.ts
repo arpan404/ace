@@ -1,5 +1,11 @@
-import { ClientError, type Client, type RegistryQuery, type ServiceRequest } from "@ace/client";
-import { CommandPayload, TextSource } from "@ace/protocol";
+import {
+  ClientError,
+  isOneWayMessage,
+  type Client,
+  type RegistryQuery,
+  type ServiceRequest,
+} from "@ace/client";
+import { ClientMessage, CommandPayload, TextSource } from "@ace/protocol";
 import { z } from "zod";
 
 /*
@@ -95,6 +101,20 @@ export async function callArgs(
     }
     default:
       throw new ClientError("protocol", "Unknown worker request");
+  }
+}
+
+/**
+ * Pass a tab's one-way control to the worker's client. There is no reply to carry a failure: a
+ * malformed or reserved message is dropped, and an offline client drops it as the socket would.
+ */
+export function sendArgs(client: Client, value: unknown): void {
+  const parsed = ClientMessage.safeParse(value);
+  if (!parsed.success || !isOneWayMessage(parsed.data)) return;
+  try {
+    client.send(parsed.data);
+  } catch {
+    // The tab already sees the connection state that explains the drop.
   }
 }
 

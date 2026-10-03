@@ -7,7 +7,7 @@ import {
 } from "@ace/client";
 import type { Item, ServerMessage } from "@ace/protocol";
 import { sidebarPatches, threadPatches, type Patch } from "./patches.ts";
-import { callArgs, iterateArgs } from "./calls.ts";
+import { callArgs, iterateArgs, sendArgs } from "./calls.ts";
 import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire.ts";
 
 /*
@@ -231,6 +231,8 @@ class Tab {
         return void this.stop(message.call);
       case "abort":
         return this.calls.get(message.call)?.abort();
+      case "send":
+        return sendArgs(client, message.message);
       case "watchIntent":
         return this.watch(client, message.id);
       case "unwatchIntent":

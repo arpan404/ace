@@ -28,6 +28,7 @@ import {
 } from "@ace/protocol";
 import type { ClientApi, RegistryQuery } from "./api.ts";
 import { Connection } from "./connection.ts";
+import { isOneWayMessage, type OneWayMessage } from "./one-way.ts";
 import { Intents, type Intent } from "./intents.ts";
 import { Notifications, type Selection } from "./observable.ts";
 import { Requests } from "./requests.ts";
@@ -253,12 +254,12 @@ export class Client implements ClientApi {
       this.serviceListeners.delete(listener);
     };
   }
-  /** One-way service controls, such as browser frame ACKs or file credits. */
-  send(
-    message: Exclude<ClientMessage, { type: "hello" | "command" | "subscribe" | "unsubscribe" }>,
-  ): void {
-    const parsed = ClientMessage.parse(message);
-    if (this.state !== "ready" || this.closed || !this.connection.send(parsed))
+  /** One-way service controls, such as browser frame ACKs or terminal credits. */
+  send(message: OneWayMessage): void {
+    const parsed = ClientMessage.safeParse(message);
+    if (!parsed.success || !isOneWayMessage(parsed.data))
+      throw new ClientError("protocol", "Invalid one-way message");
+    if (this.state !== "ready" || this.closed || !this.connection.send(parsed.data))
       throw new ClientError("offline");
   }
   registry(input: RegistryQuery, options: RequestOptions = {}): Promise<RegistryResult> {

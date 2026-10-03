@@ -1,11 +1,13 @@
 import {
   ClientError,
+  isOneWayMessage,
   Notifications,
   defaultLimits,
   type ClientApi,
   type ConnectionState,
   type Intent,
   type Lease,
+  type OneWayMessage,
   type OutputData,
   type RegistryQuery,
   type RequestOptions,
@@ -213,6 +215,12 @@ export class RemoteClient implements ClientApi {
       if (!this.messageListeners.delete(listener)) return;
       if (this.messageListeners.size === 0) this.post({ t: "unwatchMessages" });
     };
+  }
+  send(message: OneWayMessage): void {
+    // The worker's client validates the whole message again before it reaches the socket.
+    if (!isOneWayMessage(message)) throw new ClientError("protocol", "Invalid one-way message");
+    if (this.closed || this.current !== "ready") throw new ClientError("offline");
+    this.post({ t: "send", message });
   }
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },
