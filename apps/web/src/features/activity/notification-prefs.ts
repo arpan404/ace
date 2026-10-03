@@ -1,7 +1,11 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 import { useSyncExternalStore } from "react";
-import { z } from "zod";
+import * as z from "zod/mini";
+
+// zod/mini names `.default()` `_default` (`default` is a reserved word as a binding).
+// oxlint-disable-next-line no-underscore-dangle
+const withDefault = z._default;
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 
 /**
@@ -11,11 +15,11 @@ import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
  */
 export const NotificationPrefs = z.object({
   /** A thread starts waiting on an approval, a question or a plan review. */
-  needsYou: z.boolean().default(true),
+  needsYou: withDefault(z.boolean(), true),
   /** A thread fails. */
-  failures: z.boolean().default(true),
+  failures: withDefault(z.boolean(), true),
   /** An automation run finishes. */
-  automations: z.boolean().default(true),
+  automations: withDefault(z.boolean(), true),
 });
 export type NotificationPrefs = z.infer<typeof NotificationPrefs>;
 

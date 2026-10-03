@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { DaemonHealth, MaintenanceStatus } from "@ace/protocol";
 import { z } from "zod";
 
 /** What a daemon publishes in its ACE_HOME for local clients (`ace status` reads the same). */
@@ -35,6 +34,12 @@ export async function readLocalDaemon(home: string): Promise<LocalDaemon | undef
   }
 }
 
+/**
+ * The protocol's schemas are most of the main process's code; they load with the first probe,
+ * which runs after the window is created, not with the app.
+ */
+const protocol = () => import("@ace/protocol");
+
 async function request(
   daemon: LocalDaemon,
   path: string,
@@ -52,6 +57,7 @@ async function request(
 /** True when the daemon answers its authenticated status endpoint. */
 export async function healthy(daemon: LocalDaemon, timeoutMs = 3_000): Promise<boolean> {
   try {
+    const { DaemonHealth } = await protocol();
     return DaemonHealth.safeParse(await request(daemon, "/v1/status", { timeoutMs })).success;
   } catch {
     return false;
@@ -69,11 +75,13 @@ export async function findRunningDaemon(home: string): Promise<LocalDaemon | und
  * threads are still busy; running turns, approvals and background tasks finish naturally.
  */
 export async function setMaintenance(daemon: LocalDaemon, on: boolean): Promise<number> {
+  const { MaintenanceStatus } = await protocol();
   const result = MaintenanceStatus.parse(
     await request(daemon, "/v1/maintenance", { method: on ? "POST" : "DELETE" }),
   );
   return result.blockers;
 }
 export async function maintenanceBlockers(daemon: LocalDaemon): Promise<number> {
+  const { MaintenanceStatus } = await protocol();
   return MaintenanceStatus.parse(await request(daemon, "/v1/maintenance")).blockers;
 }

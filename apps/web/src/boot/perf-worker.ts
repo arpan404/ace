@@ -9,11 +9,14 @@ import { createBrowserClient, memoryStorage } from "./client.ts";
  * Everything after the transport is the production path: decode, projection, patches, UI.
  */
 
-const Config = z.object({ rate: z.number().int().positive().max(100_000) });
-const daemon = new SoakDaemon({ clock: () => Date.now() });
+const Config = z.object({
+  rate: z.number().int().positive().max(100_000),
+  history: z.number().int().nonnegative().max(100_000_000),
+});
+let daemon: SoakDaemon | undefined;
 let pumping = false;
 
-function pump(rate: number, report: (events: number) => void): void {
+function pump(source: SoakDaemon, rate: number, report: (events: number) => void): void {
   if (pumping) return;
   pumping = true;
   let owed = 0;
@@ -24,8 +27,8 @@ function pump(rate: number, report: (events: number) => void): void {
     last = now;
     const due = Math.floor(owed);
     owed -= due;
-    if (due > 0) daemon.pump(due, 64);
-    report(daemon.events);
+    if (due > 0) source.pump(due, 64);
+    report(source.events);
   }, 8);
 }
 
@@ -36,20 +39,21 @@ if (isPort(scope)) {
   const port = scope;
   const host = new ClientHost({
     target(config) {
-      const { rate } = Config.parse(config);
+      const { rate, history } = Config.parse(config);
       return {
         key: "perf",
         create: () => {
+          const soak = (daemon ??= new SoakDaemon({ clock: () => Date.now(), history }));
           const client = createBrowserClient({
             deviceId: "web-perf-device",
-            transport: () => fakeTransport(daemon),
-            credential: async () => daemon.token,
+            transport: () => fakeTransport(soak),
+            credential: async () => soak.token,
             storage: memoryStorage(),
           });
           // Stream once the tab is attached and following the thread.
           setTimeout(
             () =>
-              pump(rate, (events) =>
+              pump(soak, rate, (events) =>
                 // A dedicated worker answers its own page; there is no target origin.
                 // oxlint-disable-next-line unicorn/require-post-message-target-origin
                 port.postMessage({ t: "perf", events }),

@@ -4,7 +4,7 @@ import {
   BrowserIcon,
   LockSimpleIcon,
 } from "@phosphor-icons/react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useThreadMeta } from "@ace/client-react";
 import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { ControlToggle } from "@/components/control-toggle.tsx";
@@ -19,7 +19,6 @@ import { cn } from "@/lib/cn.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { usePanelServices } from "../services.ts";
-import { useVersion } from "../store.ts";
 import { useBrowserDriver } from "./use-browser-driver.ts";
 import { useViewportSync } from "./use-viewport-sync.ts";
 import type {
@@ -34,7 +33,12 @@ function usePreview(source: PreviewSource, threadId: string) {
   // The source's reads change whenever its version does; React Compiler would memoize them
   // by their arguments, so this hook opts out and re-reads on every version.
   "use no memo";
-  useVersion(source);
+  // Re-render for this thread's frames and state only, not every thread's.
+  const subscribe = useCallback(
+    (changed: () => void) => source.subscribe(changed, threadId),
+    [source, threadId],
+  );
+  useSyncExternalStore(subscribe, () => source.version);
   // Follow the thread's browser and dev servers only while this tab shows them.
   useEffect(() => source.watch(threadId), [source, threadId]);
   return {

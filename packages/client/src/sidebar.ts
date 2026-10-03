@@ -146,10 +146,15 @@ export class Sidebar implements SidebarSource, Mirrorable<SidebarExport> {
       return;
     }
     const keys = [...changed].map((id) => `thread:${id}`);
-    if (added.length) {
-      this.order = [...this.order, ...added];
+    // A deleted thread leaves the view; it leaves the order too, so the list never fills up
+    // with threads that are gone.
+    const removed = [...changed].filter((id) => !Object.hasOwn(view.threads, id));
+    if (added.length || removed.length) {
+      const gone = new Set(removed);
+      this.order = [...this.order, ...added].filter((id) => !gone.has(id));
       keys.push("ids");
     }
+    if (keys.length) keys.push("threads");
     this.notifications.emit(keys);
   }
   private resync(): void {

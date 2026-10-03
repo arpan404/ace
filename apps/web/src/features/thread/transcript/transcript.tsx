@@ -13,6 +13,7 @@ import { openWorkIndex, type Block } from "./blocks.ts";
 import { LiveFooter, useRootWorking } from "./live-footer.tsx";
 import { useBlocks } from "./use-blocks.ts";
 import { useNewActivity } from "./use-new-activity.ts";
+import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 
 const none: readonly string[] = [];
 const blockKey = (block: Block) => block.key;
@@ -65,6 +66,7 @@ export function Transcript(props: { threadId: string }) {
     scrollMargin: feed.current?.offsetTop ?? 0,
     getItemKey: (index) => blocks[index]?.key ?? index,
   });
+  useForgetGoneRows(virtualizer, blocks.length, (index) => blocks[index]?.key ?? index);
   const total = virtualizer.getTotalSize();
   const scrollToEnd = () => {
     const el = viewport.current;

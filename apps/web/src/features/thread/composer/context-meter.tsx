@@ -23,9 +23,24 @@ function useRootMeter(threadId: string): Meter | undefined {
       : undefined;
   }, []);
   const root = useThread(threadId, ["thread"], rootOf);
-  return useThread(threadId, ["thread", ...(root ? [`context:${root}` as const] : [])], read);
+  return useThread(
+    threadId,
+    ["thread", ...(root ? [`context:${root}` as const] : [])],
+    read,
+    sameMeter,
+  );
 }
 const rootOf = (reader: ThreadReader) => reader.thread?.rootAgentId;
+/** The summary is rebuilt on each read; an unchanged one must not re-render. */
+const sameMeter = (a: Meter | undefined, b: Meter | undefined) =>
+  a === b ||
+  (a !== undefined &&
+    b !== undefined &&
+    a.agentId === b.agentId &&
+    a.epoch === b.epoch &&
+    a.usedTokens === b.usedTokens &&
+    a.windowTokens === b.windowTokens &&
+    a.source === b.source);
 
 const size = 16;
 const radius = 6;

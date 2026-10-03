@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { z } from "zod";
+import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 
 /**
@@ -8,12 +8,16 @@ import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
  * bottom panel (Terminal · Logs). Local UI state, not server state, so plain React state
  * persisted to storage; sizes and open panels survive reloads.
  */
-const PanelState = z.object({ open: z.boolean(), tab: z.string().min(1), size: z.number() });
+const PanelState = z.object({
+  open: z.boolean(),
+  tab: z.string().check(z.minLength(1)),
+  size: z.number(),
+});
 export type PanelState = z.infer<typeof PanelState>;
 export const ShellLayout = z.object({
-  sidebarOpen: z.boolean().catch(true),
-  right: PanelState.catch({ open: false, tab: "changes", size: 500 }),
-  bottom: PanelState.catch({ open: false, tab: "terminal", size: 240 }),
+  sidebarOpen: z.catch(z.boolean(), true),
+  right: z.catch(PanelState, { open: false, tab: "changes", size: 500 }),
+  bottom: z.catch(PanelState, { open: false, tab: "terminal", size: 240 }),
 });
 export type ShellLayout = z.infer<typeof ShellLayout>;
 export type PanelSide = "right" | "bottom";

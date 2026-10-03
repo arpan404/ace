@@ -1,6 +1,7 @@
 import { Notification } from "electron";
 import type { DeepLink } from "../../shared/contract.ts";
-import { actionCommand, type NotificationAction, type Shown } from "./router.ts";
+import type { actionCommand } from "./actions.ts";
+import type { NotificationAction, Shown } from "./router.ts";
 
 export interface NotifierPorts {
   open(link: DeepLink): void;
@@ -53,14 +54,22 @@ export class NativeNotifier {
   }
 
   private act(shown: Shown, action: NotificationAction, reply?: string): void {
-    const command = shown.alert ? actionCommand(shown.alert, action, reply) : undefined;
-    if (!command) {
-      this.ports.open(shown.link);
-      return;
-    }
-    void this.ports.send(command).catch((error: unknown) => {
-      this.ports.log(`Notification action failed: ${String(error)}`);
-      this.ports.open(shown.link);
-    });
+    void this.command(shown, action, reply)
+      .then((command) => {
+        if (command) return this.ports.send(command);
+        this.ports.open(shown.link);
+        return undefined;
+      })
+      .catch((error: unknown) => {
+        this.ports.log(`Notification action failed: ${String(error)}`);
+        this.ports.open(shown.link);
+      });
+  }
+
+  /** The command schemas load with the first action, not with the app. */
+  private async command(shown: Shown, action: NotificationAction, reply?: string) {
+    if (!shown.alert) return undefined;
+    const { actionCommand } = await import("./actions.ts");
+    return actionCommand(shown.alert, action, reply);
   }
 }

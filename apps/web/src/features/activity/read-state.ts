@@ -1,6 +1,9 @@
 import type { ClientApi } from "@ace/client";
 import { useClient } from "@ace/client-react";
 
+/** Read marks kept per connection; far more than the feed ever shows at once. */
+const remembered = 10_000;
+
 /** Which feed events and automation runs this device has read. */
 class ReadState {
   private read: ReadonlySet<string> = new Set();
@@ -12,7 +15,14 @@ class ReadState {
   };
   mark(ids: readonly string[]): void {
     if (ids.every((id) => this.read.has(id))) return;
-    this.read = new Set([...this.read, ...ids]);
+    const next = new Set([...this.read, ...ids]);
+    // Keep the newest marks only: the feed shows recent events, and a month of them would
+    // otherwise all stay here (and be copied on every mark).
+    for (const id of next) {
+      if (next.size <= remembered) break;
+      next.delete(id);
+    }
+    this.read = next;
     for (const listener of this.listeners) listener();
   }
 }

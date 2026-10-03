@@ -10,6 +10,7 @@ import { SettledRow } from "./settled-row.tsx";
 import { HomeMachine, useHomeMachine } from "./thread-details.ts";
 import { ThreadRow } from "./thread-row.tsx";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
+import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 
 type Row =
   | { kind: "thread"; id: string }
@@ -56,6 +57,7 @@ export function ThreadList(props: { arrangement: Arrangement }) {
     overscan: 6,
     getItemKey: (index) => drawn[index]?.key ?? index,
   });
+  useForgetGoneRows(virtualizer, drawn.length, (index) => drawn[index]?.key ?? index);
   useRevealOpenThread(drawn, virtualizer.scrollToIndex);
   return (
     <HomeMachine value={home}>

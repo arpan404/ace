@@ -17,6 +17,8 @@ export class StatusTray {
   private tray: Tray | undefined;
   private status: DaemonStatus | undefined;
   private summary: WorkSummary = { needsYou: 0, working: 0 };
+  /** What the tray shows now; a status or summary update that changes none of it is skipped. */
+  private shown: string | undefined;
   private actions: TrayActions;
 
   constructor(actions: TrayActions) {
@@ -36,6 +38,7 @@ export class StatusTray {
   hide(): void {
     this.tray?.destroy();
     this.tray = undefined;
+    this.shown = undefined;
   }
 
   update(patch: { status?: DaemonStatus; summary?: WorkSummary }): void {
@@ -49,7 +52,6 @@ export class StatusTray {
     if (!tray) return;
     const { needsYou, working } = this.summary;
     const paused = this.status?.paused ?? false;
-    if (process.platform === "darwin") tray.setTitle(needsYou ? ` ${needsYou}` : "");
     const state = this.status
       ? this.status.state === "running"
         ? paused
@@ -59,6 +61,11 @@ export class StatusTray {
             : "Idle"
         : `Daemon ${this.status.state}`
       : "Starting…";
+    const running = this.status?.state === "running";
+    const shown = JSON.stringify([state, needsYou, paused, running]);
+    if (shown === this.shown) return;
+    this.shown = shown;
+    if (process.platform === "darwin") tray.setTitle(needsYou ? ` ${needsYou}` : "");
     tray.setContextMenu(
       Menu.buildFromTemplate([
         { label: state, enabled: false },
@@ -67,7 +74,7 @@ export class StatusTray {
         { label: "Open ace", click: () => this.actions.open() },
         {
           label: paused ? "Resume new work" : "Pause new work",
-          enabled: this.status?.state === "running",
+          enabled: running,
           click: () => this.actions.pause(!paused),
         },
         { type: "separator" },

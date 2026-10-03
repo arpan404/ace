@@ -1,5 +1,14 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
+import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
 
 /*
  * Rows of a long list mounted only while near the viewport of whatever ancestor scrolls (a
@@ -22,14 +31,23 @@ function offsetWithin(element: HTMLElement, parent: HTMLElement): number {
   );
 }
 
-export function VirtualRows<T>(props: {
+/** Brings a row into view whether or not it is mounted. */
+export interface VirtualRowsHandle {
+  scrollToIndex(index: number): void;
+}
+
+export interface VirtualRowsProps<T> {
   items: readonly T[];
   rowKey(item: T, index: number): string;
-  /** Typical row height in px; rows are measured once mounted. */
-  estimate: number;
+  /** Typical row height in px (or per row); rows are measured once mounted. */
+  estimate: number | ((item: T, index: number) => number);
   render(item: T, index: number): ReactNode;
+  /** Rows mounted beyond each edge of the viewport. Small by default: each costs a render. */
   overscan?: number;
-}) {
+  handle?: Ref<VirtualRowsHandle>;
+}
+
+export function VirtualRows<T>(props: VirtualRowsProps<T>) {
   const { items, rowKey, estimate, render } = props;
   const box = useRef<HTMLDivElement>(null);
   const [parent, setParent] = useState<HTMLElement | null>(null);
@@ -55,14 +73,27 @@ export function VirtualRows<T>(props: {
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parent,
-    estimateSize: () => estimate,
-    overscan: props.overscan ?? 24,
+    estimateSize: (index) => {
+      if (typeof estimate === "number") return estimate;
+      const item = items[index];
+      return item === undefined ? 0 : estimate(item, index);
+    },
+    overscan: props.overscan ?? 8,
     scrollMargin: margin,
     getItemKey: (index) => {
       const item = items[index];
       return item === undefined ? index : rowKey(item, index);
     },
   });
+  useForgetGoneRows(virtualizer, items.length, (index) => {
+    const item = items[index];
+    return item === undefined ? index : rowKey(item, index);
+  });
+  useImperativeHandle(
+    props.handle,
+    () => ({ scrollToIndex: (index) => virtualizer.scrollToIndex(index, { align: "start" }) }),
+    [virtualizer],
+  );
   const rows = virtualizer.getVirtualItems();
   const first = rows[0];
   const last = rows.at(-1);
@@ -82,4 +113,17 @@ export function VirtualRows<T>(props: {
       <div aria-hidden style={{ height: Math.max(0, after) }} />
     </div>
   );
+}
+
+/**
+ * A list that is usually short but can grow without bound (a log, a terminal screen, a diff):
+ * every row while it has at most `virtualAbove` of them, only the rows near the viewport past
+ * that. Short lists skip the virtualizer's measuring; long ones never mount thousands of rows.
+ */
+export function LongRows<T>(props: VirtualRowsProps<T> & { virtualAbove: number }) {
+  const { virtualAbove, ...rows } = props;
+  if (props.items.length > virtualAbove) return <VirtualRows {...rows} />;
+  return props.items.map((item, index) => (
+    <Fragment key={props.rowKey(item, index)}>{props.render(item, index)}</Fragment>
+  ));
 }

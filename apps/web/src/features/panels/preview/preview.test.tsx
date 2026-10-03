@@ -179,3 +179,35 @@ test("leaving the preview while holding control hands the browser back to the ag
   await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
   await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("agent"));
 });
+
+/** Hide or show the page, as switching tabs or minimising the window does. */
+function visibility(state: DocumentVisibilityState) {
+  Object.defineProperty(document, "visibilityState", { configurable: true, value: state });
+  document.dispatchEvent(new Event("visibilitychange"));
+}
+
+test("while the window is hidden the preview stops pulling frames, and shows the latest once shown", async () => {
+  const { panel, browser } = await openPreview();
+  await within(panel).findByText("is controlling the browser", { exact: false });
+  const page = () =>
+    within(panel).getByRole("img", { name: "Live view of localhost:5173/settings/devices" });
+
+  try {
+    act(() => visibility("hidden"));
+    act(() => browser.type("thread-cold-start", "Pixel 9"));
+    await waitFor(() =>
+      expect(decodeURIComponent(page().getAttribute("src") ?? "")).toContain("Pixel 9"),
+    );
+    // That frame is not acknowledged while hidden, so the browser sends no more.
+    act(() => browser.type("thread-cold-start", "Galaxy S25"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(decodeURIComponent(page().getAttribute("src") ?? "")).not.toContain("Galaxy S25");
+
+    act(() => visibility("visible"));
+    await waitFor(() =>
+      expect(decodeURIComponent(page().getAttribute("src") ?? "")).toContain("Galaxy S25"),
+    );
+  } finally {
+    visibility("visible");
+  }
+});

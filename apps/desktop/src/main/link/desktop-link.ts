@@ -8,7 +8,7 @@ import {
 } from "@ace/protocol";
 import type { Alert } from "../notifications/router.ts";
 import { alertFromDaemon } from "../notifications/router.ts";
-import { derivedAlerts, summarize, type WorkSummary } from "./thread-watch.ts";
+import { derivedAlerts, WorkTally, type WorkSummary } from "./thread-watch.ts";
 
 export interface LinkOptions {
   url: string;
@@ -36,6 +36,8 @@ export class DesktopLink {
   private send: ((frame: unknown) => void) | undefined;
   private presence: string | null = null;
   private entries = new Map<string, ThreadListEntry>();
+  private tally = new WorkTally();
+  private summary: WorkSummary | undefined;
   private stops: (() => void)[] = [];
   private options: LinkOptions;
 
@@ -139,11 +141,19 @@ export class DesktopLink {
     const refresh = (id: string) => {
       const next = store.thread(id);
       const previous = this.entries.get(id);
+      this.tally.set(id, next);
       if (!next) this.entries.delete(id);
       else {
         this.entries.set(id, next);
         for (const alert of derivedAlerts(previous, next)) this.options.onAlert(alert);
       }
+    };
+    // Badge, tray and power save hear only about a change of the counts.
+    const publish = () => {
+      const summary = this.tally.summary();
+      if (summary === this.summary) return;
+      this.summary = summary;
+      this.options.onSummary(summary);
     };
     const ids = store.select(["ids"], (reader) => reader.ids);
     const sync = () => {
@@ -153,6 +163,7 @@ export class DesktopLink {
           stop();
           threadStops.delete(id);
           this.entries.delete(id);
+          this.tally.set(id, undefined);
         }
       for (const id of current)
         if (!threadStops.has(id)) {
@@ -161,12 +172,12 @@ export class DesktopLink {
             id,
             selection.subscribe(() => {
               refresh(id);
-              this.options.onSummary(summarize(this.entries.values()));
+              publish();
             }),
           );
           refresh(id);
         }
-      this.options.onSummary(summarize(this.entries.values()));
+      publish();
     };
     this.stops.push(ids.subscribe(sync), () => {
       for (const stop of threadStops.values()) stop();

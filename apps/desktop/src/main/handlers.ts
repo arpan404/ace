@@ -6,7 +6,6 @@ import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { Handlers } from "./ipc.ts";
 import { openInEditor, reveal } from "./os/editor.ts";
 import { openPermissionPane, permissions } from "./os/permissions.ts";
-import { checkForUpdate } from "./os/updates.ts";
 import type { SettingsStore } from "./settings-store.ts";
 import { detectToolchains } from "./system/toolchains.ts";
 import { reducedTransparency, windowState } from "./window/main-window.ts";
@@ -88,13 +87,15 @@ export function createHandlers(options: {
     "permissions.status": () => permissions(),
     "permissions.open": (pane) => openPermissionPane(pane),
     "browser.place": (placement) => {
-      background.views.place(placement);
+      background.placeBrowser(placement);
       return undefined;
     },
     "browser.control": (request) => {
       background.browserControl(request.threadId, request.controller);
       return undefined;
     },
-    "updates.check": () => checkForUpdate(options.info.version),
+    // The release feed check pulls in @ace/service and tar; load them only when asked.
+    "updates.check": async () =>
+      (await import("./os/updates.ts")).checkForUpdate(options.info.version),
   };
 }

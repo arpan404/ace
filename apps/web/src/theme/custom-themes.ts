@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as z from "zod/mini";
 import { type KeyValueStorage } from "@ace/ui-core";
 import { basePreset, type Theme } from "./presets.ts";
 import { tokenNames, type ThemeTokens } from "./tokens.ts";
@@ -7,10 +7,10 @@ const storageKey = "ace.themes";
 
 /** A theme file as exported, imported and stored: `{ id, name, scheme, tokens }`. */
 export const ThemeFile = z.object({
-  id: z.string().min(1).max(80).optional(),
-  name: z.string().trim().min(1).max(80).catch("Imported theme"),
-  scheme: z.enum(["light", "dark"]).catch("dark"),
-  tokens: z.record(z.string(), z.string().max(200)),
+  id: z.optional(z.string().check(z.minLength(1), z.maxLength(80))),
+  name: z.catch(z.string().check(z.trim(), z.minLength(1), z.maxLength(80)), "Imported theme"),
+  scheme: z.catch(z.enum(["light", "dark"]), "dark"),
+  tokens: z.record(z.string(), z.string().check(z.maxLength(200))),
 });
 export type ThemeFile = z.infer<typeof ThemeFile>;
 
@@ -60,7 +60,7 @@ export function loadCustomThemes(storage: KeyValueStorage | undefined): Theme[] 
   try {
     const raw = storage?.getItem(storageKey);
     if (!raw) return [];
-    const files = z.array(ThemeFile).catch([]).parse(JSON.parse(raw));
+    const files = z.catch(z.array(ThemeFile), []).parse(JSON.parse(raw));
     return files.flatMap((file) => (file.id ? [themeFromFile(file, file.id)] : []));
   } catch {
     return [];

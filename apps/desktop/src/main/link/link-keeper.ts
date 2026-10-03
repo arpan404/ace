@@ -46,7 +46,7 @@ export interface KeptLink {
  */
 export class LinkKeeper<L extends KeptLink> {
   private source: LinkSource;
-  private create: (endpoint: Endpoint) => L;
+  private create: (endpoint: Endpoint) => L | Promise<L>;
   private log: (message: string) => void;
   private attached: { link: L; endpoint: Endpoint } | undefined;
   private queue: Promise<void> = Promise.resolve();
@@ -55,7 +55,8 @@ export class LinkKeeper<L extends KeptLink> {
 
   constructor(
     source: LinkSource,
-    create: (endpoint: Endpoint) => L,
+    /** Makes a link; may load its code first (the app imports the link lazily). */
+    create: (endpoint: Endpoint) => L | Promise<L>,
     log: (message: string) => void,
   ) {
     this.source = source;
@@ -115,7 +116,11 @@ export class LinkKeeper<L extends KeptLink> {
       this.attached = undefined;
       await current.link.close().catch(() => {});
     }
-    const link = this.create(endpoint);
+    const link = await this.create(endpoint);
+    if (this.closed) {
+      await link.close().catch(() => {});
+      return;
+    }
     this.attached = { link, endpoint };
     try {
       await link.start();

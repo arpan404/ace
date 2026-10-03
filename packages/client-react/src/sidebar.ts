@@ -21,6 +21,17 @@ export function useSidebar<T>(
   );
   return useSelection(selection);
 }
+const everything: readonly SidebarKey[] = ["ids", "threads"];
+/**
+ * Select over the whole thread list: re-runs when any entry or the membership changes, through
+ * one key rather than one per thread, so it costs the same with ten threads or ten thousand.
+ */
+export function useSidebarAll<T>(
+  selector: (reader: SidebarReader) => T,
+  equal?: (a: T, b: T) => boolean,
+): T | undefined {
+  return useSidebar(everything, selector, equal);
+}
 const readIds = (reader: SidebarReader) => reader.ids;
 export function useSidebarIds(): readonly string[] | undefined {
   return useSidebar(["ids"], readIds, arrayEqual);

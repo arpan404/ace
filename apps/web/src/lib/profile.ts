@@ -1,6 +1,6 @@
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { useCallback, useSyncExternalStore } from "react";
-import { z } from "zod";
+import * as z from "zod/mini";
 import { useLayout } from "./layout.tsx";
 
 /**
@@ -8,7 +8,7 @@ import { useLayout } from "./layout.tsx";
  * logins belong to the CLIs), so the name is a preference kept on this device only.
  */
 const key = "ace.profile.name";
-const ProfileName = z.string().max(80);
+const ProfileName = z.string().check(z.maxLength(80));
 const listeners = new WeakMap<KeyValueStorage, Set<() => void>>();
 
 export function profileName(storage: KeyValueStorage | undefined): string {

@@ -2,6 +2,7 @@ import { ClientHost, type PortLike } from "@ace/client-worker";
 import { webSocketTransport } from "@ace/client";
 import { createBrowserClient } from "./client.ts";
 import { idbOutbox } from "./idb-storage.ts";
+import { lockReleased } from "./web-locks.ts";
 import { WorkerTarget, outboxKey } from "./worker-target.ts";
 
 /*
@@ -32,6 +33,7 @@ const host = new ClientHost({
     },
   },
   now: () => Date.now(),
+  lockReleased,
 });
 
 interface ConnectEvent {
