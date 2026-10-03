@@ -1,5 +1,6 @@
 import type { CatalogModel, ProviderKind } from "@ace/protocol";
 import { blockingReset, tightestWindow, type AccountView } from "./accounts.ts";
+import { providerNames } from "./providers.ts";
 
 /** One model on one of the person's signed-in accounts, as the composer's picker lists it. */
 export interface ModelChoice {
@@ -88,7 +89,12 @@ export interface ModelOption {
   label: string;
   provider: ProviderKind;
   isDefault: boolean;
+  /** False for "the provider's default" when the catalog is empty: thread.create sends no model. */
+  fromCatalog: boolean;
 }
+
+/** Providers offered with their own default model when the daemon's catalog is empty. */
+const fallbackProviders: readonly ProviderKind[] = ["claude", "codex", "opencode", "cursor"];
 /** A signed-in account of the chosen model's provider, with how much quota it has used. */
 export interface AccountOption {
   id: string;
@@ -102,7 +108,8 @@ export interface AccountOption {
 
 /**
  * The New thread pickers: each model once per provider (whichever accounts serve it), and the
- * signed-in accounts, the first with headroom marked as the default for its provider.
+ * signed-in accounts, the first with headroom marked as the default for its provider. With an
+ * empty catalog, each provider is offered with its own default model.
  */
 export function newThreadOptions(
   models: readonly CatalogModel[],
@@ -119,8 +126,19 @@ export function newThreadOptions(
       label: model.displayName,
       provider: model.provider,
       isDefault: model.isDefault,
+      fromCatalog: true,
     });
   }
+  // A daemon with no model catalog configured can still start threads on a provider's default.
+  if (!options.length)
+    for (const provider of fallbackProviders)
+      options.push({
+        id: `${provider}:default`,
+        label: `${providerNames[provider]} default`,
+        provider,
+        isDefault: provider === fallbackProviders[0],
+        fromCatalog: false,
+      });
   const signedIn = accounts.filter((account) => account.signedIn);
   const defaults = new Map<ProviderKind, string>();
   for (const account of signedIn)

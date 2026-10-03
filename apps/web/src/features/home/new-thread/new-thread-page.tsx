@@ -46,7 +46,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     return create({
       project,
       provider: resolved.model.provider,
-      model: resolved.model.id,
+      model: resolved.model.fromCatalog ? resolved.model.id : undefined,
       text: draft.text.trim() || "See the attached files.",
       context: { mentions: draft.mentions, attachments: draft.attachments },
     });

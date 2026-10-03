@@ -113,3 +113,13 @@ test("New thread lists each model once and defaults to an account with headroom"
     ["personal", "38% of 5-hour used", true],
   ]);
 });
+
+test("with no model catalog, New thread still offers each provider on its default model", () => {
+  const options = newThreadOptions([], []);
+
+  expect(options.models.map((m) => [m.label, m.fromCatalog])).toContainEqual([
+    "Claude Code default",
+    false,
+  ]);
+  expect(options.models.filter((m) => m.isDefault)).toHaveLength(1);
+});

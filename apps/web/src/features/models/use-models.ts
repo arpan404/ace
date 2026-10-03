@@ -35,10 +35,16 @@ export function useModelCatalog() {
   });
 }
 
+/** The list once known; an error reads as empty, so pickers fall back instead of waiting. */
+function settled<T>(query: { data: T[] | undefined; isError: boolean }): T[] | undefined {
+  return query.data ?? (query.isError ? none : undefined);
+}
+const none: never[] = [];
+
 /** The composer's model picker: each model on the account that serves it, with its usage. */
 export function useModelChoices(): readonly ModelChoice[] {
-  const models = useModelCatalog().data;
-  const accounts = useAccountViews().data;
+  const models = settled(useModelCatalog());
+  const accounts = settled(useAccountViews());
   return useMemo(() => modelChoices(models ?? [], accounts ?? []), [models, accounts]);
 }
 
@@ -46,8 +52,8 @@ export function useModelChoices(): readonly ModelChoice[] {
 export function useNewThreadOptions():
   | { models: ModelOption[]; accounts: AccountOption[] }
   | undefined {
-  const models = useModelCatalog().data;
-  const accounts = useAccountViews().data;
+  const models = settled(useModelCatalog());
+  const accounts = settled(useAccountViews());
   return useMemo(
     () => (models && accounts ? newThreadOptions(models, accounts) : undefined),
     [models, accounts],

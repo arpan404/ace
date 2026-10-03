@@ -34,7 +34,7 @@ export default defineConfig({
     },
     {
       name: "real-daemon",
-      testMatch: /real-daemon\.spec\.ts/,
+      testMatch: /real-daemon[^/]*\.spec\.ts/,
       use: { baseURL: `http://127.0.0.1:${realPort}` },
     },
     {
