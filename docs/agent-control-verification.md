@@ -22,8 +22,9 @@ Only static verification is permitted in this run. All behaviour tests, mutation
 - Elapsed budget cancels silent work without another provider frame.
 - Unresponsive and human-waiting children prevent false parent completion.
 - Default daemon composition manages owned project names, PR metadata and automation definitions through the public agent-control API.
+- Preview metadata is bounded before registration; a stale close cannot remove a replacement preview.
 - Preview closing requires a host registration for the target thread and invokes its owner.
-- Real Git worktree handoff starts a linked native session in the worktree and reuses child receipts on retry.
+- Real Git worktree handoff starts a linked native session in the worktree and reuses child receipts on retry and rejects conflicting concurrent handoff identities.
 - Native loopback MCP leases delegate across providers and reject child-to-parent interruption.
 - Thread references retain paging pointers, explicit truncation, untrusted-data labels and a UTF-8 byte budget.
 

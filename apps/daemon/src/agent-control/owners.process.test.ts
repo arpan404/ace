@@ -152,6 +152,14 @@ test("preview controls expose only thread-owned registrations and closing invoke
         stopped = true;
       },
     );
+    expect(() =>
+      f.controls.previews.register(
+        "large",
+        f.caller.threadId,
+        { port: 3001, source: "launch", origin: `http://localhost/${"a".repeat(4000)}` },
+        async () => {},
+      ),
+    ).toThrow();
     expect((await f.call({ op: "preview.list", threadId: f.caller.threadId })).data).toEqual([
       { id: "dev", descriptor: { port: 3000, name: "dev", source: "launch" } },
     ]);
@@ -195,7 +203,12 @@ test("worktree handoff starts a linked independent thread in a real Git worktree
       requestId: "handoff",
       branch: "ace-handoff",
     } satisfies AgentControlOperation;
-    const result = await f.call(request);
+    const creating = f.call(request);
+    expect(await f.call({ ...request, branch: "conflicting-branch" })).toEqual({
+      ok: false,
+      code: "invalid",
+    });
+    const result = await creating;
     expect(result.ok).toBe(true);
     const child = z.object({ threadId: ThreadId, workspaceId: WorkspaceId }).parse(result.data);
     await f.daemon.engine?.flush();
@@ -284,6 +297,39 @@ test("native session MCP leases delegate across providers and deny a child's att
     expect(
       await f.controls.delegations.wait(f.caller, child.threadId, new AbortController().signal),
     ).toMatchObject({ outcome: "cancelled" });
+  } finally {
+    await f.daemon.close();
+  }
+});
+
+test("closing an old preview cannot remove a replacement registered while cleanup is pending", async () => {
+  const f = await daemonFixture();
+  try {
+    const entered = Promise.withResolvers<void>(),
+      finished = Promise.withResolvers<void>();
+    const release = f.controls.previews.register(
+      "dev",
+      f.caller.threadId,
+      { port: 3000, source: "launch" },
+      async () => {
+        entered.resolve();
+        await finished.promise;
+      },
+    );
+    const closing = f.call({ op: "preview.close", threadId: f.caller.threadId, previewId: "dev" });
+    await entered.promise;
+    release();
+    f.controls.previews.register(
+      "dev",
+      f.caller.threadId,
+      { port: 3001, source: "launch" },
+      async () => {},
+    );
+    finished.resolve();
+    expect((await closing).ok).toBe(true);
+    expect((await f.call({ op: "preview.list", threadId: f.caller.threadId })).data).toEqual([
+      { id: "dev", descriptor: { port: 3001, source: "launch" } },
+    ]);
   } finally {
     await f.daemon.close();
   }

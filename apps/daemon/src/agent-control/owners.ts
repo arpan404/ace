@@ -10,6 +10,11 @@ import type { ServiceContext } from "../services/types.ts";
 import type { DelegationService } from "./delegations.ts";
 import type { ExtensionOperation } from "./tools.ts";
 
+const OwnedPreviewDescriptor = PreviewDescriptor.extend({
+  name: z.string().min(1).max(128).optional(),
+  origin: z.url().max(2048).optional(),
+});
+
 /** Only host-owned previews can be registered. No tool can claim an arbitrary port. */
 export class AgentPreviews {
   private entries = new Map<
@@ -17,12 +22,22 @@ export class AgentPreviews {
     { threadId: ThreadId; descriptor: z.infer<typeof PreviewDescriptor>; close(): Promise<void> }
   >();
   register(id: string, threadId: ThreadId, descriptor: unknown, close: () => Promise<void>) {
+    z.string()
+      .min(1)
+      .max(128)
+      .regex(/^[a-zA-Z0-9_.-]+$/)
+      .parse(id);
     if (this.entries.has(id) || this.entries.size >= 64)
       throw new Error("Preview capacity or duplicate id");
     // Bound descriptors before retaining host data or returning it through MCP.
-    const bounded = PreviewDescriptor.parse(descriptor);
-    this.entries.set(id, { threadId, descriptor: bounded, close });
-    return () => this.entries.delete(id);
+    const bounded = OwnedPreviewDescriptor.parse(descriptor);
+    if (Buffer.byteLength(JSON.stringify(bounded)) > 3072)
+      throw new Error("Preview descriptor byte budget");
+    const entry = { threadId, descriptor: bounded, close };
+    this.entries.set(id, entry);
+    return () => {
+      if (this.entries.get(id) === entry) this.entries.delete(id);
+    };
   }
   list(threadId: ThreadId) {
     return [...this.entries].flatMap(([id, entry]) =>
@@ -33,7 +48,7 @@ export class AgentPreviews {
     const entry = this.entries.get(id);
     if (!entry || entry.threadId !== threadId) return { ok: false, code: "forbidden" };
     await entry.close();
-    this.entries.delete(id);
+    if (this.entries.get(id) === entry) this.entries.delete(id);
     return { ok: true };
   }
 }
@@ -128,7 +143,10 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
   const git = new GitService();
   resources.own(() => git.close());
   const previews = new AgentPreviews();
-  const handoffs = new Map<string, Promise<AgentControlResult>>();
+  const handoffs = new Map<
+    string,
+    { threadId: ThreadId; branch: string; work: Promise<AgentControlResult> }
+  >();
   async function handoff(
     caller: McpAttribution,
     operation: Extract<ExtensionOperation, { op: "thread.handoff" }>,
@@ -193,10 +211,13 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
         case "thread.handoff": {
           const key = `${caller.threadId}:${operation.requestId}`;
           const pending = handoffs.get(key);
-          if (pending) return pending;
+          if (pending)
+            return pending.threadId === operation.threadId && pending.branch === operation.branch
+              ? pending.work
+              : { ok: false, code: "invalid" };
           if (handoffs.size >= 4) return { ok: false, code: "limit" };
           const work = handoff(caller, operation);
-          handoffs.set(key, work);
+          handoffs.set(key, { threadId: operation.threadId, branch: operation.branch, work });
           try {
             return await work;
           } finally {

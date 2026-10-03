@@ -1,4 +1,4 @@
-# 0050: Scoped agent control and durable cross-provider delegation
+# 0052: Scoped agent control and durable cross-provider delegation
 
 Date: 2026-10-02. Status: accepted for implementation.
 
@@ -6,7 +6,7 @@ Date: 2026-10-02. Status: accepted for implementation.
 
 Agents need to delegate to another local provider while preserving each provider's native history. ADR 0004 requires completion to include the entire tree. ADR 0007 makes the engine the sole owner of provider execution. ADR 0010 binds MCP callers to ephemeral thread and agent credentials. The Orchestrator V2 release notes are a feature reference only. No t3code or legacy source was read.
 
-Number 0050 follows the highest number in origin/main, 0049. Open PRs 62, 63 and 64 use 0045, 0046 and 0044 respectively at allocation time.
+The first deliverable allocated 0050 above origin/main 0049 and the open PRs at that time. Before delivery, a concurrent Pi PR (#68) also used 0050, and fork/switch PR #69 used 0051. Rechecking main and open PRs reserved 0052 for this feature.
 
 ## Decision
 
