@@ -91,6 +91,9 @@ export async function bindMcpSession(
       resolve: (interaction, resolution) => session.resolve(interaction, resolution),
       stopTask: (task) => session.stopTask(task),
       async close(reason) {
+        // Shutdown ends ownership even if native termination fails. A refused
+        // user/idle close leaves the live session owned and usable.
+        if (reason === "shutdown") end();
         await session.close(reason);
         end();
       },

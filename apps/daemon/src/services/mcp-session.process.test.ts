@@ -125,7 +125,7 @@ it("injects a live thread-scoped connection and revokes it on provider exit", as
   h.native().onExit({ deliberate: false });
   expect((await h.read()).status).toBe(401);
 });
-it("revokes credentials before closing even when provider close fails", async () => {
+it("shutdown revokes credentials before closing even when provider close fails", async () => {
   const h = await setup();
   const original = h.adapter.openSession;
   h.adapter.openSession = async (ctx) => ({
@@ -135,7 +135,7 @@ it("revokes credentials before closing even when provider close fails", async ()
     },
   });
   const session = await h.open();
-  await expect(session.close("user")).rejects.toThrow("close failed");
+  await expect(session.close("shutdown")).rejects.toThrow("close failed");
   expect((await h.read()).status).toBe(401);
 });
 it("revokes credentials when opening fails and issues a fresh credential on retry", async () => {
