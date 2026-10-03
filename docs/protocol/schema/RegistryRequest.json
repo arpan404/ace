@@ -57,6 +57,70 @@
           "minLength": 1,
           "type": "string"
         },
+        "args": {
+          "items": {
+            "maxLength": 4096,
+            "type": "string",
+            "x-ace-constraint": "Arguments cannot contain NUL."
+          },
+          "maxItems": 64,
+          "type": "array"
+        },
+        "command": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Commands cannot contain control characters."
+        },
+        "installationId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "instanceId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "registry.bind",
+          "type": "string"
+        },
+        "underlyingCommand": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "acpAgentId",
+        "installationId",
+        "instanceId",
+        "version",
+        "command",
+        "args"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "acpAgentId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "requestId": {
           "maxLength": 256,
           "minLength": 1,

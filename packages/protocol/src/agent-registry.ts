@@ -58,6 +58,28 @@ export const RegistryRequest = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("registry.refresh"), requestId: id }),
   z.object({
+    type: z.literal("registry.bind"),
+    requestId: id,
+    ...AcpIdentity.shape,
+    version: id,
+    command: z
+      .string()
+      .min(1)
+      .max(4096)
+      .refine((value) => Array.from(value).every((char) => char.charCodeAt(0) >= 32))
+      .meta({ "x-ace-constraint": "Commands cannot contain control characters." }),
+    args: z
+      .array(
+        z
+          .string()
+          .max(4096)
+          .refine((value) => !value.includes("\0"))
+          .meta({ "x-ace-constraint": "Arguments cannot contain NUL." }),
+      )
+      .max(64),
+    underlyingCommand: z.string().min(1).max(4096).optional(),
+  }),
+  z.object({
     type: z.literal("registry.install-plan"),
     requestId: id,
     acpAgentId: id,

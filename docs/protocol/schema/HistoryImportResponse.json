@@ -4,6 +4,11 @@
   "oneOf": [
     {
       "properties": {
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
         "status": {
           "const": "imported",
           "type": "string"
@@ -26,6 +31,11 @@
     {
       "properties": {
         "reason": {
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 256,
+          "minLength": 1,
           "type": "string"
         },
         "status": {

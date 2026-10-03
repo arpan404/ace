@@ -401,6 +401,47 @@
               ],
               "type": "object"
             },
+            "workspaceChange": {
+              "additionalProperties": false,
+              "properties": {
+                "at": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "commandId": {
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "error": {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                "lossy": {
+                  "default": true,
+                  "type": "boolean"
+                },
+                "state": {
+                  "enum": [
+                    "preparing",
+                    "applied",
+                    "failed"
+                  ],
+                  "type": "string"
+                },
+                "uncertain": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "commandId",
+                "state",
+                "at",
+                "lossy"
+              ],
+              "type": "object"
+            },
             "worktree": {
               "maxLength": 4096,
               "type": "string"

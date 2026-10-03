@@ -145,6 +145,43 @@
       ],
       "type": "object"
     },
+    "workspaceChange": {
+      "properties": {
+        "at": {
+          "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+        },
+        "commandId": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string"
+        },
+        "error": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "lossy": {
+          "default": true,
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "preparing",
+            "applied",
+            "failed"
+          ],
+          "type": "string"
+        },
+        "uncertain": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "commandId",
+        "state",
+        "at"
+      ],
+      "type": "object"
+    },
     "worktree": {
       "maxLength": 4096,
       "type": "string"
