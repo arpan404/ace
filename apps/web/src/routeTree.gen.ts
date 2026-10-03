@@ -20,6 +20,7 @@ import { Route as HomeIndexRouteImport } from "./routes/_home.index"
 import { Route as HomeNewRouteImport } from "./routes/_home.new"
 import { Route as ActivityIndexRouteImport } from "./routes/activity.index"
 import { Route as AutomationsIndexRouteImport } from "./routes/automations.index"
+import { Route as AutomationsNewRouteImport } from "./routes/automations.new"
 import { Route as DeckIndexRouteImport } from "./routes/deck.index"
 import { Route as DeckRunIdRouteImport } from "./routes/deck.$runId"
 import { Route as DeckNewRouteImport } from "./routes/deck.new"
@@ -38,6 +39,8 @@ import { Route as SettingsRemoteRouteImport } from "./routes/settings.remote"
 import { Route as SettingsThemeEditorRouteImport } from "./routes/settings.theme-editor"
 import { Route as SkillsIndexRouteImport } from "./routes/skills.index"
 import { Route as HomeTThreadIdRouteImport } from "./routes/_home.t.$threadId"
+import { Route as AutomationsAutomationIdIndexRouteImport } from "./routes/automations.$automationId.index"
+import { Route as AutomationsAutomationIdEditRouteImport } from "./routes/automations.$automationId.edit"
 
 const HomeRoute = HomeRouteImport.update({
   id: "/_home",
@@ -91,6 +94,11 @@ const ActivityIndexRoute = ActivityIndexRouteImport.update({
 const AutomationsIndexRoute = AutomationsIndexRouteImport.update({
   id: "/",
   path: "/",
+  getParentRoute: () => AutomationsRoute,
+} as any)
+const AutomationsNewRoute = AutomationsNewRouteImport.update({
+  id: "/new",
+  path: "/new",
   getParentRoute: () => AutomationsRoute,
 } as any)
 const DeckIndexRoute = DeckIndexRouteImport.update({
@@ -183,6 +191,18 @@ const HomeTThreadIdRoute = HomeTThreadIdRouteImport.update({
   path: "/t/$threadId",
   getParentRoute: () => HomeRoute,
 } as any)
+const AutomationsAutomationIdIndexRoute =
+  AutomationsAutomationIdIndexRouteImport.update({
+    id: "/$automationId/",
+    path: "/$automationId/",
+    getParentRoute: () => AutomationsRoute,
+  } as any)
+const AutomationsAutomationIdEditRoute =
+  AutomationsAutomationIdEditRouteImport.update({
+    id: "/$automationId/edit",
+    path: "/$automationId/edit",
+    getParentRoute: () => AutomationsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   "/": typeof HomeIndexRoute
@@ -193,6 +213,7 @@ export interface FileRoutesByFullPath {
   "/settings": typeof SettingsRouteWithChildren
   "/skills": typeof SkillsRouteWithChildren
   "/new": typeof HomeNewRoute
+  "/automations/new": typeof AutomationsNewRoute
   "/deck/$runId": typeof DeckRunIdRoute
   "/deck/new": typeof DeckNewRoute
   "/more/accounts": typeof MoreAccountsRoute
@@ -213,9 +234,12 @@ export interface FileRoutesByFullPath {
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
+  "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
+  "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
 }
 export interface FileRoutesByTo {
   "/new": typeof HomeNewRoute
+  "/automations/new": typeof AutomationsNewRoute
   "/deck/$runId": typeof DeckRunIdRoute
   "/deck/new": typeof DeckNewRoute
   "/more/accounts": typeof MoreAccountsRoute
@@ -237,6 +261,8 @@ export interface FileRoutesByTo {
   "/settings": typeof SettingsIndexRoute
   "/skills": typeof SkillsIndexRoute
   "/t/$threadId": typeof HomeTThreadIdRoute
+  "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
+  "/automations/$automationId": typeof AutomationsAutomationIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -248,6 +274,7 @@ export interface FileRoutesById {
   "/settings": typeof SettingsRouteWithChildren
   "/skills": typeof SkillsRouteWithChildren
   "/_home/new": typeof HomeNewRoute
+  "/automations/new": typeof AutomationsNewRoute
   "/deck/$runId": typeof DeckRunIdRoute
   "/deck/new": typeof DeckNewRoute
   "/more/accounts": typeof MoreAccountsRoute
@@ -269,6 +296,8 @@ export interface FileRoutesById {
   "/settings/": typeof SettingsIndexRoute
   "/skills/": typeof SkillsIndexRoute
   "/_home/t/$threadId": typeof HomeTThreadIdRoute
+  "/automations/$automationId/edit": typeof AutomationsAutomationIdEditRoute
+  "/automations/$automationId/": typeof AutomationsAutomationIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -281,6 +310,7 @@ export interface FileRouteTypes {
     | "/settings"
     | "/skills"
     | "/new"
+    | "/automations/new"
     | "/deck/$runId"
     | "/deck/new"
     | "/more/accounts"
@@ -301,9 +331,12 @@ export interface FileRouteTypes {
     | "/settings/"
     | "/skills/"
     | "/t/$threadId"
+    | "/automations/$automationId/edit"
+    | "/automations/$automationId/"
   fileRoutesByTo: FileRoutesByTo
   to:
     | "/new"
+    | "/automations/new"
     | "/deck/$runId"
     | "/deck/new"
     | "/more/accounts"
@@ -325,6 +358,8 @@ export interface FileRouteTypes {
     | "/settings"
     | "/skills"
     | "/t/$threadId"
+    | "/automations/$automationId/edit"
+    | "/automations/$automationId"
   id:
     | "__root__"
     | "/_home"
@@ -335,6 +370,7 @@ export interface FileRouteTypes {
     | "/settings"
     | "/skills"
     | "/_home/new"
+    | "/automations/new"
     | "/deck/$runId"
     | "/deck/new"
     | "/more/accounts"
@@ -356,6 +392,8 @@ export interface FileRouteTypes {
     | "/settings/"
     | "/skills/"
     | "/_home/t/$threadId"
+    | "/automations/$automationId/edit"
+    | "/automations/$automationId/"
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -445,6 +483,13 @@ declare module "@tanstack/react-router" {
       path: "/"
       fullPath: "/automations/"
       preLoaderRoute: typeof AutomationsIndexRouteImport
+      parentRoute: typeof AutomationsRoute
+    }
+    "/automations/new": {
+      id: "/automations/new"
+      path: "/new"
+      fullPath: "/automations/new"
+      preLoaderRoute: typeof AutomationsNewRouteImport
       parentRoute: typeof AutomationsRoute
     }
     "/deck/": {
@@ -573,6 +618,20 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof HomeTThreadIdRouteImport
       parentRoute: typeof HomeRoute
     }
+    "/automations/$automationId/": {
+      id: "/automations/$automationId/"
+      path: "/$automationId"
+      fullPath: "/automations/$automationId/"
+      preLoaderRoute: typeof AutomationsAutomationIdIndexRouteImport
+      parentRoute: typeof AutomationsRoute
+    }
+    "/automations/$automationId/edit": {
+      id: "/automations/$automationId/edit"
+      path: "/$automationId/edit"
+      fullPath: "/automations/$automationId/edit"
+      preLoaderRoute: typeof AutomationsAutomationIdEditRouteImport
+      parentRoute: typeof AutomationsRoute
+    }
   }
 }
 
@@ -603,11 +662,17 @@ const ActivityRouteWithChildren = ActivityRoute._addFileChildren(
 )
 
 interface AutomationsRouteChildren {
+  AutomationsNewRoute: typeof AutomationsNewRoute
   AutomationsIndexRoute: typeof AutomationsIndexRoute
+  AutomationsAutomationIdEditRoute: typeof AutomationsAutomationIdEditRoute
+  AutomationsAutomationIdIndexRoute: typeof AutomationsAutomationIdIndexRoute
 }
 
 const AutomationsRouteChildren: AutomationsRouteChildren = {
+  AutomationsNewRoute: AutomationsNewRoute,
   AutomationsIndexRoute: AutomationsIndexRoute,
+  AutomationsAutomationIdEditRoute: AutomationsAutomationIdEditRoute,
+  AutomationsAutomationIdIndexRoute: AutomationsAutomationIdIndexRoute,
 }
 
 const AutomationsRouteWithChildren = AutomationsRoute._addFileChildren(
