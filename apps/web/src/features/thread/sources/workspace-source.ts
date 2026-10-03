@@ -85,7 +85,12 @@ const defaultScripts: readonly Script[] = [
 ];
 
 const knownCheckouts: Record<string, Partial<GitState>> = {
-  "thread-replay-cursor": { branch: "fix/replay-cursor", changed: 0, ahead: 0, pr: undefined },
+  "thread-replay-cursor": {
+    branch: "fix/replay-cursor",
+    changed: 0,
+    ahead: 0,
+    pr: { number: 214, state: "open", url: "https://github.com/acme/relay/pull/214" },
+  },
   "thread-dedupe": {
     branch: "fix/replay-dedupe",
     changed: 0,

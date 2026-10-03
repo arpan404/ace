@@ -16,6 +16,7 @@ import { useId, useState } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { formatDuration, useTicker } from "../lib/clock.ts";
 import { describeStep, summarizeWork, workCounts, type StepIcon } from "../lib/describe-step.ts";
+import { shimmer } from "../lib/shimmer.ts";
 import { flatEqual, useItemsSelect } from "../lib/use-items.ts";
 import { StepDetail } from "./step-detail.tsx";
 
@@ -54,7 +55,7 @@ export function WorkLog(props: { threadId: string; itemIds: readonly string[] })
         onClick={() => setOpen(!open)}
         className="group -mx-1.5 inline-flex h-[26px] max-w-full items-center gap-1.5 rounded-[7px] px-1.5 text-[13.5px] text-muted-foreground transition-colors duration-150 hover:bg-accent hover:text-foreground"
       >
-        <span className={cn("shrink-0", summary.running && "shimmer")}>
+        <span className="shrink-0" style={summary.running ? shimmer : undefined}>
           {summary.running ? `Working for ${elapsed}` : `Worked for ${elapsed}`}
         </span>
         <CaretRightIcon
@@ -103,6 +104,7 @@ export function ToolStep(props: { threadId: string; itemId: string }) {
         type="button"
         aria-expanded={open}
         aria-controls={panel}
+        aria-label={[step.verb, step.target, step.note].filter(Boolean).join(" ")}
         onClick={() => setOpen(!open)}
         className="flex h-7 w-full min-w-0 items-center gap-2 rounded-sm px-1.5 text-left text-ui text-muted-foreground transition-colors duration-150 hover:bg-accent"
       >
@@ -120,8 +122,8 @@ export function ToolStep(props: { threadId: string; itemId: string }) {
         <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-3 text-xs text-subtle-foreground">
           {step.added !== undefined && (step.added > 0 || (step.removed ?? 0) > 0) && (
             <span className="font-mono">
-              <span className="text-diff-add">+{step.added}</span>{" "}
-              <span className="text-diff-del">−{step.removed ?? 0}</span>
+              <span className="text-status-done">+{step.added}</span>{" "}
+              <span className="text-status-failed">−{step.removed ?? 0}</span>
             </span>
           )}
           {step.note && (

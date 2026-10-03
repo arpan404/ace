@@ -135,8 +135,8 @@ function FullOutput(props: { streamId: string; onLoaded(text: string): void }) {
 }
 
 const lineTone = {
-  add: "bg-[color-mix(in_oklab,var(--diff-add)_12%,transparent)]",
-  del: "bg-[color-mix(in_oklab,var(--diff-del)_12%,transparent)]",
+  add: "bg-diff-add",
+  del: "bg-diff-del",
   context: "",
   hunk: "text-subtle-foreground",
 };
@@ -165,8 +165,8 @@ export function ChangeDiff(props: { change: FileChange }) {
               aria-hidden
               className={cn(
                 "w-4 shrink-0 select-none",
-                line.kind === "add" && "text-diff-add",
-                line.kind === "del" && "text-diff-del",
+                line.kind === "add" && "text-status-done",
+                line.kind === "del" && "text-status-failed",
               )}
             >
               {sign[line.kind]}

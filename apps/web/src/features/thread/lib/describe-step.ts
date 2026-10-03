@@ -191,11 +191,11 @@ export function summarizeWork(items: readonly (Item | undefined)[]): WorkSummary
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
 
-/** "Explored 6 files · Searched twice · Ran 3 commands · Edited 2 files". */
+/** "Explored 6 files · 1 search · Ran 3 commands · Edited 2 files". */
 export function workCounts(summary: WorkSummary): string {
   const parts: string[] = [];
   if (summary.read) parts.push(`Explored ${plural(summary.read, "file", "files")}`);
-  if (summary.searched) parts.push(`Searched ${plural(summary.searched, "time", "times")}`);
+  if (summary.searched) parts.push(plural(summary.searched, "search", "searches"));
   if (summary.ran) parts.push(`Ran ${plural(summary.ran, "command", "commands")}`);
   if (summary.edited) parts.push(`Edited ${plural(summary.edited, "file", "files")}`);
   if (summary.other) parts.push(`Used ${plural(summary.other, "tool", "tools")}`);

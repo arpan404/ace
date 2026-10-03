@@ -147,16 +147,8 @@ function Block(props: { token: Token }): ReactNode {
       return <hr className="my-5 border-0 border-t" />;
     case "list": {
       const items = token.items.map((item, index) => (
-        <li key={index} className="pl-0.5 [&+li]:mt-1">
-          {item.task && (
-            <input
-              type="checkbox"
-              checked={item.checked ?? false}
-              readOnly
-              aria-label={item.checked ? "Done" : "Not done"}
-              className="mr-1.5 align-[-1px]"
-            />
-          )}
+        <li key={index} className={item.task ? "list-none [&+li]:mt-1" : "pl-0.5 [&+li]:mt-1"}>
+          {/* Task items carry their own checkbox token. */}
           {item.loose ? <Blocks tokens={item.tokens} /> : <Tight tokens={item.tokens} />}
         </li>
       ));

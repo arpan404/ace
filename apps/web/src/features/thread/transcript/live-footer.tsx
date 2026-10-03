@@ -3,6 +3,7 @@ import { useInteractions, useThread, useThreadMeta } from "@ace/client-react";
 import { useCallback } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { formatClock } from "../lib/clock.ts";
+import { shimmer } from "../lib/shimmer.ts";
 import { InteractionCard } from "../interactions/interaction-card.tsx";
 import { agentName } from "../items/agent-row.tsx";
 
@@ -64,7 +65,7 @@ export function LiveFooter(props: { threadId: string }) {
       {line && (
         <p role="status" aria-label={line} className="flex items-center gap-[9px] text-[13.5px]">
           <Spinner />
-          <span className="shimmer">{line}</span>
+          <span style={shimmer}>{line}</span>
         </p>
       )}
     </div>

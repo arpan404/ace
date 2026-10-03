@@ -21,8 +21,8 @@ const filesEqual = (a: Files, b: Files) =>
 function Stat(props: { added: number; removed: number }) {
   return (
     <span className="font-mono text-[12px]">
-      <span className="text-diff-add">+{props.added}</span>{" "}
-      <span className="text-diff-del">−{props.removed}</span>
+      <span className="text-status-done">+{props.added}</span>{" "}
+      <span className="text-status-failed">−{props.removed}</span>
     </span>
   );
 }

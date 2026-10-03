@@ -80,7 +80,7 @@ export function Transcript(props: { threadId: string }) {
           setPinned(atEnd);
         }}
       >
-        <div className="mx-auto w-full max-w-(--column) px-8 pt-6 pb-10">
+        <div className="mx-auto w-full max-w-(--column) px-8 pt-6 pb-16">
           <div className="flex justify-center pb-4">
             {hasOlder ? (
               <Button variant="ghost" size="sm" disabled={loading} onClick={() => void loadOlder()}>

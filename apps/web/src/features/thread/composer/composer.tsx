@@ -47,6 +47,8 @@ export function Composer(props: {
   const [stacked, setStacked] = useState(false);
   const [narrow, setNarrow] = useState(false);
   const picked = useRef(new Set<string>());
+  // Where to put the caret once an accepted suggestion has rendered.
+  const placeCaret = useRef<number | undefined>(undefined);
   const input = useRef<HTMLTextAreaElement>(null);
   const file = useRef<HTMLInputElement>(null);
   const listId = useId();
@@ -68,6 +70,10 @@ export function Composer(props: {
     const lineHeight = 14.5 * 1.4;
     el.style.height = `${Math.min(el.scrollHeight, innerHeight * 0.4)}px`;
     setStacked(text.includes("\n") || el.scrollHeight > lineHeight + 16 + 4);
+    if (placeCaret.current !== undefined) {
+      el.setSelectionRange(placeCaret.current, placeCaret.current);
+      placeCaret.current = undefined;
+    }
   }, [text]);
   useEffect(() => {
     const el = input.current;
@@ -83,7 +89,7 @@ export function Composer(props: {
     const next = accept(text, trigger, item.insert);
     setText(next.text);
     setCaret(next.caret);
-    requestAnimationFrame(() => input.current?.setSelectionRange(next.caret, next.caret));
+    placeCaret.current = next.caret;
   };
   const submit = async (steer: boolean) => {
     if (!canSend) return;
@@ -210,14 +216,14 @@ export function Composer(props: {
         <div className={cn("flex items-center gap-1 [grid-area:ctrls]", layout && "pt-0.5")}>
           {props.controls}
           {stopping ? (
-            <Tip label="Stop the agent">
+            <Tip label="Stop the agent and its subagents">
               <button
                 type="button"
-                aria-label="Stop"
+                aria-label="Stop the agent"
                 onClick={props.onStop}
-                className="grid size-8 place-items-center rounded-full bg-primary text-primary-foreground shadow-[0_1px_2px_rgb(0_0_0/0.18)] transition-transform duration-150 hover:scale-105 active:scale-95"
+                className="grid size-8 place-items-center rounded-full bg-secondary text-foreground transition-[transform,background-color] duration-150 hover:scale-105 hover:bg-accent active:scale-95"
               >
-                <StopIcon aria-hidden size={14} weight="fill" />
+                <StopIcon aria-hidden size={12} weight="fill" />
               </button>
             </Tip>
           ) : (
