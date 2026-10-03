@@ -1,4 +1,4 @@
-import { MergedForkContext } from "./thread-transitions.ts";
+import { MergedForkContext, ExecutionSource } from "./thread-transitions.ts";
 import { z } from "zod";
 import { AgentId, ItemId, RunId, Timestamp } from "./ids.ts";
 import { RawPayload } from "./provider.ts";
@@ -25,6 +25,7 @@ const ItemBase = z.object({
   createdAt: Timestamp,
   /** Exact inclusive native fork boundary, only when the adapter can establish it. */
   nativeId: z.string().max(256).optional(),
+  executionSource: ExecutionSource.optional(),
   /** False while the provider is still streaming into this item. */
   complete: z.boolean(),
 });

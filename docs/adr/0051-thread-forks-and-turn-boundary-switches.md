@@ -33,14 +33,31 @@ adapter declares that contract, otherwise portable handoff. Live descendants,
 interactions, tools, tasks, provider queues and unacknowledged sends prevent
 switches and patch merges.
 
+Each run and agent item records its execution selection and native session
+when that run starts. Returning to a provider cannot substitute its new session
+for an older boundary. Legacy points without proven ownership fall back
+portably. Full-session end forks hold durable guards on both threads and close
+the idle source before opening the snapshot; the source resumes after snapshot
+delivery. Item points include their first completed revision.
+
 `@ace/handoff` owns the pure budget and selection policy. Selection prioritizes
 recent complete items, keeps chronology, tags every excerpt with source IDs,
 and reports counts and paging pointers for everything omitted. Selection never
 exceeds its encoded byte budget. The daemon reads bounded pages, not an entire
-conversation. Cursor can import the same package for portable forks.
+conversation. `@ace/context.portableContext` is Cursor's facade over the same
+policy and renderer, with explicit cutoff and indexed inventory. The engine wire
+budget remains 2–64 KiB; the shared helper admits Cursor's 1–256 KiB budget.
 Scoped MCP tools expose pages and bounded text/output chunks. Durable grants
 retain the selected cutoff after prompt delivery; unrelated histories remain
 outside the recipient's scope. Grants have an explicit per-recipient cap.
+
+SQLite retains immutable preview revisions and sequence-indexed stream lengths.
+Reads seek the revision at the grant's cutoff and mask chunks to that length;
+later updates, deletions and appended output cannot alter the handoff. Retired
+streams live until thread deletion. A one-time streamed log replay populates the
+index for installed databases. Historical text replay uses distinct revision
+tokens so a legacy live preview cannot masquerade as the original prefix.
+Inventory ordinals avoid a conversation-wide count scan.
 
 A merge supplies a human/agent-authored summary with validated citations into
 the fork. It becomes a synthetic context message in the source and is delivered
@@ -58,6 +75,11 @@ SQLite, with bounded selection cardinality. Account changes close the source
 session, call the accounts migration service, then native resume. Migration
 refusal preserves the old selection and emits a visible failure. The accounts
 lease policy remains authoritative; ace cannot promise external-writer exclusion.
+
+The pending switch precedes inputs queued earlier at that boundary. Closed,
+unused reservations are released after terminal intents, while live sessions,
+opening sessions and outstanding work retain their slots. Merge metadata is
+fully parsed and admitted before any git write, including escaped entry lengths.
 
 ## Consequences
 

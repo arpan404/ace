@@ -1,12 +1,7 @@
 import { z } from "zod";
 import { HandoffAccess } from "../handoff-access.ts";
 import type { Store } from "../store.ts";
-import {
-  ExecutionSelection,
-  ExecutionOptions,
-  PortableHandoff,
-  type ThreadId,
-} from "@ace/protocol";
+import { ExecutionSelection, ExecutionOptions, PortableHandoff, ThreadId } from "@ace/protocol";
 
 export const NativeFork = z.object({
   nativeSessionId: z.string().min(1).max(256),
@@ -19,6 +14,12 @@ const Metadata = z.object({
   context: z.array(z.string().max(65536)).max(8).default([]),
 });
 export type TransitionMetadata = z.infer<typeof Metadata>;
+export function admitTransitionMetadata(input: unknown): TransitionMetadata {
+  const metadata = Metadata.parse(input);
+  if (Buffer.byteLength(JSON.stringify(metadata)) > 131072)
+    throw new Error("Transition context capacity exceeded");
+  return metadata;
+}
 /** Durable bounded metadata, read only at command/turn boundaries. */
 export class TransitionState {
   private store: Store;
@@ -51,21 +52,30 @@ export class TransitionState {
     );
   }
   guarded(id: ThreadId): boolean {
-    return this.store.atomic((db) =>
-      Boolean(
-        db.prepare("SELECT thread_id FROM engine_transition_guards WHERE thread_id=?").get(id),
-      ),
-    );
+    return this.guardOwner(id) !== undefined;
+  }
+  guardOwner(id: ThreadId): string | undefined {
+    return this.store.atomic((db) => {
+      const row = db
+        .prepare("SELECT command_id FROM engine_transition_guards WHERE thread_id=?")
+        .get(id);
+      return row ? z.string().parse(row.command_id) : undefined;
+    });
   }
   guard(id: ThreadId, commandId: string): void {
     this.store.atomic((db) =>
       db.prepare("INSERT INTO engine_transition_guards VALUES (?, ?)").run(id, commandId),
     );
   }
-  releaseGuards(commandId: string): void {
-    this.store.atomic((db) =>
-      db.prepare("DELETE FROM engine_transition_guards WHERE command_id=?").run(commandId),
-    );
+  releaseGuards(commandId: string): ThreadId[] {
+    return this.store.atomic((db) => {
+      const ids = db
+        .prepare("SELECT thread_id FROM engine_transition_guards WHERE command_id=?")
+        .all(commandId)
+        .map((row) => ThreadId.parse(row.thread_id));
+      db.prepare("DELETE FROM engine_transition_guards WHERE command_id=?").run(commandId);
+      return ids;
+    });
   }
   get(id: ThreadId): TransitionMetadata {
     return this.store.atomic((db) => {
@@ -74,8 +84,7 @@ export class TransitionState {
     });
   }
   set(id: ThreadId, input: TransitionMetadata): void {
-    const value = JSON.stringify(Metadata.parse(input));
-    if (Buffer.byteLength(value) > 131072) throw new Error("Transition context capacity exceeded");
+    const value = JSON.stringify(admitTransitionMetadata(input));
     this.store.atomic((db) =>
       db
         .prepare(`INSERT INTO engine_transitions VALUES (?, ?)

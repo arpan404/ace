@@ -95,10 +95,16 @@ test("whole-session fork creation guards its source until the native snapshot is
     threadId: source,
     point: { type: "turn", runId: point.id },
     input: "branch",
+    budgetBytes: 32768,
   });
   expect(accepted.ok).toBe(true);
   try {
-    await entered.promise;
+    await Promise.race([
+      entered.promise,
+      h.engine.flush().then(() => {
+        throw new Error("Native fork opening was skipped");
+      }),
+    ]);
     expect(send(h, source, "racing source secret")).toMatchObject({
       ok: false,
       error: "thread_transition_in_progress",

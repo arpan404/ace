@@ -14,6 +14,7 @@ export async function executeIntent(
 ): Promise<void> {
   const p = intent.command.payload;
   if (p.type === "thread.create" || p.type === "thread.send" || p.type === "thread.fork") {
+    if (p.type === "thread.fork") await transitions.freezeForkSource(p.threadId, actor.id);
     await sessions.open(actor);
     const capabilities =
       actor.effectiveCapabilities ??

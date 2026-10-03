@@ -65,9 +65,8 @@ export class Engine {
       wake: (id) => this.wake(id),
       expireDelivery: (actor) => this.expireDelivery(actor),
       released: (id) => {
-        if (this.repo.intents(id).some((intent) => intent.status === "running")) return;
-        this.repo.release(id);
-        this.wakeQueued();
+        const actor = this.actors.get(id);
+        if (actor) this.releaseUnused(actor);
       },
     });
     this.transitions = new ThreadTransitions(
@@ -85,10 +84,10 @@ export class Engine {
         const target = this.actor(id);
         await target.flush();
         if (!this.repo.quiescent(this.repo.requireState(id)))
-          throw new Error("Patch merge tree became live");
+          throw new Error("Transition tree became live");
         await this.sessions.close(target, "idle");
         if (!this.repo.quiescent(this.repo.requireState(id)))
-          throw new Error("Patch merge tree has unsettled work");
+          throw new Error("Transition tree has unsettled work");
       },
     );
     const handler = engineHandler(
@@ -248,6 +247,15 @@ export class Engine {
       if (["pending", "queued"].includes(intent.status) && this.repo.reserve(intent.threadId))
         this.wake(intent.threadId);
   }
+  private releaseUnused(actor: ThreadActor): void {
+    if (actor.session || (actor.lifetime && !actor.lifetime.signal.aborted)) return;
+    if (this.repo.intents(actor.id).length) return;
+    this.repo.release(actor.id);
+    this.wakeQueued();
+  }
+  private releaseGuards(intent: Intent): void {
+    for (const id of this.repo.transitions.releaseGuards(intent.command.id)) this.wake(id);
+  }
   private wake(id: ThreadId): void {
     if (this.closing) return;
     this.sends.wake(id);
@@ -298,9 +306,24 @@ export class Engine {
       return;
     }
     if (actor.idleDue && actor.session) await this.sessions.close(actor, "idle");
+    // A queued selection applies at the next boundary, even if input was queued first.
+    if (
+      !this.repo.transitions.guarded(actor.id) &&
+      this.repo.quiescent(this.repo.requireState(actor.id))
+    ) {
+      const pending = this.repo.intents(actor.id);
+      const change = pending.find(
+        (intent) =>
+          intent.command.payload.type === "thread.switch" &&
+          ["pending", "queued"].includes(intent.status),
+      );
+      if (change && !pending.some((intent) => intent.awaiting)) await this.runIntent(actor, change);
+    }
     for (const intent of this.repo.intents(actor.id)) {
       if (this.closing) return;
       if (!["pending", "queued"].includes(intent.status)) continue;
+      const guard = this.repo.transitions.guardOwner(actor.id);
+      if (guard && guard !== intent.command.id) continue;
       const p = intent.command.payload;
       const send = [
         "thread.send",
@@ -329,6 +352,7 @@ export class Engine {
   private isSteer(intent: Intent): boolean {
     const payload = intent.command.payload;
     if (payload.type !== "thread.send" || payload.delivery !== "steer") return false;
+    if (this.repo.transitions.guarded(intent.threadId)) return false;
     const state = this.repo.requireState(intent.threadId);
     if (
       this.repo
@@ -409,18 +433,19 @@ export class Engine {
       await actor.flush();
       if (actor.poisoned) throw new Error("Provider frames could not be persisted");
       this.repo.mark(intent, "done");
-      this.repo.transitions.releaseGuards(intent.command.id);
+      this.releaseGuards(intent);
     } catch (error) {
       await actor.flush();
       this.fail(intent, error instanceof Error ? error.message : String(error));
     }
     this.queue(actor);
     actor.schedule();
+    this.releaseUnused(actor);
   }
   private fail(intent: Intent, message: string): void {
     this.repo.store.atomic(() => {
       this.repo.mark(intent, "failed", message);
-      this.repo.transitions.releaseGuards(intent.command.id);
+      this.releaseGuards(intent);
       if (intent.command.payload.type === "thread.switch") {
         const pending = this.repo.store.getThread(intent.threadId)?.switch;
         if (pending)

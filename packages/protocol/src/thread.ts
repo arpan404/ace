@@ -1,4 +1,9 @@
-import { ThreadLineage, ExecutionSelection, ThreadSwitch } from "./thread-transitions.ts";
+import {
+  ThreadLineage,
+  ExecutionSelection,
+  ThreadSwitch,
+  ExecutionSource,
+} from "./thread-transitions.ts";
 import { AcpIdentity, AcpSessionSupport } from "./agent-registry.ts";
 import { z } from "zod";
 import { AgentId, RunId, ThreadId, Timestamp, WorkspaceId } from "./ids.ts";
@@ -34,6 +39,7 @@ export const Run = z.object({
   trigger: RunTrigger,
   /** Provider's turn id, when it has one. */
   nativeId: z.string().optional(),
+  executionSource: ExecutionSource.optional(),
   state: z.enum(["active", "completed", "interrupted", "failed"]),
   startedAt: Timestamp,
   endedAt: Timestamp.optional(),

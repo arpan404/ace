@@ -8,6 +8,7 @@ import type { NativeFork } from "./transition-state.ts";
 import type { z } from "zod";
 import type { Sessions } from "./sessions.ts";
 import { handoff, validateCitations } from "./transition-history.ts";
+import { admitTransitionMetadata } from "./transition-state.ts";
 export interface TransitionIO {
   migrate(request: {
     provider: ExecutionSelection["provider"];
@@ -57,10 +58,8 @@ export class ThreadTransitions {
       });
       const previous = this.repo.transitions.get(actor.id);
       this.repo.transitions.history.admit(actor.id, p.threadId);
-      const next = { ...previous, context: [...previous.context, text] };
-      // Capacity admission precedes external git writes.
-      if (next.context.length > 8 || Buffer.byteLength(JSON.stringify(next)) > 131072)
-        throw new Error("Merge context capacity exceeded");
+      // Parse every per-entry and aggregate constraint before irreversible git effects.
+      const next = admitTransitionMetadata({ ...previous, context: [...previous.context, text] });
       if (p.patch) {
         await this.closeThread(p.threadId);
         await this.closeThread(actor.id);
@@ -238,6 +237,13 @@ export class ThreadTransitions {
   input(id: ThreadId): string[] {
     const metadata = this.repo.transitions.get(id);
     return [...(metadata.handoff ? [renderHandoff(metadata.handoff)] : []), ...metadata.context];
+  }
+  async freezeForkSource(source: ThreadId, fork: ThreadId): Promise<void> {
+    const metadata = this.repo.transitions.get(fork);
+    if (metadata.fork?.point.type !== "end") return;
+    if (metadata.fork.nativeSessionId !== this.repo.session(source).nativeSessionId)
+      throw new Error("Whole-session fork source changed before snapshot creation");
+    await this.closeThread(source);
   }
   delivered(id: ThreadId): void {
     const metadata = this.repo.transitions.get(id);

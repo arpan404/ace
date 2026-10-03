@@ -30,6 +30,11 @@ export const ExecutionSelection = z.object({
   options: ExecutionOptions.default({}),
 });
 export type ExecutionSelection = z.infer<typeof ExecutionSelection>;
+export const ExecutionSource = z.object({
+  nativeSessionId: z.string().min(1).max(256),
+  selection: ExecutionSelection,
+});
+export type ExecutionSource = z.infer<typeof ExecutionSource>;
 export const ThreadSwitch = z.object({
   selection: ExecutionSelection,
   state: z.enum(["queued", "applied", "failed"]),
@@ -51,6 +56,9 @@ export type MergedForkContext = z.infer<typeof MergedForkContext>;
 export const PortableHandoff = z.object({
   version: z.literal(1),
   sourceThreadId: ThreadId,
+  origin: z
+    .object({ provider: ProviderKind, backend: z.string().min(1).max(256).optional() })
+    .optional(),
   throughSeq: z.number().int().nonnegative(),
   lossy: z.literal(true),
   policy: z.literal("recent-complete-items"),

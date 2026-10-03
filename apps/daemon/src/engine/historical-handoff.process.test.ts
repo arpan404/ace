@@ -80,7 +80,7 @@ function appendFuture(h: ReturnType<typeof transitionHarness>, source: ThreadId,
       draft: {
         type: "tool_call",
         complete: true,
-        call: { title: "Future revised build", status: "completed" },
+        call: { title: "Future revised build", status: "succeeded" },
       },
     },
     {
@@ -154,4 +154,57 @@ test("an older fork created after later source updates receives the original con
   );
   expect(JSON.stringify(page)).toContain("launch build before cutoff");
   expect(JSON.stringify(page)).not.toContain("future message secret");
+});
+
+test("an item fork includes the item's completed revision rather than its initial streaming draft", async () => {
+  const h = transitionHarness();
+  cleanup.push(h.close);
+  const source = await h.create();
+  h.held.add(source);
+  h.command({
+    type: "thread.send",
+    threadId: source,
+    input: [{ type: "text", text: "stream an item" }],
+    delivery: "queue",
+  });
+  await h.engine.flush();
+  h.emit(
+    source,
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "streamed",
+      draft: {
+        type: "message",
+        role: "assistant",
+        complete: false,
+        parts: [{ type: "text", text: "initial draft" }],
+      },
+    },
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "streamed",
+      draft: {
+        type: "message",
+        role: "assistant",
+        complete: true,
+        parts: [{ type: "text", text: "finished selected content" }],
+      },
+    },
+    { type: "turn.ended", agent: "root", outcome: "completed" },
+  );
+  await h.engine.flush();
+  const item = h.store.readItemPage(source, h.store.headSeq() + 1, 1).items[0];
+  if (!item) throw new Error("No streamed item");
+  const fork = await h.fork(source, { type: "item", itemId: item.id });
+  expect(h.inputs.at(-1)?.text).toContain("finished selected content");
+  expect(h.inputs.at(-1)?.text).not.toContain("initial draft");
+  const page = HandoffPage.parse(
+    (await caller(h, fork)("ace_read_handoff", { sourceThreadId: source })).structuredContent,
+  );
+  expect(page.items.at(-1)).toMatchObject({
+    complete: true,
+    parts: [{ type: "text", text: "finished selected content" }],
+  });
 });

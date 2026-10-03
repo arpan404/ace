@@ -90,6 +90,17 @@ test("same-provider model changes preserve the native session and private histor
     ]),
   );
   expect(session?.closed).toBe(false);
+  await h.restart();
+  follow(h, id);
+  await h.engine.flush();
+  expect(h.sessions.at(-1)?.context.resume?.nativeSessionId).toBe(session?.nativeId);
+  expect(h.inputs.at(-1)).toMatchObject({
+    nativeId: session?.nativeId,
+    model: "model-b",
+    options: { effort: "high" },
+  });
+  const continued = h.store.readItemPage(id, h.store.headSeq() + 1, 1).items[0];
+  expect(JSON.stringify(continued)).toContain("Prior context: source history|follow up");
 });
 test("same-provider model changes use native resume when live configuration is unavailable", async () => {
   const h = setup({ configure: false });

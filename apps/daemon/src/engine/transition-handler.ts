@@ -1,4 +1,10 @@
-import { ThreadId, type Command, type CommandResult, type ExecutionSelection } from "@ace/protocol";
+import {
+  AcpIdentity,
+  ThreadId,
+  type Command,
+  type CommandResult,
+  type ExecutionSelection,
+} from "@ace/protocol";
 import type { EngineRepository } from "./repository.ts";
 import type { AdapterRegistry } from "./registry.ts";
 import { createEngineThread } from "./create-thread.ts";
@@ -31,23 +37,39 @@ export function acceptTransition(
           options: {},
           ...metadata,
         };
-        const selection = p.selection ?? current;
-        if (!registry.has(selection.provider)) return fail("provider_unavailable");
+        const source = point.executionSource;
+        const inherited = source?.selection ?? current;
+        const selection = p.selection
+          ? {
+              ...p.selection,
+              ...(p.selection.provider === inherited.provider &&
+              p.selection.instanceId === undefined &&
+              inherited.instanceId
+                ? { instanceId: inherited.instanceId }
+                : {}),
+            }
+          : inherited;
+        const identity = selection.provider === "acp" ? AcpIdentity.safeParse(thread) : undefined;
+        if (selection.provider === "acp" && !identity?.success)
+          return fail("acp_identity_required");
+        const acpIdentity = identity?.success ? identity.data : undefined;
+        if (!registry.has(selection.provider, acpIdentity)) return fail("provider_unavailable");
         // Forking into another account needs migration; request a switch on the fork instead.
-        if (selection.provider === current.provider && selection.instanceId !== current.instanceId)
+        if (
+          selection.provider === inherited.provider &&
+          selection.instanceId !== inherited.instanceId
+        )
           return fail("fork_account_mismatch_use_switch");
         const capabilities = registry.get(selection.provider).capabilities;
         if (Object.keys(selection.options).length && !capabilities.sessionOptions)
           return fail("provider_options_unsupported");
         const rootId = state.agents[state.rootKey ?? ""]?.agent.id;
         const sourceNativeId =
-          point.parentAgentId === rootId
-            ? metadata.nativeSessionId
-            : capabilities.forkSubagents &&
-                point.sourceAgent?.native.provider === current.provider &&
-                point.sourceAgent.fidelity === "full"
-              ? point.sourceAgent.native.nativeId
-              : undefined;
+          source &&
+          (point.parentAgentId === rootId ||
+            (capabilities.forkSubagents && point.sourceAgent?.fidelity === "full"))
+            ? source.nativeSessionId
+            : undefined;
         const supportedPoints = capabilities.forkPoints ?? [];
         const nativePoint =
           point.native && supportedPoints.includes(point.native.type)
@@ -56,7 +78,7 @@ export function acceptTransition(
               ? { type: "end" as const, nativeId: sourceNativeId ?? "" }
               : undefined;
         const native =
-          selection.provider === current.provider &&
+          selection.provider === source?.selection.provider &&
           capabilities.fork &&
           sourceNativeId &&
           nativePoint
@@ -80,6 +102,7 @@ export function acceptTransition(
             mode: native ? "native" : "portable",
             lossy: !native,
           },
+          ...(acpIdentity ? { acpIdentity } : {}),
         });
         repo.transitions.set(id, {
           selection,
@@ -88,6 +111,8 @@ export function acceptTransition(
           ...(portable ? { handoff: portable } : {}),
         });
         repo.transitions.history.grant(id, thread.id, point.throughSeq);
+        repo.transitions.guard(id, command.id);
+        if (native?.point.type === "end") repo.transitions.guard(thread.id, command.id);
         forkThreadId = id;
       } else if (p.type === "thread.merge") {
         if (
@@ -119,7 +144,11 @@ export function acceptTransition(
         if (repo.transitions.guarded(id)) return fail("thread_transition_in_progress");
         if (p.patch && !repo.quiescent(repo.requireState(id))) return fail("source_tree_is_live");
       } else {
-        if (!registry.has(p.selection.provider)) return fail("provider_unavailable");
+        const identity = p.selection.provider === "acp" ? AcpIdentity.safeParse(thread) : undefined;
+        if (p.selection.provider === "acp" && !identity?.success)
+          return fail("acp_identity_required");
+        if (!registry.has(p.selection.provider, identity?.success ? identity.data : undefined))
+          return fail("provider_unavailable");
         const metadata = repo.session(id);
         const fallback: ExecutionSelection = {
           provider: state.config.provider,

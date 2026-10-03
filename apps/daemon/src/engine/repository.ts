@@ -1,4 +1,5 @@
 import { TransitionReadiness } from "./transition-readiness.ts";
+import { captureExecutionSources } from "./execution-provenance.ts";
 import { quiescent } from "./transition-history.ts";
 import { TransitionState } from "./transition-state.ts";
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
@@ -71,6 +72,22 @@ export class EngineRepository {
     this.store.atomic((db) => {
       let snapshot = this.snapshots.get(state.threadId);
       if (!snapshot || snapshot.state !== state) snapshot = new Snapshot(db, state);
+      if (
+        payloads.some(
+          (event) =>
+            event.type === "run.started" ||
+            event.type === "item.created" ||
+            event.type === "item.updated",
+        )
+      ) {
+        const session = this.session(state.threadId);
+        const selection = this.transitions.get(state.threadId).selection ?? {
+          provider: state.config.provider,
+          options: {},
+          ...session,
+        };
+        captureExecutionSources(state, payloads, selection, session.nativeSessionId);
+      }
       this.readiness.capture(state, payloads);
       snapshot.retainChanges(payloads);
       this.store.appendEvents(state.threadId, payloads, at);

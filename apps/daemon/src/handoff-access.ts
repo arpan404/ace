@@ -50,17 +50,19 @@ export class HandoffAccess {
       return z.number().int().nonnegative().parse(row.through_seq);
     });
   }
-  stream(recipient: ThreadId, source: ThreadId, streamId: string): "utf-16le" | "utf-8" {
-    const cutoff = this.boundary(recipient, source);
-    return this.store.atomic((db) => {
-      const allowed = (table: "item_text_streams" | "output_streams") =>
-        db
-          .prepare(`SELECT s.id FROM ${table} s
-        JOIN item_heads h ON h.id=s.item_id WHERE s.id=? AND h.thread_id=? AND h.created_seq<=?`)
-          .get(streamId, source, cutoff);
-      if (allowed("item_text_streams")) return "utf-16le";
-      if (allowed("output_streams")) return "utf-8";
-      throw new Error("Stream is outside this handoff");
-    });
+  readStream(
+    recipient: ThreadId,
+    source: ThreadId,
+    streamId: string,
+    offset: number,
+    limit: number,
+  ) {
+    return this.store.readHistoricalStream(
+      source,
+      streamId,
+      this.boundary(recipient, source),
+      offset,
+      limit,
+    );
   }
 }

@@ -160,9 +160,7 @@ export class PayloadStore {
       this.db
         .prepare("DELETE FROM items WHERE id = ? AND thread_id = ?")
         .run(p.itemId, event.threadId);
-      this.db
-        .prepare("DELETE FROM output_streams WHERE item_id = ? AND thread_id = ?")
-        .run(p.itemId, event.threadId);
+      // Historical handoffs retain output revisions until the thread is deleted.
     } else if (p.type === "item.created" || p.type === "item.updated") {
       this.items.upsert(event, p.item);
     } else if (p.type === "item.delta") {
@@ -204,7 +202,7 @@ export class PayloadStore {
   }
   private writeOutput(streamId: string, offset: number, text: string): number {
     const insert = (this.outputInsert ??= this.statement(
-      "INSERT INTO output_chunks VALUES (?, ?, ?)",
+      "INSERT OR IGNORE INTO output_chunks VALUES (?, ?, ?)",
     ));
     const initial = offset;
     for (let start = 0; start < text.length;) {
@@ -220,6 +218,29 @@ export class PayloadStore {
       start = end;
     }
     return offset - initial;
+  }
+  /** Startup replay restores retired streams without replacing their existing prefix. */
+  archiveOutput(
+    threadId: ThreadId,
+    itemId: ItemId,
+    streamId: string,
+    offset: number,
+    text: string,
+  ): void {
+    this.statement(
+      "INSERT INTO output_streams (id,thread_id,item_id) VALUES (?,?,?) ON CONFLICT(id) DO NOTHING",
+    ).run(streamId, threadId, itemId);
+    const row = this.statement("SELECT thread_id,item_id FROM output_streams WHERE id=?").get(
+      streamId,
+    );
+    const owner = z.object({ thread_id: ThreadId, item_id: ItemId }).parse(row);
+    if (owner.thread_id !== threadId || owner.item_id !== itemId)
+      throw new Error("Stream outside item scope");
+    const bytes = this.writeOutput(streamId, offset, text);
+    this.statement("UPDATE output_streams SET size=MAX(size,?) WHERE id=?").run(
+      offset + bytes,
+      streamId,
+    );
   }
   streamThread(streamId: string): ThreadId | undefined {
     const row = this.statement(

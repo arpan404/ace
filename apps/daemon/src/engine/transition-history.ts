@@ -36,6 +36,7 @@ export function boundary(repo: EngineRepository, id: ThreadId, point: ForkPoint)
       return {
         throughSeq: z.number().int().positive().parse(end.seq),
         parentAgentId: run.agentId,
+        executionSource: run.executionSource,
         sourceAgent:
           repo.requireState(id).agents[
             repo.requireState(id).indexes.agentKeysById[run.agentId] ?? ""
@@ -43,26 +44,24 @@ export function boundary(repo: EngineRepository, id: ThreadId, point: ForkPoint)
         atSessionEnd:
           repo.requireState(id).agents[repo.requireState(id).rootKey ?? ""]?.lastRun === run.id &&
           run.agentId === root.id &&
+          run.executionSource?.nativeSessionId === repo.session(id).nativeSessionId &&
           repo.quiescent(repo.requireState(id)),
         ...(run.nativeId ? { native: { type: "turn" as const, nativeId: run.nativeId } } : {}),
       };
     }
-    const row = db
-      .prepare(
-        "SELECT h.created_seq,p.item FROM item_heads h JOIN item_previews p ON p.id=h.id WHERE h.thread_id=? AND h.id=?",
-      )
-      .get(id, point.itemId);
-    const item = Item.parse(row ? JSON.parse(String(row.item)) : undefined);
+    const completed = repo.store.historicalItemCompletion(id, point.itemId);
+    const item = Item.parse(completed.item);
     if (!item.complete || !item.agentId || !item.runId)
       throw new Error("Fork point must be a finished agent item in a run");
     const runRow = db
       .prepare("SELECT value FROM view_entities WHERE thread_id=? AND collection='runs' AND id=?")
       .get(id, item.runId);
-    if (Run.parse(runRow ? JSON.parse(String(runRow.value)) : undefined).state === "active")
-      throw new Error("Fork point belongs to an unfinished run");
+    const run = Run.parse(runRow ? JSON.parse(String(runRow.value)) : undefined);
+    if (run.state === "active") throw new Error("Fork point belongs to an unfinished run");
     return {
-      throughSeq: z.number().int().positive().parse(row?.created_seq),
+      throughSeq: completed.throughSeq,
       parentAgentId: item.agentId,
+      executionSource: item.executionSource ?? run.executionSource,
       sourceAgent:
         repo.requireState(id).agents[
           repo.requireState(id).indexes.agentKeysById[item.agentId] ?? ""
@@ -73,14 +72,8 @@ export function boundary(repo: EngineRepository, id: ThreadId, point: ForkPoint)
   });
 }
 export function handoff(repo: EngineRepository, id: ThreadId, throughSeq: number, budget: number) {
-  const totalItems = repo.store.atomic((db) =>
-    Number(
-      db
-        .prepare("SELECT COUNT(*) AS n FROM item_heads WHERE thread_id=? AND created_seq<=?")
-        .get(id, throughSeq)?.n,
-    ),
-  );
-  const page = repo.store.readItemPage(id, throughSeq + 1, 200, 1024 * 1024);
+  const totalItems = repo.store.historicalItemCount(id, throughSeq);
+  const page = repo.store.readHistoricalItemPage(id, throughSeq, throughSeq + 1, 200, 1024 * 1024);
   return selectHandoff({ threadId: id, throughSeq, totalItems, items: page.items }, budget);
 }
 export function validateCitations(

@@ -8,6 +8,7 @@ import {
   type CommandPayload,
   type ContentPart,
   type ExecutionSelection,
+  type ForkPoint,
   type ProviderKind,
 } from "@ace/protocol";
 import type { Fact } from "@ace/core";
@@ -58,9 +59,15 @@ export function transitionHarness(
   };
   let serial = 0;
   let closeFailed = false;
-  for (const provider of ["codex", "claude", "cursor"] satisfies ProviderKind[]) {
+  for (const provider of ["codex", "claude", "cursor", "acp"] satisfies ProviderKind[]) {
     const adapter: ProviderAdapter = {
       provider,
+      ...(provider === "acp"
+        ? {
+            acceptsIdentity: (identity: SessionContext["acpIdentity"]) =>
+              identity?.acpAgentId === "registered-agent",
+          }
+        : {}),
       capabilities: () =>
         Capabilities.parse({
           steer: true,
@@ -105,7 +112,7 @@ export function transitionHarness(
           selection: {
             provider,
             model: context.model,
-            instanceId: context.instanceId ?? "account-a",
+            instanceId: context.instanceId ?? context.acpIdentity?.instanceId ?? "account-a",
             options: context.options ?? {},
           },
         };
@@ -209,11 +216,14 @@ export function transitionHarness(
     });
     if (!result.ok) throw new Error(result.error);
     await engine.flush();
-    const thread = store.listThreads().find((thread) => !existing.has(thread.id));
+    const thread = store.listThreads().find((candidate) => !existing.has(candidate.id));
     if (!thread) throw new Error("No created thread");
     return thread.id;
   }
-  async function fork(id: ThreadId, point = { type: "turn" as const, runId: finishedRun(id).id }) {
+  async function fork(
+    id: ThreadId,
+    point: ForkPoint = { type: "turn", runId: finishedRun(id).id },
+  ) {
     const result = command({
       type: "thread.fork",
       threadId: id,

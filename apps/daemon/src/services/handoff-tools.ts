@@ -11,8 +11,9 @@ export function handoffToolkit(store: Store): Toolkit {
         async run(page, { caller, signal }) {
           signal.throwIfAborted();
           const through = access.boundary(caller.threadId, page.sourceThreadId);
-          return store.readItemPage(
+          return store.readHistoricalItemPage(
             page.sourceThreadId,
+            through,
             Math.min(page.before ?? through + 1, through + 1),
             page.limit,
             128 * 1024,
@@ -23,8 +24,14 @@ export function handoffToolkit(store: Store): Toolkit {
         ...handoffToolCatalog[1],
         async run(chunk, { caller, signal }) {
           signal.throwIfAborted();
-          const encoding = access.stream(caller.threadId, chunk.sourceThreadId, chunk.streamId);
-          return { ...store.readOutput(chunk.streamId, chunk.offset, chunk.limit), encoding };
+          const result = access.readStream(
+            caller.threadId,
+            chunk.sourceThreadId,
+            chunk.streamId,
+            chunk.offset,
+            chunk.limit,
+          );
+          return { ...result, bytes: result.bytes.toString("base64") };
         },
       });
     },
