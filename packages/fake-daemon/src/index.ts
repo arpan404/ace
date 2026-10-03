@@ -8,3 +8,10 @@ export { failingSubagent } from "./scenarios/failing-subagent.ts";
 export { longHistory } from "./scenarios/long-history.ts";
 export { workbench } from "./scenarios/workbench.ts";
 export * as facts from "./scenarios/facts.ts";
+export { settingsFixture } from "./scenarios/settings.ts";
+export type {
+  FakeAccount,
+  FakeMachine,
+  FakeProviderInstall,
+  SettingsFixture,
+} from "./scenarios/settings.ts";
