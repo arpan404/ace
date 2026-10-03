@@ -11,11 +11,11 @@ const root = resolve(import.meta.dirname, "../../..");
 const long = process.argv.includes("--long");
 const bytes = z.number().nonnegative();
 const memory = z.object({ rss: bytes, heapUsed: bytes });
-const sample = z.object({ memory, threads: z.number().int(), workers: z.array(z.unknown()) });
+const Sample = z.object({ memory, threads: z.number().int(), workers: z.array(z.unknown()) });
 const Measurement = z.object({
   startupMs: bytes,
-  idle10: sample,
-  active: sample,
+  idle10: Sample,
+  active: Sample,
   eventsPerSecond: bytes,
   p99Ms: bytes,
   shutdownMs: bytes,

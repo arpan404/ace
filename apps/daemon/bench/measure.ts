@@ -8,6 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { z } from "zod";
 import { WebSocket } from "ws";
 import { ServerMessage } from "@ace/protocol";
+import { writeMeasurement } from "./output.ts";
 
 const Memory = z.object({
   rss: z.number(),
@@ -339,7 +340,7 @@ async function measure() {
   };
   const json = JSON.stringify(result, null, 2) + "\n";
   const output = argument("output", "");
-  if (output) await writeFile(resolve(output), json);
+  await writeMeasurement(output, json);
   process.stdout.write(json);
 }
 try {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { openHistory } from "@ace/history-import";
 import { z } from "zod";
+import { writeMeasurement } from "./output.ts";
 
 // Synthetic transcripts, never provider executables. Measure the real history service.
 const count = z.coerce
@@ -12,6 +13,7 @@ const count = z.coerce
   .min(1)
   .max(50000)
   .parse(process.argv.find((arg) => arg.startsWith("--files="))?.slice(8) ?? "5000");
+const fullScans = process.argv.includes("--full-scans");
 const home = await mkdtemp(join(tmpdir(), "ace-history-perf-"));
 const providerHome = join(home, "claude");
 const projects = join(providerHome, "projects/p");
@@ -45,19 +47,27 @@ try {
   async function scan() {
     if (!service) throw new Error("History service closed");
     const start = performance.now();
-    const result = await service.scanChanges();
+    const result = fullScans ? await service.scan() : await service.scanChanges();
     return { milliseconds: performance.now() - start, result };
   }
   const cold = await scan();
-  const unchanged = await scan();
+  let unchanged = await scan();
+  const startupInvalidations = [];
+  // macOS may deliver the synthetic creation burst after the cold scan. Record
+  // those verification batches separately before the unchanged live measurement.
+  if (!fullScans)
+    for (let attempt = 0; attempt < 8 && unchanged.result.files > 0; attempt++) {
+      startupInvalidations.push(unchanged);
+      unchanged = await scan();
+    }
   const id = "00000000-0000-4000-8000-000000000000";
   const change = Promise.withResolvers<void>();
-  const unsubscribe = service.subscribeChanges(() => change.resolve());
+  const unsubscribe = fullScans ? () => {} : service.subscribeChanges(() => change.resolve());
   await appendFile(
     join(projects, `${id}.jsonl`),
     JSON.stringify({ type: "ai-title", sessionId: id, aiTitle: "changed title" }) + "\n",
   );
-  await change.promise;
+  if (!fullScans) await change.promise;
   unsubscribe();
   const oneChange = await scan();
   const visible = await service.list({ type: "history.list", cwd, limit: 200 });
@@ -91,12 +101,22 @@ try {
   }
   const result =
     JSON.stringify(
-      { count, runtime: process.version, cold, unchanged, oneChange, restart, plans },
+      {
+        count,
+        runtime: process.version,
+        fullScans,
+        cold,
+        startupInvalidations,
+        unchanged,
+        oneChange,
+        restart,
+        plans,
+      },
       null,
       2,
     ) + "\n";
   const output = process.argv.find((arg) => arg.startsWith("--output="))?.slice(9);
-  if (output) await writeFile(output, result);
+  await writeMeasurement(output ?? "", result);
   process.stdout.write(result);
 } finally {
   await service?.close();
