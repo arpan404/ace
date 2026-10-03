@@ -1,5 +1,12 @@
 import { afterEach, expect, it } from "vitest";
-import { Agent, AgentId, Capabilities, Command } from "@ace/protocol";
+import {
+  Agent,
+  AgentId,
+  Capabilities,
+  Command,
+  type ExecutionSelection,
+  type ContentPart,
+} from "@ace/protocol";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import type { SessionContext } from "@ace/engine-api";
 import { Store } from "../store.ts";
@@ -199,11 +206,13 @@ it("daemon composition gives lazy engine sessions scoped MCP authority before pr
   await expect(h.read(caller)).rejects.toThrow();
 });
 
-it("session MCP binding preserves effective selectors and provider MCP controls", async () => {
+it("session MCP binding preserves selectors, live configuration, command correlation and MCP controls", async () => {
   const h = await setup();
   let model = "initial";
   let mode = "code";
   let servers: Record<string, unknown> = {};
+  let effort: unknown;
+  let delivered: string | undefined;
   let resume = false;
   const original = h.adapter.openSession;
   h.adapter.openSession = async (context) => ({
@@ -221,9 +230,16 @@ it("session MCP binding preserves effective selectors and provider MCP controls"
     async setMode(value) {
       mode = value;
     },
+    async configure(selection: ExecutionSelection) {
+      model = selection.model ?? "initial";
+      effort = selection.options["effort"];
+    },
+    async send(_input: ContentPart[], _delivery: "queue" | "steer", commandId?: string) {
+      delivered = commandId;
+    },
     mcp: {
       async status() {
-        return { model, mode, servers };
+        return { model, mode, servers, effort, delivered };
       },
       async replace(value) {
         servers = value;
@@ -244,6 +260,16 @@ it("session MCP binding preserves effective selectors and provider MCP controls"
     model: "selected",
     mode: "plan",
     servers: { local: { command: "user-mcp" } },
+    effort: undefined,
+    delivered: undefined,
+  });
+  if (!session.configure) throw new Error("Live session configuration lost");
+  await session.configure({ provider: "codex", model: "configured", options: { effort: "high" } });
+  await session.send([{ type: "text", text: "queued work" }], "queue", "command-1");
+  expect(await session.mcp?.status()).toMatchObject({
+    model: "configured",
+    effort: "high",
+    delivered: "command-1",
   });
   expect(session.effectiveCapabilities?.resume).toBe(true);
 });

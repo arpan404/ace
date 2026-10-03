@@ -1,3 +1,4 @@
+import { parse as parseJsonc, type ParseError } from "jsonc-parser";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { ProviderKind } from "@ace/protocol";
@@ -53,23 +54,26 @@ export function claudeInjection(input: AceMcpConnection) {
     developerInstructions: developerInstructions("claude"),
   };
 }
-export function openCodeInjection(input: AceMcpConnection, configContent?: string) {
+export function openCodeInjection(input: AceMcpConnection, previous?: string) {
   const { url, bearer } = AceMcpConnectionSchema.parse(input);
-  const config =
-    configContent === undefined
-      ? {}
-      : z
-          .record(z.string().max(256), z.unknown())
-          .parse(JSON.parse(z.string().max(32768).parse(configContent)));
-  const servers = z
-    .record(z.string().min(1).max(256), z.unknown())
-    .refine((value) => Object.keys(value).length < 64)
-    .parse(config["mcp"] ?? {});
+  let configuration: Record<string, unknown> = {};
+  let servers: Record<string, unknown> = {};
+  if (previous !== undefined) {
+    if (Buffer.byteLength(previous) > 64 * 1024)
+      throw new Error("OpenCode MCP configuration exceeds limit");
+    const errors: ParseError[] = [];
+    const value: unknown = parseJsonc(previous, errors, { allowTrailingComma: true });
+    if (errors.length) throw new Error("Invalid OpenCode MCP configuration");
+    configuration = z.record(z.string(), z.json()).parse(value);
+    if (configuration["mcp"] !== undefined)
+      servers = z.record(z.string(), z.json()).parse(configuration["mcp"]);
+  }
+  if (Object.keys(servers).length >= 64) throw new Error("OpenCode MCP server limit exceeded");
   if (Object.hasOwn(servers, "ace")) throw new Error("OpenCode MCP server name collision: ace");
   return {
     env: {
       OPENCODE_CONFIG_CONTENT: JSON.stringify({
-        ...config,
+        ...configuration,
         mcp: {
           ...servers,
           ace: {

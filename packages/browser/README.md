@@ -24,13 +24,27 @@ const artifact = await browser.stopRecording(threadId);
 await browser.close();
 ```
 
-`detectChromium()` searches an explicit path, `ACE_CHROMIUM_PATH`, common Chrome
-and Chromium installations, PATH, the Playwright cache and then the daemon cache.
-`installChromium(dataDir)` explicitly downloads into `dataDir/chromium` using the
-installed Playwright CLI. Detection and daemon startup never download. Set
-`headed: true` in open options to show the browser on the daemon host. Persistent
-workspace profiles have exclusive leases; use ephemeral sessions for parallel
-threads. The installed browser's sandbox stays enabled.
+New sessions prefer a connected ace desktop backend. Without desktop, first use
+streams pinned Chromium 153.0.8010.12 into `dataDir/chromium`, verifies its
+publisher checksum before extraction and publishes the installation atomically.
+`installChromium(dataDir, acquisitionOptions)` uses the same verified path.
+Downloads report progress through `onDownload` and `browser.download.progress`.
+Production startup never searches personal Chrome installations or profiles.
+`detectChromium` remains a diagnostic and test discovery API; the trusted
+`executablePath` option supports CI and packaged executables, always with an
+ace-owned profile. Persistent profiles have exclusive workspace leases.
+
+The desktop bridge contract is [ADR 0055](../../docs/adr/0055-browser-backends.md).
+`BrowserBackend` opens a session with a CDP transport and page operations.
+`HeadlessBackend` wraps Playwright; `registerEmbedded` attaches an authenticated
+transport after the daemon has verified its local desktop credential. Agent
+and client commands keep using `BrowserService`. `browser.backend` can be
+`auto`, `embedded` or `headless`, with thread overrides through settings.
+Desktop disconnect emits `browser.backend.lost` and pauses by default.
+`browser.backendLoss: headless` reopens the last approved URL in an ephemeral
+headless profile, keeps the controller lease and reports `pageStateLost: true`.
+It preserves subscriptions, advances frame sequence numbers and invalidates
+old refs. Pending commands fail and never replay.
 
 `execute` accepts commands defined by `BrowserCommand` in `@ace/protocol`.
 Screenshots and logs return local paths. Evaluate requires its own injected
@@ -141,14 +155,17 @@ Browser/encoder and transport costs are measured separately from the pure delive
 
 ## Process boundaries
 
-`BrowserServiceOptions.launchContext` replaces the Playwright context launcher;
-`spawn` replaces process creation for cached-browser lookup and the encoder
-supervisor. `detectChromium({ spawn })` and `installChromium(dataDir, spawn)`
-also accept the process boundary. Defaults use Playwright and Node processes.
-These seams support host-specific launchers and tests with real child processes.
-Clock and id generation remain injectable through `now` and `id`.
-Capture detaches before context closure; shutdown does not wait for a CDP stop
-response before closing the transport that can abort it.
+`BrowserServiceOptions.launchContext` replaces the headless Playwright launcher;
+`headlessBackend` replaces the backend itself. `acquisition.fetch` and a pinned
+artifact replace the download boundary. `spawn` controls encoder and diagnostic
+processes. `now` and `id` remain injectable. The backend contract exposes native
+permission/download denial hooks. Both implementations deny permissions and
+downloads; Electron emits audit events after denying them locally.
+
+New behavior tests cover a real socket fake desktop and a local HTTP archive
+server. Relay and acquisition benchmarks live in `bench/relay.ts` and
+`bench/acquisition.ts`. Tests, mutations and benchmarks were not executed under
+the owner's merge-only policy. Runtime results and throughput need run at merge.
 
 ## Agent tools
 
@@ -156,8 +173,10 @@ response before closing the transport that can abort it.
 `press`, `scroll`, `snapshot`, `screenshot`, `evaluate`, `wait_for`, `logs`,
 `resize` and `emulate`, each with the `ace_browser_` prefix. The daemon composes
 this toolkit before opening provider sessions. Arguments cannot override the
-credential's thread identity. Agents use a browser already opened by a human;
-the toolkit cannot open sessions or approve origins or evaluation.
+credential's thread identity. The daemon adds `ace_browser_open` and `ace_browser_close`, deriving workspace
+identity from the attributed thread and automatically selecting the backend.
+Command registration lives in this package; the daemon supplies lazy opening.
+Agents cannot approve origins or evaluation.
 
 MCP screenshots return bounded JPEG image content directly from the owned page.
 The client browser screenshot command still writes a PNG artifact. Human takeover

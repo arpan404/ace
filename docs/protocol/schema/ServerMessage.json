@@ -449,6 +449,12 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/BrowserBackendLost.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/BrowserDownloadProgress.json"
+    },
+    {
       "properties": {
         "error": {
           "maxLength": 2048,

@@ -38,68 +38,15 @@ Example:
 {
   "thread": {
     "acpAgentId": "example",
-    "acpSupport": {
-      "capabilities": {
-        "imageInput": true,
-        "planMode": false,
-        "resume": true
-      },
-      "coverage": "source_profile",
-      "mcp": "http",
-      "modeSelection": false,
-      "modelSelection": true,
-      "raw": {
-        "json": "example",
-        "truncated": false
-      },
-      "subagentSessions": false,
-      "visibility": "limited"
-    },
-    "archivedAt": 1,
-    "createdAt": 7,
-    "effectiveCapabilities": {
-      "backgroundTaskControl": true,
-      "backgroundVisibility": "full",
-      "fork": true,
-      "forkPoints": [],
-      "forkSubagents": true,
-      "imageInput": true,
-      "interruptCascades": true,
-      "planMode": true,
-      "resume": true,
-      "rewindFiles": true,
-      "steer": false,
-      "subagentTranscripts": false,
-      "tokenUsage": false
-    },
+    "createdAt": 1,
     "id": "example",
-    "imported": {
-      "importedAt": 1,
-      "instanceId": "example",
-      "native": {
-        "nativeId": "example",
-        "provider": "pi"
-      },
-      "sourceId": "example"
-    },
-    "instanceId": "example",
-    "lineage": {
-      "lossy": true,
-      "mode": "native",
-      "parentAgentId": "example",
-      "parentThreadId": "example",
-      "point": {
-        "itemId": "example",
-        "type": "item"
-      }
-    },
-    "provider": "pi",
+    "provider": "acp",
+    "rootAgentId": "example",
     "status": {
-      "interactions": 7,
-      "state": "needs_you"
+      "state": "unresponsive"
     },
     "title": "example",
-    "updatedAt": 6,
+    "updatedAt": 5,
     "workspaceId": "example"
   }
 }
@@ -123,7 +70,9 @@ Required capability: none beyond session authentication. Timeout: 10000 ms.
 Example:
 
 ```json
-{}
+{
+  "limit": 5
+}
 ```
 
 ## ace_list_agents.output
@@ -205,7 +154,8 @@ Example:
 
 ```json
 {
-  "provider": "acp",
+  "name": "example",
+  "provider": "antigravity",
   "task": "example"
 }
 ```
@@ -248,7 +198,7 @@ Example:
 
 ```json
 {
-  "limit": 5,
+  "limit": 2,
   "sourceThreadId": "example"
 }
 ```
@@ -268,7 +218,7 @@ Example:
 ```json
 {
   "items": [],
-  "itemsBefore": 7,
+  "itemsBefore": 5,
   "threadId": "example"
 }
 ```
@@ -317,6 +267,6 @@ Example:
   "bytes": "example",
   "encoding": "utf-16le",
   "eof": true,
-  "nextOffset": 9
+  "nextOffset": 3
 }
 ```

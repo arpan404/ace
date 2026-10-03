@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { join } from "node:path";
-import type { BrowserContext, CDPSession, Page } from "playwright-core";
+import { writeFile } from "node:fs/promises";
+import type { BrowserBackendSession, BrowserBackend } from "./backend.ts";
+import type { BrowserControllerLease } from "@ace/protocol";
 import {
   BrowserCommand,
   BrowserInput,
@@ -19,9 +21,8 @@ import type { ProcessSpawner } from "./io.ts";
 export type Actor = { kind: "agent" } | { kind: "human"; connectionId: string };
 export interface SessionOptions {
   threadId: ThreadId;
-  context: BrowserContext;
-  page: Page;
-  cdp: CDPSession;
+  backend: BrowserBackendSession;
+  backendKind: BrowserBackend["kind"];
   dir: string;
   now: () => number;
   id: () => string;
@@ -61,48 +62,90 @@ export class BrowserSession {
   private tail: Promise<unknown> = Promise.resolve();
   private pending = 0;
   private recording: Recording | undefined;
+  private paused = false;
+  private lastUrl: string | undefined;
+  private reason: string | undefined;
+  private pageStateLost = false;
+  private generation = 0;
+  private leaseReady: Promise<void> = Promise.resolve();
+  private syncLease(): void {
+    const lease: BrowserControllerLease = {
+      generation: ++this.generation,
+      controller: this.controller,
+      ...(this.owner ? { owner: this.owner } : {}),
+    };
+    const backend = this.options.backend;
+    this.leaseReady = backend.controller(lease);
+    void this.leaseReady.catch((error) => {
+      if (lease.generation === this.generation)
+        this.suspend(error instanceof Error ? error.message : "Controller lease failed");
+    });
+  }
+  navigation(): void {
+    this.refs.invalidate();
+    this.emit();
+  }
+  log(entry: { kind: "console" | "network"; type: string; text: string }): void {
+    this.logs.append(entry.kind, { at: this.options.now(), type: entry.type, text: entry.text });
+  }
+  suspend(reason: string): void {
+    if (this.closed || this.paused) return;
+    this.lastUrl = this.options.backend.url();
+    this.paused = true;
+    this.reason = reason.slice(0, 2048);
+    this.pageStateLost = true;
+    this.generation++;
+    this.refs.invalidate();
+    this.live.detach();
+    this.emit();
+  }
+  recoveryFailed(reason: string): void {
+    this.reason = `Headless recovery failed: ${reason}`.slice(0, 2048);
+    this.paused = true;
+    this.emit();
+  }
+  async replace(backend: BrowserBackendSession): Promise<void> {
+    if (this.closed) {
+      await backend.close();
+      throw new Error("Browser closed during recovery");
+    }
+    await this.tail;
+    if (this.closed) {
+      await backend.close();
+      throw new Error("Browser closed during recovery");
+    }
+    await this.options.backend.close().catch(() => {});
+    this.options.backend = backend;
+    this.options.backendKind = "headless";
+    this.refs.replace(backend.cdp);
+    this.leaseReady = Promise.resolve();
+    this.syncLease();
+    await this.leaseReady;
+    await this.live.replace(backend.cdp);
+    this.lastUrl = undefined;
+    this.paused = false;
+    this.reason = "Recovered in headless browser; page state was lost";
+    this.emit();
+  }
   constructor(options: SessionOptions) {
     this.options = options;
-    this.refs = new SnapshotRefs(options.cdp);
+    this.refs = new SnapshotRefs(options.backend.cdp);
     this.logs = new SessionLogs(options.dir);
-    this.live = new LiveCapture(options.cdp, options.now, (frame) => this.recording?.accept(frame));
-    options.page.on("framenavigated", (frame) => {
-      if (frame === options.page.mainFrame()) {
-        this.refs.invalidate();
-        this.emit();
-      }
-    });
-    options.page.on("console", (message) =>
-      this.logs.append("console", {
-        at: options.now(),
-        type: message.type(),
-        text: message.text(),
-      }),
-    );
-    options.page.on("pageerror", (error) =>
-      this.logs.append("console", { at: options.now(), type: "pageerror", text: error.message }),
-    );
-    options.context.on("response", (response) =>
-      this.logs.append("network", {
-        at: options.now(),
-        type: "response",
-        text: `${response.status()} ${response.request().method()} ${response.url()}`,
-      }),
-    );
-    options.context.on("requestfailed", (request) =>
-      this.logs.append("network", {
-        at: options.now(),
-        type: "failed",
-        text: `${request.method()} ${request.url()} ${request.failure()?.errorText ?? ""}`,
-      }),
+    this.live = new LiveCapture(options.backend.cdp, options.now, (frame) =>
+      this.recording?.accept(frame),
     );
   }
+
   get state(): BrowserState {
     return {
       threadId: this.options.threadId,
-      controller: this.controller,
+      controller: this.paused ? "none" : this.controller,
       ...(this.owner ? { owner: this.owner } : {}),
-      url: this.options.page.url().slice(0, 8192),
+      url: (this.lastUrl ?? this.options.backend.url()).slice(0, 8192),
+      backend: this.options.backendKind,
+      status: this.paused ? "paused" : "ready",
+      ...(this.reason ? { reason: this.reason } : {}),
+      ...(this.pageStateLost ? { pageStateLost: true } : {}),
       closed: this.closed,
     };
   }
@@ -113,8 +156,10 @@ export class BrowserSession {
     if (this.closed) throw new Error("Browser closed");
     if (this.owner && this.owner !== connectionId)
       throw new Error("Browser already controlled by another connection");
+    if (this.owner === connectionId) return this.state;
     this.controller = "human";
     this.owner = connectionId;
+    if (!this.paused) this.syncLease();
     this.emit();
     return this.state;
   }
@@ -122,6 +167,7 @@ export class BrowserSession {
     if (this.owner !== connectionId) throw new Error("Browser controller mismatch");
     this.controller = "agent";
     this.owner = undefined;
+    if (!this.paused) this.syncLease();
     this.emit();
     return this.state;
   }
@@ -131,6 +177,7 @@ export class BrowserSession {
   private check(actor: Actor, signal?: AbortSignal): void {
     signal?.throwIfAborted();
     if (this.closed) throw new Error("Browser closed");
+    if (this.paused) throw new Error(this.reason ?? "Browser backend paused");
     if (actor.kind === "agent" && this.controller !== "agent")
       throw new Error("Browser controlled by human");
     if (
@@ -157,30 +204,40 @@ export class BrowserSession {
       signal?.throwIfAborted();
       if (this.closed) throw new Error("Browser closed");
       if (inputActions.has(command.action)) this.check(actor, signal);
-      return this.run(command, actor, signal);
+      if (this.paused) throw new Error(this.reason ?? "Browser backend paused");
+      const generation = this.generation;
+      if (inputActions.has(command.action)) {
+        await this.leaseReady;
+        this.check(actor, signal);
+      }
+      const result = await this.run(command, actor, signal);
+      if (this.paused || (generation !== this.generation && this.pageStateLost))
+        throw new Error("Browser backend changed during command");
+      return result;
     });
   }
   screenshot(signal?: AbortSignal): Promise<Uint8Array> {
     return this.enqueue(async () => {
       signal?.throwIfAborted();
       if (this.closed) throw new Error("Browser closed");
-      const bytes = await this.options.page.screenshot({
-        type: "jpeg",
-        quality: 70,
-        timeout: 10_000,
-      });
+      if (this.paused) throw new Error(this.reason ?? "Browser backend paused");
+      const generation = this.generation;
+      const bytes = await this.options.backend.screenshot("jpeg");
       signal?.throwIfAborted();
+      if (this.paused || (generation !== this.generation && this.pageStateLost))
+        throw new Error("Browser backend changed during screenshot");
       return ScreenshotBytes.parse(bytes);
     });
   }
   private async run(command: BrowserCommand, actor: Actor, signal?: AbortSignal): Promise<unknown> {
-    const { page, cdp, dir, id, evaluatePolicy, threadId } = this.options;
+    const { backend: page, dir, id, evaluatePolicy, threadId } = this.options;
+    const cdp = page.cdp;
     switch (command.action) {
       case "navigate":
         if (!(await this.options.navigatePolicy(command.url)))
           throw new Error("Browser origin requires approval");
         this.check(actor, signal);
-        await page.goto(command.url, { waitUntil: "domcontentloaded", timeout: command.timeout });
+        await page.navigate(command.url, command.timeout);
         return this.state;
       case "snapshot":
         return this.refs.snapshot();
@@ -188,38 +245,38 @@ export class BrowserSession {
         const rect = await this.refs.bounds(command.ref);
         this.check(actor, signal);
         if (rect.width <= 0 || rect.height <= 0) throw new Error("Browser element is not visible");
-        await page.mouse.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
+        await page.click(rect.x + rect.width / 2, rect.y + rect.height / 2);
         return { ok: true };
       }
       case "type":
         await this.refs.select(command.ref);
         this.check(actor, signal);
-        await page.keyboard.insertText(command.text);
+        await page.insertText(command.text);
         return { ok: true };
       case "press":
         if (command.ref) await this.refs.focus(command.ref);
         this.check(actor, signal);
-        await page.keyboard.press(command.key);
+        await page.press(command.key);
         return { ok: true };
       case "scroll":
-        await page.mouse.wheel(command.x, command.y);
+        await page.wheel(command.x, command.y);
         return { ok: true };
       case "wait_for":
         await this.refs.wait(command.ref, command.state, command.timeout);
         return { ok: true };
       case "screenshot": {
         const path = join(dir, `${id()}.png`);
-        await page.screenshot({ path, timeout: 10_000 });
+        await writeFile(path, await page.screenshot("png"), { mode: 0o600 });
         return { path, mimeType: "image/png" };
       }
       case "logs":
         await this.logs.flush();
         return this.logs.paths;
       case "resize":
-        await page.setViewportSize({ width: command.width, height: command.height });
+        await page.resize(command.width, command.height);
         return { ok: true };
       case "emulate":
-        await page.setViewportSize({ width: command.width, height: command.height });
+        await page.resize(command.width, command.height);
         await cdp.send("Emulation.setDeviceMetricsOverride", {
           width: command.width,
           height: command.height,
@@ -227,7 +284,7 @@ export class BrowserSession {
           mobile: command.mobile,
         });
         await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: command.touch });
-        await page.emulateMedia({ colorScheme: command.colorScheme });
+        await page.media(command.colorScheme);
         return { ok: true };
       case "evaluate": {
         if (!(await evaluatePolicy?.(threadId, page.url())))
@@ -241,7 +298,9 @@ export class BrowserSession {
     const input = BrowserInput.parse(raw);
     return this.enqueue(async () => {
       this.check({ kind: "human", connectionId });
-      const cdp = this.options.cdp;
+      await this.leaseReady;
+      this.check({ kind: "human", connectionId });
+      const cdp = this.options.backend.cdp;
       switch (input.kind) {
         case "mouse":
           await cdp.send("Input.dispatchMouseEvent", {
@@ -278,6 +337,7 @@ export class BrowserSession {
   }
   startRecording(): Promise<void> {
     return this.enqueue(async () => {
+      if (this.paused) throw new Error("Browser backend paused");
       if (this.recording) throw new Error("Recording already started");
       this.recording = await Recording.start(
         join(this.options.dir, this.options.id()),
@@ -285,12 +345,8 @@ export class BrowserSession {
         undefined,
         this.options.spawn,
       );
-      const data = await this.options.page.screenshot({
-        type: "jpeg",
-        quality: 70,
-        timeout: 10_000,
-      });
-      const viewport = this.options.page.viewportSize() ?? { width: 1280, height: 720 };
+      const data = await this.options.backend.screenshot("jpeg");
+      const viewport = this.options.backend.viewport();
       this.recording.accept({
         sequence: 0,
         timestamp: this.options.now(),
@@ -322,7 +378,7 @@ export class BrowserSession {
       try {
         const stopped = this.live.close();
         try {
-          await this.options.context.close();
+          await this.options.backend.close();
         } finally {
           await stopped;
           await this.tail;

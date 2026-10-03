@@ -386,6 +386,8 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
       "ace_thread_info",
       "ace_read_handoff",
       "ace_read_handoff_chunk",
+      "ace_browser_open",
+      "ace_browser_close",
       "ace_browser_snapshot",
       "ace_browser_screenshot",
       "screen_screenshot",

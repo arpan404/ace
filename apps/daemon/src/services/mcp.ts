@@ -1,5 +1,5 @@
 import { devicesToolkit } from "@ace/devices";
-import { browserToolkit } from "@ace/browser";
+import { browserToolkit } from "../browser-toolkit.ts";
 import { screenToolkit } from "@ace/screen";
 import { handoffToolkit } from "./handoff-tools.ts";
 import { startDaemonMcp } from "../mcp.ts";
@@ -10,7 +10,7 @@ export async function startMcp(context: ServiceContext): Promise<void> {
   const mcp = await startDaemonMcp(store, [
     handoffToolkit(store),
     ...(options.toolkits ?? []),
-    ...(services.browser ? [browserToolkit(services.browser)] : []),
+    ...(services.browser ? [browserToolkit(services.browser, store)] : []),
     ...(services.devices ? [devicesToolkit(services.devices)] : []),
     ...(services.screen ? [screenToolkit(services.screen)] : []),
   ]);

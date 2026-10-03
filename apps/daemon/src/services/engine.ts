@@ -1,4 +1,4 @@
-import { bindMcpSession } from "./mcp-session.ts";
+import { withDaemonMcp } from "./provider-mcp.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { registerPi } from "./pi.ts";
@@ -48,32 +48,18 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
   registry.bindSessions((adapter) => {
-    const bound =
-      accounts && accountRegistry && AccountProvider.safeParse(adapter.provider).success
-        ? accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter })
-        : adapter;
-    return {
+    if (!accounts || !accountRegistry || !AccountProvider.safeParse(adapter.provider).success)
+      return withDaemonMcp(context, adapter);
+    const bound = accounts.bindAdapter({ ...adapter, create: (_env, _context) => adapter });
+    return withDaemonMcp(context, {
       ...adapter,
       openSession(session) {
-        const selected =
-          session.instanceId ||
-          accountRegistry?.list().some(({ instance }) => instance.provider === adapter.provider)
-            ? bound
-            : adapter;
-        return services.mcp
-          ? bindMcpSession(selected, session, {
-              mcp: services.mcp,
-              store,
-              id: context.id,
-              onEnd: (threadId, agentId) => {
-                services.devices?.disconnect(JSON.stringify([threadId, agentId]));
-                services.screen?.releaseController(JSON.stringify([threadId, agentId]));
-              },
-              capabilities,
-            })
-          : selected.openSession(session);
+        return session.instanceId ||
+          accountRegistry.list().some(({ instance }) => instance.provider === adapter.provider)
+          ? bound.openSession(session)
+          : adapter.openSession(session);
       },
-    };
+    });
   });
   const engine = new Engine(store, {
     ...acp,

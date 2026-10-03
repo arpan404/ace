@@ -770,6 +770,53 @@ Example:
 }
 ```
 
+### browser.backend.lost
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.backend.lost"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| backend | yes | `"embedded"` |  |
+| recovery | yes | ["pause","headless"] |  |
+| url | yes | string | {"maxLength":8192} |
+| pageStateLost | yes | `true` |  |
+| reason | yes | string | {"maxLength":2048} |
+
+Example:
+
+```json
+{
+  "backend": "embedded",
+  "pageStateLost": true,
+  "reason": "example",
+  "recovery": "pause",
+  "threadId": "example",
+  "type": "browser.backend.lost",
+  "url": "example"
+}
+```
+
+### browser.download.progress
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"browser.download.progress"` |  |
+| version | yes | string | {"minLength":1,"maxLength":256} |
+| phase | yes | ["downloading","verifying","extracting","ready"] |  |
+| received | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+| total | no | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "phase": "ready",
+  "received": 1,
+  "type": "browser.download.progress",
+  "version": "example"
+}
+```
+
 ### browser.result
 
 | Field | Required | Type | Constraints |
@@ -784,9 +831,9 @@ Example:
 
 ```json
 {
-  "error": "example",
   "ok": true,
   "requestId": "example",
+  "result": null,
   "type": "browser.result"
 }
 ```
@@ -803,8 +850,10 @@ Example:
 ```json
 {
   "state": {
+    "backend": "embedded",
     "closed": true,
-    "controller": "none",
+    "controller": "agent",
+    "reason": "example",
     "threadId": "example",
     "url": "example"
   },
@@ -826,10 +875,10 @@ Example:
 {
   "frame": {
     "data": "example",
-    "height": 100,
+    "height": 108,
     "sequence": 7,
-    "timestamp": 3,
-    "width": 105
+    "timestamp": 2,
+    "width": 104
   },
   "threadId": "example",
   "type": "browser.frame"
@@ -851,8 +900,7 @@ Example:
   "requestId": "example",
   "result": {
     "instances": [],
-    "models": [],
-    "nextOffset": 7
+    "models": []
   },
   "type": "models.result"
 }
@@ -871,10 +919,10 @@ Example:
 {
   "notification": {
     "actions": [],
-    "backgroundCount": 7,
+    "backgroundCount": 4,
     "id": "example",
-    "preview": "example",
-    "status": "needs_you",
+    "interactionId": "example",
+    "status": "background_done",
     "threadId": "example",
     "title": "example"
   },
@@ -895,7 +943,7 @@ Example:
 
 ```json
 {
-  "headSeq": 4,
+  "headSeq": 2,
   "hostId": "example",
   "protocolVersion": 1,
   "type": "welcome"
@@ -917,49 +965,13 @@ Example:
 
 ```json
 {
-  "seq": 3,
+  "seq": 9,
   "subscriptionId": "example",
   "type": "snapshot",
   "view": {
-    "agentChildren": {},
-    "agents": {},
-    "backgroundTasks": {},
-    "interactions": {},
-    "itemOrder": [],
-    "items": {},
-    "itemsBefore": null,
-    "kind": "thread",
-    "runs": {},
-    "seq": 3,
-    "thread": {
-      "acpSupport": {
-        "capabilities": {
-          "imageInput": false,
-          "planMode": false,
-          "resume": false
-        },
-        "coverage": "legacy",
-        "mcp": "http",
-        "modeSelection": false,
-        "modelSelection": true,
-        "raw": {
-          "json": "example",
-          "truncated": false
-        },
-        "visibility": "limited"
-      },
-      "createdAt": 6,
-      "id": "example",
-      "installationId": "example",
-      "provider": "pi",
-      "status": {
-        "state": "new"
-      },
-      "title": "example",
-      "updatedAt": 3,
-      "workspaceId": "example"
-    },
-    "usage": {}
+    "kind": "threads",
+    "seq": 9,
+    "threads": {}
   }
 }
 ```
@@ -980,10 +992,10 @@ Example:
 
 ```json
 {
-  "afterSeq": 3,
+  "afterSeq": 6,
   "events": [],
   "subscriptionId": "example",
-  "throughSeq": 9,
+  "throughSeq": 6,
   "type": "events"
 }
 ```
@@ -1003,9 +1015,9 @@ Example:
 
 ```json
 {
-  "afterSeq": 4,
+  "afterSeq": 1,
   "subscriptionId": "example",
-  "throughSeq": 7,
+  "throughSeq": 9,
   "type": "progress"
 }
 ```
@@ -1071,8 +1083,8 @@ Example:
 {
   "bytes": "example",
   "eof": false,
-  "nextOffset": 4,
-  "offset": 9,
+  "nextOffset": 0,
+  "offset": 7,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -1095,9 +1107,8 @@ Example:
 
 ```json
 {
-  "itemSeqs": {},
   "items": [],
-  "itemsBefore": 6,
+  "itemsBefore": 10,
   "requestId": "example",
   "seq": 5,
   "threadId": "example",

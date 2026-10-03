@@ -5,6 +5,7 @@ import { DevicesService, DevicePlatform } from "@ace/devices";
 import { ScreenManager } from "@ace/screen";
 import { spawnRawSupervised } from "@ace/provider-kit/process";
 import { DeviceOperation } from "@ace/protocol/devices";
+import { ThreadId } from "@ace/protocol";
 import { startDaemon, readConfig, stubHandler } from "../index.ts";
 export async function providerFeatures(directory: string, executablePath: string) {
   const screenJournal = join(directory, "screen-input.jsonl");
@@ -92,7 +93,9 @@ else if (command.includes("input")) await appendFile(${JSON.stringify(deviceJour
       deviceId: "android:Pixel",
       close,
       async approve(threadId: string) {
-        await host.browser.open({ threadId, workspaceId: "workspace" });
+        const thread = host.store.getThread(ThreadId.parse(threadId));
+        if (!thread) throw new Error("Missing feature thread");
+        await host.browser.open({ threadId, workspaceId: thread.workspaceId });
         await screen.enable(true);
         await screen.approve("com.example.test", true);
         const state = await screen.start({

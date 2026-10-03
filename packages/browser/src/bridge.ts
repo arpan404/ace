@@ -52,9 +52,17 @@ export function connectBrowser(
         pending++;
         counted = true;
         switch (message.type) {
-          case "browser.open":
-            respond(await service.open(message.options));
+          case "browser.open": {
+            const stopProgress = service.downloadProgress((progress) => {
+              if (!closed) options.send(progress);
+            });
+            try {
+              respond(await service.open(message.options));
+            } finally {
+              stopProgress();
+            }
             break;
+          }
           case "browser.close":
             await service.closeThread(threadId);
             respond(null);
@@ -94,6 +102,7 @@ export function connectBrowser(
                     ),
                 },
                 (state) => options.send({ type: "browser.state", state }),
+                (event) => options.send(event),
               ),
             );
             respond(null);

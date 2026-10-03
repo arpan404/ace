@@ -11,3 +11,8 @@ export type { ContextLauncher, ProcessSpawner } from "./io.ts";
 export { browserToolkit } from "./mcp.ts";
 
 export { Recording as BrowserRecording } from "./recording.ts";
+export { HeadlessBackend } from "./headless.ts";
+export { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";
+export type { BrowserBackend, BrowserBackendSession, BrowserCdp, BackendOpen } from "./backend.ts";
+export { acquireChromium, type ChromiumAcquisitionOptions } from "./acquisition.ts";
+export { chromiumArtifact, ChromiumArtifact } from "./chromium-manifest.ts";

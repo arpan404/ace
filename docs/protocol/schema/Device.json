@@ -36,7 +36,7 @@
       "items": {
         "$ref": "https://ace.local/protocol/v1/DeviceScope.json"
       },
-      "maxItems": 3,
+      "maxItems": 4,
       "minItems": 1,
       "type": "array"
     }

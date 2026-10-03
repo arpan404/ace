@@ -53,6 +53,65 @@ describe.skipIf(!executablePath)("injected browser process boundaries", () => {
     expect((await readFile(`${dir}/1.jpg`)).subarray(0, 2)).toEqual(Buffer.from([255, 216]));
   }, 60_000);
 
+  it("waits for the first Chromium shutdown before releasing its writable profile", async () => {
+    const entered = Promise.withResolvers<void>(),
+      release = Promise.withResolvers<void>();
+    let fence: (() => Promise<unknown>) | undefined;
+    let closing = false;
+    const f = await fixture({
+      launchContext: async (profile, options) => {
+        const context = await chromium.launchPersistentContext(profile, options);
+        const page = context.pages()[0];
+        if (!page) throw new Error("Missing page");
+        const cdp = await context.newCDPSession(page);
+        fence = async () => {
+          await cdp.send("Memory.getDOMCounters").catch(() => {});
+          return readdir(join(profile, ".."));
+        };
+        const close = context.close.bind(context);
+        // At the I/O boundary, a repeated close can return before the original finishes.
+        context.close = async () => {
+          if (closing) return;
+          closing = true;
+          await close();
+          entered.resolve();
+          await release.promise;
+        };
+        releaseDelayedStop = release.resolve;
+        return context;
+      },
+    });
+    const finished = Promise.withResolvers<void>();
+    const stopping = f.service.closeThread("thread").then(
+      () => finished.resolve(),
+      (error: unknown) => {
+        finished.resolve();
+        throw error;
+      },
+    );
+    const result = Promise.allSettled([stopping]);
+    try {
+      await entered.promise;
+      if (!fence) throw new Error("Missing CDP barrier");
+      expect(
+        await Promise.race([
+          finished.promise.then(() => "closed before first shutdown completed"),
+          fence().then(() => "first shutdown still pending"),
+        ]),
+      ).toBe("first shutdown still pending");
+      expect(
+        (await readdir(join(f.home, "browser"))).some((name) => name.startsWith("ephemeral-")),
+      ).toBe(true);
+    } finally {
+      release.resolve();
+      const outcomes = await result;
+      expect(outcomes[0]?.status).toBe("fulfilled");
+    }
+    expect(
+      (await readdir(join(f.home, "browser"))).filter((name) => name.startsWith("ephemeral-")),
+    ).toEqual([]);
+  });
+
   it("closes Chromium even when a screencast stop response is delayed until transport closure", async () => {
     const closed = Promise.withResolvers<void>();
     const f = await fixture({

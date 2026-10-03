@@ -4,13 +4,18 @@ import type {
   Command,
   ClientMessage,
   BrowserClientMessage,
+  BrowserBackendClientMessage,
   ServerMessage,
 } from "@ace/protocol";
 import type { PluginClientMessage, PluginServerMessage } from "@ace/protocol/plugins";
 import type { WebSocket } from "ws";
 import type { ServerOptions } from "../server-options.ts";
 import type { MaintenanceGate } from "@ace/service";
-export type SocketMessage = ClientMessage | PluginClientMessage | BrowserClientMessage;
+export type SocketMessage =
+  | ClientMessage
+  | PluginClientMessage
+  | BrowserClientMessage
+  | BrowserBackendClientMessage;
 export interface CommandRegistration {
   types: readonly Command["payload"]["type"][];
   scope(command: Command): DeviceScope;

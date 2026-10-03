@@ -61,6 +61,7 @@ export async function bindMcpSession(
         context.onExit(exit);
       },
     });
+    const configure = session.configure?.bind(session);
     const setModel = session.setModel?.bind(session);
     const setMode = session.setMode?.bind(session);
     return {
@@ -75,9 +76,10 @@ export async function bindMcpSession(
         return session.acpSupport;
       },
       ...(session.mcp ? { mcp: session.mcp } : {}),
+      ...(configure ? { configure } : {}),
       ...(setModel ? { setModel } : {}),
       ...(setMode ? { setMode } : {}),
-      send: (input, delivery) => session.send(input, delivery),
+      send: (input, delivery, commandId) => session.send(input, delivery, commandId),
       interrupt: (target) => session.interrupt(target),
       resolve: (interaction, resolution) => session.resolve(interaction, resolution),
       stopTask: (task) => session.stopTask(task),

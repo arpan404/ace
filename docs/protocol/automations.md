@@ -29,25 +29,23 @@ Example:
 
 ```json
 {
-  "concurrency": 9,
-  "enabled": true,
+  "concurrency": 6,
+  "enabled": false,
   "id": "example",
-  "jitterMs": 2,
-  "missedRun": "skip",
+  "jitterMs": 3,
+  "missedRun": "run_once",
   "prompt": "example",
-  "provider": "codex",
+  "provider": "pi",
   "title": "example",
   "trigger": {
-    "kind": "schedule",
-    "schedule": {
-      "expression": "example",
-      "kind": "rrule",
-      "startAt": 0,
-      "timezone": "example"
-    }
+    "event": "ci_failed",
+    "kind": "github",
+    "pollIntervalMs": 60005,
+    "pullRequest": 2,
+    "repository": "QoDHH/RYek2phMJ"
   },
   "workspace": "example",
-  "worktree": false
+  "worktree": true
 }
 ```
 
@@ -104,19 +102,16 @@ Example:
 ```json
 {
   "automation": {
-    "concurrency": 2,
-    "enabled": true,
+    "concurrency": 1,
+    "enabled": false,
     "id": "example",
-    "jitterMs": 2,
-    "missedRun": "run_once",
+    "jitterMs": 6,
+    "missedRun": "skip",
     "prompt": "example",
-    "provider": "opencode",
+    "provider": "claude",
     "title": "example",
     "trigger": {
-      "event": "pr_changed",
-      "kind": "github",
-      "pollIntervalMs": 60006,
-      "repository": "FZ5dZvM1/ez"
+      "kind": "manual"
     },
     "workspace": "example",
     "worktree": false
@@ -193,7 +188,7 @@ Example:
 
 ```json
 {
-  "limit": 6,
+  "limit": 1,
   "requestId": "example",
   "type": "automation.inbox"
 }
@@ -217,11 +212,7 @@ Example:
 
 ```json
 {
-  "inbox": {
-    "before": null,
-    "runs": []
-  },
-  "ok": false,
+  "ok": true,
   "requestId": "example",
   "type": "automation.result"
 }
@@ -250,12 +241,12 @@ Example:
 {
   "automationId": "example",
   "eventKey": "example",
+  "finishedAt": 9,
   "id": "example",
-  "result": "example",
-  "startedAt": 4,
-  "status": "failed",
+  "startedAt": 3,
+  "status": "running",
   "title": "example",
-  "trigger": "file"
+  "trigger": "manual"
 }
 ```
 
@@ -335,11 +326,11 @@ Example:
 
 ```json
 {
-  "event": "review_comment",
+  "event": "pr_changed",
   "kind": "github",
-  "pollIntervalMs": 60008,
-  "pullRequest": 9,
-  "repository": "c9n/4V"
+  "pollIntervalMs": 60003,
+  "pullRequest": 4,
+  "repository": "tm7/720c"
 }
 ```
 
