@@ -52,7 +52,9 @@ export function interactionRequest(
         kind: "approval",
         title: string(call["title"]),
         target: {
-          tool: call["kind"] === "execute" ? "shell" : string(call["kind"]) || "acp-tool",
+          // ACP kinds and follow-along locations do not prove an exact file operation.
+          // Preserve the category without impersonating a trusted provider Read tool.
+          tool: call["kind"] === "execute" ? "shell" : `acp/${string(call["kind"]) || "other"}`,
           access:
             call["kind"] === "read"
               ? "read"

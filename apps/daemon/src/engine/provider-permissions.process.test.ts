@@ -347,3 +347,93 @@ test.each([
     }
   },
 );
+
+test.each([
+  { description: "wildcard", input: { paths: ["**/*"] } },
+  { description: "absent", input: undefined },
+  { description: "mismatched", input: { path: "other.txt" } },
+  { description: "apparently exact", input: { path: "ordinary.txt" } },
+])(
+  "ACP $description read input cannot earn permission from follow-along locations",
+  async ({ input }) => {
+    const frames = scriptFrames();
+    const h = await harness([], frames, { provider: "acp" });
+    try {
+      writeFileSync(join(h.home, "ordinary.txt"), "ordinary fixture");
+      writeFileSync(join(h.home, "secrets.json"), '{"secret":"fixture"}');
+      const id = await h.create();
+      const translator = createAcpAdapter(genericQuirks).createTranslator({
+        threadId: id,
+        rootKey: "root",
+      });
+      translator.translate(
+        {
+          seq: 1,
+          t: 1,
+          dir: "send",
+          channel: "stdio",
+          data: { id: 1, method: "session/new", params: {} },
+        },
+        1,
+      );
+      translator.translate(
+        {
+          seq: 2,
+          t: 2,
+          dir: "recv",
+          channel: "stdio",
+          data: { id: 1, result: { sessionId: "native" } },
+        },
+        2,
+      );
+      const facts = translator.translate(
+        {
+          seq: 3,
+          t: 3,
+          dir: "recv",
+          channel: "stdio",
+          data: {
+            id: 100,
+            method: "session/request_permission",
+            params: {
+              sessionId: "native",
+              toolCall: {
+                toolCallId: "bulk",
+                kind: "read",
+                title: "Read workspace files",
+                ...(input ? { rawInput: input } : {}),
+                locations: [{ path: join(h.home, "ordinary.txt") }],
+              },
+              options: [
+                { optionId: "once", kind: "allow_once", name: "Once" },
+                { optionId: "no", kind: "reject_once", name: "Deny" },
+              ],
+            },
+          },
+        },
+        3,
+      );
+      const opened = facts.find((fact) => fact.type === "interaction.opened");
+      if (!opened || opened.type !== "interaction.opened") throw new Error("Missing ACP approval");
+      h.contexts[0]?.onFrame(
+        frames.frame(start, { ...opened, agent: "root", interaction: "permission" }),
+      );
+      await h.engine.flush();
+      const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
+      expect(interaction?.review).toMatchObject({
+        decision: "escalate",
+        reason: "Tool effects are not proven low risk",
+      });
+      expect(interaction?.state).toBe("pending");
+      expect(h.store.getThread(id)?.status.state).toBe("needs_you");
+      expect(h.adapter.commands.filter((command) => command.type === "resolve")).toEqual([]);
+      expect(
+        h.store
+          .readEvents({ afterSeq: 0, threadId: id, limit: 1000 })
+          .filter((event) => event.payload.type === "permission.reviewed"),
+      ).toHaveLength(1);
+    } finally {
+      await h.close();
+    }
+  },
+);

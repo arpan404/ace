@@ -25,6 +25,7 @@ export const baseCapabilities: Capabilities = {
           "ACP does not guarantee permission request coverage; unsurfaced operations receive no ace review.",
           "Advertised read-only/plan selectors are selected when present; ACP provides no portable tool allowlist or sandbox.",
           "Client filesystem and terminal operations are disabled.",
+          "Read categories and follow-along locations do not prove exact file access; generic reads require a human decision.",
         ],
       },
     ],
