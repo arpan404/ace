@@ -32,6 +32,7 @@ export class Sessions {
       const state = this.dependencies.repo.requireState(actor.id);
       const { adapter, capabilities } = this.dependencies.registry.get(state.config.provider);
       const metadata = this.dependencies.repo.session(actor.id);
+      const transition = this.dependencies.repo.transitions.get(actor.id);
       if (state.config.provider !== "acp" && metadata.nativeSessionId && !capabilities.resume)
         throw new Error("Provider cannot resume this thread");
       const rootKey = state.rootKey ?? "root";
@@ -67,6 +68,10 @@ export class Sessions {
         threadId: actor.id,
         rootKey,
         cwd: metadata.cwd,
+        ...(transition.selection ? { options: transition.selection.options } : {}),
+        ...(transition.fork && metadata.nativeSessionId === undefined
+          ? { fork: transition.fork }
+          : {}),
         ...(metadata.instanceId ? { instanceId: metadata.instanceId } : {}),
         ...(metadata.model === undefined ? {} : { model: metadata.model }),
         ...(metadata.nativeSessionId === undefined
@@ -96,7 +101,19 @@ export class Sessions {
       }
       actor.session = session;
       actor.effectiveCapabilities = session.effectiveCapabilities ?? capabilities;
-      this.dependencies.repo.nativeSession(actor.id, session.nativeSessionId, session.instanceId);
+      this.dependencies.repo.store.atomic(() => {
+        this.dependencies.repo.nativeSession(actor.id, session.nativeSessionId, session.instanceId);
+        delete transition.fork;
+        if (transition.selection && session.instanceId)
+          transition.selection.instanceId = session.instanceId;
+        this.dependencies.repo.transitions.set(actor.id, transition);
+        if (transition.selection)
+          this.dependencies.repo.store.appendEvents(
+            actor.id,
+            [{ type: "thread.updated", execution: transition.selection }],
+            this.dependencies.clock.now(),
+          );
+      });
       this.dependencies.wake(actor.id);
     } catch (error) {
       await actor.flush();
@@ -124,28 +141,33 @@ export class Sessions {
     const lifetime = actor.lifetime;
     actor.session = undefined;
     const generation = actor.generation;
+    await actor.flush();
     try {
-      await actor.flush();
       await session.close(reason);
-    } finally {
+    } catch (error) {
       await actor.flush();
-      lifetime?.abort();
-      const ownsGeneration = actor.generation === generation;
-      if (ownsGeneration) {
-        actor.generation++;
-        this.dependencies.expireDelivery(actor);
-        actor.idleDue = false;
-        this.dependencies.repo.apply(
-          actor.id,
-          [
-            { type: "process.exited", deliberate: !actor.poisoned },
-            { type: "queue.changed", source: "provider", count: 0 },
-          ],
-          this.dependencies.clock.now(),
-        );
-      }
-      actor.schedule();
-      if (ownsGeneration && !actor.session && !actor.poisoned) this.dependencies.released(actor.id);
+      // No exit acknowledgement means the old process still owns its session.
+      if (actor.generation === generation) actor.session = session;
+      actor.idleDue = false;
+      throw error;
     }
+    await actor.flush();
+    lifetime?.abort();
+    const ownsGeneration = actor.generation === generation;
+    if (ownsGeneration) {
+      actor.generation++;
+      this.dependencies.expireDelivery(actor);
+      actor.idleDue = false;
+      this.dependencies.repo.apply(
+        actor.id,
+        [
+          { type: "process.exited", deliberate: !actor.poisoned },
+          { type: "queue.changed", source: "provider", count: 0 },
+        ],
+        this.dependencies.clock.now(),
+      );
+    }
+    actor.schedule();
+    if (ownsGeneration && !actor.session && !actor.poisoned) this.dependencies.released(actor.id);
   }
 }

@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/ThreadTransitionView.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "execution": {
+      "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"
+    },
+    "lineage": {
+      "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
+    },
+    "switch": {
+      "$ref": "https://ace.local/protocol/v1/ThreadSwitch.json"
+    }
+  },
+  "type": "object"
+}

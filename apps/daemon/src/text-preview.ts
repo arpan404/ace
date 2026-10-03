@@ -1,4 +1,9 @@
-import { Item } from "@ace/protocol";
+import { Item, type TextSource } from "@ace/protocol";
+export function appendTextSource(item: Item): TextSource | undefined {
+  if (item.type === "notice" || item.type === "reasoning") return item.source;
+  const part = item.type === "message" ? item.parts.at(-1) : undefined;
+  return part?.type === "text" ? part.source : undefined;
+}
 /** Pure preview policy; storage owns assigning sources and writing their bytes. */
 export function textPreview(value: Item): {
   item: Item;
