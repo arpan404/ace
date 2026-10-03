@@ -2,6 +2,29 @@ import { join } from "node:path";
 import { unlink, appendFile, writeFile, rename, mkdir } from "node:fs/promises";
 import { expect, test } from "vitest";
 import { environment, jsonl, claudeRecords, cwd } from "./test-support.ts";
+import type { HistoryService } from "./index.ts";
+
+async function observedUpdate(
+  service: HistoryService,
+  mutate: () => Promise<void>,
+  visible: (response: Awaited<ReturnType<HistoryService["list"]>>) => boolean,
+) {
+  let changed = Promise.withResolvers<void>();
+  const stop = service.subscribeChanges(() => changed.resolve());
+  try {
+    await mutate();
+    for (;;) {
+      await changed.promise;
+      // Earlier startup notifications may arrive alongside the mutation. Keep
+      // waiting on real native events until the requested public result is visible.
+      changed = Promise.withResolvers<void>();
+      const result = await service.scanChanges();
+      if (visible(await service.list({ type: "history.list", cwd, limit: 10 }))) return result;
+    }
+  } finally {
+    stop();
+  }
+}
 
 test("a changed transcript and a deletion refresh without dropping unrelated cached sessions", async () => {
   const env = await environment();
@@ -14,15 +37,18 @@ test("a changed transcript and a deletion refresh without dropping unrelated cac
     await jsonl(second, claudeRecords("second", "second"));
     const service = await env.start(homes);
     await service.scan();
-    const changed = Promise.withResolvers<void>();
-    const unsubscribe = service.subscribeChanges(() => changed.resolve());
-    await appendFile(
-      first,
-      JSON.stringify({ type: "ai-title", sessionId: "first", aiTitle: "later" }) + "\n",
+    const update = await observedUpdate(
+      service,
+      () =>
+        appendFile(
+          first,
+          JSON.stringify({ type: "ai-title", sessionId: "first", aiTitle: "later" }) + "\n",
+        ),
+      (result) =>
+        result.sessions.some(
+          (session) => session.nativeId === "first" && session.title === "later",
+        ),
     );
-    await changed.promise;
-    unsubscribe();
-    const update = await service.scanChanges();
     expect(update.reads).toBe(1);
     const listed = await service.list({ type: "history.list", cwd, limit: 10 });
     expect(listed.sessions.map((session) => session.nativeId).toSorted()).toEqual([
@@ -30,12 +56,11 @@ test("a changed transcript and a deletion refresh without dropping unrelated cac
       "second",
     ]);
     expect(listed.sessions.find((session) => session.nativeId === "first")?.title).toBe("later");
-    const deleted = Promise.withResolvers<void>();
-    const stop = service.subscribeChanges(() => deleted.resolve());
-    await unlink(first);
-    await deleted.promise;
-    stop();
-    await service.scanChanges();
+    await observedUpdate(
+      service,
+      () => unlink(first),
+      (result) => !result.sessions.some((session) => session.nativeId === "first"),
+    );
     expect(
       (await service.list({ type: "history.list", cwd, limit: 10 })).sessions.map(
         (session) => session.nativeId,

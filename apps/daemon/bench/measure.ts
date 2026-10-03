@@ -1,4 +1,4 @@
-import { fork, execFile } from "node:child_process";
+import { fork, execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,12 +19,26 @@ const Memory = z.object({
 const Telemetry = z.object({
   threadId: z.number(),
   runtime: z.string(),
+  entry: z.string().default("unknown"),
+  collection: z.string().default(""),
   at: z.number(),
   isMainThread: z.boolean(),
   memory: Memory,
   cpu: z.object({ user: z.number(), system: z.number() }),
 });
-const Response = z.object({ id: z.number(), threads: z.array(z.string()), memory: Memory });
+const Response = z.object({
+  id: z.number(),
+  threads: z.array(z.string()),
+  memory: Memory,
+  queryPlans: z.record(z.string(), z.array(z.object({ detail: z.string() }))).optional(),
+  native: z
+    .object({
+      statements: z.number(),
+      databases: z.number(),
+      code: z.record(z.string(), z.number()),
+    })
+    .optional(),
+});
 const run = promisify(execFile);
 const argument = (name: string, fallback: string) =>
   process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
@@ -33,6 +47,17 @@ const count = z.coerce.number().int().min(1).max(64).parse(argument("sessions", 
 const events = z.coerce.number().int().min(100).max(100000).parse(argument("events", "1000"));
 const soakMs = z.coerce.number().int().min(0).parse(argument("soak-ms", "10000"));
 const collect = process.argv.includes("--collect");
+const collectWorkers = process.argv.includes("--collect-workers");
+if (collectWorkers && !collect) throw new Error("Worker collection requires --collect");
+const freshCycles = process.argv.includes("--fresh-cycles");
+const regions = process.argv.includes("--regions");
+const allocationOutput = argument("malloc-stacks", "");
+const progress = process.argv.includes("--progress");
+let phase = "startup";
+function mark(next: string) {
+  phase = next;
+  if (progress) process.stderr.write(`${phase}\n`);
+}
 const warmupCycles = z.coerce.number().int().min(0).max(128).parse(argument("warmup-cycles", "0"));
 const home = await mkdtemp(join(tmpdir(), "ace-perf-"));
 const telemetry = join(home, "telemetry");
@@ -53,10 +78,14 @@ const child = fork(resolve(argument("entry", join(import.meta.dirname, "entry.ts
     ACE_RELAY_URL: undefined,
     ACE_WORKSPACE_ROOT: home,
     ACE_PERF_TELEMETRY: telemetry,
+    ...(collectWorkers ? { ACE_PERF_COLLECT_WORKERS: "1" } : {}),
+    ...(allocationOutput ? { MallocStackLogging: "1" } : {}),
   },
   stdio: ["ignore", "pipe", "pipe", "ipc"],
 });
 let stderr = "";
+let expectedExit = false;
+const aborted = Promise.withResolvers<never>();
 child.stderr?.on("data", (chunk: Buffer) => {
   stderr = (stderr + chunk.toString()).slice(-16000);
 });
@@ -78,12 +107,14 @@ child.on("message", (input: unknown) => {
 child.on("exit", () => {
   for (const pending of requests.values()) pending.reject(new Error(`Daemon exited: ${stderr}`));
   requests.clear();
+  if (!expectedExit) aborted.reject(new Error(`Daemon exited unexpectedly: ${stderr}`));
 });
 function request(
   data:
-    | { op: "sessions" | "cycle"; count: number }
+    | { op: "sessions"; count: number }
+    | { op: "cycle"; count: number; fresh?: boolean }
     | { op: "emit"; thread: string; count: number }
-    | { op: "memory" },
+    | { op: "memory" | "plans" },
 ) {
   const id = ++nextId;
   return new Promise<z.infer<typeof Response>>((fulfill, reject) => {
@@ -93,9 +124,11 @@ function request(
 }
 async function sample() {
   const samples = await Promise.all(
-    (await readdir(telemetry)).map(async (file) =>
-      Telemetry.parse(JSON.parse(await readFile(join(telemetry, file), "utf8"))),
-    ),
+    (await readdir(telemetry))
+      .filter((file) => file.endsWith(".json"))
+      .map(async (file) =>
+        Telemetry.parse(JSON.parse(await readFile(join(telemetry, file), "utf8"))),
+      ),
   );
   const main = samples.find((entry) => entry.threadId === 0);
   if (!main) throw new Error("Missing main telemetry");
@@ -113,37 +146,63 @@ async function sample() {
     threads,
     workers: live
       .filter((entry) => !entry.isMainThread)
-      .map(({ threadId, memory }) => ({ threadId, memory })),
+      .map(({ threadId, entry, memory, collection }) => ({ threadId, entry, memory, collection })),
   };
 }
+async function memoryRegions() {
+  const pid = child.pid;
+  if (!pid) throw new Error("Missing child PID");
+  return process.platform === "linux"
+    ? readFile(`/proc/${pid}/smaps_rollup`, "utf8")
+    : (await run("/usr/bin/vmmap", ["-summary", String(pid)], { maxBuffer: 128 * 1024 })).stdout;
+}
 let socket: WebSocket | undefined;
+let collection = 0;
+async function collectMemory() {
+  if (collectWorkers) {
+    const marker = String(++collection);
+    await writeFile(join(telemetry, "collect"), marker);
+    const start = performance.now();
+    while ((await sample()).workers.some((worker) => worker.collection !== marker)) {
+      if (performance.now() - start > 4000) throw new Error("Worker collection timed out");
+      await delay(100);
+    }
+  }
+  return request({ op: "memory" });
+}
 const deadline = setTimeout(
-  () => {
-    child.kill("SIGKILL");
-  },
+  () => aborted.reject(new Error(`Daemon measurement timed out during ${phase}: ${stderr}`)),
   idleMs + soakMs + 55000,
 );
-try {
+const interrupt = () => aborted.reject(new Error("Daemon measurement interrupted"));
+process.on("SIGTERM", interrupt);
+process.on("SIGINT", interrupt);
+async function measure() {
   let endpoint = "";
   while (!endpoint) {
-    if (child.exitCode !== null) throw new Error(`Startup failed: ${stderr}`);
+    if (child.exitCode !== null || child.signalCode !== null)
+      throw new Error(`Startup failed: ${stderr}`);
     if (performance.now() - started > 20000) throw new Error(`Endpoint timed out: ${stderr}`);
     endpoint = await readFile(join(home, "daemon-endpoint"), "utf8").catch(() => "");
     if (!endpoint) await delay(10);
   }
   const startupMs = performance.now() - started;
+  mark("idle");
   await delay(Math.min(10000, idleMs));
   const idle10 = await sample();
   await delay(Math.max(0, idleMs - Math.min(10000, idleMs)));
   const idle60 = idleMs >= 60000 ? await sample() : null;
   const idleEnd = idle60 ?? (await sample());
+  const idleRegions = regions ? await memoryRegions() : undefined;
   const idleCpuPercent =
     (idleEnd.cpu.user + idleEnd.cpu.system - (idle10.cpu.user + idle10.cpu.system)) /
     Math.max(1, idleMs - Math.min(10000, idleMs)) /
     10;
+  mark("sessions");
   const active = await request({ op: "sessions", count });
   await delay(1000);
   const activeSample = await sample();
+  mark("websocket");
   socket = new WebSocket(endpoint.replace("http:", "ws:"));
   await once(socket, "open");
   const received = new Set<number>();
@@ -182,6 +241,7 @@ try {
     }),
   );
   await subscribed.promise;
+  mark("ingest");
   const ingestStarted = performance.now();
   const thread = active.threads[0];
   if (!thread) throw new Error("No active thread");
@@ -192,23 +252,61 @@ try {
   socket.close();
   await once(socket, "close");
   socket = undefined;
-  const soak: { elapsedMs: number; rss: number; heapUsed: number }[] = [];
-  for (let i = 0; i < warmupCycles; i++) await request({ op: "cycle", count: 16 });
-  const retainedStart = collect ? (await request({ op: "memory" })).memory : null;
+  const soak: {
+    elapsedMs: number;
+    rss: number;
+    heapUsed: number;
+    workers: typeof activeSample.workers;
+  }[] = [];
+  mark("warmup");
+  for (let i = 0; i < warmupCycles; i++)
+    await request({ op: "cycle", count: 16, fresh: freshCycles });
+  mark("collection before soak");
+  const collectedStart = collect ? await collectMemory() : null;
+  const retainedStart = collectedStart?.memory ?? null;
   const soakStart = performance.now();
+  mark("soak");
   while (performance.now() - soakStart < soakMs) {
-    await request({ op: "cycle", count: 16 });
+    await request({ op: "cycle", count: 16, fresh: freshCycles });
     await delay(200);
     const reading = await sample();
     soak.push({
       elapsedMs: performance.now() - soakStart,
       rss: reading.memory.rss,
       heapUsed: reading.memory.heapUsed,
+      workers: reading.workers,
     });
   }
-  const retainedEnd = collect ? (await request({ op: "memory" })).memory : null;
+  mark("collection after soak");
+  const collectedEnd = collect ? await collectMemory() : null;
+  const retainedEnd = collectedEnd?.memory ?? null;
+  const endRegions = regions ? await memoryRegions() : undefined;
+  if (allocationOutput) {
+    if (process.platform !== "darwin" || !child.pid)
+      throw new Error("Malloc stack measurements require macOS");
+    const allocations = spawn("/usr/bin/malloc_history", [String(child.pid), "-allByCount"]);
+    let largest = "";
+    let problem = "";
+    allocations.stdout.on("data", (data: Buffer) => {
+      if (largest.length < 65536) largest += data.toString().slice(0, 65536 - largest.length);
+    });
+    allocations.stderr.on("data", (data: Buffer) => {
+      problem = (problem + data.toString()).slice(-2000);
+    });
+    const timeout = setTimeout(() => allocations.kill("SIGKILL"), 30000);
+    try {
+      const [code] = await once(allocations, "exit");
+      if (code !== 0) throw new Error(`Allocation profiling failed: ${problem}`);
+      await writeFile(resolve(allocationOutput), largest);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  const queryPlans = (await request({ op: "plans" })).queryPlans;
+  mark("shutdown");
   const shuttingDown = performance.now();
   const exited = once(child, "exit");
+  expectedExit = true;
   child.send({ id: ++nextId, op: "close" });
   const [exitCode] = await exited;
   if (exitCode !== 0) throw new Error(`Shutdown failed: ${stderr}`);
@@ -230,16 +328,28 @@ try {
     retainedStart,
     retainedEnd,
     warmupCycles,
+    freshCycles,
+    collectWorkers,
+    queryPlans,
+    nativeStart: collectedStart?.native,
+    nativeEnd: collectedEnd?.native,
+    idleRegions,
+    endRegions,
     shutdownMs: performance.now() - shuttingDown,
   };
   const json = JSON.stringify(result, null, 2) + "\n";
   const output = argument("output", "");
   if (output) await writeFile(resolve(output), json);
   process.stdout.write(json);
+}
+try {
+  await Promise.race([measure(), aborted.promise]);
 } finally {
   clearTimeout(deadline);
+  process.off("SIGTERM", interrupt);
+  process.off("SIGINT", interrupt);
   socket?.terminate();
-  if (child.exitCode === null) {
+  if (child.exitCode === null && child.signalCode === null) {
     child.kill("SIGKILL");
     await once(child, "exit");
   }

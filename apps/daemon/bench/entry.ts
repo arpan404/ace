@@ -2,6 +2,9 @@ import { z } from "zod";
 import { startDaemon, readConfig, Engine, AdapterRegistry, stubHandler } from "@ace/daemon";
 import { Command, ThreadId } from "@ace/protocol";
 import { scriptedProvider } from "./scripted.ts";
+import { getHeapCodeStatistics, queryObjects } from "node:v8";
+import { DatabaseSync, StatementSync } from "node:sqlite";
+import { setImmediate } from "node:timers/promises";
 
 // Real daemon services and sockets, isolated homes, no provider executables or prompts.
 const daemon = await startDaemon({
@@ -27,9 +30,15 @@ const Request = z.discriminatedUnion("op", [
     thread: ThreadId,
     count: z.number().int().positive().max(100000),
   }),
-  z.object({ id: z.number(), op: z.literal("cycle"), count: z.number().int().positive().max(64) }),
+  z.object({
+    id: z.number(),
+    op: z.literal("cycle"),
+    count: z.number().int().positive().max(64),
+    fresh: z.boolean().default(false),
+  }),
   z.object({ id: z.number(), op: z.literal("close") }),
   z.object({ id: z.number(), op: z.literal("memory") }),
+  z.object({ id: z.number(), op: z.literal("plans") }),
 ]);
 let commandId = 0;
 let cycling: string[] = [];
@@ -65,13 +74,39 @@ process.on("message", (input: unknown) => {
       if (request.op === "memory") {
         if (!globalThis.gc) throw new Error("Retained heap measurement requires --expose-gc");
         globalThis.gc();
+        await setImmediate();
         globalThis.gc();
-        process.send?.({ id: request.id, threads: [], memory: process.memoryUsage() });
+        await setImmediate();
+        const native = {
+          statements: queryObjects(StatementSync),
+          databases: queryObjects(DatabaseSync),
+          code: getHeapCodeStatistics(),
+        };
+        process.send?.({ id: request.id, threads: [], memory: process.memoryUsage(), native });
+        return;
+      }
+      if (request.op === "plans") {
+        const queryPlans = daemon.store.atomic((db) => ({
+          hostEvents: db
+            .prepare("EXPLAIN QUERY PLAN SELECT * FROM events WHERE seq>? ORDER BY seq LIMIT ?")
+            .all(0, 256),
+          threadEvents: db
+            .prepare(
+              "EXPLAIN QUERY PLAN SELECT * FROM events WHERE seq>? AND thread_id=? ORDER BY seq LIMIT ?",
+            )
+            .all(0, cycling[0] ?? "missing", 256),
+          engineRecords: db
+            .prepare(
+              "EXPLAIN QUERY PLAN SELECT value FROM engine_state_records WHERE thread_id=? AND section=? AND key=?",
+            )
+            .all(cycling[0] ?? "missing", "agents", "root"),
+        }));
+        process.send?.({ id: request.id, threads: [], memory: process.memoryUsage(), queryPlans });
         return;
       }
       let threads: string[] = [];
       if (request.op === "sessions" || request.op === "cycle") {
-        if (request.op === "cycle" && cycling.length) {
+        if (request.op === "cycle" && cycling.length && !request.fresh) {
           threads = cycling;
           for (const id of threads) {
             const command = Command.parse({

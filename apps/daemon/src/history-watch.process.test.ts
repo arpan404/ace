@@ -26,9 +26,21 @@ test("observed transcript changes refresh daemon history without a client reques
   });
   try {
     await history.startScan();
+    const initial = await history.handle(
+      { type: "history.list", cwd: "/project", limit: 10 },
+      new AbortController().signal,
+    );
+    if (initial.type !== "history.list") throw new Error("Wrong history reply");
+    expect(initial.sessions[0]?.title).toBe("before");
     const refreshed = Promise.withResolvers<void>();
     const unsubscribe = history.subscribeScan((status) => {
-      if (status.state === "ready") refreshed.resolve();
+      if (status.state !== "ready") return;
+      void history
+        .handle({ type: "history.list", cwd: "/project", limit: 10 }, new AbortController().signal)
+        .then((result) => {
+          if (result.type === "history.list" && result.sessions[0]?.title === "after")
+            refreshed.resolve();
+        }, refreshed.reject);
     });
     try {
       await appendFile(
