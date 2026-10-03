@@ -49,7 +49,9 @@ describe("thread status precedence through facts", () => {
       h.send({ type: "retry", agent: "root", on });
       h.background();
       h.send({ type: "queue.changed", count: 1 });
-      expect(deriveThreadStatus(h.state)).toEqual({ state: "waiting", on });
+      expect(deriveThreadStatus(h.state)).toEqual(
+        on === "rate_limit" ? { state: "limited" } : { state: "waiting", on },
+      );
     },
   );
 
@@ -61,7 +63,7 @@ describe("thread status precedence through facts", () => {
       h.start(on);
       h.send({ type: "retry", agent: on, on });
     }
-    expect(deriveThreadStatus(h.state)).toEqual({ state: "waiting", on: "rate_limit" });
+    expect(deriveThreadStatus(h.state)).toEqual({ state: "limited" });
     h.send({ type: "retry.cleared", agent: "root" });
     expect(deriveThreadStatus(h.state)).toEqual({ state: "waiting", on: "network" });
   });

@@ -69,12 +69,15 @@ const allowed: Record<Fact["type"], string[]> = {
   retry: ["agent", "on", "attempt", "until", "message"],
   "retry.cleared": ["agent"],
   "wake.expected": ["agent", "until"],
+  "context.sample": ["agent", "usedTokens", "windowTokens", "sessionId", "model"],
   usage: [
     "agent",
     "inputTokens",
     "outputTokens",
     "cachedInputTokens",
     "contextWindow",
+    "contextTokens",
+    "contextSessionId",
     "costUsd",
     "reasoningTokens",
     "cacheWriteTokens",
@@ -282,6 +285,8 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
       );
     case "wake.expected":
       return Timestamp.safeParse(fact.until).success;
+    case "context.sample":
+      return EventPayload.safeParse({ ...fact, type: "context.sampled", agentId }).success;
     case "usage":
       return EventPayload.safeParse({ ...fact, type: "usage.updated", agentId }).success;
     case "process.exited":

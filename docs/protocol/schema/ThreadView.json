@@ -35,6 +35,16 @@
       "type": "object",
       "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
     },
+    "contextMeters": {
+      "additionalProperties": {
+        "$ref": "https://ace.local/protocol/v1/ContextMeter.json"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object",
+      "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
+    },
     "interactions": {
       "additionalProperties": {
         "$ref": "https://ace.local/protocol/v1/Interaction.json"
@@ -89,6 +99,9 @@
     "kind": {
       "const": "thread",
       "type": "string"
+    },
+    "queue": {
+      "$ref": "https://ace.local/protocol/v1/QueueState.json"
     },
     "runs": {
       "additionalProperties": {

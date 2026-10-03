@@ -1,0 +1,79 @@
+{
+  "$id": "https://ace.local/protocol/v1/QueuePage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "messages": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/QueuedMessage.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "next": {
+      "anyOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/CommandId.json"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "paused": {
+      "type": "boolean"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "manual",
+            "restart",
+            "limit",
+            "snooze",
+            "uncertain"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "resumeAt": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "revision": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "total": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "revision",
+    "paused",
+    "reason",
+    "resumeAt",
+    "threadId",
+    "messages",
+    "total",
+    "next"
+  ],
+  "type": "object"
+}

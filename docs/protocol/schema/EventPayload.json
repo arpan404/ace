@@ -372,6 +372,15 @@
       "type": "object"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/QueueUpdated.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ContextMeterUpdated.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ContextSampled.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/UsageUpdated.json"
     },
     {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { QueueCommands, FollowUpBehavior } from "./queue.ts";
 import { DiagnosticsHealthCommand } from "./diagnostics.ts";
 import { MessageContext } from "./context.ts";
 import { ConductorCommandPayload } from "./conductor.ts";
@@ -23,6 +24,7 @@ import {
 } from "./orchestration-execution.ts";
 
 export const CommandPayload = z.discriminatedUnion("type", [
+  ...QueueCommands,
   DiagnosticsHealthCommand,
   ...ConductorCommandPayload.options,
   ...ReviewCommands,
@@ -47,7 +49,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
      * `steer` injects into the running turn when the provider supports it;
      * `queue` waits for the thread to settle. Unsupported steer falls back to queue.
      */
-    delivery: z.enum(["steer", "queue"]),
+    delivery: FollowUpBehavior.optional(),
   }),
   z.object({
     type: z.literal("thread.interrupt"),

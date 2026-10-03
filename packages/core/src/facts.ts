@@ -168,6 +168,14 @@ export type Fact =
       contextWindow?: number;
       costUsd?: number;
     } & UsageMetadata)
+  | {
+      type: "context.sample";
+      agent: Key;
+      usedTokens: number;
+      windowTokens?: number;
+      sessionId?: string;
+      model?: string;
+    }
   | { type: "signal"; agent?: Key }
   | { type: "process.started" }
   | { type: "process.exited"; deliberate: boolean; message?: string }

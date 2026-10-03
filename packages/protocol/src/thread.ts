@@ -6,6 +6,8 @@ import { ProviderKind } from "./provider.ts";
 /** What started a run. Agents can start runs without anyone asking. */
 export const RunTrigger = z.enum([
   "user",
+  "restart",
+  "limit_resume",
   /** First run of a newly spawned subagent. */
   "spawn",
   /** A parent agent sent this agent more work (follow-up, message). */
@@ -49,6 +51,7 @@ export const ThreadStatus = z.discriminatedUnion("state", [
     state: z.literal("waiting"),
     on: z.enum(["background_task", "rate_limit", "network", "upstream", "queue"]),
   }),
+  z.object({ state: z.literal("limited"), until: Timestamp.optional() }),
   z.object({ state: z.literal("failed") }),
   z.object({ state: z.literal("unresponsive") }),
   /** Every agent idle, nothing pending, nothing running in the background. */

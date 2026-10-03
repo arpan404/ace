@@ -3,6 +3,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "enum": [
     "user",
+    "restart",
+    "limit_resume",
     "spawn",
     "parent_agent",
     "background_completion",

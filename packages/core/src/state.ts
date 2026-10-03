@@ -48,6 +48,8 @@ export interface AgentRecord {
   detail?: string;
   lastSignalAt: number;
   disconnectedAt?: number;
+  /** Rate-limit evidence survives retry expiry and process exit until explicitly cleared. */
+  limited?: { until?: number; message?: string };
   retry?: Omit<Extract<Fact, { type: "retry" }>, "type" | "agent">;
   wakeUntil?: number;
   parentKey?: Key;

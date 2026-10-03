@@ -2,6 +2,8 @@ import * as plugins from "@ace/protocol/plugins";
 import * as preview from "@ace/protocol/preview";
 import * as history from "@ace/protocol/history";
 import * as accounts from "@ace/protocol/accounts";
+import * as queue from "@ace/protocol/queue";
+import * as contextMeter from "@ace/protocol/context-meter";
 import * as protocol from "@ace/protocol";
 import * as forge from "@ace/protocol/forge";
 import { builtinToolCatalog } from "@ace/mcp-server";
@@ -13,6 +15,8 @@ export const protocolEntryPoints: ReadonlyMap<string, Record<string, unknown>> =
   Record<string, unknown>
 >([
   [".", protocol],
+  ["./queue", queue],
+  ["./context-meter", contextMeter],
   ["./forge", forge],
   ["./plugins", plugins],
   ["./preview", preview],

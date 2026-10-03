@@ -5,6 +5,9 @@ const tokens = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const dollars = z.number().nonnegative();
 const adjustment = z.number();
 export const UsageMetadata = z.object({
+  /** Latest occupied context, including cached input, never lifetime totals. */
+  contextTokens: tokens.optional(),
+  contextSessionId: id.optional(),
   reasoningTokens: tokens.optional(),
   cacheWriteTokens: tokens.optional(),
   cacheWrite1hTokens: tokens.optional(),
