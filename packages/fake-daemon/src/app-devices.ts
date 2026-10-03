@@ -93,7 +93,8 @@ export class FakeAppDevices {
 
   /** Close every devices channel, as a daemon restart or a revoked token would. */
   dropAll(): void {
-    for (const channel of [...this.channels]) {
+    // Deleting the current entry during Set iteration is safe.
+    for (const channel of this.channels) {
       this.channels.delete(channel);
       channel.events.close();
     }
