@@ -1,10 +1,11 @@
 import { ChatsIcon, MagnifyingGlassIcon, NotePencilIcon } from "@phosphor-icons/react";
-import { useSidebarThread } from "@ace/client-react";
+import { useSidebarLoaded, useSidebarThread } from "@ace/client-react";
 import { Link, useParams } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { SidebarHeader } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { ProjectFilter } from "./project-filter.tsx";
@@ -23,6 +24,7 @@ export function HomeSidebar() {
   const organizer = useOrganizer();
   const { setPaletteOpen } = useLayout();
   useSeenWhileOpen();
+  const loaded = useSidebarLoaded();
   const empty = !arrangement.active.length && !arrangement.settled.length;
   return (
     <>
@@ -48,7 +50,9 @@ export function HomeSidebar() {
         </button>
       </div>
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
-        {empty ? (
+        {!loaded ? (
+          <ListSkeleton label="threads" shape="card" className="px-2" />
+        ) : empty ? (
           <EmptyState
             icon={ChatsIcon}
             title={project ? `Nothing in ${project}` : "No threads yet"}

@@ -2,6 +2,7 @@ import type { Device } from "@ace/protocol";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import {
   Dialog,
@@ -11,7 +12,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useNow } from "@/lib/time.ts";
 import { formatAge } from "@ace/ui-core";
@@ -46,7 +46,7 @@ function Machines() {
   const now = useNow();
   return (
     <SettingSection label="Machines">
-      {machines.isPending && <Spinner aria-label="Loading machines" />}
+      {machines.isPending && <ListSkeleton label="machines" shape="row" rows={2} />}
       {machines.isError && <LoadError error={machines.error} />}
       {machines.data?.map((machine) => (
         <SettingRow
@@ -83,7 +83,7 @@ function PairedDevices() {
   const [revoking, setRevoking] = useState<Device | undefined>();
   return (
     <SettingSection label="Paired devices">
-      {devices.isPending && <Spinner aria-label="Loading paired devices" />}
+      {devices.isPending && <ListSkeleton label="paired devices" shape="row" rows={2} />}
       {devices.isError && <LoadError error={devices.error} />}
       {devices.data?.length === 0 && (
         <p className="border-t py-3.5 text-sm text-muted-foreground">

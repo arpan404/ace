@@ -17,6 +17,7 @@ import type { ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
@@ -65,7 +66,9 @@ export function AutomationsSidebar() {
         </Tip>
       }
     >
-      {automations && !automations.length ? (
+      {!automations ? (
+        <ListSkeleton label="automations" shape="card" rows={4} />
+      ) : !automations.length ? (
         <EmptyState
           icon={ClockIcon}
           title="No automations"

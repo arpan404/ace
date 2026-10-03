@@ -5,6 +5,8 @@ import { ClientError, type Limits } from "./types.ts";
 
 export interface SidebarReader {
   readonly error: ClientError | undefined;
+  /** The first snapshot has arrived, so an empty `ids` means no threads rather than not yet. */
+  readonly loaded: boolean;
   readonly ids: readonly string[];
   thread(id: string): ThreadListEntry | undefined;
 }
@@ -43,6 +45,9 @@ export class Sidebar implements SidebarReader {
   }
   get ids(): readonly string[] {
     return this.order;
+  }
+  get loaded(): boolean {
+    return this.view !== undefined;
   }
   thread(id: string): ThreadListEntry | undefined {
     return this.view && Object.hasOwn(this.view.threads, id) ? this.view.threads[id] : undefined;

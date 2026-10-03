@@ -49,4 +49,39 @@ function LoadingRegion(props: { label: string; className?: string; children: Rea
   );
 }
 
-export { Skeleton, SkeletonText, LoadingRegion };
+/** Placeholder rows for a list that is loading, shaped like the rows that will replace them. */
+function ListSkeleton(props: {
+  label: string;
+  /** `card`: a Home or Activity card; `row`: a one-line list or settings row. */
+  shape: "card" | "row";
+  rows?: number;
+  className?: string;
+}) {
+  const rows = props.rows ?? (props.shape === "card" ? 6 : 4);
+  return (
+    <LoadingRegion label={props.label} className={cn("flex flex-col", props.className)}>
+      {Array.from({ length: rows }, (_, index) => {
+        const style = { animationDelay: `${index * 70}ms` };
+        // Vary the widths a little so the placeholder reads as content, not a grid.
+        const width = `${62 + ((index * 23) % 30)}%`;
+        return props.shape === "card" ? (
+          <span key={index} className="flex flex-col gap-[7px] px-[11px] pt-[11px] pb-3">
+            <span className="flex justify-between">
+              <Skeleton className="h-2.5 w-16" style={style} />
+              <Skeleton className="h-2.5 w-6" style={style} />
+            </span>
+            <Skeleton className="h-3" style={{ ...style, width }} />
+            <Skeleton className="h-2.5 w-28" style={style} />
+          </span>
+        ) : (
+          <span key={index} className="flex items-center gap-3 border-t py-3.5 first:border-t-0">
+            <Skeleton className="h-3" style={{ ...style, width }} />
+            <Skeleton className="ml-auto h-3 w-14 shrink-0" style={style} />
+          </span>
+        );
+      })}
+    </LoadingRegion>
+  );
+}
+
+export { Skeleton, SkeletonText, LoadingRegion, ListSkeleton };

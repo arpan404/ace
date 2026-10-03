@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Input } from "@/components/ui/input.tsx";
 import { Select } from "@/components/ui/select.tsx";
@@ -65,7 +66,9 @@ export function FilesPage() {
               title="Files unavailable"
               description={files.error.message}
             />
-          ) : files.data && !shown.length ? (
+          ) : !files.data ? (
+            <ListSkeleton label="files" shape="row" rows={6} className="mt-6" />
+          ) : !shown.length ? (
             <EmptyState
               icon={FilesIcon}
               title={text ? "No files match" : "No changed files"}
