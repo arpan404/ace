@@ -13,6 +13,9 @@ export type ThreadKey =
   | "order"
   | "cursor"
   | "history"
+  | "agents"
+  | "interactions"
+  | "tasks"
   | `item:${string}`
   | `agent:${string}`
   | `run:${string}`
@@ -26,6 +29,12 @@ export interface ThreadReader {
   readonly order: readonly string[];
   readonly cursor: number | undefined;
   readonly itemsBefore: number | null | undefined;
+  /** Fresh membership lists: select with the "agents", "interactions" or "tasks" key and
+   * an array equality, because each call returns a new array. */
+  agentIds(): readonly string[];
+  children(agentId: string): readonly string[];
+  interactionIds(): readonly string[];
+  taskIds(): readonly string[];
   item(id: string): Item | undefined;
   agent(id: string): ThreadView["agents"][string] | undefined;
   run(id: string): ThreadView["runs"][string] | undefined;
@@ -70,6 +79,19 @@ export class ThreadStore implements ThreadReader {
   }
   get itemsBefore() {
     return this.view?.itemsBefore;
+  }
+  agentIds(): readonly string[] {
+    return this.view ? Object.keys(this.view.agents) : emptyOrder;
+  }
+  children(agentId: string): readonly string[] {
+    // Projection appends children in place, so never hand out its array.
+    return [...(this.own(this.view?.agentChildren, agentId) ?? emptyOrder)];
+  }
+  interactionIds(): readonly string[] {
+    return this.view ? Object.keys(this.view.interactions) : emptyOrder;
+  }
+  taskIds(): readonly string[] {
+    return this.view ? Object.keys(this.view.backgroundTasks) : emptyOrder;
   }
   item(id: string) {
     return this.own(this.view?.items, id);
@@ -209,11 +231,13 @@ export class ThreadStore implements ThreadReader {
             keys.add("thread");
           }
           keys.add(`agent:${p.agent.id}`);
+          keys.add("agents");
           break;
         case "agent.status":
         case "agent.updated":
           this.copy(view.agents, p.agentId);
           keys.add(`agent:${p.agentId}`);
+          if (p.type === "agent.updated" && p.parentId !== undefined) keys.add("agents");
           break;
         case "run.started":
           if (!keys.has(`run:${p.run.id}`)) this.capacity("runs", !!this.run(p.run.id));
@@ -257,6 +281,7 @@ export class ThreadStore implements ThreadReader {
           if (!keys.has(`interaction:${p.interaction.id}`))
             this.capacity("interactions", !!this.interaction(p.interaction.id));
           keys.add(`interaction:${p.interaction.id}`);
+          keys.add("interactions");
           break;
         case "interaction.closed":
           this.copy(view.interactions, p.interactionId);
@@ -265,6 +290,7 @@ export class ThreadStore implements ThreadReader {
         case "background_task.started":
           if (!keys.has(`task:${p.task.id}`)) this.capacity("tasks", !!this.task(p.task.id));
           keys.add(`task:${p.task.id}`);
+          keys.add("tasks");
           break;
         case "background_task.updated":
           this.copy(view.backgroundTasks, p.taskId);

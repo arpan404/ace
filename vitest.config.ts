@@ -1,6 +1,9 @@
 import { defineConfig } from "vitest/config";
 import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 
+/** React packages run in their own jsdom projects with their own Vite plugins. */
+const react = ["apps/web/**", "packages/client-react/**"];
+
 export default defineConfig({
   test: {
     // Bound runner overhead too: all CPU cores are usually shared with other agents.
@@ -15,7 +18,7 @@ export default defineConfig({
             "tools/*/src/**/*.test.ts",
             "apps/*/src/**/*.test.ts",
           ],
-          exclude: ["**/*.process.test.ts"],
+          exclude: ["**/*.process.test.ts", "**/node_modules/**", ...react],
           maxWorkers: 2,
           sequence: { groupOrder: 0 },
         },
@@ -24,6 +27,7 @@ export default defineConfig({
         test: {
           name: "process",
           include: ["{packages,tools,apps}/*/src/**/*.process.test.ts"],
+          exclude: ["**/node_modules/**", ...react],
           maxWorkers: 2,
           sequence: { groupOrder: 1 },
           testTimeout: PROCESS_TEST_TIMEOUT,
@@ -31,6 +35,8 @@ export default defineConfig({
           globalSetup: ["./scripts/process-test-setup.ts"],
         },
       },
+      "apps/web/vitest.config.ts",
+      "packages/client-react/vitest.config.ts",
     ],
   },
 });
