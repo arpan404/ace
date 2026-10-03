@@ -1,3 +1,4 @@
+import { fileConnection, type FileClient } from "./file-connection.ts";
 import type { FileOperation, ThreadId } from "@ace/protocol";
 import type { ClientApi } from "./api.ts";
 import { decodeBase64, encodeBase64 } from "./base64.ts";
@@ -15,8 +16,8 @@ export interface FileUploadInput {
   sha256: string;
 }
 /** Each pull completes before yielding; no download bytes are read ahead of the consumer. */
-export async function* downloadFile(
-  client: ClientApi,
+async function* downloadChunks(
+  client: FileClient,
   input: FileDownloadInput,
   options: RequestOptions,
 ): AsyncGenerator<Uint8Array> {
@@ -54,8 +55,8 @@ export async function* downloadFile(
   }
 }
 /** The source is pulled only after the preceding chunk has reached durable upload storage. */
-export async function uploadFile(
-  client: ClientApi,
+async function uploadChunks(
+  client: FileClient,
   input: FileUploadInput,
   source: AsyncIterable<Uint8Array>,
   options: RequestOptions,
@@ -132,5 +133,31 @@ export async function uploadFile(
           options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs },
         )
         .catch(() => {});
+  }
+}
+
+export async function* downloadFile(
+  client: ClientApi,
+  input: FileDownloadInput,
+  options: RequestOptions,
+): AsyncGenerator<Uint8Array> {
+  const lifetime = fileConnection(client);
+  try {
+    yield* downloadChunks(lifetime.client, input, options);
+  } finally {
+    lifetime.close();
+  }
+}
+export async function uploadFile(
+  client: ClientApi,
+  input: FileUploadInput,
+  source: AsyncIterable<Uint8Array>,
+  options: RequestOptions,
+): Promise<unknown> {
+  const lifetime = fileConnection(client);
+  try {
+    return await uploadChunks(lifetime.client, input, source, options);
+  } finally {
+    lifetime.close();
   }
 }

@@ -298,3 +298,79 @@ it("exports a redacted diagnostics support bundle for a read-only remote client"
   expect(bundle).not.toContain(token);
   expect(bundle).toContain('"providerProbesRun":false');
 });
+
+it("legacy and scoped routes share upload recovery, trash and artifact catalogs for a canonical workspace", async () => {
+  const f = await setup();
+  const workspace = f.daemon.store.createWorkspace(f.root, "Workspace");
+  const thread = createDevThread(f.daemon.store, workspace);
+  const client = await f.connect();
+  const files = f.daemon.files;
+  if (!files) throw new Error("Files missing");
+  const upload = z
+    .object({ uploadId: z.string() })
+    .parse(
+      await files.request("owner", { op: "upload.begin", path: "resume", size: 3, expected: null }),
+    );
+  client.send({
+    type: "files.request",
+    requestId: "resume",
+    threadId: thread.id,
+    operation: { op: "upload.resume", uploadId: upload.uploadId },
+  });
+  const resumed = FilesServerMessage.parse(await fileReply(client));
+  expect(resumed).toMatchObject({ type: "files.upload", uploadId: upload.uploadId, offset: 0 });
+  if (resumed.type === "files.upload")
+    client.send({ type: "files.cancel", channel: resumed.channel });
+  if (resumed.type === "files.upload")
+    expect(await fileReply(client)).toMatchObject({ type: "files.cancelled" });
+  await files.request("owner", { op: "create", path: "trash-me", text: "kept", expected: null });
+  const { version } = z
+    .object({ version: z.string() })
+    .parse(await files.request("owner", { op: "stat", path: "trash-me" }));
+  await files.request("owner", { op: "delete", path: "trash-me", expected: version });
+  client.send({
+    type: "files.request",
+    requestId: "trash",
+    threadId: thread.id,
+    operation: { op: "trash.list" },
+  });
+  expect(await fileReply(client)).toMatchObject({
+    type: "files.result",
+    value: [expect.objectContaining({ path: "trash-me" })],
+  });
+  client.send({
+    type: "files.request",
+    requestId: "artifacts",
+    threadId: thread.id,
+    operation: { op: "artifacts.list" },
+  });
+  expect(await fileReply(client)).toMatchObject({
+    type: "files.result",
+    value: expect.arrayContaining([expect.objectContaining({ id: "daemon-support" })]),
+  });
+  await files.request("owner", { op: "create", path: "cas", text: "before", expected: null });
+  const before = z
+    .object({ version: z.string() })
+    .parse(await files.request("owner", { op: "stat", path: "cas" }));
+  client.send({
+    type: "files.request",
+    requestId: "cas",
+    threadId: thread.id,
+    operation: { op: "write", path: "cas", expected: before.version, text: "scoped" },
+  });
+  const legacy = files
+    .request("owner", { op: "write", path: "cas", expected: before.version, text: "legacy" })
+    .then(
+      () => true,
+      () => false,
+    );
+  const scoped = FilesServerMessage.parse(await fileReply(client));
+  expect(Number(await legacy) + Number(scoped.type === "files.result")).toBe(1);
+});
+
+async function fileReply(client: Client): Promise<import("@ace/protocol").FilesServerMessage> {
+  for (;;) {
+    const reply = FilesServerMessage.parse(await client.next());
+    if (reply.type !== "files.changed") return reply;
+  }
+}

@@ -33,7 +33,7 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
       now: now,
       id: id,
       // Socket-scoped read/operate checks are enforced by the authenticated server.
-      authorize: () => true,
+      authorize: () => !store.workspaceReservations.reserved(workspaceRoot),
       onChange: (change) => eventStore.recordWorkspaceFileChange(workspaceId, change),
       exportSupport: (_device, assertAuthorized) => {
         if (!artifacts) throw new Error("Artifact producer not initialized");
@@ -48,9 +48,9 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
         return artifacts.output(streamId, assertAuthorized);
       },
     });
-    resources.own(() => filesService.close());
     const filesService = files;
     services.files = filesService;
+    scoped.register(workspaceRoot, filesService);
     artifacts = daemonArtifacts(
       files,
       artifactsRoot,
@@ -78,7 +78,6 @@ export async function startFiles(owner: ServiceContext): Promise<void> {
     if (sweeping) return;
     sweeping = (async () => {
       await scoped.sweep(owner.signal);
-      await files?.sweep(owner.signal);
     })()
       .catch((error: unknown) => log.log("error", "File retention failed", error))
       .finally(() => {

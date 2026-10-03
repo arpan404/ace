@@ -25,9 +25,15 @@ export class FilesWorkspaces {
       return false;
     }
   }
-  get(threadId: ThreadId): Promise<FilesService> {
+  /** The legacy API registers its canonical service before sockets are admitted. */
+  register(root: string, service: FilesService): void {
+    if (this.closed || this.services.has(root)) throw new Error("Files root already owned");
+    this.services.set(root, Promise.resolve(service));
+  }
+  async get(threadId: ThreadId): Promise<FilesService> {
     if (this.closed) return Promise.reject(new Error("Files closed"));
-    const root = this.root(threadId);
+    const root = await realpath(this.root(threadId));
+    if (this.closed) throw new Error("Files closed");
     const existing = this.services.get(root);
     if (existing) return existing;
     if (this.services.size >= 64) return Promise.reject(new Error("Files workspace limit"));
@@ -35,22 +41,18 @@ export class FilesWorkspaces {
     if (!thread) return Promise.reject(new Error("Thread unavailable"));
     const key = createHash("sha256").update(root).digest("hex");
     const { config, options, now, id, store } = this.context;
-    const service = realpath(root)
-      .then((workspace) =>
-        FilesService.create({
-          ...options.files,
-          workspace,
-          dataDir: join(config.dataDir, "workspace-files", key),
-          now,
-          id,
-          authorize: () => true,
-          onChange: (change) => store.recordWorkspaceFileChange(thread.workspaceId, change),
-        }),
-      )
-      .catch((error: unknown) => {
-        this.services.delete(root);
-        throw error;
-      });
+    const service = FilesService.create({
+      ...options.files,
+      workspace: root,
+      dataDir: join(config.dataDir, "workspace-files", key),
+      now,
+      id,
+      authorize: () => !store.workspaceReservations.reserved(root),
+      onChange: (change) => store.recordWorkspaceFileChange(thread.workspaceId, change),
+    }).catch((error: unknown) => {
+      this.services.delete(root);
+      throw error;
+    });
     this.services.set(root, service);
     return service;
   }

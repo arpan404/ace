@@ -21,37 +21,47 @@ export function chunkFilesChannel(options: {
   send(message: FilesServerMessage): void;
 }) {
   const channels = new Map<number, Channel>();
+  const closing = new Map<number, Promise<void>>();
   let sequence = 0x80000000;
   let pending = 0;
+  const openings = new Map<string, { cancelled: boolean }>();
   let closed = false;
   const send = (message: FilesServerMessage) => {
     if (!closed) options.send(message);
   };
-  const stop = async (id: number) => {
+  const stop = (id: number): Promise<void> => {
+    const existing = closing.get(id);
+    if (existing) return existing;
     const channel = channels.get(id);
     channels.delete(id);
-    if (channel?.kind === "download") await channel.value.close();
-    else if (channel) channel.release();
+    if (!channel) return Promise.resolve();
+    const stopped = Promise.resolve()
+      .then(async () => {
+        if (channel.kind === "download") await channel.value.close();
+        else channel.release();
+      })
+      .finally(() => {
+        closing.delete(id);
+      });
+    closing.set(id, stopped);
+    return stopped;
   };
   const assert = (binding: Binding, access: "read" | "operate") => {
     if (closed || !binding.allowed(access)) throw new FileError("FORBIDDEN", "File access denied");
   };
   const allocate = () => {
-    if (channels.size >= 4 || sequence >= 0xffffffff)
+    if (channels.size + closing.size >= 4 || sequence >= 0xffffffff)
       throw new FileError("BUSY", "File channel limit");
     return ++sequence;
   };
-  const handle = async (message: FilesClientMessage) => {
-    if (message.type === "files.abort") {
-      for (const [id, channel] of channels)
-        if (channel.requestId === message.sourceRequestId) await stop(id);
-      return;
-    }
-    if (message.type === "files.cancel") {
-      await stop(message.channel);
-      send({ type: "files.cancelled", channel: message.channel });
-      return;
-    }
+  const handle = async (
+    message: Exclude<FilesClientMessage, { type: "files.abort" | "files.cancel" }>,
+    opening?: { cancelled: boolean },
+  ) => {
+    const assertOpening = () => {
+      if (closed || opening?.cancelled) throw new FileError("ABORTED", "File opening cancelled");
+    };
+    assertOpening();
     if (message.type === "files.credit")
       throw new FileError("INVALID_MESSAGE", "Use files.pull for chunk channels");
     if (message.type === "files.pull" || message.type === "files.chunk") {
@@ -132,6 +142,7 @@ export function chunkFilesChannel(options: {
     const threadId = message.threadId;
     if (!threadId) throw new FileError("INVALID_MESSAGE", "Thread scope required");
     const binding = await options.resolve(threadId);
+    assertOpening();
     const op = message.operation;
     const access = [
       "stat",
@@ -150,6 +161,7 @@ export function chunkFilesChannel(options: {
       const download = await binding.service.downloadForTransport(options.device, op);
       try {
         assert(binding, "read");
+        assertOpening();
       } catch (error) {
         await download.close();
         throw error;
@@ -182,6 +194,7 @@ export function chunkFilesChannel(options: {
           await binding.service.request(options.device, op, () => assert(binding, "operate")),
         );
         assert(binding, "operate");
+        assertOpening();
         for (const [old, channel] of channels)
           if (
             channel.kind === "upload" &&
@@ -242,20 +255,60 @@ export function chunkFilesChannel(options: {
           code: codeOf(error),
           message: "File operation failed",
         });
+      // Cleanup is bounded by the admitted openings/channels, not the normal control queue.
+      // Invalidate synchronously so an in-flight resolve cannot subsequently publish a channel.
+      if (message.type === "files.abort") {
+        const opening = openings.get(message.sourceRequestId);
+        if (opening) opening.cancelled = true;
+        for (const [id, channel] of channels)
+          if (channel.requestId === message.sourceRequestId) void stop(id).catch(fail);
+        return;
+      }
+      if (message.type === "files.cancel") {
+        if (closing.has(message.channel)) return;
+        if (!channels.has(message.channel)) {
+          send({ type: "files.cancelled", channel: message.channel });
+          return;
+        }
+        void stop(message.channel)
+          .then(() => send({ type: "files.cancelled", channel: message.channel }))
+          .catch(fail);
+        return;
+      }
       if (pending >= 8) {
         fail(new FileError("BUSY", "File request limit"));
         return;
       }
+      const opening =
+        message.type === "files.request" &&
+        [
+          "download",
+          "artifact.download",
+          "archive.download",
+          "upload.begin",
+          "upload.resume",
+        ].includes(message.operation.op)
+          ? { cancelled: false }
+          : undefined;
+      if (opening && "requestId" in message) {
+        if (openings.has(message.requestId)) {
+          fail(new FileError("BUSY", "Duplicate opening"));
+          return;
+        }
+        openings.set(message.requestId, opening);
+      }
       pending++;
       serial = serial
-        .then(() => handle(message))
+        .then(() => handle(message, opening))
         .catch(fail)
         .finally(() => {
           pending--;
+          if (opening && "requestId" in message) openings.delete(message.requestId);
         });
     },
     close() {
       closed = true;
+      for (const opening of openings.values()) opening.cancelled = true;
       for (const id of channels.keys()) void stop(id).catch(() => {});
     },
   };
