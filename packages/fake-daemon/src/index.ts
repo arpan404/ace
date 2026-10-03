@@ -32,3 +32,10 @@ export { changedFiles } from "./catalog/files.ts";
 export type { FakeChangedFile } from "./catalog/files.ts";
 export { searchThreads } from "./catalog/search.ts";
 export type { FakeSearchHit, FakeSearchKind } from "./catalog/search.ts";
+export { settingsFixture } from "./scenarios/settings.ts";
+export type {
+  FakeAccount,
+  FakeMachine,
+  FakeProviderInstall,
+  SettingsFixture,
+} from "./scenarios/settings.ts";
