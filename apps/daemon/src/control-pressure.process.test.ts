@@ -18,7 +18,7 @@ test("a control reply that cannot fit the client budget closes for replay before
   client.on("message", (data) => payloads.push(data.toString()));
   try {
     const closed = once(client, "close");
-    new Outbox(socket, { ...defaultPressure, hardLimit: 256 }).send({
+    new Outbox(socket, { ...defaultPressure, maxQueuedBytes: 256 }).send({
       type: "error",
       code: "large",
       message: "x".repeat(512),

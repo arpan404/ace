@@ -7,7 +7,9 @@ import { WireEncoder } from "./wire-encoder.ts";
 export const RESYNC_CLOSE_CODE = 4009;
 export interface PressureOptions {
   softLimit: number;
+  /** Sustained transport pressure threshold; not the absolute memory admission cap. */
   hardLimit: number;
+  /** Absolute queued + transport byte cap, shared by every outbound frame type. */
   maxQueuedBytes: number;
   hardTimeoutMs: number;
 }
@@ -44,6 +46,7 @@ function appendCoalesced(result: DeliveryEvent[], events: DeliveryEvent[]): void
   }
 }
 interface EventBatch {
+  chargedBytes: number;
   subscriptionId: string;
   afterSeq: number;
   throughSeq: number;
@@ -71,75 +74,61 @@ export class Outbox {
   send(message: ServerMessage | PluginServerMessage): void {
     if (this.socket.readyState !== WebSocket.OPEN) return;
     if (message.type === "events" && this.socket.bufferedAmount > this.options.softLimit) {
+      const charge = Buffer.byteLength(this.encoder.encode(message));
+      if (!this.admit(charge)) return;
       const last = this.pending.at(-1);
       if (last?.subscriptionId === message.subscriptionId && last.throughSeq === message.afterSeq) {
         appendCoalesced(last.events, message.events);
         last.throughSeq = message.throughSeq;
+        last.chargedBytes += charge;
       } else
         this.pending.push({
+          chargedBytes: charge,
           subscriptionId: message.subscriptionId,
           afterSeq: message.afterSeq,
           throughSeq: message.throughSeq,
           events: coalesceEvents(message.events),
         });
-      this.bytes += Buffer.byteLength(this.encoder.encode(message));
-      if (this.bytes > this.options.maxQueuedBytes) this.resync();
+      this.bytes += charge;
       this.tick();
       return;
     }
-    // Admit the whole snapshot before handing any of its bytes to the transport.
-    // This caps transport bytes; bounding status allocation needs snapshot paging.
-    if (message.type === "snapshot") {
-      const serialized = this.encoder.encode(message);
-      if (
-        this.bytes + this.socket.bufferedAmount + Buffer.byteLength(serialized) >
-        this.options.maxQueuedBytes
-      ) {
-        this.resync();
-        return;
-      }
-      this.flush();
-      this.writeSerialized(serialized);
-      this.tick();
-      return;
-    }
-    // Control messages retain ordering relative to queued event batches.
+    // Reserve control/snapshot capacity before flushing, keeping ordering and the
+    // same cap as queued events. hardLimit only governs how long pressure lasts.
+    const encoded = this.encoder.encode(message);
+    if (!this.admit(Buffer.byteLength(encoded))) return;
     this.flush();
-    this.write(message);
+    this.writeSerialized(encoded);
     this.tick();
   }
   private write(message: ServerMessage | PluginServerMessage): void {
     if (this.socket.readyState !== WebSocket.OPEN) return;
     const encoded = this.encoder.encode(message);
-    if (
-      message.type.startsWith("settings.") &&
-      this.socket.bufferedAmount + Buffer.byteLength(encoded) > this.options.hardLimit
-    ) {
-      this.resync();
-      return;
-    }
     this.writeSerialized(encoded);
   }
   private writeSerialized(message: string): void {
-    // Reserve bytes before every frame, including control replies. A peer can stop reading
-    // while continuing to send requests; waiting for a timer otherwise grows the transport.
-    if (
-      this.bytes + this.socket.bufferedAmount + Buffer.byteLength(message) >
-      this.options.hardLimit
-    ) {
-      this.resync();
-      return;
-    }
+    // A peer can stop reading while continuing to send requests. Every frame
+    // reserves the same output capacity before handing bytes to ws.
+    if (!this.admit(Buffer.byteLength(message))) return;
     if (this.socket.readyState === WebSocket.OPEN)
       this.socket.send(message, (error) => {
         if (error) this.socket.terminate();
       });
   }
+  private admit(bytes: number): boolean {
+    if (this.bytes + this.socket.bufferedAmount + bytes <= this.options.maxQueuedBytes) return true;
+    this.resync();
+    return false;
+  }
   private flush(): void {
     const pending = this.pending;
     this.pending = [];
+    for (const { chargedBytes, ...batch } of pending) {
+      this.bytes -= chargedBytes;
+      this.write({ type: "events", ...batch });
+      if (this.socket.readyState !== WebSocket.OPEN) break;
+    }
     this.bytes = 0;
-    for (const batch of pending) this.write({ type: "events", ...batch });
   }
   tick(now = this.now()): void {
     if (this.socket.bufferedAmount > this.options.hardLimit) {
