@@ -3,7 +3,10 @@ import { expect, test } from "@playwright/test";
 import {
   daemonPort,
   daemonTokenPath,
+  previewTitle,
   scriptOutput,
+  seededTitle,
+  workspaceName,
   workspaceTitle,
 } from "../src/real-daemon-config.ts";
 
@@ -44,4 +47,47 @@ test("Run, a terminal and Commit work on a real daemon's checkout", async ({ pag
   await dialog.getByRole("button", { name: "Commit" }).click();
   await expect(page.getByText("Committed", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Commit", exact: true })).toHaveCount(0);
+});
+
+test("Open hands the daemon's validated editor launch to this machine", async ({ page }) => {
+  // A browser opens editors through their URL handlers; record instead of leaving the page.
+  await page.addInitScript(() => {
+    const opened: string[] = [];
+    Reflect.set(window, "__opened", opened);
+    window.open = (url) => {
+      opened.push(String(url));
+      return null;
+    };
+  });
+  const token = readFileSync(daemonTokenPath, "utf8").trim();
+  await page.goto(`/#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`);
+  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  const threads = page.getByRole("navigation", { name: "Threads" });
+  await threads.getByRole("link", { name: new RegExp(seededTitle) }).click();
+  await expect(page.getByRole("heading", { level: 1, name: seededTitle })).toBeVisible();
+
+  await page.getByRole("button", { name: "Choose an editor" }).click();
+  await page.getByRole("menuitem", { name: /^Zed/ }).click();
+
+  await expect(page.getByText("Opened in Zed", { exact: true })).toBeVisible();
+  const opened = await page.evaluate(() => Reflect.get(window, "__opened") as string[]);
+  expect(opened.at(-1)).toMatch(new RegExp(`^zed://file/.*/${workspaceName}$`));
+});
+
+test("Preview offers a browser, and no port preview when the daemon runs no gateway", async ({
+  page,
+}) => {
+  const token = readFileSync(daemonTokenPath, "utf8").trim();
+  await page.goto(`/#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`);
+  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  const threads = page.getByRole("navigation", { name: "Threads" });
+  await threads.getByRole("link", { name: new RegExp(previewTitle) }).click();
+  await expect(page.getByRole("heading", { level: 1, name: previewTitle })).toBeVisible();
+
+  await page.getByRole("button", { name: "Right panel" }).click();
+  const panel = page.getByRole("region", { name: "Thread panel" });
+  await panel.getByRole("tab", { name: "Preview" }).click();
+  await expect(panel.getByRole("button", { name: "Open a browser" })).toBeEnabled();
+  // The e2e daemon, like `ace` itself, starts without a preview gateway (ADR 0008).
+  await expect(panel.getByRole("form", { name: "Preview a dev server" })).toHaveCount(0);
 });

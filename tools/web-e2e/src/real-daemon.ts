@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
 import type { Fact } from "@ace/core";
 import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
@@ -12,6 +12,9 @@ import {
   daemonPort,
   pluginMarketPath,
   pluginName,
+  holdMarker,
+  limitMarker,
+  limitNotice,
   scriptedReply,
   screensTitle,
   seededTitle,
@@ -19,6 +22,13 @@ import {
   workspaceName,
   workspaceTitle,
   scriptOutput,
+  previewTitle,
+  settleTitle,
+  snoozeTitle,
+  forkTitle,
+  deleteTitle,
+  queueTitle,
+  limitTitle,
 } from "./real-daemon-config.ts";
 
 /**
@@ -34,6 +44,9 @@ const message = (item: string, role: "user" | "assistant", text: string): Fact =
   item,
   draft: { type: "message", role, complete: true, parts: [{ type: "text", text }] },
 });
+
+const end = (outcome: "completed" | "interrupted") =>
+  ({ type: "turn.ended", agent: "root", outcome }) satisfies Fact;
 
 /**
  * The testkit's scripted adapter, with each message answered by one turn: the person's text
@@ -73,20 +86,56 @@ function scriptedProvider(provider: ProviderKind) {
     ...adapter,
     async openSession(ctx: SessionContext) {
       const session = await adapter.openSession(ctx);
+      // A turn started by a message carrying `holdMarker` keeps working until the person
+      // steers into it or stops it, so the server queue has a running turn to queue behind.
+      let holding = false;
       return {
         ...session,
         async send(input: ContentPart[], delivery: "steer" | "queue") {
           await session.send(input, delivery);
-          const text = input.flatMap((part) => (part.type === "text" ? [part.text] : []));
+          const text = input
+            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+            .join("\n");
           const turn = ++seq;
-          ctx.onFrame(
-            frame(
-              { type: "turn.started", agent: "root", trigger: "user" },
-              message(`ask-${turn}`, "user", text.join("\n")),
-              message(`reply-${turn}`, "assistant", scriptedReply),
-              { type: "turn.ended", agent: "root", outcome: "completed" },
-            ),
-          );
+          const ask = message(`ask-${turn}`, "user", text);
+          const reply = message(`reply-${turn}`, "assistant", scriptedReply);
+          if (holding) {
+            // Steered into the held turn: answer it and finish.
+            holding = false;
+            ctx.onFrame(frame(ask, reply, end("completed")));
+          } else if (text.includes(holdMarker)) {
+            holding = true;
+            ctx.onFrame(frame({ type: "turn.started", agent: "root", trigger: "user" }, ask));
+          } else if (text.includes(limitMarker)) {
+            ctx.onFrame(
+              frame({ type: "turn.started", agent: "root", trigger: "user" }, ask, {
+                type: "retry",
+                agent: "root",
+                on: "rate_limit",
+                message: limitNotice,
+              }),
+            );
+          } else {
+            ctx.onFrame(
+              frame(
+                { type: "turn.started", agent: "root", trigger: "user" },
+                ask,
+                reply,
+                end("completed"),
+              ),
+            );
+          }
+        },
+        async close(reason: Parameters<typeof session.close>[0]) {
+          // The testkit's script has no close step; the session still exits, which is all a
+          // restart or a resume after a limit needs.
+          await session.close(reason).catch(() => {});
+        },
+        async interrupt() {
+          // Stop ends a held turn; the testkit's script never sees it, so it can't run out.
+          if (!holding) return;
+          holding = false;
+          ctx.onFrame(frame(end("interrupted")));
         },
       };
     },
@@ -112,13 +161,30 @@ git("commit", "-q", "-m", "Initial commit");
 // A script for the header's Run button, and an uncommitted edit for its git control.
 writeFileSync(
   join(project, "package.json"),
-  `${JSON.stringify({ name: "e2e-project", private: true, scripts: { greet: `echo ${scriptOutput}` } }, null, 2)}\n`,
+  `${JSON.stringify(
+    {
+      name: "e2e-project",
+      private: true,
+      scripts: {
+        greet: `echo ${scriptOutput}`,
+      },
+    },
+    null,
+    2,
+  )}\n`,
 );
 git("add", "package.json");
 git("commit", "-q", "-m", "Add a script");
 writeFileSync(join(project, "README.md"), "# e2e project\n\nEdited by the workspace journey.\n");
 
 seedPluginMarket();
+
+// An editor on the daemon's PATH, so Open has the same choice on every machine. The daemon only
+// lists and validates it; the app hands the launch to this machine, so it never runs.
+const editors = join(daemonHome, "bin");
+mkdirSync(editors, { recursive: true });
+writeFileSync(join(editors, "zed"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+process.env.PATH = `${editors}${delimiter}${process.env.PATH ?? ""}`;
 
 const registry = new AdapterRegistry();
 for (const provider of ["claude", "codex"] as const)
@@ -145,6 +211,13 @@ await seedThread(
 await seedThread(daemon.url, daemonToken, workspace, screensTitle, "List what is in this project.");
 await seedThread(daemon.url, daemonToken, workspace, workerTitle, "Greet both tabs.");
 await seedThread(daemon.url, daemonToken, workspace, workspaceTitle, "Get the project ready.");
+await seedThread(daemon.url, daemonToken, workspace, settleTitle, "Tidy the README.");
+await seedThread(daemon.url, daemonToken, workspace, snoozeTitle, "Look at this tomorrow.");
+await seedThread(daemon.url, daemonToken, workspace, forkTitle, "Tidy the README.");
+await seedThread(daemon.url, daemonToken, workspace, deleteTitle, "Try something throwaway.");
+await seedThread(daemon.url, daemonToken, workspace, previewTitle, "Show me the page.");
+await seedThread(daemon.url, daemonToken, workspace, queueTitle, "Warm up the queue.");
+await seedThread(daemon.url, daemonToken, workspace, limitTitle, "Warm up before the limit.");
 process.stdout.write(`e2e daemon ready on ${daemon.url}\n`);
 
 const stop = () => void daemon.close().finally(() => process.exit(0));

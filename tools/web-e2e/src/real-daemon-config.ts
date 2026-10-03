@@ -20,3 +20,19 @@ export const scriptOutput = "ace e2e script ran";
 /** A local git repository with a plugin marketplace, for installing a plugin end to end. */
 export const pluginMarketPath = join(daemonHome, "plugin-market");
 export const pluginName = "e2e-tools";
+/** A message carrying this keeps its turn working until the person steers into it or stops it. */
+export const holdMarker = "[hold]";
+/** A message carrying this runs into the scripted account's usage limit. */
+export const limitMarker = "[limit]";
+export const limitNotice = "You've hit your usage limit for this window.";
+/** The organization spec's threads, one per journey so they can run side by side. */
+export const settleTitle = "Settle on a real daemon";
+export const snoozeTitle = "Snooze on a real daemon";
+export const forkTitle = "Fork on a real daemon";
+export const deleteTitle = "Delete on a real daemon";
+/** The queue spec's thread: a held turn, a queued message and Send now. */
+export const queueTitle = "Queue on a real daemon";
+/** The limit spec's thread: a usage limit and resuming from it. */
+export const limitTitle = "Limit on a real daemon";
+/** The preview spec's thread. */
+export const previewTitle = "Preview on a real daemon";
