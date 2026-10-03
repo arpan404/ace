@@ -64,7 +64,7 @@ export const PluginReviewOffset = z.number().int().min(0).max(1024);
 export const PluginAvailability = z.object({
   name: PluginName,
   enabled: z.boolean(),
-  providers: z.array(ProviderKind).max(6),
+  providers: z.array(ProviderKind).max(ProviderKind.options.length),
 });
 export type PluginAvailability = z.infer<typeof PluginAvailability>;
 export const PluginComponent = z.object({
@@ -74,7 +74,7 @@ export const PluginComponent = z.object({
   path: z.string().max(512),
   description: text,
   enabled: z.boolean(),
-  providers: z.array(ProviderKind).max(6),
+  providers: z.array(ProviderKind).max(ProviderKind.options.length),
 });
 export type PluginComponent = z.infer<typeof PluginComponent>;
 export const PluginRequest = z.discriminatedUnion("type", [
@@ -82,7 +82,7 @@ export const PluginRequest = z.discriminatedUnion("type", [
     type: z.literal("plugins.availability"),
     name: PluginName,
     enabled: z.boolean(),
-    providers: z.array(ProviderKind).max(6),
+    providers: z.array(ProviderKind).max(ProviderKind.options.length),
   }),
   z.strictObject({
     type: z.literal("plugins.catalog"),

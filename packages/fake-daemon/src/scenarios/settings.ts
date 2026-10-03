@@ -72,6 +72,8 @@ function model(
 }
 
 export function settingsFixture(now: number): SettingsFixture {
+  // Test clocks can start at epoch zero; fixture history must remain a valid timestamp.
+  const ago = (age: number) => Math.max(0, now - age);
   return {
     providers: [
       {
@@ -222,7 +224,7 @@ export function settingsFixture(now: number): SettingsFixture {
         threads: 3,
         daemonVersion: "0.8.0",
         online: true,
-        lastSeenAt: now - 20_000,
+        lastSeenAt: ago(20_000),
       },
     ],
     devices: [
@@ -230,16 +232,16 @@ export function settingsFixture(now: number): SettingsFixture {
         id: "device-iphone",
         name: "iPhone 16 Pro",
         scopes: ["read", "operate"],
-        createdAt: now - 12 * 24 * 60 * minute,
-        lastSeenAt: now - 2 * minute,
+        createdAt: ago(12 * 24 * 60 * minute),
+        lastSeenAt: ago(2 * minute),
         revokedAt: null,
       }),
       Device.parse({
         id: "device-ipad",
         name: "iPad Air",
         scopes: ["read"],
-        createdAt: now - 40 * 24 * 60 * minute,
-        lastSeenAt: now - 6 * 24 * 60 * minute,
+        createdAt: ago(40 * 24 * 60 * minute),
+        lastSeenAt: ago(6 * 24 * 60 * minute),
         revokedAt: null,
       }),
     ],

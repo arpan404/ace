@@ -334,4 +334,4 @@ export {
 } from "./organization.ts";
 export type { SettlePolicy } from "./organization.ts";
 
-export { liveMetadata } from "./live-metadata.ts";
+export { liveMetadata, boundedLiveModel } from "./live-metadata.ts";

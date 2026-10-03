@@ -1,4 +1,4 @@
-import { liveMetadata } from "@ace/projection";
+import { liveMetadata, boundedLiveModel } from "@ace/projection";
 import type { DatabaseSync } from "node:sqlite";
 import {
   Agent,
@@ -68,7 +68,9 @@ export function seedThreadClient(
     const thread = read(ThreadId.parse(row.id));
     if (!thread) continue;
     const entity = thread.rootAgentId ? root.get(thread.id, thread.rootAgentId) : undefined;
-    const model = entity ? Agent.parse(JSON.parse(String(entity.value))).model : undefined;
+    const model = boundedLiveModel(
+      entity ? Agent.parse(JSON.parse(String(entity.value))).model : undefined,
+    );
     write.run(
       encodeThreadClient({
         ...thread,

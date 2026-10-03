@@ -7324,7 +7324,7 @@ Example:
 | --- | --- | --- | --- |
 | name | yes | [PluginName.json](schema/PluginName.json) |  |
 | enabled | yes | boolean |  |
-| providers | yes | array | {"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}} |
+| providers | yes | array | {"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}} |
 
 Example:
 
@@ -7383,7 +7383,7 @@ Example:
 | path | yes | string | {"maxLength":512} |
 | description | yes | string | {"maxLength":8192} |
 | enabled | yes | boolean |  |
-| providers | yes | array | {"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}} |
+| providers | yes | array | {"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}} |
 
 Example:
 
@@ -7530,7 +7530,7 @@ Example:
 | type | yes | `"plugins.availability"` |  |
 | name | yes | [PluginName.json](schema/PluginName.json) |  |
 | enabled | yes | boolean |  |
-| providers | yes | array | {"maxItems":6,"items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}} |
+| providers | yes | array | {"maxItems":7,"items":{"$ref":"https://ace.local/protocol/v1/ProviderKind.json"}} |
 
 Example:
 

@@ -1054,7 +1054,7 @@
     },
     "schema/PluginAvailability.json": {
       "bytes": 528,
-      "sha256": "c92d52d60acdd8e0b086db2af7218e9209dab06494671701868beeb5d22b683d"
+      "sha256": "e80638c09ad7c22f29418a080386fb23961d16e04beb6d36b453377d117cbb4a"
     },
     "schema/PluginClientMessage.json": {
       "bytes": 529,
@@ -1066,7 +1066,7 @@
     },
     "schema/PluginComponent.json": {
       "bytes": 948,
-      "sha256": "a185cda680986868c02d9e3c0a5cd979fe539f671e562867659eee4cfe693b47"
+      "sha256": "9b8d9e6ad3cacfa6491a3d20b0a67f1b86b8c96a7754038f18a1bfcd18ebece7"
     },
     "schema/PluginExecution.json": {
       "bytes": 2550,
@@ -1086,7 +1086,7 @@
     },
     "schema/PluginRequest.json": {
       "bytes": 5687,
-      "sha256": "a5eebe48186242dc4120f1c3e303954ee854fc68892ffe1123d25c4a221e7cb6"
+      "sha256": "98f90336e27f7664b9849f52928a9aea6c9b2fecd0a733c00d2da80db8f7f654"
     },
     "schema/PluginResponse.json": {
       "bytes": 5332,
@@ -2166,9 +2166,9 @@
     },
     "types.md": {
       "bytes": 373940,
-      "sha256": "8fbfdf7b9224733f949ac209d957a328b4401cd52b9444ee1abc0f5db8e1b861"
+      "sha256": "2fb7347fcdc155ff48552feebb80805feeb74122996a1bfc1cb52979fcb87095"
     }
   },
-  "input": "111117ab419d0a1091d3f2b6d9359f15a5cefc563c4240f5ec8c99b9a4f5d203",
+  "input": "1191981bf9317a6a861af2106ede71cdc9a454cbe34ed132d54d4fbe6aa7bb69",
   "version": 1
 }

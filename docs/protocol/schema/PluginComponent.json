@@ -32,7 +32,7 @@
       "items": {
         "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
       },
-      "maxItems": 6,
+      "maxItems": 7,
       "type": "array"
     }
   },

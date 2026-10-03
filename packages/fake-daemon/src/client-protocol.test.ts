@@ -2,12 +2,13 @@ import { expect, test } from "vitest";
 import { Client } from "@ace/client";
 import {
   DeviceId,
+  ProviderKind,
   WorkspaceId,
   ThreadId,
   ServerMessage,
   type ServerMessage as Message,
 } from "@ace/protocol";
-import { FakeDaemon, fakeTransport } from "./index.ts";
+import { settingsFixture, FakeDaemon, fakeTransport } from "./index.ts";
 
 async function fixture() {
   const daemon = new FakeDaemon({ clock: () => 1000 });
@@ -162,7 +163,24 @@ test("fake plugin source edits require a new pinned review and leave accepted so
     });
     expect(catalog.response).toMatchObject({
       type: "plugins.catalog",
-      components: [{ plugin: "example", kind: "skill", enabled: true }],
+      components: [
+        { plugin: "example", kind: "skill", enabled: true, providers: ProviderKind.options },
+      ],
+    });
+    expect(
+      (
+        await f.client.request({
+          type: "pluginRequest",
+          request: {
+            type: "plugins.availability",
+            name: "example",
+            enabled: true,
+            providers: ProviderKind.options,
+          },
+        })
+      ).response,
+    ).toMatchObject({
+      availability: { enabled: true, providers: ProviderKind.options },
     });
     const read = () =>
       f.client.request({
@@ -501,4 +519,22 @@ test("fake inline commands expose virtual source and edits become visible only a
   } finally {
     await f.client.close();
   }
+});
+
+test("paired device fixtures stay valid near epoch zero and preserve ages with an epoch clock", () => {
+  const young = settingsFixture(1000);
+  expect(young.devices.map((device) => [device.createdAt, device.lastSeenAt])).toEqual([
+    [0, 0],
+    [0, 0],
+  ]);
+  const now = Date.parse("2026-10-03T12:00:00Z");
+  const aged = settingsFixture(now);
+  expect(aged.devices[0]).toMatchObject({
+    createdAt: now - 12 * 86400000,
+    lastSeenAt: now - 120000,
+  });
+  expect(aged.devices[1]).toMatchObject({
+    createdAt: now - 40 * 86400000,
+    lastSeenAt: now - 6 * 86400000,
+  });
 });
