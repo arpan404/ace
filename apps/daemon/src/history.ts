@@ -90,6 +90,9 @@ export class DaemonHistory {
   private continuation: HistoryContinuation;
   private scanController: AbortController | undefined;
   private scanning: Promise<void> | undefined;
+  private changesQueued = false;
+  private changeScan: NodeJS.Immediate | undefined;
+  private unsubscribeChanges: () => void;
   private scanState: HistoryScanStatus = {
     state: "idle",
     stats: { files: 0, reads: 0, bytes: 0, skipped: 0 },
@@ -108,6 +111,20 @@ export class DaemonHistory {
     for (const listener of this.listeners) listener(this.scanStatus());
   }
   startScan(): Promise<void> {
+    return this.runScan((signal, progress) => this.service.scan(signal, progress));
+  }
+  private scheduleChanges(): void {
+    this.changesQueued = true;
+    if (this.changeScan || this.scanning || this.active || this.lifetime.signal.aborted) return;
+    this.changeScan = setImmediate(() => {
+      this.changeScan = undefined;
+      if (this.scanning || this.active || this.lifetime.signal.aborted) return;
+      this.changesQueued = false;
+      void this.runScan((signal, progress) => this.service.scanChanges(signal, progress));
+    });
+    this.changeScan.unref();
+  }
+  private runScan(scan: HistoryService["scan"]): Promise<void> {
     if (this.scanning) return this.scanning;
     this.lifetime.signal.throwIfAborted();
     if (this.active) throw new Error("History import or continuation in progress");
@@ -123,10 +140,9 @@ export class DaemonHistory {
       stats: { files: 0, reads: 0, bytes: 0, skipped: 0 },
       unsupported: [],
     });
-    this.scanning = this.service
-      .scan(signal, (_files, result) => {
-        this.publishScan({ state: "scanning", stats: result, unsupported: result.unsupported });
-      })
+    this.scanning = scan(signal, (_files, result) => {
+      this.publishScan({ state: "scanning", stats: result, unsupported: result.unsupported });
+    })
       .then(
         (result) => {
           this.publishScan({ state: "ready", stats: result, unsupported: result.unsupported });
@@ -147,6 +163,7 @@ export class DaemonHistory {
       .finally(() => {
         this.scanning = undefined;
         this.scanController = undefined;
+        if (this.changesQueued) this.scheduleChanges();
       });
     return this.scanning;
   }
@@ -168,6 +185,7 @@ export class DaemonHistory {
     this.indexPath = indexPath;
     this.now = options.now ?? Date.now;
     this.nextId = options.nextId ?? randomUUID;
+    this.unsubscribeChanges = service.subscribeChanges(() => this.scheduleChanges());
     this.continuation = new HistoryContinuation(
       store,
       service,
@@ -210,6 +228,7 @@ export class DaemonHistory {
       return await active;
     } finally {
       this.active = undefined;
+      if (this.changesQueued) this.scheduleChanges();
     }
   }
   private async run(request: HistoryRequest, signal: AbortSignal): Promise<ServerMessage> {
@@ -263,6 +282,8 @@ export class DaemonHistory {
     return { type: "history.import", status: "imported", threadId: archived.id };
   }
   async close() {
+    this.unsubscribeChanges();
+    if (this.changeScan) clearImmediate(this.changeScan);
     this.lifetime.abort();
     await this.stopScan();
     this.listeners.clear();

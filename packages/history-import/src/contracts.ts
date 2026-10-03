@@ -78,7 +78,18 @@ export const Request = z.discriminatedUnion("op", [
   z.object({ op: z.literal("archive.agents"), id: ThreadId }),
   z.object({ op: z.literal("archive.page"), request: PageRequest }),
   z.object({ op: z.literal("archive.blob"), request: BlobRequest }),
-  z.object({ op: z.literal("scan") }),
+  z.object({
+    op: z.literal("scan"),
+    changes: z
+      .array(
+        z.object({
+          instanceId: z.string(),
+          paths: z.array(z.string().max(4096).refine(isAbsolute)).max(4096),
+        }),
+      )
+      .max(256)
+      .optional(),
+  }),
   z.object({ op: z.literal("list"), request: HistoryListRequest }),
   z.object({ op: z.literal("get"), id: z.string() }),
   z.object({ op: z.literal("import"), init: ImportInit }),
