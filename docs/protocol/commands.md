@@ -454,7 +454,7 @@ Example:
       "lanes": [
         {
           "model": "example",
-          "provider": "antigravity"
+          "provider": "acp"
         }
       ]
     },
@@ -504,6 +504,7 @@ Example:
 | Field | Required | Type | Constraints |
 | --- | --- | --- | --- |
 | type | yes | `"thread.create"` |  |
+| handoffFrom | no | [ThreadId.json](schema/ThreadId.json) |  |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
 | acpAgentId | no | string | {"minLength":1,"maxLength":256} |
@@ -518,15 +519,18 @@ Example:
 
 ```json
 {
+  "acpAgentId": "example",
+  "context": {},
+  "handoffFrom": "example",
   "input": [
     {
-      "text": "example",
-      "type": "text"
+      "path": "example",
+      "type": "file"
     }
   ],
-  "installationId": "example",
+  "instanceId": "example",
   "model": "example",
-  "provider": "codex",
+  "provider": "acp",
   "title": "example",
   "type": "thread.create",
   "workspaceId": "example"
@@ -550,6 +554,11 @@ Example:
   "delivery": "steer",
   "input": [
     {
+      "source": {
+        "bytes": 8,
+        "encoding": "utf-16le",
+        "streamId": "example"
+      },
       "text": "example",
       "type": "text"
     }
@@ -572,7 +581,6 @@ Example:
 
 ```json
 {
-  "agentId": "example",
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -644,8 +652,8 @@ Example:
 {
   "interactionId": "example",
   "resolution": {
-    "decision": "reject",
-    "kind": "plan_review"
+    "action": "accept",
+    "kind": "elicitation"
   },
   "type": "interaction.resolve"
 }
@@ -685,6 +693,31 @@ Example:
 {
   "commandId": "example",
   "error": "example",
+  "health": {
+    "activeSessions": 3,
+    "at": 8,
+    "eventLoop": {
+      "maxMs": 0,
+      "meanMs": 9,
+      "p99Ms": 5
+    },
+    "logs": {
+      "dropped": 7,
+      "failed": 4,
+      "queued": 1
+    },
+    "memory": {
+      "heapTotalBytes": 8,
+      "heapUsedBytes": 1,
+      "rssBytes": 7
+    },
+    "openHandles": 7,
+    "queues": {},
+    "sqlite": {
+      "pageBytes": null,
+      "walBytes": 2
+    }
+  },
   "ok": true
 }
 ```

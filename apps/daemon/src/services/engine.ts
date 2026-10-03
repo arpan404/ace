@@ -1,6 +1,7 @@
 import { cursorHosts } from "./cursor-hosts.ts";
 import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
+import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
 import { defaultCursorInstance } from "@ace/adapter-cursor";
 import { homedir } from "node:os";
@@ -44,8 +45,11 @@ export async function startEngine(context: ServiceContext): Promise<void> {
   };
   const registry =
     engineOptions.registry ??
-    (await discoverAdapters(engineOptions.adapterDiscovery, cursorOptions, undefined, (cli) =>
-      daemonClaudeAdapter(context, cli),
+    (await discoverAdapters(
+      engineOptions.adapterDiscovery,
+      (cli) => daemonClaudeAdapter(context, cli),
+      (adapters) => registerPi(context, adapters),
+      cursorOptions,
     ));
   if (!engineOptions.registry) resources.own(() => registry.close());
   const acp =

@@ -1,0 +1,144 @@
+{
+  "$id": "https://ace.local/protocol/v1/CursorAuthEvent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "$ref": "https://ace.local/protocol/v1/CursorSdkAuth.json"
+        },
+        "error": {
+          "enum": [
+            "login_failed",
+            "expired",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        "expiresAt": {
+          "minimum": 0,
+          "type": "number"
+        },
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "loginId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "starting",
+            "browser",
+            "complete",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "const": "cursor.auth.login",
+          "type": "string"
+        },
+        "url": {
+          "allOf": [
+            {
+              "format": "ace-whatwg-url",
+              "type": "string",
+              "x-ace-constraint": "Accept strings whose trimmed value is an absolute WHATWG URL. Whitespace, Unicode hosts, opaque schemes and parser-normalized URLs are allowed. x-ace-url-minLength and x-ace-url-maxLength apply after trimming whitespace and removing ASCII tab, CR and LF characters, using UTF-16 code units. Install the ace-whatwg-url format validator or enforce this rule in application code.",
+              "x-ace-url-maxLength": 8192
+            },
+            {
+              "pattern": "^https:\\/\\/",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "loginId",
+        "instanceId",
+        "state",
+        "expiresAt"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "$ref": "https://ace.local/protocol/v1/CursorSdkAuth.json"
+        },
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "selectedInstanceId": {
+          "anyOf": [
+            {
+              "$ref": "https://ace.local/protocol/v1/AccountId.json"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "type": {
+          "const": "cursor.auth.changed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "instanceId",
+        "selectedInstanceId",
+        "auth"
+      ],
+      "type": "object"
+    },
+    {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "enum": [
+            "unavailable",
+            "busy",
+            "not_found",
+            "forbidden",
+            "auth_failed"
+          ],
+          "type": "string"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "cursor.auth.error",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "code"
+      ],
+      "type": "object"
+    }
+  ]
+}

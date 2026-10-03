@@ -27,6 +27,7 @@ export function developerInstructions(provider: ProviderKind): string {
     cursor: "Use the ace MCP server for ace operations.",
     antigravity: "Use the ace MCP server for ace operations.",
     acp: "Use the ace MCP server for ace operations.",
+    pi: "Use ace_* extension tools for ace operations.",
   };
   return `${prefix[provider]} Inspect the thread and agent tree for live status. Spawn returns acceptance, not completion. Notify the user when their input is needed. Browser and preview tools appear only when authorized.`;
 }

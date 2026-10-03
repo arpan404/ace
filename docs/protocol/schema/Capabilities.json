@@ -2,6 +2,14 @@
   "$id": "https://ace.local/protocol/v1/Capabilities.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "approvals": {
+      "enum": [
+        "interactive",
+        "sandbox-only",
+        "none"
+      ],
+      "type": "string"
+    },
     "backgroundTaskControl": {
       "type": "boolean"
     },
@@ -13,8 +21,31 @@
       ],
       "type": "string"
     },
+    "childControls": {
+      "enum": [
+        "native",
+        "read-only"
+      ],
+      "type": "string"
+    },
+    "childFidelity": {
+      "enum": [
+        "full",
+        "summary",
+        "placeholder"
+      ],
+      "type": "string"
+    },
     "fork": {
       "type": "boolean"
+    },
+    "forkMode": {
+      "enum": [
+        "native",
+        "context-handoff",
+        "none"
+      ],
+      "type": "string"
     },
     "imageInput": {
       "type": "boolean"
@@ -33,6 +64,14 @@
     },
     "steer": {
       "type": "boolean"
+    },
+    "steeringMode": {
+      "enum": [
+        "native",
+        "interrupt-restart",
+        "queue"
+      ],
+      "type": "string"
     },
     "subagentTranscripts": {
       "type": "boolean"

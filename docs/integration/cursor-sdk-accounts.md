@@ -1,8 +1,8 @@
 # Cursor SDK accounts integration
 
-This branch refreshes onto train 2 and Claude SDK changes at `6a26d03`.
-Accounts PR #25 is now merged. The earlier handoff patch has been applied and
-adapted directly through the accounts package public exports.
+This branch includes main through `c7ca5923`, preserving the accounts, ACP
+registry, Claude SDK, OpenCode v2, web and Pi integrations. Accounts PR #25 is
+merged; SDK ownership uses the accounts package public exports.
 
 `bindCursorSdk` constructs bounded per-instance owners only after account
 assignment. Account wrappers preserve backend, command identity, instance ID,

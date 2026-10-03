@@ -58,6 +58,7 @@ export function discoveryPaths(provider: ProviderKind, home: string, cwd: string
       return [join(home, ".cursor/mcp.json"), join(cwd, ".cursor/mcp.json")];
     case "antigravity":
       return [join(home, ".gemini/config/mcp_config.json"), join(cwd, ".agents/mcp_config.json")];
+    case "pi":
     case "acp":
       return [];
   }

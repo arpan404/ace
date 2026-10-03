@@ -13,11 +13,42 @@
     "archivedAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
+    "backend": {
+      "enum": [
+        "acp",
+        "cursor-sdk"
+      ],
+      "type": "string"
+    },
+    "capabilities": {
+      "$ref": "https://ace.local/protocol/v1/Capabilities.json"
+    },
     "createdAt": {
       "$ref": "https://ace.local/protocol/v1/Timestamp.json"
     },
     "effectiveCapabilities": {
       "$ref": "https://ace.local/protocol/v1/Capabilities.json"
+    },
+    "handoff": {
+      "properties": {
+        "bytes": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sourceThreadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sourceThreadId",
+        "truncated",
+        "bytes"
+      ],
+      "type": "object"
     },
     "id": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"

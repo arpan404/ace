@@ -20,16 +20,24 @@ it("selects SDK for CLI-free new threads and retains ACP for pinned old threads"
     opencode: absent,
     cursor: absent,
   });
-  const registry = await discoverAdapters(discover, {}, async () => ({
-    installed: true,
-    supported: true,
-    version: "1.0.35",
-  }));
+  const registry = await discoverAdapters(
+    discover,
+    undefined,
+    async () => {},
+    {},
+    async () => ({
+      installed: true,
+      supported: true,
+      version: "1.0.35",
+    }),
+  );
   expect(registry.get("cursor").capabilities.approvals).toBe("sandbox-only");
   expect(() => registry.get("cursor", "acp")).toThrow("original runtime");
   const cli = { ...absent, installed: true };
   const fallback = await discoverAdapters(
     async () => ({ ...(await discover()), cursor: cli }),
+    undefined,
+    async () => {},
     {},
     async () => ({ installed: false, supported: false }),
   );
@@ -37,6 +45,8 @@ it("selects SDK for CLI-free new threads and retains ACP for pinned old threads"
   expect(fallback.get("cursor", "acp").adapter.provider).toBe("cursor");
   const unsupported = await discoverAdapters(
     async () => ({ ...(await discover()), cursor: cli }),
+    undefined,
+    async () => {},
     {},
     async () => ({
       installed: true,

@@ -1,4 +1,4 @@
-import { discoverProviders } from "@ace/provider-kit/discovery";
+import { discoverProviders, discoverPi } from "@ace/provider-kit/discovery";
 import {
   discoverCursorSdk,
   createCursorAdapter,
@@ -11,12 +11,11 @@ import { AdapterRegistry } from "./registry.ts";
 /** Metadata probes only; sessions still open after committed command admission. */
 export async function discoverAdapters(
   discover: typeof discoverProviders = discoverProviders,
-  cursorOrClaude: CursorAdapterOptions | ((cli: DiscoveryResult) => ProviderAdapter) = {},
+  claudeAdapter?: (cli: DiscoveryResult) => ProviderAdapter,
+  additional?: (registry: AdapterRegistry) => Promise<void>,
+  cursorOptions: CursorAdapterOptions = {},
   sdkDiscovery: typeof discoverCursorSdk = discoverCursorSdk,
-  claudeFactory?: (cli: DiscoveryResult) => ProviderAdapter,
 ): Promise<AdapterRegistry> {
-  const cursorOptions = typeof cursorOrClaude === "function" ? {} : cursorOrClaude;
-  const claudeAdapter = typeof cursorOrClaude === "function" ? cursorOrClaude : claudeFactory;
   const registry = new AdapterRegistry();
   const { claude, codex, opencode, cursor } = await discover();
   if (claude.installed) {
@@ -58,6 +57,14 @@ export async function discoverAdapters(
       ...(sdk.version ? { version: sdk.version } : {}),
       ...(sdk.error ? { error: sdk.error } : {}),
     });
+  }
+  if (additional) await additional(registry);
+  else {
+    const pi = await discoverPi();
+    if (pi.installed) {
+      const { createPiAdapter, piProfile } = await import("@ace/adapter-pi");
+      if (piProfile(pi).supported) registry.register(createPiAdapter({ cli: pi }), pi);
+    }
   }
   return registry;
 }

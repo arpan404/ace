@@ -388,6 +388,9 @@
         "context": {
           "$ref": "https://ace.local/protocol/v1/MessageContext.json"
         },
+        "handoffFrom": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
         "input": {
           "items": {
             "$ref": "https://ace.local/protocol/v1/ContentPart.json"

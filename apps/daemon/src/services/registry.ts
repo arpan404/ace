@@ -1,3 +1,4 @@
+import { createPiSocketSession } from "./pi.ts";
 import { createAgentRegistrySession } from "./agent-registry.ts";
 import { createScreenSession } from "./screen.ts";
 import { Simulators } from "@ace/screen";
@@ -22,6 +23,7 @@ import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
+  createPiSocketSession,
   createSearchSession,
   createAccountsSession,
   createCursorAuthSession,

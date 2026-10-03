@@ -12,7 +12,7 @@ The owner explicitly permits only formatting, lint, typecheck and source-size
 checks before merge. Behavior tests are written for merge-time execution.
 
 Static validation: `bun run fmt`, `bun run lint`, `bun run typecheck` and
-`bun run check:size` passed (1,626 tracked sources within the hard limit). These
+`bun run check:size` passed (all tracked sources within the hard limit). These
 do not establish runtime correctness.
 
 ## Written behavior tests — needs run at merge
@@ -163,8 +163,9 @@ rate-limit scenario is proposed.
 
 - Backend browser auth and selected-instance lifecycle are assembled through the
   daemon service registry. Web/desktop auth views and other client control wiring
-  are separately owned. Generated protocol references need regeneration at merge;
-  the owner's allowed-command list excludes documentation generation/checking.
+  are separately owned. Generated protocol schema references are refreshed as
+  documentation artifacts; verification beyond the permitted static checks stays
+  deferred to merge.
 - New SDK threads use the public transactional SQLite store. Existing SDK JSONL
   stores keep their format. Redacted callback journals commit before IPC and ace
   commits its cursor atomically with canonical facts. Pure translation hydration

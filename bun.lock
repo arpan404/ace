@@ -25,6 +25,7 @@
         "@ace/adapter-codex": "workspace:*",
         "@ace/adapter-cursor": "workspace:*",
         "@ace/adapter-opencode": "workspace:*",
+        "@ace/adapter-pi": "workspace:*",
         "@ace/agent-registry": "workspace:*",
         "@ace/browser": "workspace:*",
         "@ace/commands": "workspace:*",
@@ -193,6 +194,20 @@
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
         "@ace/projection": "workspace:*",
+      },
+    },
+    "packages/adapter-pi": {
+      "name": "@ace/adapter-pi",
+      "dependencies": {
+        "@ace/core": "workspace:*",
+        "@ace/engine-api": "workspace:*",
+        "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
+        "@modelcontextprotocol/client": "2.2.0",
+        "zod": "^4.6.5",
+      },
+      "devDependencies": {
+        "@ace/mcp-server": "workspace:*",
       },
     },
     "packages/adapter-testkit": {
@@ -611,6 +626,8 @@
     "@ace/adapter-cursor": ["@ace/adapter-cursor@workspace:packages/adapter-cursor"],
 
     "@ace/adapter-opencode": ["@ace/adapter-opencode@workspace:packages/adapter-opencode"],
+
+    "@ace/adapter-pi": ["@ace/adapter-pi@workspace:packages/adapter-pi"],
 
     "@ace/adapter-testkit": ["@ace/adapter-testkit@workspace:packages/adapter-testkit"],
 
