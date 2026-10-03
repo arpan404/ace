@@ -1,5 +1,7 @@
 import type { Automation, AutomationRun } from "@ace/protocol";
 import {
+  ArrowsClockwiseIcon,
+  CalendarBlankIcon,
   CheckIcon,
   ClockIcon,
   FileIcon,
@@ -30,6 +32,17 @@ const triggerIcons: Record<Automation["trigger"]["kind"], PhosphorIcon> = {
   file: FileIcon,
   manual: HandPointingIcon,
 };
+
+/** The glyph says how it fires: a clock daily, arrows every few hours, a calendar weekly. */
+function triggerIcon(trigger: Automation["trigger"]): PhosphorIcon {
+  if (trigger.kind !== "schedule") return triggerIcons[trigger.kind];
+  const expression = trigger.schedule.expression.toUpperCase();
+  if (/FREQ=(HOURLY|MINUTELY)/.test(expression)) return ArrowsClockwiseIcon;
+  const weekly =
+    expression.includes("FREQ=WEEKLY") ||
+    (trigger.schedule.kind === "cron" && !expression.trim().endsWith("*"));
+  return weekly ? CalendarBlankIcon : ClockIcon;
+}
 
 /** Automations' second sidebar: every schedule and trigger, then the latest runs. */
 export function AutomationsSidebar() {
@@ -67,7 +80,7 @@ export function AutomationsSidebar() {
                 key={automation.id}
                 to={automation.id}
                 selected={selected === automation.id}
-                icon={<Icon icon={triggerIcons[automation.trigger.kind]} size={16} />}
+                icon={<Icon icon={triggerIcon(automation.trigger)} size={16} />}
                 title={automation.title}
                 description={`${describeTrigger(automation.trigger)} · ${automation.workspace}`}
                 trailing={automation.enabled ? undefined : "off"}

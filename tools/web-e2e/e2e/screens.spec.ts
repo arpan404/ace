@@ -95,9 +95,14 @@ const screens: Record<string, Setup> = {
   "thread-terminal": bottomTab("/t/thread-cold-start", "Terminal"),
   "thread-logs": bottomTab("/t/thread-cold-start", "Logs"),
   activity: visit("/activity", "Activity"),
-  automations: visit("/automations", "Automations"),
+  // Automations opens on the first automation.
+  automations: async (page) => {
+    await page.goto("/automations");
+    await page.waitForURL(/\/automations\/(?!new)[^/]+$/);
+    await page.getByRole("main").waitFor();
+  },
   "automation-detail": async (page) => {
-    await visit("/automations", "Automations")(page);
+    await screens.automations!(page);
     await page
       .getByRole("complementary")
       .locator('a[href^="/automations/"]:not([href$="/new"])')

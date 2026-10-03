@@ -10,6 +10,7 @@ import { useLayout } from "@/lib/layout.tsx";
 import { ProjectFilter } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
 import { useHomeArrangement } from "./use-home-threads.ts";
+import { rememberThread } from "./last-thread.ts";
 import { useOrganizer, useOrganizerState } from "./use-organizer.ts";
 
 /**
@@ -76,13 +77,20 @@ export function HomeSidebar() {
   );
 }
 
-/** The open thread counts as read: record what was seen, and again as it moves. */
+/**
+ * The open thread counts as read: record what was seen, and again as it moves. It is also the
+ * thread Home returns to.
+ */
 function useSeenWhileOpen() {
   const params = useParams({ strict: false });
   const threadId = params.threadId;
   const entry = useSidebarThread(threadId ?? "");
   const organizer = useOrganizer();
+  const { storage } = useLayout();
   const updatedAt = entry?.updatedAt;
+  useEffect(() => {
+    if (threadId) rememberThread(storage, threadId);
+  }, [storage, threadId]);
   useEffect(() => {
     if (!threadId || updatedAt === undefined) return;
     const mark = organizer.mark(threadId);
