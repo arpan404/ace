@@ -20,6 +20,24 @@ test("a complete plan beyond transcript preview size reaches workers with its fi
   );
 });
 
+test("a plan at the compact JSON size limit is accepted with its artifact envelope", async () => {
+  const cards = plan();
+  const card = cards.workstreams[0];
+  if (!card) throw new Error("Card missing");
+  card.brief.risks = Array.from({ length: 32 }, () => "r".repeat(16384));
+  card.brief.acceptance = Array.from({ length: 31 }, (_, index) => {
+    const prefix = `Criterion ${index}: `;
+    return prefix + "a".repeat(16384 - prefix.length);
+  });
+  card.brief.instructions += "i".repeat(1_048_576 - Buffer.byteLength(JSON.stringify(cards)));
+  expect(Buffer.byteLength(JSON.stringify(cards))).toBe(1_048_576);
+  const h = await deckFixture({ cards, planApproval: "required" });
+  expect(await h.startRun()).toMatchObject({ ok: true });
+  await h.subscribe();
+  await expect.poll(() => h.changes.at(-1)?.needsUser[0]?.kind).toBe("plan");
+  expect((await h.read()).plan).toEqual(cards);
+});
+
 test("a complete review beyond transcript preview size is admitted and integrates its card", async () => {
   const h = await deckFixture({ longReview: true });
   expect(await h.startRun()).toMatchObject({ ok: true });

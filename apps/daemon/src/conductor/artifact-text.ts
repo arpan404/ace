@@ -1,8 +1,8 @@
 import type { Item } from "@ace/protocol";
 import type { Store } from "../store.ts";
 
-const limit = 1_048_576;
-/** Text previews are never artifact inputs. Fetch at most two MiB of UTF-16 source
+import { artifactTextLimit as limit } from "./artifacts.ts";
+/** Text previews are never artifact inputs. Fetch at most twice the artifact envelope budget in UTF-16 source
  * bytes, in the Store's bounded ranges, then enforce the UTF-8 artifact budget. */
 export function readArtifactText(
   store: Store,

@@ -28,7 +28,7 @@ Restart discovers every nonterminal run, including those with no pending effects
 
 Keep one durable command attempt per effect and target. Commit its command identity and payload before asynchronous preparation. Replay accepted receipts, and replace only queue-conflict/capacity rejections with a new identity. A switch admission receipt is not execution: reconcile the applied provider/account/model selection and indexed engine intent status. Replace an interrupted, failed switch attempt after engine recovery; retain pending and running attempts. Do not resume migrating lanes on the old selection during startup.
 
-Read complete assistant text through Store source ranges, bounded to two MiB of UTF-16 storage and one MiB of UTF-8 artifact input. The plan and review schemas retain their respective compact JSON limits. Lost sources, worktrees or invalid artifacts affect only artifact admission. Whole-thread status and timed missing-artifact escalation still run.
+Read complete assistant text through Store source ranges, bounded to twice the UTF-8 envelope budget in UTF-16 storage. The envelope budget is one MiB plus one KiB for the kind/revision wrapper. The plan and review schemas retain their respective compact JSON limits. Lost sources, worktrees or invalid artifacts affect only artifact admission. Whole-thread status and timed missing-artifact escalation still run.
 
 ## Client contract
 
