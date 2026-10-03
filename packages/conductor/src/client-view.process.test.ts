@@ -33,13 +33,16 @@ test("Deck reads return the persisted plan and active lanes without execution ar
 
 test("reading many stored Decks never consumes live execution capacity and lists page without omission", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-deck-views-"));
-  const store = new ConductorStore(join(root, "conductor.sqlite"));
+  const path = join(root, "conductor.sqlite");
+  let store = new ConductorStore(path);
   const env = environment();
   try {
     for (let i = 0; i < 12; i++) {
       const id = `saved-${String(i).padStart(2, "0")}`;
       store.create(id, spec(), env);
-      store.release(id);
+      // Closing a lifetime frees actors without pretending a planning run is terminal.
+      store.close();
+      store = new ConductorStore(path);
     }
     const first = store.list(undefined, 8),
       second = store.list(first.next, 8);

@@ -1,9 +1,15 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { ConductorStore } from "../src/index.ts";
 import { environment, spec } from "../src/test-support.ts";
-const store = new ConductorStore(":memory:");
-store.create("run", spec(), environment());
-store.release("run");
+const root = mkdtempSync(join(tmpdir(), "ace-deck-bench-"));
+const path = join(root, "conductor.sqlite");
+const setup = new ConductorStore(path);
+setup.create("run", spec(), environment());
+setup.close();
+const store = new ConductorStore(path);
 const iterations = 10000,
   started = performance.now();
 for (let i = 0; i < iterations; i++) store.view("run");
@@ -17,3 +23,5 @@ console.log(
   }),
 );
 store.close();
+
+rmSync(root, { recursive: true, force: true });
