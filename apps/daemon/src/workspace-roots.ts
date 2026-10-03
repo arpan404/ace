@@ -87,6 +87,26 @@ export class WorkspaceRoots {
     });
     return path;
   }
+  async changeRoots(id: ThreadId, mode: "local" | "worktree"): Promise<string[]> {
+    const thread = this.store.getThread(id);
+    if (!thread) throw new Error("thread_not_found");
+    const project = this.store.getWorkspacePath(thread.workspaceId);
+    if (!project) throw new Error("workspace_not_found");
+    const row = this.store.atomic((db) =>
+      db.prepare("SELECT cwd FROM engine_sessions WHERE thread_id=?").get(id),
+    );
+    if (typeof row?.cwd !== "string") throw new Error("workspace_unavailable");
+    const source = await realpath(row.cwd);
+    let destination = await realpath(project);
+    if (mode === "worktree") {
+      await mkdir(join(this.directory, "worktrees"), { recursive: true, mode: 0o700 });
+      destination = join(
+        await realpath(join(this.directory, "worktrees")),
+        createHash("sha256").update(id).digest("hex"),
+      );
+    }
+    return [...new Set([source, destination])];
+  }
   async change(
     id: ThreadId,
     selection: {

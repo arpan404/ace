@@ -1,3 +1,4 @@
+import { WorkspaceReservations } from "./workspace-reservations.ts";
 import { migrateRunClient, prepareRunClient } from "./run-client-storage.ts";
 import { executionWorkspace } from "./workspace-root.ts";
 import {
@@ -53,6 +54,7 @@ export interface StoreOptions extends Partial<CredentialRuntime> {
 type Listener = (events: Event[]) => void;
 export class Store {
   readonly devices: Devices;
+  readonly workspaceReservations: WorkspaceReservations;
   private readonly db: DatabaseSync;
   private readonly usageReplay: UsageReplay;
   private readonly usageListeners = new Set<() => void>();
@@ -93,6 +95,7 @@ export class Store {
         "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON;",
       );
       migrate(this.db);
+      this.workspaceReservations = new WorkspaceReservations(this.db);
       this.atomic(migrateThreadClient);
       this.usageReplay = new UsageReplay(this.db);
       this.db.exec(
@@ -337,15 +340,23 @@ export class Store {
     const session = this.engineSessionsKnown
       ? this.statement("SELECT * FROM engine_sessions WHERE thread_id=?").get(id)
       : undefined;
-    return executionWorkspace(
+    const binding = executionWorkspace(
       thread,
       session,
       session === undefined ? this.getWorkspacePath(thread.workspaceId) : undefined,
     );
+    const root =
+      session === undefined
+        ? this.workspaceReservations.workspaceRoot(thread.workspaceId, binding.path)
+        : binding.path;
+    this.workspaceReservations.assertAvailable(root);
+    return binding;
   }
   completeWorkspacePreparation(id: ThreadId, expectedPath: string, path: string): boolean {
     const thread = this.getThread(id);
     if (!thread || thread.deletedAt !== undefined) return false;
+    this.workspaceReservations.assertAvailable(expectedPath);
+    this.workspaceReservations.assertAvailable(path);
     const result = this.statement(
       "UPDATE engine_sessions SET cwd=?,workspace_ready=1 WHERE thread_id=? AND cwd=? AND workspace_ready=0",
     ).run(path, id, expectedPath);
@@ -360,9 +371,13 @@ export class Store {
   createWorkspace(path: string, name: string, at = this.now()): WorkspaceId {
     if (this.historyWriting) throw new Error("History publication in progress");
     const existing = this.statement("SELECT id FROM workspaces WHERE path = ?").get(path);
-    if (existing) return WorkspaceId.parse(existing.id);
+    if (existing) {
+      this.workspaceReservations.registerWorkspace(String(existing.id), path);
+      return WorkspaceId.parse(existing.id);
+    }
     const id = WorkspaceId.parse(this.nextId());
     this.statement("INSERT INTO workspaces VALUES (?, ?, ?, ?)").run(id, path, name, at);
+    this.workspaceReservations.registerWorkspace(id, path);
     return id;
   }
   getWorkspacePath(id: WorkspaceId): string | undefined {

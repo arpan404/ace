@@ -51,6 +51,7 @@ export class EngineRepository {
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    store.atomic(() => store.workspaceReservations.initializeSessions());
     this.recovery = new ProviderRecovery(store);
     this.capture = store.atomic((db) =>
       db.prepare("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)"),

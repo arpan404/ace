@@ -27,6 +27,7 @@ export interface WorkspaceRuntimeOptions {
     id: ThreadId,
     commandId: string,
     effect: () => Promise<ThreadDetails>,
+    reservation: { roots: readonly string[]; hasOwnedWork(id: ThreadId): boolean },
   ): Promise<void>;
   forgeRunner?: (cwd: string) => CommandRunner;
   gitService?: WorkspaceGit;
@@ -189,12 +190,18 @@ export class WorkspaceRuntime {
       if (p.type === "thread.workspace.set") {
         if (!this.options.changeWorkspace) return { ok: false, error: "engine_unavailable" };
         if (this.hasOwnedWork(threadId)) return { ok: false, error: "terminal_owned" };
-        await this.options.changeWorkspace(threadId, command.id, async () => {
-          if (!allowed()) throw new Error("forbidden");
-          const details = await this.roots.change(threadId, p);
-          if (!allowed()) throw new Error("forbidden");
-          return details;
-        });
+        const roots = await this.roots.changeRoots(threadId, p.mode);
+        await this.options.changeWorkspace(
+          threadId,
+          command.id,
+          async () => {
+            if (!allowed()) throw new Error("forbidden");
+            const details = await this.roots.change(threadId, p);
+            if (!allowed()) throw new Error("forbidden");
+            return details;
+          },
+          { roots, hasOwnedWork: (owner) => this.hasOwnedWork(owner) },
+        );
         return { ok: true, threadId };
       }
       const cwd = this.root(threadId);

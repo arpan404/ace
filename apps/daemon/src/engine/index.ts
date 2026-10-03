@@ -329,6 +329,10 @@ export class Engine {
     id: ThreadId,
     commandId: string,
     effect: () => Promise<import("@ace/protocol").ThreadDetails>,
+    reservation: { roots: readonly string[]; hasOwnedWork(id: ThreadId): boolean } = {
+      roots: [this.repo.session(id).cwd],
+      hasOwnedWork: () => false,
+    },
   ): Promise<void> {
     if (this.closing || this.workspaceChanges.has(id))
       throw new Error("workspace_change_in_progress");
@@ -337,14 +341,15 @@ export class Engine {
       id,
       commandId,
       () => this.clock.now(),
-      async () => {
-        const actor = this.actor(id);
+      async (owner) => {
+        const actor = this.actor(owner);
         await actor.flush();
         await this.sessions.close(actor, "idle");
         await actor.flush();
       },
       effect,
-      () => this.wake(id),
+      (owner) => this.wake(owner),
+      { ...reservation, roots: [...reservation.roots, this.repo.session(id).cwd] },
     ).finally(() => this.workspaceChanges.delete(id));
     this.workspaceChanges.set(id, change);
     return change;
@@ -449,6 +454,7 @@ export class Engine {
       this.syncQueue(actor);
       return;
     }
+    if (this.repo.store.workspaceReservations.reserved(this.repo.session(actor.id).cwd)) return;
     // Controls own idle retirement; sends must remain free to open a replacement.
     if (this.closing || (actor.idleDue && actor.session)) return;
     const guard = this.repo.transitions.guardOwner(actor.id);
