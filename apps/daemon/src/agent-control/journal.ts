@@ -3,6 +3,7 @@ import type { StatementSync } from "node:sqlite";
 import { z } from "zod";
 import { DelegationRecord, ThreadId, type DelegationOutcome, type Event } from "@ace/protocol";
 import type { Store } from "../store.ts";
+import { hasStoppedAncestor } from "./ancestor-stop.ts";
 
 export const DelegationReservation = z.object({
   record: DelegationRecord,
@@ -235,6 +236,15 @@ export class DelegationJournal {
       child = this.get(child.parentId);
     }
     return false;
+  }
+  ancestorStopped(thread: ThreadId): boolean {
+    return hasStoppedAncestor(thread, (id) => {
+      const edge = this.get(id);
+      return {
+        ...(edge ? { parentId: edge.parentId } : {}),
+        stopped: this.stopped(id) || edge?.phase === "cancelling",
+      };
+    });
   }
   reopen(record: DelegationRecord) {
     this.sql("DELETE FROM delegation_subtree_stops WHERE thread_id=?").run(record.childId);

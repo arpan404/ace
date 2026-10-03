@@ -30,14 +30,8 @@ export function delegationCommandPolicy(deps: {
     if (!deps.admits()) return fail("Admission closed");
     if (p.trigger === "subagent_result" && deps.journal.stopped(p.threadId))
       return fail("cancelled");
-    let ancestor = edge;
-    for (let depth = 0; depth < 8; depth++) {
-      if (ancestor.phase === "cancelling") return fail("cancelled");
-      const parent = deps.journal.get(ancestor.parentId);
-      if (!parent) break;
-      if (deps.journal.stopped(parent.childId)) return fail("cancelled");
-      ancestor = parent;
-    }
+    if (edge.phase === "cancelling" || deps.journal.ancestorStopped(p.threadId))
+      return fail("cancelled");
     const tree = deps.journal.tree(edge.parentId, deps.now());
     const rejection = tree.cancelled
       ? "cancelled"

@@ -18,6 +18,8 @@ Only static verification is permitted in this run. All behaviour tests, mutation
 - Follow-up messaging closes the idle process, resumes its distinct native ID/history, wakes again and does not reopen on completed retries.
 - Ordinary UI/engine sends reopen accounting, enforce concurrent slots, wake again and participate in cascade cancellation.
 - Repeated subtree interruption uses a new receipt; old request retries do not interrupt reopened work. Durable stops suppress automatic wakes across restart, while sibling work survives.
+- A settled descendant's surviving MCP scope cannot prepare children beneath a stopped parent or grandparent, including after owner restart. Denials leave no threads/linkage/status revival and consume no remaining receipt/tree capacity; explicit ancestor reopening permits preparation.
+- A reservation acquired before ancestor interruption cannot commit a prepared child after the stop. The host can release it and reuse capacity after explicitly reopening the ancestor.
 - Closed admission blocks prepared launch, direct engine sends and handoff retries.
 - Large child text is read by bounded byte ranges; streams cannot be substituted across target threads.
 - Actual questions resolve through the public engine command API and allow work to settle.
@@ -71,32 +73,36 @@ Every case is **not executed (tests run at merge)**.
 
 Additional review regression mutations are all **not executed (tests run at merge)**.
 
-| Production mutation                                                | Test designed to fail                                   |
-| ------------------------------------------------------------------ | ------------------------------------------------------- |
-| Apply generation reopening only to MCP messages                    | Ordinary engine send accounting/wake/cancellation       |
-| Reuse one cascade interrupt ID across generations                  | Reopened subtree's second interruption                  |
-| Retry an old interrupt by cancelling current work                  | Reopened subtree's old request retry                    |
-| Drop persistent subtree stops or clear them on result turns        | Subtree stop across restart, no automatic wake          |
-| Remove launch admission/closed guards                              | Prepared launch, direct send and handoff retry          |
-| Create Git resources before reserving admission                    | Handoff capacity rejection leaves no resources          |
-| Exclude pending reservations from concurrency                      | Pending Git reservation blocks another delegate         |
-| Ignore lease/parent cancellation before acceptance                 | Revoked/cancelled pending Git handoff                   |
-| Omit worktree/branch/workspace compensation or reservation release | Failed/revoked handoff and later slot reuse             |
-| Delete a preexisting or changed branch during cleanup              | Failed creation preserves branches and Git cleanup test |
-| Omit receipt counter triggers or retain rollback reservations      | Capacity settlement/restart/rollback                    |
-| Invoke preview cleanup twice for concurrent closes                 | Concurrent preview cleanup                              |
-| Remove foreign project authorization                               | Scoped project management                               |
-| Close an unregistered preview                                      | Preview ownership                                       |
-| Delete a replacement preview after old cleanup                     | Pending preview replacement                             |
-| Create another child on handoff retry                              | Worktree handoff receipt reuse                          |
-| Omit native resume identity                                        | Distinct native history retained after idle close       |
-| Ignore account selection/quota rejection                           | Explicit account/quota test                             |
-| Deliver a foreign thread reference                                 | Daemon context delivery                                 |
-| Drop ACP identity or replace Claude's scoped lease                 | ACP identity and Claude replacement integration         |
-| Share an OpenCode process between scoped thread leases             | OpenCode native MCP authority isolation/revocation      |
-| Drop user MCP definitions during OpenCode injection                | OpenCode native MCP configuration preservation          |
-| Replace Pi's engine lease with a narrower registration lease       | Pi daemon MCP tools and shutdown revocation             |
-| Exclude autonomous run triggers from input acknowledgement         | Agent-trigger admission and next-message delivery       |
+| Production mutation                                                | Test designed to fail                                    |
+| ------------------------------------------------------------------ | -------------------------------------------------------- |
+| Apply generation reopening only to MCP messages                    | Ordinary engine send accounting/wake/cancellation        |
+| Reuse one cascade interrupt ID across generations                  | Reopened subtree's second interruption                   |
+| Retry an old interrupt by cancelling current work                  | Reopened subtree's old request retry                     |
+| Drop persistent subtree stops or clear them on result turns        | Subtree stop across restart, no automatic wake           |
+| Remove launch admission/closed guards                              | Prepared launch, direct send and handoff retry           |
+| Create Git resources before reserving admission                    | Handoff capacity rejection leaves no resources           |
+| Exclude pending reservations from concurrency                      | Pending Git reservation blocks another delegate          |
+| Ignore lease/parent cancellation before acceptance                 | Revoked/cancelled pending Git handoff                    |
+| Omit worktree/branch/workspace compensation or reservation release | Failed/revoked handoff and later slot reuse              |
+| Delete a preexisting or changed branch during cleanup              | Failed creation preserves branches and Git cleanup test  |
+| Omit receipt counter triggers or retain rollback reservations      | Capacity settlement/restart/rollback                     |
+| Invoke preview cleanup twice for concurrent closes                 | Concurrent preview cleanup                               |
+| Remove foreign project authorization                               | Scoped project management                                |
+| Close an unregistered preview                                      | Preview ownership                                        |
+| Delete a replacement preview after old cleanup                     | Pending preview replacement                              |
+| Create another child on handoff retry                              | Worktree handoff receipt reuse                           |
+| Omit native resume identity                                        | Distinct native history retained after idle close        |
+| Ignore account selection/quota rejection                           | Explicit account/quota test                              |
+| Deliver a foreign thread reference                                 | Daemon context delivery                                  |
+| Drop ACP identity or replace Claude's scoped lease                 | ACP identity and Claude replacement integration          |
+| Share an OpenCode process between scoped thread leases             | OpenCode native MCP authority isolation/revocation       |
+| Drop user MCP definitions during OpenCode injection                | OpenCode native MCP configuration preservation           |
+| Replace Pi's engine lease with a narrower registration lease       | Pi daemon MCP tools and shutdown revocation              |
+| Exclude autonomous run triggers from input acknowledgement         | Agent-trigger admission and next-message delivery        |
+| Admit preparation beneath a stopped ancestor                       | Surviving descendant MCP preparation denial and capacity |
+| Check only the immediate parent, omitting a stopped grandparent    | Settled descendant two levels below a stopped ancestor   |
+| Omit ancestor validation when committing a pre-stop reservation    | Reserved preparation after ancestor interruption         |
+| Retry result wakes beneath a stopped ancestor                      | No descendant wake or error retry after ancestor stop    |
 
 ## Performance
 

@@ -336,6 +336,7 @@ export class DelegationService {
         const cancelled =
           tree.cancelled ||
           this.journal.stopped(next.parent_id) ||
+          this.journal.ancestorStopped(next.parent_id) ||
           this.journal.get(next.parent_id)?.phase === "cancelling";
         if (!parent || cancelled) {
           this.journal.consume(next.parent_id);

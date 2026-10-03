@@ -40,7 +40,8 @@ export class DelegationAdmission {
     callerThread(this.deps.store, caller);
     if (
       this.journal.get(caller.threadId)?.phase === "cancelling" ||
-      this.journal.stopped(caller.threadId)
+      this.journal.stopped(caller.threadId) ||
+      this.journal.ancestorStopped(caller.threadId)
     )
       throw new Error("cancelled");
     if (input.provider === "acp") {
