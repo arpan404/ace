@@ -1,4 +1,4 @@
-# 0053: Daemon-owned in-app devices
+# 0056: Daemon-owned in-app devices
 
 Date: 2026-10-02. Status: accepted.
 
