@@ -54,3 +54,5 @@ export { deviceTransport, authenticatedChannel } from "./device-transport.ts";
 export type { AuthenticatedChannelOptions, DeviceConnectionTarget } from "./device-transport.ts";
 export { downloadArtifact } from "@ace/files/client";
 export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";
+
+export { downloadFile, uploadFile, type FileDownloadInput, type FileUploadInput } from "./files.ts";

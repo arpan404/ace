@@ -386,3 +386,152 @@ test("a one-way control is refused, not queued, while the worker's client is dis
     expect.objectContaining({ code: "offline" }),
   );
 });
+
+import { createHash } from "node:crypto";
+import { WorkspaceId, type HistoryOperationProgress } from "@ace/protocol";
+
+test("one tab leaving preview or closing keeps the other tab's browser subscription alive", async () => {
+  const { daemon, tab } = world();
+  daemon.createThread({
+    id: "preview",
+    workspaceId: "project",
+    title: "Preview",
+    provider: "codex",
+  });
+  const threadId = ThreadId.parse("preview");
+  const workspaceId = WorkspaceId.parse("project");
+  const first = tab(),
+    second = tab();
+  await Promise.all([first.start(), second.start()]);
+  await Promise.all([settled(first), settled(second)]);
+  const urls: string[] = [];
+  second.onMessage((message) => {
+    if (message.type === "browser.state") urls.push(message.state.url);
+  });
+  await first.request({ type: "browser.open", options: { threadId, workspaceId } });
+  await first.request({ type: "browser.subscribe", threadId });
+  await second.request({ type: "browser.subscribe", threadId });
+  await first.request({ type: "browser.unsubscribe", threadId });
+  await second.request({
+    type: "browser.execute",
+    threadId,
+    command: { action: "navigate", url: "https://example.org/after-leaving" },
+  });
+  await vi.waitFor(() => expect(urls).toContain("https://example.org/after-leaving"));
+  await first.request({ type: "browser.subscribe", threadId });
+  await first.close();
+  await second.request({
+    type: "browser.execute",
+    threadId,
+    command: { action: "navigate", url: "https://example.org/after-closing" },
+  });
+  await vi.waitFor(() => expect(urls).toContain("https://example.org/after-closing"));
+  await second.request({ type: "browser.unsubscribe", threadId });
+});
+
+test("shared-worker file transfers preserve binary bytes, backpressure and workspace isolation", async () => {
+  const { daemon, tab } = world();
+  daemon.createThread({ id: "files", workspaceId: "project", title: "Files", provider: "codex" });
+  daemon.createThread({
+    id: "other-files",
+    workspaceId: "other",
+    title: "Other",
+    provider: "codex",
+  });
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  const bytes = Uint8Array.from({ length: 150000 }, (_, index) => index % 256);
+  const threadId = ThreadId.parse("files");
+  let produced = 0;
+  async function* source() {
+    for (let offset = 0; offset < bytes.length; offset += 65536) {
+      produced++;
+      yield bytes.subarray(offset, offset + 65536);
+    }
+  }
+  await remote.uploadFile(
+    {
+      threadId,
+      path: "binary.dat",
+      expected: null,
+      size: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    },
+    source(),
+  );
+  expect(produced).toBe(3);
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of remote.downloadFile({
+    threadId,
+    op: "download",
+    path: "binary.dat",
+    offset: 0,
+  })) {
+    expect(chunk.length).toBeLessThanOrEqual(65536);
+    chunks.push(chunk);
+  }
+  expect(Buffer.concat(chunks)).toEqual(Buffer.from(bytes));
+  await expect(
+    remote
+      .downloadFile({
+        threadId: ThreadId.parse("other-files"),
+        op: "download",
+        path: "binary.dat",
+        offset: 0,
+      })
+      .next(),
+  ).rejects.toMatchObject({ code: "daemon" });
+});
+
+test("a tab lists draft commands without a thread and observes correlated history progress before completion", async () => {
+  const { daemon, tab } = world();
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  const workspaceId = WorkspaceId.parse("project");
+  const draft = await remote.request({
+    type: "context.request",
+    operation: { op: "draft.create", workspaceId },
+  });
+  if (draft.result.kind !== "draft") throw new Error("Draft missing");
+  const commands = await remote.request({
+    type: "commands.list",
+    draft: { draftId: draft.result.draftId, workspaceId, provider: "codex" },
+  });
+  expect(commands.commands.length).toBeGreaterThan(0);
+  expect(commands.commands.every((command) => command.scope !== "runtime")).toBe(true);
+  expect(daemon.snapshot({ kind: "threads" })).toMatchObject({ threads: {} });
+  const progress: HistoryOperationProgress[] = [];
+  remote.onMessage((message) => {
+    if (message.type === "history.operation.progress") progress.push(message);
+  });
+  const result = await remote.request(
+    { type: "history.import", sourceId: "missing", workspaceId },
+    { requestId: "import-from-tab" },
+  );
+  expect(result).toMatchObject({
+    type: "history.import",
+    requestId: "import-from-tab",
+    status: "unsupported",
+  });
+  await vi.waitFor(() =>
+    expect(progress.map((event) => [event.requestId, event.phase])).toEqual([
+      ["import-from-tab", "preparing"],
+      ["import-from-tab", "unsupported"],
+    ]),
+  );
+  const bound = await remote.request({
+    type: "registry.bind",
+    acpAgentId: "local:fixture",
+    installationId: "fixture-install",
+    instanceId: "fixture-instance",
+    version: "1",
+    command: "fake-acp",
+    args: ["--stdio"],
+  });
+  expect(bound.result).toMatchObject({
+    ok: true,
+    installation: { installationId: "fixture-install", profileRevision: "generic-v1" },
+  });
+});

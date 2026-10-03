@@ -1,3 +1,4 @@
+import { z } from "zod";
 import {
   ClientError,
   type Client,
@@ -5,7 +6,12 @@ import {
   type SidebarExport,
   type ThreadExport,
 } from "@ace/client";
-import type { Item, ServerMessage } from "@ace/protocol";
+import {
+  ThreadId as importThreadIdSchema,
+  ClientMessage,
+  type Item,
+  type ServerMessage,
+} from "@ace/protocol";
 import { sidebarPatches, threadPatches, type Patch } from "./patches.ts";
 import { callArgs, iterateArgs, sendArgs } from "./calls.ts";
 import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire.ts";
@@ -62,7 +68,8 @@ const internal = new Set<string>([
   "pong",
 ]);
 const isServicePush = (message: ServerMessage) =>
-  !internal.has(message.type) && !("requestId" in message && message.requestId);
+  !internal.has(message.type) &&
+  (message.type === "history.operation.progress" || !("requestId" in message && message.requestId));
 
 const errorShape = (error: unknown) =>
   error instanceof ClientError
@@ -74,6 +81,10 @@ export class ClientHost {
   private entries = new Map<string, Entry>();
   private tabs = new Set<Tab>();
   private sweep: (() => void) | undefined;
+  private subscriberSequence = 0;
+  subscriberId(): string {
+    return `tab-${++this.subscriberSequence}`;
+  }
   constructor(options: HostOptions) {
     this.options = options;
   }
@@ -143,6 +154,9 @@ export class ClientHost {
 class Tab {
   lastSeen: number;
   private host: ClientHost;
+  private subscriber: string;
+  private browsers = new Set<string>();
+  private fileChannels = new Map<number, string | undefined>();
   private port: PortLike;
   private options: HostOptions;
   private entry: Entry | undefined;
@@ -158,6 +172,7 @@ class Tab {
   private listener = (event: { data: unknown }) => this.receive(event.data);
   constructor(host: ClientHost, port: PortLike, options: HostOptions) {
     this.host = host;
+    this.subscriber = host.subscriberId();
     this.port = port;
     this.options = options;
     this.lastSeen = options.now();
@@ -231,8 +246,12 @@ class Tab {
         return void this.stop(message.call);
       case "abort":
         return this.calls.get(message.call)?.abort();
-      case "send":
+      case "send": {
+        const control = ClientMessage.safeParse(message.message);
+        if (control.success && control.data.type === "files.cancel")
+          this.fileChannels.delete(control.data.channel);
         return sendArgs(client, message.message);
+      }
       case "watchIntent":
         return this.watch(client, message.id);
       case "unwatchIntent":
@@ -366,7 +385,63 @@ class Tab {
     const controller = new AbortController();
     this.calls.set(call, controller);
     try {
-      const value = await callArgs(client, method, args, controller.signal);
+      let forwarded = args;
+      let unsubscribed: string | undefined;
+      if (method === "request") {
+        const parsed = ClientMessage.safeParse({ ...objectInput(args[0]), requestId: "worker" });
+        if (
+          parsed.success &&
+          (parsed.data.type === "browser.subscribe" || parsed.data.type === "browser.unsubscribe")
+        ) {
+          const input = parsed.data;
+          if (input.type === "browser.subscribe") {
+            if (this.browsers.size >= 8 && !this.browsers.has(input.threadId))
+              throw new ClientError("limit");
+            this.browsers.add(input.threadId);
+          } else unsubscribed = input.threadId;
+          forwarded = [{ ...input, subscriberId: this.subscriber }, ...args.slice(1)];
+        }
+      }
+      const value = await callArgs(client, method, forwarded, controller.signal);
+      if (method === "request") {
+        const response = z
+          .object({
+            type: z.string(),
+            channel: z.number().int(),
+            eof: z.boolean().optional(),
+            uploadId: z.string().optional(),
+          })
+          .safeParse(value);
+        if (response.success && response.data.type === "files.data" && response.data.eof)
+          this.fileChannels.delete(response.data.channel);
+        if (
+          response.success &&
+          (response.data.type === "files.ready" || response.data.type === "files.upload")
+        ) {
+          if (!this.calls.has(call))
+            client.send({ type: "files.cancel", channel: response.data.channel });
+          else this.fileChannels.set(response.data.channel, response.data.uploadId);
+        }
+      }
+      if (
+        method === "request" &&
+        z.object({ type: z.literal("files.result") }).safeParse(value).success
+      ) {
+        const completed = z
+          .object({
+            type: z.literal("files.request"),
+            operation: z.object({
+              op: z.enum(["upload.commit", "upload.cancel"]),
+              uploadId: z.string(),
+            }),
+          })
+          .safeParse(args[0]);
+        if (completed.success)
+          for (const [channel, uploadId] of this.fileChannels)
+            if (uploadId === completed.data.operation.uploadId) this.fileChannels.delete(channel);
+      }
+      if (unsubscribed && z.object({ ok: z.literal(true) }).safeParse(value).success)
+        this.browsers.delete(unsubscribed);
       this.post(value === undefined ? { t: "reply", call } : { t: "reply", call, value });
     } catch (error) {
       this.post({ t: "failed", call, error: errorShape(error) });
@@ -411,6 +486,25 @@ class Tab {
     this.calls.delete(call);
   }
   private detach(): void {
+    const client = this.entry?.client;
+    if (client?.state === "ready")
+      for (const threadId of this.browsers)
+        void client
+          .request({
+            type: "browser.unsubscribe",
+            threadId: importThreadIdSchema.parse(threadId),
+            subscriberId: this.subscriber,
+          })
+          .catch(() => {});
+    this.browsers.clear();
+    for (const channel of this.fileChannels.keys()) {
+      try {
+        client?.send({ type: "files.cancel", channel });
+      } catch {
+        /* Socket owns cleanup when offline. */
+      }
+    }
+    this.fileChannels.clear();
     for (const lease of this.leases.keys()) this.release(lease);
     for (const stop of this.intents.values()) stop();
     this.intents.clear();
@@ -431,4 +525,10 @@ class Tab {
     this.host.forget(this);
     this.entry = undefined;
   }
+}
+
+function objectInput(value: unknown): Record<string, unknown> {
+  return typeof value === "object" && value !== null
+    ? Object.fromEntries(Object.entries(value))
+    : {};
 }

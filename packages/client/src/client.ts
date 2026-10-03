@@ -1,3 +1,4 @@
+import { downloadFile, uploadFile, type FileDownloadInput, type FileUploadInput } from "./files.ts";
 import {
   HistoryScanStatus,
   HistoryScanResponse,
@@ -80,7 +81,12 @@ export class Client implements ClientApi {
             // A consumer cannot break protocol delivery.
           }
         }
-        if ("requestId" in message && message.type !== "error" && message.requestId)
+        if (
+          "requestId" in message &&
+          message.type !== "error" &&
+          message.type !== "history.operation.progress" &&
+          message.requestId
+        )
           this.requests.resolve(message.requestId, message);
         switch (message.type) {
           case "welcome":
@@ -239,17 +245,25 @@ export class Client implements ClientApi {
     options: RequestOptions = {},
   ): Promise<ServiceResponse<Q>> {
     if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
-    const id = this.options.id();
+    const id = options.requestId ?? this.options.id();
     const parsed = ClientMessage.safeParse({ ...input, requestId: id });
     if (!parsed.success) return Promise.reject(new ClientError("protocol", "Invalid request"));
-    return this.requests.wait(
-      id,
-      (value) => decodeServiceResponse(input, id, value),
-      options,
-      () => {
-        if (!this.connection.send(parsed.data)) throw new ClientError("offline");
-      },
-    );
+    let sent = false;
+    return this.requests
+      .wait(
+        id,
+        (value) => decodeServiceResponse(input, id, value),
+        options,
+        () => {
+          sent = this.connection.send(parsed.data);
+          if (!sent) throw new ClientError("offline");
+        },
+      )
+      .catch((error: unknown) => {
+        if (sent && parsed.data.type === "files.request")
+          this.connection.send({ type: "files.abort", sourceRequestId: id });
+        throw error;
+      });
   }
   /** Uncorrelated service messages (such as `settings.changed`); the caller releases it. */
   onMessage(listener: (message: ServerMessage) => void): () => void {
@@ -385,6 +399,16 @@ export class Client implements ClientApi {
       (value) => QueueResult.parse(value).queue,
       options,
     );
+  }
+  downloadFile(input: FileDownloadInput, options: RequestOptions = {}): AsyncGenerator<Uint8Array> {
+    return downloadFile(this, input, options);
+  }
+  uploadFile(
+    input: FileUploadInput,
+    source: AsyncIterable<Uint8Array>,
+    options: RequestOptions = {},
+  ): Promise<unknown> {
+    return uploadFile(this, input, source, options);
   }
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },

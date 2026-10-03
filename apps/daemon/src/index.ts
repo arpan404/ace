@@ -178,6 +178,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "cursorAuth",
       "commands",
       "files",
+      "threadFiles",
       "relay",
       "handler",
       "plugins",

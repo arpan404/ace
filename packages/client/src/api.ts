@@ -9,6 +9,7 @@ import type {
   ThreadListView,
   ThreadView,
 } from "@ace/protocol";
+import type { FileDownloadInput, FileUploadInput } from "./files.ts";
 import type { Intent } from "./intents.ts";
 import type { OneWayMessage } from "./one-way.ts";
 import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
@@ -73,6 +74,12 @@ export interface ClientApi {
    * throws `offline` unless connected and `protocol` for a message that isn't one-way.
    */
   send(message: OneWayMessage): void;
+  downloadFile(input: FileDownloadInput, options?: RequestOptions): AsyncGenerator<Uint8Array>;
+  uploadFile(
+    input: FileUploadInput,
+    source: AsyncIterable<Uint8Array>,
+    options?: RequestOptions,
+  ): Promise<unknown>;
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },
     options?: RequestOptions,
