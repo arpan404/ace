@@ -1,3 +1,7 @@
+import { TransitionReadiness } from "./transition-readiness.ts";
+import { captureExecutionSources } from "./execution-provenance.ts";
+import { quiescent } from "./transition-history.ts";
+import { TransitionState } from "./transition-state.ts";
 import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import type { StatementSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
@@ -19,8 +23,10 @@ export interface Intent {
 }
 export class EngineRepository {
   readonly store: Store;
+  readonly transitions: TransitionState;
   private ids: IdSource;
   private capacity: number;
+  private readiness: TransitionReadiness;
   private snapshots = new Map<ThreadId, Snapshot>();
   private admissionStatements: {
     has: StatementSync;
@@ -33,6 +39,8 @@ export class EngineRepository {
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    this.transitions = new TransitionState(store);
+    this.readiness = store.atomic((db) => new TransitionReadiness(db));
     store.atomic((db) => db.exec("DELETE FROM engine_slots"));
     this.admissionStatements = store.atomic((db) => ({
       has: db.prepare(
@@ -83,6 +91,23 @@ export class EngineRepository {
     this.store.atomic((db) => {
       let snapshot = this.snapshots.get(state.threadId);
       if (!snapshot || snapshot.state !== state) snapshot = new Snapshot(db, state);
+      if (
+        payloads.some(
+          (event) =>
+            event.type === "run.started" ||
+            event.type === "item.created" ||
+            event.type === "item.updated",
+        )
+      ) {
+        const session = this.session(state.threadId);
+        const selection = this.transitions.get(state.threadId).selection ?? {
+          provider: state.config.provider,
+          options: {},
+          ...session,
+        };
+        captureExecutionSources(state, payloads, selection, session.nativeSessionId);
+      }
+      this.readiness.capture(state, payloads);
       snapshot.retainChanges(payloads);
       this.store.appendEvents(state.threadId, payloads, at);
       db.prepare(`INSERT INTO thread_state VALUES (?, ?, ?)
@@ -129,6 +154,7 @@ export class EngineRepository {
             if (fact.type === "item.delta" && emitted.some((event) => event.type === "item.delta"))
               snapshot?.delta(fact);
             snapshot?.remember(fact, emitted);
+            if (fact.type === "tick") this.readiness.refreshBlocked(state);
             return emitted;
           } finally {
             finish();
@@ -157,6 +183,10 @@ export class EngineRepository {
       this.evict(id);
       throw error;
     }
+  }
+
+  quiescent(state: ThreadState): boolean {
+    return quiescent(state, this.readiness.agentsReady(state));
   }
 
   add(command: Command, id: ThreadId, resolutionId?: string): void {

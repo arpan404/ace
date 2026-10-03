@@ -384,6 +384,8 @@ it("the daemon advertises unique scoped tools from every real registered toolkit
   expect(names).toEqual(
     expect.arrayContaining([
       "ace_thread_info",
+      "ace_read_handoff",
+      "ace_read_handoff_chunk",
       "ace_browser_snapshot",
       "ace_browser_screenshot",
       "screen_screenshot",

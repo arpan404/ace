@@ -1,4 +1,5 @@
 import { createDevicesSession } from "./devices.ts";
+import { createThreadTransitionsSession } from "./thread-transitions.ts";
 import { createPiSocketSession } from "./pi.ts";
 import { createAgentRegistrySession } from "./agent-registry.ts";
 import { createScreenSession } from "./screen.ts";
@@ -40,6 +41,7 @@ export const socketServiceFactories = [
   createModelsSession,
   createAgentRegistrySession,
   createReviewSession,
+  createThreadTransitionsSession,
   createEngineSession,
   createDiagnosticsSession,
 ];

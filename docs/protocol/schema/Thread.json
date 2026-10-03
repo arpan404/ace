@@ -19,6 +19,9 @@
     "effectiveCapabilities": {
       "$ref": "https://ace.local/protocol/v1/Capabilities.json"
     },
+    "execution": {
+      "$ref": "https://ace.local/protocol/v1/ExecutionSelection.json"
+    },
     "id": {
       "$ref": "https://ace.local/protocol/v1/ThreadId.json"
     },
@@ -35,6 +38,9 @@
       "minLength": 1,
       "type": "string"
     },
+    "lineage": {
+      "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
+    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     },
@@ -43,6 +49,9 @@
     },
     "status": {
       "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+    },
+    "switch": {
+      "$ref": "https://ace.local/protocol/v1/ThreadSwitch.json"
     },
     "title": {
       "type": "string"

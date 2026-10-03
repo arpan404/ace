@@ -22,19 +22,16 @@ Example:
 
 ```json
 {
-  "at": 3,
+  "at": 4,
   "id": "example",
   "payload": {
-    "change": {
-      "id": "example",
-      "op": "example",
-      "path": "example",
-      "version": "example"
-    },
-    "type": "workspace.files_changed",
-    "workspaceId": "example"
+    "endedAt": 5,
+    "runId": "example",
+    "state": "interrupted",
+    "trigger": "background_completion",
+    "type": "run.ended"
   },
-  "seq": 9,
+  "seq": 2,
   "threadId": "example"
 }
 ```
@@ -55,16 +52,30 @@ Example:
 ```json
 {
   "thread": {
-    "acpAgentId": "example",
-    "archivedAt": 3,
-    "createdAt": 9,
+    "createdAt": 3,
+    "effectiveCapabilities": {
+      "backgroundTaskControl": false,
+      "backgroundVisibility": "partial",
+      "fork": false,
+      "imageInput": false,
+      "interruptCascades": false,
+      "planMode": true,
+      "resume": false,
+      "rewindFiles": true,
+      "steer": false,
+      "subagentTranscripts": false,
+      "tokenUsage": false
+    },
     "id": "example",
-    "provider": "antigravity",
+    "installationId": "example",
+    "instanceId": "example",
+    "provider": "pi",
     "status": {
-      "state": "new"
+      "interactions": 9,
+      "state": "needs_you"
     },
     "title": "example",
-    "updatedAt": 0,
+    "updatedAt": 1,
     "workspaceId": "example"
   },
   "type": "thread.created"
@@ -77,6 +88,10 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"thread.updated"` |  |
 | title | no | string |  |
+| provider | no | [ProviderKind.json](schema/ProviderKind.json) |  |
+| lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
+| execution | no | [ExecutionSelection.json](schema/ExecutionSelection.json) |  |
+| switch | no | [ThreadSwitch.json](schema/ThreadSwitch.json) |  |
 | effectiveCapabilities | no | [Capabilities.json](schema/Capabilities.json) |  |
 | acpSupport | no | [AcpSessionSupport.json](schema/AcpSessionSupport.json) |  |
 | status | no | [ThreadStatus.json](schema/ThreadStatus.json) |  |
@@ -86,8 +101,23 @@ Example:
 
 ```json
 {
-  "status": {
-    "state": "done"
+  "effectiveCapabilities": {
+    "backgroundTaskControl": true,
+    "backgroundVisibility": "none",
+    "fork": false,
+    "imageInput": true,
+    "interruptCascades": true,
+    "planMode": true,
+    "resume": true,
+    "rewindFiles": true,
+    "steer": false,
+    "subagentTranscripts": false,
+    "tokenUsage": true
+  },
+  "execution": {
+    "model": "example",
+    "options": {},
+    "provider": "opencode"
   },
   "type": "thread.updated"
 }
@@ -105,22 +135,33 @@ Example:
 ```json
 {
   "agent": {
-    "createdAt": 7,
+    "createdAt": 4,
     "cwd": "example",
-    "fidelity": "placeholder",
+    "fidelity": "summary",
     "id": "example",
-    "model": "example",
+    "lineage": {
+      "lossy": true,
+      "mode": "native",
+      "parentAgentId": "example",
+      "parentThreadId": "example",
+      "point": {
+        "runId": "example",
+        "type": "turn"
+      }
+    },
+    "name": "example",
     "native": {
       "acpAgentId": "example",
       "instanceId": "example",
-      "nativeId": "example",
+      "path": "example",
       "provider": "cursor"
     },
-    "origin": "provider_subagent",
+    "origin": "root",
     "parentId": null,
+    "role": "example",
+    "spawnedBy": "example",
     "status": {
-      "activity": "responding",
-      "state": "working"
+      "state": "interrupted"
     },
     "threadId": "example"
   },
@@ -142,7 +183,7 @@ Example:
 {
   "agentId": "example",
   "status": {
-    "state": "idle"
+    "state": "starting"
   },
   "type": "agent.status"
 }
@@ -156,6 +197,7 @@ Example:
 | agentId | yes | [AgentId.json](schema/AgentId.json) |  |
 | parentId | no | union | {"anyOf":[{"$ref":"https://ace.local/protocol/v1/AgentId.json"},{"type":"null"}]} |
 | origin | no | [AgentOrigin.json](schema/AgentOrigin.json) |  |
+| lineage | no | [ThreadLineage.json](schema/ThreadLineage.json) |  |
 | fidelity | no | [AgentFidelity.json](schema/AgentFidelity.json) |  |
 | native | no | [NativeRef.json](schema/NativeRef.json) |  |
 | cwd | no | string |  |
@@ -171,11 +213,24 @@ Example:
 ```json
 {
   "agentId": "example",
-  "background": true,
   "cwd": "example",
-  "endedAt": 3,
+  "lineage": {
+    "lossy": true,
+    "mode": "portable",
+    "parentAgentId": "example",
+    "parentThreadId": "example",
+    "point": {
+      "runId": "example",
+      "type": "turn"
+    }
+  },
+  "model": "example",
   "name": "example",
-  "parentId": null,
+  "native": {
+    "acpAgentId": "example",
+    "aliases": [],
+    "provider": "acp"
+  },
   "type": "agent.updated"
 }
 ```
@@ -213,11 +268,10 @@ Example:
   "run": {
     "agentId": "example",
     "id": "example",
-    "nativeId": "example",
-    "startedAt": 6,
-    "state": "completed",
+    "startedAt": 9,
+    "state": "failed",
     "threadId": "example",
-    "trigger": "background_completion"
+    "trigger": "subagent_result"
   },
   "type": "run.started"
 }
@@ -237,10 +291,9 @@ Example:
 
 ```json
 {
-  "endedAt": 6,
+  "endedAt": 8,
   "runId": "example",
   "state": "completed",
-  "trigger": "queue",
   "type": "run.ended"
 }
 ```
@@ -258,18 +311,32 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "complete": true,
-    "createdAt": 8,
-    "id": "example",
-    "raw": [],
-    "source": {
-      "bytes": 4,
-      "encoding": "utf-16le",
-      "streamId": "example"
+    "call": {
+      "agentId": "example",
+      "detail": {
+        "kind": "agent.message",
+        "message": "example",
+        "targetAgentId": "example"
+      },
+      "id": "example",
+      "kind": "notebook",
+      "raw": [],
+      "startedAt": 7,
+      "status": "failed",
+      "title": "example"
     },
-    "summary": false,
-    "text": "example",
-    "type": "reasoning"
+    "complete": false,
+    "createdAt": 8,
+    "executionSource": {
+      "nativeSessionId": "example",
+      "selection": {
+        "instanceId": "example",
+        "provider": "acp"
+      }
+    },
+    "id": "example",
+    "runId": "example",
+    "type": "tool_call"
   },
   "type": "item.created"
 }
@@ -291,7 +358,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "reasoning",
+  "field": "output",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -310,9 +377,19 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "complete": false,
-    "createdAt": 4,
+    "complete": true,
+    "createdAt": 7,
+    "executionSource": {
+      "nativeSessionId": "example",
+      "selection": {
+        "options": {},
+        "provider": "codex"
+      }
+    },
     "id": "example",
+    "nativeId": "example",
+    "runId": "example",
+    "tokensAfter": 5,
     "type": "compaction"
   },
   "type": "item.updated"
@@ -349,16 +426,21 @@ Example:
   "interaction": {
     "agentId": "example",
     "blocking": false,
-    "createdAt": 4,
+    "createdAt": 9,
     "id": "example",
+    "raw": [],
     "request": {
-      "defaultToNo": true,
-      "description": "example",
+      "defaultToNo": false,
       "kind": "approval",
+      "mcpServer": {
+        "name": "example",
+        "source": "example"
+      },
       "options": [],
       "permissionUpdates": [],
       "title": "example"
     },
+    "resolvedBy": "example",
     "state": "pending",
     "threadId": "example",
     "toolCallId": "example"
@@ -384,6 +466,7 @@ Example:
 {
   "closedAt": 4,
   "interactionId": "example",
+  "resolvedBy": "example",
   "state": "expired",
   "type": "interaction.closed"
 }
@@ -402,15 +485,13 @@ Example:
 {
   "task": {
     "agentId": "example",
-    "childAgentId": "example",
-    "endedAt": 5,
+    "ambient": false,
     "id": "example",
     "kind": "other",
-    "startedAt": 1,
-    "status": "running",
-    "stoppable": false,
-    "title": "example",
-    "toolCallId": "example"
+    "startedAt": 6,
+    "status": "failed",
+    "stoppable": true,
+    "title": "example"
   },
   "type": "background_task.started"
 }
@@ -429,7 +510,7 @@ Example:
 
 ```json
 {
-  "status": "failed",
+  "status": "completed",
   "taskId": "example",
   "type": "background_task.updated"
 }
@@ -462,12 +543,12 @@ Example:
 
 ```json
 {
-  "accountId": "example",
   "agentId": "example",
-  "cacheWrite1hTokens": 5,
+  "cachedInputTokens": 6,
+  "counterKey": "example",
+  "counterMode": "incremental",
   "inputTokens": 8,
-  "outputTokens": 8,
-  "reasoningTokens": 2,
+  "outputTokens": 0,
   "type": "usage.updated"
 }
 ```
@@ -488,7 +569,6 @@ Example:
     "id": "example",
     "op": "example",
     "path": "example",
-    "trashId": "example",
     "version": null
   },
   "type": "workspace.files_changed",

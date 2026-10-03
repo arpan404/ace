@@ -61,4 +61,6 @@ export {
   DeviceClientMessage,
   DeviceServerMessage,
 } from "./devices.ts";
+export * from "./thread-transitions.ts";
+export * from "./handoff-read.ts";
 export * from "./pi.ts";
