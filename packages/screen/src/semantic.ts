@@ -1,3 +1,4 @@
+import { parseUITree, parseUIFind } from "./ui-results.ts";
 import {
   ScreenUIActResult,
   ScreenUIFindOptions,
@@ -19,14 +20,18 @@ export async function readTree(
   options: unknown,
 ) {
   requireTree(helper);
-  return ScreenUITreeResult.parse(
-    await helper.request({
-      op: "ui.tree",
-      target,
-      allowlist,
-      ...ScreenUITreeOptions.parse(options),
-    }),
-  );
+  const caps = ScreenUITreeOptions.parse(options);
+  const result = await helper.request({
+    op: "ui.tree",
+    target,
+    allowlist,
+    ...caps,
+  });
+  if (helper.capabilities?.platform === "windows") {
+    const tree = parseUITree(result, caps.maxNodes, caps.maxDepth);
+    return { ...ScreenUITreeResult.parse({nodes: tree.root ? [tree.root] : [], truncated: tree.truncated}), root: tree.root };
+  }
+  return { ...ScreenUITreeResult.parse(result), root: null };
 }
 export async function findElements(
   helper: Helper,
@@ -35,14 +40,16 @@ export async function findElements(
   options: unknown,
 ) {
   requireTree(helper);
-  return ScreenUIFindResult.parse(
-    await helper.request({
-      op: "ui.find",
-      target,
-      allowlist,
-      ...ScreenUIFindOptions.parse(options),
-    }),
-  );
+  const caps = ScreenUIFindOptions.parse(options);
+  const result = await helper.request({
+    op: "ui.find",
+    target,
+    allowlist,
+    ...caps,
+  });
+  return helper.capabilities?.platform === "windows"
+    ? parseUIFind(result, caps.limit)
+    : ScreenUIFindResult.parse(result);
 }
 export async function actOnElement(
   helper: Helper,

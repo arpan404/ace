@@ -1,7 +1,7 @@
 import { ScreenFrameHeader, type ScreenLegacyFrameHeader } from "@ace/protocol";
 export type Frame = {
   header: ScreenLegacyFrameHeader & {
-    scale?: number;
+    scale?: number | undefined;
     dirtyRects?: { x: number; y: number; w: number; h: number }[];
   };
   payload: Buffer;
@@ -56,6 +56,7 @@ export class FrameDecoder {
                 codec: wire.codec,
                 bytes: wire.bytes,
                 scale: wire.scale,
+                ...(wire.captureGeneration ? { captureGeneration: wire.captureGeneration } : {}),
                 ...(wire.dirtyRects ? { dirtyRects: wire.dirtyRects } : {}),
               };
         const prefix = this.buffer;

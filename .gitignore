@@ -18,3 +18,5 @@ tools/release/verification/*.log
 tools/release/.scratch/
 native/screen-helper/build/
 /native/screen-helper/.build/
+
+native/screen-helper-windows/target/

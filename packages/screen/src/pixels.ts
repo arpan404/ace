@@ -18,6 +18,8 @@ export class Pixels {
   }>();
   private floor = 0;
   private latest: Frame | undefined;
+  private generation = 0;
+  private readonly nextGeneration: () => number;
   private readonly helper: Helper;
   private readonly indicator: (active: boolean) => void;
   private readonly failure: (error: Error) => void;
@@ -25,10 +27,24 @@ export class Pixels {
     helper: Helper,
     indicator: (active: boolean) => void,
     failure: (error: Error) => void,
+    nextGeneration: () => number,
   ) {
     this.helper = helper;
+    this.nextGeneration = nextGeneration;
     this.indicator = indicator;
     this.failure = failure;
+  }
+  startGeneration(): number {
+    this.generation = this.nextGeneration();
+    this.actual = true;
+    return this.generation;
+  }
+  async settle(): Promise<void> { while (this.task) await this.task; }
+  initialize(): Promise<void> { return this.set(false); }
+  accepts(frame: Frame): boolean {
+    return this.helper.capabilities?.platform !== "windows" ||
+      (this.actual || this.desired) &&
+      (frame.header.captureGeneration === undefined || frame.header.captureGeneration === this.generation);
   }
   acquire(): { ready: Promise<void>; release(): void } {
     if (this.stopped) throw new Error("Pixel session stopped");
@@ -47,7 +63,7 @@ export class Pixels {
     };
   }
   private set(active: boolean): Promise<void> {
-    if (this.helper.capabilities?.platform !== "macos") return Promise.resolve();
+    if (!this.helper.capabilities) return Promise.resolve();
     this.desired = active;
     if (this.task) return this.task;
     if (this.actual === active || this.stopped) return Promise.resolve();
@@ -61,9 +77,18 @@ export class Pixels {
       while (!this.stopped && this.actual !== this.desired) {
         const active = this.desired;
         if (active) this.indicator(true);
-        const data = await this.helper.request({ op: "capture", enabled: active });
-        const progress = z.object({ afterSeq: z.number().int().nonnegative() }).parse(data);
-        if (active) this.floor = progress.afterSeq;
+        if (this.helper.capabilities?.platform === "windows") {
+          this.generation = this.nextGeneration();
+          if (active) {
+            this.floor = (this.latest?.header.sequence ?? -1) + 1;
+            this.latest = undefined;
+          }
+          await this.helper.requestV2({ op: "watch", active, captureGeneration: this.generation });
+        } else {
+          const data = await this.helper.request({ op: "capture", enabled: active });
+          const progress = z.object({ afterSeq: z.number().int().nonnegative() }).parse(data);
+          if (active) this.floor = progress.afterSeq;
+        }
         this.actual = active;
         if (!active) this.indicator(false);
       }

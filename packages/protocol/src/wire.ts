@@ -215,6 +215,9 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ModelsResult,
   NotificationMessage,
 
+  ...ScreenServerMessage.options,
+  ModelsResult,
+  NotificationMessage,
   z.object({
     type: z.literal("welcome"),
     hostId: HostId,

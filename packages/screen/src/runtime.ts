@@ -5,3 +5,6 @@ export const nodeScheduler = {
     return () => clearTimeout(timer);
   },
 };
+
+export type Scheduler = { after(ms: number, run: () => void): () => void };
+export const systemScheduler: Scheduler = { after: (ms, run) => nodeScheduler.schedule(run, ms) };

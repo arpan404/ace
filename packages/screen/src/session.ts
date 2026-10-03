@@ -11,6 +11,7 @@ export type Session = {
   epoch: number;
   owner: string | undefined;
   recording: Recording | undefined;
+  completedRecording: Recording | undefined;
   actionTail: Promise<void>;
   queuedActions: number;
   recordingStarting: boolean;
@@ -24,6 +25,7 @@ export function createSession(
   target: ScreenTarget,
   indicator: (active: boolean) => void,
   failure: (error: Error) => void,
+  nextGeneration: () => number,
 ): Session {
   return {
     helper,
@@ -32,12 +34,13 @@ export function createSession(
     epoch: 0,
     owner: undefined,
     recording: undefined,
+    completedRecording: undefined,
     actionTail: Promise.resolve(),
     queuedActions: 0,
     recordingStarting: false,
     stopping: undefined,
     recordingLease: undefined,
-    pixels: new Pixels(helper, indicator, failure),
+    pixels: new Pixels(helper, indicator, failure, nextGeneration),
     state: {
       sessionId: id,
       lifecycle: "starting",

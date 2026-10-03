@@ -1,3 +1,6 @@
+import { frameChannel } from "./transport.ts";
+import { spawnWindowsHelper } from "./windows-process.ts";
+import { ScreenHelperRequestV2, ScreenPermissionsV2 } from "@ace/protocol";
 import { createServer, type Socket } from "node:net";
 import {
   spawnSupervised,
@@ -16,8 +19,10 @@ import { FrameDecoder, type Frame } from "./frames.ts";
 
 export type HelperOptions = {
   command: string;
+  platform?: NodeJS.Platform;
+  protocolVersion?: 1 | 2;
   prepare?: () => Promise<string>;
-  endpoint?: () => Promise<FrameEndpoint>;
+  endpoint?: (() => Promise<FrameEndpoint>) | string;
   transport?: "endpoint" | "legacy";
   args?: readonly string[];
   env?: NodeJS.ProcessEnv;
@@ -67,7 +72,7 @@ export class Helper {
         else
           pending.reject(
             typeof reply.error === "object"
-              ? Object.assign(new Error(reply.error.message), { code: reply.error.code })
+              ? new HelperCommandError(reply.error.code, reply.error.message)
               : new Error(reply.error ?? "Helper rejected command"),
           );
       } catch (error) {
@@ -77,8 +82,52 @@ export class Helper {
     void proc.exited.then(() => this.fail(new Error("Screen helper exited")));
   }
   static async open(options: HelperOptions): Promise<Helper> {
+    if ((options.platform ?? process.platform) === "win32") {
+      let helper: Helper | undefined;
+      const decoder = new FrameDecoder(options.onFrame);
+      const channel = await frameChannel(
+        {
+          platform: "win32",
+          version: 2,
+          id: options.nextId(),
+          ...(typeof options.endpoint === "string" ? { endpoint: options.endpoint } : {}),
+        },
+        (chunk) => {
+          try {
+            decoder.push(chunk);
+          } catch (error) {
+            helper?.fail(error instanceof Error ? error : new Error("Invalid frame"));
+          }
+        },
+        (error) => helper?.fail(error),
+      );
+      try {
+        const proc = (options.spawn ?? spawnWindowsHelper)({
+          command: options.command,
+          args: [...(options.args ?? []), ...channel.args],
+          env: options.env ?? {},
+          name: "screen-helper",
+          maxLineBytes: 1024 * 1024,
+          onOutputLimit: (error) => helper?.fail(error),
+        });
+        helper = new Helper(proc, channel.close, options);
+        helper.capabilities = ScreenCapabilities.parse(await helper.requestV2({ op: "hello" }));
+        if (
+          helper.capabilities.platform !== "windows" ||
+          !helper.capabilities.codecs.includes("jpeg")
+        )
+          throw new Error("Helper platform or codec differs from host");
+        await channel.connect();
+        return helper;
+      } catch (error) {
+        if (helper) await helper.close();
+        else await channel.close();
+        throw error;
+      }
+    }
     const endpoint = await (
-      options.endpoint ?? (() => localFrameEndpoint(process.platform, options.nextId))
+      (typeof options.endpoint === "function" ? options.endpoint : undefined) ??
+      (() => localFrameEndpoint(options.platform ?? process.platform, options.nextId))
     )();
     try {
       ScreenEndpoint.parse(endpoint.uri);
@@ -143,6 +192,7 @@ export class Helper {
     }
   }
   async negotiate(): Promise<ScreenCapabilities | undefined> {
+    if (this.capabilities) return this.capabilities;
     try {
       const result = await this.request({ op: "hello" });
       // Older v1 helpers return no negotiation data or explicitly reject hello.
@@ -159,14 +209,48 @@ export class Helper {
       throw error;
     }
   }
+  requestV2(
+    command: WithoutEnvelope<import("@ace/protocol").ScreenHelperRequestV2>,
+  ): Promise<unknown> {
+    return this.send(command);
+  }
   request(command: WithoutEnvelope<ScreenHelperRequest>): Promise<unknown> {
+    const result = this.send(command);
+    if (command.op !== "permissions" || this.capabilities?.platform !== "windows") return result;
+    return result.then((data) => {
+      const permissions = ScreenPermissionsV2.parse(data);
+      return {
+        screenRecording: ["granted", "n/a"].includes(permissions.screen),
+        accessibility: ["granted", "n/a"].includes(permissions.input),
+      };
+    });
+  }
+  private send(
+    command:
+      | WithoutEnvelope<ScreenHelperRequest>
+      | WithoutEnvelope<import("@ace/protocol").ScreenHelperRequestV2>,
+  ): Promise<unknown> {
+    if (Buffer.byteLength(JSON.stringify(command)) > 64 * 1024)
+      return Promise.reject(new HelperCommandError("bounds", "Helper command exceeds limit"));
     if (this.closed) return Promise.reject(new Error("Helper is closed"));
     if (this.pending.size >= 32) return Promise.reject(new Error("Helper request limit"));
-    const request = ScreenHelperRequest.parse({
+    const windows = (this.options.platform ?? process.platform) === "win32";
+    if (windows && command.op === "capture")
+      return this.send({ op: "watch", active: command.enabled });
+    if (windows && command.op === "input") {
+      const { kind, ...input } = command.input;
+      return this.send(
+        ScreenHelperRequestV2.parse({ op: kind, ...input, version: 2, id: "input" }),
+      );
+    }
+    const request = (windows ? ScreenHelperRequestV2 : ScreenHelperRequest).parse({
       ...command,
-      version: command.op === "hello" ? 1 : this.capabilities ? 2 : 1,
+      version: windows ? 2 : command.op === "hello" ? 1 : this.capabilities ? 2 : 1,
       id: this.options.nextId(),
     });
+    const line = `${JSON.stringify(request)}\n`;
+    if (Buffer.byteLength(line) > 64 * 1024)
+      return Promise.reject(new HelperCommandError("bounds", "Helper command exceeds limit"));
     if (this.pending.has(request.id)) return Promise.reject(new Error("Duplicate request id"));
     return new Promise((resolve, reject) => {
       const cancel = (this.options.scheduler ?? nodeScheduler).schedule(
@@ -174,7 +258,7 @@ export class Helper {
         this.options.timeoutMs ?? 10_000,
       );
       this.pending.set(request.id, { resolve, reject, cancel });
-      this.proc.stdin.write(`${JSON.stringify(request)}\n`, (error) => {
+      this.proc.stdin.write(line, (error) => {
         if (error) this.fail(error);
       });
     });
@@ -212,5 +296,13 @@ export class Helper {
     }
     await this.proc.stop({ graceMs: 1000 });
     await this.cleanup();
+  }
+}
+
+export class HelperCommandError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
   }
 }

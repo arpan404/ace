@@ -14,6 +14,16 @@ const Type = TypeAction.omit({ kind: true });
 const [, , , PointKey, , PointScroll] = ScreenInput.options;
 const Key = z.union([KeyAction.omit({ kind: true }), PointKey.omit({ kind: true })]);
 const Scroll = z.union([ScrollAction.omit({ kind: true }), PointScroll.omit({ kind: true })]);
+export const computerUseSchemas = {
+  screen_ui_tree: ScreenUITreeOptions,
+  screen_ui_find: ScreenUIFindOptions,
+  screen_ui_act: ScreenUIActOptions,
+  screen_screenshot: Screenshot,
+  screen_click: Click,
+  screen_type: Type,
+  screen_key: Key,
+  screen_scroll: Scroll,
+};
 export const computerUseTools = [
   {
     name: "screen_ui_tree",
@@ -75,14 +85,23 @@ export function computerUseHandler(manager: ScreenManager, sessionId: string, ow
     )[];
   }> => {
     if (name === "screen_screenshot") {
+      const frame = await manager.captureScreenshot(sessionId);
       Screenshot.parse(input);
       return {
         content: [
           {
             type: "image",
-            data: (await manager.captureScreenshot(sessionId)).payload.toString("base64"),
+            data: frame.payload.toString("base64"),
             mimeType: "image/jpeg",
           },
+          ...(frame.header.scale === undefined
+            ? []
+            : [
+                {
+                  type: "text" as const,
+                  text: `Screenshot scale: ${frame.header.scale} pixels per target point. Divide screenshot coordinates by this scale for input; prefer UI refs.`,
+                },
+              ]),
         ],
       };
     }

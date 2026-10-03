@@ -46,8 +46,9 @@ export class HelperHost {
     }
     try {
       await helper.request({ op: "stop" });
-    } catch {
+    } catch (error) {
       await this.close();
+      throw error;
     }
   }
   close(): Promise<void> {

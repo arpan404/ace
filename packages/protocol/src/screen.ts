@@ -10,55 +10,20 @@ import {
 } from "./screen-v2.ts";
 export * from "./screen-v2.ts";
 
-export const ScreenId = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
-export const ScreenBundle = z.string().min(1).max(256);
-export const ScreenPermissions = z.object({
-  screenRecording: z.boolean(),
-  accessibility: z.boolean(),
-});
-export const ScreenTarget = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("app"),
-    bundleId: ScreenBundle,
-    displayId: z.number().int().positive(),
-  }),
-  z.object({
-    kind: z.literal("window"),
-    bundleId: ScreenBundle,
-    windowId: z.number().int().positive(),
-  }),
-  z.object({
-    kind: z.literal("display"),
-    displayId: z.number().int().positive(),
-    bundleIds: z.array(ScreenBundle).min(1).max(64),
-  }),
-]);
-export type ScreenTarget = z.infer<typeof ScreenTarget>;
-export const ScreenAction = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("click"),
-    x: z.number().finite().nonnegative(),
-    y: z.number().finite().nonnegative(),
-    button: z.enum(["left", "right"]).default("left"),
-  }),
-  z.object({ kind: z.literal("type"), text: z.string().max(4096) }),
-  z.object({
-    kind: z.literal("key"),
-    keyCode: z.number().int().min(0).max(127),
-    modifiers: z
-      .array(z.enum(["command", "shift", "option", "control"]))
-      .max(4)
-      .default([]),
-  }),
-  z.object({
-    kind: z.literal("scroll"),
-    x: z.number().finite().nonnegative(),
-    y: z.number().finite().nonnegative(),
-    deltaX: z.number().int().min(-1000).max(1000),
-    deltaY: z.number().int().min(-1000).max(1000),
-  }),
-]);
-export type ScreenAction = z.infer<typeof ScreenAction>;
+export {
+  ScreenId,
+  ScreenBundle,
+  ScreenPermissions,
+  ScreenTarget,
+  ScreenAction,
+} from "./screen-base.ts";
+import {
+  ScreenId,
+  ScreenBundle,
+  ScreenPermissions,
+  ScreenTarget,
+  ScreenAction,
+} from "./screen-base.ts";
 export const ScreenLegacyFrameHeader = z.object({
   version: z.literal(1),
   sessionId: ScreenId,
@@ -67,6 +32,8 @@ export const ScreenLegacyFrameHeader = z.object({
   width: z.number().int().positive().max(3840),
   height: z.number().int().positive().max(2160),
   codec: z.literal("jpeg"),
+  scale: z.number().finite().positive().optional(),
+  captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   bytes: z
     .number()
     .int()
@@ -76,6 +43,7 @@ export const ScreenLegacyFrameHeader = z.object({
 export const ScreenV2FrameHeader = z.object({
   version: z.literal(2),
   sessionId: ScreenId,
+  captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   ts: z.number().finite().nonnegative(),
   width: z.number().int().positive().max(3840),
@@ -148,6 +116,7 @@ export const ScreenOperation = z.discriminatedUnion("op", [
     sessionId: ScreenId,
     controller: z.enum(["agent", "human", "none"]),
     agentId: ScreenId.optional(),
+    threadId: ScreenId.optional(),
   }),
   z.object({ op: z.literal("action"), sessionId: ScreenId, action: ScreenAction }),
   z.object({ op: z.literal("subscribe"), sessionId: ScreenId }),

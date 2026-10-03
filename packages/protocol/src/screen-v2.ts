@@ -1,3 +1,4 @@
+import { ScreenId, ScreenTarget, ScreenAction, ScreenBundle } from "./screen-base.ts";
 import { z } from "zod";
 
 export const ScreenEndpoint = z
@@ -89,7 +90,16 @@ export const ScreenUIFindOptions = z.object({
 export const ScreenUIActOptions = z.object({
   ref: ScreenUIRef,
   action: ScreenUIAction,
-  value: z.string().max(4096).optional(),
+  value: z
+    .union([
+      z.string().max(4096),
+      z.boolean(),
+      z.object({
+        dx: z.number().int().min(-1000).max(1000).default(0),
+        dy: z.number().int().min(-1000).max(1000).default(0),
+      }),
+    ])
+    .optional(),
 });
 // Check the total budget iteratively before the recursive decoder sees external data.
 function boundedNodes(roots: number) {
@@ -128,13 +138,17 @@ export const ScreenUIFindResult = z.object({
   nodes: boundedNodes(64),
   truncated: z.boolean(),
 });
-export const ScreenUIActResult = z.object({ fallback: z.boolean() });
+export const ScreenUIActResult = z.object({
+  fallback: z.boolean(),
+  method: z.literal("input").optional(),
+  boundsCentre: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
+});
 export type ScreenUITreeResult = z.infer<typeof ScreenUITreeResult>;
 export type ScreenUIFindResult = z.infer<typeof ScreenUIFindResult>;
 export type ScreenUIActOptions = z.infer<typeof ScreenUIActOptions>;
 const point = { x: z.number().finite().nonnegative(), y: z.number().finite().nonnegative() };
 const modifiers = z
-  .array(z.enum(["command", "shift", "option", "control"]))
+  .array(z.enum(["command", "shift", "option", "control", "alt", "meta"]))
   .max(4)
   .default([]);
 export const ScreenInput = z.discriminatedUnion("kind", [
@@ -162,3 +176,90 @@ export const ScreenInput = z.discriminatedUnion("kind", [
   }),
 ]);
 export type ScreenInput = z.infer<typeof ScreenInput>;
+
+export const ScreenFrameHeaderV2 = z.object({
+  version: z.literal(2),
+  sessionId: ScreenId,
+  seq: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  ts: z.number().finite().nonnegative(),
+  width: z.number().int().min(1).max(3840),
+  height: z.number().int().min(1).max(2160),
+  scale: z.number().finite().positive(),
+  captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  codec: z.literal("jpeg"),
+  bytes: z
+    .number()
+    .int()
+    .min(1)
+    .max(8 * 1024 * 1024),
+  dirtyRects: z.array(ScreenRect).max(32).optional(),
+});
+const Envelope = z.object({ version: z.literal(2), id: ScreenId });
+export const ScreenHelperRequestV2 = z.discriminatedUnion("op", [
+  Envelope.extend({ op: z.literal("hello") }),
+  Envelope.extend({ op: z.literal("permissions") }),
+  Envelope.extend({ op: z.literal("targets") }),
+  Envelope.extend({ op: z.literal("stop") }),
+  Envelope.extend({
+    op: z.literal("start"),
+    sessionId: ScreenId,
+    captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    target: ScreenTarget,
+    allowlist: z.array(z.string().min(1).max(256)).max(64),
+    fps: z.number().int().min(1).max(30),
+  }),
+  Envelope.extend({ op: z.literal("action"), action: ScreenAction }),
+  Envelope.extend({
+    op: z.literal("watch"),
+    active: z.boolean(),
+    captureGeneration: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  }),
+  Envelope.extend({ op: z.literal("ui.tree"), target: ScreenTarget, allowlist: z.array(ScreenBundle).max(64), ...ScreenUITreeOptions.shape }),
+  Envelope.extend({ op: z.literal("ui.find"), target: ScreenTarget.optional(), allowlist: z.array(ScreenBundle).max(64).optional(), ...ScreenUIFindOptions.shape }),
+  Envelope.extend({ op: z.literal("ui.act"), target: ScreenTarget.optional(), allowlist: z.array(ScreenBundle).max(64).optional(), ...ScreenUIActOptions.shape }),
+  Envelope.extend({
+    op: z.literal("pointer.move"),
+    x: z.number().finite().nonnegative(),
+    y: z.number().finite().nonnegative(),
+  }),
+  Envelope.extend({
+    op: z.literal("pointer.click"),
+    x: z.number().finite().nonnegative(),
+    y: z.number().finite().nonnegative(),
+    button: z.enum(["left", "right"]).default("left"),
+  }),
+  Envelope.extend({
+    op: z.literal("pointer.drag"),
+    x: z.number().finite().nonnegative(),
+    y: z.number().finite().nonnegative(),
+    toX: z.number().finite().nonnegative(),
+    toY: z.number().finite().nonnegative(),
+    button: z.enum(["left", "right"]).default("left"),
+  }),
+  Envelope.extend({
+    op: z.literal("key.press"),
+    key: z.string().min(1).max(64),
+    modifiers: z
+      .array(z.enum(["control", "shift", "alt", "meta"]))
+      .max(4)
+      .default([]),
+  }),
+  Envelope.extend({ op: z.literal("text.type"), text: z.string().max(4096) }),
+  Envelope.extend({
+    op: z.literal("scroll"),
+    dx: z.number().int().min(-1000).max(1000),
+    dy: z.number().int().min(-1000).max(1000),
+  }),
+]);
+export type ScreenHelperRequestV2 = z.infer<typeof ScreenHelperRequestV2>;
+export const ScreenHelperReplyV2 = Envelope.extend({
+  ok: z.boolean(),
+  data: z.unknown().optional(),
+  error: ScreenError.optional(),
+}).passthrough();
+
+export const ScreenHelperError = ScreenError;
+export const ScreenPermissionsV2 = z.object({
+  screen: z.enum(["granted", "denied", "prompt", "n/a"]),
+  input: z.enum(["granted", "denied", "prompt", "n/a"]),
+});

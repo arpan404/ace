@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+export { lineReader } from "./line-reader.ts";
 import { createInterface, type Interface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { byteLimit } from "./byte-limit.ts";
