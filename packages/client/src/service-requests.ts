@@ -8,7 +8,13 @@ export type ServiceRequest = WithoutId<Exclude<Correlated, { type: "browser.ack"
 type Reply = Extract<ServerMessage, { requestId?: string }>;
 type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T }>;
 
-export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "pi.control"
+// #72 adds queue schemas to the canonical union. Keep only correlation here;
+// queue storage, removal, context leases and recovery remain with that owner.
+export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "queue.get"
+  ? Extract<Reply, { type: "queue.result" }>
+  : ExistingServiceResponse<Q>;
+
+type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends "pi.control"
   ? Replies<"pi.result">
   : Q["type"] extends "preview.request"
     ? Replies<"preview.result">
@@ -102,13 +108,15 @@ function isServiceResponse<Q extends ServiceRequest>(
     replyTypes[query.type] ??
     (query.type.startsWith("automation.")
       ? ["automation.result"]
-      : query.type.startsWith("registry.")
-        ? ["registry.result"]
-        : query.type.startsWith("mcp.")
-          ? ["mcp.result"]
-          : query.type.startsWith("browser.")
-            ? ["browser.result"]
-            : []);
+      : query.type.startsWith("queue.")
+        ? ["queue.result"]
+        : query.type.startsWith("registry.")
+          ? ["registry.result"]
+          : query.type.startsWith("mcp.")
+            ? ["mcp.result"]
+            : query.type.startsWith("browser.")
+              ? ["browser.result"]
+              : []);
   return "requestId" in response && response.requestId === id && types.includes(response.type);
 }
 export function decodeServiceResponse<Q extends ServiceRequest>(

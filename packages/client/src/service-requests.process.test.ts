@@ -165,3 +165,62 @@ test("a denied service write rejects that request while a read-only device stays
   expect((await client.request({ type: "diagnostics.health" })).ok).toBe(true);
   expect(client.state).toBe("ready");
 });
+
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+test("mention completion uses the authoritative workspace rather than a projected client path", async () => {
+  const f = await setup();
+  cleanup = f.cleanup;
+  const outside = await mkdtemp(join(tmpdir(), "ace-context-outside-"));
+  try {
+    const project = f.daemon.store.getWorkspacePath(f.workspaceId);
+    if (!project) throw new Error("Missing project");
+    await promisify(execFile)("git", ["init", project]);
+    await promisify(execFile)("git", ["init", outside]);
+    await writeFile(join(project, "authorized-mention.txt"), "project");
+    await writeFile(join(outside, "outside-secret.txt"), "private");
+    f.daemon.store.appendEvents(f.thread.id, [
+      { type: "thread.client.updated", changes: { details: { worktree: outside } } },
+    ]);
+    const { client } = f.make();
+    await ready(client);
+    const reply = await client.request({
+      type: "context.request",
+      operation: { op: "mention.complete", threadId: f.thread.id, query: "authorized-", limit: 50 },
+    });
+    expect(reply.result).toMatchObject({ kind: "completion", paths: ["authorized-mention.txt"] });
+    const denied = await client.request({
+      type: "context.request",
+      operation: { op: "mention.complete", threadId: f.thread.id, query: "outside-", limit: 50 },
+    });
+    expect(denied.result).toMatchObject({ kind: "completion", paths: [] });
+  } finally {
+    await rm(outside, { recursive: true, force: true });
+  }
+});
+
+test("context reads cannot fall back to the project while an isolated workspace is unprepared", async () => {
+  const f = await setup();
+  cleanup = f.cleanup;
+  const project = f.daemon.store.getWorkspacePath(f.workspaceId);
+  if (!project) throw new Error("Missing project");
+  await promisify(execFile)("git", ["init", project]);
+  await writeFile(join(project, "project-only.txt"), "must not resolve yet");
+  f.daemon.store.appendEvents(f.thread.id, [
+    {
+      type: "thread.client.updated",
+      changes: { details: { mode: "worktree", worktree: project } },
+    },
+  ]);
+  const { client } = f.make();
+  await ready(client);
+  const reply = await client.request({
+    type: "context.request",
+    operation: { op: "mention.complete", threadId: f.thread.id, query: "project-", limit: 50 },
+  });
+  expect(reply.result).toMatchObject({ kind: "error" });
+});

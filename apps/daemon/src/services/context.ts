@@ -19,10 +19,10 @@ export async function startContext(runtime: ServiceContext): Promise<void> {
       return entity ? store.getWorkspacePath(entity.workspaceId) : undefined;
     },
     workspace: (thread) => {
-      const entity = store.getThread(ThreadId.parse(thread));
-      return entity
-        ? (entity.details?.worktree ?? store.getWorkspacePath(entity.workspaceId))
-        : undefined;
+      const threadId = ThreadId.parse(thread);
+      if (!store.getThread(threadId)) return undefined;
+      const binding = store.executionWorkspace(threadId);
+      return binding.ready ? binding.path : undefined;
     },
   });
   resources.own(() => context.close());
