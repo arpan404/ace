@@ -18,3 +18,8 @@ Protocol documentation uses Ajv 8, ajv-formats 3 and randexp 0.5 under the MIT l
 Protocol property tests use fast-check 4 under the MIT license. These dependencies are accepted under their respective licenses.
 
 Workspace descriptor support uses node-api-headers 1.9.0, MIT licensed, from the Node.js project. This header dependency is accepted under its license; the syscall bridge is written for ace.
+
+OpenCode local HTTP transport uses @opencode/client 2.0.22 and its @opencode/schema
+and @opencode/protocol 2.0.22 dependencies, Copyright OpenCode contributors,
+MIT licensed. These dependencies are accepted under their MIT licenses. ace uses
+only the public Promise client; it does not embed the OpenCode runtime.
