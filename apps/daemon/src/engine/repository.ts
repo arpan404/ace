@@ -54,6 +54,7 @@ export class EngineRepository {
     this.store = store;
     store.atomic(migrateEngine);
     this.permissions = new Permissions(this);
+    store.atomic(() => store.workspaceReservations.initializeSessions());
     this.recovery = new ProviderRecovery(store);
     this.capture = store.atomic((db) =>
       db.prepare("INSERT OR IGNORE INTO engine_provider_frames VALUES (?,?,?,?)"),
@@ -442,7 +443,7 @@ export class EngineRepository {
         ...(row.instance_id == null
           ? {}
           : { instanceId: z.string().min(1).max(256).parse(row.instance_id) }),
-        workspaceReady: this.store.executionWorkspace(id).ready,
+        workspaceReady: row.workspace_ready === 1,
         ...(row.options == null
           ? {}
           : { options: ExecutionOptions.parse(JSON.parse(String(row.options))) }),

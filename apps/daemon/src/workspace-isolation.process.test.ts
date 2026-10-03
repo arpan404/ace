@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, rm, writeFile, readFile, symlink } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile, realpath, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
@@ -238,3 +238,84 @@ test("legacy pending worktrees fail closed after restart even when the registere
     await h.close();
   }
 });
+
+test("prepared threads retain mode and base branch and workspace commands rebind subsequent provider sessions", async () => {
+  const h = transitionHarness();
+  const canonicalHome = await realpath(h.home);
+  const data = await mkdtemp(join(tmpdir(), "ace-workspace-switch-"));
+  await writeFile(join(h.home, ".gitignore"), "events.sqlite*\n");
+  await repository(h.home);
+  await git(h.home, "branch", "feature");
+  const runtime = new WorkspaceRuntime(h.store, data, () => 1000, {
+    changeWorkspace: (id, commandId, effect) => h.engine.changeWorkspace(id, commandId, effect),
+  });
+  try {
+    const threadId = ThreadId.parse("prepared");
+    expect(
+      h.command({
+        type: "thread.prepare",
+        threadId,
+        workspaceId: h.workspace,
+        provider: "codex",
+        title: "Prepared",
+        mode: "worktree",
+        baseBranch: "main",
+      }).ok,
+    ).toBe(true);
+    expect(h.store.getThread(threadId)?.details).toMatchObject({
+      mode: "worktree",
+      baseBranch: "main",
+    });
+    expect(h.sessions).toHaveLength(0);
+    const prepared = await runtime.prepare(threadId);
+    expect(prepared).not.toBe(canonicalHome);
+    const switchTo = (
+      id: string,
+      payload: { mode: "local" | "worktree"; branch: string; allowUncommitted?: boolean },
+    ) =>
+      runtime.execute(
+        Command.parse({
+          id,
+          deviceId: "device",
+          payload: { type: "thread.workspace.set", threadId, ...payload },
+        }),
+      );
+    expect(await switchTo("local", { mode: "local", branch: "feature" })).toMatchObject({
+      ok: true,
+    });
+    expect(h.store.executionWorkspace(threadId)).toMatchObject({
+      path: canonicalHome,
+      ready: true,
+    });
+    expect(h.store.getThread(threadId)?.details).toMatchObject({
+      mode: "local",
+      branch: "feature",
+      workspaceChange: { state: "applied" },
+    });
+    await writeFile(join(h.home, "file.txt"), "dirty\n");
+    expect(await switchTo("dirty", { mode: "local", branch: "main" })).toMatchObject({
+      ok: false,
+      error: "git_dirty_worktree",
+    });
+    expect(await git(h.home, "branch", "--show-current")).toBe("feature");
+    expect(
+      await switchTo("allowed", { mode: "local", branch: "main", allowUncommitted: true }),
+    ).toMatchObject({ ok: true });
+    expect(await readFile(join(h.home, "file.txt"), "utf8")).toBe("dirty\n");
+    expect(
+      h.command({
+        type: "thread.send",
+        threadId,
+        input: [{ type: "text", text: "Synthetic next turn" }],
+      }).ok,
+    ).toBe(true);
+    await h.engine.flush();
+    expect(h.sessions.at(-1)?.context.cwd).toBe(canonicalHome);
+    expect(h.sessions.at(-1)?.context.resume).toBeUndefined();
+  } finally {
+    await runtime.close();
+    await h.close();
+    await rm(data, { recursive: true, force: true });
+  }
+});
+import { ThreadId } from "@ace/protocol";

@@ -179,6 +179,7 @@ export async function setup(
   };
   return {
     daemon,
+    directory,
     thread,
     workspaceId,
     make,

@@ -1,3 +1,4 @@
+import type { LibraryContext } from "./types.ts";
 import { z } from "zod";
 import { ProviderKind, type CommandResolution } from "@ace/protocol";
 import { CommandCatalog, type CommandService, type ProviderInstance } from "./catalog.ts";
@@ -8,11 +9,7 @@ const context = z.object({
   provider: ProviderKind,
   instance: z.string().min(1).max(128),
 });
-export interface LibraryContext {
-  workspace: string;
-  provider: ProviderKind;
-  instance: string;
-}
+
 interface Entry {
   runtime: Set<string>;
   catalog: CommandCatalog;
@@ -55,10 +52,20 @@ export class CommandLibrary implements CommandService {
     entry: Entry;
     target: { provider: LibraryContext["provider"]; instance: string; session: string };
   }> {
-    const ctx = context.parse(this.contexts(thread));
-    const instance = this.instances.find(
-      (i) => i.id === ctx.instance && i.provider === ctx.provider,
-    );
+    return this.getContext(thread, context.parse(this.contexts(thread)));
+  }
+  private async getContext(
+    thread: string,
+    ctx: LibraryContext,
+  ): Promise<{
+    entry: Entry;
+    target: { provider: LibraryContext["provider"]; instance: string; session: string };
+  }> {
+    const instance =
+      this.instances.find((i) => i.id === ctx.instance && i.provider === ctx.provider) ??
+      (ctx.provider === "acp"
+        ? { id: ctx.instance, provider: ctx.provider, home: this.aceHome }
+        : undefined);
     if (!instance) throw new Error("Unknown provider instance");
     const key = `${ctx.workspace}\0${ctx.instance}`;
     let entry = this.entries.get(key);
@@ -104,6 +111,22 @@ export class CommandLibrary implements CommandService {
   list(thread: string, query: string, limit: number) {
     return this.enqueue(async () => {
       const { entry, target } = await this.get(thread);
+      return entry.catalog.list(target, query, limit);
+    });
+  }
+  /** File and builtin commands only, without starting a provider or retaining a draft. */
+  listDraft(draft: string, input: LibraryContext, query: string, limit: number) {
+    return this.enqueue(async () => {
+      const parsed = context.parse(input);
+      const selected =
+        parsed.instance === parsed.provider
+          ? (this.instances.find((instance) => instance.provider === parsed.provider)?.id ??
+            parsed.instance)
+          : parsed.instance;
+      const { entry, target } = await this.getContext(`draft:${draft}`, {
+        ...parsed,
+        instance: selected,
+      });
       return entry.catalog.list(target, query, limit);
     });
   }

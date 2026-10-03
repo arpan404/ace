@@ -13,10 +13,10 @@ export async function commitChanges(
   return serial(root, async () => {
     const info = await repository.info(root);
     if (info.head !== expected)
-      throw new GitError("invalid_argument", "HEAD changed; refresh before committing");
+      throw new GitError("head_moved", "HEAD changed; refresh before committing");
     const status = await repository.status(root);
     if (status.conflicted.length)
-      throw new GitError("dirty_worktree", "Resolve conflicts before committing");
+      throw new GitError("conflicts", "Resolve conflicts before committing");
     await repository.cli.call(root, ["add", "--all", "--", "."], {
       write: true,
       captureBytes: 65536,
@@ -25,6 +25,7 @@ export async function commitChanges(
       write: true,
       input: message,
       captureBytes: 65536,
+      env: { GIT_TRACE2_EVENT: "1" },
     });
     return head.parse(await repository.commit(root, "HEAD"));
   });
@@ -48,8 +49,35 @@ export async function pushBranch(
     await repository.cli.call(
       root,
       ["push", "--set-upstream", "--", remote, `HEAD:refs/heads/${info.branch}`],
-      { write: true, captureBytes: 65536 },
+      { write: true, captureBytes: 65536, env: { GIT_TRACE2_EVENT: "1" } },
     );
+  });
+}
+export async function switchBranch(
+  repository: Repository,
+  options: { worktree: string; branch: string; allowUncommitted: boolean },
+): Promise<void> {
+  const root = await repository.root(options.worktree);
+  await serial(root, async () => {
+    const valid = await repository.cli.call(
+      root,
+      ["check-ref-format", "--branch", options.branch],
+      { allowFailure: true },
+    );
+    if (!options.branch || options.branch.startsWith("-") || valid.exitCode !== 0)
+      throw new GitError("invalid_ref", "Invalid branch");
+    const status = await repository.status(root);
+    if (status.conflicted.length)
+      throw new GitError("conflicts", "Resolve conflicts before switching");
+    if (
+      !options.allowUncommitted &&
+      (status.staged.length || status.unstaged.length || status.untracked.length)
+    )
+      throw new GitError("dirty_worktree", "Commit or explicitly allow uncommitted changes");
+    await repository.cli.call(root, ["switch", "--no-guess", "--", options.branch], {
+      write: true,
+      env: { GIT_TRACE2_EVENT: "1" },
+    });
   });
 }
 export async function listBranches(

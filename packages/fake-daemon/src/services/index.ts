@@ -36,6 +36,8 @@ export class FakeServices {
   models: CatalogModel[];
   commands: PaletteCommand[];
   readonly settings: FakeSettings;
+  installations: import("@ace/protocol").RegistryInstallation[] = [];
+  localCommands = new Set(["fake-acp"]);
   private host: ServiceHost;
   constructor(host: ServiceHost) {
     this.host = host;
@@ -59,6 +61,46 @@ export class FakeServices {
   }
   private reply(message: ClientMessage, push: Push): ServerMessage | undefined {
     switch (message.type) {
+      case "registry.list":
+        return {
+          type: "registry.result",
+          requestId: message.requestId,
+          result: {
+            ok: true,
+            agents: [],
+            installations: this.installations,
+            stale: false,
+            refreshing: false,
+            source: "fixture",
+          },
+        };
+      case "registry.bind": {
+        if (
+          !message.acpAgentId.startsWith("local:") ||
+          !this.localCommands.has(message.command) ||
+          this.installations.some((entry) => entry.installationId === message.installationId)
+        )
+          return {
+            type: "registry.result",
+            requestId: message.requestId,
+            result: { ok: false, reason: "Registry operation unavailable or invalid" },
+          };
+        const installation = {
+          acpAgentId: message.acpAgentId,
+          installationId: message.installationId,
+          instanceId: message.instanceId,
+          version: message.version,
+          source: "user-local",
+          profileRevision: "generic-v1",
+          evidence: "user_local_binding" as const,
+        };
+        this.installations.push(installation);
+        return {
+          type: "registry.result",
+          requestId: message.requestId,
+          result: { ok: true, installation },
+        };
+      }
       case "accounts.list":
         return { type: "accounts.list", requestId: message.requestId, accounts: this.accounts };
       case "accounts.status":
@@ -131,12 +173,13 @@ export class FakeServices {
           ready: true,
         };
       case "commands.list":
+        if (message.draft) return undefined;
         return {
           type: "commands.list.result",
           requestId: message.requestId,
           commands: listCommands(
             this.commands,
-            this.host.thread(message.threadId)?.provider,
+            message.threadId ? this.host.thread(message.threadId)?.provider : undefined,
             message.query,
             message.limit,
           ),
@@ -147,13 +190,6 @@ export class FakeServices {
           type: "commands.resolve.result",
           requestId: message.requestId,
           result: { ok: false, error: "not_found" },
-        };
-      case "files.request":
-        return {
-          type: "files.error",
-          requestId: message.requestId,
-          code: "not_found",
-          message: "No file fixture",
         };
       default:
         return undefined;

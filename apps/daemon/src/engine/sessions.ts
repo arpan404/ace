@@ -110,6 +110,7 @@ export class Sessions {
           ? this.dependencies.mcp?.(actor.id, rootAgent.id, lifetime.signal)
           : undefined;
       const context = await this.dependencies.context?.(actor.id, lifetime.signal);
+      this.dependencies.repo.store.workspaceReservations.assertAvailable(metadata.cwd);
       const session = await adapter.openSession({
         ...context,
         permissionMode: mode,

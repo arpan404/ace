@@ -1,7 +1,7 @@
 import { connectDevices, sendDeviceFrame, type DevicesService } from "@ace/devices";
 import { connectBrowser, type BrowserService } from "@ace/browser";
 import { screenConnection, Simulators, type ScreenManager } from "@ace/screen";
-import { attachFilesRelay, type FilesService } from "@ace/files";
+import { chunkFilesChannel, attachFilesRelay, type FilesService } from "@ace/files";
 import {
   BrowserClientMessage,
   AgentId,
@@ -12,7 +12,8 @@ import {
 import type { HostChannel } from "@ace/relay";
 import type { Store } from "../store.ts";
 export interface RelayServices {
-  files: FilesService;
+  files?: FilesService;
+  threadFiles?: import("../files-workspaces.ts").FilesWorkspaces;
   appDevices?: DevicesService;
   browser?: BrowserService;
   screen?: ScreenManager;
@@ -131,7 +132,55 @@ export function attachRelayService(
       close: endpoint.close,
     };
   }
-  return attachFilesRelay(options.files, channel, device, (scope) =>
-    authorize(scope === "files.read" ? "read" : "operate"),
-  );
+  const legacy = options.files
+    ? attachFilesRelay(options.files, channel, device, (scope) =>
+        authorize(scope === "files.read" ? "read" : "operate"),
+      )
+    : undefined;
+  const chunks = options.threadFiles
+    ? chunkFilesChannel({
+        device,
+        send: (message) => {
+          if (channel.bufferedBytes > 1024 * 1024) {
+            channel.close();
+            return;
+          }
+          void channel.send(message).catch(() => channel.close());
+        },
+        async resolve(threadId) {
+          const files = options.threadFiles;
+          if (!files || !threadAccess(threadId)) throw new Error("File thread unavailable");
+          const root = files.root(threadId);
+          const service = await files.get(threadId);
+          return {
+            service,
+            allowed: (access) =>
+              authorize(access) && threadAccess(threadId) && files.matches(threadId, root),
+          };
+        },
+      })
+    : undefined;
+  return {
+    accept(message: ClientMessage) {
+      if (
+        message.type === "files.abort" ||
+        message.type === "files.pull" ||
+        message.type === "files.chunk" ||
+        (message.type === "files.request" && message.threadId) ||
+        (message.type === "files.cancel" && message.channel > 0x80000000)
+      ) {
+        if (!chunks) throw new Error("Scoped files unavailable");
+        chunks.accept(message);
+      } else if (legacy) legacy.accept(message);
+      else throw new Error("Thread-scoped file request required");
+    },
+    binary(frame: Buffer) {
+      if (!legacy) throw new Error("Legacy files unavailable");
+      legacy.binary(frame);
+    },
+    close() {
+      chunks?.close();
+      legacy?.close();
+    },
+  };
 }

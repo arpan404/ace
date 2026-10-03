@@ -6,6 +6,7 @@ import {
   limitPermissionMode as resolveChildMode,
 } from "@ace/core";
 import type { PermissionSettings } from "./permissions.ts";
+import { changeEngineWorkspace } from "./workspace-change.ts";
 import { ThreadId } from "@ace/protocol";
 import type { PrepareInput } from "./input.ts";
 import { Recovery, RecoveryPreferences, type RecoveryPorts } from "./recovery.ts";
@@ -74,6 +75,7 @@ export class Engine {
   private idleMs: number;
   private report: (error: unknown) => void;
   private actors = new Map<ThreadId, ThreadActor>();
+  private workspaceChanges = new Map<ThreadId, Promise<void>>();
   private sends: IntentWorkers;
   private controls: IntentWorkers;
   private steering: IntentWorkers;
@@ -391,6 +393,35 @@ export class Engine {
     }
     return { activeSessions, queues };
   }
+  async changeWorkspace(
+    id: ThreadId,
+    commandId: string,
+    effect: () => Promise<import("@ace/protocol").ThreadDetails>,
+    reservation: { roots: readonly string[]; hasOwnedWork(id: ThreadId): boolean } = {
+      roots: [this.repo.session(id).cwd],
+      hasOwnedWork: () => false,
+    },
+  ): Promise<void> {
+    if (this.closing || this.workspaceChanges.has(id))
+      throw new Error("workspace_change_in_progress");
+    const change = changeEngineWorkspace(
+      this.repo,
+      id,
+      commandId,
+      () => this.clock.now(),
+      async (owner) => {
+        const actor = this.actor(owner);
+        await actor.flush();
+        await this.sessions.close(actor, "idle");
+        await actor.flush();
+      },
+      effect,
+      (owner) => this.wake(owner),
+      { ...reservation, roots: [...reservation.roots, this.repo.session(id).cwd] },
+    ).finally(() => this.workspaceChanges.delete(id));
+    this.workspaceChanges.set(id, change);
+    return change;
+  }
   sessionMetadata(id: ThreadId) {
     return this.repo.session(id);
   }
@@ -491,6 +522,7 @@ export class Engine {
       this.syncQueue(actor);
       return;
     }
+    if (this.repo.store.workspaceReservations.reserved(this.repo.session(actor.id).cwd)) return;
     // Controls own idle retirement; sends must remain free to open a replacement.
     if (this.closing || (actor.idleDue && actor.session)) return;
     const guard = this.repo.transitions.guardOwner(actor.id);
@@ -604,6 +636,7 @@ export class Engine {
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
+      await Promise.allSettled(this.workspaceChanges.values());
       await this.readyPromise;
       this.recovery.close();
       for (const actor of this.actors.values()) {

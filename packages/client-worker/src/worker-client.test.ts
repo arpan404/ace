@@ -6,7 +6,7 @@ import {
   flakyCheckout,
   longHistory,
 } from "@ace/fake-daemon";
-import { DeviceId, ThreadId } from "@ace/protocol";
+import { ServerMessage, type ServerMessage as Message, DeviceId, ThreadId } from "@ace/protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import { ClientHost, RemoteClient } from "./index.ts";
@@ -31,6 +31,46 @@ function world(snapshotItems?: number) {
     ...(snapshotItems ? { snapshotItems } : {}),
   });
   const sockets = { opened: 0, open: 0 };
+  let hostTime = 0;
+  const scheduled = new Set<{ at: number; callback(): void }>();
+  const hostScheduler: Scheduler = {
+    set(delay, callback) {
+      const timer = { at: hostTime + delay, callback };
+      scheduled.add(timer);
+      // Frames have an explicit microtask boundary; liveness and linger use manual time.
+      if (delay <= 4)
+        queueMicrotask(() => {
+          if (scheduled.delete(timer)) callback();
+        });
+      return () => {
+        scheduled.delete(timer);
+      };
+    },
+  };
+  const advance = (ms: number) => {
+    const until = hostTime + ms;
+    for (;;) {
+      const timer = [...scheduled]
+        .filter((scheduledTimer) => scheduledTimer.at <= until)
+        .toSorted((a, b) => a.at - b.at)[0];
+      if (!timer) break;
+      hostTime = timer.at;
+      scheduled.delete(timer);
+      timer.callback();
+    }
+    hostTime = until;
+  };
+  const received: Message[] = [];
+  const waiters: { predicate(message: Message): boolean; resolve(message: Message): void }[] = [];
+  const faults = {
+    incoming: (_message: Message, text: string, deliver: (text: string) => void) => deliver(text),
+    wait(predicate: (message: Message) => boolean): Promise<Message> {
+      const found = received.find(predicate);
+      return found
+        ? Promise.resolve(found)
+        : new Promise((resolve) => waiters.push({ predicate, resolve }));
+    },
+  };
   const host = new ClientHost({
     target(config) {
       const { daemon: key } = z.object({ daemon: z.string() }).parse(config);
@@ -45,7 +85,19 @@ function world(snapshotItems?: number) {
                 open(events) {
                   sockets.opened++;
                   sockets.open++;
-                  inner.open(events);
+                  inner.open({
+                    ...events,
+                    message(text) {
+                      const message = ServerMessage.parse(JSON.parse(text));
+                      received.push(message);
+                      for (const waiter of waiters.slice())
+                        if (waiter.predicate(message)) {
+                          waiters.splice(waiters.indexOf(waiter), 1);
+                          waiter.resolve(message);
+                        }
+                      faults.incoming(message, text, events.message);
+                    },
+                  });
                 },
                 send: (text) => inner.send(text),
                 close() {
@@ -62,15 +114,36 @@ function world(snapshotItems?: number) {
           }),
       };
     },
-    scheduler: timers,
-    now: () => Date.now(),
+    scheduler: hostScheduler,
+    now: () => hostTime,
     frameMs: 4,
     lingerMs: 30,
     silenceMs: 300,
   });
   const tab = (target = "local") => {
     const { port1, port2 } = new MessageChannel();
-    host.attach(port1);
+    const left = Promise.withResolvers<void>();
+    const listeners = new Map<
+      (event: { data: unknown }) => void,
+      (event: { data: unknown }) => void
+    >();
+    host.attach({
+      postMessage: (value) => port1.postMessage(value),
+      start: () => port1.start(),
+      close: () => port1.close(),
+      addEventListener(type, listener) {
+        const wrapped = (event: { data: unknown }) => {
+          listener(event);
+          if (z.object({ t: z.literal("bye") }).safeParse(event.data).success) left.resolve();
+        };
+        listeners.set(listener, wrapped);
+        port1.addEventListener(type, wrapped);
+      },
+      removeEventListener(type, listener) {
+        const wrapped = listeners.get(listener);
+        if (wrapped) port1.removeEventListener(type, wrapped);
+      },
+    });
     const page = { visible: true, changed: () => {} };
     const remote = new RemoteClient(
       port2,
@@ -87,14 +160,18 @@ function world(snapshotItems?: number) {
         },
       },
     );
-    cleanups.push(() => remote.close());
+    cleanups.push(async () => {
+      await remote.close();
+      await left.promise;
+    });
     const show = (visible: boolean) => {
       page.visible = visible;
       page.changed();
     };
-    return Object.assign(remote, { show });
+    return Object.assign(remote, { show, left: left.promise });
   };
-  return { daemon, host, sockets, tab };
+  cleanups.push(() => advance(1000));
+  return { daemon, host, sockets, tab, faults, advance };
 }
 
 const textOf = (store: ThreadSource, id: string) => {
@@ -183,16 +260,19 @@ test("tabs attached to one daemon share a single socket", async () => {
 });
 
 test("the socket closes shortly after the last tab leaves, not while one remains", async () => {
-  const { sockets, tab } = world();
+  const { sockets, tab, advance } = world();
   const first = tab();
   const second = tab();
   await Promise.all([first.start(), second.start()]);
   await settled(first);
   await first.close();
-  await new Promise((resolve) => setTimeout(resolve, 80));
+  await first.left;
+  advance(80);
   expect(sockets.open).toBe(1);
   await second.close();
-  await vi.waitFor(() => expect(sockets.open).toBe(0));
+  await second.left;
+  advance(30);
+  expect(sockets.open).toBe(0);
 });
 
 test("a hidden tab receives nothing, then catches up when shown", async () => {
@@ -203,10 +283,10 @@ test("a hidden tab receives nothing, then catches up when shown", async () => {
   const lease = remote.thread(script.threadId);
   await vi.waitFor(() => expect(lease.store.thread).toBeDefined());
   remote.show(false);
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await remote.request({ type: "diagnostics.health" });
   const shown = transcript(lease.store);
   script.runUntilBlocked();
-  await new Promise((resolve) => setTimeout(resolve, 60));
+  await remote.request({ type: "diagnostics.health" });
   expect(transcript(lease.store)).toEqual(shown);
   const reference = (await inProcess(daemon)).thread(script.threadId);
   remote.show(true);
@@ -275,7 +355,7 @@ test("a request the worker cannot satisfy rejects in the tab with the client's e
 });
 
 test("a tab that stops answering is dropped and the idle connection closes", async () => {
-  const { host, sockets } = world();
+  const { host, sockets, advance } = world();
   const { port1, port2 } = new MessageChannel();
   host.attach(port1);
   // A raw port that connects and leases, then never pings again, like a crashed tab.
@@ -283,7 +363,20 @@ test("a tab that stops answering is dropped and the idle connection closes", asy
   port2.postMessage({ t: "lease", lease: 1, scope: { kind: "threads" } });
   cleanups.push(() => port2.close());
   await vi.waitFor(() => expect(sockets.open).toBe(1));
-  await vi.waitFor(() => expect(sockets.open).toBe(0), { timeout: 2000 });
+  const barrier = Promise.withResolvers<void>();
+  port2.addEventListener("message", (event) => {
+    if (z.object({ t: z.literal("reply"), call: z.literal(100) }).safeParse(event.data).success)
+      barrier.resolve();
+  });
+  port2.postMessage({
+    t: "call",
+    call: 100,
+    method: "request",
+    args: [{ type: "diagnostics.health" }, {}],
+  });
+  await barrier.promise;
+  advance(480);
+  expect(sockets.open).toBe(0);
   expect(host.clients).toBe(0);
 });
 
@@ -320,7 +413,7 @@ test("a setting saved in one tab reaches another tab's subscription through the 
     value: "claude",
     layer: { kind: "global" },
   });
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await writer.request({ type: "diagnostics.health" });
   expect(heard).toHaveLength(1);
 });
 
@@ -367,7 +460,7 @@ test("terminal output held for credit resumes when a tab grants credit through t
     type: "terminal.request",
     operation: { op: "write", threadId, terminalId, data: "echo relay\r" },
   });
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await remote.request({ type: "diagnostics.health" });
   expect(output).toHaveLength(1);
 
   remote.send({ type: "terminal.credit", subscriptionId: "shell" });
@@ -386,3 +479,348 @@ test("a one-way control is refused, not queued, while the worker's client is dis
     expect.objectContaining({ code: "offline" }),
   );
 });
+
+import { createHash } from "node:crypto";
+import { WorkspaceId, type HistoryOperationProgress } from "@ace/protocol";
+
+test("one tab leaving preview or closing keeps the other tab's browser subscription alive", async () => {
+  const { daemon, tab } = world();
+  daemon.createThread({
+    id: "preview",
+    workspaceId: "project",
+    title: "Preview",
+    provider: "codex",
+  });
+  const threadId = ThreadId.parse("preview");
+  const workspaceId = WorkspaceId.parse("project");
+  const first = tab(),
+    second = tab();
+  await Promise.all([first.start(), second.start()]);
+  await Promise.all([settled(first), settled(second)]);
+  const urls: string[] = [];
+  second.onMessage((message) => {
+    if (message.type === "browser.state") urls.push(message.state.url);
+  });
+  await first.request({ type: "browser.open", options: { threadId, workspaceId } });
+  await first.request({ type: "browser.subscribe", threadId });
+  await second.request({ type: "browser.subscribe", threadId });
+  await first.request({ type: "browser.unsubscribe", threadId });
+  await second.request({
+    type: "browser.execute",
+    threadId,
+    command: { action: "navigate", url: "https://example.org/after-leaving" },
+  });
+  await vi.waitFor(() => expect(urls).toContain("https://example.org/after-leaving"));
+  await first.request({ type: "browser.subscribe", threadId });
+  await first.close();
+  await second.request({
+    type: "browser.execute",
+    threadId,
+    command: { action: "navigate", url: "https://example.org/after-closing" },
+  });
+  await vi.waitFor(() => expect(urls).toContain("https://example.org/after-closing"));
+  await second.request({ type: "browser.unsubscribe", threadId });
+});
+
+test("shared-worker file transfers preserve binary bytes, backpressure and workspace isolation", async () => {
+  const { daemon, tab, faults } = world();
+  daemon.createThread({ id: "files", workspaceId: "project", title: "Files", provider: "codex" });
+  daemon.createThread({
+    id: "other-files",
+    workspaceId: "other",
+    title: "Other",
+    provider: "codex",
+  });
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  const bytes = Uint8Array.from({ length: 150000 }, (_, index) => index % 256);
+  const threadId = ThreadId.parse("files");
+  let produced = 0;
+  async function* source() {
+    for (let offset = 0; offset < bytes.length; offset += 65536) {
+      produced++;
+      yield bytes.subarray(offset, offset + 65536);
+    }
+  }
+  let releaseAck = noop;
+  faults.incoming = (message, text, deliver) => {
+    if (message.type === "files.upload" && message.offset === 65536)
+      releaseAck = () => deliver(text);
+    else deliver(text);
+  };
+  const uploading = remote.uploadFile(
+    {
+      threadId,
+      path: "binary.dat",
+      expected: null,
+      size: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    },
+    source(),
+  );
+  await faults.wait((message) => message.type === "files.upload" && message.offset === 65536);
+  // A port barrier lets any incorrectly eager source pull run while the ACK is withheld.
+  await remote.request({ type: "diagnostics.health" });
+  expect(produced).toBe(1);
+  releaseAck();
+  await uploading;
+  expect(produced).toBe(3);
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of remote.downloadFile({
+    threadId,
+    op: "download",
+    path: "binary.dat",
+    offset: 0,
+  })) {
+    expect(chunk.length).toBeLessThanOrEqual(65536);
+    chunks.push(chunk);
+  }
+  expect(Buffer.concat(chunks)).toEqual(Buffer.from(bytes));
+  await expect(
+    remote
+      .downloadFile({
+        threadId: ThreadId.parse("other-files"),
+        op: "download",
+        path: "binary.dat",
+        offset: 0,
+      })
+      .next(),
+  ).rejects.toMatchObject({ code: "daemon" });
+});
+
+test("a tab lists draft commands without a thread and observes correlated history progress before completion", async () => {
+  const { daemon, tab, faults } = world();
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  const workspaceId = WorkspaceId.parse("project");
+  const draft = await remote.request({
+    type: "context.request",
+    operation: { op: "draft.create", workspaceId },
+  });
+  if (draft.result.kind !== "draft") throw new Error("Draft missing");
+  const commands = await remote.request({
+    type: "commands.list",
+    draft: { draftId: draft.result.draftId, workspaceId, provider: "codex" },
+  });
+  expect(commands.commands.length).toBeGreaterThan(0);
+  expect(commands.commands.every((command) => command.scope !== "runtime")).toBe(true);
+  expect(daemon.snapshot({ kind: "threads" })).toMatchObject({ threads: {} });
+  const progress: HistoryOperationProgress[] = [];
+  remote.onMessage((message) => {
+    if (message.type === "history.operation.progress") progress.push(message);
+  });
+  let releaseTerminal = noop;
+  faults.incoming = (message, text, deliver) => {
+    if (message.type === "history.import") releaseTerminal = () => deliver(text);
+    else deliver(text);
+  };
+  let completed = false;
+  const importing = remote
+    .request(
+      { type: "history.import", sourceId: "missing", workspaceId },
+      { requestId: "import-from-tab" },
+    )
+    .then((result) => {
+      completed = true;
+      return result;
+    });
+  await faults.wait((message) => message.type === "history.import");
+  await remote.request({ type: "diagnostics.health" });
+  expect(progress.map((event) => [event.requestId, event.phase])).toEqual([
+    ["import-from-tab", "preparing"],
+    ["import-from-tab", "unsupported"],
+  ]);
+  expect(completed).toBe(false);
+  releaseTerminal();
+  const result = await importing;
+  expect(result).toMatchObject({
+    type: "history.import",
+    requestId: "import-from-tab",
+    status: "unsupported",
+  });
+  await vi.waitFor(() =>
+    expect(progress.map((event) => [event.requestId, event.phase])).toEqual([
+      ["import-from-tab", "preparing"],
+      ["import-from-tab", "unsupported"],
+    ]),
+  );
+  const bound = await remote.request({
+    type: "registry.bind",
+    acpAgentId: "local:fixture",
+    installationId: "fixture-install",
+    instanceId: "fixture-instance",
+    version: "1",
+    command: "fake-acp",
+    args: ["--stdio"],
+  });
+  expect(bound.result).toMatchObject({
+    ok: true,
+    installation: { installationId: "fixture-install", profileRevision: "generic-v1" },
+  });
+});
+
+test("reconnect invalidates one tab's old file controls and detachment cannot cancel a reused channel in another tab", async () => {
+  const { daemon, tab, faults } = world();
+  daemon.createThread({
+    id: "reconnect-files",
+    workspaceId: "project",
+    title: "Files",
+    provider: "codex",
+  });
+  const threadId = ThreadId.parse("reconnect-files");
+  const a = tab(),
+    b = tab();
+  await Promise.all([a.start(), b.start()]);
+  await Promise.all([settled(a), settled(b)]);
+  const bytes = Buffer.alloc(90000, 11);
+  await a.uploadFile(
+    {
+      threadId,
+      path: "data",
+      expected: null,
+      size: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    },
+    (async function* () {
+      yield bytes.subarray(0, 65536);
+      yield bytes.subarray(65536);
+    })(),
+  );
+  const stale = a.downloadFile({ threadId, op: "download", path: "data", offset: 0 });
+  expect((await stale.next()).value?.length).toBe(65536);
+  daemon.disconnectAll();
+  await vi.waitFor(() => {
+    expect(a.state).not.toBe("ready");
+    expect(b.state).not.toBe("ready");
+  });
+  await a.networkOnline(false);
+  await a.networkOnline(true);
+  await Promise.all([settled(a), settled(b)]);
+  const old = await faults.wait((message) => message.type === "files.ready");
+  const discarded = await b.request({
+    type: "files.request",
+    threadId,
+    operation: { op: "download", path: "data", offset: 0 },
+  });
+  if (discarded.type !== "files.ready") throw new Error("Missing discarded transfer");
+  b.send({ type: "files.cancel", channel: discarded.channel });
+  const reopened = await b.request({
+    type: "files.request",
+    threadId,
+    operation: { op: "download", path: "data", offset: 0 },
+  });
+  if (reopened.type !== "files.ready" || old.type !== "files.ready")
+    throw new Error("Missing reopened transfer");
+  expect(reopened.channel).toBe(old.channel);
+  await expect(stale.next()).rejects.toMatchObject({ code: "offline" });
+  await expect(a.request({ type: "files.pull", channel: reopened.channel })).rejects.toMatchObject({
+    code: "offline",
+  });
+  a.send({ type: "files.cancel", channel: reopened.channel });
+  await a.close();
+  await a.left;
+  await b.request({ type: "diagnostics.health" });
+  expect(await b.request({ type: "files.pull", channel: reopened.channel })).toMatchObject({
+    type: "files.data",
+    offset: 0,
+    eof: false,
+  });
+});
+
+test("failed Preview reservations do not prevent a ninth valid subscription", async () => {
+  const { daemon, tab, faults } = world();
+  const remote = tab();
+  await remote.start();
+  await settled(remote);
+  for (let i = 0; i < 8; i++) {
+    if (i === 4)
+      faults.incoming = (message, text, deliver) => {
+        if (message.type === "error" && message.requestId)
+          deliver(
+            JSON.stringify({
+              type: "browser.result",
+              requestId: message.requestId,
+              ok: false,
+              error: "Browser unavailable",
+            }),
+          );
+        else deliver(text);
+      };
+    const request = remote.request({
+      type: "browser.subscribe",
+      threadId: ThreadId.parse(`missing-${i}`),
+    });
+    if (i < 4) await expect(request).rejects.toMatchObject({ code: "daemon" });
+    else expect(await request).toMatchObject({ ok: false });
+  }
+  daemon.createThread({
+    id: "available",
+    workspaceId: "project",
+    title: "Available",
+    provider: "codex",
+  });
+  const threadId = ThreadId.parse("available");
+  await remote.request({
+    type: "browser.open",
+    options: { threadId, workspaceId: WorkspaceId.parse("project") },
+  });
+  expect(await remote.request({ type: "browser.subscribe", threadId })).toMatchObject({ ok: true });
+});
+
+test("Preview transitions wait for the previous receipt and preserve newer detach cleanup", async () => {
+  const { daemon, tab, faults } = world();
+  daemon.createThread({
+    id: "racing-preview",
+    workspaceId: "project",
+    title: "Preview",
+    provider: "codex",
+  });
+  const threadId = ThreadId.parse("racing-preview"),
+    workspaceId = WorkspaceId.parse("project");
+  const a = tab(),
+    b = tab();
+  await Promise.all([a.start(), b.start()]);
+  await Promise.all([settled(a), settled(b)]);
+  await a.request({ type: "browser.open", options: { threadId, workspaceId } });
+  await a.request({ type: "browser.subscribe", threadId });
+  let release = noop;
+  faults.incoming = (message, text, deliver) => {
+    if (message.type === "browser.result" && message.requestId === "leaving")
+      release = () => deliver(text);
+    else deliver(text);
+  };
+  const leaving = a.request({ type: "browser.unsubscribe", threadId }, { requestId: "leaving" });
+  await faults.wait(
+    (message) => message.type === "browser.result" && message.requestId === "leaving",
+  );
+  let returned = false;
+  const returning = a
+    .request({ type: "browser.subscribe", threadId }, { requestId: "returning" })
+    .then((value) => {
+      returned = true;
+      return value;
+    });
+  // An ordered request/reply on the same port drains any incorrectly concurrent reply.
+  await a.request({ type: "diagnostics.health" });
+  expect(returned).toBe(false);
+  release();
+  await Promise.all([leaving, returning]);
+  const states: string[] = [];
+  b.onMessage((message) => {
+    if (message.type === "browser.state") states.push(message.state.url);
+  });
+  await a.close();
+  await a.left;
+  await b.request({ type: "diagnostics.health" });
+  await b.request({
+    type: "browser.execute",
+    threadId,
+    command: { action: "navigate", url: "https://example.org/unsubscribed" },
+  });
+  await b.request({ type: "diagnostics.health" });
+  expect(states).not.toContain("https://example.org/unsubscribed");
+});
+
+function noop() {}

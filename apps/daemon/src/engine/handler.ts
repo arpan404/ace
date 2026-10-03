@@ -36,6 +36,12 @@ export function engineHandler(
 ): CommandHandler {
   return {
     handle(command: Command): CommandResult {
+      const payload = command.payload;
+      if ("threadId" in payload && payload.threadId) {
+        const id = ThreadId.parse(payload.threadId);
+        if (repo.store.workspaceReservations.threadReserved(id))
+          return { commandId: command.id, ok: false, error: "workspace_change_in_progress" };
+      }
       const result = recovery.handle(command);
       if (result) return result;
       const transition = acceptTransition(
@@ -61,6 +67,14 @@ export function engineHandler(
         );
       }
       let deliveryCommand = command;
+      if (
+        "threadId" in p &&
+        p.threadId &&
+        (repo.store.getThread(ThreadId.parse(p.threadId))?.details?.workspaceChange?.state ===
+          "preparing" ||
+          repo.store.getThread(ThreadId.parse(p.threadId))?.details?.workspaceChange?.uncertain)
+      )
+        return { commandId: command.id, ok: false, error: "workspace_change_in_progress" };
       if (isSend(p) && (p.type === "thread.send" || p.type === "thread.create")) {
         try {
           if (p.input.length > 64)
@@ -102,6 +116,8 @@ export function engineHandler(
           } catch {
             return fail("workspace_unavailable");
           }
+          if (repo.store.workspaceReservations.reserved(cwd))
+            return fail("workspace_change_in_progress");
           const entry = registry.get(p.provider);
           if (p.permissionMode && !entry.capabilities.permissions?.modes.includes(p.permissionMode))
             return fail("permission_mode_unsupported");

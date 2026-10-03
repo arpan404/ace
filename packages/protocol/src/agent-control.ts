@@ -180,6 +180,8 @@ export type AgentControlResult = z.infer<typeof AgentControlResult>;
 
 export const ThreadPrepareCommand = z.object({
   type: z.literal("thread.prepare"),
+  mode: z.enum(["local", "worktree"]).optional(),
+  baseBranch: z.string().min(1).max(1024).optional(),
   threadId: ThreadId,
   workspaceId: WorkspaceId,
   title: z.string().min(1).max(256),

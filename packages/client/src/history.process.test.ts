@@ -5,7 +5,7 @@ import { expect, test } from "vitest";
 import { startDaemon, readConfig } from "@ace/daemon";
 import { Client, webSocketTransport } from "./index.ts";
 import { ManualScheduler, memoryStorage, ready, when } from "./test-support.ts";
-import { DeviceId } from "@ace/protocol";
+import { DeviceId, type HistoryOperationProgress } from "@ace/protocol";
 
 test("history client correlates list and scan requests and observes indexing completion", async () => {
   const root = await mkdtemp(join(tmpdir(), "ace-client-history-"));
@@ -44,6 +44,61 @@ test("history client correlates list and scan requests and observes indexing com
     ]);
     expect(list.sessions).toHaveLength(1);
     expect(list.sessions[0]?.title).toBe("cached prompt");
+    const workspaceId = daemon.store.createWorkspace("/history", "History");
+    const source = list.sessions[0];
+    if (!source) throw new Error("Missing native history");
+    const progress: HistoryOperationProgress[] = [];
+    const stop = client.onMessage((message) => {
+      if (message.type === "history.operation.progress") progress.push(message);
+    });
+    const imported = await client.request(
+      { type: "history.import", sourceId: source.id, workspaceId },
+      { requestId: "import-native" },
+    );
+    expect(imported).toMatchObject({
+      type: "history.import",
+      requestId: "import-native",
+      status: "imported",
+    });
+    expect(
+      progress.filter((event) => event.requestId === "import-native").map((event) => event.phase),
+    ).toEqual(["preparing", "reading", "publishing", "completed"]);
+    if (imported.status !== "imported") throw new Error("Expected imported thread");
+    const history = await client.itemsPage({ threadId: imported.threadId, limit: 20 });
+    expect(
+      history.items.some(
+        (item) =>
+          item.type === "message" &&
+          item.parts.some((part) => part.type === "text" && part.text === "cached prompt"),
+      ),
+    ).toBe(true);
+    const continued = await client.request(
+      {
+        type: "history.continue",
+        threadId: imported.threadId,
+        mode: "resume",
+        input: [{ type: "text", text: "Do not launch a CLI" }],
+      },
+      { requestId: "continue-native" },
+    );
+    expect(continued).toMatchObject({
+      type: "history.continue",
+      requestId: "continue-native",
+      status: "unsupported",
+    });
+    expect(
+      progress.filter((event) => event.requestId === "continue-native").map((event) => event.phase),
+    ).toEqual(["preparing", "unsupported"]);
+    await expect(
+      client.request(
+        { type: "history.import", sourceId: "missing", workspaceId },
+        { requestId: "missing-native" },
+      ),
+    ).rejects.toMatchObject({ code: "daemon", message: "history_rejected" });
+    expect(
+      progress.filter((event) => event.requestId === "missing-native").map((event) => event.phase),
+    ).toEqual(["preparing", "failed"]);
+    stop();
     expect(status.scan?.state).toBe("ready");
     expect(client.historyScan().getSnapshot()?.state).toBe("ready");
     const scan = await client.scanHistory();

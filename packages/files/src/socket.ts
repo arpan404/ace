@@ -5,6 +5,7 @@ import { FilesClientMessage, type FilesServerMessage } from "@ace/protocol";
 import { decodeFileFrame, fillFileFrame } from "./frame.ts";
 import { FilesService } from "./service.ts";
 import { CHUNK_SIZE, codeOf, FileError, MAX_CREDITS, type Download } from "./types.ts";
+import { drainUpload } from "./upload-lifetime.ts";
 
 interface Outgoing {
   download: Download;
@@ -95,9 +96,8 @@ export function attachFilesChannel(
     if (upload) {
       upload.cancelled = true;
       try {
-        await upload.pending;
+        await drainUpload(upload);
       } finally {
-        upload.release();
         incoming.delete(id);
       }
     }
@@ -160,6 +160,12 @@ export function attachFilesChannel(
       void pump(message.channel, state);
       return;
     }
+    if (
+      message.type === "files.abort" ||
+      message.type === "files.pull" ||
+      message.type === "files.chunk"
+    )
+      throw new FileError("INVALID_MESSAGE", "Chunk requests require thread scope");
     const operation = message.operation;
     authorize(readOperations.has(operation.op) ? "files.read" : "files.write");
     if (["download", "artifact.download", "archive.download"].includes(operation.op)) {
@@ -296,7 +302,9 @@ export function attachFilesChannel(
       const fields =
         parsed.data.type === "files.request"
           ? { requestId: parsed.data.requestId }
-          : { channel: parsed.data.channel };
+          : "channel" in parsed.data
+            ? { channel: parsed.data.channel }
+            : {};
       if (pending >= 16) {
         failure(new FileError("BUSY", "Socket request queue is full"), fields);
         return;

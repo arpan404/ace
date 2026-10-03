@@ -46,6 +46,7 @@ export class HistoryContinuation {
   async continue(
     request: Extract<ClientMessage, { type: "history.continue" }>,
     signal: AbortSignal,
+    report: (phase: "opening" | "sending") => void = () => {},
   ): Promise<ServerMessage> {
     const thread = this.store.getThread(request.threadId);
     if (!thread?.imported) throw new Error("Unknown imported thread");
@@ -94,6 +95,7 @@ export class HistoryContinuation {
         throw new Error("Native history fork reused source identity");
       const resume = request.mode === "resume" ? { nativeSessionId: currentNativeId } : ctx.resume;
       let exited = false;
+      report("opening");
       const session = await adapter.openSession({
         threadId: thread.id,
         cwd: ctx.cwd,
@@ -138,6 +140,7 @@ export class HistoryContinuation {
       active = { session, instanceId: source.instanceId };
       this.sessions.set(thread.id, active);
     }
+    report("sending");
     await active.session.send(request.input, request.delivery);
     return {
       type: "history.continue",

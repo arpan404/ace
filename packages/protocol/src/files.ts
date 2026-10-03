@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { WorkspaceId } from "./ids.ts";
+import { ThreadId, WorkspaceId } from "./ids.ts";
 
 const offset = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const path = z.string().max(4096);
@@ -69,7 +69,29 @@ export const FileOperation = z.discriminatedUnion("op", [
 ]);
 export type FileOperation = z.infer<typeof FileOperation>;
 export const FilesClientMessage = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("files.request"), requestId: id, operation: FileOperation }),
+  z.object({ type: z.literal("files.abort"), sourceRequestId: id }),
+  z.object({
+    type: z.literal("files.pull"),
+    requestId: id,
+    channel: z.number().int().positive().max(0xffffffff),
+  }),
+  z.object({
+    type: z.literal("files.chunk"),
+    requestId: id,
+    channel: z.number().int().positive().max(0xffffffff),
+    offset,
+    data: z
+      .string()
+      .min(4)
+      .max(87384)
+      .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+  }),
+  z.object({
+    type: z.literal("files.request"),
+    requestId: id,
+    threadId: ThreadId.optional(),
+    operation: FileOperation,
+  }),
   z.object({
     type: z.literal("files.credit"),
     channel: z.number().int().min(1).max(0xffffffff),
@@ -88,6 +110,18 @@ export const WorkspaceFileChange = z.object({
 });
 export type WorkspaceFileChange = z.infer<typeof WorkspaceFileChange>;
 export const FilesServerMessage = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("files.data"),
+    requestId: id,
+    channel: z.number().int().positive(),
+    offset,
+    data: z.string().max(87384),
+    eof: z.boolean(),
+    sha256: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
+  }),
   z.object({ type: z.literal("files.cancelled"), channel: z.number() }),
   z.object({ type: z.literal("files.result"), requestId: id, value: z.unknown() }),
   z.object({
