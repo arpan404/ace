@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { Item, Thread } from "@ace/protocol";
 import { afterEach, expect, test } from "vitest";
 import { Store } from "@ace/daemon";
-import { shell } from "./payload-test-support.ts";
+import { shell as shellItem } from "./payload-test-support.ts";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => {
@@ -190,7 +190,7 @@ test("startup rebuild restores retired shell chunks and masks output appended be
 
 test("historical shell tails preserve whole UTF-8 characters at the byte boundary across reopen", () => {
   const h = setup();
-  const item = shell();
+  const item = shellItem();
   const output = "🦊".repeat(1025) + "x";
   h.store.appendEvents(
     h.thread.id,

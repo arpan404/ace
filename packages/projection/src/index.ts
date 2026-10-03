@@ -8,6 +8,7 @@ export {
   outputStreamId,
   summarizeOutput,
   utf8Slice,
+  utf8Tail,
 } from "./delta.ts";
 export { applyItemsPage, trackItem } from "./window.ts";
 import type {

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { Event, Item, ItemId, ThreadId, type TextSource, type ItemsPage } from "@ace/protocol";
-import { outputStreamId, summarizeOutput } from "@ace/projection";
+import { outputStreamId, summarizeOutput, utf8Tail } from "@ace/projection";
 import { ItemTextStore } from "./item-text-store.ts";
 import { appendTextSource } from "./text-preview.ts";
 
@@ -287,13 +287,10 @@ export class HistoryIndex {
       const version = this.latest(streamId, through);
       if (version?.size) {
         const start = Math.max(0, version.size - 4096);
-        const tail = this.readStream(
-          threadId,
-          streamId,
-          through,
-          start,
-          version.size - start,
-        ).bytes.toString("utf8");
+        const tail = utf8Tail(
+          this.readStream(threadId, streamId, through, start, version.size - start).bytes,
+          4096,
+        );
         const summary = summarizeOutput(item.id, tail);
         item.call.detail.output = {
           ...summary,

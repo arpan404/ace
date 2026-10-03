@@ -103,6 +103,52 @@ try {
           peakRssBytes: process.resourceUsage().maxRSS * 1024,
         }) + "\n",
       );
+      const shell = Item.parse({
+        id: "shell",
+        agentId: "root",
+        type: "tool_call",
+        complete: true,
+        createdAt: 1,
+        call: {
+          id: "shell",
+          agentId: "root",
+          kind: "shell",
+          title: "Output",
+          status: "succeeded",
+          startedAt: 1,
+          raw: [],
+          detail: { kind: "shell", command: "offline-benchmark" },
+        },
+      });
+      store.appendEvents(
+        thread.id,
+        [
+          { type: "item.created", item: shell },
+          {
+            type: "item.delta",
+            itemId: shell.id,
+            agentId: shell.agentId,
+            field: "output",
+            append: "🦊".repeat(1025) + "x",
+          },
+        ],
+        1,
+      );
+      const through = store.headSeq();
+      const tailStart = performance.now();
+      for (let i = 0; i < reads; i++)
+        store.readHistoricalItemPage(thread.id, through, through + 1, 1, 128 * 1024);
+      const tailElapsed = performance.now() - tailStart;
+      process.stdout.write(
+        JSON.stringify({
+          operation: "historical-shell-utf8-tail",
+          historicalItems,
+          iterations: reads,
+          opsPerSecond: (reads / tailElapsed) * 1000,
+          microsecondsPerOp: (tailElapsed * 1000) / reads,
+          peakRssBytes: process.resourceUsage().maxRSS * 1024,
+        }) + "\n",
+      );
     } finally {
       store.close();
     }
