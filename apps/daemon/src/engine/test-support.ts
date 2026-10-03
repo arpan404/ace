@@ -71,6 +71,9 @@ export async function harness(
   frames: ReturnType<typeof scriptFrames>,
   options: {
     limits?: EngineOptions["limits"];
+    recovery?: EngineOptions["recovery"];
+    preferences?: EngineOptions["preferences"];
+    prepareInput?: EngineOptions["prepareInput"];
     steer?: boolean;
     idleMs?: number;
     tick?: (now: number) => Fact[];
@@ -128,6 +131,9 @@ export async function harness(
   const errors: unknown[] = [];
   const engine = new Engine(store, {
     registry,
+    ...(options.recovery ? { recovery: options.recovery } : {}),
+    ...(options.preferences ? { preferences: options.preferences } : {}),
+    ...(options.prepareInput ? { prepareInput: options.prepareInput } : {}),
     ...(options.limits === undefined ? {} : { limits: options.limits }),
     clock,
     idleMs: options.idleMs ?? 30_000,
@@ -140,6 +146,7 @@ export async function harness(
     hostId: "host",
     store,
     handler: engine.handler,
+    engine,
   });
   const clients: Client[] = [];
   function command(payload: CommandPayload, deviceId = "device", id: string = randomUUID()) {

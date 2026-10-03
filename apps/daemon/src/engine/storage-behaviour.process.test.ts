@@ -79,7 +79,11 @@ test("delta frames only change their snapshot record and recover text beyond the
     const command = {
       id: "resume-cold",
       deviceId: "device",
-      payload: { type: "thread.send" as const, threadId: id, input, delivery: "queue" as const },
+      payload: {
+        type: "thread.resume" as const,
+        threadId: id,
+        expectedRevision: engine.queue(id).revision,
+      },
     };
     const parsed = Command.parse(command);
     restarted.recordCommand(parsed.id, parsed.deviceId, () =>
