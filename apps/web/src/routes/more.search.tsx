@@ -1,17 +1,29 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
-import { EmptyState } from "@/components/ui/empty.tsx";
-import { Screen } from "@/features/shell/screen.tsx";
+import { z } from "zod";
+import { SearchPage } from "@/features/search/search-page.tsx";
 
-/** TODO(search slice): full-text search across threads. */
-export const Route = createFileRoute("/more/search")({
-  component: () => (
-    <Screen title="Search">
-      <EmptyState
-        icon={MagnifyingGlassIcon}
-        title="Search every thread"
-        description="Find a message, command or file across all projects and machines."
-      />
-    </Screen>
-  ),
+const Search = z.object({
+  q: z.string().max(512).optional().catch(undefined),
+  kind: z.enum(["all", "message", "tool_call", "artifact", "thread"]).optional().catch(undefined),
 });
+
+/** Full-text search across every thread. */
+export const Route = createFileRoute("/more/search")({
+  validateSearch: (search) => Search.parse(search),
+  component: SearchRoute,
+});
+
+function SearchRoute() {
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  return (
+    <SearchPage
+      query={search.q ?? ""}
+      kind={search.kind ?? "all"}
+      // Typing replaces the entry; back returns to where search was opened from.
+      onChange={(next) =>
+        void navigate({ search: (prev) => ({ ...prev, ...next }), replace: true })
+      }
+    />
+  );
+}

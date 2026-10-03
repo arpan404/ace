@@ -1,17 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { CardsIcon } from "@phosphor-icons/react";
-import { EmptyState } from "@/components/ui/empty.tsx";
-import { Screen } from "@/features/shell/screen.tsx";
+import { NewDeckForm } from "@/features/deck/new-deck-form.tsx";
+import { Page, PageTitle, Screen } from "@/features/shell/screen.tsx";
 
-/** ⌘⇧N. TODO(deck slice): goal form that starts a run. */
+/** ⌘⇧N: a goal and a few policies start a deck. */
 export const Route = createFileRoute("/deck/new")({
   component: () => (
     <Screen title="New deck">
-      <EmptyState
-        icon={CardsIcon}
-        title="Describe the goal"
-        description="The deck drafts a plan of cards for you to approve before any agent starts."
-      />
+      <Page>
+        <PageTitle
+          title="New deck"
+          lede="Describe the goal. The deck drafts a plan of cards, gives each card a worker and an adversarial reviewer, and merges what passes."
+        />
+        <NewDeckForm />
+      </Page>
     </Screen>
   ),
 });
