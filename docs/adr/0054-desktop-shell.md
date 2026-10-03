@@ -28,6 +28,10 @@ The supervisor is a state machine. Start, restart, stop and crash restarts are t
 
 A first start can take half a minute or more while the daemon scans provider history. The page shows "Starting ace…" and the renderer's hand-off waits for as long as the start takes. It fails only on a real failure: the child exited (for example on the `ACE_HOME` lock of a daemon that no longer answers), the supervisor gave up, or the app is stopping it. The page then shows its connection screen and reloads once the daemon is running.
 
+A daemon that cannot be spawned at all (no bundled runtime, `ENOENT` or `EACCES`) is a failed start, not a crash: the status is `failed` with the reason, nothing respawns until a repair, and the page stops waiting. Stopping waits a bounded time even for a child that never reports its exit. `stop()` is final, so a start still waiting on the login-shell `PATH` spawns nothing after quit.
+
+The main process's own daemon link (notifications, badge, tray, power save) follows the daemon for the app's whole life. Whenever a daemon becomes ready, the link is created, woken, or replaced if the address or token changed. A failed first start therefore never leaves it dead.
+
 Launch at login starts with no window when background mode is on. Windows passes the login item's `--background` argument; macOS ignores login-item arguments, so the app reads `wasOpenedAtLogin`. Linux has no launch at login yet: it needs an XDG autostart entry.
 
 ### Bridge
@@ -74,7 +78,7 @@ No Chromium is downloaded into the desktop bundle.
   - the macOS rail inset for the traffic lights;
   - the transparent wallpaper under vibrancy and Mica.
 - Playwright cannot attach to a packaged build, because the inspect fuse is off. The smoke test therefore runs the unpackaged bundles against the fake daemon.
-- Windows packages build, but the daemon needs `descriptor.node`, which supports only macOS and Linux. Until it gains a Windows backend, Windows users connect to a remote daemon.
+- Windows packages build, but the daemon needs `descriptor.node`, which supports only macOS and Linux. Until it gains a Windows backend, the Windows app defaults to a remote-only target: its status is `unavailable` and the page asks for a daemon on another machine (`wss:` only).
 - Desktop auto-update currently stops at a verified "update available": it checks the signed release feed and opens the release. Installing in place (Squirrel.Mac, NSIS) and drain-before-install are still to build.
 - Each package is one architecture. A universal macOS build would need every native piece built for both architectures first.
 - After an Electron crash, a daemon the app started keeps running. The next launch adopts it as external, so quitting later does not stop it. A parent-liveness signal (for example, a stdin pipe the daemon watches) needs daemon support and is an open follow-up.
