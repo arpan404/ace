@@ -4,10 +4,11 @@ import { ThreadId } from "@ace/protocol";
 import { useState } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
-import type { ModelChoice } from "../sources/model-source.ts";
+import { defaultModelChoice, type ModelChoice } from "@ace/ui-core";
+import { useModelChoices } from "@/features/models/index.ts";
 import { Composer, type Draft } from "./composer.tsx";
 import { ContextBar } from "./context-bar.tsx";
-import { ModelPicker, defaultChoice, useModelChoices } from "./model-picker.tsx";
+import { ModelPicker } from "./model-picker.tsx";
 import { QueuedPills, useQueue } from "./queued.tsx";
 
 /** The agent is mid-turn or held up: a new message waits unless the person steers. */
@@ -75,7 +76,7 @@ export function ThreadComposer(props: {
           controls={
             <ModelPicker
               choices={choices}
-              value={model ?? defaultChoice(choices, props.provider)}
+              value={model ?? defaultModelChoice(choices, props.provider)}
               onChange={setModel}
             />
           }

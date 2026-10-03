@@ -33,7 +33,8 @@ export function ContextBar(props: {
   mode: WorkMode;
   onMode(mode: WorkMode): void;
   branches: readonly string[];
-  base: string;
+  /** Undefined when the project's branches aren't known. */
+  base: string | undefined;
   onBase(branch: string): void;
 }) {
   return (
@@ -64,7 +65,7 @@ export function ContextBar(props: {
           if (parsed.success) props.onMode(parsed.data);
         }}
       />
-      {props.mode === "worktree" && (
+      {props.mode === "worktree" && props.base !== undefined && (
         <>
           <Divider />
           <Picker

@@ -2,7 +2,7 @@ import { CatalogModel, type ProviderKind } from "@ace/protocol";
 import { AccountSummary } from "@ace/protocol/accounts";
 import { expect, test } from "vitest";
 import { accountView, blockingReset } from "./accounts.ts";
-import { defaultModelChoice, modelChoices } from "./models.ts";
+import { defaultModelChoice, modelChoices, newThreadOptions } from "./models.ts";
 
 const account = (
   id: string,
@@ -91,4 +91,25 @@ test("a signed-out account offers nothing and an exhausted one can't be the defa
   expect(choices.map((c) => c.accountId)).toEqual(["codex-team", "codex-personal"]);
   expect(choices[0]).toMatchObject({ exhausted: true, resetsAt: 7 });
   expect(defaultModelChoice(choices, "codex")?.accountId).toBe("codex-personal");
+});
+
+test("New thread lists each model once and defaults to an account with headroom", () => {
+  const options = newThreadOptions(
+    [model("claude", "claude-work", "opus", true), model("claude", "claude-personal", "opus")],
+    [
+      account(
+        "claude-work",
+        "claude",
+        { five_hour: { usedPercent: 100, resetsAt: 1 } },
+        "exhausted",
+      ),
+      account("claude-personal", "claude", { five_hour: { usedPercent: 38, resetsAt: 1 } }),
+    ],
+  );
+
+  expect(options.models.map((m) => m.id)).toEqual(["opus"]);
+  expect(options.accounts.map((a) => [a.label, a.usage, a.isDefault])).toEqual([
+    ["work", "100% of 5-hour used", false],
+    ["personal", "38% of 5-hour used", true],
+  ]);
 });

@@ -80,3 +80,63 @@ export function defaultModelChoice(
     usable[0]
   );
 }
+
+/** A model to start a thread with; the account is picked separately. */
+export interface ModelOption {
+  /** `nativeModelId`, which is what thread.create carries. */
+  id: string;
+  label: string;
+  provider: ProviderKind;
+  isDefault: boolean;
+}
+/** A signed-in account of the chosen model's provider, with how much quota it has used. */
+export interface AccountOption {
+  id: string;
+  provider: ProviderKind;
+  label: string;
+  /** "38% of 5-hour used", or "no usage reported". */
+  usage: string;
+  /** The first account with headroom for its provider. */
+  isDefault: boolean;
+}
+
+/**
+ * The New thread pickers: each model once per provider (whichever accounts serve it), and the
+ * signed-in accounts, the first with headroom marked as the default for its provider.
+ */
+export function newThreadOptions(
+  models: readonly CatalogModel[],
+  accounts: readonly AccountView[],
+): { models: ModelOption[]; accounts: AccountOption[] } {
+  const seen = new Set<string>();
+  const options: ModelOption[] = [];
+  for (const model of models) {
+    const key = `${model.provider}\u0000${model.nativeModelId}`;
+    if (model.hidden || seen.has(key)) continue;
+    seen.add(key);
+    options.push({
+      id: model.nativeModelId,
+      label: model.displayName,
+      provider: model.provider,
+      isDefault: model.isDefault,
+    });
+  }
+  const signedIn = accounts.filter((account) => account.signedIn);
+  const defaults = new Map<ProviderKind, string>();
+  for (const account of signedIn)
+    if (account.availability !== "exhausted" && !defaults.has(account.provider))
+      defaults.set(account.provider, account.id);
+  return {
+    models: options,
+    accounts: signedIn.map((account) => {
+      const window = tightestWindow(account);
+      return {
+        id: account.id,
+        provider: account.provider,
+        label: account.label,
+        usage: window ? `${window.usedPercent}% of ${window.label} used` : "no usage reported",
+        isDefault: defaults.get(account.provider) === account.id,
+      };
+    }),
+  };
+}

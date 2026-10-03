@@ -55,7 +55,7 @@ function model(
   extra: { isDefault?: boolean; contextWindow?: number; efforts?: string[] } = {},
 ): CatalogModel {
   return CatalogModel.parse({
-    id: `${provider}:${id}`,
+    id: `${instance}:${id}`,
     displayName,
     provider,
     instance,
@@ -232,12 +232,26 @@ export function modelCatalog(): CatalogModel[] {
     model("claude", "claude-personal", "claude-haiku-4-5", "Haiku 4.5", {
       contextWindow: 200_000,
     }),
+    model("claude", "claude-work", "claude-opus-4-1", "Opus 4.1", {
+      isDefault: true,
+      contextWindow: 200_000,
+      efforts: ["low", "medium", "high"],
+    }),
+    model("claude", "claude-work", "claude-sonnet-4-5", "Sonnet 4.5", {
+      contextWindow: 1_000_000,
+      efforts: ["low", "medium", "high"],
+    }),
     model("codex", "codex-personal", "gpt-5-codex", "GPT-5 Codex", {
       isDefault: true,
       contextWindow: 400_000,
       efforts: ["minimal", "low", "medium", "high"],
     }),
     model("codex", "codex-personal", "gpt-5", "GPT-5", {
+      contextWindow: 400_000,
+      efforts: ["minimal", "low", "medium", "high"],
+    }),
+    model("codex", "codex-team", "gpt-5-codex", "GPT-5 Codex", {
+      isDefault: true,
       contextWindow: 400_000,
       efforts: ["minimal", "low", "medium", "high"],
     }),
