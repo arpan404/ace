@@ -5,6 +5,8 @@ export interface AppPaths {
   renderer: string;
   daemonEntry: string;
   screenHelper: string | undefined;
+  /** The macOS helper's pinned hashes; outside `Contents/Helpers`, which may hold only code. */
+  screenHelperManifest: string | undefined;
   binDirectory: string;
 }
 
@@ -39,6 +41,12 @@ export function appPaths(options: {
     renderer: join(options.appDirectory, "renderer"),
     daemonEntry: join(resources, "daemon", "ace.mjs"),
     screenHelper,
+    screenHelperManifest:
+      options.platform !== "darwin"
+        ? undefined
+        : options.packaged
+          ? join(options.resourcesPath, "screen-helper-manifest.json")
+          : join(resources, "helpers", "manifest.json"),
     binDirectory: join(resources, "bin"),
   };
 }

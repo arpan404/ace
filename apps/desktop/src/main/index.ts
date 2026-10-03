@@ -68,6 +68,7 @@ function main(): void {
     resources: {
       entry: paths.daemonEntry,
       screenHelper: paths.screenHelper,
+      screenHelperManifest: paths.screenHelperManifest,
       binDirectory: paths.binDirectory,
     },
     env: process.env,
@@ -144,7 +145,11 @@ function main(): void {
   function applySettings(next: DesktopSettings): void {
     background.settingsChanged(next);
     // Login items belong to the installed app; development builds never register one.
-    if (app.isPackaged && process.platform !== "linux")
+    if (
+      app.isPackaged &&
+      process.platform !== "linux" &&
+      app.getLoginItemSettings().openAtLogin !== next.openAtLogin
+    )
       app.setLoginItemSettings({ openAtLogin: next.openAtLogin, args: ["--background"] });
     globalShortcut.unregisterAll();
     if (next.globalShortcut)

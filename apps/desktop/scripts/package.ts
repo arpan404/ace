@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { cp } from "node:fs/promises";
 import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
 import { desktop, dist, electronVersion } from "./common.ts";
@@ -23,6 +24,8 @@ const config: Configuration = {
   productName: "ace",
   executableName: "ace",
   electronVersion: electronVersion(),
+  // A local build reuses the installed Electron instead of downloading it again.
+  ...(full ? {} : { electronDist: join(desktop, "node_modules/electron/dist") }),
   directories: {
     app: join(dist, "app"),
     output: join(dist, "release"),
@@ -30,14 +33,35 @@ const config: Configuration = {
   },
   files: ["**/*"],
   asar: true,
+  // dist/app has no node_modules: everything is bundled.
+  npmRebuild: false,
   // Native addons and helper binaries cannot run from inside an asar archive.
   asarUnpack: ["**/*.node", "**/spawn-helper", "**/rg", "**/rg.exe"],
-  // The daemon runs as a separate Node process, so it ships as plain files.
   extraResources: [
-    { from: join(dist, "daemon"), to: "daemon" },
     { from: join(dist, "bin"), to: "bin" },
-    ...(process.platform === "darwin" ? [] : [{ from: join(dist, "helpers"), to: "helpers" }]),
+    ...(process.platform === "darwin"
+      ? existsSync(helper)
+        ? [{ from: join(dist, "helpers/manifest.json"), to: "screen-helper-manifest.json" }]
+        : []
+      : [{ from: join(dist, "helpers"), to: "helpers" }]),
   ],
+  // The daemon runs as a separate Node process, so it ships as plain files. It is copied here
+  // rather than through extraResources, which always drops node_modules, and the daemon needs
+  // its staged runtime packages (node-pty, koffi, playwright-core, the Claude SDK).
+  afterPack: async (context) => {
+    const resources =
+      context.electronPlatformName === "darwin"
+        ? join(
+            context.appOutDir,
+            `${context.packager.appInfo.productFilename}.app`,
+            "Contents/Resources",
+          )
+        : join(context.appOutDir, "resources");
+    await cp(join(dist, "daemon"), join(resources, "daemon"), {
+      recursive: true,
+      verbatimSymlinks: true,
+    });
+  },
   protocols: [{ name: "ace", schemes: ["ace"] }],
   electronFuses: {
     // The bundled daemon runs on Electron's own Node: ELECTRON_RUN_AS_NODE must stay on.
@@ -60,17 +84,14 @@ const config: Configuration = {
     entitlements: join(desktop, "build/entitlements.mac.plist"),
     entitlementsInherit: join(desktop, "build/entitlements.mac.plist"),
     notarize: full && notarize,
-    // Unsigned local builds skip identity lookup entirely.
-    ...(full ? {} : { identity: null }),
+    // Local builds are ad-hoc signed ("-"): Apple silicon kills binaries whose signature the
+    // fuse flip invalidated, and no Developer ID is needed to test locally.
+    ...(full ? {} : { identity: "-" }),
     // The screen helper keeps its own stable identity (dev.ace.screen-helper), signed by
     // native/screen-helper/build.sh; re-signing would break the daemon's manifest check.
     signIgnore: ["Contents/Helpers/AceScreenHelper.app"],
-    extraFiles: existsSync(helper)
-      ? [
-          { from: helper, to: "Helpers/AceScreenHelper.app" },
-          { from: join(dist, "helpers/manifest.json"), to: "Helpers/manifest.json" },
-        ]
-      : [],
+    // Contents/Helpers may hold only code: the manifest goes to Resources (extraResources).
+    extraFiles: existsSync(helper) ? [{ from: helper, to: "Helpers/AceScreenHelper.app" }] : [],
     extendInfo: {
       // "Open With → ace" and dropping folders on the dock icon.
       CFBundleDocumentTypes: [

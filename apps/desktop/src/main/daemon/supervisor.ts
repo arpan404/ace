@@ -69,7 +69,8 @@ export class DaemonSupervisor {
     this.options = {
       healthIntervalMs: options.healthIntervalMs ?? 5_000,
       healthFailures: options.healthFailures ?? 3,
-      readyTimeoutMs: options.readyTimeoutMs ?? 30_000,
+      // First start can import provider history before the endpoint is published.
+      readyTimeoutMs: options.readyTimeoutMs ?? 120_000,
       stopGraceMs: options.stopGraceMs ?? 10_000,
       maxRestarts: options.maxRestarts ?? 5,
       stableMs: options.stableMs ?? 60_000,

@@ -9,6 +9,7 @@ export interface DaemonResources {
   entry: string;
   /** The platform screen helper (macOS: `Contents/Helpers/AceScreenHelper.app`). */
   screenHelper?: string | undefined;
+  screenHelperManifest?: string | undefined;
   /** Directory with the bundled `rg`, prepended to the daemon's PATH. */
   binDirectory?: string | undefined;
 }
@@ -39,8 +40,11 @@ export function daemonEnvironment(options: Omit<SpawnOptions, "onOutput">): Node
   // Electron-only switches must not leak into the Node child.
   delete env.ELECTRON_ENABLE_LOGGING;
   delete env.NODE_OPTIONS;
-  if (resources.screenHelper && existsSync(resources.screenHelper))
+  if (resources.screenHelper && existsSync(resources.screenHelper)) {
     env.ACE_SCREEN_HELPER = resources.screenHelper;
+    if (resources.screenHelperManifest)
+      env.ACE_SCREEN_HELPER_MANIFEST = resources.screenHelperManifest;
+  }
   return env;
 }
 
