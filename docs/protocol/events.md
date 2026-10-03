@@ -22,25 +22,23 @@ Example:
 
 ```json
 {
-  "at": 9,
+  "at": 3,
   "id": "example",
   "payload": {
-    "task": {
+    "run": {
       "agentId": "example",
-      "endedAt": 6,
+      "endedAt": 0,
       "id": "example",
-      "kind": "monitor",
-      "outputPath": "example",
-      "raw": [],
-      "startedAt": 9,
-      "status": "failed",
-      "stoppable": false,
-      "title": "example",
-      "toolCallId": "example"
+      "nativeId": "example",
+      "ordinal": 9,
+      "startedAt": 6,
+      "state": "completed",
+      "threadId": "example",
+      "trigger": "goal"
     },
-    "type": "background_task.started"
+    "type": "run.started"
   },
-  "seq": 4,
+  "seq": 7,
   "threadId": "example"
 }
 ```
@@ -67,7 +65,6 @@ Example:
       "runId": "bqxE6nmb5WSVl9bn7zM7UR7QB7HJja0k2q8IGmdgOcSgKa_YewmxX.D4Y43-I3CMFpzotFYKT3zxg54RU",
       "workspaceId": "example"
     },
-    "pinned": false,
     "readAt": 7,
     "settledAt": null
   },

@@ -35,7 +35,13 @@ test("maintenance closes websocket command admission until the local host releas
       },
     }),
   });
-  expect(await c.next()).toMatchObject({ type: "error", code: "maintenance" });
+  // The refusal names the command, so the client keeps its connection and retries later.
+  expect(await c.next()).toMatchObject({
+    type: "error",
+    code: "maintenance",
+    commandId: "maintenance-test",
+    retryable: true,
+  });
   expect(f.store.listThreads()).toHaveLength(1);
   await accessRequest(f.server.httpUrl, "/v1/maintenance", { method: "DELETE", token });
   c.send({

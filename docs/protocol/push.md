@@ -1647,12 +1647,15 @@ Example:
 | message | yes | string |  |
 | requestId | no | string |  |
 | subscriptionId | no | string |  |
+| commandId | no | [CommandId.json](schema/CommandId.json) |  |
+| retryable | no | boolean |  |
 
 Example:
 
 ```json
 {
   "code": "example",
+  "commandId": "example",
   "message": "example",
   "requestId": "example",
   "type": "error"
@@ -1676,9 +1679,9 @@ Example:
 ```json
 {
   "bytes": "example",
-  "eof": false,
-  "nextOffset": 3,
-  "offset": 0,
+  "eof": true,
+  "nextOffset": 2,
+  "offset": 8,
   "requestId": "example",
   "streamId": "example",
   "type": "output.data"
@@ -1701,11 +1704,10 @@ Example:
 
 ```json
 {
-  "itemSeqs": {},
   "items": [],
   "itemsBefore": 10,
   "requestId": "example",
-  "seq": 2,
+  "seq": 4,
   "threadId": "example",
   "type": "items.page"
 }

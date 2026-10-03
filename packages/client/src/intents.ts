@@ -9,6 +9,8 @@ const Intent = z.object({
   error: z.string().optional(),
 });
 export type Intent = z.infer<typeof Intent>;
+/** A transient refusal (update drain, rolled-back transaction) is retried this many times. */
+const maxRetries = 10;
 export class Intents {
   private records = new Map<string, Intent>();
   private storage: Storage;
@@ -21,6 +23,8 @@ export class Intents {
   private chain: Promise<void> = Promise.resolve();
   private changed: (id: string) => void;
   private send: (command: Command) => void;
+  private retryAfter: (attempt: number, run: () => void) => () => void;
+  private retries = new Map<string, { attempt: number; cancel: (() => void) | undefined }>();
   private ready = false;
   private initializing: Promise<void> | undefined;
   constructor(
@@ -31,7 +35,9 @@ export class Intents {
     frameBytes: number,
     changed: (id: string) => void,
     send: (command: Command) => void,
+    retryAfter: (attempt: number, run: () => void) => () => void,
   ) {
+    this.retryAfter = retryAfter;
     this.storage = storage;
     this.device = device;
     this.limit = limit;
@@ -112,7 +118,24 @@ export class Intents {
       this.send(command);
     });
   }
+  /** A daemon refusal of one command. Transient ones stay pending and resend with backoff. */
+  refuse(commandId: string, code: string, retryable: boolean): Promise<void> {
+    const intent = this.records.get(commandId);
+    if (intent?.state !== "pending") return Promise.resolve();
+    const retry = this.retries.get(commandId) ?? { attempt: 0, cancel: undefined };
+    if (!retryable || retry.attempt >= maxRetries)
+      return this.acknowledge({ commandId: intent.command.id, ok: false, error: code });
+    retry.cancel?.();
+    retry.cancel = this.retryAfter(retry.attempt++, () => {
+      retry.cancel = undefined;
+      if (this.records.get(commandId)?.state === "pending") this.send(intent.command);
+    });
+    this.retries.set(commandId, retry);
+    return Promise.resolve();
+  }
   acknowledge(result: CommandResult): Promise<void> {
+    this.retries.get(result.commandId)?.cancel?.();
+    this.retries.delete(result.commandId);
     if (
       this.acknowledging.has(result.commandId) ||
       this.records.get(result.commandId)?.state !== "pending"
@@ -146,6 +169,11 @@ export class Intents {
     return this.chain;
   }
   replay(): void {
+    // Replay resends every pending intent; a scheduled retry would only duplicate it.
+    for (const retry of this.retries.values()) {
+      retry.cancel?.();
+      retry.cancel = undefined;
+    }
     for (const intent of this.records.values())
       if (intent.state === "pending") this.send(intent.command);
   }
