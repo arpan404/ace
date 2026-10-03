@@ -27,6 +27,7 @@ it("sessions in one account share a server and cancelling one keeps its peer usa
   try {
     const first = await open("account-a", firstSignal.signal, firstFrames, () => exited.resolve());
     const peer = await open("account-a", peerSignal.signal, peerFrames);
+    expect(await boundary.control("/test/instance")).toEqual({ instance: "account-a" });
     // Independent fake processes reuse session-1; a shared process allocates distinct sessions.
     await first.send([{ type: "text", text: "first" }], "queue", "first-command");
     await peer.send([{ type: "text", text: "peer" }], "queue", "peer-command");
@@ -43,6 +44,20 @@ it("sessions in one account share a server and cancelling one keeps its peer usa
     const other = await open("account-b", new AbortController().signal, otherFrames);
     expect(other.instanceId).toBe("account-b");
     expect(other.nativeSessionId).toBe("session-1");
+    expect(await boundary.control("/test/instance")).toEqual({ instance: "account-b" });
+    await expect(
+      adapter.openSession({
+        cwd: "/account",
+        threadId: ThreadId.parse("thread_changed_account"),
+        instanceId: "account-a",
+        env: { ACE_TEST_INSTANCE: "changed" },
+        signal: new AbortController().signal,
+        onFrame: () => {},
+        onExit: () => {},
+      }),
+    ).rejects.toThrow("environment changed");
+    await peer.send([{ type: "text", text: "still same account" }], "queue");
+    expect(await boundary.control("/test/instance")).toEqual({ instance: "account-a" });
   } finally {
     await adapter.close();
   }
