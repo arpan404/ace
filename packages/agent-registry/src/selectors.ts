@@ -63,14 +63,19 @@ export function sessionSelectors(
     const result = Select.safeParse(entry);
     if (!result.success) continue;
     const config = result.data;
-    const values = config.options.flatMap((option) =>
-      "value" in option && typeof option.value === "string"
-        ? [option.value]
-        : "options" in option && Array.isArray(option.options)
-          ? option.options.map((value) => value.value)
-          : [],
-    );
-    if (values.length > 512) throw new Error("Selector option budget exceeded");
+    const values: string[] = [];
+    for (const option of config.options) {
+      const entries =
+        "value" in option && typeof option.value === "string"
+          ? [option.value]
+          : "options" in option && Array.isArray(option.options)
+            ? option.options.map((value) => value.value)
+            : [];
+      for (const value of entries) {
+        if (values.length >= 512) throw new Error("Selector option budget exceeded");
+        values.push(value);
+      }
+    }
     if (!model && (config.category === "model" || (!config.category && config.id === "model")))
       model = { method: "session/set_config_option", configId: config.id, values };
     if (!mode && (config.category === "mode" || (!config.category && config.id === "mode")))

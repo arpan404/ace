@@ -54,6 +54,7 @@ export function atomicJsonFile(
       await mkdir(dirname(path), { recursive: true, mode: 0o700 });
       const temporary = `${path}.${id()}.tmp`;
       let committed = false;
+      let failure: { error: unknown } | undefined;
       try {
         const file = await open(temporary, "wx", 0o600);
         try {
@@ -69,13 +70,18 @@ export function atomicJsonFile(
         } catch (error) {
           throw new CommittedWriteError(error);
         }
-      } finally {
-        try {
-          await rm(temporary, { force: true });
-        } catch (error) {
-          if (committed) throw new CommittedWriteError(error);
-          throw error;
-        }
+      } catch (error) {
+        failure = { error };
+      }
+      try {
+        await rm(temporary, { force: true });
+      } catch (error) {
+        failure ??= { error };
+      }
+      if (failure) {
+        if (committed && !(failure.error instanceof CommittedWriteError))
+          throw new CommittedWriteError(failure.error);
+        throw failure.error;
       }
     },
   };

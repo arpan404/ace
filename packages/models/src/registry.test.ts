@@ -40,17 +40,21 @@ test("generic model listing and explicit refresh never launch a metadata session
   const catalog = new ModelCatalog({
     instances: [config],
     storage: { load: () => [], replace() {}, remove() {}, close() {} },
-    discover: async (config) => normalizeAcp(metadata("unauthorized-discovery"), config),
+    discover: async (selectedInstance) =>
+      normalizeAcp(metadata("unauthorized-discovery"), selectedInstance),
     now: () => 1,
-    deadline() {
-      throw new Error("No deadline required");
-    },
+    deadline: () => () => {},
   });
   try {
     expect(catalog.list().models).toEqual([]);
     await catalog.refresh();
     expect(catalog.list().models).toEqual([]);
-    expect(catalog.list().instances[0]?.stale).toBe(true);
+    expect(catalog.list().instances[0]).toMatchObject({
+      stale: true,
+      acpAgentId: "local:one",
+      installationId: "installed-one",
+      instanceId: "one-home",
+    });
   } finally {
     await catalog.close();
   }
@@ -85,6 +89,10 @@ test("two ACP agents and account homes retain separate native IDs and login gene
       ["same-native", "local:one", "one-home", "actual-model-selector"],
       ["same-native", "local:two", "two-home", "actual-model-selector"],
     ]);
+    expect(catalog.list({ acpAgentId: "local:two" }).models.map((row) => row.instance)).toEqual([
+      "two",
+    ]);
+    expect(catalog.list({ instance: "two", acpAgentId: "local:one" }).models).toEqual([]);
     await catalog.loginChanged("one", "new-login");
     expect(catalog.list({ instance: "one" }).models).toEqual([]);
     expect(catalog.list({ instance: "two" }).models).toHaveLength(1);

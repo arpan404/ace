@@ -1,3 +1,4 @@
+import { sessionSelectors } from "@ace/agent-registry";
 import { z } from "zod";
 const id = z.string().min(1).max(256);
 const efforts = z.array(id).max(32);
@@ -89,7 +90,7 @@ export function isModelConfig(
 ): config is z.infer<typeof SelectConfigOption> {
   return (
     isSelectConfig(config) &&
-    (config.category === "model" || (!config.category && config.id === "model"))
+    sessionSelectors({ configOptions: [config] }).model?.configId === config.id
   );
 }
 export const AcpSession = z

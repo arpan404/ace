@@ -181,18 +181,21 @@ export class ModelCatalog implements ModelCatalogApi {
     return pending;
   }
   #select(filter: ModelFilter): State[] {
+    const matches = (state: State) =>
+      (!filter.provider || state.config.provider === filter.provider) &&
+      (!filter.acpAgentId || state.config.acpAgentId === filter.acpAgentId) &&
+      (!filter.installationId || state.config.installationId === filter.installationId) &&
+      (!filter.instanceId || state.config.instanceId === filter.instanceId);
     if (filter.instance) {
       const state = this.#states.get(filter.instance);
-      return state && (!filter.provider || state.config.provider === filter.provider)
-        ? [state]
-        : [];
+      return state && matches(state) ? [state] : [];
     }
     if (filter.provider)
       return [...(this.#providers.get(filter.provider) ?? [])].flatMap((id) => {
         const state = this.#states.get(id);
-        return state ? [state] : [];
+        return state && matches(state) ? [state] : [];
       });
-    return [...this.#states.values()];
+    return [...this.#states.values()].filter(matches);
   }
   #stale(state: State): boolean {
     return (
@@ -204,6 +207,9 @@ export class ModelCatalog implements ModelCatalogApi {
     return {
       provider: state.config.provider,
       instance: state.config.id,
+      ...(state.config.acpAgentId ? { acpAgentId: state.config.acpAgentId } : {}),
+      ...(state.config.installationId ? { installationId: state.config.installationId } : {}),
+      ...(state.config.instanceId ? { instanceId: state.config.instanceId } : {}),
       ...(state.entry ? { refreshedAt: state.entry.refreshedAt } : {}),
       stale: this.#stale(state),
       refreshing: state.flight !== undefined,

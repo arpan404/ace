@@ -157,3 +157,29 @@ test("old Qwen blocks setters while Gemini uses its legacy dialect and generic m
   expect(accountIsolation().supported).toBe(false);
   expect(accountMigration().supported).toBe(false);
 });
+
+test("grouped selectors reject overflow before offering an incomplete model list", () => {
+  const options = Array.from({ length: 512 }, (_, index) => ({
+    value: String(index),
+    name: String(index),
+  }));
+  const setup = (second: typeof options) => ({
+    configOptions: [
+      {
+        id: "actual",
+        category: "model",
+        type: "select",
+        options: [
+          { group: "first", options },
+          { group: "second", options: second },
+        ],
+      },
+    ],
+  });
+  expect(
+    selectorRequest(sessionSelectors(setup([])), "model", "511", "session").params,
+  ).toMatchObject({ configId: "actual", value: "511" });
+  expect(() => sessionSelectors(setup([{ value: "overflow", name: "Overflow" }]))).toThrow(
+    "budget",
+  );
+});

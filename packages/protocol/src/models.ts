@@ -53,6 +53,7 @@ export const CatalogModel = z
   });
 export type CatalogModel = z.infer<typeof CatalogModel>;
 export const ModelFilter = z.object({
+  ...AcpIdentity.partial().shape,
   provider: ProviderKind.optional(),
   instance: label.optional(),
 });
@@ -63,6 +64,7 @@ export const ModelListOptions = ModelFilter.extend({
 });
 export type ModelListOptions = z.input<typeof ModelListOptions>;
 export const ModelInstanceStatus = z.object({
+  ...AcpIdentity.partial().shape,
   provider: ProviderKind,
   instance: label,
   refreshedAt: z.number().nonnegative().optional(),

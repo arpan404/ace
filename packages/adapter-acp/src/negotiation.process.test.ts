@@ -146,6 +146,7 @@ test.each([false, true])(
         { name: "ace", ...(http ? { type: "http" } : { command: process.execPath }) },
       ]);
       expect(JSON.stringify(h.frames)).not.toContain(secret);
+      expect(JSON.stringify(h.frames.map((frame) => frame.payload?.data))).not.toContain(secret);
       expect(JSON.stringify(metadata)).not.toContain(secret);
       expect(JSON.stringify(metadata)).toContain("secret-key-value");
       expect(JSON.stringify(metadata)).toContain("existing-key-value");
@@ -312,14 +313,21 @@ test.each(["claude-acp", "codex-acp"])(
   "%s child sessions require bilateral profile negotiation",
   async (agent) => {
     const version = agent === "claude-acp" ? "0.85.1" : "2.1.1";
-    for (const advertised of [false, true]) {
-      const h = await open({ subagents: advertised }, {}, agent, version);
+    for (const advertisement of ["canonical", "meta", "absent"]) {
+      const advertised = advertisement !== "absent";
+      const h = await open(
+        { subagents: advertisement === "canonical", airSubagents: advertisement === "meta" },
+        {},
+        agent,
+        version,
+      );
       try {
         const initialize = h.frames.find(
           (frame) => Envelope.safeParse(frame.data).data?.method === "initialize",
         );
         expect(Envelope.parse(initialize?.data).params?.clientCapabilities).toMatchObject({
           subagents: {},
+          _meta: { jetbrains: { air: { version: 1, capabilities: ["nativeSubagentSessions"] } } },
         });
         expect(h.session.acpSupport).toMatchObject({
           subagentSessions: advertised,

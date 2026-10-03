@@ -1,3 +1,4 @@
+import { bridgeSubagents } from "./bridge-negotiation.ts";
 import { z } from "zod";
 import type { Capabilities, AcpSessionSupport } from "@ace/protocol";
 import type { CompatibilityProfile, SelectorState } from "@ace/agent-registry";
@@ -12,10 +13,7 @@ const Initialize = z
     agentCapabilities: z
       .object({
         loadSession: z.boolean().optional(),
-        sessionCapabilities: z
-          .object({ subagents: z.object({}).passthrough().optional() })
-          .passthrough()
-          .optional(),
+        sessionCapabilities: z.unknown().optional(),
         promptCapabilities: z.object({ image: z.boolean().optional() }).passthrough().optional(),
         mcpCapabilities: z
           .object({ http: z.boolean().optional(), sse: z.boolean().optional() })
@@ -52,8 +50,7 @@ export function negotiate(
   const advertised = response.agentCapabilities;
   const existing = quirks.capabilities(version ?? response.agentInfo?.version);
   const generic = quirks.provider === "acp";
-  const subagentSessions =
-    profile?.subagentSessions === true && advertised.sessionCapabilities?.subagents !== undefined;
+  const subagentSessions = bridgeSubagents(raw, profile);
   return {
     raw,
     subagentSessions,

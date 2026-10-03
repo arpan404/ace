@@ -2,6 +2,7 @@ import { appendAcpMcp } from "@ace/mcp-server";
 import { AGENT_METHODS, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import { AcpConfiguration } from "./configuration.ts";
 import type { LaunchOptions, SessionRuntime } from "./runtime.ts";
+import { clientMeta } from "./bridge-negotiation.ts";
 import { redactLease } from "./frame-redaction.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { ShellSettlement } from "./shell-settlement.ts";
@@ -216,7 +217,7 @@ class AcpSession implements ProviderSession {
           clientCapabilities: {
             fs: { readTextFile: false, writeTextFile: false },
             terminal: false,
-            _meta: this.quirks.clientMeta,
+            _meta: clientMeta(this.quirks.clientMeta, this.launch.profile),
             ...(this.launch.profile?.subagentSessions ? { subagents: {} } : {}),
           },
         },

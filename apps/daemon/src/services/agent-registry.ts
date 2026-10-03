@@ -62,8 +62,12 @@ export function createAgentRegistrySession(context: SocketContext): SocketServic
           : request.type === "registry.refresh"
             ? "operate"
             : "admin";
-      if (!authorize(scope) || (scope === "admin" && !authorize("operate"))) {
+      if (!authorize(scope)) {
         failure(`${scope} scope required`);
+        return true;
+      }
+      if (scope === "admin" && !authorize("operate")) {
+        failure("operate scope required");
         return true;
       }
       if (!options.agentRegistry) {
@@ -79,6 +83,8 @@ export function createAgentRegistrySession(context: SocketContext): SocketServic
         .handle(request)
         .then(
           (result) => {
+            if (!context.connected()) return;
+            if (!authorize(scope) || (scope === "admin" && !authorize("operate"))) return;
             if (Buffer.byteLength(JSON.stringify(result)) > 1024 * 1024)
               failure("Registry reply exceeds wire limit");
             else send(result);

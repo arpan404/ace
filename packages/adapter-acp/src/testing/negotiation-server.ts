@@ -11,6 +11,7 @@ const config = z
     failInitialize: z.boolean().default(false),
     failSession: z.boolean().default(false),
     subagents: z.boolean().default(false),
+    airSubagents: z.boolean().default(false),
   })
   .parse(JSON.parse(process.env.ACE_SYNTHETIC_ACP ?? "{}"));
 const Envelope = z
@@ -58,6 +59,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (message.method === "initialize")
     result({
       protocolVersion: 1,
+      ...(config.airSubagents
+        ? {
+            _meta: { jetbrains: { air: { version: 1, capabilities: ["nativeSubagentSessions"] } } },
+          }
+        : {}),
       agentCapabilities: {
         loadSession: config.load,
         sessionCapabilities: config.subagents ? { subagents: {} } : {},
