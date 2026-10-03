@@ -1,8 +1,39 @@
 # Cursor SDK recordings
 
-No scenario here authorizes a recording. All fifteen SDK scenarios remain **to
-record after owner approval**, using SDK **1.0.35** and **composer-2.5**. Existing
+The scenario catalog does not authorize a recording. Recording requires explicit
+owner approval, using SDK **1.0.35** and **composer-2.5**. Existing
 Cursor ACP recordings and the generic recorder CLI remain unchanged.
+
+## Approved batch driver
+
+The owner-approved 2026-10-03 batch is invoked with:
+
+```sh
+bun run record:cursor-sdk --owner-approved-2026-10-03
+```
+
+`src/record-cursor-sdk.ts` requires the isolated `cursor-fixture` SDK store at
+`~/.ace-fixtures/cursor-sdk`, already signed in through the daemon. It rejects a
+launch-environment API-key override. It runs eligible scenarios sequentially,
+with injected clock/IDs/environment and a three-minute abort cap per scenario.
+
+Before a provider opens, it reserves `recording-report.json` with exclusive
+creation. Each attempt is recorded durably before launch, including incomplete
+attempts. Re-running the batch in that directory fails, even after interruption.
+Neither a failed attempt nor an abort authorizes another try.
+
+SDK 1.0.35 exposes `autoReview` as a request option whose documented behavior
+depends on the backend classifier feature. Its public API does not expose an
+account/backend capability query. The executable therefore skips restricted
+scenarios until that availability is independently verified. It does not force
+development feature gates or treat the option itself as evidence. The reusable
+batch function accepts verified setup through the existing recorder dependency
+contract. MCP scenarios also require a real storage/tools-owner lease factory;
+no static bearer or SDK custom tool substitutes for that owner.
+
+The report records complete, incomplete and skipped outcomes, elapsed milliseconds
+and reasons. A complete recording remains an observation for owner review,
+rather than an automatic conformance verdict.
 
 `@ace/recorder/cursor-sdk` exports `recordCursorSdkScenario`, `cursorSdkPlan`,
 `cursorSdkRecordingPlan` and the bounded capture sink. The scenario driver is
