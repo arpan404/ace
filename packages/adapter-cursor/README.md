@@ -51,6 +51,9 @@ handoff forks, read-only children and partial background visibility. There is no
 question/plan-review callback, native fork, independent child send/resume/stop, or
 custom-tool escape from policy. Native SDK retries are disabled; only authoritative
 SDK error classes establish auth/quota/network failures, and no retry is invented.
+Root interruption disposes/stops the entire host, including work that outlived
+the run handle; a later send opens a pinned checkpoint continuation. Steering
+cancels only its segment and retains the live host for replacement.
 
 The daemon issues thread/instance-scoped HTTP MCP leases through `@ace/mcp-server`.
 Because inherited task MCP headers do not prove which child made a call, this
@@ -87,6 +90,8 @@ the source and exposing truncation. No opaque ACP/SDK store is copied.
 Defaults: 8 live hosts, 256 MiB old space each, 1 MiB IPC frames, 2 MiB pending
 IPC/callback and retained-tool-argument bytes, 32 callbacks, 2,048 identities, 256 KiB input/body admission,
 8 MiB checkpoint inventory, 100 snapshot items and 30-second worker operations.
+The daemon also admits at most 32 outstanding SDK inputs per thread, with a
+256 KiB input budget before persistence. Both daemon admission limits are injectable.
 Inject limits, spawner, Node entry, environment, clock and identity sources at
 public boundaries. Reuse `CursorHostSlots` across session/auth/catalog owners.
 Provider-kit owns process groups, framed ingress, byte admission and graceful

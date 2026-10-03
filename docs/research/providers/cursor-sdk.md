@@ -1,5 +1,7 @@
 # Cursor SDK audit for ace
 
+Implementation status: the SDK-first adapter and preserved ACP fallback are documented in [the package README](../../../packages/adapter-cursor/README.md). [Assembly and verification limits](../../integration/cursor-sdk-verification.md) remain explicit; no SDK fixtures are approved or recorded. The historical ACP evidence below remains unchanged.
+
 Researched 2026-10-02. Accepted decision: [ADR 0043](../../adr/0043-cursor-sdk-local-runtime.md).
 
 ## Decision and recommendation

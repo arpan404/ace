@@ -1,0 +1,142 @@
+--- a/packages/accounts/src/instances.ts
++++ b/packages/accounts/src/instances.ts
+@@ -48,6 +48,7 @@
+ export function instanceEnv(
+   instance: ProviderInstance,
+   base: NodeJS.ProcessEnv,
++  backend?: "cursor-sdk" | "acp",
+ ): NodeJS.ProcessEnv {
+   const parsed = ProviderInstance.parse(instance);
+   const allowed =
+@@ -78,6 +79,7 @@
+     env["APPDATA"] = join(parsed.homeDir, "appdata");
+     env["XDG_CONFIG_HOME"] = join(parsed.homeDir, "config");
+   }
++  if (parsed.provider === "cursor" && backend === "cursor-sdk") env["CURSOR_API_KEY"] = base["CURSOR_API_KEY"];
+   return { ...env, ...parsed.env };
+ }
+ export async function loginStatus(instance: ProviderInstance, options: DiscoveryOptions = {}) {
+--- a/packages/accounts/src/service.ts
++++ b/packages/accounts/src/service.ts
+@@ -13,7 +13,7 @@
+ import { accountFrame } from "./frames.ts";
+ export type AccountAdapterFactory = Pick<
+   ProviderAdapter,
+-  "provider" | "capabilities" | "createTranslator"
++  "provider" | "capabilities" | "createTranslator" | "backend"
+ > & {
+   /** Called after assignment, so native adapters using constructor env also select this account. */
+   create(
+@@ -68,6 +68,7 @@
+     AccountProvider.parse(factory.provider);
+     const adapter: ProviderAdapter = {
+       provider: factory.provider,
++      ...(factory.backend ? { backend: factory.backend } : {}),
+       capabilities: (cli) => factory.capabilities(cli),
+       createTranslator: (init) => factory.createTranslator(init),
+       openSession: async (context) =>
+@@ -182,8 +183,9 @@
+       const session = await adapter.openSession({
+         ...context,
+         instanceId: chosen.id,
++        instanceHomeDir: chosen.homeDir,
+         signal: lifetime.signal,
+-        env: instanceEnv(chosen, { ...this.env, ...context.env }),
++        env: instanceEnv(chosen, { ...this.env, ...context.env }, adapter.backend),
+         onFrame: (input) => {
+           if (released || frameFailed) return;
+           const frame = accountFrame(input);
+@@ -220,10 +222,11 @@
+         instanceId: chosen.id,
+         session: {
+           instanceId: chosen.id,
++          ...(session.backend ? { backend: session.backend } : {}),
+           get nativeSessionId() {
+             return session.nativeSessionId;
+           },
+-          send: (input, delivery) => session.send(input, delivery),
++          send: (input, delivery, intent) => session.send(input, delivery, intent),
+           interrupt: (target) => session.interrupt(target),
+           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
+           stopTask: (task) => session.stopTask(task),
+--- a/packages/accounts/package.json
++++ b/packages/accounts/package.json
+@@ -15,7 +15,8 @@
+     "@ace/engine-api": "workspace:*",
+     "@ace/protocol": "workspace:*",
+     "@ace/provider-kit": "workspace:*",
+-    "zod": "^4.6.5"
++    "zod": "^4.6.5",
++    "@ace/adapter-cursor": "workspace:*"
+   },
+   "engines": {
+     "node": ">=24"
+--- /dev/null
++++ b/packages/accounts/src/cursor-sdk.ts
+@@ -0,0 +1,46 @@
++import { createCursorAdapter, createCursorAccountDriver, CursorHostSlots, type CursorAdapterOptions } from "@ace/adapter-cursor";
++import { ProviderPayload } from "@ace/provider-kit/payload";
++import type { ProviderInstance } from "@ace/protocol/accounts";
++import type { AccountRegistry } from "./registry.ts";
++import type { AccountService } from "./service.ts";
++
++/** Accounts selects/reserves homes; one cached owner fences and drains each instance. */
++export function bindCursorSdk(service: AccountService, options: CursorAdapterOptions) {
++  const slots = options.slots ?? new CursorHostSlots(options.limits?.maxWorkers ?? 8);
++  const metadata = createCursorAdapter({ ...options, slots });
++  const owners = new Map<string, ReturnType<typeof createCursorAdapter>>();
++  const bound = service.bindAdapter({
++    provider: "cursor", backend: "cursor-sdk",
++    capabilities: (cli) => metadata.capabilities(cli),
++    createTranslator: (init) => metadata.createTranslator(init),
++    create: (env, context) => {
++      if (!context.instanceId || !context.instanceHomeDir) throw new Error("Cursor SDK requires selected account identity/home");
++      const existing = owners.get(context.instanceId);
++      if (existing) return existing;
++      if (owners.size >= 256) throw new Error("Cursor SDK instance owner capacity reached");
++      const owner = createCursorAdapter({ ...options, slots, env, instance: { id: context.instanceId, homeDir: context.instanceHomeDir } });
++      owners.set(context.instanceId, owner);
++      return owner;
++    },
++  });
++  return Object.assign(bound, {
++    async stopInstance(id: string) { await owners.get(id)?.stopInstance(id); },
++    async close() {
++      const results = await Promise.allSettled([...owners.values()].map((owner) => owner.close()));
++      await metadata.close();
++      if (results.some((result) => result.status === "rejected")) throw new Error("Cursor SDK account hosts failed to exit; retain writer reservations");
++    },
++  });
++}
++export function cursorSdkLoginDriver(registry: AccountRegistry, options: Parameters<typeof createCursorAccountDriver>[0] & { now(): number }) {
++  const driver = createCursorAccountDriver(options);
++  const publish = (instance: ProviderInstance, status: Awaited<ReturnType<typeof driver.status>>) => {
++    registry.ingest(instance.id, { provider: "cursor", payload: new ProviderPayload(JSON.stringify({ auth: status.status === "logged-in" ? "logged_in" : "logged_out" })), observedAt: options.now(), timeZone: "UTC" });
++    return status;
++  };
++  return {
++    async status(instance: ProviderInstance, signal: AbortSignal) { return publish(instance, await driver.status({ id: instance.id, homeDir: instance.homeDir }, signal)); },
++    async login(instance: ProviderInstance, signal: AbortSignal, ephemeralUrl: (url: string) => void) { await registry.register(instance); return publish(instance, await driver.login({ id: instance.id, homeDir: instance.homeDir }, signal, ephemeralUrl)); },
++    async logout(instance: ProviderInstance, signal: AbortSignal) { return publish(instance, await driver.logout({ id: instance.id, homeDir: instance.homeDir }, signal)); },
++  };
++}
+--- a/packages/accounts/src/index.ts
++++ b/packages/accounts/src/index.ts
+@@ -9,3 +9,4 @@
+ export type { MigrationObserver, MigrationProgress } from "./migration-files.ts";
+ export { AccountService, type AccountAdapterFactory } from "./service.ts";
+ export { runAccountsCommand } from "./commands-cli.ts";
++export { bindCursorSdk, cursorSdkLoginDriver } from "./cursor-sdk.ts";
+--- a/docs/adr/0018-accounts-and-session-portability.md
++++ b/docs/adr/0018-accounts-and-session-portability.md
+@@ -9 +9 @@
+-ADR 0002 applies. Accounts are local CLI config homes. ace never reads auth files, accepts a credential, or copies credentials. Provider research in `docs/research/providers/` and primary provider sources define the supported formats; competitor implementations are not used.
++ADR 0002 applies. Accounts are local provider-runtime homes, including official SDK default stores under ADR 0043. ace never reads auth files, accepts a credential, or copies credentials. Provider research in `docs/research/providers/` and primary provider sources define the supported formats; competitor implementations are not used.
+@@ -13 +13 @@
+-Add `@ace/accounts`, with pure quota folds and scheduler policy, a small SQLite registry, CLI login/discovery shells, and streamed migration I/O. An instance is `{id, provider, label, homeDir, env}`. IDs are caller supplied. Homes must be absolute, physically distinct, local directories. Registration is asynchronous so canonicalization through existing ancestors never holds a SQLite transaction across filesystem I/O. Historical lexical identities are normalized on open; physical duplicates refuse startup. Persist only allowlisted directory selectors, never arbitrary environment variables. Build process environments from the instance and the caller's environment, removing provider auth overrides so ambient credentials cannot silently defeat account selection.
++Add `@ace/accounts`, with pure quota folds and scheduler policy, a small SQLite registry, CLI login/discovery shells, and streamed migration I/O. An instance is `{id, provider, label, homeDir, env}`. IDs are caller supplied. Homes must be absolute, physically distinct, local directories. Registration is asynchronous so canonicalization through existing ancestors never holds a SQLite transaction across filesystem I/O. Historical lexical identities are normalized on open; physical duplicates refuse startup. Persist only allowlisted directory selectors, never arbitrary environment variables. Build process environments from the instance and the caller's environment, removing provider auth overrides so ambient credentials cannot silently defeat account selection. The sole Cursor SDK exception inherits the launch environment's `CURSOR_API_KEY` for that selected backend; never persist its value or apply this exception to ACP or other providers.
+@@ -15 +15,3 @@
+-Codex uses `CODEX_HOME`. Claude uses `CLAUDE_CONFIG_DIR`. OpenCode uses XDG data/config/state/cache roots, with the actual provider home at `XDG_DATA_HOME/opencode`. Cursor uses `CURSOR_DATA_DIR` for session data and `CURSOR_CONFIG_DIR` for login/config, confirmed by the installed hidden `--data-dir` flag and provider research. Cursor's default macOS keychain is global even when the data/config directories change. Isolated instances therefore select the CLI's native `AGENT_CLI_CREDENTIAL_STORE=file` and private HOME/XDG/APPDATA roots under the instance. Only the CLI reads or writes that credential store. Existing Cursor keychain logins are not imported; the user logs into each isolated instance through the CLI. These are instance configuration, not provider credentials. Discovery finds conventional sibling homes without opening auth files. Login probes reuse provider-kit single-provider discovery under instance environments; unrelated CLIs are never executed. `ace accounts add` runs the installed CLI's interactive login with inherited terminal streams, then probes status. It records an unknown-auth account before login so a cancelled login can be retried. An injected supervised spawner inherits terminal streams without capturing them, owns the process group, and escalates cancellation to SIGKILL after a bounded grace period, waiting for child termination before reporting cancellation.
++Codex uses `CODEX_HOME`. Claude uses `CLAUDE_CONFIG_DIR`. OpenCode uses XDG data/config/state/cache roots, with the actual provider home at `XDG_DATA_HOME/opencode`. Cursor ACP uses `CURSOR_DATA_DIR` for session data and `CURSOR_CONFIG_DIR` for login/config, confirmed by the installed hidden `--data-dir` flag and provider research. Cursor's default macOS keychain is global even when the data/config directories change. Isolated instances therefore select the CLI's native `AGENT_CLI_CREDENTIAL_STORE=file` and private HOME/XDG/APPDATA roots under the instance. Only the CLI reads or writes that credential store. Existing Cursor keychain logins are not imported; the user logs into each isolated instance through the CLI. These are instance configuration, not provider credentials. Discovery finds conventional sibling homes without opening auth files. Login probes reuse provider-kit single-provider discovery under instance environments; unrelated CLIs are never executed. `ace accounts add` runs the installed CLI's interactive login with inherited terminal streams, then probes status. It records an unknown-auth account before login so a cancelled login can be retried. An injected supervised spawner inherits terminal streams without capturing them, owns the process group, and escalates cancellation to SIGKILL after a bounded grace period, waiting for child termination before reporting cancellation.
++
++Cursor SDK is the default for new Cursor threads when the exact supported package is installed. SDK sign-in is separate from CLI/editor login. Use official `Cursor.auth.login/status/logout` in supervised isolated Node hosts with HOME set to `<instance.homeDir>/user` before SDK import. The SDK owns `<instance.homeDir>/user/.cursor/sdk/auth.json`; discard login's key-bearing return inside the worker and publish only safe status/source plus authorized ephemeral login URLs. The default SDK credential store is used for both login and Agent execution. Never set apiKey in an ace request or serialize the environment key into IPC. Sign-out fences sends, drains admissions, stops and awaits all selected-instance hosts, then calls SDK logout and verifies auth.json is absent without reading its contents. Keep conversation state/history. Writer reservations remain held on failed host exit. Environment authentication stays active until the user removes its launch value; dashboard revocation is separate. SDK checkpoints are not ACP stores, and native conversion/cross-account checkpoint copying is unsupported; use a bounded ace-owned portable context handoff with provenance and declared loss. Windows SDK home/sandbox ownership remains unsupported until verified.
