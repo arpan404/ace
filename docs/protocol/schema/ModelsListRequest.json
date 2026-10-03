@@ -1,0 +1,27 @@
+{
+  "$id": "https://ace.local/protocol/v1/ModelsListRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "options": {
+      "$ref": "https://ace.local/protocol/v1/ModelListOptions.json",
+      "default": {
+        "limit": 100,
+        "offset": 0
+      }
+    },
+    "requestId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "models.list",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId"
+  ],
+  "type": "object"
+}

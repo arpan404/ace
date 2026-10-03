@@ -1,0 +1,148 @@
+{
+  "$id": "https://ace.local/protocol/v1/InteractionRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "defaultToNo": {
+          "type": "boolean"
+        },
+        "description": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "approval",
+          "type": "string"
+        },
+        "mcpServer": {
+          "additionalProperties": {},
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "source"
+          ],
+          "type": "object"
+        },
+        "options": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/ApprovalOption.json"
+          },
+          "type": "array"
+        },
+        "permissionUpdates": {
+          "items": {},
+          "type": "array"
+        },
+        "suppressAlwaysAllowRule": {
+          "type": "boolean"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "options"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "question",
+          "type": "string"
+        },
+        "questions": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/Question.json"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "questions"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "plan_review",
+          "type": "string"
+        },
+        "markdown": {
+          "type": "string"
+        },
+        "planPath": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "todos": {
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/TodoEntry.json"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "markdown"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "elicitation",
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "form",
+            "url"
+          ],
+          "type": "string"
+        },
+        "nativeId": {
+          "type": "string"
+        },
+        "schema": {},
+        "server": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "server",
+        "message"
+      ],
+      "type": "object"
+    }
+  ]
+}

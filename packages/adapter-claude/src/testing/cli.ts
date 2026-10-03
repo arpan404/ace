@@ -6,7 +6,12 @@ if (process.argv.includes("--version")) {
   console.log("2.1.286 (Claude Code)");
   process.exit(0);
 }
-const session = process.argv[process.argv.indexOf("--session-id") + 1] ?? "fake-session";
+function option(name: string): string | undefined {
+  const index = process.argv.findIndex((arg) => arg === name || arg.startsWith(`${name}=`));
+  const arg = process.argv[index];
+  return arg === name ? process.argv[index + 1] : arg?.slice(name.length + 1);
+}
+const session = option("--session-id") ?? "fake-session";
 const write = (data: unknown) => console.log(JSON.stringify(data));
 const lines = createInterface({ input: process.stdin });
 let id = 0;
@@ -32,7 +37,17 @@ for await (const line of lines) {
   if (data["type"] === "control_request") {
     const request = object(data["request"]);
     if (request["subtype"] === "initialize") childText = request["forwardSubagentText"] === true;
-    write({ type: "system", subtype: "fake_control", request, argv: process.argv });
+    write({
+      type: "system",
+      subtype: "fake_control",
+      request,
+      argv: process.argv,
+      settings: {
+        permissionMode: option("--permission-mode"),
+        settingSources: (option("--setting-sources") ?? "").split(",").filter(Boolean),
+        strictMcp: process.argv.includes("--strict-mcp-config"),
+      },
+    });
     if (
       request["subtype"] === "stop_task" &&
       request["task_id"] === process.env["ACE_FAKE_STOP_TASK"]

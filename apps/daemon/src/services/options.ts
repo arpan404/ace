@@ -1,3 +1,5 @@
+import type { ScreenManager } from "@ace/screen";
+import type { DaemonCommandIntegration } from "./commands.ts";
 import type { Config } from "../config.ts";
 import type { CommandHandler } from "../commands.ts";
 import type { EngineOptions } from "../engine/index.ts";
@@ -13,6 +15,8 @@ import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
   claude?: DaemonClaudeOptions;
+  screen?: ScreenManager;
+  commands?: DaemonCommandIntegration;
   config?: Config;
   handler?: CommandHandler | undefined;
   engine?: EngineOptions & { adapterDiscovery?: typeof discoverProviders };

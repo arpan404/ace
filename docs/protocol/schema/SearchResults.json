@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/SearchResults.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cursor": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "generation": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "hits": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/SearchHit.json"
+      },
+      "maxItems": 100,
+      "type": "array"
+    }
+  },
+  "required": [
+    "hits",
+    "cursor",
+    "generation"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/HistoryImportRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "sourceId": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "history.import",
+      "type": "string"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "type",
+    "sourceId",
+    "workspaceId"
+  ],
+  "type": "object"
+}

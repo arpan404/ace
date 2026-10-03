@@ -1,0 +1,112 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenInventory.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "displays": {
+      "items": {
+        "properties": {
+          "bounds": {
+            "properties": {
+              "height": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "width": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "type": "object"
+          },
+          "displayId": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          "height": {
+            "type": "number"
+          },
+          "width": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "displayId",
+          "width",
+          "height"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "windows": {
+      "items": {
+        "properties": {
+          "bounds": {
+            "properties": {
+              "height": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "width": {
+                "minimum": 0,
+                "type": "number"
+              },
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "x",
+              "y",
+              "width",
+              "height"
+            ],
+            "type": "object"
+          },
+          "bundleId": {
+            "$ref": "https://ace.local/protocol/v1/ScreenBundle.json"
+          },
+          "title": {
+            "maxLength": 1024,
+            "type": "string"
+          },
+          "windowId": {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "windowId",
+          "bundleId",
+          "title"
+        ],
+        "type": "object"
+      },
+      "maxItems": 2048,
+      "type": "array"
+    }
+  },
+  "required": [
+    "displays",
+    "windows"
+  ],
+  "type": "object"
+}

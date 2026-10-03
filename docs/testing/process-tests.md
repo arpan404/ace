@@ -213,3 +213,7 @@ Vitest selects these files by glob, applies the shared process hang guards and s
 and excludes them from the unit project. New suites register by filename; there is
 no shared inventory file to edit. This train preserves the prior inventory and also
 classifies newly integrated client, engine and history transport/process suites.
+
+## File transfer review additions
+
+The inventory now includes daemon `files*.test.ts`, all `packages/files` suites and all `packages/workspace` suites. These own real WebSockets, Noise relay endpoints, native rename/blob workers, Git commands and search workers. The CLI bundle keeps `@ace/files` external so its worker URLs resolve beside its source. The new regression cases and this composed bundle need run at merge; no tests or runtime probes were executed under the owner's static-only policy.

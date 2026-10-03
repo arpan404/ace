@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationUsage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "cost": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "number"
+    },
+    "tokens": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "tokens",
+    "cost"
+  ],
+  "type": "object"
+}

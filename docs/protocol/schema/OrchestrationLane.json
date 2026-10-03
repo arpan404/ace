@@ -1,0 +1,104 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationLane.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "artifact": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationArtifact.json"
+    },
+    "attempt": {
+      "maximum": 10,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "attemptUsage": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationUsage.json"
+    },
+    "checksPassed": {
+      "type": "boolean"
+    },
+    "children": {
+      "maximum": 64,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "depth": {
+      "maximum": 8,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "endedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "error": {
+      "maxLength": 8192,
+      "type": "string"
+    },
+    "failedChildren": {
+      "maximum": 64,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    },
+    "input": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationArtifact.json"
+    },
+    "parentId": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    },
+    "phase": {
+      "$ref": "https://ace.local/protocol/v1/LanePhase.json"
+    },
+    "prompt": {
+      "maxLength": 33024,
+      "minLength": 1,
+      "type": "string"
+    },
+    "spec": {
+      "$ref": "https://ace.local/protocol/v1/LaneSpec.json"
+    },
+    "stage": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "startedAt": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "threadDone": {
+      "type": "boolean"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "usage": {
+      "$ref": "https://ace.local/protocol/v1/OrchestrationUsage.json"
+    },
+    "worktree": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "spec",
+    "prompt",
+    "stage",
+    "depth",
+    "phase",
+    "attempt",
+    "startedAt",
+    "threadDone",
+    "children",
+    "failedChildren",
+    "usage",
+    "attemptUsage"
+  ],
+  "type": "object"
+}

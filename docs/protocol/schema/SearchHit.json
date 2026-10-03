@@ -1,0 +1,62 @@
+{
+  "$id": "https://ace.local/protocol/v1/SearchHit.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "createdAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "itemId": {
+      "$ref": "https://ace.local/protocol/v1/ItemId.json"
+    },
+    "kind": {
+      "$ref": "https://ace.local/protocol/v1/SearchKind.json"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "score": {
+      "type": "number"
+    },
+    "snippet": {
+      "$ref": "https://ace.local/protocol/v1/SearchSnippet.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/SearchState.json"
+    },
+    "statusSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "threadTitle": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "title": {
+      "$ref": "https://ace.local/protocol/v1/SearchSnippet.json"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "threadTitle",
+    "workspaceId",
+    "provider",
+    "status",
+    "statusSeq",
+    "kind",
+    "createdAt",
+    "title",
+    "snippet",
+    "score"
+  ],
+  "type": "object"
+}

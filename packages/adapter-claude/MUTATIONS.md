@@ -53,3 +53,16 @@ survived result is claimed.
 | Evict live tasks or silently overrun accounting admission.                       | Live-task overflow exits visibly; child accounting overflow warns once while retained refinements remain idempotent.                                                |
 | Reject SDK-native null cache counts.                                             | Child usage with null cache metadata still records ordinary input/output with zero cache subsets.                                                                   |
 | Persist or expose the service-owned MCP lease token.                             | Discovery-to-engine process test verifies the native CLI receives a valid credential while stored events and returned status omit the bearer token.                 |
+
+## Main merge regressions
+
+These mutation cases remain **not executed (tests run at merge)**. The listed
+regressions ran as ordinary tests under the owner's merge-conflict exception;
+no mutations were applied or evaluated.
+
+| Production mutation                                                       | Behavior test designed to kill it                                                                                                 |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Reuse the original credential-bearing payload after redacting frame data. | Registered-account daemon admission still completes control traffic, records the rate window and persists only redacted controls. |
+| Drop native MCP controls from the account-bound session.                  | The public account-bound Claude session replaces and reads the native tool set in its selected home.                              |
+| Save capacity failure only after SDK iterator cleanup.                    | Live-task overflow reports the capacity reason, retains the triggering native frame and rejects further input.                    |
+| Interpret only the separated spelling of SDK configuration flags.         | The synthetic CLI observes the selected settings and permission mode independent of native argument spelling.                     |

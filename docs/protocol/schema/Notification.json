@@ -1,0 +1,85 @@
+{
+  "$id": "https://ace.local/protocol/v1/Notification.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "actions": {
+      "items": {
+        "properties": {
+          "action": {
+            "enum": [
+              "approve",
+              "deny"
+            ],
+            "type": "string"
+          },
+          "optionId": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "optionId"
+        ],
+        "type": "object"
+      },
+      "maxItems": 2,
+      "type": "array"
+    },
+    "backgroundCount": {
+      "maximum": 1000000,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "type": "string"
+    },
+    "interactionId": {
+      "allOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/InteractionId.json"
+        },
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        }
+      ]
+    },
+    "preview": {
+      "maxLength": 300,
+      "type": "string"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/NotificationStatus.json"
+    },
+    "threadId": {
+      "allOf": [
+        {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        }
+      ]
+    },
+    "title": {
+      "maxLength": 200,
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "threadId",
+    "title",
+    "status",
+    "backgroundCount",
+    "actions"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,23 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserArtifact.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "bytes": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "mimeType": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "path",
+    "mimeType",
+    "bytes"
+  ],
+  "type": "object"
+}

@@ -9,13 +9,14 @@ export const McpCapability = z.enum([
   "notify",
   "agents",
   "forge",
+  "screen",
 ]);
 export type McpCapability = z.infer<typeof McpCapability>;
 export const McpScope = z.object({
   sessionId: z.string().min(1).max(256),
   threadId: ThreadId,
   agentId: AgentId,
-  capabilities: z.array(McpCapability).max(6),
+  capabilities: z.array(McpCapability).max(7),
 });
 export type McpScope = z.infer<typeof McpScope>;
 export const McpAttribution = McpScope.omit({ capabilities: true });
@@ -52,7 +53,8 @@ export const McpProviderRequest = z.discriminatedUnion("type", [
     type: z.literal("mcp.replace"),
     servers: z
       .record(serverName, z.unknown())
-      .refine((servers) => Object.keys(servers).length <= 256),
+      .refine((servers) => Object.keys(servers).length <= 256)
+      .meta({ maxProperties: 256, "x-ace-constraint": "At most 256 dynamic MCP servers." }),
   }),
   providerRequest.extend({ type: z.literal("mcp.reconnect"), name: serverName }),
   providerRequest.extend({ type: z.literal("mcp.enable"), name: serverName }),

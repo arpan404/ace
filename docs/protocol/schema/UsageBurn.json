@@ -1,0 +1,61 @@
+{
+  "$id": "https://ace.local/protocol/v1/UsageBurn.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "exhaustionAt": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "observed": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "overflow": {
+      "default": false,
+      "type": "boolean"
+    },
+    "perHour": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "remaining": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "unit": {
+      "enum": [
+        "tokens",
+        "usd"
+      ],
+      "type": "string"
+    },
+    "windowId": {
+      "maxLength": 512,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "windowId",
+    "unit",
+    "observed",
+    "perHour",
+    "remaining",
+    "exhaustionAt"
+  ],
+  "type": "object"
+}

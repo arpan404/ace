@@ -1,0 +1,42 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReleaseManifest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "archive": {
+      "maxLength": 160,
+      "pattern": "^ace-[a-z0-9.-]+\\.tar\\.gz$",
+      "type": "string"
+    },
+    "bytes": {
+      "exclusiveMinimum": 0,
+      "maximum": 268435456,
+      "type": "integer"
+    },
+    "channel": {
+      "enum": [
+        "stable",
+        "preview"
+      ],
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "target": {
+      "$ref": "https://ace.local/protocol/v1/ReleaseTarget.json"
+    },
+    "version": {
+      "$ref": "https://ace.local/protocol/v1/ReleaseVersion.json"
+    }
+  },
+  "required": [
+    "version",
+    "channel",
+    "target",
+    "archive",
+    "bytes",
+    "sha256"
+  ],
+  "type": "object"
+}

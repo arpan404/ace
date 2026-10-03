@@ -64,8 +64,12 @@ returned status/configuration and control errors; the native transport retains
 the original credential. Streaming deltas do not pass through this control-only
 serialization path.
 Daemon hosts pass their account observer as `DaemonOptions.claude.onRateLimit`;
-it receives the thread identity and native observation. No accounts package is
-introduced here.
+it receives the thread identity and native observation. The daemon also uses
+the accounts owner's session binding from main, which selects the CLI home,
+persists instance identity and ingests bounded native rate frames. Account-bound
+sessions retain their MCP control port. Redacted control frames carry a fresh
+immutable `ProviderPayload` matching their data, so account admission remains
+valid without exposing the original lease credential.
 
 The existing MCP discovery owner can read the same session:
 
@@ -150,8 +154,12 @@ interrupt survivors, fork homes and discovery cleanup. Process-spawning tests
 use `*.process.test.ts` and synthetic CLIs or isolated local transcript files.
 Incomplete tool argument JSON remains raw until a completed assistant tool block.
 
-Tests, mutations, provider probes and benchmarks were not executed in this task.
-They need run at merge. `bench/sdk-controls.ts` adds a non-gating public translator
+The implementation and review follow-up used static checks only. The subsequent
+main merge used the owner's conflict exception to run eight targeted test files;
+49 tests passed. That run covers Claude SDK session/controls, daemon registration
+and account binding, engine integration, authorized MCP/usage requests and wire
+snapshots. The full suite, mutations, provider probes and benchmarks still need
+run at merge. `bench/sdk-controls.ts` adds a non-gating public translator
 workload for the new queue/accounting path; ops/s and peak RSS are unmeasured.
 See [recording scenarios](recording-scenarios.md) and [mutation cases](MUTATIONS.md).
 No fixtures were recorded, no real prompt was sent, and no new capability was

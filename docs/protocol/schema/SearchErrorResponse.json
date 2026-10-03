@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/SearchErrorResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "code": {
+      "enum": [
+        "search_cursor_stale",
+        "search_invalid_query",
+        "search_failed"
+      ],
+      "type": "string"
+    },
+    "requestId": {
+      "maxLength": 128,
+      "minLength": 1,
+      "type": "string"
+    },
+    "type": {
+      "const": "search.error",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "requestId",
+    "code"
+  ],
+  "type": "object"
+}

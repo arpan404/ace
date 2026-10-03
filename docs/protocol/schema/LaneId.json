@@ -1,0 +1,16 @@
+{
+  "$id": "https://ace.local/protocol/v1/LaneId.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "maxLength": 128,
+  "minLength": 1,
+  "not": {
+    "enum": [
+      "__proto__",
+      "constructor",
+      "prototype"
+    ]
+  },
+  "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$",
+  "type": "string",
+  "x-ace-constraint": "Must not be __proto__, constructor or prototype."
+}

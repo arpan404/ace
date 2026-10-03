@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationCancelCommand.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "orchestrationId": {
+      "$ref": "https://ace.local/protocol/v1/LaneId.json"
+    },
+    "type": {
+      "const": "orchestration.cancel",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "orchestrationId"
+  ],
+  "type": "object"
+}

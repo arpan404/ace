@@ -1,0 +1,56 @@
+{
+  "$id": "https://ace.local/protocol/v1/HistoryContinueResponse.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "instanceId": {
+          "type": "string"
+        },
+        "nativeSessionId": {
+          "type": "string"
+        },
+        "status": {
+          "const": "continued",
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "history.continue",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "status",
+        "threadId",
+        "instanceId",
+        "nativeSessionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "status": {
+          "const": "unsupported",
+          "type": "string"
+        },
+        "type": {
+          "const": "history.continue",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "status",
+        "reason"
+      ],
+      "type": "object"
+    }
+  ]
+}

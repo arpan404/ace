@@ -1,3 +1,7 @@
+export { createDaemonCommandLibrary } from "./command-library.ts";
+export { connectDaemonCommandEvents, type CommandEventSource } from "./command-events.ts";
+export type { DaemonCommandIntegration } from "./services/commands.ts";
+import { fingerprint as relayFingerprint } from "@ace/secure-channel";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { writeFileSync, unlinkSync } from "node:fs";
@@ -16,6 +20,7 @@ export type { DaemonOptions } from "./services/options.ts";
 export { Engine, AdapterRegistry, type EngineOptions, type EngineClock } from "./engine/index.ts";
 export { Store, type StoreOptions } from "./store.ts";
 export { readConfig } from "./config.ts";
+export type { SearchScheduler } from "./search-runtime.ts";
 export {
   createDevThread,
   stubHandler,
@@ -128,6 +133,13 @@ export async function startDaemon(options: DaemonOptions = {}) {
     endpointPath = path;
     let closing: Promise<void> | undefined;
     return {
+      ...(server.relayHostId && services.relay
+        ? {
+            relayHostId: server.relayHostId,
+            relayFingerprint: relayFingerprint(services.relay.keys.publicKey),
+          }
+        : {}),
+      ...(services.files ? { files: services.files } : {}),
       maintenance: server.maintenance,
       url: server.url,
       tokenPath,
@@ -141,6 +153,9 @@ export async function startDaemon(options: DaemonOptions = {}) {
       browser: services.browser,
       context: services.context,
       settings: services.settings,
+      engine: services.engine,
+      accounts: services.accounts,
+      commands: services.commands,
       models: services.models,
       notifications: services.notifications,
       review: services.review,

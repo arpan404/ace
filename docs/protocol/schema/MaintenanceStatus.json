@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/MaintenanceStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "blockers": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "draining": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "draining",
+    "blockers"
+  ],
+  "type": "object"
+}

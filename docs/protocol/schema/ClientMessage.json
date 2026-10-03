@@ -1,0 +1,380 @@
+{
+  "$id": "https://ace.local/protocol/v1/ClientMessage.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "$ref": "https://ace.local/protocol/v1/ContextRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SettingsGet.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SettingsSet.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SettingsSubscribe.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/HistoryListRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/HistoryImportRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/HistoryScanRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/HistoryContinueRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/McpProviderRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UsageSummary.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UsageSeries.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UsageSessionTotals.json"
+    },
+    {
+      "properties": {
+        "operation": {
+          "$ref": "https://ace.local/protocol/v1/FileOperation.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "files.request",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "operation"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "credits": {
+          "maximum": 8,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "type": {
+          "const": "files.credit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "channel",
+        "credits"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "channel": {
+          "maximum": 4294967295,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "type": {
+          "const": "files.cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "channel"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/CommandsList.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/CommandsResolve.json"
+    },
+    {
+      "properties": {
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "accounts.list",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "accounts.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "instanceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "from": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "nativeSessionId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/AccountProvider.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "to": {
+          "$ref": "https://ace.local/protocol/v1/AccountId.json"
+        },
+        "type": {
+          "const": "accounts.migrate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "provider",
+        "nativeSessionId",
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SearchQueryRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/SearchStatusRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ScreenClientMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ModelsListRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ModelsRefreshRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ModelsResolveRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/PresenceUpdate.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/NotificationRegister.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/NotificationSettings.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/NotificationSnooze.json"
+    },
+    {
+      "properties": {
+        "deviceId": {
+          "$ref": "https://ace.local/protocol/v1/DeviceId.json"
+        },
+        "protocolVersion": {
+          "const": 1,
+          "type": "number"
+        },
+        "ticket": {
+          "type": "string"
+        },
+        "token": {
+          "type": "string"
+        },
+        "type": {
+          "const": "hello",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "protocolVersion",
+        "deviceId"
+      ],
+      "type": "object",
+      "x-ace-constraint": "Exactly one of token and ticket is required."
+    },
+    {
+      "properties": {
+        "afterSeq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "https://ace.local/protocol/v1/SubscriptionScope.json"
+        },
+        "subscriptionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "subscribe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "subscriptionId",
+        "scope"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "subscriptionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "unsubscribe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "subscriptionId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "command": {
+          "$ref": "https://ace.local/protocol/v1/Command.json"
+        },
+        "type": {
+          "const": "command",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "command"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "limit": {
+          "exclusiveMinimum": 0,
+          "maximum": 262144,
+          "type": "integer"
+        },
+        "offset": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "streamId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "output.read",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "streamId",
+        "offset",
+        "limit"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "before": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "type": "integer"
+        },
+        "limit": {
+          "exclusiveMinimum": 0,
+          "maximum": 200,
+          "type": "integer"
+        },
+        "requestId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "items.page",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "threadId",
+        "before",
+        "limit"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "type": {
+          "const": "ping",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "type": "object"
+    }
+  ]
+}

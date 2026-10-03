@@ -13,9 +13,10 @@ import {
   type CommandId,
   type EventPayload,
   type RawPayload,
-  type ThreadId,
+  ThreadId,
   type ThreadView,
   WorkspaceId,
+  WorkspaceFileChange,
 } from "@ace/protocol";
 import { applyDelivery, updateThread } from "@ace/projection";
 import { McpData } from "./mcp-data.ts";
@@ -25,11 +26,16 @@ import { StatusStore } from "./status-store.ts";
 import { UsageReplay } from "./usage-replay.ts";
 import { PayloadStore } from "./payload-store.ts";
 
+import { SearchIndex, SearchQueries, type SearchWorkerFactory } from "@ace/search";
+import { scheduleSearch, type SearchScheduler } from "./search-runtime.ts";
+
 export interface StoreOptions extends Partial<CredentialRuntime> {
   /** Store owns and closes this SQLite connection when supplied. */
   database?: DatabaseSync;
   nextId?: () => string;
   now?: () => number;
+  searchScheduler?: SearchScheduler;
+  searchWorkerFactory?: SearchWorkerFactory;
 }
 type Listener = (events: Event[]) => void;
 export class Store {
@@ -37,13 +43,17 @@ export class Store {
   private readonly db: DatabaseSync;
   private readonly usageReplay: UsageReplay;
   private readonly usageListeners = new Set<() => void>();
+  readonly search: SearchIndex;
+  readonly searchQueries: SearchQueries;
+  private readonly searchAbort = new AbortController();
+  private readonly stopSearchTimer: () => void;
+  private closing: Promise<void> | undefined;
   private readonly payloads: PayloadStore;
   private readonly status: StatusStore;
   private readonly nextId: () => string;
   private readonly now: () => number;
   private readonly mcp: McpData;
   private statements = new Map<string, StatementSync>();
-  private closed = false;
   private transactionEvents: Event[] | undefined;
   private depth = 0;
   private installingHistory = false;
@@ -72,6 +82,9 @@ export class Store {
       this.db.exec(
         `CREATE INDEX IF NOT EXISTS threads_update_blockers ON threads(id) WHERE json_extract(status, '$.state') NOT IN ('done', 'new', 'failed')`,
       );
+      this.db.exec(
+        "CREATE INDEX IF NOT EXISTS threads_workspace_live ON threads(workspace_id, archived_at, id)",
+      );
       this.payloads.initialize();
       this.status.initialize((id) => this.getThread(id));
       this.devices = new Devices(this.db, {
@@ -79,20 +92,53 @@ export class Store {
         randomBytes: options.randomBytes ?? systemCredentials.randomBytes,
       });
       this.mcp = new McpData(this.db, (id) => this.getThread(id));
+      this.search = new SearchIndex(this.db, {
+        readOutput: (threadId, streamId, offset, limit) => {
+          if (this.payloads.streamThread(streamId) !== threadId) return undefined;
+          return this.payloads.readOutputBytes(streamId, offset, limit).bytes;
+        },
+      });
+      this.searchQueries = new SearchQueries(path, options.searchWorkerFactory);
+      this.stopSearchTimer = (options.searchScheduler ?? scheduleSearch)(() => {
+        try {
+          this.search.flush();
+        } catch (error) {
+          this.onError(error);
+        }
+      });
     } catch (error) {
       this.db.close();
       throw error;
     }
+    void this.search.backfill(this, { signal: this.searchAbort.signal }).catch(this.onError);
   }
   private onError: (error: unknown) => void;
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
+  close(): Promise<void> {
+    if (this.closing) return this.closing;
+    const finished = Promise.withResolvers<void>();
+    this.closing = finished.promise;
+    this.searchAbort.abort();
+    const workers = this.searchQueries.close();
+    let failure: unknown;
+    try {
+      this.stopSearchTimer();
+    } catch (error) {
+      failure = error;
+    }
     this.statements.clear();
     this.listeners.clear();
     this.usageListeners.clear();
     this.caches.clear();
-    this.db.close();
+    try {
+      this.db.close();
+    } catch (error) {
+      failure ??= error;
+    }
+    void workers.then(() => {
+      if (failure !== undefined) finished.reject(failure);
+      else finished.resolve();
+    }, finished.reject);
+    return this.closing;
   }
   private statement(sql: string): StatementSync {
     let statement = this.statements.get(sql);
@@ -271,6 +317,24 @@ export class Store {
     const row = this.statement("SELECT path FROM workspaces WHERE id = ?").get(id);
     return typeof row?.path === "string" ? row.path : undefined;
   }
+  /** Indexed fan-out to current workspace threads; never scan event or transcript history. */
+  recordWorkspaceFileChange(workspaceId: WorkspaceId, input: WorkspaceFileChange): void {
+    const change = WorkspaceFileChange.parse(input);
+    let after = "";
+    for (;;) {
+      const rows = this.statement(
+        "SELECT id FROM threads WHERE workspace_id=? AND archived_at IS NULL AND id>? ORDER BY id LIMIT 64",
+      ).all(workspaceId, after);
+      if (!rows.length) return;
+      this.transaction(() => {
+        for (const row of rows) {
+          const id = ThreadId.parse(row.id);
+          this.appendEvents(id, [{ type: "workspace.files_changed", workspaceId, change }]);
+          after = id;
+        }
+      });
+    }
+  }
   getThread(id: ThreadId): Thread | undefined {
     const row = this.statement("SELECT * FROM threads WHERE id = ?").get(id);
     if (!row) return undefined;
@@ -357,6 +421,16 @@ export class Store {
         this.mcp.apply(event, thread);
         events.push(event);
       }
+      if (
+        events.some(
+          (event) =>
+            event.payload.type === "thread.created" || event.payload.type === "thread.updated",
+        )
+      ) {
+        const current = this.getThread(threadId);
+        if (current) this.search.observeThread(current, seq);
+      }
+      this.search.append(events);
       this.transactionEvents?.push(...events);
       return events;
     });
@@ -495,6 +569,15 @@ export class Store {
     if (!this.getThread(threadId)) throw new Error("Unknown thread");
     return { ...this.payloads.wirePage(threadId, before, limit, byteLimit), seq: this.headSeq() };
   }
+  blobInfo(blobRef: string) {
+    return this.payloads.blobInfo(blobRef);
+  }
+  outputInfo(streamId: string) {
+    return this.payloads.outputInfo(streamId);
+  }
+  readOutputBytes(streamId: string, offset: number, limit: number) {
+    return this.payloads.readOutputBytes(streamId, offset, limit);
+  }
   readOutput(streamId: string, offset: number, limit: number) {
     return this.payloads.readOutput(streamId, offset, limit);
   }
@@ -509,6 +592,7 @@ export class Store {
       if (!Number.isSafeInteger(seq)) throw new Error("Sequence exhausted");
       this.statement("INSERT INTO usage_deletions VALUES (?, ?, ?)").run(seq, id, this.now());
       this.statement("UPDATE host_sequence SET seq=? WHERE id=1").run(seq);
+      this.search.deleteThread(id);
       this.mcp.deleteThread(id);
       this.statement("DELETE FROM events WHERE thread_id = ?").run(id);
       this.statement("DELETE FROM threads WHERE id = ?").run(id);

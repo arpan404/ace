@@ -1,3 +1,4 @@
+import { WorkspaceFilesChanged } from "./files.ts";
 import { z } from "zod";
 import { UsageMetadata } from "./usage.ts";
 import { Agent, AgentFidelity, AgentOrigin, AgentStatus } from "./agent.ts";
@@ -26,7 +27,7 @@ export const UsageUpdated = UsageMetadata.safeExtend({
   cachedInputTokens: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).optional(),
   contextWindow: z.number().int().positive().optional(),
   costUsd: z.number().nonnegative().optional(),
-});
+}).meta(UsageMetadata.meta() ?? {});
 export type UsageUpdated = z.infer<typeof UsageUpdated>;
 
 export const EventPayload = z.discriminatedUnion("type", [
@@ -79,6 +80,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     append: z.string(),
   }),
   z.object({ type: z.literal("item.updated"), item: Item }),
+  z.object({ type: z.literal("item.deleted"), itemId: ItemId }),
   z.object({ type: z.literal("interaction.opened"), interaction: Interaction }),
   z.object({
     type: z.literal("interaction.closed"),
@@ -96,6 +98,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     endedAt: Timestamp.optional(),
   }),
   UsageUpdated,
+  WorkspaceFilesChanged,
 ]);
 export type EventPayload = z.infer<typeof EventPayload>;
 export type EventType = EventPayload["type"];

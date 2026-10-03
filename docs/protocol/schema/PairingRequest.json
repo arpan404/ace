@@ -1,0 +1,19 @@
+{
+  "$id": "https://ace.local/protocol/v1/PairingRequest.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "scopes": {
+      "default": [
+        "read",
+        "operate"
+      ],
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/DeviceScope.json"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "type": "array"
+    }
+  },
+  "type": "object"
+}

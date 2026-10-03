@@ -5,7 +5,8 @@ export const PluginName = z
   .min(1)
   .max(64)
   .regex(/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/)
-  .refine((value) => !value.includes("..") && !value.includes("--"));
+  .refine((value) => !value.includes("..") && !value.includes("--"))
+  .meta({ "x-ace-constraint": "Plugin names cannot contain consecutive dots or hyphens." });
 export const PluginCommit = z.string().regex(/^[a-f0-9]{40}$/);
 export const PluginHash = z.string().regex(/^[a-f0-9]{64}$/);
 const text = z.string().max(8192);

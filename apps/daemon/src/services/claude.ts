@@ -4,6 +4,7 @@ import {
   type ClaudeRateLimitObservation,
 } from "@ace/adapter-claude";
 import { createRedactor } from "@ace/redaction";
+import { ProviderPayload } from "@ace/provider-kit/payload";
 import { claudeInjection } from "@ace/mcp-server";
 import type { ThreadId } from "@ace/protocol";
 import type { DiscoveryResult } from "@ace/provider-kit/discovery";
@@ -67,7 +68,13 @@ export function daemonClaudeAdapter(
         const opened = await adapter.openSession({
           ...ctx,
           onFrame(frame) {
-            ctx.onFrame(frame.channel === "wire" ? { ...frame, data: stored(frame.data) } : frame);
+            if (frame.channel !== "wire") {
+              ctx.onFrame(frame);
+              return;
+            }
+            // Admission certifies the redacted bytes, never the original credential-bearing value.
+            const payload = new ProviderPayload(redact(JSON.stringify(frame.data) ?? "null"));
+            ctx.onFrame({ ...frame, data: payload.data, payload });
           },
           onExit(exit) {
             end();

@@ -1,0 +1,115 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationEffect.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "attempt": {
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "input": {
+          "$ref": "https://ace.local/protocol/v1/OrchestrationArtifact.json"
+        },
+        "laneId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "prompt": {
+          "maxLength": 33024,
+          "type": "string"
+        },
+        "spec": {
+          "$ref": "https://ace.local/protocol/v1/LaneSpec.json"
+        },
+        "type": {
+          "const": "start",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "laneId",
+        "attempt",
+        "prompt",
+        "spec"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "artifact": {
+          "$ref": "https://ace.local/protocol/v1/OrchestrationArtifact.json"
+        },
+        "attempt": {
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "laneId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "type": {
+          "const": "check",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "laneId",
+        "attempt",
+        "artifact"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "attempt": {
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "laneId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "type": {
+          "const": "cancel",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "laneId",
+        "attempt"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "attempt": {
+          "maximum": 10,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "checkpoint": {
+          "maxLength": 512,
+          "type": "string"
+        },
+        "laneId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "type": {
+          "const": "merge",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "laneId",
+        "attempt",
+        "checkpoint"
+      ],
+      "type": "object"
+    }
+  ]
+}

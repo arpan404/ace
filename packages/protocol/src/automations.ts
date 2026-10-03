@@ -7,7 +7,12 @@ export const AutomationSchedule = z.object({
   kind: z.enum(["rrule", "cron"]),
   expression: z.string().min(1).max(1024),
   timezone: z.string().min(1).max(128),
-  startAt: instant.refine((value) => value % 60_000 === 0, "DTSTART must have zero seconds"),
+  startAt: instant
+    .refine((value) => value % 60_000 === 0, "DTSTART must have zero seconds")
+    .meta({
+      multipleOf: 60_000,
+      "x-ace-constraint": "DTSTART must be a multiple of 60000 milliseconds.",
+    }),
 });
 export type AutomationSchedule = z.infer<typeof AutomationSchedule>;
 export const AutomationTrigger = z.discriminatedUnion("kind", [
@@ -50,7 +55,8 @@ export const TriggerVariables = z
       .max(128),
     z.string().max(8192),
   )
-  .refine((v) => Object.keys(v).length <= 64);
+  .refine((v) => Object.keys(v).length <= 64)
+  .meta({ maxProperties: 64, "x-ace-constraint": "At most 64 entries." });
 export type TriggerVariables = z.infer<typeof TriggerVariables>;
 export const AutomationEvent = z.object({
   key: z.string().min(1).max(512),

@@ -1,0 +1,29 @@
+{
+  "$id": "https://ace.local/protocol/v1/BrowserOpen.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "headed": {
+      "default": false,
+      "type": "boolean"
+    },
+    "profile": {
+      "default": "ephemeral",
+      "enum": [
+        "ephemeral",
+        "persistent"
+      ],
+      "type": "string"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "workspaceId"
+  ],
+  "type": "object"
+}

@@ -135,15 +135,12 @@ for (const configuration of [
   test(`${configuration.kind} configuration delivers its chosen settings and explicit permission mode`, async () => {
     const h = await harness(undefined, "root", { configuration });
     try {
-      const argv = object((await h.wait(subtype("fake_control"))).data)["argv"];
-      expect(argv).toEqual(
-        expect.arrayContaining([
-          "--permission-mode",
-          configuration.permissionMode,
-          "--setting-sources",
-          configuration.kind === "coding" ? "project,local" : "",
-        ]),
-      );
+      const settings = object((await h.wait(subtype("fake_control"))).data)["settings"];
+      expect(settings).toEqual({
+        permissionMode: configuration.permissionMode,
+        settingSources: configuration.kind === "coding" ? ["project", "local"] : [],
+        strictMcp: configuration.kind === "isolated",
+      });
       expect(h.frames.some((f) => f.dir === "send" && object(f.data)["type"] === "user")).toBe(
         false,
       );

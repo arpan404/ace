@@ -1,0 +1,18 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_list_agents.input.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "cursor": {
+      "maxLength": 256,
+      "type": "string"
+    },
+    "limit": {
+      "default": 50,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "type": "object"
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>dev.ace.screen-helper</string>
+<key>CFBundleName</key><string>Ace Screen Helper</string>
+<key>CFBundleExecutable</key><string>ace-screen-helper</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>2</string>
+<key>CFBundleShortVersionString</key><string>2.0</string>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>LSUIElement</key><true/>
+<key>NSScreenCaptureUsageDescription</key><string>ace shows only apps you explicitly approve.</string>
+<key>NSAccessibilityUsageDescription</key><string>ace controls only apps you explicitly approve.</string>
+</dict></plist>

@@ -1,0 +1,137 @@
+{
+  "$id": "https://ace.local/protocol/v1/OrchestrationEvent.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "laneId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "orchestrationId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "phase": {
+          "$ref": "https://ace.local/protocol/v1/LanePhase.json"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "type": {
+          "const": "orchestration.lane",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "orchestrationId",
+        "runId",
+        "laneId",
+        "phase"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "orchestrationId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "status": {
+          "$ref": "https://ace.local/protocol/v1/OrchestrationRunStatus.json"
+        },
+        "type": {
+          "const": "orchestration.status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "orchestrationId",
+        "runId",
+        "status"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "laneId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "orchestrationId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "type": {
+          "const": "orchestration.winner",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "orchestrationId",
+        "runId",
+        "laneId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "orchestrationId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "reason": {
+          "maxLength": 8192,
+          "type": "string"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "type": {
+          "const": "orchestration.rejected",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "orchestrationId",
+        "runId",
+        "reason"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "laneId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "orchestrationId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "runId": {
+          "$ref": "https://ace.local/protocol/v1/LaneId.json"
+        },
+        "safetyCheckpoint": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "orchestration.merged",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "orchestrationId",
+        "runId",
+        "laneId",
+        "safetyCheckpoint"
+      ],
+      "type": "object"
+    }
+  ]
+}

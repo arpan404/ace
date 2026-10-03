@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/SettingsDiagnostic.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "code": {
+      "enum": [
+        "parse",
+        "validation",
+        "version",
+        "secret",
+        "size",
+        "io",
+        "limit"
+      ],
+      "type": "string"
+    },
+    "layer": {
+      "$ref": "https://ace.local/protocol/v1/SettingsProvenance.json"
+    },
+    "message": {
+      "maxLength": 512,
+      "type": "string"
+    },
+    "offset": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "layer",
+    "code",
+    "message"
+  ],
+  "type": "object"
+}

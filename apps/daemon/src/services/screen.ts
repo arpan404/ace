@@ -1,0 +1,61 @@
+import { localScreenManager, screenConnection, type Simulators } from "@ace/screen";
+import { join } from "node:path";
+import type { ServiceContext } from "./types.ts";
+import type { SocketContext, SocketService } from "./socket.ts";
+export async function startScreen({ config, options, resources, services }: ServiceContext) {
+  const manager =
+    options.screen ??
+    (config.screenHelper
+      ? localScreenManager(config.screenHelper, join(config.dataDir, "screen-artifacts"))
+      : undefined);
+  if (manager) {
+    resources.own(() => manager.close());
+    services.screen = manager;
+  }
+}
+export function createScreenSession(context: SocketContext, simulators: Simulators): SocketService {
+  let channel: ReturnType<typeof screenConnection> | undefined;
+  return {
+    authenticated() {
+      if (!context.options.screen || !context.authorize("admin")) return;
+      channel = screenConnection(context.options.screen, simulators, context.sessionId, {
+        send: context.send,
+        frame: (packet) =>
+          new Promise<void>((resolve, reject) => {
+            if (!context.connected() || !context.authorize("admin")) {
+              reject(new Error("Socket closed or revoked"));
+              return;
+            }
+            if (context.socket.bufferedAmount > 8 * 1024 * 1024) {
+              context.socket.close(4009, "Screen backpressure");
+              reject(new Error("Socket backpressure"));
+              return;
+            }
+            context.socket.send(packet, { binary: true }, (error) =>
+              error ? reject(error) : resolve(),
+            );
+          }),
+      });
+    },
+    close() {
+      channel?.close();
+    },
+    handle(message) {
+      if (message.type !== "screen.request") return false;
+      if (!context.authorize("admin"))
+        context.fail("forbidden", "Admin scope required for screen access");
+      else if (!channel) context.fail("screen_disabled", "Screen capability is not configured");
+      else {
+        const task = channel
+          .request(message)
+          .catch((error: unknown) => {
+            context.options.log?.(error);
+            context.fail("screen_failed", "Screen request failed");
+          })
+          .finally(() => context.tasks.delete(task));
+        context.tasks.add(task);
+      }
+      return true;
+    },
+  };
+}

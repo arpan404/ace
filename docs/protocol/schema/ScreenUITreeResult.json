@@ -1,0 +1,22 @@
+{
+  "$id": "https://ace.local/protocol/v1/ScreenUITreeResult.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "nodes": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/ScreenUINode.json"
+      },
+      "maxItems": 512,
+      "type": "array",
+      "x-ace-constraint": "At most 512 total UI nodes and depth 16, checked before recursive decoding."
+    },
+    "truncated": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "nodes",
+    "truncated"
+  ],
+  "type": "object"
+}

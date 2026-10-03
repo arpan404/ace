@@ -1,0 +1,21 @@
+{
+  "$id": "https://ace.local/protocol/v1/UsageSessionTotalsQuery.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "limit": {
+      "default": 100,
+      "maximum": 100,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "thread": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "thread"
+  ],
+  "type": "object"
+}

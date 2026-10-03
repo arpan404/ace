@@ -1,3 +1,10 @@
+import { FilesClientMessage, FilesServerMessage } from "./files.ts";
+import {
+  CommandsList,
+  CommandsResolve,
+  CommandsListResult,
+  CommandsResolveResult,
+} from "./command-library.ts";
 import { DiagnosticsHealth } from "./diagnostics.ts";
 import { ReviewData } from "./review.ts";
 import { z } from "zod";
@@ -20,6 +27,8 @@ import {
   UsageSessionTotals,
   UsageSessionTotalsMessage,
 } from "./usage.ts";
+import { AccountsRequest, AccountsResponse } from "./accounts.ts";
+import { ScreenClientMessage, ScreenServerMessage } from "./screen.ts";
 import {
   ModelsListRequest,
   ModelsRefreshRequest,
@@ -33,6 +42,7 @@ import {
   NotificationSnooze,
   NotificationMessage,
 } from "./notifications.ts";
+
 import { Agent } from "./agent.ts";
 import { BackgroundTask } from "./background.ts";
 import { Command } from "./commands.ts";
@@ -50,6 +60,13 @@ import {
   SettingsChanged,
   SettingsDiagnosticMessage,
 } from "./settings.ts";
+import {
+  SearchQueryRequest,
+  SearchStatusRequest,
+  SearchQueryResponse,
+  SearchStatusResponse,
+  SearchErrorResponse,
+} from "./search.ts";
 
 const seq = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 // Zod records intentionally strip __proto__. Validate entries before rebuilding
@@ -65,7 +82,12 @@ const records = <T>(schema: z.ZodType<T>) =>
     )
     .transform((value): unknown => Object.entries(value))
     .pipe(z.array(z.tuple([z.string(), schema])))
-    .transform((entries) => Object.fromEntries<T>(entries));
+    .transform((entries) => Object.fromEntries<T>(entries))
+    .meta({
+      "x-ace-json-input": z.record(z.string(), schema),
+      "x-ace-constraint":
+        "Plain JSON object with every own opaque ID, including __proto__, validated and retained.",
+    });
 export const ThreadView = z.object({
   kind: z.literal("thread"),
   seq,
@@ -102,11 +124,13 @@ export const SubscriptionScope = z.discriminatedUnion("kind", [
 export type SubscriptionScope = z.infer<typeof SubscriptionScope>;
 
 /** First covered sequence when consecutive deltas have been concatenated in transit. */
-export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().optional() }).refine(
-  (event) =>
-    event.firstSeq === undefined ||
-    (event.payload.type === "item.delta" && event.firstSeq <= event.seq),
-);
+export const DeliveryEvent = Event.extend({ seq, firstSeq: seq.positive().optional() })
+  .refine(
+    (event) =>
+      event.firstSeq === undefined ||
+      (event.payload.type === "item.delta" && event.firstSeq <= event.seq),
+  )
+  .meta({ "x-ace-constraint": "firstSeq is allowed only on item.delta and must be <= seq." });
 export type DeliveryEvent = z.infer<typeof DeliveryEvent>;
 export const ItemsPage = z.object({
   seq,
@@ -129,6 +153,13 @@ export const ClientMessage = z.discriminatedUnion("type", [
   UsageSummary,
   UsageSeries,
   UsageSessionTotals,
+  ...FilesClientMessage.options,
+  CommandsList,
+  CommandsResolve,
+  ...AccountsRequest.options,
+  SearchQueryRequest,
+  SearchStatusRequest,
+  ScreenClientMessage,
   ModelsListRequest,
   ModelsRefreshRequest,
   ModelsResolveRequest,
@@ -136,6 +167,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   NotificationRegister,
   NotificationSettings,
   NotificationSnooze,
+
   z
     .object({
       type: z.literal("hello"),
@@ -146,7 +178,8 @@ export const ClientMessage = z.discriminatedUnion("type", [
     })
     .refine((hello) => (hello.token !== undefined) !== (hello.ticket !== undefined), {
       message: "Exactly one credential is required",
-    }),
+    })
+    .meta({ "x-ace-constraint": "Exactly one of token and ticket is required." }),
   z.object({
     type: z.literal("subscribe"),
     subscriptionId: z.string().min(1),
@@ -192,6 +225,14 @@ export const ServerMessage = z.discriminatedUnion("type", [
   McpProviderResult,
   UsageMessage,
   UsageSessionTotalsMessage,
+  ...FilesServerMessage.options,
+  CommandsListResult,
+  CommandsResolveResult,
+  ...AccountsResponse.options,
+  SearchQueryResponse,
+  SearchStatusResponse,
+  SearchErrorResponse,
+  ...ScreenServerMessage.options,
   ModelsResult,
   NotificationMessage,
   z.object({
@@ -204,7 +245,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
     .object({ type: z.literal("snapshot"), subscriptionId: z.string(), seq, view: SnapshotView })
     .refine((message) => message.seq === message.view.seq, {
       message: "Snapshot cursor must match view cursor",
-    }),
+    })
+    .meta({ "x-ace-constraint": "seq must equal view.seq." }),
   z
     .object({
       type: z.literal("events"),
@@ -225,7 +267,11 @@ export const ServerMessage = z.discriminatedUnion("type", [
         return true;
       },
       { message: "Events must be ordered inside the declared coverage interval" },
-    ),
+    )
+    .meta({
+      "x-ace-constraint":
+        "throughSeq >= afterSeq; events are ordered with (firstSeq ?? seq) > previous seq and seq <= throughSeq.",
+    }),
   z
     .object({
       type: z.literal("progress"),
@@ -235,7 +281,8 @@ export const ServerMessage = z.discriminatedUnion("type", [
     })
     .refine((message) => message.throughSeq >= message.afterSeq, {
       message: "Progress must not move backwards",
-    }),
+    })
+    .meta({ "x-ace-constraint": "throughSeq must be >= afterSeq." }),
   CommandResult.extend({ type: z.literal("commandResult") }),
   z.object({
     type: z.literal("error"),

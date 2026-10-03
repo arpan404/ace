@@ -1,0 +1,55 @@
+{
+  "$id": "https://ace.local/protocol/v1/ReviewRevision.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "working-tree",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "commit",
+          "type": "string"
+        },
+        "ref": {
+          "maxLength": 256,
+          "minLength": 1,
+          "type": "string",
+          "x-ace-constraint": "Revision must not begin with a hyphen or contain NUL."
+        }
+      },
+      "required": [
+        "kind",
+        "ref"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "kind": {
+          "const": "checkpoint",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "type": "object"
+    }
+  ]
+}

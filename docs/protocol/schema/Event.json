@@ -1,0 +1,31 @@
+{
+  "$id": "https://ace.local/protocol/v1/Event.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "at": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "id": {
+      "$ref": "https://ace.local/protocol/v1/EventId.json"
+    },
+    "payload": {
+      "$ref": "https://ace.local/protocol/v1/EventPayload.json"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "seq",
+    "id",
+    "at",
+    "threadId",
+    "payload"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,332 @@
+{
+  "$id": "https://ace.local/protocol/v1/ace_list_agents.output.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agents": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "background": {
+            "default": false,
+            "type": "boolean"
+          },
+          "createdAt": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "endedAt": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "fidelity": {
+            "enum": [
+              "full",
+              "summary",
+              "placeholder"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "native": {
+            "additionalProperties": false,
+            "properties": {
+              "aliases": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "forkedFromNativeId": {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              "nativeId": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "provider": {
+                "enum": [
+                  "claude",
+                  "codex",
+                  "opencode",
+                  "cursor",
+                  "antigravity",
+                  "acp"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider"
+            ],
+            "type": "object"
+          },
+          "origin": {
+            "enum": [
+              "root",
+              "provider_subagent",
+              "ace"
+            ],
+            "type": "string"
+          },
+          "parentId": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "spawnedBy": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "state": {
+                    "const": "starting",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "activity": {
+                    "enum": [
+                      "thinking",
+                      "responding",
+                      "tool",
+                      "compacting",
+                      "retrying",
+                      "starting_turn"
+                    ],
+                    "type": "string"
+                  },
+                  "detail": {
+                    "type": "string"
+                  },
+                  "itemId": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "state": {
+                    "const": "working",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state",
+                  "activity"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "attempt": {
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991,
+                    "type": "integer"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "on": {
+                    "enum": [
+                      "human",
+                      "subagents",
+                      "background_task",
+                      "rate_limit",
+                      "network",
+                      "upstream"
+                    ],
+                    "type": "string"
+                  },
+                  "refs": {
+                    "default": [],
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "state": {
+                    "const": "blocked",
+                    "type": "string"
+                  },
+                  "until": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "state",
+                  "on",
+                  "refs"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "state": {
+                    "const": "idle",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "state": {
+                    "const": "interrupted",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "error": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "kind": {
+                        "enum": [
+                          "provider",
+                          "auth",
+                          "quota",
+                          "network",
+                          "process_exit",
+                          "unknown"
+                        ],
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "message"
+                    ],
+                    "type": "object"
+                  },
+                  "state": {
+                    "const": "failed",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state",
+                  "error"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "lastSignalAt": {
+                    "maximum": 9007199254740991,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "state": {
+                    "const": "unresponsive",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "state",
+                  "lastSignalAt"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "threadId": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "threadId",
+          "parentId",
+          "origin",
+          "native",
+          "fidelity",
+          "cwd",
+          "status",
+          "background",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "maxItems": 100,
+      "type": "array"
+    },
+    "nextCursor": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "agents",
+    "nextCursor"
+  ],
+  "type": "object"
+}

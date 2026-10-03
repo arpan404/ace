@@ -46,6 +46,7 @@ for await (const line of createInterface({ input: process.stdin })) {
                   mcpServers: Object.entries(servers).map(([name, config]) => ({
                     name,
                     config,
+                    configDir: process.env.CLAUDE_CONFIG_DIR,
                     status: "connected",
                     source: "dynamic",
                     validAceConnection:
