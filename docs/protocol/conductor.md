@@ -250,7 +250,7 @@ Example:
 {
   "cost": 5,
   "model": "ivg.GflLf6ax.cXwiBFENRxgCUuRfXDULnR2DeSBk3ibi-rTpi45drgI_gzGEf0CUNp3RSH3lwy4zHItpnM-nnR3",
-  "provider": "antigravity",
+  "provider": "acp",
   "quota": 5,
   "tier": "normal"
 }

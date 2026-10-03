@@ -180,6 +180,25 @@ Example:
 }
 ```
 
+### input.admitted
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"input.admitted"` |  |
+| agentId | yes | [AgentId.json](schema/AgentId.json) |  |
+| nativeInputId | yes | string | {"minLength":1,"maxLength":512} |
+| commandId | no | string | {"minLength":1,"maxLength":512} |
+
+Example:
+
+```json
+{
+  "agentId": "example",
+  "nativeInputId": "example",
+  "type": "input.admitted"
+}
+```
+
 ### run.started
 
 | Field | Required | Type | Constraints |
@@ -194,10 +213,11 @@ Example:
   "run": {
     "agentId": "example",
     "id": "example",
-    "startedAt": 4,
+    "nativeId": "example",
+    "startedAt": 6,
     "state": "completed",
     "threadId": "example",
-    "trigger": "subagent_result"
+    "trigger": "background_completion"
   },
   "type": "run.started"
 }
@@ -217,10 +237,10 @@ Example:
 
 ```json
 {
-  "endedAt": 7,
+  "endedAt": 6,
   "runId": "example",
-  "state": "failed",
-  "trigger": "user",
+  "state": "completed",
+  "trigger": "queue",
   "type": "run.ended"
 }
 ```
@@ -238,15 +258,18 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "complete": false,
-    "createdAt": 4,
+    "complete": true,
+    "createdAt": 8,
     "id": "example",
-    "level": "warning",
     "raw": [],
-    "runId": "example",
+    "source": {
+      "bytes": 4,
+      "encoding": "utf-16le",
+      "streamId": "example"
+    },
+    "summary": false,
     "text": "example",
-    "toolCallId": "example",
-    "type": "notice"
+    "type": "reasoning"
   },
   "type": "item.created"
 }
@@ -268,7 +291,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "output",
+  "field": "reasoning",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -288,11 +311,9 @@ Example:
   "item": {
     "agentId": "example",
     "complete": false,
-    "createdAt": 7,
+    "createdAt": 4,
     "id": "example",
-    "parts": [],
-    "role": "user",
-    "type": "message"
+    "type": "compaction"
   },
   "type": "item.updated"
 }
@@ -327,20 +348,20 @@ Example:
 {
   "interaction": {
     "agentId": "example",
-    "blocking": true,
+    "blocking": false,
     "createdAt": 4,
     "id": "example",
     "request": {
+      "defaultToNo": true,
       "description": "example",
-      "kind": "elicitation",
-      "message": "example",
-      "mode": "form",
-      "schema": null,
-      "server": "example",
-      "url": "example"
+      "kind": "approval",
+      "options": [],
+      "permissionUpdates": [],
+      "title": "example"
     },
     "state": "pending",
-    "threadId": "example"
+    "threadId": "example",
+    "toolCallId": "example"
   },
   "type": "interaction.opened"
 }

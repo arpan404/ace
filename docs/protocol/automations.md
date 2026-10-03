@@ -36,7 +36,7 @@ Example:
   "missedRun": "run_once",
   "model": "example",
   "prompt": "example",
-  "provider": "antigravity",
+  "provider": "acp",
   "title": "example",
   "trigger": {
     "event": "pr_changed",

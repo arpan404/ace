@@ -52,7 +52,7 @@ Example:
   "modelConfigId": "example",
   "nativeModelId": "example",
   "nativeProviderId": "example",
-  "provider": "cursor",
+  "provider": "antigravity",
   "raw": {
     "json": "example",
     "truncated": true
@@ -82,7 +82,7 @@ Example:
   "acpAgentId": "example",
   "installationId": "example",
   "instance": "example",
-  "provider": "cursor"
+  "provider": "antigravity"
 }
 ```
 
@@ -109,7 +109,7 @@ Example:
   "error": "discovery_failed",
   "installationId": "example",
   "instance": "example",
-  "provider": "acp",
+  "provider": "pi",
   "refreshing": false,
   "stale": false
 }
@@ -293,7 +293,7 @@ Example:
 {
   "filter": {
     "installationId": "example",
-    "provider": "acp"
+    "provider": "pi"
   },
   "requestId": "example",
   "type": "models.refresh"

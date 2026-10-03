@@ -53,6 +53,10 @@ clear completed recording ownership and wait for pending recording exports.
 Capture startup is cancellable and owned until shutdown has awaited its native
 handle and termination. Cleanup attempts capture, logs and recordings independently
 and aggregates failures instead of publishing an idle state after partial cleanup.
+`ScreenStopError.captureTerminated` separates a native stop error from confirmed
+release of capture ownership. The device retains the error, but releases a
+terminated handle so retry, disable, reapproval and replacement capture do not
+address a deleted native session. Unknown termination retains device ownership.
 
 Device control messages are additive schema exports. Binary image packets use the
 screen protocol, with device state mapping device identity to stream session id.
@@ -80,6 +84,15 @@ session. It issues a session-scoped MCP credential and passes the same connectio
 contract through every adapter. Adapters inject it using their native MCP support;
 unsupported native support fails explicitly rather than silently losing tools.
 App/device approval remains a human operation, outside the agent tool catalog.
+
+OpenCode v2 keeps account pooling for ordinary sessions. A scoped ace MCP
+connection uses a separate owned server because native MCP configuration is
+process-wide. Its close awaits termination before removing the bounded pool
+entry. Configured servers are preserved; an `ace` name collision and injection
+into an external server fail explicitly. Pi reuses the daemon-issued lease
+instead of issuing a narrower second lease. Its extension accepts the browser,
+screen and device namespaces and projects MCP errors for each. Read-only Pi
+continues to withhold MCP tools under its existing permission contract.
 
 Primary references: [Android adb](https://developer.android.com/tools/adb),
 [emulator console](https://developer.android.com/studio/run/emulator-console),

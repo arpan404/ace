@@ -17,6 +17,9 @@ No fixture recording or provider prompt is needed for this plan.
   replacement during dimension lookup, live capture and native-cycle restart.
 - Approval tests clear old-thread tails/subscriptions/recordings and recheck
   human thread grants before delivery.
+- Simulator recovery uses the real ScreenManager and an offline helper that
+  rejects native stop. It checks actual helper exit, the original error and
+  immediate replacement capture, then stop retry, disable and reapproval.
 - Shutdown tests await delayed startup and real native termination, attempt logs
   and recording cleanup after capture stop rejects, and preserve failure state.
 - Concurrent subscription tests prove unsubscribe stops every frame/log delivery.
@@ -28,7 +31,10 @@ No fixture recording or provider prompt is needed for this plan.
   They cover frames larger than one relay record, simultaneous streams and
   screenshots, read-only denial, identity mismatch and revocation.
 - MCP tests exercise the actual HTTP registry, per-session credentials and all
-  provider adapters using fake installed CLIs. No provider is prompted.
+  provider adapters using fake installed CLIs. OpenCode v2 same-account sessions
+  retain separate authority and redact raw echoed bearers. Pi's extension forwards
+  browser/screen/device effects and errors, denies revoked calls and reuses the
+  supplied daemon lease. No provider is prompted.
 - Recording tests check frame timing, bounded reads, source validation, ffmpeg
   errors, cleanup and downloadable artifact metadata.
 
@@ -59,6 +65,7 @@ when the owner permits them.
    arrives before state becomes live. Install a Simulator-built `.app` or an
    emulator-compatible `.apk`, launch its app ID and open a URL and a deep link.
    Confirm `.ipa` and unsupported locale requests show their fix hints.
+   A locale request combined with appearance/location must leave both unchanged.
 5. Approve the device for a real thread and delegate to an agent. Use only the
    ace MCP HTTP client to call tools with that agent's credential; do not send a
    prompt to a provider CLI. Verify tree/find/act, screenshot, tap, long press,
