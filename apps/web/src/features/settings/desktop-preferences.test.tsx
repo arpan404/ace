@@ -1,0 +1,111 @@
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, expect, test, vi } from "vitest";
+import { harness } from "@/test/harness.tsx";
+
+interface Stored {
+  background: boolean;
+  openAtLogin: boolean;
+  notifications: {
+    enabled: boolean;
+    categories: Record<string, boolean>;
+    quietHours: { start: number; end: number } | null;
+  };
+}
+
+/**
+ * The desktop's preload bridge as the page sees it: `settings.update` replaces whole top-level
+ * fields, stores them and announces the result, as the main process does before applying it.
+ */
+function desktop() {
+  let stored: Stored = {
+    background: true,
+    openAtLogin: false,
+    notifications: { enabled: true, categories: {}, quietHours: null },
+  };
+  const listeners = new Set<(value: Stored) => void>();
+  vi.stubGlobal("ace", {
+    settings: {
+      get: async () => stored,
+      update: async (patch: Partial<Stored>) => {
+        stored = { ...stored, ...patch };
+        for (const listener of listeners) listener(stored);
+        return stored;
+      },
+      onChange: (listener: (value: Stored) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    },
+  });
+  return { stored: () => stored };
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+test("in the desktop app, Open ace at login turns on the desktop's own login item", async () => {
+  const machine = desktop();
+  const app = harness();
+  await app.open("/settings/general");
+  const daemonValue = app.daemon.services.settings.get("app.openAtLogin");
+  const toggle = await screen.findByRole("switch", { name: "Open ace at login" });
+  expect(toggle.getAttribute("aria-checked")).toBe("false");
+
+  await userEvent.click(toggle);
+
+  await waitFor(() => expect(machine.stored().openAtLogin).toBe(true));
+  expect(
+    (await screen.findByRole("switch", { name: "Open ace at login" })).getAttribute("aria-checked"),
+  ).toBe("true");
+  expect(app.daemon.services.settings.get("app.openAtLogin")).toBe(daemonValue);
+});
+
+test("in the desktop app, turning off Thread done stops this computer's done notifications", async () => {
+  const machine = desktop();
+  const app = harness();
+  await app.open("/settings/notifications");
+  const daemonValue = app.daemon.services.settings.get("notifications.onCompletion");
+
+  await userEvent.click(await screen.findByRole("switch", { name: "Thread done" }));
+
+  await waitFor(() => expect(machine.stored().notifications.categories.finished).toBe(false));
+  expect(machine.stored().notifications.categories.needsYou).toBeUndefined();
+  expect(app.daemon.services.settings.get("notifications.onCompletion")).toBe(daemonValue);
+});
+
+test("quiet hours set in the desktop app are the hours the desktop applies", async () => {
+  const machine = desktop();
+  await harness().open("/settings/notifications");
+
+  await userEvent.click(await screen.findByRole("switch", { name: "Quiet hours" }));
+  await waitFor(() =>
+    expect(machine.stored().notifications.quietHours).toEqual({ start: 22 * 60, end: 8 * 60 }),
+  );
+  expect(await screen.findByText(/^22:00 to 08:00\./)).toBeTruthy();
+
+  // Time fields report whole values, never partial keystrokes.
+  fireEvent.change(screen.getByLabelText("Quiet hours start"), { target: { value: "23:30" } });
+  await waitFor(() =>
+    expect(machine.stored().notifications.quietHours).toEqual({ start: 23 * 60 + 30, end: 480 }),
+  );
+  // A window that starts when it ends is not saved.
+  fireEvent.change(screen.getByLabelText("Quiet hours start"), { target: { value: "08:00" } });
+  expect(machine.stored().notifications.quietHours).toEqual({ start: 23 * 60 + 30, end: 480 });
+
+  await userEvent.click(screen.getByRole("switch", { name: "Quiet hours" }));
+  await waitFor(() => expect(machine.stored().notifications.quietHours).toBeNull());
+  expect(screen.queryByLabelText("Quiet hours start")).toBeNull();
+});
+
+test("a browser offers no login item and says where notifications are set", async () => {
+  const app = harness();
+  await app.open("/settings/general");
+  await screen.findByRole("switch", { name: "New threads use a worktree" });
+  expect(screen.queryByRole("switch", { name: "Open ace at login" })).toBeNull();
+
+  await app.open("/settings/notifications");
+  expect(await screen.findByText(/set in the ace desktop app/)).toBeTruthy();
+  expect(screen.queryByRole("switch", { name: "Thread done" })).toBeNull();
+});
