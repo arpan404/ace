@@ -1,3 +1,5 @@
+import { usageSnapshotKey } from "./usage.ts";
+export { usageSnapshotKey } from "./usage.ts";
 import { applyDelta } from "./delta.ts";
 export {
   acceptsDelta,
@@ -38,6 +40,7 @@ export function createThreadView(thread: Thread, seq = 0): ThreadView {
     backgroundTasks: {},
     usage: {},
     contextMeters: {},
+    usageSnapshots: {},
   };
 }
 export function createThreadListView(threads: Thread[] = [], seq = 0): ThreadListView {
@@ -110,6 +113,9 @@ export function updateThread(thread: Thread, event: Event): void {
   const payload = event.payload;
   if (payload.type === "thread.updated") {
     if (payload.title !== undefined) thread.title = payload.title;
+    if (payload.effectiveCapabilities !== undefined)
+      thread.effectiveCapabilities = structuredCopy(payload.effectiveCapabilities);
+    if (payload.acpSupport !== undefined) thread.acpSupport = structuredCopy(payload.acpSupport);
     if (payload.status !== undefined) thread.status = structuredCopy(payload.status);
     if (payload.archivedAt === null) delete thread.archivedAt;
     else if (payload.archivedAt !== undefined) thread.archivedAt = payload.archivedAt;
@@ -243,7 +249,9 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       put(view.contextMeters, p.meter.agentId, structuredCopy(p.meter));
       break;
     case "usage.updated":
-      put(view.usage, p.agentId, structuredCopy(p));
+      if (p.usageScope === "provider_session" || p.usageScope === "model_session")
+        put(view.usageSnapshots, usageSnapshotKey(p), structuredCopy(p));
+      else put(view.usage, p.agentId, structuredCopy(p));
       break;
     default: {
       const exhaustive: never = p;

@@ -1,0 +1,70 @@
+/*
+ * Design tokens that do not vary by theme (DESIGN-fable.md). Per-theme values (surfaces, text,
+ * status, glass, diff, wallpaper, shape) are generated from src/theme/presets.ts and injected as
+ * `[data-theme="<id>"]` rules by the theme provider; index.html replays the cached rules before
+ * first paint. Components read tokens only through Tailwind utilities mapped in index.css.
+ */
+:root {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI",
+    system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* Motion: 150 hover/colour, 200 popovers, 240 panels. */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --spring: cubic-bezier(0.3, 1.25, 0.5, 1);
+  --dur-1: 150ms;
+  --dur-2: 200ms;
+  --dur-3: 240ms;
+
+  /* Layout. */
+  --rail-w: 68px;
+  --sidebar-w: 296px;
+  --header-h: 50px;
+  --column: 760px;
+  --transcript-size: 15.5px;
+
+  /* Glass intensity (Appearance slider) times the OS transparency preference. */
+  --glass: 1;
+  --glass-on: 1;
+  --glass-k: calc(var(--glass) * var(--glass-on));
+
+  /* Materials that let the wallpaper show through. */
+  --rail: rgb(var(--rail-rgb) / calc(1 - 0.62 * var(--glass-k)));
+  --sidebar: rgb(var(--sidebar-rgb) / calc(1 - 0.5 * var(--glass-k)));
+  --reading: rgb(var(--reading-rgb) / calc(1 - 0.16 * var(--glass-k)));
+  --glass-bg: rgb(var(--glass-rgb) / calc(1 - (1 - var(--glass-a)) * var(--glass-k)));
+  --panel: color-mix(in oklab, var(--reading), var(--background) 30%);
+
+  /* The accent drives focus, selection, comment gutters, switches and resize handles. */
+  --ring: var(--accent-blue);
+  --sidebar-ring: var(--ring);
+}
+
+[data-accent="blue"] {
+  --ring: var(--accent-blue);
+}
+[data-accent="violet"] {
+  --ring: var(--accent-violet);
+}
+[data-accent="teal"] {
+  --ring: var(--accent-teal);
+}
+[data-accent="amber"] {
+  --ring: var(--accent-amber);
+}
+[data-accent="rose"] {
+  --ring: var(--accent-rose);
+}
+[data-accent="graphite"] {
+  --ring: var(--accent-graphite);
+}
+[data-accent="custom"] {
+  --ring: var(--accent-custom, var(--accent-blue));
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --glass-on: 0;
+  }
+}

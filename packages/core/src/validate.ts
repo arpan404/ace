@@ -87,6 +87,7 @@ const allowed: Record<Fact["type"], string[]> = {
     "billingMode",
     "counterMode",
     "counterKey",
+    "usageScope",
   ],
   signal: ["agent"],
   "process.exited": ["deliberate", "message"],

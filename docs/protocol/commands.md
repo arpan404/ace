@@ -706,6 +706,9 @@ Example:
 | type | yes | `"thread.create"` |  |
 | workspaceId | yes | [WorkspaceId.json](schema/WorkspaceId.json) |  |
 | provider | yes | [ProviderKind.json](schema/ProviderKind.json) |  |
+| acpAgentId | no | string | {"minLength":1,"maxLength":256} |
+| installationId | no | string | {"minLength":1,"maxLength":256} |
+| instanceId | no | string | {"minLength":1,"maxLength":256} |
 | model | no | string |  |
 | title | no | string |  |
 | input | yes | array | {"minItems":1,"items":{"$ref":"https://ace.local/protocol/v1/ContentPart.json"}} |
@@ -718,11 +721,13 @@ Example:
   "context": {},
   "input": [
     {
-      "text": "example",
-      "type": "text"
+      "path": "example",
+      "type": "file"
     }
   ],
+  "instanceId": "example",
   "provider": "cursor",
+  "title": "example",
   "type": "thread.create",
   "workspaceId": "example"
 }
@@ -744,8 +749,9 @@ Example:
 {
   "input": [
     {
-      "text": "example",
-      "type": "text"
+      "mimeType": "example",
+      "type": "image",
+      "url": "example"
     }
   ],
   "threadId": "example",
@@ -766,6 +772,8 @@ Example:
 
 ```json
 {
+  "agentId": "example",
+  "cascade": false,
   "threadId": "example",
   "type": "thread.interrupt"
 }
@@ -784,6 +792,42 @@ Example:
 {
   "threadId": "example",
   "type": "thread.archive"
+}
+```
+
+### thread.model.set
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.model.set"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| model | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "model": "example",
+  "threadId": "example",
+  "type": "thread.model.set"
+}
+```
+
+### thread.mode.set
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.mode.set"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| mode | yes | string | {"minLength":1,"maxLength":256} |
+
+Example:
+
+```json
+{
+  "mode": "example",
+  "threadId": "example",
+  "type": "thread.mode.set"
 }
 ```
 
@@ -842,49 +886,7 @@ Example:
 ```json
 {
   "commandId": "example",
-  "health": {
-    "activeSessions": 7,
-    "at": 8,
-    "eventLoop": {
-      "maxMs": 6,
-      "meanMs": 7,
-      "p99Ms": 8
-    },
-    "logs": {
-      "dropped": 1,
-      "failed": 7,
-      "queued": 2
-    },
-    "memory": {
-      "heapTotalBytes": 0,
-      "heapUsedBytes": 7,
-      "rssBytes": 0
-    },
-    "openHandles": 7,
-    "queues": {},
-    "sqlite": {
-      "pageBytes": null,
-      "walBytes": null
-    }
-  },
-  "ok": true,
-  "review": {
-    "comments": [],
-    "nextCursor": "example",
-    "session": {
-      "createdAt": 8,
-      "id": "example",
-      "source": {
-        "from": {
-          "kind": "working-tree"
-        },
-        "to": {
-          "kind": "working-tree"
-        },
-        "workspaceId": "example"
-      },
-      "status": "approved"
-    }
-  }
+  "error": "example",
+  "ok": true
 }
 ```

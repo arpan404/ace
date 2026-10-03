@@ -2,7 +2,7 @@ import { clipItem } from "./item-window.ts";
 import { pageWindow } from "./page-window.ts";
 import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
-import { applyDelivery } from "@ace/projection";
+import { applyDelivery, usageSnapshotKey } from "@ace/projection";
 import type { ThreadView, EventBatch, Progress, Item, ItemsPage } from "@ace/protocol";
 import { Notifications, type Selection } from "./observable.ts";
 import { ClientError, type Limits } from "./types.ts";
@@ -14,13 +14,17 @@ export type ThreadKey =
   | "order"
   | "cursor"
   | "history"
+  | "agents"
+  | "interactions"
+  | "tasks"
   | `item:${string}`
   | `agent:${string}`
   | `run:${string}`
   | `interaction:${string}`
   | `task:${string}`
   | `context:${string}`
-  | `usage:${string}`;
+  | `usage:${string}`
+  | `usageSnapshot:${string}`;
 export interface ThreadReader {
   readonly error: ClientError | undefined;
   readonly thread: ThreadView["thread"] | undefined;
@@ -29,6 +33,12 @@ export interface ThreadReader {
   readonly order: readonly string[];
   readonly cursor: number | undefined;
   readonly itemsBefore: number | null | undefined;
+  /** Fresh membership lists: select with the "agents", "interactions" or "tasks" key and
+   * an array equality, because each call returns a new array. */
+  agentIds(): readonly string[];
+  children(agentId: string): readonly string[];
+  interactionIds(): readonly string[];
+  taskIds(): readonly string[];
   item(id: string): Item | undefined;
   agent(id: string): ThreadView["agents"][string] | undefined;
   run(id: string): ThreadView["runs"][string] | undefined;
@@ -36,6 +46,7 @@ export interface ThreadReader {
   task(id: string): ThreadView["backgroundTasks"][string] | undefined;
   usage(id: string): ThreadView["usage"][string] | undefined;
   contextMeter(id: string): import("@ace/protocol").ContextMeter | undefined;
+  usageSnapshot(key: string): ThreadView["usageSnapshots"][string] | undefined;
   truncated(id: string): boolean;
 }
 const emptyOrder: readonly string[] = [];
@@ -81,6 +92,19 @@ export class ThreadStore implements ThreadReader {
   get itemsBefore() {
     return this.view?.itemsBefore;
   }
+  agentIds(): readonly string[] {
+    return this.view ? Object.keys(this.view.agents) : emptyOrder;
+  }
+  children(agentId: string): readonly string[] {
+    // Projection appends children in place, so never hand out its array.
+    return [...(this.own(this.view?.agentChildren, agentId) ?? emptyOrder)];
+  }
+  interactionIds(): readonly string[] {
+    return this.view ? Object.keys(this.view.interactions) : emptyOrder;
+  }
+  taskIds(): readonly string[] {
+    return this.view ? Object.keys(this.view.backgroundTasks) : emptyOrder;
+  }
   item(id: string) {
     return this.own(this.view?.items, id);
   }
@@ -102,6 +126,9 @@ export class ThreadStore implements ThreadReader {
   }
   usage(id: string) {
     return this.own(this.view?.usage, id);
+  }
+  usageSnapshot(key: string) {
+    return this.own(this.view?.usageSnapshots, key);
   }
   truncated(id: string) {
     return this.clipped.has(id);
@@ -137,6 +164,7 @@ export class ThreadStore implements ThreadReader {
       tasks: view.backgroundTasks,
       usage: view.usage,
       contextMeters: view.contextMeters ?? {},
+      usageSnapshots: view.usageSnapshots,
     })) {
       const size = Object.keys(record).length;
       if (size > this.limits.entities) throw new ClientError("limit", "Entity capacity exceeded");
@@ -220,11 +248,13 @@ export class ThreadStore implements ThreadReader {
             keys.add("thread");
           }
           keys.add(`agent:${p.agent.id}`);
+          keys.add("agents");
           break;
         case "agent.status":
         case "agent.updated":
           this.copy(view.agents, p.agentId);
           keys.add(`agent:${p.agentId}`);
+          if (p.type === "agent.updated" && p.parentId !== undefined) keys.add("agents");
           break;
         case "run.started":
           if (!keys.has(`run:${p.run.id}`)) this.capacity("runs", !!this.run(p.run.id));
@@ -268,6 +298,7 @@ export class ThreadStore implements ThreadReader {
           if (!keys.has(`interaction:${p.interaction.id}`))
             this.capacity("interactions", !!this.interaction(p.interaction.id));
           keys.add(`interaction:${p.interaction.id}`);
+          keys.add("interactions");
           break;
         case "interaction.closed":
           this.copy(view.interactions, p.interactionId);
@@ -276,6 +307,7 @@ export class ThreadStore implements ThreadReader {
         case "background_task.started":
           if (!keys.has(`task:${p.task.id}`)) this.capacity("tasks", !!this.task(p.task.id));
           keys.add(`task:${p.task.id}`);
+          keys.add("tasks");
           break;
         case "background_task.updated":
           this.copy(view.backgroundTasks, p.taskId);
@@ -289,10 +321,18 @@ export class ThreadStore implements ThreadReader {
             this.capacity("contextMeters", !!this.contextMeter(p.meter.agentId));
           keys.add(`context:${p.meter.agentId}`);
           break;
-        case "usage.updated":
-          if (!keys.has(`usage:${p.agentId}`)) this.capacity("usage", !!this.usage(p.agentId));
-          keys.add(`usage:${p.agentId}`);
+        case "usage.updated": {
+          if (p.usageScope === "provider_session" || p.usageScope === "model_session") {
+            const key = usageSnapshotKey(p);
+            if (!keys.has(`usageSnapshot:${key}`))
+              this.capacity("usageSnapshots", !!this.usageSnapshot(key));
+            keys.add(`usageSnapshot:${key}`);
+          } else {
+            if (!keys.has(`usage:${p.agentId}`)) this.capacity("usage", !!this.usage(p.agentId));
+            keys.add(`usage:${p.agentId}`);
+          }
           break;
+        }
       }
       const result = applyDelivery(
         view,

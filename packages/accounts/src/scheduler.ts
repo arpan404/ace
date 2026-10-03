@@ -47,6 +47,7 @@ export function pickInstance(
   if (!Number.isFinite(input.estimatedLoad) || input.estimatedLoad < 0 || input.estimatedLoad > 100)
     throw new Error("Estimated load must be percentage points from 0 to 100");
   if (candidates.length > 256) throw new Error("Instance limit exceeded");
+  if (input.provider === "acp") return undefined; // ACP requires explicit agent/installation identity.
   let best: ProviderInstance | undefined;
   let bestReset = Infinity;
   let bestHeadroom = -1;

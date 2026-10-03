@@ -1,0 +1,75 @@
+{
+  "$id": "https://ace.local/protocol/v1/RegistryInstallation.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "acpAgentId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "evidence": {
+      "enum": [
+        "user_local_binding",
+        "sha256",
+        "package_manager",
+        "unsigned_https"
+      ],
+      "type": "string"
+    },
+    "installationId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "instanceId": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "packageManager": {
+      "properties": {
+        "command": {
+          "maxLength": 4096,
+          "type": "string"
+        },
+        "integrity": {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        "package": {
+          "maxLength": 1024,
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "package"
+      ],
+      "type": "object"
+    },
+    "profileRevision": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "source": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "acpAgentId",
+    "installationId",
+    "instanceId",
+    "version",
+    "profileRevision",
+    "source",
+    "evidence"
+  ],
+  "type": "object"
+}

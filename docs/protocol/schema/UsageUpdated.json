@@ -86,6 +86,14 @@
     "type": {
       "const": "usage.updated",
       "type": "string"
+    },
+    "usageScope": {
+      "enum": [
+        "agent",
+        "provider_session",
+        "model_session"
+      ],
+      "type": "string"
     }
   },
   "required": [
@@ -94,5 +102,6 @@
     "inputTokens",
     "outputTokens"
   ],
-  "type": "object"
+  "type": "object",
+  "x-ace-constraint": "If usageScope is provider_session or model_session, counterKey is required."
 }

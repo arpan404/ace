@@ -28,7 +28,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search)\.ts$/,
+                /(?:blob-export|exclusive-rename|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -44,6 +44,8 @@ export async function bundleDaemon(
                 if (source && worker && output && args.path.endsWith(source))
                   contents = contents.replace(JSON.stringify(worker), JSON.stringify(output));
               }
+              if (args.path.endsWith("/mcp-server/src/injection.ts"))
+                contents = contents.replace('"./stdio-entry.ts"', '"./acp-mcp-bridge.mjs"');
               if (args.path.endsWith("/workspace/src/descriptor.ts"))
                 contents = contents.replace('"../dist/descriptor.node"', '"./descriptor.node"');
               if (args.path.endsWith("/workspace/src/node-search.ts"))
@@ -110,6 +112,7 @@ export async function bundleDaemon(
   if (workspaceIncluded)
     await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
   const helpers = [
+    ["packages/mcp-server/src/stdio-entry.ts", "acp-mcp-bridge.mjs"],
     ["packages/files/src/blob-worker.ts", "files-blob-worker.mjs"],
     ["packages/files/src/rename-worker.ts", "files-rename-worker.mjs"],
     ["packages/search/src/query-worker.ts", "search-query-worker.mjs"],

@@ -6,6 +6,9 @@
       "$ref": "https://ace.local/protocol/v1/QueueResult.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/RegistryResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/ContextResult.json"
     },
     {
@@ -30,7 +33,13 @@
       "$ref": "https://ace.local/protocol/v1/HistoryContinueResponse.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/McpProviderResult.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/UsageMessage.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/UsageSessionTotalsMessage.json"
     },
     {
       "properties": {

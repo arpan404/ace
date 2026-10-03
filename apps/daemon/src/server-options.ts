@@ -29,6 +29,7 @@ import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
   engine?: import("./engine/index.ts").Engine;
+  mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;
   screen?: ScreenManager;
   accounts?: AccountService;
   commands?: CommandService;
@@ -41,6 +42,7 @@ export interface ServerOptions {
   maintenance?: boolean;
   version?: string;
   models?: ModelCatalogApi;
+  agentRegistry?: Pick<import("@ace/agent-registry").AgentRegistry, "handle">;
   port: number;
   remote?: RemoteListener;
   now?: () => number;

@@ -23,6 +23,7 @@ export interface EngineOptions {
   recovery?: RecoveryPorts;
   preferences?: Partial<RecoveryPreferences>;
   limits?: Partial<EngineLimits>;
+  sessionContext?: NonNullable<ConstructorParameters<typeof Sessions>[0]["context"]>;
   ids?: IdSource;
   threadId?: () => string;
   commandId?: () => string;
@@ -71,6 +72,7 @@ export class Engine {
     this.steering = new IntentWorkers((id) => this.steer(this.actor(id)), this.report);
     this.controls = new IntentWorkers((id) => this.control(this.actor(id)), this.report);
     this.sessions = new Sessions({
+      ...(options.sessionContext ? { context: options.sessionContext } : {}),
       repo: this.repo,
       registry: this.registry,
       clock: this.clock,
@@ -327,7 +329,10 @@ export class Engine {
       !this.repo.queue.get(intent.threadId).paused &&
       !this.repo.queue.get(intent.threadId).limited &&
       this.registry.has(state.config.provider) &&
-      this.registry.get(state.config.provider).capabilities.steer
+      (
+        this.actors.get(intent.threadId)?.effectiveCapabilities ??
+        this.registry.get(state.config.provider).capabilities
+      ).steer
     );
   }
   private async steer(actor: ThreadActor): Promise<void> {

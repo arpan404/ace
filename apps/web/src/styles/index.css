@@ -1,0 +1,232 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./shadcn.css";
+@import "./tokens.css";
+
+@custom-variant dark (&:where([data-scheme="dark"], [data-scheme="dark"] *));
+@custom-variant compact (&:where([data-density="compact"], [data-density="compact"] *));
+
+/* Tailwind utilities resolve to token variables, so a theme swap needs no component edits. */
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle-foreground: var(--subtle-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-code: var(--code);
+  --color-bubble: var(--bubble);
+  --color-reading: var(--reading);
+  --color-panel: var(--panel);
+  --color-rail: var(--rail);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-glass: var(--glass-bg);
+  --color-glass-border: var(--glass-border);
+  --color-diff-add: var(--diff-add);
+  --color-diff-del: var(--diff-del);
+
+  /* Status hues: dots, the activity badge and diff counts only (DESIGN-fable.md, Principle 2). */
+  --color-status-needs-you: var(--status-needs-you);
+  --color-status-working: var(--status-working);
+  --color-status-waiting: var(--status-waiting);
+  --color-status-unresponsive: var(--status-unresponsive);
+  --color-status-failed: var(--status-failed);
+  --color-status-done: var(--status-done);
+
+  /* 6 kbd/tags · 8 rows/buttons/inputs · 10 cards · 12 popovers · 16 composer and bubbles. */
+  --radius-xs: 4px;
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius);
+  --radius-card: 10px;
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+
+  --shadow-glass: var(--glass-highlight), 0 0 0 0.5px var(--glass-edge), var(--glass-shadow);
+  --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.12), var(--glass-highlight);
+
+  --ease-smooth: var(--ease);
+  --ease-spring: var(--spring);
+
+  --text-prose: var(--transcript-size);
+  --text-prose--line-height: 1.6;
+}
+
+/* Type scale (DESIGN-fable.md, "Type"). Weights: 400 and 500; 600 for titles only. */
+@theme {
+  --text-2xs: 10.5px;
+  --text-2xs--line-height: 1.3;
+  --text-xs: 11.5px;
+  --text-xs--line-height: 1.35;
+  --text-sm: 12.5px;
+  --text-sm--line-height: 1.4;
+  --text-ui: 13px;
+  --text-ui--line-height: 1.45;
+  --text-base: 14px;
+  --text-base--line-height: 1.35;
+  --text-md: 15px;
+  --text-md--line-height: 1.35;
+  --text-lg: 18px;
+  --text-lg--line-height: 1.3;
+  --text-xl: 20px;
+  --text-xl--line-height: 1.25;
+  --text-2xl: 22px;
+  --text-2xl--line-height: 1.25;
+  --tracking-title: -0.015em;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    overflow: hidden;
+    font: 13px/1.45 var(--font-sans);
+    color: var(--foreground);
+    background: var(--wall, var(--background));
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings:
+      "tnum" 1,
+      "cv11" 1;
+  }
+  :focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--ring) 70%, transparent);
+    outline-offset: 2px;
+  }
+  /* Programmatic focus targets (route headings) should not show a ring. */
+  [tabindex="-1"]:focus {
+    outline: none;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--ring) 32%, transparent);
+  }
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-mono);
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--foreground) 14%, transparent);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--foreground) 24%, transparent);
+    background-clip: padding-box;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}
+
+@layer components {
+  /* Floating glass: popovers, menus, palette, composer, toasts. */
+  .glass {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+    border: 1px solid var(--glass-border);
+    box-shadow:
+      var(--glass-highlight),
+      0 0 0 0.5px var(--glass-edge),
+      var(--glass-shadow);
+  }
+  /* Rail, second sidebar and reading column blur the wallpaper behind them. */
+  .vibrancy {
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .glass,
+    .vibrancy {
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+    }
+  }
+  /* Neutral wallpaper with faint tonal washes, so blur reads as material, not colour. */
+  .wallpaper {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    background:
+      radial-gradient(55% 60% at 8% 12%, var(--w1), transparent 70%),
+      radial-gradient(45% 50% at 90% 18%, var(--w2), transparent 70%),
+      radial-gradient(50% 55% at 76% 90%, var(--w3), transparent 70%),
+      radial-gradient(40% 45% at 16% 92%, var(--w4), transparent 70%), var(--wall);
+  }
+  /* Spinner ring: grey on rows, tinted only where status words are allowed. */
+  .spin-ring {
+    display: inline-block;
+    flex: none;
+    width: 11px;
+    height: 11px;
+    border-radius: 9999px;
+    border: 1.5px solid color-mix(in oklab, currentColor 25%, transparent);
+    border-top-color: currentColor;
+    animation: ace-spin 1s linear infinite;
+  }
+  /* Streaming status line only. */
+  .shimmer {
+    background: linear-gradient(
+        90deg,
+        var(--muted-foreground) 30%,
+        var(--foreground) 50%,
+        var(--muted-foreground) 70%
+      )
+      0 0 / 220% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: ace-shimmer 2.2s linear infinite;
+  }
+}
+
+@keyframes ace-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes ace-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
