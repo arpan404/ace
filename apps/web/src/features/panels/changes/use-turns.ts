@@ -1,0 +1,29 @@
+import type { ThreadKey } from "@ace/client";
+import { useItemOrder, useThread } from "@ace/client-react";
+import { useMemo } from "react";
+import { countChanges } from "./diff.ts";
+import { collectTurns, fileDiffs, turnsEqual, type Turn } from "./turns.ts";
+
+const noTurns: readonly Turn[] = [];
+
+/**
+ * The thread's root turns with their file edits, from the live store. Re-selects when an
+ * item in the loaded window changes and re-renders only when the set of edits does.
+ */
+export function useTurns(threadId: string): readonly Turn[] {
+  const order = useItemOrder(threadId);
+  const keys = useMemo<ThreadKey[]>(
+    () => ["order", "thread", "agents", ...(order ?? []).map((id): ThreadKey => `item:${id}`)],
+    [order],
+  );
+  return useThread(threadId, keys, collectTurns, turnsEqual) ?? noTurns;
+}
+
+/** Lines added and removed across the whole thread, for the Changes tab label. */
+export function useThreadDiffStat(threadId: string): { additions: number; deletions: number } {
+  const turns = useTurns(threadId);
+  return useMemo(() => {
+    const edits = turns.flatMap((turn) => turn.edits);
+    return countChanges(fileDiffs(edits).flatMap((file) => file.rows));
+  }, [turns]);
+}
