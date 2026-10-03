@@ -1,5 +1,5 @@
 import type { ThreadKey, ThreadReader } from "@ace/client";
-import { useItem, useTaskIds, useThread } from "@ace/client-react";
+import { useClient, useItem, useTaskIds, useThread } from "@ace/client-react";
 import type { BackgroundTask } from "@ace/protocol";
 import { TerminalWindowIcon, XIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { readOutputText } from "@/lib/output-read.ts";
 import { usePanelServices } from "../services.ts";
 import { useVersion } from "../store.ts";
 import { TerminalScreen } from "./screen.ts";
@@ -161,27 +162,47 @@ export function TerminalTab(props: { threadId: string }) {
   );
 }
 
-/** A background shell's output as the agent's tool call reports it (read-only). */
+/**
+ * A background shell's output as the agent's tool call reports it (read-only): the latest 4 KiB
+ * live, and the whole output from the daemon's stream store on request.
+ */
 function BackgroundShell(props: { threadId: string; task: BackgroundTask }) {
+  const client = useClient();
   const item = useItem(props.threadId, props.task.toolCallId ?? "");
-  const tail =
+  const output =
     item?.type === "tool_call" && item.call.detail.kind === "shell"
-      ? (item.call.detail.output?.tail ?? "")
-      : "";
-  const truncated =
-    item?.type === "tool_call" &&
-    item.call.detail.kind === "shell" &&
-    item.call.detail.output?.truncated;
+      ? item.call.detail.output
+      : undefined;
+  const [full, setFull] = useState<{ bytes: number; text: string }>();
+  const [loading, setLoading] = useState<"idle" | "loading" | "failed">("idle");
+  // A full read is replaced by the live tail as soon as the shell prints more.
+  const shown = full && full.bytes === output?.bytes ? full.text : (output?.tail ?? "");
   const rows = useMemo(() => {
     const screen = new TerminalScreen();
-    screen.write(tail.replace(/(?<!\r)\n/g, "\r\n"));
+    screen.write(shown.replace(/(?<!\r)\n/g, "\r\n"));
     return screen.rows();
-  }, [tail]);
+  }, [shown]);
+  const loadAll = () => {
+    if (!output) return;
+    const bytes = output.bytes;
+    setLoading("loading");
+    readOutputText(client, output.streamId).then(
+      (text) => {
+        setFull({ bytes, text });
+        setLoading("idle");
+      },
+      () => setLoading("failed"),
+    );
+  };
   return (
     <>
-      {truncated && (
-        <p className="px-4 pt-2 font-sans text-xs text-subtle-foreground">
+      {output?.truncated && shown !== full?.text && (
+        <p className="flex items-center gap-2 px-4 pt-2 font-sans text-xs text-subtle-foreground">
           Showing the latest output.
+          <Button size="sm" variant="ghost" disabled={loading === "loading"} onClick={loadAll}>
+            {loading === "loading" && <Spinner />}
+            {loading === "failed" ? "Couldn't load it. Retry" : "Show full output"}
+          </Button>
         </p>
       )}
       <ScreenRows rows={rows} label={`${shellLabel(props.task.title)} output`} />

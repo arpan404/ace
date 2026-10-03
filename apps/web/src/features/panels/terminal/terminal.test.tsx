@@ -1,4 +1,4 @@
-import { coldStartReplay, seedPanels } from "@ace/fake-daemon";
+import { coldStartReplay, facts, seedPanels } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -104,4 +104,25 @@ test("Clear empties the terminal that is showing", async () => {
   await userEvent.click(within(panel).getByRole("button", { name: "Clear terminal" }));
   await waitFor(() => expect(output(panel, "tests output").textContent).toBe(""));
   expect(tab(panel, "tests").getAttribute("aria-selected")).toBe("true");
+});
+
+test("a long background shell shows its latest output, and the whole of it on request", async () => {
+  const { app, panel } = await openTerminal();
+  const lines = Array.from(
+    { length: 120 },
+    (_, n) => `client ios-${n} connected · resume seq ${n}\n`,
+  );
+  act(() => app.daemon.apply("thread-cold-start", [facts.output("root", "relay", lines.join(""))]));
+  await within(panel).findByText("Showing the latest output.", { exact: false });
+  const shell = output(panel, "relay:soak output");
+  await waitFor(() => expect(shell.textContent).toContain("client ios-119 connected"));
+  expect(shell.textContent).not.toContain("soak relay listening");
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Show full output" }));
+  await waitFor(() =>
+    expect(output(panel, "relay:soak output").textContent).toContain(
+      "soak relay listening on ws://127.0.0.1:8790",
+    ),
+  );
+  expect(output(panel, "relay:soak output").textContent).toContain("client ios-119 connected");
 });
