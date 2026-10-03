@@ -2,11 +2,9 @@ import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createScriptedAdapter, type ScriptedStep } from "@ace/adapter-testkit";
-import type { Fact } from "@ace/core";
+import { createTurnProvider, ScriptedTurnConfig } from "@ace/adapter-testkit";
 import { AdapterRegistry, readConfig, startDaemon } from "@ace/daemon";
-import type { Frame, SessionContext } from "@ace/engine-api";
-import { Capabilities, ServerMessage, type ContentPart, type ProviderKind } from "@ace/protocol";
+import { ServerMessage, type ProviderKind } from "@ace/protocol";
 import {
   daemonHome,
   daemonPort,
@@ -22,71 +20,22 @@ import {
  * @ace/adapter-testkit registered in place of discovery, so no provider CLI is ever started.
  * Each message a thread receives is answered with `scriptedReply` and the turn ends.
  */
-const replies = 20;
-
-const message = (item: string, role: "user" | "assistant", text: string): Fact => ({
-  type: "item.upsert",
-  agent: "root",
-  item,
-  draft: { type: "message", role, complete: true, parts: [{ type: "text", text }] },
+const scriptedConfig = ScriptedTurnConfig.parse({
+  delayMs: Number(process.env.ACE_E2E_TURN_DELAY_MS ?? 0),
+  limitAfterTurns: Number(process.env.ACE_E2E_LIMIT_AFTER_TURNS ?? 0),
+  resetMs: Number(process.env.ACE_E2E_LIMIT_RESET_MS ?? 1000),
 });
-
-/**
- * The testkit's scripted adapter, with each message answered by one turn: the person's text
- * (providers echo user input; the engine does not), the scripted reply, then the turn ends.
- */
 function scriptedProvider(provider: ProviderKind) {
-  const bundles = new Map<string, Fact[]>();
-  let seq = 0;
-  const frame = (...facts: Fact[]): Frame => {
-    const channel = `facts-${++seq}`;
-    bundles.set(channel, facts);
-    return { seq, t: seq, dir: "recv", channel, data: { scripted: true } };
-  };
-  const adapter = createScriptedAdapter({
+  return createTurnProvider({
     provider,
-    nativeSessionId: `scripted-${provider}`,
-    capabilities: Capabilities.parse({
-      steer: true,
-      interruptCascades: false,
-      resume: true,
-      fork: false,
-      subagentTranscripts: true,
-      backgroundTaskControl: true,
-      backgroundVisibility: "full",
-      planMode: false,
-      tokenUsage: false,
-      imageInput: true,
-      rewindFiles: false,
-    }),
-    createTranslator: () => ({
-      translate: (incoming) => structuredClone(bundles.get(incoming.channel) ?? []),
-      tick: () => [],
-    }),
-    steps: Array.from({ length: replies }, (): ScriptedStep => ({ on: "send" })),
-  });
-  return {
-    ...adapter,
-    async openSession(ctx: SessionContext) {
-      const session = await adapter.openSession(ctx);
-      return {
-        ...session,
-        async send(input: ContentPart[], delivery: "steer" | "queue") {
-          await session.send(input, delivery);
-          const text = input.flatMap((part) => (part.type === "text" ? [part.text] : []));
-          const turn = ++seq;
-          ctx.onFrame(
-            frame(
-              { type: "turn.started", agent: "root", trigger: "user" },
-              message(`ask-${turn}`, "user", text.join("\n")),
-              message(`reply-${turn}`, "assistant", scriptedReply),
-              { type: "turn.ended", agent: "root", outcome: "completed" },
-            ),
-          );
-        },
-      };
+    reply: scriptedReply,
+    config: scriptedConfig,
+    now: Date.now,
+    schedule(delayMs, callback) {
+      const timer = setTimeout(callback, delayMs);
+      return () => clearTimeout(timer);
     },
-  };
+  });
 }
 
 rmSync(daemonHome, { recursive: true, force: true });
