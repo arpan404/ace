@@ -110,3 +110,28 @@ test("fork before an earlier user resumes that context while source retains its 
     await h.dispose();
   }
 });
+test("extension confirmation remains answerable while a native fork is pending", async () => {
+  const h = await sessionHarness({}, false, { FAKE_PI_FORK_DIALOG: "1" });
+  let reopened: Awaited<ReturnType<typeof sessionHarness>> | undefined;
+  try {
+    const fork = h.session.fork();
+    const observed = fork.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    await h.wait((frame) => frame.dir === "recv" && obj(frame.data).id === "fork-confirm");
+    await h.session.resolve("fork-confirm", {
+      kind: "question",
+      answers: { "fork-confirm": ["yes"] },
+    });
+    const result = await observed;
+    if (!("value" in result)) throw result.error;
+    reopened = await sessionHarness({}, result.value.nativeSessionId, {}, h.home);
+    expect(await context(reopened)).toBe(
+      "first question|first answer|second question|abandoned answer",
+    );
+  } finally {
+    await reopened?.dispose();
+    await h.dispose();
+  }
+});

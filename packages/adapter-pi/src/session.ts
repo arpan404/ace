@@ -213,10 +213,13 @@ export async function openPiSession(
     detachStderr();
     ctx.onExit({ deliberate, message: `Pi process ${exit.reason}, code ${exit.code}` });
   });
-  const check = () => {
+  const checkOpen = () => {
     if (closed) throw new Error("Pi session closed");
-    if (control) throw new Error("Pi history operation in progress");
     ctx.signal.throwIfAborted();
+  };
+  const check = () => {
+    checkOpen();
+    if (control) throw new Error("Pi history operation in progress");
   };
   const idle = async () => {
     const state = State.parse(await rpc.request("get_state"));
@@ -271,7 +274,7 @@ export async function openPiSession(
       await rpc.request("abort_bash");
     },
     async resolve(id: string, resolution: InteractionResolution) {
-      check();
+      checkOpen();
       const entry = dialogs.get(id);
       if (!entry) throw new Error("Pi dialog is no longer pending");
       const response = dialogResponse(entry.dialog, resolution);

@@ -145,8 +145,31 @@ export function createPiSocketSession(context: SocketContext): SocketService {
     string,
     { fingerprint: string; promise: Promise<PiControlResult>; settled: boolean }
   >();
+  const deliver = (task: Promise<PiControlResult>, requestId: string) => {
+    pending++;
+    const delivery: Promise<void> = task
+      .then(
+        (response) => {
+          if (context.connected()) context.send(response);
+        },
+        () => {
+          if (context.connected())
+            context.send({
+              type: "pi.result",
+              requestId,
+              result: { ok: false, error: "Pi native history operation failed" },
+            });
+        },
+      )
+      .catch(() => context.socket.terminate())
+      .finally(() => {
+        pending--;
+        context.tasks.delete(delivery);
+      });
+    context.tasks.add(delivery);
+  };
   return {
-    async handle(input) {
+    handle(input) {
       const parsed = PiControlRequest.safeParse(input);
       if (!parsed.success) return false;
       const request = parsed.data;
@@ -173,7 +196,11 @@ export function createPiSocketSession(context: SocketContext): SocketService {
           fail("Pi request id reused for different content");
           return true;
         }
-        context.send(await existing.promise);
+        if (pending >= 8) {
+          fail("Pi request capacity exceeded");
+          return true;
+        }
+        deliver(existing.promise, request.requestId);
         return true;
       }
       if (pending >= 8) {
@@ -187,16 +214,18 @@ export function createPiSocketSession(context: SocketContext): SocketService {
             break;
           }
       }
-      pending++;
-      const task = service.handle(request);
+      const task = Promise.resolve().then(() => service.handle(request));
       const receipt = { fingerprint, promise: task, settled: false };
       receipts.set(request.requestId, receipt);
-      try {
-        context.send(await task);
-      } finally {
-        receipt.settled = true;
-        pending--;
-      }
+      void task.then(
+        () => {
+          receipt.settled = true;
+        },
+        () => {
+          receipt.settled = true;
+        },
+      );
+      deliver(task, request.requestId);
       return true;
     },
   };

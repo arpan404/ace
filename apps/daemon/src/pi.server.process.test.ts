@@ -86,3 +86,40 @@ test("Pi wire receipts replay results once and reject reuse for changed operatio
     await f.close();
   }
 });
+test("pending Pi history controls leave the same socket able to receive further commands", async () => {
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const native = nativeControls();
+  const f = await fixture({
+    pi: {
+      ...native,
+      async handle(request) {
+        started.resolve();
+        await release.promise;
+        return native.handle(request);
+      },
+    },
+  });
+  try {
+    const client = await f.connect();
+    await client.next();
+    client.send({
+      type: "pi.control",
+      requestId: "pending",
+      threadId: f.thread.id,
+      operation: { kind: "fork" },
+    });
+    await started.promise;
+    client.send({ type: "ping" });
+    expect(await client.next()).toMatchObject({ type: "pong" });
+    release.resolve();
+    expect(await client.next()).toMatchObject({
+      type: "pi.result",
+      requestId: "pending",
+      result: { ok: true },
+    });
+  } finally {
+    release.resolve();
+    await f.close();
+  }
+});

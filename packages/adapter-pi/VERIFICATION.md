@@ -20,6 +20,8 @@ Every case is **not executed (tests run at merge)**.
 | Leave interactions pending after process death      | Unexpected exit expires dialogs and does not report successful completion              |
 | Reply to select with option id rather than label    | Selection answers use native offered labels and cannot be sent twice                   |
 | Omit restoring source after fork                    | Native fork creates a resumable reference and preserves the source session             |
+| Skip switching to saved history on resume           | Explicit native resume reloads the saved session before any prompt                     |
+| Swap steering and follow-up delivery                | Steering and follow-up carry their native delivery modes                               |
 | Treat navigation acceptance as success without ack  | An accepted rollback command without acknowledgement is not success                    |
 | Ignore extension cancellation                       | Cancelled native navigation does not become successful rollback                        |
 | Omit `clear_queue` before abort                     | Interrupt clears native queued continuation before aborting                            |
@@ -73,6 +75,8 @@ All cases are **not executed (tests run at merge)**. Runtime confirmation needs 
 | Repeat or misplace cumulative block separators/suffixes                  | Multi-block shell output yields exactly abc, def, ghi with two separators and eleven bytes                     |
 | Reject a legacy header without version                                   | Public cold-fork and reopen accept native v1 headers and preserve source                                       |
 | Discard known safe history diagnostics                                   | Public daemon socket returns navigation-not-acknowledged, without pointing at nonexistent notices              |
+| Block dialog answers with the native history-operation lock              | Fork confirmation can be answered while the fork is pending, and its returned reference resumes context        |
+| Await native control completion in serialized socket dispatch            | A pending control leaves the same socket able to receive ping and return pong before the control finishes      |
 
 Additional scaling benchmarks in `bench/scaling.ts` include final-envelope persistence
 serialization at 16–256 blocks and cumulative multi-block output at 1–256 KiB prefixes.

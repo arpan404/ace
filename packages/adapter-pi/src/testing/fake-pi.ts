@@ -10,6 +10,7 @@ const history = new NativeHistory();
 if (process.env.FAKE_PI_HOME) history.load(join(process.env.FAKE_PI_HOME, "source.jsonl"));
 let queue = false,
   inputDelivered = false;
+let confirmFork: ((confirmed: boolean) => void) | undefined;
 const extension = process.argv[process.argv.indexOf("-e") + 1] ?? "";
 function emit(data: unknown) {
   process.stdout.write(JSON.stringify(data) + "\n");
@@ -63,6 +64,22 @@ async function handle(line: string) {
       return;
     case "clone":
     case "fork":
+      if (process.env.FAKE_PI_FORK_DIALOG) {
+        const answer = new Promise<boolean>((resolve) => {
+          confirmFork = resolve;
+        });
+        emit({
+          type: "extension_ui_request",
+          id: "fork-confirm",
+          method: "confirm",
+          title: "Fork?",
+          message: "Confirm native fork",
+        });
+        if (!(await answer)) {
+          reply(c, { cancelled: true });
+          return;
+        }
+      }
       if (
         process.env.FAKE_PI_COLD_CWD &&
         (process.cwd() !== realpathSync(process.env.FAKE_PI_COLD_CWD) || inputDelivered)
@@ -104,6 +121,10 @@ async function handle(line: string) {
       reply(c);
       return;
     case "extension_ui_response":
+      if (c.id === "fork-confirm") {
+        confirmFork?.(c.confirmed === true);
+        confirmFork = undefined;
+      }
       emit({
         type: "extension_ui_request",
         id: "answer-proof",
