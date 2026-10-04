@@ -86,6 +86,7 @@ export class ThreadActor {
   private draining: () => boolean;
   private repo: EngineRepository;
   private clock: EngineClock;
+  private batchScheduler: Pick<EngineClock, "setTimer">;
   private idleMs: number;
   private wake: () => void;
   private report: (error: unknown) => void;
@@ -98,8 +99,10 @@ export class ThreadActor {
     report: (error: unknown) => void,
     limits: EngineLimits,
     privateDrain: () => boolean = () => false,
+    batchScheduler: Pick<EngineClock, "setTimer"> = systemClock,
   ) {
     this.draining = privateDrain;
+    this.batchScheduler = batchScheduler;
     this.limits = limits;
     this.id = id;
     this.repo = repo;
@@ -278,7 +281,7 @@ export class ThreadActor {
       this.pendingFrames.push({ frame: decoded, generation, bytes, resolve, reject });
       this.pendingBytes += bytes;
       this.updatePressure();
-      this.cancelBatch ??= this.clock.setTimer(() => this.sealFrames(), 1);
+      this.cancelBatch ??= this.batchScheduler.setTimer(() => this.sealFrames(), 1);
       if (
         this.draining() ||
         this.backlog().frames >= this.limits.maxQueuedFrames ||

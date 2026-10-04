@@ -50,6 +50,8 @@ export interface EngineOptions {
   commandId?: () => string;
   registry?: AdapterRegistry;
   clock?: EngineClock;
+  /** Durable batching latency is independent of the status/recovery clock. */
+  batchScheduler?: Pick<EngineClock, "setTimer">;
   idleMs?: number;
   silenceMs?: number;
   onError?: (error: unknown) => void;
@@ -66,6 +68,7 @@ export class Engine {
   private repo: EngineRepository;
   private registry: AdapterRegistry;
   private clock: EngineClock;
+  private batchScheduler: Pick<EngineClock, "setTimer">;
   private idleMs: number;
   private report: (error: unknown) => void;
   private actors = new Map<ThreadId, ThreadActor>();
@@ -100,6 +103,7 @@ export class Engine {
     );
     this.registry = options.registry ?? new AdapterRegistry();
     this.clock = options.clock ?? systemClock;
+    this.batchScheduler = options.batchScheduler ?? systemClock;
     this.idleMs = options.idleMs ?? 30 * 60_000;
     const silenceMs = options.silenceMs ?? 60_000;
     if (!Number.isSafeInteger(this.idleMs) || this.idleMs < 0) throw new Error("Invalid idleMs");
@@ -270,6 +274,7 @@ export class Engine {
         this.report,
         this.limits,
         () => this.flushDepth > 0,
+        this.batchScheduler,
       );
       this.actors.set(id, actor);
     }

@@ -57,7 +57,7 @@ test("an adapter awaiting each durable frame can stream without a 20 ms token de
   const registry = new AdapterRegistry();
   registry.register(provider.adapter, { installed: true, auth: "logged_in", loginHint: "unused" });
   const clock = new ManualClock();
-  const engine = new Engine(store, { registry, clock });
+  const engine = new Engine(store, { registry, clock, batchScheduler: clock });
   try {
     const workspaceId = store.createWorkspace(home, "Fixture");
     const command = Command.parse({
