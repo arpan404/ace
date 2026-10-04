@@ -67,6 +67,28 @@ function settle(
   if (el) virtualizer.scrollOffset = el.scrollTop;
   placedUntil.current = performance.now() + 250;
 }
+/**
+ * Code that places the view (a jump, a step to a turn) sets the reader's place itself: for a
+ * moment after, what the virtualizer last rendered lags behind it.
+ */
+function placedAt(
+  anchor: { current: Anchor | undefined },
+  virtualizer: { measurementsCache: readonly { start: number }[] },
+  el: HTMLElement | null,
+  rows: readonly Row[],
+  index: number,
+  itemId?: string,
+): void {
+  const row = rows[index];
+  const start = virtualizer.measurementsCache[index]?.start;
+  if (!el || !row || start === undefined) return;
+  anchor.current = {
+    key: row.key,
+    index,
+    offset: start - el.scrollTop,
+    itemId: itemId ?? rowItem(row),
+  };
+}
 const viewportStyle = { paddingRight: "var(--summary-inset, 0px)" } as CSSProperties;
 const rowGap = (row: Row) => (row.kind === "block" ? gap[row.block.kind] : "pb-1");
 const rowKey = (row: Row) => row.key;
@@ -263,10 +285,7 @@ export function Feed(props: FeedProps) {
     if (key) setFlash({ key, hit: focus.query !== undefined });
     // The jump's row is the reader's place from now on, so rows folding or sliding around it
     // (the window's turns arriving, say) keep it where it landed.
-    const el = viewport.current;
-    const start = virtualizer.measurementsCache[index]?.start;
-    if (key && el && start !== undefined)
-      anchor.current = { key, index, offset: start - el.scrollTop, itemId: focus.itemId };
+    placedAt(anchor, virtualizer, viewport.current, rows, index, focus.itemId);
   }, [focus, rows, focusOrdinal, virtualizer, setPinned]);
   useEffect(() => {
     if (!flash || flash.hit) return;
@@ -458,6 +477,7 @@ export function Feed(props: FeedProps) {
             setPinned(false);
             virtualizer.scrollToIndex(index, { align: "start" });
             settle(virtualizer, viewport.current, placedUntil);
+            placedAt(anchor, virtualizer, viewport.current, rows, index);
           }}
           toLive={toLive}
         />
