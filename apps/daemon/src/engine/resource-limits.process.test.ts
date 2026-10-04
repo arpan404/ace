@@ -76,6 +76,63 @@ test("one stdout read worth of streamed deltas is folded without failing the thr
   ).toMatchObject({ parts: [{ type: "text", text: burst.join("") }] });
 });
 
+test("mailbox overload remains resumable when its durable notice encounters a writer lock", async () => {
+  const { DatabaseSync } = await import("node:sqlite");
+  const frames = scriptFrames();
+  const h = track(
+    await harness([{ on: "send", frames: [frames.frame(start)] }], frames, {
+      limits: { maxQueuedFrames: 2 },
+    }),
+  );
+  const id = await h.create();
+  const context = h.contexts[0];
+  if (!context) throw new Error("Missing provider");
+  const writer = new DatabaseSync(h.path);
+  h.store.statement("PRAGMA busy_timeout=0").get();
+  let locked = false;
+  const unsubscribe = h.store.subscribe((events) => {
+    if (!locked && events.some((event) => event.payload.type === "item.delta")) {
+      writer.exec("BEGIN IMMEDIATE");
+      locked = true;
+    }
+  });
+  try {
+    for (const append of ["one", "two", "rejected"])
+      void Promise.resolve(
+        context.onFrame(
+          frames.frame({
+            type: "item.delta",
+            agent: "root",
+            item: "answer",
+            field: "text",
+            append,
+          }),
+        ),
+      ).catch(() => {});
+    const flushed = h.engine.flush();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(locked).toBe(true);
+    writer.exec("COMMIT");
+    unsubscribe();
+    h.clock.advance(1100);
+    await flushed;
+    expect(h.errors).toEqual([]);
+    expect(
+      Object.values(view(h.store, id).items).some(
+        (item) => item.type === "notice" && item.text.includes("capacity exceeded"),
+      ),
+    ).toBe(true);
+    expect(h.command({ type: "thread.send", threadId: id, input, delivery: "queue" }).ok).toBe(
+      true,
+    );
+    await h.engine.flush();
+    expect(h.contexts).toHaveLength(2);
+  } finally {
+    unsubscribe();
+    writer.close();
+  }
+});
+
 test("actor capacity is receipt-bound and idle retirement frees a slot for another thread", async () => {
   const frames = scriptFrames();
   const h = track(

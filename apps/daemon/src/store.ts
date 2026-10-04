@@ -23,7 +23,7 @@ import { systemCredentials, type CredentialRuntime } from "./credential-runtime.
 import { randomUUID } from "node:crypto";
 import { DatabaseSync, type StatementSync, type SQLOutputValue } from "node:sqlite";
 import {
-  EntitiesPage as importEntitiesPageSchema,
+  EntitiesPage,
   McpIntent,
   CommandResult,
   Event,
@@ -137,6 +137,7 @@ export class Store {
       });
       this.searchQueries = new SearchQueries(path, options.searchWorkerFactory);
       this.stopSearchTimer = (options.searchScheduler ?? scheduleSearch)(() => {
+        if (this.historyWriting) return;
         try {
           this.search.flush();
         } catch (error) {
@@ -766,7 +767,7 @@ export class Store {
   ) {
     const thread = this.getThread(threadId);
     if (!thread) throw new Error("Unknown thread");
-    return importEntitiesPage({
+    return EntitiesPage.parse({
       ...this.status.page(thread, collection, before, limit),
       seq: this.headSeq(),
     });
@@ -850,8 +851,4 @@ export class Store {
     const cached = this.caches.get(id);
     if (cached && --cached.refs === 0) this.caches.delete(id);
   }
-}
-
-function importEntitiesPage(value: unknown) {
-  return importEntitiesPageSchema.parse(value);
 }

@@ -272,7 +272,11 @@ export class DeckObserver {
       try {
         for (const run of this.runtime.active()) this.changed(run, false);
       } catch (error) {
-        this.context.options.engine?.onError?.(error);
+        try {
+          this.context.options.engine?.onError?.(error);
+        } catch {
+          /* Reporting cannot stop the next deadline pass. */
+        }
       } finally {
         this.arm();
       }

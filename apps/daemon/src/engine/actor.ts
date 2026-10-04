@@ -153,32 +153,33 @@ export class ThreadActor {
       // Preserve the accepted prefix, then fail explicitly instead of silently dropping facts.
       this.tail = this.tail
         .then(async () => {
-          await this.repo.store.writable();
-          this.lifetime?.abort();
-          this.session = undefined;
-          this.translator = undefined;
-          this.generation++;
-          this.apply([
-            {
-              type: "process.exited",
-              deliberate: false,
-              message: "Provider mailbox capacity exceeded; resume the thread to recover",
-            },
-            { type: "queue.changed", source: "provider", count: 0 },
-            {
-              type: "item.upsert",
-              agent: "root",
-              item: "engine:overload",
-              draft: {
-                type: "notice",
-                level: "error",
-                text: "Provider mailbox capacity exceeded; resume the thread to recover",
-                complete: true,
+          await this.runWhenWritable(() => {
+            this.lifetime?.abort();
+            this.session = undefined;
+            this.translator = undefined;
+            this.generation++;
+            this.apply([
+              {
+                type: "process.exited",
+                deliberate: false,
+                message: "Provider mailbox capacity exceeded; resume the thread to recover",
               },
-            },
-          ]);
-          this.overflowed = false;
-          this.wake();
+              { type: "queue.changed", source: "provider", count: 0 },
+              {
+                type: "item.upsert",
+                agent: "root",
+                item: "engine:overload",
+                draft: {
+                  type: "notice",
+                  level: "error",
+                  text: "Provider mailbox capacity exceeded; resume the thread to recover",
+                  complete: true,
+                },
+              },
+            ]);
+            this.overflowed = false;
+            this.wake();
+          });
         })
         .catch((error: unknown) => this.fail(error));
       return false;
