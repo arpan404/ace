@@ -1,3 +1,4 @@
+import { ExpiryMap } from "./expiry-map.ts";
 import type { ThreadState } from "./state.ts";
 import { silenceDeadlineReader, isSettled } from "./status.ts";
 import { transportSignalAt } from "./liveness.ts";
@@ -73,15 +74,26 @@ export function nextDeadline(state: ThreadState, providerDeadline?: number): num
 
 /** Candidate eligibility changes at structural facts. Ordinary deltas only move ancestor silence. */
 export class DeadlineIndex {
-  private entries: ReturnType<typeof candidates> = [];
+  private silence = new ExpiryMap<undefined>();
+  private wakes = new ExpiryMap<undefined>();
   private parents = new Map<string, string | undefined>();
+  private globalSignalAt = 0;
+  private transportAt: number | undefined;
   private exited = false;
   constructor(state: ThreadState) {
     this.rebuild(state);
   }
   rebuild(state: ThreadState): void {
     this.exited = state.processExit !== undefined;
-    this.entries = candidates(state);
+    this.silence.clear();
+    this.wakes.clear();
+    this.globalSignalAt = 0;
+    this.transportAt = undefined;
+    for (const entry of candidates(state)) {
+      if (entry.kind === "transport") this.transportAt = entry.at;
+      else if (entry.kind === "silence") this.silence.set(entry.key, undefined, entry.at);
+      else this.wakes.set(entry.key, undefined, entry.at);
+    }
     this.parents.clear();
     for (const [key, record] of Object.entries(state.agents))
       this.parents.set(
@@ -92,26 +104,32 @@ export class DeadlineIndex {
       );
   }
   signal(agent: string | undefined, at: number, silenceMs: number): void {
+    const deadline = Math.floor(at + silenceMs) + 1;
+    if (this.transportAt !== undefined) this.transportAt = Math.max(this.transportAt, deadline);
+    if (agent === undefined) {
+      this.globalSignalAt = Math.max(this.globalSignalAt, deadline);
+      return;
+    }
     const ancestors = new Set<string>();
     let key: string | undefined = agent;
     while (key !== undefined && !ancestors.has(key)) {
       ancestors.add(key);
+      const entry = this.silence.deadline(key);
+      if (entry !== undefined) this.silence.set(key, undefined, Math.max(entry, deadline));
       key = this.parents.get(key);
     }
-    const deadline = Math.floor(at + silenceMs) + 1;
-    for (const entry of this.entries)
-      if (
-        entry.kind === "transport" ||
-        (entry.kind === "silence" && (agent === undefined || ancestors.has(entry.key)))
-      )
-        entry.at = Math.max(entry.at, deadline);
   }
   next(providerDeadline?: number): number | undefined {
-    return this.exited
-      ? undefined
-      : earliest(
-          this.entries.map((entry) => entry.at),
-          providerDeadline,
-        );
+    if (this.exited) return;
+    const silence = this.silence.first()?.expiresAt;
+    const wake = this.wakes.first()?.expiresAt;
+    return earliest(
+      [
+        ...(silence === undefined ? [] : [Math.max(silence, this.globalSignalAt)]),
+        ...(wake === undefined ? [] : [wake]),
+        ...(this.transportAt === undefined ? [] : [this.transportAt]),
+      ],
+      providerDeadline,
+    );
   }
 }

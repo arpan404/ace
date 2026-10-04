@@ -148,9 +148,14 @@ export class Snapshot {
       facts.every((fact) => fact.type === "item.delta" || fact.type === "signal") &&
       events.every((event) => event.type === "item.delta")
     ) {
-      for (const fact of facts)
-        if (fact.type === "item.delta" || fact.type === "signal")
-          this.deadlines.signal(fact.agent, now, this.state.config.silenceMs);
+      const agents = new Set(
+        facts.flatMap((fact) =>
+          fact.type === "item.delta" || fact.type === "signal" ? [fact.agent] : [],
+        ),
+      );
+      if (agents.has(undefined)) this.deadlines.signal(undefined, now, this.state.config.silenceMs);
+      else
+        for (const agent of agents) this.deadlines.signal(agent, now, this.state.config.silenceMs);
     } else this.deadlines.rebuild(this.state);
   }
   header(): string {

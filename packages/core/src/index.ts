@@ -19,3 +19,5 @@ export {
   permissionResolutionError,
 } from "./permissions.ts";
 export type { RiskDecision, PathRisk } from "./permissions.ts";
+
+export { ExpiryMap } from "./expiry-map.ts";

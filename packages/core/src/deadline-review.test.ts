@@ -215,3 +215,29 @@ it("incremental deadlines preserve independent siblings and schedule their unres
   index.rebuild(h.state);
   expect(index.next()).toBe(261);
 });
+
+// Mutation cases: heartbeat moves a fixed wake; refreshing one branch postpones its sibling;
+// stale heap root after updates; process exit keeps a cached deadline. Not executed (tests run at merge).
+it("indexed minima keep fixed wakes independent of global and branch liveness updates", async () => {
+  const { DeadlineIndex } = await import("./index.ts");
+  const h = harness("codex", { silenceMs: 100 });
+  h.start();
+  for (const agent of ["a", "b", "waking"]) {
+    h.see(agent, "root");
+    h.start(agent);
+  }
+  h.end("waking");
+  h.send({ type: "wake.expected", agent: "waking", until: 350 }, 100);
+  const index = new DeadlineIndex(h.state);
+  index.signal(undefined, 200, 100);
+  expect(index.next()).toBe(301);
+  index.signal("a", 300, 100);
+  expect(index.next()).toBe(301);
+  index.signal("b", 300, 100);
+  // Root is suppressed by its children, while the independent wake never moves.
+  expect(index.next()).toBe(350);
+  h.send({ type: "tick" }, 350);
+  h.send({ type: "process.exited", deliberate: true }, 400);
+  index.rebuild(h.state);
+  expect(index.next(450)).toBeUndefined();
+});
