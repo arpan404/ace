@@ -56,6 +56,7 @@ export interface EngineOptions {
   silenceMs?: number;
   onError?: (error: unknown) => void;
   onProviderDiagnostic?: (thread: ThreadId, raw: import("@ace/protocol").RawPayload[]) => void;
+  aceToolAction?: typeof import("@ace/mcp-server").aceToolAction;
   mcp?: (
     threadId: ThreadId,
     agentId: string,
@@ -102,6 +103,7 @@ export class Engine {
       options.ids,
       this.limits.maxActiveThreads,
       options.commandId,
+      options.aceToolAction,
     );
     this.registry = options.registry ?? new AdapterRegistry();
     this.clock = options.clock ?? systemClock;

@@ -1,3 +1,4 @@
+import { attributeAceAction } from "./ace-approvals.ts";
 import { AceInputs } from "./ace-inputs.ts";
 import { coalesceFacts } from "./delta-batch.ts";
 import { Permissions } from "./permissions.ts";
@@ -23,6 +24,7 @@ import { migrateEngine } from "./migrations.ts";
 import { IntentStore, type IntentHeader } from "./intents.ts";
 export type { Intent, IntentHeader } from "./intents.ts";
 export class EngineRepository {
+  private aceAction: typeof import("@ace/mcp-server").aceToolAction | undefined;
   readonly store: Store;
   readonly aceInputs: AceInputs;
   readonly permissions: Permissions;
@@ -50,7 +52,9 @@ export class EngineRepository {
     ids: IdSource = { next: () => randomUUID() },
     capacity = 64,
     commandId: () => string = randomUUID,
+    aceAction?: typeof import("@ace/mcp-server").aceToolAction,
   ) {
+    this.aceAction = aceAction;
     this.capacity = capacity;
     this.commandId = commandId;
     this.ids = ids;
@@ -213,7 +217,7 @@ export class EngineRepository {
             input = { ...input, trigger: queue.trigger };
           let fact = capFact(
             (raw) => this.store.capRaw(raw, id),
-            this.aceInputs.attribute(id, input),
+            attributeAceAction(state, this.aceInputs.attribute(id, input), this.aceAction),
           );
           if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
             const pending = this.pending.awaiting(id);

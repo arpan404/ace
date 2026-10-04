@@ -238,7 +238,7 @@ Example:
 
 ## delegate_task
 
-Delegate to an independent child thread on a chosen local provider, model and account. Set wait to observe its result or continue working. Completion results wake the parent in a batched turn. Request IDs make retries safe.
+Delegate to an independent child thread under the parent permission ceiling and delegation budget, on a chosen local provider, model and account. Set wait to observe its result or continue working. Completion results wake the parent in a batched turn. Request IDs make retries safe.
 
 Required capability: agents. Timeout: 300000 ms.
 
@@ -299,7 +299,7 @@ Example:
 
 ## ace_thread_create
 
-thread.create: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Create a child thread in the caller's workspace without launching its provider.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -353,7 +353,7 @@ Example:
 
 ## ace_thread_launch
 
-thread.launch: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Launch a prepared child thread with the supplied task under its inherited permissions.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -398,7 +398,7 @@ Example:
 
 ## ace_thread_message
 
-thread.message: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Send follow-up work to an owned thread under its existing permissions.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -444,9 +444,9 @@ Example:
 
 ## ace_thread_wait
 
-thread.wait: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Wait for an authorized thread's tree to settle and read its result.
 
-Required capability: thread_control. Timeout: 300000 ms.
+Required capability: none beyond session authentication. Timeout: 300000 ms.
 
 ## ace_thread_wait.input
 
@@ -488,7 +488,7 @@ Example:
 
 Read thread metadata and a byte-budgeted transcript page. Use itemsBefore as the next before cursor. For truncated parts with source.streamId, use ace_thread_read_output to page retained bytes.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 10000 ms.
 
 ## ace_thread_read.input
 
@@ -530,7 +530,7 @@ Example:
 
 Read a bounded byte range from a transcript/output source returned by ace_thread_read. Offsets and limits are bytes; the result contains base64 bytes and nextOffset. Decode using the source encoding. The stream must belong to the requested authorized thread.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 10000 ms.
 
 ## ace_thread_read_output.input
 
@@ -575,9 +575,9 @@ Example:
 
 ## ace_thread_search
 
-thread.search: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Search an authorized thread's retained transcript without changing it.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 10000 ms.
 
 ## ace_thread_search.input
 
@@ -621,7 +621,7 @@ Example:
 
 ## ace_thread_interrupt
 
-thread.interrupt: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Interrupt an owned thread and its descendants.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -664,7 +664,7 @@ Example:
 
 ## ace_thread_fork
 
-thread.fork: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Create an independent fork of an owned thread's conversation.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -708,7 +708,7 @@ Example:
 
 ## ace_thread_merge
 
-thread.merge: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Merge an owned thread's work through its workspace owner.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -751,7 +751,7 @@ Example:
 
 ## ace_queue_edit
 
-queue.edit: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Replace queued input on an owned thread before it is delivered.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -798,7 +798,7 @@ Example:
 
 ## ace_queue_reorder
 
-queue.reorder: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Reorder pending input on an owned thread.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -845,7 +845,7 @@ Example:
 
 ## ace_question_answer
 
-question.answer: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Answer a pending question on an owned thread. Permission approvals cannot be answered.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -895,7 +895,7 @@ Example:
 
 ## ace_thread_rename
 
-thread.rename: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Change an owned thread's display title.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -937,7 +937,7 @@ Example:
 
 ## ace_thread_regenerate_title
 
-thread.regenerate_title: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Generate an owned thread's display title from retained user input.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -977,7 +977,7 @@ Example:
 
 ## ace_thread_link_pr
 
-thread.link_pr: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Save a GitHub pull request link on an owned thread without changing the pull request.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -1019,7 +1019,7 @@ Example:
 
 ## ace_thread_settle
 
-thread.settle: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Archive an owned thread only after its work has settled.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -1060,7 +1060,7 @@ Example:
 
 ## ace_thread_snooze
 
-thread.snooze: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Snooze notifications for an owned thread until the supplied time.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -1102,7 +1102,7 @@ Example:
 
 ## ace_automation_manage
 
-automation.manage: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Create, change or run a local automation and its future agent work.
 
 Required capability: automations. Timeout: 10000 ms.
 
@@ -1146,9 +1146,9 @@ Example:
 
 ## ace_project_read
 
-project.read: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Read the caller's workspace project metadata.
 
-Required capability: projects. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 10000 ms.
 
 ## ace_project_read.input
 
@@ -1187,7 +1187,7 @@ Example:
 
 ## ace_project_rename
 
-project.rename: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Change the caller's workspace project display name.
 
 Required capability: projects. Timeout: 10000 ms.
 
@@ -1229,7 +1229,7 @@ Example:
 
 ## ace_thread_handoff
 
-thread.handoff: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Prepare a Git worktree and hand off an owned thread's conversation to it.
 
 Required capability: thread_control. Timeout: 10000 ms.
 
@@ -1275,9 +1275,9 @@ Example:
 
 ## ace_preview_list
 
-preview.list: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+List preview servers associated with an authorized thread.
 
-Required capability: thread_control. Timeout: 10000 ms.
+Required capability: none beyond session authentication. Timeout: 10000 ms.
 
 ## ace_preview_list.input
 
@@ -1316,7 +1316,7 @@ Example:
 
 ## ace_preview_close
 
-preview.close: scoped to the caller's workspace. Mutations require ownership of the target thread. Permission approvals are never available to agents. Missing service capabilities return unsupported.
+Stop a preview server associated with an owned thread.
 
 Required capability: thread_control. Timeout: 10000 ms.
 

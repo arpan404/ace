@@ -6,7 +6,7 @@ import type { PiExtensionApi } from "./extension-api.ts";
 const ToolName = z
   .string()
   .max(128)
-  .regex(/^(?:ace_|screen_|device_)[a-z0-9_]+$/);
+  .regex(/^(?:delegate_task|(?:ace_|screen_|device_)[a-z0-9_]+)$/);
 const Tools = z.object({
   tools: z
     .array(
@@ -14,6 +14,10 @@ const Tools = z.object({
         name: ToolName,
         description: z.string().max(16384).optional(),
         inputSchema: z.record(z.string(), z.unknown()),
+        _meta: z
+          .object({ "ace/timeoutMs": z.number().int().min(1).max(300000).optional() })
+          .passthrough()
+          .optional(),
       }),
     )
     .max(256),
@@ -154,7 +158,7 @@ export default async function aceExtension(
             const result = Result.parse(
               await client.callTool(
                 { name: tool.name, arguments: args },
-                { ...(signal ? { signal } : {}), timeout: 30_000 },
+                { ...(signal ? { signal } : {}), timeout: tool._meta?.["ace/timeoutMs"] ?? 30_000 },
               ),
             );
             return {

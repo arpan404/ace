@@ -79,6 +79,7 @@ test("a prepared delegation is visible before launch and its stable card follows
   expect(
     applyDelivery(view, {
       type: "events",
+      subscriptionId: "test",
       afterSeq: view.seq,
       throughSeq: through,
       events: h.events.filter(
