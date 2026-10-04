@@ -129,11 +129,13 @@ export async function harness(
         imageInput: true,
         rewindFiles: false,
       }),
-    createTranslator: options.createTranslator ?? (() => ({
-      translate: frames.translate,
-      tick: options.tick ?? (() => []),
-      ...(options.nextDeadline ? { nextDeadline: options.nextDeadline } : {}),
-    })),
+    createTranslator:
+      options.createTranslator ??
+      (() => ({
+        translate: frames.translate,
+        tick: options.tick ?? (() => []),
+        ...(options.nextDeadline ? { nextDeadline: options.nextDeadline } : {}),
+      })),
     steps,
   });
   const registry = new AdapterRegistry();
@@ -184,7 +186,9 @@ export async function harness(
   }
   function internalCommand(payload: CommandPayload, id: string) {
     const value = Command.parse({ id, deviceId: "ace-agent", payload });
-    return store.recordCommand(value.id, value.deviceId, () => engine.internalHandler.handle(value, store));
+    return store.recordCommand(value.id, value.deviceId, () =>
+      engine.internalHandler.handle(value, store),
+    );
   }
   async function connect(deviceId: string) {
     const client = new Client(server.url);

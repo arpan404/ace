@@ -198,9 +198,7 @@ export class Recovery {
         holdToken: queue.holdToken + 1,
         reason: "limit",
         resetAt: reset,
-        continuation:
-          queue.continuation ??
-          "continue",
+        continuation: queue.continuation ?? "continue",
         trigger: queue.trigger ?? "limit_resume",
         resumeAt: timed && reset !== null && reset > at ? reset : null,
         timerAction:

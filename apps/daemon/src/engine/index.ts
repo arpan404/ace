@@ -108,7 +108,8 @@ export class Engine {
   constructor(store: Store, options: EngineOptions = {}) {
     this.limits = engineLimits(options.limits);
     const executeGit = promisify(execFile);
-    const worktreeGit = options.worktreeGit ?? ((cwd, args) => runWorktreeGit(executeGit, cwd, args));
+    const worktreeGit =
+      options.worktreeGit ?? ((cwd, args) => runWorktreeGit(executeGit, cwd, args));
     this.nextThreadId = options.threadId ?? randomUUID;
     this.repo = new EngineRepository(
       store,
@@ -253,12 +254,16 @@ export class Engine {
         if (p.type === "thread.create" || p.type === "thread.send") {
           const { origin: _origin, trigger: _trigger, ...person } = p;
           return this.internalHandler.handle(
-            CommandSchema.parse({ ...command, payload: { ...person, trigger: "user" } }), context,
+            CommandSchema.parse({ ...command, payload: { ...person, trigger: "user" } }),
+            context,
           );
         }
         if (p.type === "thread.prepare") {
           const { titleSource: _source, ...person } = p;
-          return this.internalHandler.handle(CommandSchema.parse({ ...command, payload: person }), context);
+          return this.internalHandler.handle(
+            CommandSchema.parse({ ...command, payload: person }),
+            context,
+          );
         }
         return this.internalHandler.handle(command, context);
       },

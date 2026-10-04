@@ -136,8 +136,12 @@ export function engineHandler(
             workspaceId: p.workspaceId,
             title:
               p.title ?? (p.type === "thread.create" ? provisionalTitle(p.input) : "New thread"),
-            titleSource: p.type === "thread.prepare" && p.titleSource === "agent"
-              ? "agent" : p.title !== undefined ? "person" : "provisional",
+            titleSource:
+              p.type === "thread.prepare" && p.titleSource === "agent"
+                ? "agent"
+                : p.title !== undefined
+                  ? "person"
+                  : "provisional",
             ...(acpIdentity ? { acpIdentity } : {}),
             capabilities: entry.capabilities,
             ...(entry.adapter.backend ? { backend: entry.adapter.backend } : {}),

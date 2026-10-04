@@ -26,50 +26,100 @@ export class InteractionLedger {
   }
   private store: Store;
   private binding(id: ThreadId): string {
-    const row = this.store.statement("SELECT native_session_id FROM engine_sessions WHERE thread_id=?").get(id);
+    const row = this.store
+      .statement("SELECT native_session_id FROM engine_sessions WHERE thread_id=?")
+      .get(id);
     return row?.native_session_id == null ? "" : z.string().parse(row.native_session_id);
   }
   terminalItem(id: ThreadId, item: string): boolean {
-    return Boolean(this.store.statement("SELECT 1 FROM engine_interaction_requests WHERE thread_id=? AND binding=? AND native_item=? AND state<>'pending' LIMIT 1").get(id, this.binding(id), item));
+    return Boolean(
+      this.store
+        .statement(
+          "SELECT 1 FROM engine_interaction_requests WHERE thread_id=? AND binding=? AND native_item=? AND state<>'pending' LIMIT 1",
+        )
+        .get(id, this.binding(id), item),
+    );
   }
   obsolete(id: ThreadId, fact: Fact): boolean {
     if (fact.type === "interaction.opened") {
       if (fact.item && this.terminalItem(id, fact.item)) return true;
       return false;
     }
-    return (fact.type === "item.upsert" || fact.type === "item.reconciled") && fact.draft.type === "tool_call" &&
-      fact.draft.call?.status === "awaiting_approval" && this.terminalItem(id, fact.item);
+    return (
+      (fact.type === "item.upsert" || fact.type === "item.reconciled") &&
+      fact.draft.type === "tool_call" &&
+      fact.draft.call?.status === "awaiting_approval" &&
+      this.terminalItem(id, fact.item)
+    );
   }
   opened(state: ThreadState, fact: Fact, generation: number | undefined): void {
     if (fact.type !== "interaction.opened") return;
     const interaction = state.interactions[fact.interaction];
     if (!interaction || interaction.state !== "pending") return;
-    this.store.statement("INSERT OR IGNORE INTO engine_interaction_requests VALUES (?,?,?,?,?,?,?)").run(
-      state.threadId, interaction.id, fact.interaction, fact.item ?? null, this.binding(state.threadId), generation ?? null, interaction.state,
-    );
+    this.store
+      .statement("INSERT OR IGNORE INTO engine_interaction_requests VALUES (?,?,?,?,?,?,?)")
+      .run(
+        state.threadId,
+        interaction.id,
+        fact.interaction,
+        fact.item ?? null,
+        this.binding(state.threadId),
+        generation ?? null,
+        interaction.state,
+      );
   }
   observe(id: ThreadId, events: EventPayload[]): void {
     for (const event of events)
       if (event.type === "interaction.closed")
-        this.store.statement("UPDATE engine_interaction_requests SET state=? WHERE thread_id=? AND interaction_id=?").run(event.state, id, event.interactionId);
+        this.store
+          .statement(
+            "UPDATE engine_interaction_requests SET state=? WHERE thread_id=? AND interaction_id=?",
+          )
+          .run(event.state, id, event.interactionId);
   }
   closed(state: ThreadState, event: Extract<EventPayload, { type: "interaction.closed" }>): Fact[] {
-    const row = this.store.statement("SELECT native_key,native_item FROM engine_interaction_requests WHERE thread_id=? AND interaction_id=?").get(state.threadId, event.interactionId);
+    const row = this.store
+      .statement(
+        "SELECT native_key,native_item FROM engine_interaction_requests WHERE thread_id=? AND interaction_id=?",
+      )
+      .get(state.threadId, event.interactionId);
     if (!row) return [];
     const key = z.string().parse(row.native_key);
     if (event.state === "expired") {
       event.expirationReason = "provider_disconnected";
       const interaction = state.interactions[key];
-      if (interaction?.id === event.interactionId) interaction.expirationReason = event.expirationReason;
+      if (interaction?.id === event.interactionId)
+        interaction.expirationReason = event.expirationReason;
     }
     if (typeof row.native_item !== "string") return [];
     const item = state.items[row.native_item];
-    if (item?.type !== "tool_call" || !["pending", "running", "awaiting_approval"].includes(item.call.status)) return [];
-    return [{ type: "item.upsert", agent: state.indexes.agentKeysById[item.agentId] ?? state.rootKey ?? "root", item: row.native_item,
-      draft: { type: "tool_call", complete: true, call: { status: event.state === "resolved" ? "succeeded" : "cancelled", endedAt: event.closedAt } } }];
+    if (
+      item?.type !== "tool_call" ||
+      !["pending", "running", "awaiting_approval"].includes(item.call.status)
+    )
+      return [];
+    return [
+      {
+        type: "item.upsert",
+        agent: state.indexes.agentKeysById[item.agentId] ?? state.rootKey ?? "root",
+        item: row.native_item,
+        draft: {
+          type: "tool_call",
+          complete: true,
+          call: {
+            status: event.state === "resolved" ? "succeeded" : "cancelled",
+            endedAt: event.closedAt,
+          },
+        },
+      },
+    ];
   }
   owner(id: ThreadId, interaction: string): number | undefined {
-    const value = this.store.statement("SELECT generation FROM engine_interaction_requests WHERE thread_id=? AND interaction_id=? AND state='pending'").get(id, interaction)?.generation;
+    const value = this.store
+      .statement(
+        "SELECT generation FROM engine_interaction_requests WHERE thread_id=? AND interaction_id=? AND state='pending'",
+      )
+      .get(id, interaction)?.generation;
     return value == null ? undefined : z.number().int().nonnegative().parse(value);
   }
 }

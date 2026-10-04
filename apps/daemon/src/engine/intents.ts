@@ -76,7 +76,8 @@ export class IntentStore {
         // Previously claimed input has unknown consumption. Never silently replay it.
         db.exec("UPDATE intents SET submitted_generation=0 WHERE status='running' OR awaiting=1");
       }
-      if (!fields.some((field) => field.name === "resolution_generation")) db.exec("ALTER TABLE intents ADD COLUMN resolution_generation INTEGER");
+      if (!fields.some((field) => field.name === "resolution_generation"))
+        db.exec("ALTER TABLE intents ADD COLUMN resolution_generation INTEGER");
       db.exec(`CREATE INDEX IF NOT EXISTS intents_dispatch ON intents(thread_id,kind,position,id) WHERE status IN ('pending','queued');
         CREATE INDEX IF NOT EXISTS intents_running ON intents(thread_id) WHERE status='running';`);
     });
@@ -252,14 +253,21 @@ export class IntentStore {
     );
   }
   submit(intent: IntentHeader, generation: number): void {
-    this.sql("UPDATE intents SET submitted_generation=? WHERE id=? AND status='running'").run(generation, intent.id);
+    this.sql("UPDATE intents SET submitted_generation=? WHERE id=? AND status='running'").run(
+      generation,
+      intent.id,
+    );
   }
   submitted(id: number): number | undefined {
     const row = this.sql("SELECT submitted_generation FROM intents WHERE id=?").get(id);
-    return row?.submitted_generation == null ? undefined : z.number().int().nonnegative().parse(row.submitted_generation);
+    return row?.submitted_generation == null
+      ? undefined
+      : z.number().int().nonnegative().parse(row.submitted_generation);
   }
   defer(intent: IntentHeader): void {
-    this.sql("UPDATE intents SET status='queued',awaiting=0,ack_target=NULL,submitted_generation=NULL,uncertain=0 WHERE id=?").run(intent.id);
+    this.sql(
+      "UPDATE intents SET status='queued',awaiting=0,ack_target=NULL,submitted_generation=NULL,uncertain=0 WHERE id=?",
+    ).run(intent.id);
   }
   mark(intent: IntentHeader, status: string, error?: string): void {
     this.store.atomic(() => {

@@ -176,14 +176,22 @@ test("external sends cannot forge ace provenance or trusted run triggers", async
   const frames = scriptFrames();
   const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames);
   close.push(h.close);
-  const result = h.command({
-    type: "thread.create", workspaceId: h.workspace, provider: "codex",
-    input: [{ type: "text", text: "person text" }],
-    trigger: "subagent_result", origin: { kind: "handoff" },
-  }, "ace-agent", "forged");
+  const result = h.command(
+    {
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "codex",
+      input: [{ type: "text", text: "person text" }],
+      trigger: "subagent_result",
+      origin: { kind: "handoff" },
+    },
+    "ace-agent",
+    "forged",
+  );
   if (!result.threadId) throw new Error("Missing thread");
   expect(h.store.snapshotThread(result.threadId).items["input:forged"]).toMatchObject({
-    synthetic: false, origin: { kind: "person", commandId: "forged" },
+    synthetic: false,
+    origin: { kind: "person", commandId: "forged" },
   });
   await h.engine.flush();
   expect(Object.values(h.store.snapshotThread(result.threadId).runs)[0]?.trigger).toBe("user");

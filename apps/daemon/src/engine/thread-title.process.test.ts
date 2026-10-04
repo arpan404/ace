@@ -89,25 +89,58 @@ test("long provisional titles end at a word boundary within sixty characters", a
 for (const explicit of ["Fix login", "New thread"]) {
   test(`an explicit creation title '${explicit}' retains person authorship`, async () => {
     const frames = scriptFrames();
-    const h = await harness([{ on: "send", frames: [frames.frame(start, title("Provider replacement"), end)] }], frames);
+    const h = await harness(
+      [{ on: "send", frames: [frames.frame(start, title("Provider replacement"), end)] }],
+      frames,
+    );
     closes.push(h.close);
-    const receipt = h.command({ type: "thread.create", workspaceId: h.workspace,
-      provider: "codex", title: explicit, input: [{ type: "text", text: "Fix login" }] });
+    const receipt = h.command({
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "codex",
+      title: explicit,
+      input: [{ type: "text", text: "Fix login" }],
+    });
     if (!receipt.threadId) throw new Error("No thread");
     await h.engine.flush();
-    expect(h.store.getThread(receipt.threadId)).toMatchObject({ title: explicit, titleSource: "person" });
+    expect(h.store.getThread(receipt.threadId)).toMatchObject({
+      title: explicit,
+      titleSource: "person",
+    });
   });
 }
 
 test("a trusted prepared agent title survives provider title replay", async () => {
   const frames = scriptFrames();
-  const h = await harness([{ on: "send", frames: [frames.frame(start, title("Provider replacement"), end)] }], frames);
+  const h = await harness(
+    [{ on: "send", frames: [frames.frame(start, title("Provider replacement"), end)] }],
+    frames,
+  );
   closes.push(h.close);
-  const receipt = h.internalCommand({ type: "thread.prepare", threadId: ThreadId.parse("prepared-agent"),
-    workspaceId: h.workspace, provider: "codex", title: "Agent title", titleSource: "agent" }, "prepare-agent");
+  const receipt = h.internalCommand(
+    {
+      type: "thread.prepare",
+      threadId: ThreadId.parse("prepared-agent"),
+      workspaceId: h.workspace,
+      provider: "codex",
+      title: "Agent title",
+      titleSource: "agent",
+    },
+    "prepare-agent",
+  );
   if (!receipt.threadId) throw new Error("No thread");
-  h.internalCommand({ type: "thread.send", threadId: receipt.threadId,
-    input: [{ type: "text", text: "task" }], origin: { kind: "spawn" } }, "spawn-agent");
+  h.internalCommand(
+    {
+      type: "thread.send",
+      threadId: receipt.threadId,
+      input: [{ type: "text", text: "task" }],
+      origin: { kind: "spawn" },
+    },
+    "spawn-agent",
+  );
   await h.engine.flush();
-  expect(h.store.getThread(receipt.threadId)).toMatchObject({ title: "Agent title", titleSource: "agent" });
+  expect(h.store.getThread(receipt.threadId)).toMatchObject({
+    title: "Agent title",
+    titleSource: "agent",
+  });
 });

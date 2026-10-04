@@ -205,22 +205,47 @@ export class EngineRepository {
     try {
       return this.store.atomic(() => {
         const state = this.requireState(id);
-        return foldProviderFacts(this, state, facts, now, {
-          snapshot: this.snapshots.get(id), ids: this.ids, readiness: this.readiness,
-          admission: this.admissionStatements, opening: this.opening.has(id),
-          recoveryAcknowledged: this.recoveryAcknowledgement(id),
-        }, generation);
+        return foldProviderFacts(
+          this,
+          state,
+          facts,
+          now,
+          {
+            snapshot: this.snapshots.get(id),
+            ids: this.ids,
+            readiness: this.readiness,
+            admission: this.admissionStatements,
+            opening: this.opening.has(id),
+            recoveryAcknowledged: this.recoveryAcknowledgement(id),
+          },
+          generation,
+        );
       });
-    } catch (error) { this.evict(id); throw error; }
+    } catch (error) {
+      this.evict(id);
+      throw error;
+    }
   }
 
-  syntheticInput(id: ThreadId, key: string, text: string, origin: import("@ace/protocol").MessageOrigin, at: number): void {
+  syntheticInput(
+    id: ThreadId,
+    key: string,
+    text: string,
+    origin: import("@ace/protocol").MessageOrigin,
+    at: number,
+  ): void {
     syntheticInput(this, id, key, text, origin, at);
   }
-  admitInput(command: Command, id: ThreadId, at: number): void { admitInput(this, command, id, at); }
-  removeInput(id: ThreadId, commandId: CommandId, at: number): void { removeInput(this, id, commandId, at); }
+  admitInput(command: Command, id: ThreadId, at: number): void {
+    admitInput(this, command, id, at);
+  }
+  removeInput(id: ThreadId, commandId: CommandId, at: number): void {
+    removeInput(this, id, commandId, at);
+  }
 
-  cancelPending(id: ThreadId, now: number): ThreadId[] { return cancelPending(this, id, now); }
+  cancelPending(id: ThreadId, now: number): ThreadId[] {
+    return cancelPending(this, id, now);
+  }
   cancelled(intentId: number): boolean {
     return this.store.atomic(
       (_db) =>
@@ -236,7 +261,12 @@ export class EngineRepository {
   }
 
   add(command: Command, id: ThreadId, resolutionId?: string): void {
-    this.pending.add(command, id, resolutionId, resolutionId ? this.interactions.owner(id, resolutionId) : undefined);
+    this.pending.add(
+      command,
+      id,
+      resolutionId,
+      resolutionId ? this.interactions.owner(id, resolutionId) : undefined,
+    );
   }
   reserve(id: ThreadId): boolean {
     return this.store.atomic((_db) => {

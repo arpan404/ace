@@ -2,7 +2,7 @@ import type { AgentError, Fact } from "@ace/core";
 import type { ProviderKind } from "@ace/protocol";
 export function structuredError(error: AgentError, provider: ProviderKind): AgentError {
   const code =
-    error.code ?? (error.kind === "provider" || error.kind === "unknown" ? undefined : error.kind);
+    error.code ?? error.kind;
   const title =
     error.title ??
     (code === "auth"

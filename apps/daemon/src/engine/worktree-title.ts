@@ -3,7 +3,15 @@ import type { ThreadId } from "@ace/protocol";
 import type { Store } from "../store.ts";
 export type WorktreeGit = (cwd: string, args: string[]) => Promise<string | undefined>;
 /** Native process execution belongs to the injected engine boundary. */
-export async function runWorktreeGit(execute: (file: string, args: string[], options: { maxBuffer: number }) => Promise<{ stdout: string }>, cwd: string, args: string[]): Promise<string | undefined> {
+export async function runWorktreeGit(
+  execute: (
+    file: string,
+    args: string[],
+    options: { maxBuffer: number },
+  ) => Promise<{ stdout: string }>,
+  cwd: string,
+  args: string[],
+): Promise<string | undefined> {
   try {
     return (await execute("git", ["-C", cwd, ...args], { maxBuffer: 65536 })).stdout.trim();
   } catch (error) {
@@ -18,7 +26,12 @@ export async function runWorktreeGit(execute: (file: string, args: string[], opt
   }
 }
 /** Rename only ace's untouched provisional branch. User commits/upstreams fence this operation. */
-export async function nameWorktreeBranch(store: Store, id: ThreadId, at: number, git: WorktreeGit): Promise<void> {
+export async function nameWorktreeBranch(
+  store: Store,
+  id: ThreadId,
+  at: number,
+  git: WorktreeGit,
+): Promise<void> {
   const thread = store.getThread(id);
   const path = thread?.details?.worktree;
   const branch = thread?.details?.branch;

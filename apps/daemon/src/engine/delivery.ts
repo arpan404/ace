@@ -9,7 +9,11 @@ import type { Sessions } from "./sessions.ts";
 export class InteractionUnavailable extends Error {
   readonly code: "interaction_expired" | "interaction_unavailable";
   constructor(code: "interaction_expired" | "interaction_unavailable") {
-    super(code === "interaction_expired" ? "This question expired because the provider disconnected" : "This question is no longer active");
+    super(
+      code === "interaction_expired"
+        ? "This question expired because the provider disconnected"
+        : "This question is no longer active",
+    );
     this.code = code;
   }
 }
@@ -130,7 +134,13 @@ export async function executeIntent(
           (p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input)),
       ];
       repo.pending.submit(intent, generation);
-      repo.inputs.sending(actor.id, `input:${intent.command.id}`, input, state.config.provider, generation);
+      repo.inputs.sending(
+        actor.id,
+        `input:${intent.command.id}`,
+        input,
+        state.config.provider,
+        generation,
+      );
       await session.send(
         input,
         p.type === "thread.send" && p.delivery === "steer" && capabilities.steer
@@ -151,9 +161,14 @@ export async function executeIntent(
     const state = repo.requireState(actor.id);
     const key = repo.nativeEntity(actor.id, "interactions", p.interactionId);
     const interaction = key ? state.interactions[key] : undefined;
-    if (interaction?.state === "expired" || (intent.resolutionGeneration !== undefined && intent.resolutionGeneration !== actor.generation))
+    if (
+      interaction?.state === "expired" ||
+      (intent.resolutionGeneration !== undefined &&
+        intent.resolutionGeneration !== actor.generation)
+    )
       throw new InteractionUnavailable("interaction_expired");
-    if (!actor.session || !interaction || interaction.state !== "pending") throw new InteractionUnavailable("interaction_unavailable");
+    if (!actor.session || !interaction || interaction.state !== "pending")
+      throw new InteractionUnavailable("interaction_unavailable");
   }
   if (!actor.session) {
     if (
@@ -212,22 +227,20 @@ export async function executeIntent(
     const entry = Object.entries(state.interactions).find(
       ([, item]) => item.id === p.interactionId,
     );
-    if (!entry || entry[1].state !== "pending") throw new InteractionUnavailable("interaction_unavailable");
+    if (!entry || entry[1].state !== "pending")
+      throw new InteractionUnavailable("interaction_unavailable");
     try {
       await actor.session.resolve(entry[0], p.resolution);
     } catch (error) {
       await actor.flush();
       const current = repo.requireState(actor.id);
       const interaction = current.interactions[entry[0]];
-      const owner = interaction ? current.indexes.agentKeysById[interaction.agentId] : undefined;
-      if (
-        interaction?.id === p.interactionId &&
-        interaction.state === "pending" &&
-        owner &&
-        !current.agents[owner]?.activeRun
-      )
-        actor.apply([{ type: "interaction.closed", interaction: entry[0], state: "expired" }]);
-      if (interaction?.state === "expired" || !actor.session) throw new InteractionUnavailable("interaction_expired");
+      if (interaction?.state === "expired" || !actor.session || (intent.resolutionGeneration !== undefined && intent.resolutionGeneration !== actor.generation)) {
+        if (interaction?.id === p.interactionId && interaction.state === "pending")
+          actor.apply([{ type: "interaction.closed", interaction: entry[0], state: "expired" }]);
+        throw new InteractionUnavailable("interaction_expired");
+      }
+      // A transport failure on a live request is ambiguous; retain the first-answer reservation.
       throw error;
     }
     await actor.flush();

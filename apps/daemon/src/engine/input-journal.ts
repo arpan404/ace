@@ -30,12 +30,17 @@ function signature(parts: ContentPart[]): string {
     )
     .digest("hex");
 }
-function providerInput(parts: ContentPart[], provider?: import("@ace/protocol").ProviderKind): ContentPart[] {
+function providerInput(
+  parts: ContentPart[],
+  provider?: import("@ace/protocol").ProviderKind,
+): ContentPart[] {
   if (provider === "pi") return [{ type: "text", text: piInput(parts).message }];
   if (provider !== "claude") return parts;
   const content = claudeInputContent(parts);
   if (typeof content === "string") return [{ type: "text", text: content }];
-  return content.flatMap((part) => part.type === "text" ? [{ type: "text" as const, text: part.text }] : []);
+  return content.flatMap((part) =>
+    part.type === "text" ? [{ type: "text" as const, text: part.text }] : [],
+  );
 }
 /** Durable, indexed echo correlation. Transcript history is never scanned on a frame. */
 export class InputJournal {
@@ -53,9 +58,19 @@ export class InputJournal {
         PRIMARY KEY(thread_id,native_key));`),
     );
     store.atomic((db) => {
-      if (!db.prepare("PRAGMA table_info(engine_inputs)").all().some((field) => field.name === "generation"))
+      if (
+        !db
+          .prepare("PRAGMA table_info(engine_inputs)")
+          .all()
+          .some((field) => field.name === "generation")
+      )
         db.exec("ALTER TABLE engine_inputs ADD COLUMN generation INTEGER");
-      db.exec(`CREATE INDEX IF NOT EXISTS engine_inputs_delivery ON engine_inputs(thread_id,generation,signature,sent,matched,ordinal);
+      if (!db.prepare("PRAGMA table_info(engine_inputs)").all().some((field) => field.name === "run_id")) {
+        db.exec("ALTER TABLE engine_inputs ADD COLUMN run_id TEXT");
+        db.exec("UPDATE engine_inputs SET run_id=(SELECT json_extract(item,'$.runId') FROM items WHERE id=item_key)");
+      }
+      db.exec(`CREATE INDEX IF NOT EXISTS engine_inputs_run ON engine_inputs(thread_id,run_id);
+        CREATE INDEX IF NOT EXISTS engine_inputs_delivery ON engine_inputs(thread_id,generation,signature,sent,matched,ordinal);
         DELETE FROM engine_input_echoes WHERE thread_id NOT IN (SELECT id FROM threads);
         DELETE FROM engine_inputs WHERE thread_id NOT IN (SELECT id FROM threads);
         CREATE TRIGGER IF NOT EXISTS engine_inputs_delete AFTER DELETE ON threads BEGIN
@@ -64,9 +79,19 @@ export class InputJournal {
         END;`);
     });
   }
+  attachRun(thread: ThreadId, key: string, run: string): void {
+    this.store.statement("UPDATE engine_inputs SET run_id=? WHERE thread_id=? AND item_key=?").run(run, thread, key);
+  }
+  inRuns(thread: ThreadId, runs: Iterable<string>): string[] {
+    return [...runs].flatMap((run) => this.store.statement("SELECT item_key FROM engine_inputs WHERE thread_id=? AND run_id=?").all(thread, run).map((row) => z.string().parse(row.item_key)));
+  }
   invalidate(thread: ThreadId, key: string): void {
-    this.store.statement("DELETE FROM engine_input_echoes WHERE thread_id=? AND item_key=?").run(thread, key);
-    this.store.statement("DELETE FROM engine_inputs WHERE thread_id=? AND item_key=?").run(thread, key);
+    this.store
+      .statement("DELETE FROM engine_input_echoes WHERE thread_id=? AND item_key=?")
+      .run(thread, key);
+    this.store
+      .statement("DELETE FROM engine_inputs WHERE thread_id=? AND item_key=?")
+      .run(thread, key);
   }
   register(thread: ThreadId, key: string, parts: ContentPart[], origin: MessageOrigin): void {
     this.store
@@ -83,19 +108,22 @@ export class InputJournal {
     generation?: number,
   ): void {
     this.store
-      .statement("UPDATE engine_inputs SET signature=?,sent=1,generation=? WHERE thread_id=? AND item_key=?")
-      .run(
-        signature(providerInput(parts, provider)),
-        generation ?? null,
-        thread,
-        key,
-      );
+      .statement(
+        "UPDATE engine_inputs SET signature=?,sent=1,generation=? WHERE thread_id=? AND item_key=?",
+      )
+      .run(signature(providerInput(parts, provider)), generation ?? null, thread, key);
   }
   correlate(thread: ThreadId, fact: Fact, root: string, generation?: number): Fact | undefined {
-    if (!("agent" in fact) || fact.agent !== root || fact.type === "item.delta") return fact;
-    const alias = this.store.statement("SELECT item_key FROM engine_input_echoes WHERE thread_id=? AND native_key=?").get(thread, "item" in fact ? fact.item : "");
-    if ((fact.type !== "item.upsert" && fact.type !== "item.reconciled") || fact.draft.type !== "message" || (fact.draft.role !== "user" && !alias)) return fact;
-    if (fact.draft.origin && fact.draft.origin.kind !== "person" && !fact.draft.origin.commandId) return fact;
+    if ((fact.type !== "item.upsert" && fact.type !== "item.reconciled") || fact.agent !== root || fact.draft.type !== "message" || fact.draft.role === "assistant") return fact;
+    const alias = this.store
+      .statement("SELECT e.item_key FROM engine_input_echoes e JOIN engine_inputs i ON i.thread_id=e.thread_id AND i.item_key=e.item_key WHERE e.thread_id=? AND e.native_key=? AND (? IS NULL OR i.generation=?)")
+      .get(thread, fact.item, generation ?? null, generation ?? null);
+    if (
+      fact.draft.role !== "user" && !alias
+    )
+      return fact;
+    if (fact.draft.origin && fact.draft.origin.kind !== "person" && !fact.draft.origin.commandId)
+      return fact;
     if (!alias && !fact.draft.parts) return fact;
     const row =
       alias ??
