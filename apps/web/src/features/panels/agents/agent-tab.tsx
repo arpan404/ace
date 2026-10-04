@@ -12,13 +12,12 @@ import {
 } from "@ace/ui-core";
 import { ArrowLeftIcon, ArrowUpRightIcon, RobotIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { Suspense, useEffect, useState, type KeyboardEvent } from "react";
+import { Suspense, useEffect, useId, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useNow } from "@/lib/time.ts";
@@ -253,76 +252,40 @@ function Prompt(props: { text: string }) {
 }
 
 /**
- * A follow-up to this agent alone. ace reaches an agent it delegated as a thread of its own
- * (a message to that thread); a provider's own subagent takes instructions only from its parent.
+ * A follow-up to this agent alone, in the thread composer's own shape. ace reaches an agent it
+ * delegated as a thread of its own (a queued message to that thread); a provider's own subagent
+ * takes instructions only from its parent, so there the composer is off and says where to ask.
  */
 function FollowUp(props: { threadId: string; agent: Agent }) {
   const { agent } = props;
-  const [text, setText] = useState("");
-  const sender = useIntentSender();
-  const name = agentName(agent);
+  const { AgentComposer } = useThreadParts();
+  const noteId = useId();
   if (agent.origin === "root") return null;
+  const name = agentName(agent);
   const target = agent.childThreadId;
-  const sending = sender.intent?.state === "pending";
-  const send = () => {
-    const message = text.trim();
-    if (!target || !message || sending) return;
-    void sender
-      .send({
-        type: "thread.send",
-        threadId: ThreadId.parse(target),
-        input: [{ type: "text", text: message }],
-        delivery: "queue",
-      })
-      .then(
-        () => setText(""),
-        () => undefined,
-      );
-  };
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault();
-      send();
-    }
-  };
+  const note = target
+    ? "Goes to this agent's own thread, not the main conversation."
+    : `${providerNames[agent.native.provider]} subagents take instructions only from the agent that started them. Ask the main agent in the thread's composer.`;
   return (
-    <div className="shrink-0 border-t px-3 py-3">
-      <div className="mx-auto flex w-full max-w-[736px] flex-col gap-2 rounded-xl bg-secondary px-3.5 pt-3 pb-2.5">
-        <textarea
-          aria-label={`Message ${name}`}
-          rows={2}
-          value={text}
-          disabled={!target}
-          placeholder={
-            target ? `Follow up with ${name} only` : `${name} can't take messages from here`
-          }
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={onKeyDown}
-          className="block w-full resize-none bg-transparent text-ui leading-5 text-foreground outline-none placeholder:text-subtle-foreground disabled:cursor-not-allowed"
-        />
-        <div className="flex min-h-7 items-center gap-2">
-          <p id={`${agent.id}-follow-up`} className="min-w-0 flex-1 text-xs text-subtle-foreground">
-            {target
-              ? "Goes to this agent's own thread, not the main conversation."
-              : `${providerNames[agent.native.provider]} subagents take instructions only from the agent that started them. Ask the main agent in the thread's composer.`}
-          </p>
-          {sender.intent?.state === "failed" && (
-            <span role="alert" className="shrink-0 text-xs text-status-failed">
-              Not sent: {sender.intent.error ?? "refused"}
-            </span>
-          )}
-          <Button
-            size="sm"
-            variant="primary"
-            aria-describedby={`${agent.id}-follow-up`}
-            disabled={!target || !text.trim() || sending}
-            onClick={send}
-          >
-            {sending && <Spinner />}
-            Send
-            <Kbd keys={keymap.send.keys} variant="on-primary" />
-          </Button>
-        </div>
+    <div className="shrink-0 px-4 pt-2 pb-4">
+      <div className="mx-auto flex w-full max-w-[736px] flex-col gap-2">
+        {AgentComposer && (
+          <AgentComposer
+            threadId={props.threadId}
+            agentId={agent.id}
+            target={target}
+            label={`Message ${name}`}
+            placeholder={`Follow up with ${name} only`}
+            unavailable={
+              target
+                ? undefined
+                : { reason: note, describedBy: noteId, short: "Ask the main agent instead" }
+            }
+          />
+        )}
+        <p id={noteId} className="px-4 text-xs leading-4 text-subtle-foreground">
+          {note}
+        </p>
       </div>
     </div>
   );

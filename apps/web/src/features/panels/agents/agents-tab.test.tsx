@@ -153,11 +153,11 @@ test("a subagent opens as its own tab: who started it, what it was asked, and on
   expect(within(transcript).queryByText(/replayFrom now treats seq 0/)).toBeNull();
 
   // A provider's own subagent can't be messaged directly; the composer says where to ask.
-  const box = within(panel).getByRole("textbox", { name: "Message resume-sweep" });
+  const box = within(panel).getByRole("combobox", { name: "Message resume-sweep" });
   expect(box.hasAttribute("disabled")).toBe(true);
-  expect(
-    within(panel).getByText(/take instructions only from the agent that started them/),
-  ).toBeTruthy();
+  expect(document.getElementById(box.getAttribute("aria-describedby") ?? "")?.textContent).toMatch(
+    /take instructions only from the agent that started them/,
+  );
 
   await userEvent.click(within(panel).getByRole("button", { name: /Back to agents/ }));
   expect(within(panel).getByRole("tab", { name: "Agents", selected: true })).toBeTruthy();
@@ -177,11 +177,11 @@ test("an agent ace delegated shows its own thread and takes a follow-up there", 
   const transcript = await within(panel).findByRole("feed", { name: "Agent transcript" });
   expect(within(transcript).getByText(/Drafted the frame table/)).toBeTruthy();
 
+  // The thread composer's own shape: Enter sends.
   await userEvent.type(
-    within(panel).getByRole("textbox", { name: "Message protocol-docs" }),
-    "Add a table of close codes too.",
+    within(panel).getByRole("combobox", { name: "Message protocol-docs" }),
+    "Add a table of close codes too.{Enter}",
   );
-  await userEvent.click(within(panel).getByRole("button", { name: /^Send/ }));
   // The child thread was settled, so the follow-up starts its next turn there.
   expect(await within(transcript).findByText("Add a table of close codes too.")).toBeTruthy();
 });

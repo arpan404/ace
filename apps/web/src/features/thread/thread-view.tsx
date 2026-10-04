@@ -31,6 +31,7 @@ const ForkDialog = lazy(() =>
 import { Transcript } from "./transcript/transcript.tsx";
 import { AgentTranscript } from "./transcript/agent-transcript.tsx";
 import { SideChatComposer } from "./composer/side-chat-composer.tsx";
+import { AgentComposer } from "./composer/agent-composer.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
@@ -49,7 +50,10 @@ export function ThreadView(props: { threadId: string }) {
   const projectName = useProjectName();
   // The workspace's agent tabs draw with the transcript's own blocks, beside the route's parts.
   const outer = useThreadParts();
-  const parts = useMemo(() => ({ ...outer, AgentTranscript, SideChatComposer }), [outer]);
+  const parts = useMemo(
+    () => ({ ...outer, AgentTranscript, SideChatComposer, AgentComposer }),
+    [outer],
+  );
   // Step details and interaction cards load once the transcript has painted.
   useEffect(() => whenIdle(() => void preloadDeferred()), []);
   const title = meta?.title;

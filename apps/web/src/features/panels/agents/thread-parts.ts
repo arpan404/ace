@@ -18,6 +18,18 @@ export interface ThreadParts {
     reasonId: string;
     short?: string | undefined;
   }>;
+  /**
+   * The thread composer's shape for a follow-up to one agent: Enter queues it on the agent's own
+   * thread (`target`); off with `unavailable` while there is none.
+   */
+  AgentComposer?: ComponentType<{
+    threadId: string;
+    agentId: string;
+    target: string | undefined;
+    label: string;
+    placeholder: string;
+    unavailable?: { reason: string; describedBy: string; short?: string | undefined } | undefined;
+  }>;
   /** The deck a thread works for, with its lanes. */
   DeckOfThread?: ComponentType<{
     runId: string;
