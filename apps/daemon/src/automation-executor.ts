@@ -77,6 +77,8 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
           type: "thread.create",
           workspaceId,
           provider: input.provider,
+          trigger: "schedule",
+          origin: { kind: "automation", role: input.automationId },
           ...(input.model ? { model: input.model } : {}),
           mode: input.worktree ? "worktree" : "local",
           title: `Automation: ${input.automationId}`.slice(0, 256),

@@ -205,6 +205,15 @@ export class DelegationService {
         input: [{ type: "text", text }],
         delivery: "queue",
         trigger: "spawn",
+        origin: {
+          kind: current.request.role.startsWith("automation:")
+            ? "automation"
+            : current.request.role.startsWith("handoff:")
+              ? "handoff"
+              : "spawn",
+          parentThreadId: current.parentId,
+          role: current.request.role,
+        },
       });
       if (!result.ok) throw new Error(result.error);
       current.phase = "running";
