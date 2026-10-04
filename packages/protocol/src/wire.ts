@@ -56,6 +56,8 @@ export {
   coreServerTypes,
   DeliveryEvent,
   ItemsPage,
+  EntitiesPage,
+  EntityCollection,
   SnapshotView,
   SubscriptionScope,
   ThreadListEntry,

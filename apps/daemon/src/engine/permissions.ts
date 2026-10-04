@@ -16,6 +16,7 @@ import {
   reviewPermission,
   permissionDecisionOption,
   supportsPermissionMode,
+  type Fact,
   type ThreadState,
 } from "@ace/core";
 import { z } from "zod";
@@ -152,16 +153,15 @@ export class Permissions {
     });
   }
   observe(state: ThreadState, events: EventPayload[], at: number, wake: () => void): void {
+    const notices: Fact[] = [];
     for (const event of events) {
       if (event.type !== "interaction.opened" || event.interaction.request.kind !== "approval")
         continue;
       const interaction = event.interaction;
-      if (
-        !Object.keys(state.indexes.pendingInteractions).some(
-          (key) => state.interactions[key]?.id === interaction.id,
-        )
-      )
-        continue;
+      // save() has already published this frame. Use its identity index rather
+      // than walking every pending approval for each newly opened approval.
+      const key = this.repo.nativeEntity(state.threadId, "interactions", interaction.id);
+      if (key === undefined || state.interactions[key]?.state !== "pending") continue;
       const mode = this.effective(state.threadId);
       if (mode === "full-access" || mode === "ask") continue;
       if (this.repo.reserved(interaction.id)) continue;
@@ -197,24 +197,18 @@ export class Permissions {
           .run(interaction.id, state.threadId, JSON.stringify(review)),
       );
       this.repo.store.appendEvents(state.threadId, [{ type: "permission.reviewed", review }], at);
-      this.repo.apply(
-        state.threadId,
-        [
-          {
-            type: "item.upsert",
-            agent: state.indexes.agentKeysById[interaction.agentId] ?? state.rootKey ?? "root",
-            item: `permission-review:${interaction.id}`,
-            draft: {
-              type: "notice",
-              level: decision.decision === "approve" ? "info" : "warning",
-              text: `Permission review ${decision.decision}: ${decision.reason}`,
-              complete: true,
-              raw: [{ type: "permission.reviewed", data: review }],
-            },
-          },
-        ],
-        at,
-      );
+      notices.push({
+        type: "item.upsert",
+        agent: state.indexes.agentKeysById[interaction.agentId] ?? state.rootKey ?? "root",
+        item: `permission-review:${interaction.id}`,
+        draft: {
+          type: "notice",
+          level: decision.decision === "approve" ? "info" : "warning",
+          text: `Permission review ${decision.decision}: ${decision.reason}`,
+          complete: true,
+          raw: [{ type: "permission.reviewed", data: review }],
+        },
+      });
       if (decision.decision !== "escalate" && option) {
         const command = Command.parse({
           id: this.repo.nextCommandId(),
@@ -229,6 +223,9 @@ export class Permissions {
         queueMicrotask(wake);
       }
     }
+    // Keep every review and notice in the caller's atomic transaction. Folding
+    // each notice separately would re-derive the entire live tree per approval.
+    if (notices.length) this.repo.apply(state.threadId, notices, at);
   }
   accept(command: Command, capabilities: Capabilities, at: number): CommandResult | undefined {
     const p = command.payload;

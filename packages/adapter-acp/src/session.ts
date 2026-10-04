@@ -50,6 +50,7 @@ export async function openAcpSession(
       command: launch.command,
       args: launch.args,
       cwd: ctx.cwd,
+      ...(ctx.outputFlow ? { outputFlow: ctx.outputFlow } : {}),
       env: launch.env ?? {},
       name: quirks.provider,
     });

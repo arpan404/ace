@@ -66,7 +66,7 @@ test("a reconnect to a different daemon identity becomes fatal before state is r
   expect(faults.sent.filter((frame) => JSON.parse(frame).type === "subscribe")).toHaveLength(0);
 });
 
-test("incremental entity overflow fails the affected subscription while other threads stay live", async () => {
+test("incremental active entities exceed the recent budget while both threads stay live", async () => {
   const h = await setup();
   cleanup = h.cleanup;
   const { client } = h.make({ limits: { entities: 1 } });
@@ -92,10 +92,21 @@ test("incremental entity overflow fails the affected subscription while other th
   });
   h.daemon.store.appendEvents(h.thread.id, [
     { type: "agent.created", agent },
-    { type: "agent.created", agent: Agent.parse({ ...agent, id: "second" }) },
+    {
+      type: "agent.created",
+      agent: Agent.parse({
+        ...agent,
+        id: "second",
+        parentId: agent.id,
+        origin: "provider_subagent",
+      }),
+    },
   ]);
   await barrier(client, h.thread.id);
-  expect(store.error?.code).toBe("limit");
+  expect(store.error).toBeUndefined();
+  expect(store.agent(agent.id)?.status.state).toBe("working");
+  expect(store.agent("second")?.status.state).toBe("working");
+  expect(store.children(agent.id)).toEqual(["second"]);
   h.daemon.store.appendEvents(healthyThread.id, [{ type: "thread.updated", title: "still live" }]);
   await barrier(client, healthyThread.id);
   expect(healthy.store.thread?.title).toBe("still live");

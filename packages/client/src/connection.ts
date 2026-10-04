@@ -1,6 +1,7 @@
 import { parseCredential } from "./credentials.ts";
 import { retryDelay, disconnectDecision, networkDecision } from "./lifecycle.ts";
 import { fitsUtf8 } from "./bounds.ts";
+import { FragmentPolicy } from "./fragment-policy.ts";
 import type { ClientMessage, ServerMessage as Message } from "@ace/protocol";
 import type { WireCodec } from "./wire-codec.ts";
 import {
@@ -31,6 +32,9 @@ export class Connection {
   private codec: WireCodec;
   /** Frames waiting, in order, for the service schemas a frame among them needs. */
   private held: string[] | undefined;
+  private heldBytes = 0;
+  private fragments: FragmentPolicy;
+  private fragmentTimers = new Map<string, () => void>();
   constructor(
     options: ClientOptions,
     codec: WireCodec,
@@ -45,6 +49,7 @@ export class Connection {
     this.received = received;
     this.changed = changed;
     this.disconnected = disconnected;
+    this.fragments = new FragmentPolicy(limits.fragmentBytes);
   }
   start(): void {
     if (this.active || this.state === "fatal") return;
@@ -74,6 +79,10 @@ export class Connection {
   private cleanup(): void {
     this.epoch++;
     this.held = undefined;
+    this.heldBytes = 0;
+    this.fragments.clear();
+    for (const cancel of this.fragmentTimers.values()) cancel();
+    this.fragmentTimers.clear();
     this.cancel?.();
     this.cancel = undefined;
     this.heartbeat?.();
@@ -164,8 +173,11 @@ export class Connection {
         },
         message: (text) => {
           if (epoch !== this.epoch) return;
-          if (this.held) this.held.push(text);
-          else this.receive(text, epoch);
+          if (this.held) {
+            this.heldBytes += text.length * 2;
+            if (this.heldBytes > this.limits.frameBytes * 4) this.lost(4009);
+            else this.held.push(text);
+          } else this.receive(text, epoch);
         },
       });
     } catch {
@@ -176,6 +188,7 @@ export class Connection {
   private hold(text: string, epoch: number): void {
     const held = [text];
     this.held = held;
+    this.heldBytes = text.length * 2;
     this.codec.load().then(
       () => {
         if (epoch !== this.epoch || this.held !== held) return;
@@ -219,11 +232,62 @@ export class Connection {
         this.changed();
         return;
       } else if (message.type === "welcome") throw new ClientError("protocol");
+      if (message.type === "snapshot.part" || message.type === "entities.page.part") {
+        this.receiveFragment(message, epoch);
+        return;
+      }
       if (message.type === "pong") this.awaitingPong = false;
       this.received(message);
     } catch (error) {
       this.fail(error instanceof ClientError ? error : new ClientError("protocol"));
     }
+  }
+  private receiveFragment(
+    message: Extract<Message, { type: "snapshot.part" | "entities.page.part" }>,
+    epoch: number,
+  ): void {
+    const key =
+      message.type === "snapshot.part"
+        ? `snapshot:${message.subscriptionId}`
+        : `page:${message.requestId}`;
+    let data: string | undefined;
+    try {
+      data = this.fragments.add(key, message.seq, message.index, message.data, message.done);
+    } catch (error) {
+      if (error instanceof ClientError && error.code === "limit") {
+        this.lost(4009);
+        return;
+      }
+      throw error;
+    }
+    if (message.index === 0)
+      this.fragmentTimers.set(
+        key,
+        this.options.scheduler.set(this.limits.fragmentMs, () => {
+          if (epoch === this.epoch) this.lost(4009);
+        }),
+      );
+    if (data === undefined) return;
+    this.fragmentTimers.get(key)?.();
+    this.fragmentTimers.delete(key);
+    const complete = this.codec.decode(JSON.parse(data));
+    if (message.type === "snapshot.part") {
+      if (
+        !complete ||
+        complete.type !== "snapshot" ||
+        complete.subscriptionId !== message.subscriptionId ||
+        complete.seq !== message.seq
+      )
+        throw new ClientError("protocol");
+    } else if (
+      !complete ||
+      complete.type !== "entities.page" ||
+      complete.requestId !== message.requestId ||
+      complete.page.threadId !== message.threadId ||
+      complete.page.seq !== message.seq
+    )
+      throw new ClientError("protocol");
+    this.received(complete);
   }
   private tick(): void {
     if (this.state !== "ready") return;

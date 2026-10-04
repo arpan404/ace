@@ -1,3 +1,4 @@
+import { coalesceFacts } from "./delta-batch.ts";
 import { Permissions } from "./permissions.ts";
 import { ProviderRecovery } from "./provider-recovery.ts";
 import type { ProviderBackend, Frame } from "@ace/engine-api";
@@ -7,7 +8,7 @@ import { TransitionReadiness } from "./transition-readiness.ts";
 import { captureExecutionSources } from "./execution-provenance.ts";
 import { quiescent } from "./transition-history.ts";
 import { TransitionState } from "./transition-state.ts";
-import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
+import { FactBatch, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import type { StatementSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { ExecutionOptions, Command, CommandId, ThreadId, type EventPayload } from "@ace/protocol";
@@ -53,6 +54,11 @@ export class EngineRepository {
     this.ids = ids;
     this.store = store;
     store.atomic(migrateEngine);
+    store.atomic((db) =>
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS engine_entity_ids ON engine_state_records(thread_id,section,json_extract(value,'$.id')) WHERE section IN ('interactions','tasks')",
+      ),
+    );
     this.permissions = new Permissions(this);
     store.atomic(() => store.workspaceReservations.initializeSessions());
     this.recovery = new ProviderRecovery(store);
@@ -124,6 +130,10 @@ export class EngineRepository {
       return snapshot.state;
     });
   }
+  deadline(id: ThreadId, providerDeadline?: number): number | undefined {
+    this.requireState(id);
+    return this.snapshots.get(id)?.deadline(providerDeadline);
+  }
   evict(id: ThreadId): void {
     this.snapshots.delete(id);
   }
@@ -187,8 +197,9 @@ export class EngineRepository {
         const state = this.state(id);
         if (!state) throw new Error("Missing engine state");
         this.snapshots.get(id)?.begin();
+        const batch = new FactBatch(state);
         let continuationStarted = false;
-        const events = facts.flatMap((input) => {
+        const events = coalesceFacts(facts).flatMap((input) => {
           const queue = input.type === "turn.started" ? this.queue.get(id) : undefined;
           if (
             input.type === "turn.started" &&
@@ -234,7 +245,7 @@ export class EngineRepository {
           const snapshot = this.snapshots.get(id);
           const finish = snapshot?.prepare(fact) ?? (() => {});
           try {
-            const emitted = apply(state, fact, {
+            const emitted = batch.apply(fact, {
               now,
               ids: this.ids,
               ...(fact.type === "turn.ended"
@@ -258,6 +269,7 @@ export class EngineRepository {
             finish();
           }
         });
+        events.push(...batch.flush());
         // Admission-based providers transfer queue ownership before a run starts.
         // Persist the acknowledgement policy in the existing per-thread record store,
         // so a later run cannot acknowledge the next, unrelated engine input.
@@ -294,6 +306,7 @@ export class EngineRepository {
           this.queue.set(id, { continuation: null, trigger: null }, now);
           this.pending.finishContinuation(id);
         }
+        this.snapshots.get(id)?.updateDeadlines(facts, events, now);
         this.save(state, events, now);
         this.observe?.(state, facts, events, now);
         return state;
@@ -390,6 +403,24 @@ export class EngineRepository {
   }
   readRawBlob(id: string): Uint8Array | undefined {
     return this.store.atomic((_db) => readRawBlob(_db, id));
+  }
+  nativeEntity(
+    id: ThreadId,
+    section: "interactions" | "tasks",
+    entityId: string,
+  ): string | undefined {
+    const row = this.store
+      .statement(
+        "SELECT key FROM engine_state_records WHERE thread_id=? AND section=? AND section IN ('interactions','tasks') AND json_extract(value,'$.id')=? LIMIT 1",
+      )
+      .get(id, section, entityId);
+    return row ? String(row.key) : undefined;
+  }
+  entityThread(collection: "interactions" | "backgroundTasks", id: string): ThreadId | undefined {
+    const row = this.store
+      .statement("SELECT thread_id FROM view_entities WHERE collection=? AND id=? LIMIT 1")
+      .get(collection, id);
+    return row ? ThreadId.parse(row.thread_id) : undefined;
   }
   answer(id: string): Command | undefined {
     return this.store.atomic((_db) => {

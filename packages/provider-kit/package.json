@@ -17,6 +17,7 @@
     "./streams": "./src/streams.ts",
     "./idle-worker": "./src/idle-worker.ts",
     "./bounded-cache": "./src/bounded-cache.ts",
+    "./flow-control": "./src/flow-control.ts",
     "./sqlite": "./src/sqlite.ts"
   },
   "scripts": {

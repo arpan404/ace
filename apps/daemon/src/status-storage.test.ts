@@ -175,3 +175,50 @@ it("uses the injected allocator for durable blob references", () => {
     store.close();
   }
 });
+
+it("snapshots retain pending approvals and recent closed approvals after thousands of answers", () => {
+  const store = new Store(":memory:");
+  try {
+    const thread = createDevThread(store, store.createWorkspace("/repo", "repo"));
+    for (let offset = 0; offset < 5000; offset += 100) {
+      const events: import("@ace/protocol").EventPayload[] = [];
+      for (let i = offset; i < offset + 100; i++) {
+        const interaction = Interaction.parse({
+          id: `q${i}`,
+          threadId: thread.id,
+          agentId: "root",
+          blocking: true,
+          request: { kind: "approval", title: "approve", options: [] },
+          state: "pending",
+          createdAt: i,
+        });
+        events.push({ type: "interaction.opened", interaction });
+        if (i !== 0)
+          events.push({
+            type: "interaction.closed",
+            interactionId: interaction.id,
+            state: "resolved",
+            closedAt: i,
+          });
+      }
+      store.appendEvents(thread.id, events);
+    }
+    const view = store.snapshotThread(thread.id);
+    expect(view.interactions.q0?.state).toBe("pending");
+    expect(view.interactions.q4999?.state).toBe("resolved");
+    expect(Object.keys(view.interactions).length).toBeLessThanOrEqual(201);
+    expect(Buffer.byteLength(JSON.stringify(view))).toBeLessThan(131072);
+    const ids = new Set(Object.keys(view.interactions));
+    let before = view.entitiesBefore?.interactions;
+    while (before != null) {
+      const page = store.readEntityPage(thread.id, "interactions", before, 200);
+      if (page.collection !== "interactions") throw new Error("Unexpected page");
+      for (const interaction of page.entries) ids.add(interaction.id);
+      before = page.entitiesBefore;
+    }
+    expect(ids.size).toBe(5000);
+    expect(ids.has("q1")).toBe(true);
+  } finally {
+    store.close();
+  }
+});

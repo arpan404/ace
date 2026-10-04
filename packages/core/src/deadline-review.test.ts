@@ -181,3 +181,63 @@ it("a settled startup failure does not preempt a restarted child's silence deadl
   expect(h.agent("child")?.status).toEqual({ state: "unresponsive", lastSignalAt: 200 });
   expect(nextDeadline(h.state)).toBeUndefined();
 });
+
+it("incremental deadlines preserve independent siblings and schedule their unresponsive transitions", async () => {
+  const { DeadlineIndex } = await import("./index.ts");
+  const h = harness("codex", { silenceMs: 100 });
+  h.send({ type: "turn.started", agent: "root", trigger: "user" }, 100);
+  for (const agent of ["a", "b"]) {
+    h.send(
+      {
+        type: "agent.seen",
+        agent,
+        parent: "root",
+        origin: "provider_subagent",
+        native: { provider: "codex" },
+        fidelity: "full",
+        cwd: "/repo",
+      },
+      100,
+    );
+    h.send({ type: "turn.started", agent, trigger: "spawn" }, 100);
+    h.send({ type: "item.delta", agent, item: agent, field: "text", append: "seed" }, 100);
+  }
+  const index = new DeadlineIndex(h.state);
+  h.send({ type: "item.delta", agent: "a", item: "a", field: "text", append: "next" }, 150);
+  index.signal("a", 150, 100);
+  expect(index.next()).toBe(201);
+  h.send({ type: "item.delta", agent: "b", item: "b", field: "text", append: "next" }, 160);
+  index.signal("b", 160, 100);
+  expect(index.next()).toBe(251);
+  h.send({ type: "tick" }, 251);
+  expect(h.agent("a")?.status.state).toBe("unresponsive");
+  expect(h.agent("b")?.status.state).toBe("working");
+  index.rebuild(h.state);
+  expect(index.next()).toBe(261);
+});
+
+// Mutation cases: heartbeat moves a fixed wake; refreshing one branch postpones its sibling;
+// stale heap root after updates; process exit keeps a cached deadline. Not executed (tests run at merge).
+it("indexed minima keep fixed wakes independent of global and branch liveness updates", async () => {
+  const { DeadlineIndex } = await import("./index.ts");
+  const h = harness("codex", { silenceMs: 100 });
+  h.start();
+  for (const agent of ["a", "b", "waking"]) {
+    h.see(agent, "root");
+    h.start(agent);
+  }
+  h.end("waking");
+  h.send({ type: "wake.expected", agent: "waking", until: 350 }, 100);
+  const index = new DeadlineIndex(h.state);
+  index.signal(undefined, 200, 100);
+  expect(index.next()).toBe(301);
+  index.signal("a", 300, 100);
+  expect(index.next()).toBe(301);
+  index.signal("b", 300, 100);
+  // Root is suppressed by its children, while the independent wake never moves.
+  expect(index.next()).toBe(350);
+  h.send({ type: "tick" }, 350);
+  h.send({ type: "process.exited", deliberate: true }, 400);
+  index.rebuild(h.state);
+  expect(index.next(450)).toBeUndefined();
+});

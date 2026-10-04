@@ -99,7 +99,13 @@ export class TurnWriter {
         p.agent.origin !== "root" && p.agent.spawnedBy
           ? this.itemOrdinal(event, p.agent.spawnedBy)
           : undefined;
+      const existingAgent = this.data
+        .sql("SELECT ordinal FROM long_agents WHERE thread_id=? AND id=?")
+        .get(event.threadId, p.agent.id);
       const ordinal = createdAgentTurnOrdinal({
+        existingOrdinal: existingAgent
+          ? z.number().int().nonnegative().parse(Number(existingAgent.ordinal))
+          : undefined,
         origin: p.agent.origin,
         headOrdinal,
         spawnedByOrdinal,

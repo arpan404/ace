@@ -34,6 +34,10 @@ export interface Limits {
   threads: number;
   requests: number;
   frameBytes: number;
+  /** Aggregate retained UTF-16 bytes across fragment assemblies. */
+  fragmentBytes: number;
+  /** Absolute lifetime from the first fragment, not extended by later fragments. */
+  fragmentMs: number;
   sendBytes: number;
   outboxBytes: number;
   items: number;
@@ -55,6 +59,8 @@ export const defaultLimits: Limits = {
   threads: 32,
   requests: 256,
   frameBytes: 2 * 1024 * 1024,
+  fragmentBytes: 64 * 1024 * 1024,
+  fragmentMs: 30000,
   sendBytes: 1024 * 1024,
   outboxBytes: 8 * 1024 * 1024,
   items: 200,

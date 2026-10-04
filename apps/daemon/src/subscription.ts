@@ -48,6 +48,7 @@ export function subscribe(
   send: (message: ServerMessage) => void,
   progressIntervalMs = 250,
   schedule: DeliveryRuntime["delay"] = systemDeliveryRuntime.delay,
+  paced = false,
 ): () => void {
   let cursor = afterSeq ?? 0;
   let initializing = true;
@@ -77,7 +78,7 @@ export function subscribe(
     progressHead = Math.max(progressHead, head);
     if (selected.length) {
       cancelProgress();
-      const frames = replay ? replayFrames(selected) : [selected];
+      const frames = replayFrames(selected);
       for (const [index, frame] of frames.entries()) {
         if (stopped) return;
         // Frames stay contiguous: each covers up to its last event, the final one up to head.
@@ -136,12 +137,29 @@ export function subscribe(
           .readEvents({
             afterSeq,
             limit: replayLimit,
+            byteLimit: replayFrameBytes * 2,
             ...(scope.kind === "thread" ? { threadId: scope.threadId } : {}),
           })
           .filter((event) => event.seq <= head);
-        deliver(events, head, true);
+        const bytes = events.reduce(
+          (total, event) => total + Buffer.byteLength(JSON.stringify(event)),
+          0,
+        );
+        if (
+          bytes > replayFrameBytes * 2 ||
+          events.some((event) => Buffer.byteLength(JSON.stringify(event)) > replayFrameBytes)
+        ) {
+          const view =
+            scope.kind === "thread"
+              ? store.snapshotThread(scope.threadId)
+              : createThreadListView(store.listThreads());
+          view.seq = head;
+          cursor = progressHead = head;
+          send({ type: "snapshot", subscriptionId: id, seq: head, view });
+        } else deliver(events, head, true);
       }
     }
+    if (paced) send({ type: "subscription.ready", subscriptionId: id, seq: cursor });
     initializing = false;
     const pending = queued;
     queued = [];

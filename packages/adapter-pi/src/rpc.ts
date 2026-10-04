@@ -28,6 +28,7 @@ export class PiRpc {
     frame: (dir: "send" | "recv", payload: ProviderPayload) => void,
     fail: (error: Error) => void,
     redact: (line: string) => string,
+    flow?: import("@ace/provider-kit/flow-control").OutputFlow,
   ) {
     this.schedule = schedule;
     this.frame = frame;
@@ -57,6 +58,7 @@ export class PiRpc {
         }
       },
       this.fail,
+      flow,
     );
   }
   write(data: Record<string, unknown>): Promise<void> {

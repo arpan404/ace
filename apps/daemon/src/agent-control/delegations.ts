@@ -49,6 +49,7 @@ export class DelegationService {
   private unsubscribe: () => void;
   private cancelTimer: (() => void) | undefined;
   private closed = false;
+  private retryAt = 0;
   private suspending = new Set<ThreadId>();
   private reservationLifetimes = new ReservationLifetimes();
   private waiters = new OutcomeWaiters();
@@ -320,76 +321,107 @@ export class DelegationService {
     this.cancelTimer?.();
     this.cancelTimer = undefined;
     if (this.closed) return;
-    const next = this.journal.nextWake();
-    const expiry = this.journal.nextExpiry();
-    const at = Math.min(
-      next?.due ?? Infinity,
-      expiry ? expiry.started_at + this.policy.durationMs : Infinity,
-    );
+    let next: ReturnType<DelegationJournal["nextWake"]>;
+    let expiry: ReturnType<DelegationJournal["nextExpiry"]>;
+    try {
+      next = this.journal.nextWake();
+      expiry = this.journal.nextExpiry(this.policy.durationMs);
+    } catch (error) {
+      this.report(error);
+      this.cancelTimer = this.deps.clock.setTimer(() => this.timer(), 1000);
+      return;
+    }
+    const at = Math.min(next?.due ?? Infinity, expiry?.due ?? Infinity);
     if (at === Infinity) return;
     this.cancelTimer = this.deps.clock.setTimer(
-      () => {
-        this.cancelTimer = undefined;
-        try {
-          this.drain();
-        } catch (error) {
-          const retry = this.journal.nextWake();
-          if (retry) this.journal.deferWake(retry.parent_id, this.deps.clock.now() + 1000);
-          this.deps.onError(error);
-        }
-        this.arm();
-      },
-      Math.max(0, at - this.deps.clock.now()),
+      () => this.timer(),
+      Math.max(0, at - this.deps.clock.now(), this.retryAt - this.deps.clock.now()),
     );
+  }
+  private report(error: unknown) {
+    try {
+      this.deps.onError(error);
+    } catch {
+      /* Reporting cannot disable retry. */
+    }
+  }
+  private timer() {
+    this.cancelTimer = undefined;
+    if (this.closed) return;
+    try {
+      this.drain();
+      this.retryAt = 0;
+    } catch (error) {
+      this.retryAt = this.deps.clock.now() + 1000;
+      this.report(error);
+    }
+    this.arm();
   }
   /** Deterministic timer boundary also used by Deck's scheduler. Never executes provider I/O. */
   drain() {
     if (this.closed) return;
     for (let limit = 0; limit < 64; limit++) {
-      const expiry = this.journal.nextExpiry();
-      if (!expiry || expiry.started_at + this.policy.durationMs > this.deps.clock.now()) break;
-      this.cancelDescendants(expiry.root_id);
+      const expiry = this.journal.nextExpiry(this.policy.durationMs);
+      if (!expiry || expiry.due > this.deps.clock.now()) break;
+      try {
+        this.cancelDescendants(expiry.root_id);
+      } catch (error) {
+        this.deps.store.atomic(() =>
+          this.journal.deferExpiry(
+            expiry.root_id,
+            this.deps.clock.now() + Math.min(30000, 1000 * 2 ** Math.min(expiry.failures, 5)),
+          ),
+        );
+        this.report(error);
+      }
     }
     for (let batch = 0; batch < 64; batch++) {
       const next = this.journal.nextWake();
       if (!next || next.due > this.deps.clock.now()) break;
-      this.deps.store.atomic(() => {
-        const parent = this.deps.store.getThread(next.parent_id);
-        const tree = this.journal.tree(next.parent_id, this.deps.clock.now());
-        const pending = this.journal.pending(next.parent_id);
-        const cancelled =
-          tree.cancelled ||
-          this.journal.stopped(next.parent_id) ||
-          this.journal.ancestorStopped(next.parent_id) ||
-          this.journal.get(next.parent_id)?.phase === "cancelling";
-        if (!parent || cancelled) {
+      try {
+        this.deps.store.atomic(() => {
+          const parent = this.deps.store.getThread(next.parent_id);
+          const tree = this.journal.tree(next.parent_id, this.deps.clock.now());
+          const pending = this.journal.pending(next.parent_id);
+          const cancelled =
+            tree.cancelled ||
+            this.journal.stopped(next.parent_id) ||
+            this.journal.ancestorStopped(next.parent_id) ||
+            this.journal.get(next.parent_id)?.phase === "cancelling";
+          if (!parent || cancelled) {
+            this.journal.consume(next.parent_id);
+            return;
+          }
+          if (this.deps.admitsWork?.() === false) {
+            this.journal.deferWake(next.parent_id, this.deps.clock.now() + 1000);
+            return;
+          }
+          const results = pending.flatMap((edge) => (edge.outcome ? [edge.outcome] : []));
+          if (!results.length) {
+            this.journal.consume(next.parent_id);
+            return;
+          }
+          const id = controlCommandId(
+            next.parent_id,
+            pending.map((edge) => `${edge.childId}:${edge.generation}`).join(","),
+            "wake",
+          );
+          const result = this.command(id, {
+            type: "thread.send",
+            threadId: next.parent_id,
+            input: [{ type: "text", text: childResultPrompt(results) }],
+            delivery: "queue",
+            trigger: "subagent_result",
+          });
+          if (!result.ok) throw new Error(result.error);
           this.journal.consume(next.parent_id);
-          return;
-        }
-        if (this.deps.admitsWork?.() === false) {
-          this.journal.deferWake(next.parent_id, this.deps.clock.now() + 1000);
-          return;
-        }
-        const results = pending.flatMap((edge) => (edge.outcome ? [edge.outcome] : []));
-        if (!results.length) {
-          this.journal.consume(next.parent_id);
-          return;
-        }
-        const id = controlCommandId(
-          next.parent_id,
-          pending.map((edge) => `${edge.childId}:${edge.generation}`).join(","),
-          "wake",
-        );
-        const result = this.command(id, {
-          type: "thread.send",
-          threadId: next.parent_id,
-          input: [{ type: "text", text: childResultPrompt(results) }],
-          delivery: "queue",
-          trigger: "subagent_result",
         });
-        if (!result.ok) throw new Error(result.error);
-        this.journal.consume(next.parent_id);
-      });
+      } catch (error) {
+        this.deps.store.atomic(() =>
+          this.journal.deferWake(next.parent_id, this.deps.clock.now() + 1000),
+        );
+        this.report(error);
+      }
     }
   }
   close() {

@@ -338,3 +338,45 @@ it("concurrent steer and queue wait for HTTP admission without rejecting or dupl
   expect(Math.max(...counts)).toBe(2);
   expect(admitted.map((fact) => fact.commandId)).toEqual(["command-first", "command-second"]);
 });
+
+// Mutation case: awaiting a consumer gate without the stream cancellation signal.
+// Not executed (tests run at merge).
+it("closing an attached adapter interrupts a held event gate without stopping the external server", async () => {
+  const h = await setup();
+  const blocked = deferred<void>();
+  const gate = deferred<void>();
+  let paused = false;
+  const adapter = createOpenCodeAdapter({ attach: h.transport() });
+  try {
+    const session = await adapter.openSession({
+      cwd: "/one",
+      threadId: ThreadId.parse("pressured-external"),
+      signal: new AbortController().signal,
+      outputFlow: {
+        paused: () => paused,
+        wait: () => {
+          blocked.resolve();
+          return gate.promise;
+        },
+      },
+      onFrame() {},
+      onExit() {},
+    });
+    paused = true;
+    await h.control("/test/events", [
+      {
+        type: "session.execution.started",
+        directory: "/one",
+        data: { sessionID: session.nativeSessionId },
+      },
+    ]);
+    await blocked.promise;
+    await adapter.close();
+    expect(await h.control("/test/instance")).toEqual({ instance: "default" });
+  } finally {
+    // Also releases a pre-fix implementation during merge-time failure cleanup.
+    paused = false;
+    gate.resolve();
+    await adapter.close();
+  }
+});

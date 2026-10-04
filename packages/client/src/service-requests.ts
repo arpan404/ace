@@ -14,13 +14,15 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 
 // #72 adds queue schemas to the canonical union. Keep only correlation here;
 // queue storage, removal, context leases and recovery remain with that owner.
-export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "queue.get"
-  ? Extract<Reply, { type: "queue.result" }>
-  : Q["type"] extends "permissions.capabilities"
-    ? Replies<"permissions.capabilities.result">
-    : Q["type"] extends "projects.request"
-      ? Replies<"projects.result">
-      : ExistingServiceResponse<Q>;
+export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "entities.page"
+  ? Replies<"entities.page">
+  : Q["type"] extends "queue.get"
+    ? Extract<Reply, { type: "queue.result" }>
+    : Q["type"] extends "permissions.capabilities"
+      ? Replies<"permissions.capabilities.result">
+      : Q["type"] extends "projects.request"
+        ? Replies<"projects.result">
+        : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
@@ -140,6 +142,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "diagnostics.health": ["diagnostics.health.result"],
   "screen.request": ["screen.result"],
   "items.page": ["items.page"],
+  "entities.page": ["entities.page"],
   "output.read": ["output.data"],
 };
 function isServiceResponse<Q extends ServiceRequest>(
@@ -170,6 +173,12 @@ export function decodeServiceResponse<Q extends ServiceRequest>(
   value: unknown,
 ): ServiceResponse<Q> {
   const response = schema.parse(value);
+  if (
+    query.type === "entities.page" &&
+    response.type === "entities.page" &&
+    (response.page.threadId !== query.threadId || response.page.collection !== query.collection)
+  )
+    throw new ClientError("protocol", "Unexpected entity page owner");
   if (!isServiceResponse(query, id, response))
     throw new ClientError("protocol", "Unexpected service response");
   return response;

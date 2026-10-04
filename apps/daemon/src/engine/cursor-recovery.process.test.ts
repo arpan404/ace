@@ -263,3 +263,95 @@ it("pins the selected account when create is accepted and honors an explicit acc
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it("an SDK delta burst coalesces canonical writes while retaining every committed boundary", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cursor-burst-"));
+  const store = new Store(join(root, "events.sqlite"));
+  const registry = new AdapterRegistry();
+  let context: SessionContext | undefined;
+  let offset = 0;
+  const frame = (kind: string, body: unknown) => {
+    if (!context) throw new Error("Missing session");
+    return deliver(context, {
+      schemaVersion: 1,
+      generation: "burst",
+      operationId: "burst",
+      segment: 0,
+      agentId: "native-agent",
+      boundaryOffset: ++offset,
+      kind,
+      body,
+    });
+  };
+  registry.register(
+    {
+      provider: "cursor",
+      backend: "cursor-sdk",
+      capabilities: () => cursorCapabilities,
+      createTranslator: (init) => new CursorTranslator(init),
+      async openSession(ctx) {
+        context = ctx;
+        await frame("open", { cwd: root, model: "composer-2.5" });
+        return {
+          nativeSessionId: "native-agent",
+          backend: "cursor-sdk",
+          instanceId: "fixture",
+          async send(input) {
+            await frame("send", { input });
+          },
+          async interrupt() {},
+          async resolve() {},
+          async stopTask() {},
+          async close() {},
+        };
+      },
+    },
+    { installed: true, auth: "logged_in", loginHint: "offline" },
+  );
+  const engine = new Engine(store, { registry });
+  try {
+    const workspaceId = store.createWorkspace(root, "Fixture");
+    const command = Command.parse({
+      id: "burst",
+      deviceId: "fixture",
+      payload: {
+        type: "thread.create",
+        workspaceId,
+        provider: "cursor",
+        input: [{ type: "text", text: "fixture" }],
+      },
+    });
+    const result = engine.handler.handle(command, store);
+    if (!result.threadId) throw new Error("Missing thread");
+    await engine.flush();
+    const afterSeq = store.headSeq();
+    const acknowledgements = Array.from({ length: 1000 }, () =>
+      frame("delta", { type: "text-delta", text: "x" }),
+    );
+    await engine.flush();
+    await Promise.all(acknowledgements);
+    const deltas = store
+      .readEvents({ afterSeq, limit: 2000 })
+      .filter((event) => event.payload.type === "item.delta");
+    expect(deltas.length).toBeLessThan(10);
+    const view = store.snapshotThread(result.threadId);
+    expect(
+      view.itemOrder
+        .map((id) => view.items[id])
+        .some(
+          (item) =>
+            item?.type === "message" &&
+            item.parts.some((part) => part.type === "text" && part.text === "x".repeat(1000)),
+        ),
+    ).toBe(true);
+    // This durable boundary prevents a resumed adapter from replaying acknowledged frames.
+    const boundary = store
+      .statement("SELECT offset FROM engine_provider_cursors WHERE thread_id=?")
+      .get(result.threadId);
+    expect(Number(boundary?.offset)).toBe(1002);
+  } finally {
+    await engine.close();
+    await store.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
