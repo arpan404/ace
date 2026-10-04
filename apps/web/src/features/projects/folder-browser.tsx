@@ -6,7 +6,7 @@ import {
   LockSimpleIcon,
   WifiSlashIcon,
 } from "@phosphor-icons/react";
-import { crumbs, folderName, formatAge, parentFolder } from "@ace/ui-core";
+import { crumbs, folderName, formatAge, parentFolder, startFolder } from "@ace/ui-core";
 import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -78,6 +78,9 @@ export function FolderBrowser(props: {
   };
 
   const failure = listing.error ? projectFailure(listing.error) : undefined;
+  // A refused folder offers the place browsing starts: home, or the first root when home is
+  // outside every root.
+  const start = startFolder(props.home, props.roots);
   return (
     <div className="flex min-h-0 flex-col gap-2">
       <div className="flex items-center gap-1">
@@ -126,9 +129,9 @@ export function FolderBrowser(props: {
             icon={failure.denied ? LockSimpleIcon : FolderSimpleIcon}
             text={failure.message}
             action={
-              failure.denied && props.home ? (
-                <Button size="sm" onClick={() => props.home && open(props.home)}>
-                  Go to the home folder
+              failure.denied && start && start !== props.path ? (
+                <Button size="sm" onClick={() => open(start)}>
+                  {start === props.home ? "Go to the home folder" : `Go to ${folderName(start)}`}
                 </Button>
               ) : (
                 <Button size="sm" onClick={listing.retry}>

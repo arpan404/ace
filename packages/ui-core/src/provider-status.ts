@@ -12,6 +12,7 @@ export const nativeProviders: readonly { kind: Exclude<ProviderKind, "acp">; bin
   { kind: "opencode", binary: "opencode" },
   { kind: "cursor", binary: "cursor-agent" },
   { kind: "antigravity", binary: "antigravity" },
+  { kind: "pi", binary: "pi" },
 ];
 
 /**

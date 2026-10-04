@@ -34,7 +34,7 @@ export function CreateProjectTab(props: { offline: boolean; onAdded(result: Adde
   const [template, setTemplate] = useState<GitignoreTemplate>("none");
   const [creating, setCreating] = useState(false);
   const [problem, setProblem] = useState<string>();
-  const parent = selected ?? path ?? home?.path;
+  const parent = selected ?? path ?? home?.start;
   const siblings = useFolderListing(parent, true).entries?.map((entry) => entry.name);
   const nameProblem = projectNameProblem(name, siblings);
   const branchIssue = git ? branchProblem(branch.trim()) : undefined;
@@ -88,7 +88,7 @@ export function CreateProjectTab(props: { offline: boolean; onAdded(result: Adde
         }
       />
       <LocationField
-        path={path ?? home?.path}
+        path={path ?? home?.start}
         onPath={setPath}
         selected={selected}
         onSelect={setSelected}

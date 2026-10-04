@@ -94,10 +94,11 @@ export function ThreadModelControl(props: { thread: ThreadRef; busy: boolean }) 
   const online = useConnectionState() === "ready";
   const selection = runsOn(meta);
   const current = currentModelChoice(choices, selection);
-  // Offline the catalog can't be read: keep what this view last knew, else the thread's record.
+  // Offline the catalog can't be read: keep what this view last knew. A provider the catalog
+  // doesn't list (no model discovery for it) shows the thread's record.
   const [known, setKnown] = useState<ModelChoice>();
   if (current && current.id !== known?.id) setKnown(current);
-  const shown = current ?? (online ? undefined : (known ?? recordedChoice(selection)));
+  const shown = current ?? (online ? undefined : known) ?? recordedChoice(selection);
   const effort = threadEffortControl({
     choice: shown,
     capabilities: meta?.capabilities,

@@ -31,7 +31,7 @@ export function CloneProjectTab(props: { offline: boolean; clone: CloneControl }
   const [path, setPath] = useState<string>();
   const [selected, setSelected] = useState<string>();
   const running = run.status === "running";
-  const parent = running ? run.input.parent : (selected ?? path ?? previous?.parent ?? home?.path);
+  const parent = running ? run.input.parent : (selected ?? path ?? previous?.parent ?? home?.start);
   const folder = running ? run.input.name : (name ?? repositoryName(url));
   const siblings = useFolderListing(parent, true).entries?.map((entry) => entry.name);
   const urlProblem = cloneUrlProblem(url.trim());
@@ -82,7 +82,7 @@ export function CloneProjectTab(props: { offline: boolean; clone: CloneControl }
         }
       />
       <LocationField
-        path={running ? run.input.parent : (path ?? previous?.parent ?? home?.path)}
+        path={running ? run.input.parent : (path ?? previous?.parent ?? home?.start)}
         onPath={setPath}
         selected={running ? undefined : selected}
         onSelect={setSelected}

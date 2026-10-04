@@ -1,13 +1,20 @@
 import { useClient, useConnectionState } from "@ace/client-react";
+import { startFolder } from "@ace/ui-core";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { projectReads } from "./project-commands.ts";
 
 const folderKey = ["projects", "folders"] as const;
 
+/** The host's answer plus `start`, the folder browsing opens at (`startFolder`). */
+const withStart = <T extends { path: string; roots: readonly string[] }>(home: T) => ({
+  ...home,
+  start: startFolder(home.path, home.roots) ?? home.path,
+});
+
 /**
- * The daemon host's home folder, its allowed roots and Git's initial branch there. Waits for a
- * ready connection, since folder reads never queue while offline.
+ * The daemon host's home folder, its allowed roots, where browsing starts and Git's initial
+ * branch there. Waits for a ready connection, since folder reads never queue while offline.
  */
 export function useHostHome() {
   const client = useClient();
@@ -15,6 +22,7 @@ export function useHostHome() {
   return useQuery({
     queryKey: [...folderKey, "home"],
     queryFn: ({ signal }) => projectReads(client).home(signal),
+    select: withStart,
     enabled: ready,
     staleTime: 60_000,
     retry: false,

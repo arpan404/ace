@@ -32,7 +32,7 @@ export function OpenFolderTab(props: {
   );
   const [adding, setAdding] = useState(false);
   const native = useNativePicker();
-  const browsing = path ?? home?.path;
+  const browsing = path ?? home?.start;
   // Nothing selected adds the folder open in the browser, but never a whole root (the home
   // folder): that takes an explicit selection.
   const atRoot = browsing !== undefined && (home?.roots ?? []).includes(browsing);
