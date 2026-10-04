@@ -388,6 +388,7 @@ export class FakeProjects {
         return wrap({
           kind: "home",
           path: this.homeLink ?? this.home,
+          canonicalPath: this.home,
           roots: this.roots,
           initialBranch: "main",
         });
