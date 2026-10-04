@@ -1,3 +1,4 @@
+import { isAsyncQuestion } from "./interaction-lifecycle.ts";
 import type { Fact } from "@ace/core";
 import type { Frame } from "@ace/engine-api";
 import { itemDraft, toolDraft } from "./item.ts";
@@ -173,14 +174,11 @@ export function translateItem(
       )
     )
       agent.failureText = str(item["text"]);
-    if (type === "plan" && complete) agent.plan = { id: itemId, text: str(item["text"]) };
-    if (
-      type === "agentMessage" &&
-      item["delivery"] === "async" &&
-      list(item["questions"]).length &&
-      !agent.async.has(itemId)
-    ) {
+    if (type === "plan" && complete && frame.channel !== "hydration")
+      agent.plan = { id: itemId, text: str(item["text"]) };
+    if (isAsyncQuestion(item) && !agent.async.has(itemId)) {
       agent.async.add(itemId);
+      if (frame.channel === "hydration") return;
       ctx.asyncOwners.set(asyncKey(itemId), { agent, item: itemId });
       facts.push({
         type: "interaction.opened",

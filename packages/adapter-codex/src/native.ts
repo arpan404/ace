@@ -15,7 +15,10 @@ export function list(value: unknown): unknown[] {
 export function raw(type: string, data: unknown, name?: unknown): RawPayload[] {
   return [{ type, ...(typeof name === "string" ? { name } : {}), data }];
 }
-export const requestKey = (id: unknown): string => `request:${typeof id}:${String(id)}`;
+export const requestKey = (id: unknown, scope = ""): string =>
+  scope
+    ? `request:${JSON.stringify([scope, typeof id, String(id)])}`
+    : `request:${typeof id}:${String(id)}`;
 export const asyncKey = (item: string): string => `async:${item}`;
 export const planKey = (turn: string): string => `plan:${turn}`;
 export const shellKey = (item: string): string => `shell:${item}`;

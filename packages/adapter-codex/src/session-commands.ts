@@ -1,3 +1,4 @@
+import { CodexInteractionUnavailable } from "./interaction-lifecycle.ts";
 import { z } from "zod";
 import type { ProviderSession } from "@ace/engine-api";
 import type { ContentPart, InteractionId, Question, PermissionMode } from "@ace/protocol";
@@ -217,7 +218,11 @@ export function createSessionCommands(
       await stopShells(thread, item);
     },
     async resolve(key, resolution) {
-      assertOpen();
+      try {
+        assertOpen();
+      } catch {
+        throw new CodexInteractionUnavailable(key);
+      }
       const entry = pending.get(key);
       if (entry) {
         const result = approvalResult(entry.request, resolution);
@@ -283,7 +288,7 @@ export function createSessionCommands(
         emit("note", { event: "interaction-resolved", interaction: key });
         return;
       }
-      throw new Error("Unknown or already resolved Codex interaction");
+      throw new CodexInteractionUnavailable(key);
     },
   };
 }

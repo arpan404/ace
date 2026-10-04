@@ -29,11 +29,12 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     }
   }
   function closeAsync(key: string) {
-    const owner = asyncOwners.get(key);
-    owner?.agent.async.delete(owner.item);
+    // Retain native identity after resolution so duplicate live notifications stay terminal.
     asyncOwners.delete(key);
   }
 
+  let scope = "";
+  const interactionKey = (id: unknown) => requestKey(id, scope);
   let root = "";
   let cwd = "";
   const { ensure, discover } = createAgentRegistry({
@@ -98,6 +99,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     const id = message["id"];
     if (frame.dir === "note") {
       translation.answerEchoes.note(message);
+      if (message["event"] === "session-scope") scope = str(message["scope"]);
       if (message["event"] === "permission-review-policy") {
         const mode = PermissionMode.safeParse(message["mode"]);
         if (mode.success) reviewPolicies.set(str(message["interaction"]), mode.data);
@@ -254,7 +256,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     const agent = ensure(native, true, facts);
     facts.push({ type: "signal", agent: agent.key });
     if (isInteractiveRequest(method) && id !== undefined) {
-      const key = requestKey(id);
+      const key = interactionKey(id);
       const item = str(p["itemId"]);
       const opened = openRequest(agent.key, key, method, p, agent.items.has(item));
       const mode = reviewPolicies.get(key);
@@ -272,7 +274,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
         state: "cancelled",
       });
     } else if (method === "serverRequest/resolved") {
-      const key = requestKey(p["requestId"]);
+      const key = interactionKey(p["requestId"]);
       facts.push({ type: "interaction.closed", interaction: key, state: "resolved" });
       const item = agent.requests.get(key)?.item;
       if (item && !agent.open.has(item))
@@ -304,7 +306,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       delete agent.pendingTrigger;
       facts.push({ type: "turn.started", agent: agent.key, nativeTurnId: turn, trigger });
     } else if (method === "turn/completed") {
-      completeTurn(agent, native, p, translation, facts);
+      completeTurn(agent, native, p, translation, facts, frame.channel !== "hydration");
       if (agent.unmatchedFlag)
         facts.push({
           type: "interaction.opened",

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { Frame, SessionContext } from "@ace/engine-api";
 import { ThreadId } from "@ace/protocol";
 import { createCodexAdapter } from "./index.ts";
+import { requestKey } from "./native.ts";
 import { replayHarness } from "./replay.test-helper.ts";
 export async function sessionHarness(
   resume = false,
@@ -29,6 +30,7 @@ export async function sessionHarness(
       stopGraceMs: 0,
       now: () => now,
       userMessageId: () => "offline-message",
+      sessionId: () => "offline-session",
       schedule(callback, delay) {
         scheduled.set(callback, delay);
         return () => {
@@ -75,6 +77,7 @@ export async function sessionHarness(
   return {
     cwd: directory,
     session,
+    requestKey: (id: unknown) => requestKey(id, "offline-session"),
     frames,
     replay,
     controller,

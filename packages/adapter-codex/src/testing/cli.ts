@@ -101,6 +101,33 @@ for await (const line of createInterface({ input: process.stdin })) {
       },
     });
   } else if (method === "thread/start" || method === "thread/resume") {
+    if (process.env["ACE_FAKE_RESUME"] === "historical-interactions") {
+      respond({
+        thread: {
+          id: "native",
+          cwd: process.cwd(),
+          status: { type: "idle" },
+          turns: [
+            {
+              id: "old",
+              status: "completed",
+              items: [
+                ...["answered-a", "answered-b"].map((id) => ({
+                  type: "agentMessage",
+                  id,
+                  delivery: "async",
+                  text: "Previously answered",
+                  questions: [{ title: "Continue?", options: ["yes"] }],
+                })),
+                { type: "plan", id: "old-plan", text: "Old resolved plan" },
+              ],
+            },
+          ],
+        },
+        model: "fake-model",
+      });
+      continue;
+    }
     if (process.env["ACE_FAKE_RESUME"] === "resume-completed") {
       process.stdout.write(
         `${JSON.stringify({ id, result: { thread: { id: "native", status: { type: "active" }, turns: [{ id: "resumed", status: "inProgress", items: [] }] } } })}\n${JSON.stringify({ method: "turn/completed", params: { threadId: "native", turn: { id: "resumed", status: "completed" } } })}\n`,
@@ -259,7 +286,17 @@ for await (const line of createInterface({ input: process.stdin })) {
     active.set("native", "turn");
     if (process.env["ACE_FAKE_RESUME"] !== "reply-before-start")
       notify("turn/started", { threadId: "native", turn: { id: "turn" } });
-    if (text === "two-questions") {
+    if (text === "replay-answered") {
+      for (const id of ["answered-a", "answered-b"])
+        item("native", "old", {
+          type: "agentMessage",
+          id,
+          delivery: "async",
+          text: "Previously answered",
+          questions: [{ title: "Continue?", options: ["yes"] }],
+        });
+      end();
+    } else if (text === "two-questions") {
       for (const questionId of ["q", "q2"])
         item("native", "turn", {
           id: questionId,

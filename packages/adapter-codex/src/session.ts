@@ -1,3 +1,4 @@
+import { isAsyncQuestion, rememberHistoricalQuestions } from "./interaction-lifecycle.ts";
 import { turnPolicyState } from "./turn-policy-state.ts";
 import { PermissionMode } from "@ace/protocol";
 import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
@@ -35,6 +36,9 @@ export async function openCodexSession(
     throw new Error("Codex supports native turn boundaries only");
   if (ctx.signal.aborted) throw ctx.signal.reason;
   const io = { ...runtime, ...options.runtime };
+  const scope = io.sessionId();
+  const interactionKey = (id: unknown) => requestKey(id, scope);
+  const seenQuestions = new Set<string>();
   const cli =
     options.cli ??
     (await io.discover({ ...options.discovery, ...(ctx.env ? { env: ctx.env } : {}) })).codex;
@@ -126,6 +130,7 @@ export async function openCodexSession(
               policies.root(nativeSessionId);
               known.add(nativeSessionId);
               if (Array.isArray(snapshot["turns"])) recovered.add(nativeSessionId);
+              rememberHistoricalQuestions(snapshot, seenQuestions);
               hydrateControls(snapshot, active, shells);
             }
           }
@@ -136,7 +141,7 @@ export async function openCodexSession(
         if (isInteractiveRequest(method) && m["id"] !== undefined)
           emit("note", {
             event: "permission-review-policy",
-            interaction: requestKey(m["id"]),
+            interaction: interactionKey(m["id"]),
             mode: policies.policy(thread, str(p["turnId"]), str(p["itemId"])),
           });
         if (scopedReads.has(m["id"]) && str(snapshot["id"]))
@@ -174,7 +179,7 @@ export async function openCodexSession(
           }
       }
       if (method === "serverRequest/resolved") {
-        const key = requestKey(p["requestId"]);
+        const key = interactionKey(p["requestId"]);
         const entry = pending.get(key);
         pending.delete(key);
         entry?.reject(new Error("Interaction resolved on another connection"));
@@ -212,11 +217,13 @@ export async function openCodexSession(
             }
           }
         }
-        if (item["delivery"] === "async" && list(item["questions"]).length)
+        if (isAsyncQuestion(item) && !seenQuestions.has(id)) {
+          seenQuestions.add(id);
           asyncQuestions.set(asyncKey(id), {
             thread,
             questions: questions(item["questions"], true),
           });
+        }
         if (item["type"] === "plan" && method === "item/completed")
           plans.set(planKey(str(p["turnId"])), { thread, markdown: str(item["text"]) });
       }
@@ -280,6 +287,7 @@ export async function openCodexSession(
     const revision = readRevisions.get(threadId);
     readRevisions.delete(threadId);
     if (revision === (revisions.get(threadId) ?? 0)) hydrateControls(thread, active, shells);
+    rememberHistoricalQuestions(thread, seenQuestions);
     emit("note", { event: "thread-discovered", thread });
   }
   async function refreshQueue(threadId: string): Promise<void> {
@@ -330,7 +338,7 @@ export async function openCodexSession(
     if (!isInteractiveRequest(serverRequest.method))
       throw new MethodNotFound(`Unsupported Codex request: ${serverRequest.method}`);
     return new Promise((answer, reject) =>
-      pending.set(requestKey(serverRequest.id), { request: serverRequest, answer, reject }),
+      pending.set(interactionKey(serverRequest.id), { request: serverRequest, answer, reject }),
     );
   };
   proc.stderr.on("line", (line) => emit("stderr", line));
@@ -359,6 +367,7 @@ export async function openCodexSession(
     ctx.signal.removeEventListener("abort", abort);
     ctx.onExit({ deliberate, message: `Codex process ${exit.reason}, code ${exit.code}` });
   });
+  emit("note", { event: "session-scope", scope });
   try {
     if (ctx.signal.aborted) throw ctx.signal.reason;
     await request("initialize", {

@@ -16,3 +16,5 @@ export function createCodexAdapter(options: CodexOptions = {}): ProviderAdapter 
 }
 export const adapter = createCodexAdapter();
 export default adapter;
+
+export { CodexInteractionUnavailable } from "./interaction-lifecycle.ts";
