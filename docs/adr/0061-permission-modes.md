@@ -54,3 +54,15 @@ An optional provider-session reviewer may be injected at the host boundary in a 
 Auto-review never grants full access. Restricted provider options and ambient permission grants cannot override the resolved mode. Children cannot exceed their parent. Mode changes occur at turn boundaries. Uncertain approvals remain human work. Full access is an explicit opt-in and intentionally disables tool risk review.
 
 The Claude web agent will add mode pickers, scoped defaults and audit rendering through @ace/client. Deck's executor will persist its run override and pass it into the generic engine spawn API for each lane/card thread. Behavior tests are written but not executed locally, per the owner's merge-only test rule. Runtime claims need run at merge.
+
+## Browser origin approvals
+
+The thread browser uses the effective permission authority, including its parent
+ceiling. Its daemon-owned approval is an engine host interaction, with an exact
+origin and action in the review target. Unknown external sites escalate through
+the existing deterministic reviewer; no provider prompts are sent. Read-only
+refuses agent navigation. Browser origin grants explicitly selected by a human
+are scoped to one page or one thread and never become native provider grants.
+Human navigation itself is consent under the human browser lease. See
+[thread browser origin consent](0054-desktop-shell.md#thread-browser-origin-consent)
+for resource, redirect, WebSocket, timeout and persistence rules.

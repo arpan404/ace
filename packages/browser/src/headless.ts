@@ -106,7 +106,11 @@ export class HeadlessBackend implements BrowserBackend {
           await guard?.ready();
           if (
             route.request().frame().page() === page &&
-            (await request.allowed(route.request().url()))
+            (await request.allowed(route.request().url(), {
+              navigation:
+                route.request().isNavigationRequest() &&
+                route.request().frame() === page.mainFrame(),
+            }))
           )
             await route.continue();
           else await route.abort("blockedbyclient");

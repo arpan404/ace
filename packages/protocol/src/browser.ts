@@ -73,6 +73,38 @@ export const BrowserInput = z.discriminatedUnion("kind", [
   }),
 ]);
 export type BrowserInput = z.infer<typeof BrowserInput>;
+/** Canonical HTTP origin. WebSocket policy maps ws/wss to http/https. */
+export const BrowserOrigin = z
+  .string()
+  .max(8192)
+  .refine((raw) => {
+    try {
+      const url = new URL(raw);
+      return (
+        ["http:", "https:"].includes(url.protocol) &&
+        !url.username &&
+        !url.password &&
+        raw === url.origin
+      );
+    } catch {
+      return false;
+    }
+  }, "Expected an exact HTTP(S) origin")
+  .meta({
+    "x-ace-constraint":
+      "An exact canonical HTTP(S) origin, including scheme and optional port, with no path, query, fragment or URL credentials.",
+    examples: ["https://youtube.com"],
+  });
+export const BrowserOriginGrant = z.object({
+  origin: BrowserOrigin,
+  grantedAt: z.number().finite(),
+});
+export type BrowserOriginGrant = z.infer<typeof BrowserOriginGrant>;
+export const BrowserOriginBlock = z.object({
+  origin: z.string().max(8192),
+  reason: z.enum(["approval_required", "denied", "read_only", "timeout", "invalid_origin"]),
+});
+export type BrowserOriginBlock = z.infer<typeof BrowserOriginBlock>;
 export const BrowserState = z.object({
   threadId: ThreadId,
   controller: z.enum(["agent", "human", "none"]),
@@ -83,6 +115,7 @@ export const BrowserState = z.object({
   status: z.enum(["ready", "paused", "recovering"]).optional(),
   reason: z.string().max(2048).optional(),
   pageStateLost: z.boolean().optional(),
+  blocked: BrowserOriginBlock.optional(),
 });
 export type BrowserState = z.infer<typeof BrowserState>;
 export const BrowserFrame = z.object({
@@ -102,6 +135,9 @@ export type BrowserArtifact = z.infer<typeof BrowserArtifact>;
 const base = z.object({ requestId: short, threadId: ThreadId });
 export const BrowserClientMessage = z.discriminatedUnion("type", [
   z.object({ type: z.literal("browser.open"), requestId: short, options: BrowserOpen }),
+  base.extend({ type: z.literal("browser.origins.list") }),
+  base.extend({ type: z.literal("browser.origins.grant"), origin: BrowserOrigin }),
+  base.extend({ type: z.literal("browser.origins.revoke"), origin: BrowserOrigin }),
   base.extend({ type: z.literal("browser.close") }),
   base.extend({ type: z.literal("browser.execute"), command: BrowserCommand }),
   base.extend({ type: z.literal("browser.subscribe"), subscriberId: short.optional() }),
@@ -142,6 +178,7 @@ export const BrowserServerMessage = z.discriminatedUnion("type", [
     ok: z.boolean(),
     result: z.unknown().optional(),
     error: z.string().max(2048).optional(),
+    blocked: BrowserOriginBlock.optional(),
   }),
   z.object({ type: z.literal("browser.state"), state: BrowserState }),
   z.object({ type: z.literal("browser.frame"), threadId: ThreadId, frame: BrowserFrame }),

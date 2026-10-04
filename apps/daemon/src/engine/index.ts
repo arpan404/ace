@@ -340,6 +340,9 @@ export class Engine {
       }),
     );
   }
+  permissionAuthority(id: ThreadId): PermissionMode {
+    return this.repo.permissions.authority(id);
+  }
   permissionMode(id: ThreadId): PermissionMode {
     return this.repo.permissions.effective(id);
   }
@@ -410,7 +413,8 @@ export class Engine {
   bindHostInteractions(
     handler: (command: Command) => import("@ace/protocol").CommandResult | undefined,
   ): void {
-    this.hostInteractionHandler = handler;
+    const previous = this.hostInteractionHandler;
+    this.hostInteractionHandler = (command) => handler(command) ?? previous?.(command);
   }
   /**
    * A thread's root agent id. A prepared thread has only its configured root until a fact
@@ -424,7 +428,12 @@ export class Engine {
     if (rootOf() === undefined) this.actor(threadId).apply([{ type: "tick" }]);
     return rootOf();
   }
-  openHostGate(threadId: ThreadId, key: string, message: string) {
+  openHostApproval(
+    threadId: ThreadId,
+    key: string,
+    request: import("@ace/protocol").InteractionRequest,
+    raw: import("@ace/protocol").RawPayload[],
+  ) {
     const state = this.repo.requireState(threadId);
     this.actor(threadId).apply([
       {
@@ -432,16 +441,35 @@ export class Engine {
         agent: state.rootKey ?? "root",
         interaction: key,
         blocking: true,
-        request: { kind: "plan_review", title: "Deck needs your decision", markdown: message },
-        raw: [{ type: "ace.conductor.gate", data: { key } }],
+        request,
+        raw,
       },
     ]);
     const interaction = this.repo.requireState(threadId).interactions[key];
     if (!interaction) throw new Error("Host interaction was not admitted");
     return interaction.id;
   }
+  resolveHostApproval(
+    threadId: ThreadId,
+    key: string,
+    result: {
+      state: "resolved" | "cancelled" | "expired";
+      resolution?: import("@ace/protocol").InteractionResolution;
+      resolvedBy?: import("@ace/protocol").DeviceId;
+    },
+  ): void {
+    this.actor(threadId).apply([{ type: "interaction.closed", interaction: key, ...result }]);
+  }
+  openHostGate(threadId: ThreadId, key: string, message: string) {
+    return this.openHostApproval(
+      threadId,
+      key,
+      { kind: "plan_review", title: "Deck needs your decision", markdown: message },
+      [{ type: "ace.conductor.gate", data: { key } }],
+    );
+  }
   closeHostGate(threadId: ThreadId, key: string, state: "resolved" | "cancelled"): void {
-    this.actor(threadId).apply([{ type: "interaction.closed", interaction: key, state }]);
+    this.resolveHostApproval(threadId, key, { state });
   }
   activeExecutionSelections() {
     const row = z.object({

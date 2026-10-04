@@ -15,7 +15,7 @@ import { acquireChromium } from "./acquisition.ts";
 import { EmbeddedBackend, type EmbeddedTransport } from "./embedded.ts";
 import type { BrowserBackend, BackendOpen, BrowserBackendSession } from "./backend.ts";
 import type { BrowserBackendLost, BrowserDownloadProgress } from "@ace/protocol";
-import { allowedOrigin } from "./policy.ts";
+import { BrowserOriginError, browserOrigin, allowedOrigin } from "./policy.ts";
 import { BrowserSession, type Actor } from "./session.ts";
 import type { FrameSink } from "./fanout.ts";
 import { BrowserSubscriptions } from "./subscriptions.ts";
@@ -138,6 +138,7 @@ export class BrowserService {
       if (session && this.sessions.get(options.threadId) === session)
         this.sessions.delete(options.threadId);
       scope.abort();
+      this.options.onNavigation?.(options.threadId);
       if (this.policyScopes.get(options.threadId) === scope)
         this.policyScopes.delete(options.threadId);
       this.leases.delete(profile);
@@ -146,18 +147,37 @@ export class BrowserService {
     };
     try {
       await mkdir(profile, { recursive: true, mode: 0o700 });
-      const allowed = (url: string) =>
-        allowedOrigin(
-          options.threadId,
-          url,
-          this.options.originPolicy
-            ? (request) =>
-                this.policyGate.run(
-                  signal,
-                  () => this.options.originPolicy?.({ ...request, signal }) ?? false,
-                )
-            : undefined,
-        );
+      const allowed = async (url: string, originContext: { navigation?: boolean } = {}) => {
+        try {
+          const result = await allowedOrigin(
+            options.threadId,
+            url,
+            this.options.originPolicy
+              ? (originRequest) =>
+                  this.policyGate.run(
+                    signal,
+                    () => this.options.originPolicy?.({ ...originRequest, signal }) ?? false,
+                    this.options.origins ? 65_000 : 10_000,
+                  )
+              : undefined,
+            {
+              ...originContext,
+              manageLoopback: this.options.origins !== undefined,
+              human: session?.state.controller === "human",
+            },
+          );
+          if (!result && originContext.navigation)
+            session?.blockedNavigation({
+              origin: browserOrigin(url) ?? url.slice(0, 8192),
+              reason: "approval_required",
+            });
+          return result;
+        } catch (error) {
+          if (originContext.navigation && error instanceof BrowserOriginError)
+            session?.blockedNavigation(error.blocked);
+          throw error;
+        }
+      };
       const request: BackendOpen = {
         options,
         profileDir: profile,
@@ -236,7 +256,30 @@ export class BrowserService {
         dir,
         now: this.now,
         id: this.id,
-        navigatePolicy: allowed,
+        navigatePolicy: (url, actor, commandSignal) => {
+          this.options.onNavigation?.(options.threadId);
+          const navigationSignal = commandSignal
+            ? AbortSignal.any([signal, commandSignal])
+            : signal;
+          return allowedOrigin(
+            options.threadId,
+            url,
+            this.options.originPolicy
+              ? (originRequest) =>
+                  this.policyGate.run(
+                    navigationSignal,
+                    () => this.options.originPolicy?.(originRequest) ?? false,
+                    this.options.origins ? 65_000 : 10_000,
+                  )
+              : undefined,
+            {
+              manageLoopback: this.options.origins !== undefined,
+              human: actor.kind === "human",
+              navigation: true,
+              signal: navigationSignal,
+            },
+          );
+        },
         cancelPolicy: () => scope.abort(),
         ...(this.options.spawn ? { spawn: this.options.spawn } : {}),
         ...(ffmpeg ? { ffmpeg } : {}),
@@ -281,6 +324,17 @@ export class BrowserService {
     const session = this.sessions.get(threadId);
     if (!session || session.state.closed) throw new Error("Browser session not open");
     return session;
+  }
+  originsList(threadId: string) {
+    return this.options.origins?.list(threadId) ?? [];
+  }
+  originsGrant(threadId: string, origin: string): void {
+    if (!this.options.origins) throw new Error("Browser origin grants unavailable");
+    this.options.origins.grant(threadId, origin);
+  }
+  originsRevoke(threadId: string, origin: string): void {
+    if (!this.options.origins) throw new Error("Browser origin grants unavailable");
+    this.options.origins.revoke(threadId, origin);
   }
   generation(threadId: string): number {
     const generation = this.generations.get(this.get(threadId));

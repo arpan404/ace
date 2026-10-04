@@ -28,6 +28,7 @@ export class FakePage {
     off: (method: string, listener: (value: unknown) => void) => this.events.off(method, listener),
   };
   command(method: string, params?: Record<string, unknown>): unknown {
+    if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main" } } };
     if (method === "Page.captureScreenshot") return { data: "AA==" };
     if (method === "Memory.getDOMCounters") return { nodes: 1 };
     if (method === "Accessibility.getFullAXTree")

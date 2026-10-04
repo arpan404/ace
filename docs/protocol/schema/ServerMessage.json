@@ -711,6 +711,9 @@
     },
     {
       "properties": {
+        "blocked": {
+          "$ref": "https://ace.local/protocol/v1/BrowserOriginBlock.json"
+        },
         "error": {
           "maxLength": 2048,
           "type": "string"

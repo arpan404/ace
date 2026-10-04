@@ -131,6 +131,24 @@ export class EmbeddedBackend implements BrowserBackend {
       });
       return;
     }
+    if (message.method === "ace.webSocketRequested") {
+      const request = z
+        .object({ id: z.string().max(256), url: z.string().max(8192) })
+        .safeParse(message.params);
+      if (!request.success) return;
+      void session.request
+        .allowed(request.data.url)
+        .catch(() => false)
+        .then((allowed) =>
+          this.call(message.sessionId, {
+            kind: "cdp",
+            method: "ace.webSocketDecision",
+            params: { id: request.data.id, allowed },
+          }),
+        )
+        .catch(() => {});
+      return;
+    }
     if (message.method === "ace.permissionDenied") {
       const result = z
         .object({ origin: z.string().max(8192), permission: z.string().max(256) })

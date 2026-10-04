@@ -67,7 +67,7 @@ With a window open, agents browse in the app's own Chromium. The contract is the
 - **Screencast frames.** Each session keeps one frame in flight and one replaceable latest frame (at most 768 KiB). Chromium gets its ack at once; the next frame goes out on the daemon's `frameAck`.
 - **Placement.** A view is drawn only where a renderer places it (`window.ace.browser.place`): the Browser tab showing an embedded page places it over its page area, in CSS pixels the main process scales by the page zoom, and hides it on leaving and while a menu, dialog or toast is drawn over it. A hidden view paints nothing and sends no screencast frames. Placements are kept per renderer: a view shows in the window that showed it last, one window hiding it leaves it where another shows it, a view that opens later takes its placement, and a renderer that reloads or crashes loses its placements.
 - **Views.** `WebContentsView`s with the daemon-owned lease of each session. A view loads `about:blank` before CDP attaches (a view with no renderer never answers `Page.enable`). A persistent profile gets one partition per workspace; an ephemeral one borrows an in-memory partition from a pool: Electron keeps every partition for the app's life, so a partition is lent to one session at a time and reused only after its data, caches, auth, DNS and connections are cleared (one whose clearing fails is never reused). Some in-memory network state, such as HSTS, may outlive the clearing. A view off screen, not under the person's control, not screencasting and not driven by the agent for 30 s is background throttled; any agent command restores full speed. Permissions and downloads are denied natively and reported as `ace.permissionDenied` and `ace.downloadDenied`. Popups, dialogs and service workers are refused before `open` returns.
-- **Origins.** Origin approval is the daemon's CDP `Fetch` interception. WebSockets, which `Fetch` does not see, open only to origins the daemon let through.
+- **Origins.** Origin approval is the daemon's CDP `Fetch` interception. WebSockets, which `Fetch` does not see, ask the daemon for each handshake under the origin consent policy below.
 - **Control.** The person's own input reaches a view only under a `human` lease held by this app: its backend connection's, or that of the renderer showing the view. A renderer takes control on its own daemon connection (the one its address bar and buttons use) and names that connection, as its take-control reply gave it, in its placement. The desktop lets input through only while the daemon's current lease is that connection's; any newer lease that isn't (a handback, another device, the agent) revokes the claim for good. Input the daemon relays (an agent's, or a remote lease owner's, through CDP `Input.*` or a key press) passes the native gate only while the view dispatches it: Chromium runs Electron's input hooks synchronously inside that dispatch, so no time window opens in which the person's own events get through. Using a view the agent drives asks the renderer showing it to take control (`browser.wants-control`); with none showing it, the backend connection asks the daemon with `browser.takeover`. Placements for a thread are released when its view closes, and a hidden placement for a thread with no view keeps nothing.
 - **No window.** Views live in a window. When the last window closes, the app drops the backend, and the daemon pauses those sessions or moves them to headless (`browser.backendLoss`). New sessions then run headless until a window opens again. Quitting does the same.
 
@@ -81,6 +81,76 @@ No Chromium is downloaded into the desktop bundle.
 - **Screen helpers (Windows, Linux):** built with cargo into `resources/helpers`.
 - **ripgrep:** comes from `@vscode/ripgrep` (MIT) and goes first on the daemon's `PATH`.
 - **git, Xcode and the Android SDK** are detected, not bundled, and missing ones get setup hints.
+
+### Thread browser origin consent
+
+Origin policy belongs to the daemon, for both embedded and headless pages. The
+built-in policy permits exact localhost, 127.0.0.1 and [::1] hosts. Other origins
+need human consent, a thread grant, the global user allowlist, or the agent's
+permission mode. Only HTTP(S) navigation is supported; URL credentials and other
+schemes are refused. Origins include scheme and port. A WebSocket origin maps
+`ws` to `http` and `wss` to `https` before the same policy lookup.
+
+Human navigation is consent. An authorized connection must first own the human
+controller lease. Address-bar navigation, main-frame link navigation and
+main-frame redirects grant each destination origin for that thread without a
+prompt. Taking control alone does not grant the current URL. While the human
+lease is active, cross-origin subresources, frames, workers and WebSockets may
+load, but they do not create persistent grants. After handback, future requests
+use the agent policy. No iframe or worker can grant its origin merely by loading
+under a main document.
+
+Agent navigation in read-only mode is refused, even to a previously granted or
+loopback origin. Existing resource grants do not override that navigation
+restriction. Full-access permits new navigation without a prompt and keeps the
+allowance in memory for the current page. It also permits resource and socket
+origins without review while that mode remains effective. Ask requests a browser approval.
+Auto-review sends the exact action, such as "open https://youtube.com in the
+thread browser", to the ADR 0061 deterministic reviewer. An unfamiliar external
+site is not proven low risk, so the current reviewer escalates it to a human.
+Redirect destinations and agent link navigations receive the same policy.
+Unapproved subresources and socket handshakes in restricted agent modes fail without generating
+additional approval cards.
+
+Browser approval choices are Allow once, Allow for this thread and Deny. Allow
+once permits that origin's requests on the current page. Another explicit
+navigation or closing the page discards it. Allow for this thread stores an exact
+origin grant in daemon SQLite. These are browser grants, not native provider
+session permissions. The engine's host interactions keep the agent tree waiting
+on a human and store the review audit. Approvals expire after 60 seconds. Explicit navigation approvals cancel
+with the command abort signal; intercepted navigation approvals cancel when
+the browser closes. Pending approvals expire after daemon restart;
+no navigation replays on restart. Late answers are rejected.
+
+SQLite holds at most 256 grants per thread and 16,384 in total. Reaching a limit
+refuses another grant until one is revoked. Thread deletion cascades to its
+grants. `browser.allowedOrigins` is a global-only user setting with at most 256
+exact HTTP(S) origins and an empty default. A workspace file cannot opt its sites
+into the user's global allowlist. Thread grants survive daemon restart; page-only
+allowances do not.
+
+`browser.origins.list`, `.grant` and `.revoke` require browser operate scope and
+access to the requested thread, even when its browser is closed. Responses use
+`browser.result`; list and mutations return the resulting grant list. A failed
+navigation includes `blocked: {origin, reason}` alongside the error string. A
+native intercepted navigation publishes the same block in `browser.state`.
+Reasons distinguish approval-required, denial, read-only, timeout and invalid
+origin. An authorized grant action works without taking the controller lease.
+Revocation removes durable and page-only allowances. Built-in origins, the
+global allowlist, human consent and full-access remain independent authorities.
+
+Both backends ask the current daemon policy for every WebSocket handshake.
+Embedded views emit `ace.webSocketRequested` and await the daemon's
+`ace.webSocketDecision` CDP relay response, bounded to 32 pending handshakes and a
+10-second deadline. They do not cache HTTP approvals. Revocation blocks future
+handshakes, including on a page already open. It does not disconnect established
+sockets or undo resources already loaded. Native browser permissions and
+downloads remain denied as before.
+
+The UI follow-up needs an Allow button on a blocked page, the three browser
+approval choices on the interaction card, and a grant list with revoke actions
+in the Browser tab menu. The fake daemon implements the grant wire messages,
+human lease checks and scripted agent approval flow for that work.
 
 ## Consequences
 

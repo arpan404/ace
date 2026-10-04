@@ -1,8 +1,9 @@
+import { BrowserOriginError, browserOrigin } from "./policy.ts";
 import { z } from "zod";
 import { join } from "node:path";
 import { writeFile } from "node:fs/promises";
 import type { BrowserBackendSession, BrowserBackend } from "./backend.ts";
-import type { BrowserControllerLease } from "@ace/protocol";
+import type { BrowserOriginBlock, BrowserControllerLease } from "@ace/protocol";
 import {
   BrowserCommand,
   BrowserInput,
@@ -29,7 +30,7 @@ export interface SessionOptions {
   ffmpeg?: string;
   spawn?: ProcessSpawner;
   cancelPolicy: () => void;
-  navigatePolicy: (url: string) => Promise<boolean>;
+  navigatePolicy: (url: string, actor: Actor, signal?: AbortSignal) => Promise<boolean>;
   evaluatePolicy?: (threadId: string, url: string) => boolean | Promise<boolean>;
   artifact: (artifact: BrowserArtifact) => void | Promise<void>;
   state: (state: BrowserState) => void;
@@ -63,6 +64,11 @@ export class BrowserSession {
   private pending = 0;
   private recording: Recording | undefined;
   private paused = false;
+  private blocked: BrowserOriginBlock | undefined;
+  blockedNavigation(blocked: BrowserOriginBlock): void {
+    this.blocked = blocked;
+    this.emit();
+  }
   private lastUrl: string | undefined;
   private reason: string | undefined;
   private pageStateLost = false;
@@ -82,6 +88,7 @@ export class BrowserSession {
     });
   }
   navigation(): void {
+    this.blocked = undefined;
     this.refs.invalidate();
     this.emit();
   }
@@ -146,6 +153,7 @@ export class BrowserSession {
       status: this.paused ? "paused" : "ready",
       ...(this.reason ? { reason: this.reason } : {}),
       ...(this.pageStateLost ? { pageStateLost: true } : {}),
+      ...(this.blocked ? { blocked: this.blocked } : {}),
       closed: this.closed,
     };
   }
@@ -210,7 +218,13 @@ export class BrowserSession {
         await this.leaseReady;
         this.check(actor, signal);
       }
-      const result = await this.run(command, actor, signal);
+      let result: unknown;
+      try {
+        result = await this.run(command, actor, signal);
+      } catch (error) {
+        if (error instanceof BrowserOriginError) this.blockedNavigation(error.blocked);
+        throw error;
+      }
       if (this.paused || (generation !== this.generation && this.pageStateLost))
         throw new Error("Browser backend changed during command");
       return result;
@@ -234,8 +248,18 @@ export class BrowserSession {
     const cdp = page.cdp;
     switch (command.action) {
       case "navigate":
-        if (!(await this.options.navigatePolicy(command.url)))
-          throw new Error("Browser origin requires approval");
+        if (!/^https?:\/\//i.test(command.url) || !browserOrigin(command.url))
+          throw new BrowserOriginError(
+            command.url,
+            "invalid_origin",
+            "Browser navigation requires an HTTP(S) URL without credentials",
+          );
+        if (!(await this.options.navigatePolicy(command.url, actor, signal)))
+          throw new BrowserOriginError(
+            browserOrigin(command.url) ?? command.url,
+            browserOrigin(command.url) ? "approval_required" : "invalid_origin",
+            "Browser origin requires approval",
+          );
         this.check(actor, signal);
         await page.navigate(command.url, command.timeout);
         return this.state;

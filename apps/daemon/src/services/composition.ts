@@ -140,6 +140,11 @@ export function requireService<T>(service: T | undefined, name: string): T {
 export function readyServices(
   services: Partial<Services>,
 ): asserts services is Partial<Services> & Pick<Services, "handler"> {
-  requireService(services.handler, "engine");
+  const handler = requireService(services.handler, "engine");
+  services.browserOrigins?.recover();
+  services.handler = {
+    handle: (command, store) =>
+      services.browserOrigins?.resolve(command) ?? handler.handle(command, store),
+  };
 }
 export type { ServiceContext };

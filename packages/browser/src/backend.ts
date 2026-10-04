@@ -15,7 +15,7 @@ export interface BackendOpen {
   options: BrowserOpen;
   profileDir: string;
   signal: AbortSignal;
-  allowed(url: string): Promise<boolean>;
+  allowed(url: string, context?: { navigation?: boolean }): Promise<boolean>;
   navigation(): void;
   log(entry: BackendLog): void;
   lost(reason: string): void;
