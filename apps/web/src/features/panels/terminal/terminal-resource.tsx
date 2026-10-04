@@ -4,14 +4,13 @@ import {
   CopyIcon,
   MagnifyingGlassIcon,
   PencilSimpleIcon,
-  PlusIcon,
   PowerIcon,
   SelectionAllIcon,
   TerminalWindowIcon,
   TrashIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
   ContextMenu,
@@ -22,7 +21,6 @@ import { EmptyState } from "@/components/ui/empty.tsx";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import {
   useWorkspaceActions,
@@ -40,7 +38,6 @@ import type { TerminalSurface } from "./surface.ts";
 import {
   isPendingTerminal,
   newTerminal,
-  openNewTerminal,
   openTerminalIds,
   reusesSpareShell,
   spareShell,
@@ -49,6 +46,7 @@ import {
 import { setTabUi, useTabUi } from "./tab-ui.ts";
 import { TerminalView } from "./terminal-view.tsx";
 import { useExitCode, useThreadTerminals } from "./use-terminals.ts";
+import { NewTerminalButton } from "./new-terminal-button.tsx";
 import { MoreMenu, ToolbarButton } from "./toolbar.tsx";
 
 /*
@@ -392,21 +390,11 @@ export function TerminalActions(props: TabViewProps) {
 function TerminalButtons(props: TabViewProps) {
   const { scope, tab, dock } = props;
   const { terminals, terminalUi } = usePanelServices();
-  const store = useWorkspaceStore();
   const actions = useWorkspaceActions(scope);
-  const { link } = useThreadTerminals(terminals, scope);
   const pending = isPendingTerminal(tab.id);
-  const openNew = useEffectEvent(() => openNewTerminal(actions, store.get(scope), dock));
-  useHotkey(keymap.newTerminal.keys, () => openNew());
   return (
     <>
-      <ToolbarButton
-        icon={PlusIcon}
-        label="New terminal"
-        shortcut="newTerminal"
-        disabled={link !== "connected"}
-        onClick={() => openNew()}
-      />
+      <NewTerminalButton scope={scope} dock={dock} />
       <ToolbarButton
         icon={MagnifyingGlassIcon}
         label="Find"

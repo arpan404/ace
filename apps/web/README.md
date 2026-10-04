@@ -161,7 +161,27 @@ export const fileKind = defineTabKind({
 
 Shortcuts (`lib/keymap.ts`): ⇧⌘B side panel, ⌘J bottom panel, ⇧⌘F full view, ⌥⌘T new tab,
 ⌥⌘W close tab, ⇧⌘] and ⇧⌘[ next and previous tab, and each tool's own (⇧⌘D Changes, ⌃⇧A Agents,
-⌃` Terminal, ⌃⇧P Preview, ⌃⇧M Devices, ⌃⇧L Logs, ⌘P Files, ⌥⌘S Side chat). In a strip: arrows
+⌃` Terminal, ⌃⇧P Preview, ⌃⇧M Devices, ⌃⇧L Logs, ⌘P Files, ⌥⌘S Side chat). While a terminal shows,
+⌃⇧` opens another and ⌘F finds in its scrollback.
+
+### Terminals, agent shells and Logs
+
+`features/panels/terminal/tabs.ts` names them (open them with `useWorkspaceActions(threadId).open`):
+
+- `{ kind: "terminal", id: <pty id> }`: one of your PTYs. Closing its tab ends the shell (through
+  `terminal/closing.ts`, since `onClose` has no client); hiding the dock never does. Rename keeps a
+  tab title for this thread on this device.
+- `{ kind: "terminal" }`: a terminal that starts when it first shows, picking up a running PTY of
+  the thread that no tab shows, else opening one (the launcher, ⌃`, the bottom panel's first tab).
+`openNewTerminal` always starts a new shell, reusing that tab if it hasn't started yet.
+- `{ kind: "shell", id: <task id> }`: an agent's background shell, read-only (Stop where the
+  provider allows; Take over says why it can't). Closing the tab leaves the shell running.
+- `{ kind: "logs", id? }`: the thread's log (no id), one agent's subtree (`agent:<id>`) or the
+  daemon's health (`daemon`); the level and source filters are kept in the tab's `data`.
+
+Inside a terminal the shell keeps Ctrl keys (`terminal/keys.ts`); ⌘ and Ctrl+Shift shortcuts stay
+ace's, and ⌃` always leaves. Colours come from the theme (`terminal/palette.ts`): 13px text on 20px
+rows. In a strip: arrows
 move between tabs and show them, Home and End jump, Delete closes, Alt+Shift+arrows reorder;
 right-click (or the context-menu key) for pin, move, full view and close.
 

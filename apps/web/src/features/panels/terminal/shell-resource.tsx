@@ -5,7 +5,6 @@ import {
   HandGrabbingIcon,
   LockSimpleIcon,
   MagnifyingGlassIcon,
-  PlusIcon,
   StopIcon,
   TerminalIcon,
 } from "@phosphor-icons/react";
@@ -24,22 +23,18 @@ import { Tip } from "@/components/ui/tooltip.tsx";
 import { readOutputText } from "@/lib/output-read.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useSeconds } from "@/lib/time.ts";
-import {
-  useWorkspaceActions,
-  useWorkspaceStore,
-  type TabViewProps,
-} from "@/lib/workspace/index.ts";
+import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
 import { WithServices } from "../with-services.tsx";
 import { FindBar } from "./find-bar.tsx";
 import { TerminalScreen } from "./screen.ts";
 import { SessionsMenu } from "./sessions-menu.tsx";
 import type { TerminalSurface } from "./surface.ts";
-import { openNewTerminal, shellLabel } from "./tabs.ts";
+import { shellLabel } from "./tabs.ts";
 import { setTabUi, useTabUi } from "./tab-ui.ts";
 import { ScreenRows, useScreenSurface, type ScreenMark } from "./terminal-view.tsx";
+import { NewTerminalButton } from "./new-terminal-button.tsx";
 import { ToolbarButton } from "./toolbar.tsx";
-import { useThreadTerminals } from "./use-terminals.ts";
 
 /*
  * An agent's background shell as a tab: read-only, because the agent owns it. Its output is
@@ -267,19 +262,10 @@ export function ShellActions(props: TabViewProps) {
 
 function ShellButtons(props: TabViewProps) {
   const { scope, tab, dock } = props;
-  const { terminals, terminalUi } = usePanelServices();
-  const store = useWorkspaceStore();
-  const actions = useWorkspaceActions(scope);
-  const { link } = useThreadTerminals(terminals, scope);
+  const { terminalUi } = usePanelServices();
   return (
     <>
-      <ToolbarButton
-        icon={PlusIcon}
-        label="New terminal"
-        shortcut="newTerminal"
-        disabled={link !== "connected"}
-        onClick={() => openNewTerminal(actions, store.get(scope), dock)}
-      />
+      <NewTerminalButton scope={scope} dock={dock} />
       <ToolbarButton
         icon={MagnifyingGlassIcon}
         label="Find"
