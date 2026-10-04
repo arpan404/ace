@@ -172,7 +172,7 @@ export class Client implements ClientApi {
       () => this.notifications.emit(["connection"]),
       () => {
         this.readMarkers.disconnect();
-        this.requests.clear(new ClientError("offline"));
+        this.requests.disconnect();
         this.subscriptions.disconnect();
         this.intents.disconnect();
         this.sidebar.disconnect();
@@ -232,6 +232,7 @@ export class Client implements ClientApi {
   }
   close(): Promise<void> {
     this.closed = true;
+    this.requests.clear(new ClientError("offline"));
     this.readMarkers.close();
     this.serviceListeners.clear();
     this.connection.stop();
@@ -267,8 +268,8 @@ export class Client implements ClientApi {
           ...(error ? { error } : {}),
         }),
       );
-    if (this.state !== "ready" || this.closed) return Promise.reject(new ClientError("offline"));
-    return this.requests.wait(id, CommandResult.parse, options, () => {
+    if (this.closed) return Promise.reject(new ClientError("offline"));
+    return this.requests.waitDurable(id, CommandResult.parse, options, () => {
       void this.enqueue(payload, id).catch((error: unknown) =>
         this.requests.reject(
           id,

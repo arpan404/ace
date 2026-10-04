@@ -158,3 +158,11 @@ Each caller retains its own abort and timeout. The daemon advances monotonically
 and caps the cursor at its current head. An accepted command stays in the normal
 outbox until its receipt is acknowledged. Pending unsent read marks are bounded
 by the client's request limit.
+
+Durable `command()` calls persist even while offline and wait across disconnects.
+They have no receipt deadline. `timeoutMs` only sets deadlines for one-shot reads
+and previews through `request()`. Aborting a durable call stops its waiter, not
+its already saved command. Reuse the command id when reattaching or retrying a
+create. Closing the client stops local waiters; saved commands survive reload.
+UI callers should show "Will apply when reconnected" offline and a waiting hint
+after five seconds, and roll back only after a definite daemon refusal.
