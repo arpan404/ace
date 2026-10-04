@@ -34,14 +34,39 @@ import { SideChatComposer } from "./composer/side-chat-composer.tsx";
 import { AgentComposer } from "./composer/agent-composer.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
-import { DeferredThreadHotkeys, DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
+import {
+  DeferredCatchUpSlot,
+  DeferredThreadHotkeys,
+  DeferredThreadMenu,
+  DeferredTurnsPanel,
+  preloadDeferred,
+} from "./deferred.ts";
 import { readingColumn } from "./lib/column.ts";
+import { LongThreadButtons } from "./long/header-buttons.tsx";
+import { ThreadNavProvider, useThreadNav } from "./long/nav.tsx";
+
+/** Where a link into the thread points: an item's creation sequence (a search hit elsewhere). */
+export interface ThreadTarget {
+  seq: number;
+  /** The words that found it, marked once it is in view. */
+  query?: string | undefined;
+}
 
 /**
  * A thread: the transcript and composer in the main column, Run · Open · Commit in the header,
  * and its workspace (Changes, Agents, Preview, Devices, … beside it; Terminal and Logs below).
+ * A long thread adds its turns, search and a catch-up card for the reader who was away.
  */
-export function ThreadView(props: { threadId: string }) {
+export function ThreadView(props: { threadId: string; target?: ThreadTarget | undefined }) {
+  return (
+    <ThreadNavProvider threadId={props.threadId}>
+      <ThreadScreen threadId={props.threadId} target={props.target} />
+    </ThreadNavProvider>
+  );
+}
+
+function ThreadScreen(props: { threadId: string; target: ThreadTarget | undefined }) {
+  const nav = useThreadNav();
   const meta = useThreadMeta(props.threadId);
   const error = useThreadError(props.threadId);
   const [renaming, setRenaming] = useState(false);
@@ -95,7 +120,14 @@ export function ThreadView(props: { threadId: string }) {
             </>
           )
         }
-        summary={thread && <SummaryToggle thread={thread} />}
+        summary={
+          thread && (
+            <>
+              <LongThreadButtons />
+              <SummaryToggle thread={thread} />
+            </>
+          )
+        }
         workspace={{ scope: id, definition: threadWorkspace }}
       >
         {error ? (
@@ -116,16 +148,29 @@ export function ThreadView(props: { threadId: string }) {
         ) : (
           <ForkOpener value={setForking}>
             <div ref={column} style={inset} className="relative flex h-full min-h-0 flex-col">
-              {thread && (
+              {thread && !nav.turnsOpen && (
                 <PinnedSummary
                   thread={thread}
                   inline={placement === "inline"}
                   onAddSource={() => composer.current?.openAdd()}
                 />
               )}
+              {nav.turnsOpen && (
+                <Suspense fallback={null}>
+                  <DeferredTurnsPanel.Component nav={nav} />
+                </Suspense>
+              )}
               <div className="min-h-0 flex-1">
-                <Transcript threadId={id} />
+                <Transcript
+                  threadId={id}
+                  overlay={
+                    <Suspense fallback={null}>
+                      <DeferredCatchUpSlot.Component threadId={id} />
+                    </Suspense>
+                  }
+                />
               </div>
+              <TargetJump target={props.target} />
               {thread && (
                 <ThreadComposer thread={thread} status={meta?.status} composer={composer} />
               )}
@@ -159,4 +204,15 @@ function TranscriptSkeleton() {
       <SkeletonText lines={4} className="mt-6" />
     </LoadingRegion>
   );
+}
+
+/** Opening the thread at a link's target (a search hit in a subagent thread, say). */
+function TargetJump(props: { target: ThreadTarget | undefined }) {
+  const nav = useThreadNav();
+  const seq = props.target?.seq;
+  const query = props.target?.query;
+  useEffect(() => {
+    if (seq !== undefined) void nav.jump.toSeq(seq, query ? { query } : {});
+  }, [nav.jump, seq, query]);
+  return null;
 }
