@@ -69,8 +69,9 @@ test("a model of an unknown family keeps the provider's mark", () => {
   expect(providerIcon({ provider: "codex", model: "photon" }).brand).toBe("codex");
 });
 
-test("a mark with a cutout gives way to its maker's simpler mark below 14px", () => {
+test("a mark with a cutout gives way to its maker's simpler mark at row sizes", () => {
   expect(brandAtSize("codex", 12)).toBe("openai");
-  expect(brandAtSize("codex", 14)).toBe("codex");
+  expect(brandAtSize("codex", 14)).toBe("openai");
+  expect(brandAtSize("codex", 16)).toBe("codex");
   expect(brandAtSize("claude", 12)).toBe("claude");
 });

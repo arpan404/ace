@@ -29,17 +29,20 @@ export interface ModelChoice {
 
 /**
  * The model a thread runs on, read from the thread's own record when the catalog can't be read
- * (offline, before it loads): its name, with no account or usage claimed.
+ * (offline, before it loads): its name (or the provider's default), with no account or usage
+ * claimed.
  */
 export function recordedChoice(
   selection: { provider: ProviderKind; model?: string | undefined } | undefined,
 ): ModelChoice | undefined {
-  if (!selection?.model) return undefined;
+  if (!selection) return undefined;
+  const model = selection.model;
   return {
-    id: `recorded:${selection.provider}:${selection.model}`,
+    id: `recorded:${selection.provider}:${model ?? "default"}`,
     provider: selection.provider,
-    model: modelLabel(selection.model),
-    modelId: selection.model,
+    // No model on record: the provider runs its own default.
+    model: model ? modelLabel(model) : `${providerNames[selection.provider]} default`,
+    modelId: model ?? "",
     account: "",
     accountId: "",
     note: "",

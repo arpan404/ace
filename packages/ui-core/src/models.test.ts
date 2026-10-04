@@ -250,5 +250,6 @@ test("offline, a thread's model reads from its own record, claiming no account o
     account: "",
     used: undefined,
   });
-  expect(recordedChoice({ provider: "claude" })).toBeUndefined();
+  expect(recordedChoice({ provider: "claude" })?.model).toBe("Claude Code default");
+  expect(recordedChoice(undefined)).toBeUndefined();
 });

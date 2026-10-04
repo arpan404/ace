@@ -83,7 +83,7 @@ export function ProviderIcon(props: ProviderIconProps) {
   useSyncExternalStore(subscribe, () => version);
   const choice = catalog?.providerIcon(props);
   const size = props.size ?? 12;
-  // Tiny, a detailed mark draws as its maker's simpler one (Codex → OpenAI).
+  // At row sizes a detailed mark draws as its maker's simpler one (Codex → OpenAI).
   const brand = choice?.brand && catalog ? catalog.brandAtSize(choice.brand, size) : choice?.brand;
   const art = brand && marks.get(brand);
   const label =
