@@ -1,9 +1,9 @@
+import { syntheticInput, admitInput, removeInput } from "./transcript-inputs.ts";
+import { cancelPending } from "./stop-intents.ts";
+import { foldProviderFacts } from "./provider-facts.ts";
 import { indexTitleInputs } from "./title-input.ts";
 import { InteractionLedger } from "./interaction-ledger.ts";
-import { shapeProviderError, structuredError } from "./provider-errors.ts";
-import { provisionalTitle } from "./thread-title.ts";
-import { InputJournal, inputOrigin } from "./input-journal.ts";
-import { coalesceFacts } from "./delta-batch.ts";
+import { InputJournal } from "./input-journal.ts";
 import { Permissions } from "./permissions.ts";
 import { ProviderRecovery } from "./provider-recovery.ts";
 import type { ProviderBackend, Frame } from "@ace/engine-api";
@@ -13,13 +13,13 @@ import { TransitionReadiness } from "./transition-readiness.ts";
 import { captureExecutionSources } from "./execution-provenance.ts";
 import { quiescent } from "./transition-history.ts";
 import { TransitionState } from "./transition-state.ts";
-import { FactBatch, type Fact, type ThreadState, type IdSource } from "@ace/core";
+import { type Fact, type ThreadState, type IdSource } from "@ace/core";
 import type { StatementSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { ExecutionOptions, Command, CommandId, ThreadId, type EventPayload } from "@ace/protocol";
 import type { Store } from "../store.ts";
 import { decodeSnapshot } from "./snapshot.ts";
-import { capFact, readRawBlob } from "./raw.ts";
+import { readRawBlob } from "./raw.ts";
 import { QueueStore } from "./queue-store.ts";
 import { Snapshot } from "./persistence.ts";
 import { migrateEngine } from "./migrations.ts";
@@ -204,381 +204,23 @@ export class EngineRepository {
   apply(id: ThreadId, facts: Fact[], now: number, generation?: number): ThreadState {
     try {
       return this.store.atomic(() => {
-        const state = this.state(id);
-        if (!state) throw new Error("Missing engine state");
-        this.snapshots.get(id)?.begin();
-        const batch = new FactBatch(state);
-        let continuationStarted = false;
-        const events = coalesceFacts(facts).flatMap((input) => {
-          if (this.interactions.obsolete(id, input)) return [];
-          if (
-            (input.type === "item.upsert" || input.type === "item.reconciled") &&
-            input.agent === (state.rootKey ?? "root") &&
-            input.draft.type === "notice" &&
-            input.draft.code === "thread_title"
-          ) {
-            const thread = this.store.getThread(id);
-            const title = input.draft.title?.trim();
-            if (
-              title &&
-              (thread?.titleSource === "provisional" ||
-                (!thread?.titleSource && thread?.title === "New thread"))
-            )
-              this.store.appendEvents(
-                id,
-                [{ type: "thread.updated", title, titleSource: "provider" }],
-                now,
-              );
-            return [];
-          }
-          const queue = input.type === "turn.started" ? this.queue.get(id) : undefined;
-          if (
-            input.type === "turn.started" &&
-            input.agent === (state.rootKey ?? "root") &&
-            queue?.trigger &&
-            this.recoveryAcknowledgement(id)
-          )
-            input = { ...input, trigger: queue.trigger };
-          const correlated = this.inputs.correlate(id, input, state.rootKey ?? "root", generation);
-          if (!correlated) return [];
-          let fact = capFact(
-            (raw) => this.store.capRaw(raw, id),
-            shapeProviderError(
-              correlated,
-              state.config.provider,
-            ),
-          );
-          if (
-            (fact.type === "item.upsert" || fact.type === "item.reconciled") &&
-            fact.agent === (state.rootKey ?? "root") &&
-            fact.draft.type === "message" &&
-            fact.draft.role === "user" &&
-            !fact.draft.origin
-          ) {
-            const runId = state.agents[fact.agent]?.activeRun;
-            const trigger = runId ? state.runs[runId]?.trigger : undefined;
-            if (trigger === "background_completion" || trigger === "subagent_result")
-              fact = {
-                ...fact,
-                draft: { ...fact.draft, origin: { kind: trigger }, synthetic: true },
-              };
-          }
-          if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
-            const pending = this.pending.awaiting(id);
-            if (
-              pending &&
-              (pending.kind === "thread.create" || pending.kind === "thread.send") &&
-              pending.trigger
-            )
-              fact = { ...fact, trigger: pending.trigger };
-          }
-          if (fact.type === "turn.ended" && fact.agent === (state.rootKey ?? "root")) {
-            const record = state.agents[fact.agent];
-            const runId = fact.nativeTurnId
-              ? record?.nativeRuns?.[fact.nativeTurnId]
-              : record?.activeRun;
-            const run = runId ? state.runs[runId] : undefined;
-            if (
-              run &&
-              ["spawn", "parent_agent", "subagent_result", "schedule"].includes(run.trigger)
-            )
-              fact = { ...fact, trigger: run.trigger };
-          }
-          if (fact.type === "interaction.closed" && fact.state === "resolved") {
-            const interaction = Object.hasOwn(state.interactions, fact.interaction)
-              ? state.interactions[fact.interaction]
-              : undefined;
-            const answer = interaction ? this.answer(interaction.id) : undefined;
-            if (answer?.payload.type === "interaction.resolve")
-              fact = {
-                ...fact,
-                resolution: answer.payload.resolution,
-                resolvedBy: answer.deviceId,
-              };
-          }
-          const snapshot = this.snapshots.get(id);
-          const finish = snapshot?.prepare(fact) ?? (() => {});
-          try {
-            const emitted = batch.apply(fact, {
-              now,
-              ids:
-                fact.type === "item.upsert" && fact.item.startsWith("input:")
-                  ? { next: (kind) => (kind === "item" ? fact.item : this.ids.next(kind)) }
-                  : this.ids,
-              ...(fact.type === "turn.ended"
-                ? {
-                    resolvingInteractions: this.pending.resolvingInteractions(id),
-                  }
-                : {}),
-            });
-            this.interactions.opened(state, fact, generation);
-            for (const event of [...emitted])
-              if (event.type === "interaction.closed")
-                for (const settled of this.interactions.closed(state, event))
-                  emitted.push(...batch.apply(settled, { now, ids: this.ids }));
-            if (fact.type === "turn.ended" && fact.error)
-              for (const event of emitted)
-                if (event.type === "run.ended") {
-                  event.error = fact.error;
-                  const run = state.runs[event.runId];
-                  if (run) run.error = fact.error;
-                }
-            if (
-              fact.type === "turn.started" &&
-              (fact.trigger === "restart" || fact.trigger === "limit_resume") &&
-              emitted.some((event) => event.type === "run.started")
-            )
-              continuationStarted = true;
-            if (fact.type === "item.delta" && emitted.some((event) => event.type === "item.delta"))
-              snapshot?.delta(fact);
-            snapshot?.remember(fact, emitted);
-            if (fact.type === "tick") this.readiness.refreshBlocked(state);
-            return emitted;
-          } finally {
-            finish();
-          }
-        });
-        events.push(...batch.flush());
-        this.interactions.observe(id, events);
-        for (const event of events)
-          if (event.type === "agent.status" && event.status.state === "failed") {
-            const error = structuredError(event.status.error, state.config.provider);
-            event.status = { ...event.status, error };
-            const key = state.indexes.agentKeysById[event.agentId];
-            const record = key ? state.agents[key] : undefined;
-            if (record) {
-              record.agent.status = event.status;
-              if (record.lastError) record.lastError = error;
-              if (record.processSettledStatus?.state === "failed")
-                record.processSettledStatus = event.status;
-              const run = record.lastRun ? state.runs[record.lastRun] : undefined;
-              if (run?.state === "failed") {
-                run.error = error;
-                for (const end of events)
-                  if (end.type === "run.ended" && end.runId === run.id) end.error = error;
-              }
-            }
-          }
-
-        // Admission-based providers transfer queue ownership before a run starts.
-        // Persist the acknowledgement policy in the existing per-thread record store,
-        // so a later run cannot acknowledge the next, unrelated engine input.
-        const root = state.agents[state.rootKey ?? ""]?.agent.id;
-        const inputUpdates: EventPayload[] = [];
-        for (const event of events) {
-          const pending =
-            event.type === "input.admitted" ||
-            (event.type === "run.started" && event.run.agentId === root)
-              ? this.pending.awaiting(id)
-              : undefined;
-          const commandId =
-            event.type === "input.admitted"
-              ? (event.commandId ?? pending?.commandId)
-              : event.type === "run.started" && event.run.agentId === root
-                ? pending?.commandId
-                : undefined;
-          const key = commandId ? `input:${commandId}` : undefined;
-          const item = key ? state.items[key] : undefined;
-          if (
-            key &&
-            item?.type === "message" &&
-            item.agentId === root &&
-            (event.type === "run.started" || event.type === "input.admitted")
-          ) {
-            const updated = {
-              ...item,
-              ...(event.type === "run.started"
-                ? { runId: event.run.id }
-                : { nativeId: event.nativeInputId }),
-            };
-            state.items[key] = updated;
-            inputUpdates.push({ type: "item.updated", item: updated });
-          }
-          const admitted =
-            event.type === "input.admitted" && event.agentId === root && !this.opening.has(id);
-          if (admitted) this.admissionStatements.mark.run(id);
-          const started =
-            event.type === "run.started" &&
-            !this.opening.has(id) &&
-            event.run.agentId === root &&
-            [
-              "user",
-              "queue",
-              "unknown",
-              "spawn",
-              "parent_agent",
-              "subagent_result",
-              "schedule",
-              "restart",
-              "limit_resume",
-            ].includes(event.run.trigger) &&
-            !this.admissionStatements.has.get(id);
-          const acknowledged =
-            event.type === "input.admitted" && admitted && event.commandId !== undefined
-              ? this.admissionStatements.correlated.all(id, event.commandId)
-              : admitted || started
-                ? this.admissionStatements.ack.all(id, id)
-                : [];
-          for (const row of acknowledged) this.queue.prune(Number(row.id));
-        }
-        events.push(...inputUpdates);
-        if (continuationStarted && this.queue.get(id).trigger) {
-          this.queue.set(id, { continuation: null, trigger: null }, now);
-          this.pending.finishContinuation(id);
-        }
-        this.snapshots.get(id)?.updateDeadlines(facts, events, now);
-        this.save(state, events, now);
-        this.observe?.(state, facts, events, now);
-        return state;
+        const state = this.requireState(id);
+        return foldProviderFacts(this, state, facts, now, {
+          snapshot: this.snapshots.get(id), ids: this.ids, readiness: this.readiness,
+          admission: this.admissionStatements, opening: this.opening.has(id),
+          recoveryAcknowledged: this.recoveryAcknowledgement(id),
+        }, generation);
       });
-    } catch (error) {
-      this.evict(id);
-      throw error;
-    }
+    } catch (error) { this.evict(id); throw error; }
   }
 
-  syntheticInput(
-    id: ThreadId,
-    key: string,
-    text: string,
-    origin: import("@ace/protocol").MessageOrigin,
-    at: number,
-  ): void {
-    const parts = [{ type: "text" as const, text }];
-    this.inputs.register(id, key, parts, origin);
-    this.inputs.sending(id, key, parts);
-    this.apply(
-      id,
-      [
-        {
-          type: "item.upsert",
-          agent: this.requireState(id).rootKey ?? "root",
-          item: key,
-          draft: {
-            type: "message",
-            role: "user",
-            parts,
-            origin,
-            synthetic: true,
-            complete: true,
-            raw: [],
-          },
-        },
-      ],
-      at,
-    );
+  syntheticInput(id: ThreadId, key: string, text: string, origin: import("@ace/protocol").MessageOrigin, at: number): void {
+    syntheticInput(this, id, key, text, origin, at);
   }
+  admitInput(command: Command, id: ThreadId, at: number): void { admitInput(this, command, id, at); }
+  removeInput(id: ThreadId, commandId: CommandId, at: number): void { removeInput(this, id, commandId, at); }
 
-  admitInput(command: Command, id: ThreadId, at: number): void {
-    const p = command.payload;
-    if (p.type !== "thread.create" && p.type !== "thread.send") return;
-    const thread = this.store.getThread(id);
-    if (thread?.titleSource === "provisional" && thread.title === "New thread")
-      this.store.appendEvents(
-        id,
-        [{ type: "thread.updated", title: provisionalTitle(p.input), titleSource: "provisional" }],
-        at,
-      );
-    const key = `input:${command.id}`;
-    const origin = inputOrigin(command);
-    this.inputs.register(id, key, p.input, origin);
-    this.apply(
-      id,
-      [
-        {
-          type: "item.upsert",
-          agent: this.requireState(id).rootKey ?? "root",
-          item: key,
-          draft: {
-            type: "message",
-            role: "user",
-            parts: p.input,
-            origin,
-            synthetic: origin.kind !== "person" && origin.kind !== "queue",
-            complete: true,
-            raw: [],
-          },
-        },
-      ],
-      at,
-    );
-  }
-
-  removeInput(id: ThreadId, commandId: CommandId, at: number): void {
-    const state = this.requireState(id);
-    const key = `input:${commandId}`;
-    this.inputs.invalidate(id, key);
-    const item = state.items[key];
-    if (!item) return;
-    delete state.items[key];
-    this.save(state, [{ type: "item.deleted", itemId: item.id }], at);
-  }
-
-  cancelPending(id: ThreadId, now: number): ThreadId[] {
-    return this.store.atomic((_db) => {
-      const released = new Set<ThreadId>();
-      for (const intent of this.pending.headers(id)) {
-        if (!["pending", "queued"].includes(intent.status)) continue;
-        const kind = intent.kind;
-        if (kind !== "thread.switch" && kind !== "thread.merge") continue;
-        this.mark(intent, "failed", "Cancelled before delivery");
-        for (const thread of this.transitions.releaseGuards(intent.commandId)) released.add(thread);
-        if (kind === "thread.switch") {
-          const pending = this.store.getThread(id)?.switch;
-          if (pending)
-            this.store.appendEvents(
-              id,
-              [
-                {
-                  type: "thread.updated",
-                  switch: {
-                    ...pending,
-                    state: "failed",
-                    error: "Cancelled before delivery",
-                    at: now,
-                  },
-                },
-              ],
-              now,
-            );
-        }
-      }
-      // Fork intents belong to their new thread, never to the lineage source.
-      for (const intent of this.pending.headers(id)) {
-        if (intent.kind !== "thread.fork" || intent.status === "running") continue;
-        for (const thread of this.transitions.releaseGuards(intent.commandId)) released.add(thread);
-      }
-      const stoppedInputs: EventPayload[] = [];
-      const state = this.requireState(id);
-      const activeRuns = new Set(Object.values(state.agents).flatMap((record) => record.activeRun ? [record.activeRun] : []));
-      for (const item of Object.values(state.items)) {
-        if (item.type === "message" && item.role === "user" && item.runId && activeRuns.has(item.runId)) {
-          const updated = { ...item, notAnswered: "stopped" as const };
-          state.items[item.id] = updated;
-          stoppedInputs.push({ type: "item.updated", item: updated });
-        }
-      }
-      for (const intent of this.pending.headers(id)) {
-        if (intent.status !== "running" && !intent.awaiting) continue;
-        if (!["thread.send", "thread.create", "thread.fork"].includes(intent.kind)) continue;
-        if (intent.submittedGeneration === undefined && !intent.acknowledged) {
-          this.pending.defer(intent);
-          continue;
-        }
-        const key = `input:${intent.commandId}`;
-        const item = state.items[key];
-        if (item?.type === "message" && !item.notAnswered) {
-          const updated = { ...item, notAnswered: "stopped" as const };
-          state.items[key] = updated;
-          stoppedInputs.push({ type: "item.updated", item: updated });
-        }
-        this.mark(intent, "failed", "Cancelled before delivery");
-      }
-      if (stoppedInputs.length) this.save(state, stoppedInputs, now);
-      this.queue.set(id, {}, now);
-      return [...released];
-    });
-  }
+  cancelPending(id: ThreadId, now: number): ThreadId[] { return cancelPending(this, id, now); }
   cancelled(intentId: number): boolean {
     return this.store.atomic(
       (_db) =>
