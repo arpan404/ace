@@ -1,9 +1,9 @@
 import type { ClientApi } from "@ace/client";
 import {
+  BrowserState,
   ThreadId,
   WorkspaceId,
   type BrowserInput,
-  type BrowserState,
   type ServerMessage,
 } from "@ace/protocol";
 import type {
@@ -100,8 +100,11 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   const watches = new Map<string, Watch>();
   /** Threads no view shows any more, oldest first; their state goes past `keptThreads`. */
   const unwatched = new Set<string>();
-  /** Threads whose browser this client took control of. */
-  const held = new Set<string>();
+  /**
+   * Threads whose browser this client took control of, with the connection its take-control
+   * reply named as the owner (undefined when the reply named none).
+   */
+  const held = new Map<string, string | undefined>();
   let version = 0;
   let requests = 0;
   let download: BrowserDownload | undefined;
@@ -361,8 +364,15 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
       await call("browser.close", threadId);
     },
     async takeover(threadId) {
-      await call("browser.takeover", threadId);
-      held.add(threadId);
+      const state = BrowserState.safeParse(await call("browser.takeover", threadId));
+      held.set(threadId, state.success ? state.data.owner : undefined);
+    },
+    heldAs(threadId) {
+      const owner = held.get(threadId);
+      const current = views.get(threadId);
+      return owner !== undefined && current?.controller === "human" && current.owner === owner
+        ? owner
+        : undefined;
     },
     async handback(threadId) {
       held.delete(threadId);

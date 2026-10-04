@@ -5,6 +5,7 @@ import {
   BrowserControlRequest,
   BrowserController,
   BrowserPlacement,
+  BrowserWantsControl,
   DaemonConnection,
   DaemonStatus,
   DeepLink,
@@ -92,6 +93,7 @@ export const events = {
   "window.changed": WindowState,
   "settings.changed": DesktopSettings,
   "browser.controller": BrowserController,
+  "browser.wants-control": BrowserWantsControl,
   "updates.status": UpdateStatus,
   /** The machine woke up; the renderer should reconnect now rather than wait for backoff. */
   "system.resumed": None,

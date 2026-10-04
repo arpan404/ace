@@ -55,6 +55,10 @@ export class FakeSettings {
       this.global.set("permissions.defaultMode", legacyPermissionMode(policy));
     }
   }
+  /** Drop a global value, as a settings file that never held it; the default applies again. */
+  unset(key: string): void {
+    if (this.global.delete(key)) this.notify(key);
+  }
   /** The effective global value, as tests check what a page wrote. */
   get(key: string): unknown {
     return this.global.has(key) ? this.global.get(key) : Reflect.get(defaults, key);

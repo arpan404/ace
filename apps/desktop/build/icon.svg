@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!--
+    The ace app icon (master). macOS app-icon grid: an 824 x 824 continuous-corner square
+    centred on a 1024 canvas, with its drop shadow inside the canvas. The glyph is a
+    geometric lowercase "a": a ring whose right side is an
+    upright stem, rounded at the top and cut square at the baseline.
+    Rasterized by apps/desktop/scripts/icons.ts.
+  -->
+  <defs>
+    <path id="body" d="M628 100c103.61 0 155.41 0 194.98 20.16a185 185 0 0 1 80.85 80.85c20.16 39.57 20.16 91.37 20.16 194.98V628c0 103.61 0 155.41 -20.16 194.98a185 185 0 0 1 -80.85 80.85c-39.57 20.16 -91.37 20.16 -194.98 20.16H396c-103.61 0 -155.41 0 -194.98 -20.16a185 185 0 0 1 -80.85 -80.85c-20.16 -39.57 -20.16 -91.37 -20.16 -194.98V396c0 -103.61 0 -155.41 20.16 -194.98a185 185 0 0 1 80.85 -80.85c39.57 -20.16 91.37 -20.16 194.98 -20.16Z"/>
+    <clipPath id="clip"><use href="#body"/></clipPath>
+    <linearGradient id="fill" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2c2d31"/>
+      <stop offset="0.45" stop-color="#17171a"/>
+      <stop offset="1" stop-color="#0a0a0b"/>
+    </linearGradient>
+    <radialGradient id="sheen" cx="512" cy="40" r="620" gradientTransform="matrix(1 0 0 0.62 0 15)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.09"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="0" y1="100" x2="0" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.26"/>
+      <stop offset="0.35" stop-color="#fff" stop-opacity="0.05"/>
+      <stop offset="0.8" stop-color="#fff" stop-opacity="0.02"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0.07"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="0" y1="332" x2="0" y2="692" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fbfbfc"/>
+      <stop offset="1" stop-color="#cfd0d5"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#000" flood-opacity="0.32"/>
+    </filter>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+  <use href="#body" fill="url(#fill)" filter="url(#shadow)"/>
+  <g clip-path="url(#clip)">
+    <use href="#body" fill="url(#sheen)"/>
+    <use href="#body" fill="none" stroke="url(#rim)" stroke-width="5"/>
+  </g>
+  <g fill="url(#ink)" filter="url(#lift)">
+    <path fill-rule="evenodd" d="M506 332a180 180 0 1 1 0 360a180 180 0 1 1 0 -360ZM506 421a91 91 0 1 0 0 182a91 91 0 1 0 0 -182Z"/>
+    <path d="M597 692V376.5a44.5 44.5 0 0 1 89 0V692Z"/>
+  </g>
+</svg>
