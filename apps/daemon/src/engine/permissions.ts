@@ -200,9 +200,7 @@ export class Permissions {
       const mode =
         state.config.provider === "codex"
           ? limitPermissionMode(
-              parsed.success
-                ? parsed.data.mode
-                : limitPermissionMode(this.effective(state.threadId), "auto-review"),
+              parsed.success ? parsed.data.mode : "ask",
               this.ceiling(state.threadId),
             )
           : this.effective(state.threadId);

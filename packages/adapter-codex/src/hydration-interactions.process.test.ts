@@ -53,3 +53,27 @@ test("a fresh request after resume has a process-owned answer handle and resolve
     await h.dispose();
   }
 });
+
+test("concurrent answers consume an async answer handle exactly once", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.send([{ type: "text", text: "question" }], "steer");
+    await h.wait(
+      (f) =>
+        obj(f.data).method === "item/completed" && obj(obj(obj(f.data).params).item).id === "q",
+    );
+    const results = await Promise.allSettled([
+      h.session.resolve("async:q", { kind: "question", answers: { q0: ["tabs"] } }),
+      h.session.resolve("async:q", { kind: "question", answers: { q0: ["spaces"] } }),
+    ]);
+    expect(results.map((r) => r.status)).toEqual(["fulfilled", "rejected"]);
+    const rejected = results[1];
+    if (rejected?.status !== "rejected") throw new Error("Duplicate answer succeeded");
+    expect(rejected.reason).toMatchObject({ code: "interaction_unavailable" });
+    expect(
+      Object.values(h.replay.state.interactions).filter((i) => i.state === "resolved"),
+    ).toHaveLength(1);
+  } finally {
+    await h.dispose();
+  }
+});

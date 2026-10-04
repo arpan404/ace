@@ -1,6 +1,15 @@
 import type { PermissionMode } from "@ace/protocol";
 import { list, obj, str } from "./native.ts";
 
+const identity = (thread: string, native: string) => JSON.stringify([thread, native]);
+const retain = (map: Map<string, PermissionMode>, key: string, mode: PermissionMode) => {
+  if (map.size >= 8192 && !map.has(key)) {
+    const oldest = map.keys().next().value;
+    if (oldest !== undefined) map.delete(oldest);
+  }
+  map.set(key, mode);
+};
+
 /** Native turn/action authority is independent of the latest composer acknowledgement. */
 export function turnPolicyState(initial: PermissionMode) {
   const turns = new Map<string, PermissionMode>();
@@ -8,14 +17,6 @@ export function turnPolicyState(initial: PermissionMode) {
   const items = new Map<string, PermissionMode>();
   const submitting = new Map<string, PermissionMode>();
   const requests = new Map<unknown, { thread: string; mode: PermissionMode }>();
-  const identity = (thread: string, native: string) => JSON.stringify([thread, native]);
-  const retain = (map: Map<string, PermissionMode>, key: string, mode: PermissionMode) => {
-    if (map.size >= 8192 && !map.has(key)) {
-      const oldest = map.keys().next().value;
-      if (oldest !== undefined) map.delete(oldest);
-    }
-    map.set(key, mode);
-  };
   function policy(thread: string, turn: string, item = ""): PermissionMode {
     return (
       items.get(identity(thread, item)) ??

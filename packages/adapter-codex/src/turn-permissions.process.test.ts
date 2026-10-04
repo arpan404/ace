@@ -2,6 +2,9 @@ import { expect, test } from "vitest";
 import { sessionHarness } from "./session.test-helper.ts";
 import { obj } from "./native.ts";
 
+const data = (raw: import("@ace/protocol").RawPayload | undefined) =>
+  raw && "data" in raw ? obj(raw.data) : {};
+
 for (const [initial, next] of [
   ["ask", "full-access"],
   ["full-access", "ask"],
@@ -25,8 +28,6 @@ for (const [initial, next] of [
         (i) =>
           i.request.kind === "approval" && i.raw.some((r) => r.type === "ace.permission-policy"),
       );
-      const data = (raw: import("@ace/protocol").RawPayload | undefined) =>
-        raw && "data" in raw ? obj(raw.data) : {};
       expect(
         approvals.map((i) => ({
           item: data(i.raw[0]).itemId,

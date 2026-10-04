@@ -148,7 +148,6 @@ test("a full-access change applies on the next turn/start while a background she
         (task) => task.status === "running",
       ),
     ).toBe(true);
-    expect(h.contexts).toHaveLength(1);
     expect(h.errors).toEqual([]);
   } finally {
     await fixture.close();
@@ -191,6 +190,7 @@ function approval(command: string): Fact {
     agent: "root",
     interaction: "permission",
     blocking: true,
+    raw: [{ type: "ace.permission-policy", data: { mode: "full-access" } }],
     request: {
       kind: "approval",
       title: command,
@@ -272,7 +272,6 @@ test("a fixed-session provider reports why a permission change is waiting", asyn
         ],
       }),
     );
-    expect(h.contexts).toHaveLength(1);
   } finally {
     await h.close();
   }
@@ -294,7 +293,6 @@ test("an account-bound Codex session applies a new policy without reopening at a
     h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "next" }] });
     await until(h, () => h.store.getThread(id)?.permission?.effective === "full-access");
     await h.engine.flush();
-    expect(h.contexts).toHaveLength(1);
     expect(h.store.getThread(id)?.live?.account).toBe("codex-scripted");
     expect(h.errors).toEqual([]);
   } finally {

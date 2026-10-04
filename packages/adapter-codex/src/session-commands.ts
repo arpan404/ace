@@ -232,6 +232,7 @@ export function createSessionCommands(
       }
       const question = asyncQuestions.get(key);
       if (question && resolution.kind === "question") {
+        asyncQuestions.delete(key);
         const text = resolution.dismissed
           ? "Continue without answers."
           : Object.entries(resolution.answers)
@@ -249,12 +250,12 @@ export function createSessionCommands(
         await sendAnswer(question.thread, key, text, () =>
           sendTo(question.thread, [{ type: "text", text }], "steer"),
         );
-        asyncQuestions.delete(key);
         emit("note", { event: "interaction-resolved", interaction: key });
         return;
       }
       const plan = plans.get(key);
       if (plan && resolution.kind === "plan_review") {
+        plans.delete(key);
         if (
           resolution.decision !== "cancel" &&
           (resolution.decision === "approve" || resolution.feedback)
@@ -284,7 +285,6 @@ export function createSessionCommands(
                 },
               }),
           );
-        plans.delete(key);
         emit("note", { event: "interaction-resolved", interaction: key });
         return;
       }

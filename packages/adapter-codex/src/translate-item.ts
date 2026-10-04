@@ -183,7 +183,12 @@ export function translateItem(
       )
     )
       agent.failureText = str(item["text"]);
-    if (type === "plan" && complete && frame.channel !== "hydration")
+    if (
+      type === "plan" &&
+      complete &&
+      frame.channel !== "hydration" &&
+      str(p["turnId"]) === agent.turn
+    )
       agent.plan = { id: itemId, text: str(item["text"]) };
     if (isAsyncQuestion(item) && !agent.async.has(itemId)) {
       agent.async.add(itemId);
