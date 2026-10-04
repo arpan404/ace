@@ -1,5 +1,6 @@
-import { facts, workbench, type Scenario } from "@ace/fake-daemon";
-import { act, screen, within } from "@testing-library/react";
+import { facts, permissionAudit, workbench, type Scenario } from "@ace/fake-daemon";
+import { act, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
@@ -27,7 +28,10 @@ test("a question sits in the transcript where the agent asked it", async () => {
   ).toHaveLength(1);
 });
 
-const { message, rootAgent, tool, turn } = facts;
+const { endTurn, message, rootAgent, tool, toolDone, turn } = facts;
+
+const follows = (a: Element, b: Element) =>
+  !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
 /** A turn whose first command never settles, then a progress note and a second step. */
 function stuckCommand(): Scenario {
@@ -104,4 +108,144 @@ test("while a step waits for approval nothing says Working: the line says it wai
   expect(
     within(feed).getByRole("button", { name: /^Run git push .* Awaiting approval$/ }),
   ).toBeTruthy();
+});
+
+test("ace's review of a step joins that step's log instead of splitting the work", async () => {
+  const app = harness();
+  app.play(permissionAudit()).runUntilBlocked();
+  await app.open("/t/thread-release-audit");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const ask = await within(feed).findByText(/Clean out the old build/);
+  const note = await within(feed).findByText(/ace declined deleting dist/);
+  const between = within(feed)
+    .getAllByRole("button", { name: /^Work(ed|ing) for/ })
+    .filter((log) => follows(ask, log) && follows(log, note));
+  expect(between).toHaveLength(1);
+
+  const log = between[0]!;
+  await userEvent.click(log);
+  const steps = within(log.parentElement!).getByRole("list", { name: "Steps" });
+  expect(within(steps).getByRole("article", { name: "Permission review: Approved by ace" }));
+  expect(within(steps).getByRole("article", { name: "Permission review: Denied by ace" }));
+});
+
+function edit(key: string, path: string) {
+  return [
+    tool("root", key, {
+      kind: "file.edit",
+      title: `Edit ${path}`,
+      detail: {
+        kind: "file.edit",
+        changes: [{ path, kind: "update", diff: "@@ -1 +1 @@\n-old\n+new" }],
+      },
+    }),
+    toolDone("root", key),
+  ];
+}
+
+/** One turn that edits, says how it is going, edits again and answers. */
+function twoEdits(): Scenario {
+  return {
+    thread: {
+      id: "thread-edits",
+      workspaceId: "ace",
+      title: "Rename the flag",
+      provider: "claude",
+    },
+    steps: [
+      {
+        kind: "facts",
+        label: "answered",
+        facts: [
+          rootAgent("claude"),
+          turn("root"),
+          message("root", "ask", "user", "Rename the legacy flag everywhere."),
+          ...edit("edit-a", "src/flags.ts"),
+          message("root", "progress", "assistant", "Renamed the definition; now the callers."),
+          ...edit("edit-b", "src/app.ts"),
+          message("root", "answer", "assistant", "Renamed in both files."),
+        ],
+      },
+      { kind: "facts", label: "ended", facts: [endTurn("root")] },
+    ],
+  };
+}
+
+test("a turn's changed files show once, after its last answer, when it has ended", async () => {
+  const app = harness();
+  const script = app.play(twoEdits());
+  script.runThrough("answered");
+  await app.open("/t/thread-edits");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await within(feed).findByText("Renamed in both files.");
+  expect(within(feed).queryByRole("region", { name: /changed file/ })).toBeNull();
+
+  act(() => script.runThrough("ended"));
+  const card = await within(feed).findByRole("region", { name: "2 changed files" });
+  expect(within(feed).getAllByRole("region", { name: /changed file/ })).toHaveLength(1);
+  expect(follows(within(feed).getByText("Renamed in both files."), card)).toBe(true);
+});
+
+test("a failed turn ends with its reason, and Retry sends the ask again", async () => {
+  const app = harness();
+  app.play(scenario("thread-pdf-locale")).runUntilBlocked();
+  await app.open("/t/thread-pdf-locale");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const failed = await within(feed).findByRole("group", { name: "Turn failed" });
+  expect(failed.textContent).toContain("2 tests failing on #74");
+
+  await userEvent.click(within(failed).getByRole("button", { name: "Details" }));
+  expect(within(failed).getByText("provider: 2 tests failing on #74")).toBeTruthy();
+
+  await userEvent.click(within(failed).getByRole("button", { name: "Retry" }));
+  await waitFor(() =>
+    expect(within(feed).getAllByText(/Invoices for unsupported locales render empty/)).toHaveLength(
+      2,
+    ),
+  );
+});
+
+function stopped(withWork: boolean): Scenario {
+  return {
+    thread: { id: "thread-stopped", workspaceId: "ace", title: "Long build", provider: "claude" },
+    steps: [
+      {
+        kind: "facts",
+        facts: [
+          rootAgent("claude"),
+          turn("root"),
+          message("root", "ask", "user", "Build the release bundle."),
+          ...(withWork
+            ? [
+                tool("root", "build", {
+                  kind: "shell",
+                  title: "bun run build",
+                  detail: { kind: "shell", command: "bun run build" },
+                }),
+                message("root", "partial", "assistant", "Building the web bundle first", false),
+              ]
+            : []),
+          endTurn("root", "interrupted"),
+        ],
+      },
+    ],
+  };
+}
+
+test("a stopped turn says so under what it got done", async () => {
+  const app = harness();
+  app.play(stopped(true)).runUntilBlocked();
+  await app.open("/t/thread-stopped");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const note = await within(feed).findByRole("note", { name: /^Stopped by you/ });
+  expect(follows(within(feed).getByText("Building the web bundle first"), note)).toBe(true);
+});
+
+test("a turn stopped before any reply still says so under the ask", async () => {
+  const app = harness();
+  app.play(stopped(false)).runUntilBlocked();
+  await app.open("/t/thread-stopped");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const note = await within(feed).findByRole("note", { name: /^Stopped by you/ });
+  expect(follows(within(feed).getByText("Build the release bundle."), note)).toBe(true);
 });

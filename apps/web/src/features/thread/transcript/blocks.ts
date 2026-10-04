@@ -1,4 +1,5 @@
 import type { Interaction, Item } from "@ace/protocol";
+import { reviewedInteraction } from "@ace/ui-core";
 
 /**
  * The transcript reads like a document: between two messages, all tool work collapses into one
@@ -51,6 +52,14 @@ export interface BlockSource {
   background: ReadonlyMap<string, string>;
   /** Interactions that render inline (questions), oldest first. */
   questions?: readonly Pick<Interaction, "id" | "toolCallId" | "createdAt">[];
+  /** The turn (the root agent's run) an item belongs to, where known. */
+  turnOf?(itemId: string): string | undefined;
+  /** How a turn ended; undefined while it runs or when unknown. */
+  turnEnded?(turnId: string): TurnEnding | undefined;
+  /** The tool call an interaction was raised from, for ace's review notices. */
+  reviewedCall?(interactionId: string): string | undefined;
+  /** The agent stopped or failed in a turn none of whose output is loaded. */
+  stoppedTail?: boolean;
 }
 
 const editKinds = new Set(["file.edit", "file.write", "file.delete", "file.move"]);
@@ -84,28 +93,81 @@ function anchorQuestions(source: BlockSource): Map<string, string[]> {
   return anchors;
 }
 
+/** How a turn ended, once it has. */
+export type TurnEnding = "completed" | "interrupted" | "failed";
+
+/** What the blocks remember of one turn while building. */
+interface TurnMark {
+  /** The person's message that started it. */
+  askId: string | undefined;
+  edits: string[];
+  /** Index of its last assistant message's block, and of its last block. */
+  lastMessage: number;
+  lastBlock: number;
+}
+
+/**
+ * The transcript's blocks. A stretch of work (one "Worked for" log, one "Started N subagents"
+ * line) runs until the agent speaks, the person writes or the agent asks them something, and
+ * never across turns; notices, injected messages and other events show inline without ending
+ * it. Once a turn has ended, one changed-files card follows its last answer, and a turn that
+ * failed or was stopped ends with an `end` block.
+ */
 export function buildBlocks(source: BlockSource): Block[] {
   const blocks: Block[] = [];
   const anchors = anchorQuestions(source);
-  let edits: string[] = [];
+  const turns = new Map<string, TurnMark>();
   // The work and spawn groups of the stretch since the last message; a message ends it.
-  let stretch: Partial<Record<"work" | "subagents", { itemIds: string[] }>> = {};
-  const group = (kind: "work" | "subagents", id: string) => {
-    const open = stretch[kind];
-    if (open) open.itemIds.push(id);
-    else {
-      const block = { kind, key: `${kind}:${id}`, itemIds: [id] };
-      blocks.push(block);
-      stretch[kind] = block;
-    }
+  let stretch: Partial<Record<"work" | "subagents", { itemIds: string[]; at: number }>> = {};
+  const groupOf = new Map<string, { itemIds: string[]; at: number }>();
+  let turnId: string | undefined;
+  let askId: string | undefined;
+  let mark: TurnMark | undefined;
+  const placed = (index: number, message = false) => {
+    if (!mark) return;
+    mark.lastBlock = Math.max(mark.lastBlock, index);
+    if (message) mark.lastMessage = index;
   };
-  const standalone = (block: Block) => {
-    blocks.push(block);
+  const group = (kind: "work" | "subagents", id: string) => {
+    let open = stretch[kind];
+    if (!open) {
+      const itemIds: string[] = [];
+      open = stretch[kind] = {
+        itemIds,
+        at: blocks.push({ kind, key: `${kind}:${id}`, itemIds }) - 1,
+      };
+    }
+    open.itemIds.push(id);
+    if (kind === "work") groupOf.set(id, open);
+    placed(open.at);
+  };
+  const close = () => {
     stretch = {};
   };
+  const push = (block: Block, closes: boolean, message = false) => {
+    blocks.push(block);
+    placed(blocks.length - 1, message);
+    if (closes) close();
+  };
+  const reviewsPlaced = new Map<string, number>();
   for (const id of source.order) {
     const item = source.item(id);
     if (!item) continue;
+    const person = item.type === "message" && item.role === "user" && !item.synthetic;
+    if (person) {
+      askId = id;
+      // The person's message belongs to the turn that answers it.
+      mark = undefined;
+      turnId = undefined;
+    } else {
+      const known = source.turnOf?.(id) ?? turnId ?? (askId === undefined ? "" : `ask:${askId}`);
+      if (known !== turnId) {
+        if (turnId !== undefined) close();
+        turnId = known;
+        mark = turns.get(known);
+        if (!mark) turns.set(known, (mark = { askId, edits: [], lastMessage: -1, lastBlock: -1 }));
+      }
+    }
     const asked = anchors.get(id);
     // A question's own step: the question block stands in for it.
     const replaced =
@@ -113,45 +175,80 @@ export function buildBlocks(source: BlockSource): Block[] {
     if (!replaced)
       switch (item.type) {
         case "message":
-          if (item.synthetic) standalone({ kind: "event", key: id, itemId: id });
-          else if (item.role === "user") standalone({ kind: "user", key: id, itemId: id });
-          else {
-            standalone({ kind: "message", key: id, itemId: id });
-            if (edits.length) {
-              blocks.push({ kind: "files", key: `files:${id}`, itemIds: edits });
-              edits = [];
-            }
-          }
+          if (item.synthetic) push({ kind: "event", key: id, itemId: id }, false);
+          else if (person) push({ kind: "user", key: id, itemId: id }, true);
+          else push({ kind: "message", key: id, itemId: id }, true, true);
           break;
         case "tool_call": {
           const taskId = source.background.get(id);
           if (taskId !== undefined)
-            blocks.push({ kind: "background", key: id, itemId: id, taskId });
+            push({ kind: "background", key: id, itemId: id, taskId }, false);
           else if (item.call.kind === "agent.spawn") group("subagents", id);
           else {
             group("work", id);
-            if (editKinds.has(item.call.kind)) edits.push(id);
+            if (editKinds.has(item.call.kind)) mark?.edits.push(id);
           }
           break;
         }
         case "reasoning":
           group("work", id);
           break;
-        case "notice":
-          if (item.toolCallId) group("work", id);
-          else standalone({ kind: "item", key: id, itemId: id });
+        case "notice": {
+          // Output or a review of a step joins that step's log, right after the step.
+          const reviewed = reviewedInteraction(item);
+          const callId = item.toolCallId ?? (reviewed && source.reviewedCall?.(reviewed));
+          const host = callId ? groupOf.get(callId) : undefined;
+          if (callId && host) {
+            const after = (reviewsPlaced.get(callId) ?? 0) + 1;
+            host.itemIds.splice(host.itemIds.indexOf(callId) + after, 0, id);
+            reviewsPlaced.set(callId, after);
+            groupOf.set(id, host);
+            placed(host.at);
+          } else if (callId) group("work", id);
+          else push({ kind: "item", key: id, itemId: id }, false);
           break;
+        }
         default:
-          standalone({ kind: "item", key: id, itemId: id });
+          push({ kind: "item", key: id, itemId: id }, false);
       }
     for (const interactionId of asked ?? [])
-      standalone({
-        kind: "question",
-        key: `question:${interactionId}`,
-        interactionId,
-        itemId: interactionId === asked?.[0] ? replaced : undefined,
+      push(
+        {
+          kind: "question",
+          key: `question:${interactionId}`,
+          interactionId,
+          itemId: interactionId === asked?.[0] ? replaced : undefined,
+        },
+        true,
+      );
+  }
+  // Each ended turn's changed files after its last answer and, if it didn't complete, how it
+  // ended after its last block. From the last turn back, so earlier positions hold.
+  const ended = [...turns]
+    .flatMap(([id, turn]) => {
+      const ending = id.startsWith("ask:") || id === "" ? "completed" : source.turnEnded?.(id);
+      return ending && turn.lastBlock >= 0 ? [{ id, turn, ending }] : [];
+    })
+    .sort((a, b) => b.turn.lastBlock - a.turn.lastBlock);
+  for (const { id, turn, ending } of ended) {
+    if (ending !== "completed")
+      blocks.splice(turn.lastBlock + 1, 0, {
+        kind: "end",
+        key: `end:${id}`,
+        runId: id,
+        askId: turn.askId,
+      });
+    if (turn.edits.length)
+      blocks.splice((turn.lastMessage >= 0 ? turn.lastMessage : turn.lastBlock) + 1, 0, {
+        kind: "files",
+        key: `files:${id || turn.askId || "start"}`,
+        itemIds: turn.edits,
       });
   }
+  // A turn that stopped or failed before any of its output arrived: the ask has no reply.
+  const last = blocks.at(-1);
+  if (source.stoppedTail && last?.kind === "user")
+    blocks.push({ kind: "end", key: `end:${last.itemId}`, runId: undefined, askId: last.itemId });
   return blocks;
 }
 

@@ -1,5 +1,7 @@
 import { Suspense, useId, useState } from "react";
+import { reviewedInteraction } from "@ace/ui-core";
 import { DeferredStepDetail } from "../deferred.ts";
+import { DeferredReviewNote } from "./deferred-review.ts";
 import { useToolStep, useWorkLog } from "./use-work-log.ts";
 import { StepRow, WorkLogHeader } from "./work-log-view.tsx";
 
@@ -38,9 +40,26 @@ export function WorkLog(props: { threadId: string; itemIds: readonly string[]; l
   );
 }
 
-/** One row of the work log. Expands to its output, diff or reasoning. */
+/**
+ * One row of the work log. Expands to its output, diff or reasoning. ace's review of a step
+ * sits right under that step.
+ */
 export function ToolStep(props: { threadId: string; itemId: string }) {
   const data = useToolStep(props.threadId, props.itemId);
+  const item = data?.item;
+  if (item?.type === "notice" && reviewedInteraction(item))
+    return (
+      <li className="py-1 pl-1.5">
+        <Suspense fallback={<p className="text-ui text-muted-foreground">{item.text}</p>}>
+          <DeferredReviewNote.Component threadId={props.threadId} item={item} />
+        </Suspense>
+      </li>
+    );
+  return <StepLine threadId={props.threadId} data={data} />;
+}
+
+function StepLine(props: { threadId: string; data: ReturnType<typeof useToolStep> }) {
+  const { data } = props;
   // A step shown while it waits for approval starts open.
   const [open, setOpen] = useState(data?.awaiting ?? false);
   const panel = useId();
