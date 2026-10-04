@@ -6,7 +6,9 @@ import { cn } from "@/lib/cn.ts";
 import { useCallback, type CSSProperties } from "react";
 import { Dot } from "@/components/ui/dot.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { agentName } from "@ace/ui-core";
+import { agentName, providerNames } from "@ace/ui-core";
+import { Link } from "@tanstack/react-router";
+import { buttonVariants } from "@/components/ui/button.tsx";
 
 const activities: Record<string, string> = {
   thinking: "Thinking",
@@ -57,7 +59,10 @@ function indent(depth: number): CSSProperties {
   return { paddingLeft: 8 + depth * 22, ["--connector" as string]: `${depth * 22 - 7}px` };
 }
 
-/** One agent in a tree: status mark, name, what it is doing. Re-renders only for its agent. */
+/**
+ * One agent in a tree: status mark, name, what it is doing, its provider and model, and Open
+ * for a delegate that runs in a thread of its own. Re-renders only for its agent.
+ */
 export function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
   const agent = useAgent(props.threadId, props.agentId);
   if (!agent) return null;
@@ -81,6 +86,21 @@ export function AgentRow(props: { threadId: string; agentId: string; depth: numb
       <span className="min-w-0 flex-1 truncate text-xs text-subtle-foreground">
         {agentActivity(agent)}
       </span>
+      {agent.model && (
+        <span className="max-w-[16ch] shrink-0 truncate rounded-sm bg-secondary px-1.5 py-px text-[11px] text-muted-foreground">
+          {providerNames[agent.native.provider]} · {agent.model}
+        </span>
+      )}
+      {agent.childThreadId && (
+        <Link
+          to="/t/$threadId"
+          params={{ threadId: agent.childThreadId }}
+          aria-label={`Open ${agentName(agent)}'s thread`}
+          className={buttonVariants({ variant: "ghost", size: "sm", className: "-mr-1.5" })}
+        >
+          Open
+        </Link>
+      )}
     </div>
   );
 }

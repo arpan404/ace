@@ -101,13 +101,13 @@ test("a full-text edit's changed-files stat counts the lines that changed, as Ch
   await waitFor(() => expect(tab.textContent).toContain(`+${stat?.[1]} −${stat?.[2]}`));
 });
 
-test("subagents open inline as a tree, and the agent tree is one click away", async () => {
+test("subagents open inline as the agents started, and the agent tree is one click away", async () => {
   const { feed } = await openReplay("delegated");
   await userEvent.click(await within(feed).findByRole("button", { name: "Started 2 subagents" }));
   const tree = within(feed).getByRole("tree", { name: "Subagents" });
-  expect(
-    within(tree).getByRole("treeitem", { name: "Claude Code: Waiting for subagents" }),
-  ).toBeTruthy();
+  // Only the agents it started: the parent's own state is the live line under the transcript.
+  expect(within(tree).getAllByRole("treeitem")).toHaveLength(2);
+  expect(within(tree).queryByRole("treeitem", { name: /^Claude Code/ })).toBeNull();
   expect(
     within(tree).getByRole("treeitem", {
       name: "reconnect-audit: Reading apps/mobile/src/resume.ts",

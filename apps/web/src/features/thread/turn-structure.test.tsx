@@ -1,4 +1,11 @@
-import { facts, permissionAudit, workbench, type Scenario } from "@ace/fake-daemon";
+import {
+  delegatedDocs,
+  delegatedDocsIds,
+  facts,
+  permissionAudit,
+  workbench,
+  type Scenario,
+} from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test } from "vitest";
@@ -248,4 +255,19 @@ test("a turn stopped before any reply still says so under the ask", async () => 
   const feed = await screen.findByRole("feed", { name: "Transcript" });
   const note = await within(feed).findByRole("note", { name: /^Stopped by you/ });
   expect(follows(within(feed).getByText("Build the release bundle."), note)).toBe(true);
+});
+
+test("the subagents line opens to the agents started, with their model, and opens a delegate's thread", async () => {
+  const app = harness();
+  for (const thread of delegatedDocs()) app.play(thread).runUntilBlocked();
+  await app.open(`/t/${delegatedDocsIds.parent}`);
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  await userEvent.click(await within(feed).findByRole("button", { name: "Started 1 subagent" }));
+  const tree = within(feed).getByRole("tree", { name: "Subagents" });
+  const [row] = within(tree).getAllByRole("treeitem");
+  expect(row?.getAttribute("aria-label")).toMatch(/^protocol-docs: /);
+  expect(row?.textContent).toContain("Codex · gpt-5.5-codex");
+
+  await userEvent.click(within(tree).getByRole("link", { name: "Open protocol-docs's thread" }));
+  expect(await screen.findByText(/Drafted the frame table/)).toBeTruthy();
 });
