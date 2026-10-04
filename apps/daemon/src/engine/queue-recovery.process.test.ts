@@ -230,7 +230,7 @@ test.each([false, true])(
   },
 );
 
-test("crash recovery reports dead shells monitors and subagents before native continuation", async () => {
+test("native restart continuation records lost shells monitors and subagents once", async () => {
   const frames = scriptFrames();
   const h = await fixture(
     [
@@ -271,12 +271,6 @@ test("crash recovery reports dead shells monitors and subagents before native co
     { on: "send", frames: [frames.frame(start, end)] },
   ]);
   const recovered = await crashCopy(h);
-  const notice = Object.values(recovered.store.snapshotThread(id).items).find(
-    (item) => item.type === "notice" && item.text.includes("background work died"),
-  );
-  expect(notice).toMatchObject({ text: expect.stringContaining("shell: Background build") });
-  expect(notice).toMatchObject({ text: expect.stringContaining("monitor: Watch tests") });
-  expect(notice).toMatchObject({ text: expect.stringContaining("subagent: Research") });
   expect(sends(replacement)).toHaveLength(0);
   dispatch(recovered.store, recovered.engine, {
     type: "thread.resume",
@@ -285,6 +279,12 @@ test("crash recovery reports dead shells monitors and subagents before native co
   });
   await recovered.engine.flush();
   expect(recovered.store.getThread(id)?.status.state).toBe("done");
+  const continuationItems = Object.values(recovered.store.snapshotThread(id).items).filter(item => item.type === "message" && item.origin?.kind === "restart");
+  expect(continuationItems).toHaveLength(1);
+  expect(continuationItems[0]).toMatchObject({synthetic:true,parts:[{type:"text",text:expect.stringContaining("shell: Background build")}]});
+  expect(JSON.stringify(continuationItems[0])).toContain("monitor: Watch tests");
+  expect(JSON.stringify(continuationItems[0])).toContain("subagent: Research");
+
   expect(sends(replacement)).toHaveLength(1);
   const continuation = replacement.commands.find((command) => command.type === "send");
   expect(continuation?.type === "send" ? continuation.input : []).toEqual([

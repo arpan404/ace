@@ -159,18 +159,6 @@ export class Recovery {
     if (!text) return;
     this.repo.queue.set(id, { continuation: text, trigger: "restart" }, this.clock.now());
     this.sync(id);
-    this.repo.apply(
-      id,
-      [
-        {
-          type: "item.upsert",
-          agent: this.repo.requireState(id).rootKey ?? "root",
-          item: `recovery:${this.repo.queue.get(id).revision}`,
-          draft: { type: "notice", level: "warning", text, complete: true },
-        },
-      ],
-      this.clock.now(),
-    );
   }
   observe(state: ThreadState, facts: Fact[], _events: EventPayload[], at: number): void {
     if (

@@ -236,6 +236,21 @@ export class EngineRepository {
             (raw) => this.store.capRaw(raw, id),
             this.inputs.correlate(id, input, state.rootKey ?? "root"),
           );
+          if (
+            (fact.type === "item.upsert" || fact.type === "item.reconciled") &&
+            fact.agent === (state.rootKey ?? "root") &&
+            fact.draft.type === "message" &&
+            fact.draft.role === "user" &&
+            !fact.draft.origin
+          ) {
+            const runId = state.agents[fact.agent]?.activeRun;
+            const trigger = runId ? state.runs[runId]?.trigger : undefined;
+            if (trigger === "background_completion" || trigger === "subagent_result")
+              fact = {
+                ...fact,
+                draft: { ...fact.draft, origin: { kind: trigger }, synthetic: true },
+              };
+          }
           if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
             const pending = this.pending.awaiting(id);
             if (

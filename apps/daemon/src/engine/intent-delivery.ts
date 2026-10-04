@@ -142,16 +142,22 @@ export class IntentDelivery {
       this.dependencies.repo.beginSend(intent, intent.id);
       const session = actor.session;
       if (!session) throw new Error("Provider exited before continuation");
-      await session.send(
-        [
-          ...this.dependencies.transitions
-            .input(actor.id)
-            .map((text) => ({ type: "text" as const, text })),
-          { type: "text", text: queue.continuation },
-        ],
-        "queue",
-        intent.command.id,
+      const key = `input:${intent.command.id}`;
+      this.dependencies.repo.syntheticInput(
+        actor.id,
+        key,
+        queue.continuation,
+        { kind: queue.trigger ?? "restart", commandId: intent.command.id },
+        this.dependencies.clock.now(),
       );
+      const input = [
+        ...this.dependencies.transitions
+          .input(actor.id)
+          .map((text) => ({ type: "text" as const, text })),
+        { type: "text" as const, text: queue.continuation },
+      ];
+      this.dependencies.repo.inputs.sending(actor.id, key, input);
+      await session.send(input, "queue", intent.command.id);
       this.dependencies.transitions.delivered(actor.id);
     } else {
       this.dependencies.repo.beginSend(intent, undefined);
