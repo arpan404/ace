@@ -261,6 +261,13 @@ export class QueueStore {
     ordered.forEach((key, index) => update.run(index + 1, key));
     return true;
   }
+  /** Removing one ambiguity must not release independent manual/limit/restart holds. */
+  reconcileUncertainty(id: ThreadId, at: number): void {
+    const value = this.get(id);
+    this.set(id, value.reason === "uncertain" && !this.hasUncertain(id)
+      ? { reason: value.limited ? "limit" : value.continuation ? (value.trigger === "limit_resume" ? "limit" : "restart") : "manual", paused: true }
+      : {}, at);
+  }
   clearUncertain(id: number): void {
     this.sql("UPDATE intents SET uncertain=0 WHERE id=?").run(id);
   }

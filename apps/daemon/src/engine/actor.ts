@@ -386,7 +386,7 @@ export class ThreadActor {
     if (this.repo.state(this.id)?.queueSources.engine !== fact.count) this.apply([fact]);
   }
   apply(facts: Fact[]): void {
-    this.repo.apply(this.id, facts, this.clock.now());
+    this.repo.apply(this.id, facts, this.clock.now(), this.generation);
     if (facts.some((fact) => fact.type === "process.exited"))
       for (const id of this.inputLeases.keys()) this.releaseInput(id);
     this.schedule();

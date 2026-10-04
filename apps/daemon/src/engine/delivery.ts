@@ -123,7 +123,7 @@ export async function executeIntent(
           (p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input)),
       ];
       repo.pending.submit(intent, generation);
-      repo.inputs.sending(actor.id, `input:${intent.command.id}`, input, state.config.provider);
+      repo.inputs.sending(actor.id, `input:${intent.command.id}`, input, state.config.provider, generation);
       await session.send(
         input,
         p.type === "thread.send" && p.delivery === "steer" && capabilities.steer

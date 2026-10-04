@@ -31,3 +31,33 @@ test("exit after provider submission preserves an uncertain copy without automat
     messages: [{ id: "submitted", state: "uncertain" }] });
   expect(h.adapter.commands.filter((command) => command.type === "send")).toHaveLength(1);
 });
+
+test("removing the last uncertain copy clears its hold and identical resend owns its echo", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", exit: { deliberate: false } }], frames);
+  cleanups.push(h.close);
+  const receipt = h.command({ type: "thread.create", workspaceId: h.workspace, provider: "codex",
+    input: [{ type: "text", text: "same input" }] }, "device", "removed");
+  if (!receipt.threadId) throw new Error("No thread");
+  const id = receipt.threadId;
+  await h.engine.flush();
+  const revision = h.engine.queue(id).revision;
+  expect(h.command({ type: "queue.remove", threadId: id, messageId: "removed", expectedRevision: revision }).ok).toBe(true);
+  expect(h.engine.queue(id)).toMatchObject({ paused: true, reason: "manual", messages: [] });
+  expect(h.command({ type: "queue.remove", threadId: id, messageId: "removed", expectedRevision: revision })).toMatchObject({ ok: false, error: "queue_conflict" });
+  const base = h.registry.get("codex");
+  h.registry.register({ ...base.adapter, async openSession(ctx) {
+    const session = await base.adapter.openSession(ctx);
+    session.send = async () => { await ctx.onFrame(frames.frame(start,
+      { type: "item.upsert", agent: "root", item: "replacement-native", draft: {
+        type: "message", role: "user", parts: [{ type: "text", text: "same input" }], complete: true } }, end)); };
+    return session;
+  } }, base.discovery);
+  h.command({ type: "thread.send", threadId: id, input: [{ type: "text", text: "same input" }] }, "device", "replacement");
+  h.command({ type: "queue.resume", threadId: id, expectedRevision: h.engine.queue(id).revision });
+  await h.engine.flush();
+  const view = h.store.snapshotThread(id);
+  expect(view.items["input:removed"]).toBeUndefined();
+  expect(view.items["input:replacement"]).toMatchObject({ parts: [{ type: "text", text: "same input" }], nativeId: "replacement-native" });
+  expect(Object.values(view.items).filter((item) => item.type === "message")).toHaveLength(1);
+});

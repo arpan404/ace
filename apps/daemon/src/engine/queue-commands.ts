@@ -129,7 +129,7 @@ export function handleQueue(
       dependencies.schedule();
       return { commandId: command.id, ok: true };
     } else return fail("invalid_queue_command");
-    dependencies.repo.queue.set(p.threadId, {}, dependencies.clock.now());
+    dependencies.repo.queue.reconcileUncertainty(p.threadId, dependencies.clock.now());
     dependencies.sync(p.threadId);
     if (dependencies.repo.reservedSlot(p.threadId))
       queueMicrotask(() => dependencies.wake(p.threadId));

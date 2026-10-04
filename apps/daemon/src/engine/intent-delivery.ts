@@ -80,12 +80,12 @@ export class IntentDelivery {
         );
       await actor.flush();
       if (actor.poisoned) throw new Error("Provider frames could not be persisted");
-      if (!this.dependencies.repo.cancelled(intent.id)) this.dependencies.repo.mark(intent, "done");
+      if (this.dependencies.repo.pending.commandStatus(intent.commandId) === "running") this.dependencies.repo.mark(intent, "done");
       this.dependencies.releaseGuards(intent);
     } catch (error) {
       await actor.flush();
       const acknowledged = this.dependencies.repo.pending.acknowledged(intent.id);
-      if (this.dependencies.repo.cancelled(intent.id)) {
+      if (this.dependencies.repo.pending.commandStatus(intent.commandId) === "failed") {
         this.dependencies.releaseGuards(intent);
       } else if (continuation && acknowledged) {
         // Admission transfers ownership even if the transport loses the reply.
@@ -97,7 +97,7 @@ export class IntentDelivery {
         this.dependencies.repo.queue.clearUncertain(intent.id);
         this.dependencies.repo.pending.defer(intent);
         this.dependencies.repo.beginSend(intent, undefined);
-        this.dependencies.repo.queue.set(actor.id, {}, this.dependencies.clock.now());
+        this.dependencies.repo.queue.reconcileUncertainty(actor.id, this.dependencies.clock.now());
       } else {
         // RPC failure cannot undo native consumption, nor prove nonconsumption.
         if (send && acknowledged) this.dependencies.transitions.delivered(actor.id);
@@ -157,7 +157,7 @@ export class IntentDelivery {
           .map((text) => ({ type: "text" as const, text })),
         { type: "text" as const, text: queue.continuation },
       ];
-      this.dependencies.repo.inputs.sending(actor.id, key, input);
+      this.dependencies.repo.inputs.sending(actor.id, key, input, this.dependencies.repo.requireState(actor.id).config.provider, actor.generation);
       this.dependencies.repo.pending.submit(intent, actor.generation);
       await session.send(input, "queue", intent.command.id);
       this.dependencies.transitions.delivered(actor.id);

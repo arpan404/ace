@@ -196,7 +196,7 @@ export class EngineRepository {
       if (oldest !== undefined) this.snapshots.delete(oldest);
     }
   }
-  apply(id: ThreadId, facts: Fact[], now: number): ThreadState {
+  apply(id: ThreadId, facts: Fact[], now: number, generation?: number): ThreadState {
     try {
       return this.store.atomic(() => {
         const state = this.state(id);
@@ -236,7 +236,7 @@ export class EngineRepository {
           let fact = capFact(
             (raw) => this.store.capRaw(raw, id),
             shapeProviderError(
-              this.inputs.correlate(id, input, state.rootKey ?? "root"),
+              this.inputs.correlate(id, input, state.rootKey ?? "root", generation),
               state.config.provider,
             ),
           );
@@ -493,6 +493,7 @@ export class EngineRepository {
   removeInput(id: ThreadId, commandId: CommandId, at: number): void {
     const state = this.requireState(id);
     const key = `input:${commandId}`;
+    this.inputs.invalidate(id, key);
     const item = state.items[key];
     if (!item) return;
     delete state.items[key];

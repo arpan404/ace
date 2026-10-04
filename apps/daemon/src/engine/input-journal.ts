@@ -43,6 +43,21 @@ export class InputJournal {
         thread_id TEXT NOT NULL, native_key TEXT NOT NULL, item_key TEXT NOT NULL,
         PRIMARY KEY(thread_id,native_key));`),
     );
+    store.atomic((db) => {
+      if (!db.prepare("PRAGMA table_info(engine_inputs)").all().some((field) => field.name === "generation"))
+        db.exec("ALTER TABLE engine_inputs ADD COLUMN generation INTEGER");
+      db.exec(`CREATE INDEX IF NOT EXISTS engine_inputs_delivery ON engine_inputs(thread_id,generation,signature,sent,matched,ordinal);
+        DELETE FROM engine_input_echoes WHERE thread_id NOT IN (SELECT id FROM threads);
+        DELETE FROM engine_inputs WHERE thread_id NOT IN (SELECT id FROM threads);
+        CREATE TRIGGER IF NOT EXISTS engine_inputs_delete AFTER DELETE ON threads BEGIN
+          DELETE FROM engine_input_echoes WHERE thread_id=OLD.id;
+          DELETE FROM engine_inputs WHERE thread_id=OLD.id;
+        END;`);
+    });
+  }
+  invalidate(thread: ThreadId, key: string): void {
+    this.store.statement("DELETE FROM engine_input_echoes WHERE thread_id=? AND item_key=?").run(thread, key);
+    this.store.statement("DELETE FROM engine_inputs WHERE thread_id=? AND item_key=?").run(thread, key);
   }
   register(thread: ThreadId, key: string, parts: ContentPart[], origin: MessageOrigin): void {
     this.store
@@ -56,22 +71,24 @@ export class InputJournal {
     key: string,
     parts: ContentPart[],
     provider?: import("@ace/protocol").ProviderKind,
+    generation?: number,
   ): void {
     this.store
-      .statement("UPDATE engine_inputs SET signature=?,sent=1 WHERE thread_id=? AND item_key=?")
+      .statement("UPDATE engine_inputs SET signature=?,sent=1,generation=? WHERE thread_id=? AND item_key=?")
       .run(
         signature(
           provider === "claude"
             ? parts.map((part) =>
                 part.type === "file" ? { type: "text", text: `@${part.path}` } : part,
               )
-            : parts,
+            : provider === "pi" ? parts.map((part) => part.type === "file" ? { type: "text", text: `File: ${part.path}` } : part) : parts,
         ),
+        generation ?? null,
         thread,
         key,
       );
   }
-  correlate(thread: ThreadId, fact: Fact, root: string): Fact {
+  correlate(thread: ThreadId, fact: Fact, root: string, generation?: number): Fact {
     if (
       (fact.type !== "item.upsert" && fact.type !== "item.reconciled") ||
       fact.agent !== root ||
@@ -89,9 +106,9 @@ export class InputJournal {
       alias ??
       this.store
         .statement(
-          "SELECT item_key,origin FROM engine_inputs WHERE thread_id=? AND signature=? AND sent=1 AND matched=0 ORDER BY ordinal LIMIT 1",
+          "SELECT item_key,origin FROM engine_inputs WHERE thread_id=? AND signature=? AND generation=? AND sent=1 AND matched=0 ORDER BY ordinal LIMIT 1",
         )
-        .get(thread, signature(fact.draft.parts));
+        .get(thread, signature(fact.draft.parts), generation ?? null);
     if (!row) return fact;
     const key = z.string().parse(row.item_key);
     if (key === fact.item && !alias) return fact;
