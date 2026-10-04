@@ -59,12 +59,15 @@ export function EffortSection(props: {
   efforts: readonly string[];
   value: string | undefined;
   reason?: string | undefined;
+  /** Where the section sits: a separator goes between it and the models. */
+  place?: "first" | "last";
   onChange(effort: string): void;
 }) {
   if (!props.efforts.length && !props.reason) return null;
+  const first = props.place === "first";
   return (
     <>
-      <MenuSeparator />
+      {!first && <MenuSeparator />}
       <MenuGroup>
         <MenuLabel>Effort</MenuLabel>
         {props.reason ? (
@@ -84,6 +87,7 @@ export function EffortSection(props: {
           </MenuRadioGroup>
         )}
       </MenuGroup>
+      {first && <MenuSeparator />}
     </>
   );
 }

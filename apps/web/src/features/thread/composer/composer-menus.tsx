@@ -205,7 +205,7 @@ const clock = new Intl.DateTimeFormat(undefined, {
 const limitReached = (resetsAt: number | undefined) =>
   resetsAt === undefined ? "Limit reached" : `Limit reached · resets ${clock.format(resetsAt)}`;
 
-/** The thread's models by provider, each on its account with that account's usage, then effort. */
+/** Effort for the thread's model, then the models by provider, each on its account with its usage. */
 export function ThreadModelMenu(props: {
   choices: readonly ModelChoice[];
   value: ModelChoice | undefined;
@@ -218,6 +218,14 @@ export function ThreadModelMenu(props: {
   const providers = [...new Set(props.choices.map((choice) => choice.provider))];
   return (
     <>
+      {/* Effort first: it is what changes most often, and a long model list would hide it. */}
+      <EffortSection
+        efforts={props.effort.efforts}
+        value={props.effort.current}
+        reason={props.effort.reason}
+        place="first"
+        onChange={props.onEffort}
+      />
       <MenuPrimitive.RadioGroup
         value={props.value?.id ?? ""}
         onValueChange={(id: string) => {
@@ -239,12 +247,6 @@ export function ThreadModelMenu(props: {
           </Fragment>
         ))}
       </MenuPrimitive.RadioGroup>
-      <EffortSection
-        efforts={props.effort.efforts}
-        value={props.effort.current}
-        reason={props.effort.reason}
-        onChange={props.onEffort}
-      />
     </>
   );
 }
