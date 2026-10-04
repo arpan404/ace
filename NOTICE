@@ -26,3 +26,10 @@ only the public Promise client; it does not embed the OpenCode runtime.
 
 ACP method constants and protocol types use @agentclientprotocol/sdk 1.7.0, Apache-2.0 licensed. This dependency is accepted under its Apache-2.0 license; ace retains its own bounded transport.
 ACP archive extraction uses tar-stream 3.2.1 under its accepted MIT license and yauzl 3.4.0, Copyright (c) 2014 Josh Wolfe, MIT licensed. yauzl is accepted under its MIT license.
+
+Provider, ACP agent and model-family marks come from LobeHub Icons, @lobehub/icons-static-svg 1.95.1
+(https://github.com/lobehub/lobe-icons), Copyright (c) 2023 LobeHub, MIT licensed. This dependency is
+accepted under its MIT license. scripts/provider-icons.ts converts the selected SVGs into path data in
+packages/ui-core/src/brand-art/; the package is a build-time devDependency and no LobeHub runtime is
+bundled. The marks remain the trademarks of their owners and identify each provider's own product.
+Agents LobeHub has no mark for show ace's own neutral glyph; no brand mark is drawn by ace.

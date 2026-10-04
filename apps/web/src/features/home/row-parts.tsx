@@ -10,7 +10,7 @@ import type { ThreadCard, ThreadMarkKind } from "@ace/ui-core";
 import type { ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
-import { ProviderGlyph } from "@/components/ui/provider-glyph.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
 import { cn } from "@/lib/cn.ts";
@@ -39,11 +39,21 @@ export function StatusMark(props: { mark: ThreadMarkKind; label: string }) {
 }
 
 /** Provider mark with the running subagent count beside it. */
-export function ProviderMark(props: { provider: ProviderKind; subagents: number; label: string }) {
+export function ProviderMark(props: {
+  provider: ProviderKind;
+  acpAgentId?: string | undefined;
+  subagents: number;
+  label: string;
+}) {
   return (
     <Tip label={props.label}>
       <span className="inline-flex items-center gap-[3px] text-xs text-subtle-foreground">
-        <ProviderGlyph provider={props.provider} className="text-muted-foreground" />
+        <ProviderIcon
+          provider={props.provider}
+          acpAgentId={props.acpAgentId}
+          decorative
+          className="text-muted-foreground"
+        />
         {props.subagents > 0 && <span aria-hidden>{props.subagents}</span>}
         <span className="sr-only">{props.label}</span>
       </span>
@@ -127,6 +137,7 @@ export function CardLines(props: { card: ThreadCard; title: ReactNode }) {
         <StatusMark mark={card.status.mark} label={card.status.label} />
         <ProviderMark
           provider={card.provider}
+          acpAgentId={card.acpAgentId}
           subagents={card.subagents}
           label={card.providerLabel}
         />

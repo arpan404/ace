@@ -5,7 +5,7 @@ import { useDeferredValue, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
+import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { formatAge } from "@ace/ui-core";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Screen } from "@/features/shell/index.ts";
@@ -183,7 +183,7 @@ export function SearchPage(props: {
                     className="block px-3 py-2.5"
                   >
                     <span className="flex items-center gap-2 text-xs text-subtle-foreground">
-                      <ProviderMark provider={hit.provider} />
+                      <ProviderIconTip provider={hit.provider} />
                       {projectName(hit.workspaceId)} · {kindLabel[hit.kind]}
                       <span className="ml-auto tabular-nums">{formatAge(hit.createdAt, now)}</span>
                     </span>

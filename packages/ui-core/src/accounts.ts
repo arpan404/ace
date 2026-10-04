@@ -1,7 +1,7 @@
 import type { ProviderKind } from "@ace/protocol";
 import type { AccountSummary } from "@ace/protocol/accounts";
 import type { z } from "zod";
-import { providerNames } from "./providers.ts";
+import { providerDisplayName } from "./providers.ts";
 
 type Summary = z.infer<typeof AccountSummary>;
 
@@ -16,7 +16,9 @@ export interface QuotaWindowView {
 export interface AccountView {
   id: string;
   provider: ProviderKind;
-  /** "Claude Code"; for an ACP agent, the agent's id. */
+  /** The ACP registry agent behind an `acp` account. */
+  acpAgentId?: string | undefined;
+  /** "Claude Code"; for an ACP agent, its registry name or id. */
   providerLabel: string;
   /** CLI version discovery reported, if any. */
   version: string | undefined;
@@ -62,10 +64,8 @@ export function accountView(summary: Summary): AccountView {
   return {
     id: summary.id,
     provider: summary.provider,
-    providerLabel:
-      summary.provider === "acp" && summary.acpAgentId
-        ? summary.acpAgentId
-        : providerNames[summary.provider],
+    acpAgentId: summary.acpAgentId,
+    providerLabel: providerDisplayName(summary.provider, summary.acpAgentId),
     version: summary.installationVersion,
     label: summary.label,
     availability: summary.availability,

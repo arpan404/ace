@@ -45,6 +45,7 @@ export function providerInstalls(accounts: readonly AccountView[]): ProviderInst
       agents.set(account.providerLabel, [...(agents.get(account.providerLabel) ?? []), account]);
   const acp = [...agents].map(([name, own]): ProviderInstall => ({
     kind: "acp",
+    acpAgentId: own[0]?.acpAgentId,
     name,
     binary: name,
     version: own.find((a) => a.version)?.version ?? "",

@@ -2,7 +2,7 @@ import { CheckIcon, GitMergeIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
-import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
+import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import {
   cardColumns,
   cardStatus,
@@ -185,7 +185,7 @@ function CardTile(props: { card: DeckCard; run: DeckRun; selected: boolean; onSe
               +{helpers} {helpers === 1 ? "sub-agent" : "sub-agents"}
             </span>
           )}
-          {provider && <ProviderMark provider={provider} />}
+          {provider && <ProviderIconTip provider={provider} />}
         </span>
       </span>
     </button>

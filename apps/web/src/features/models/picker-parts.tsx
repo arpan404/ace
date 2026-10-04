@@ -26,7 +26,7 @@ export function ModelChipLabel(props: {
 }) {
   return (
     <>
-      {props.provider && <ProviderIcon provider={props.provider} />}
+      {props.provider && <ProviderIcon provider={props.provider} size={14} decorative />}
       <span className="min-w-0 truncate">{props.model}</span>
       {!props.compact && props.account && (
         <span className="min-w-0 shrink-[2] truncate font-normal text-subtle-foreground">
@@ -45,7 +45,7 @@ export function ModelChipLabel(props: {
 export function ProviderLabel(props: { provider: ProviderKind }) {
   return (
     <MenuLabel className="flex items-center gap-1.5">
-      <ProviderIcon provider={props.provider} size={12} />
+      <ProviderIcon provider={props.provider} decorative />
       {providerNames[props.provider]}
     </MenuLabel>
   );

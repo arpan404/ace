@@ -105,6 +105,9 @@ Rules:
 - Live state (threads, sidebar, agent tree, interactions, intents) comes only from `@ace/client-react` hooks. TanStack Query is only for one-off reads. Never copy live state into Query or React state.
 - Primitives you need but don't find in `components/ui` belong to the foundation: add them there, styled from the design tokens, not inside your feature folder.
 - Shortcuts are added to `lib/keymap.ts` and bound with `useHotkey(keymap.x.keys, …)`; tooltips take `shortcut="x"`.
+- Provider, ACP agent and model marks are `ProviderIcon` / `ProviderIconTip` from
+  `components/ui/provider-icons.tsx`, never an inline logo. Which brand stands for what is
+  `@ace/ui-core/provider-icons`; the marks are LobeHub Icons, regenerated with `bun run icons:providers`.
 - Colour only for diff +/− and the needs-you and failed dots. Use `text-muted-foreground` / `text-subtle-foreground` for hierarchy, and weights 400/500 (600 for titles only).
 - Keep files under ~400 lines (hard limit 1,500, `bun run check:size`).
 

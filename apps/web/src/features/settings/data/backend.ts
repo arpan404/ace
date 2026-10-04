@@ -43,6 +43,8 @@ export interface ProviderAccount {
 /** A provider CLI as discovery found it. `version: null` means it is not installed. */
 export interface ProviderInstall {
   kind: ProviderKind;
+  /** The ACP registry agent behind an `acp` install, which picks its mark. */
+  acpAgentId?: string | undefined;
   name: string;
   binary: string;
   version: string | null;
