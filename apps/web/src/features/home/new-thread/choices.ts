@@ -38,7 +38,7 @@ export interface Resolved {
   mode: WorkMode;
   /** One of the model's efforts: the chosen one, else the model's default. */
   effort: string | undefined;
-  /** On the model's faster tier: chosen, and the model has one. */
+  /** On the model's faster tier: as chosen, else as the catalog runs it by default. */
   fast: boolean;
 }
 
@@ -85,7 +85,7 @@ export function resolve(
     account,
     mode: choices.mode ?? "worktree",
     effort,
-    fast: !!choices.fast && model?.fastTier !== undefined,
+    fast: model?.fastTier !== undefined && (choices.fast ?? model.fastDefault),
     ...(legacy ? { upgradedModel: legacy.key } : {}),
   };
 }

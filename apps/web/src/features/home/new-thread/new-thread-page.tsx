@@ -18,6 +18,7 @@ import { useStartingProvider } from "@/lib/provider-statuses.ts";
 import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { WorkspaceId } from "@ace/protocol";
+import { speedOffTier } from "@ace/ui-core";
 import { loadChoices, pickProject, resolve, saveChoices, type Choices } from "./choices.ts";
 import { ContextBar } from "./context-bar.tsx";
 import { ModelPicker } from "./model-picker.tsx";
@@ -101,7 +102,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
       mode: resolved.mode,
       baseBranch: base,
       effort: resolved.effort,
-      serviceTier: resolved.fast ? resolved.model.fastTier : undefined,
+      serviceTier: resolved.fast ? resolved.model.fastTier : speedOffTier(resolved.model),
       permission: chosen,
       text: draft.text.trim() || "See the attached files.",
       context: {

@@ -36,7 +36,7 @@ test("+ offers files, images, a mention and a command instead of a bare file dia
   expect(await screen.findByRole("listbox", { name: "Files" })).toBeTruthy();
 });
 
-test("the + menu is one line a row, and only a row that can't be used says why", async () => {
+test("+ rows carry no descriptions; only a row that can't be used says why", async () => {
   await open("idle");
   await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
   const menu = await screen.findByRole("menu");
@@ -54,7 +54,7 @@ test("the + menu is one line a row, and only a row that can't be used says why",
   expect(page.getAttribute("aria-disabled")).toBe("true");
 });
 
-test("Plan first from + makes the thread read only until the plan is agreed", async () => {
+test("Plan first from + switches the thread to read-only approvals", async () => {
   const { app } = await open("idle");
   await userEvent.click(screen.getByRole("button", { name: "Add files and context" }));
   const plan = await screen.findByRole("menuitem", { name: /^Plan first/ });
@@ -101,6 +101,8 @@ test("a search that finds nothing says so instead of closing", async () => {
 test("approvals show the thread's mode and what the provider gates, and change from the footer", async () => {
   const { app } = await open("busy");
   const chip = await screen.findByRole("button", { name: "Approvals: Auto-review" });
+  // The default mode is the shield alone; the tooltip and name carry it.
+  expect(chip.textContent).toBe("");
   await userEvent.click(chip);
   const auto = await screen.findByRole("menuitemradio", { name: "Auto-review" });
   expect(auto.getAttribute("aria-checked")).toBe("true");
@@ -114,9 +116,11 @@ test("approvals show the thread's mode and what the provider gates, and change f
 
   await userEvent.click(screen.getByRole("menuitemradio", { name: "Read only" }));
   // The agent is mid-turn: the new mode waits for the turn to end.
-  expect(
-    await screen.findByRole("button", { name: "Approvals: Read only, applies after this turn" }),
-  ).toBeTruthy();
+  const readOnly = await screen.findByRole("button", {
+    name: "Approvals: Read only, applies after this turn",
+  });
+  // Off the default, the chip says which mode in a word.
+  expect(readOnly.textContent).toBe("Read-only");
   expect(thread(app, "thread-replay-cursor")?.permission?.override).toBe("read-only");
 
   await menuClosed();
@@ -131,8 +135,13 @@ test("the model chip opens effort and speed for the thread's model", async () =>
   const popover = await openModelControl("Model: Opus 4.1, personal, provider default effort");
   expect(within(popover).getByText("Default effort")).toBeTruthy();
   expect(within(popover).getByRole("button", { name: "Change model: Opus 4.1" })).toBeTruthy();
+  // Opus has no default ace knows of: the provider's own is the slider's first stop, and each
+  // stop is named.
   const slider = within(popover).getByRole("slider", { name: "Effort" });
-  expect(slider.getAttribute("aria-valuetext")).toBe("Not set");
+  expect(slider.getAttribute("aria-valuetext")).toBe("Default");
+  expect(slider.getAttribute("aria-valuenow")).toBe("0");
+  for (const step of ["Default", "Low", "Medium", "High"])
+    expect(within(popover).getByText(step)).toBeTruthy();
   // Opus has no faster tier.
   expect(
     within(popover).getByRole("button", { name: "Fast mode" }).getAttribute("aria-disabled"),
@@ -144,7 +153,7 @@ test("effort from the slider goes with the next message and applies to its turn"
   const popover = await openModelControl(/^Model: Opus 4\.1/);
   within(popover).getByRole("slider", { name: "Effort" }).focus();
   await userEvent.keyboard("{End}");
-  expect(within(popover).getByText("High")).toBeTruthy();
+  expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("High");
   await closeModelControl();
   // Nothing changes on the daemon until the message goes.
   expect(
@@ -174,7 +183,7 @@ test("reset drops the effort picked for the next message, so it can steer again"
   await userEvent.keyboard("{End}");
   expect(reset.getAttribute("aria-disabled")).toBeNull();
   await userEvent.click(reset);
-  expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("Not set");
+  expect(within(popover).getByRole("slider", { name: "Effort" }).ariaValueText).toBe("Default");
   await closeModelControl();
   expect(
     screen.getByRole("button", { name: "Model: Opus 4.1, personal, provider default effort" }),

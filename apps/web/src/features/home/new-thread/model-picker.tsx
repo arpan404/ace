@@ -4,6 +4,7 @@ import {
   pickerProviders,
   providerNames,
   speedControl,
+  speedOffTier,
   type PickerModel,
 } from "@ace/ui-core";
 import { ModelControl, type ModelControlView } from "@/features/models/index.ts";
@@ -21,7 +22,7 @@ export function ModelPicker(props: {
   /** Called with the option's `key`, which tells apart providers that share a model id. */
   onModel(key: string): void;
   onAccount(id: string): void;
-  onEffort(effort: string): void;
+  onEffort(effort: string | undefined): void;
   onFast(on: boolean): void;
   onReset(): void;
 }) {
@@ -34,8 +35,13 @@ export function ModelPicker(props: {
   const tag = account ? accountTag(account.label) : undefined;
   const efforts = model?.efforts ?? [];
   const speed = speedControl({
-    model: model && { label: model.label, provider: model.provider, fastTier: model.fastTier },
-    current: fast ? model?.fastTier : undefined,
+    model: model && {
+      label: model.label,
+      provider: model.provider,
+      fastTier: model.fastTier,
+      fastDefault: model.fastDefault,
+    },
+    current: fast ? model?.fastTier : speedOffTier(model),
   });
   const name = model
     ? modelControlName({
@@ -62,12 +68,13 @@ export function ModelPicker(props: {
     disabled: !model,
     modelKey: model?.key,
     efforts,
+    defaultStop: model?.defaultEffort === undefined,
     effort,
     effortDefault: false,
     effortReason: model && !efforts.length ? `${model.label} has no effort levels` : undefined,
     fast: speed.on,
     fastReason: speed.reason,
-    canReset: effort !== model?.defaultEffort || speed.on,
+    canReset: effort !== model?.defaultEffort || speed.on !== !!model?.fastDefault,
     accounts: (props.options?.accounts ?? [])
       .filter((option) => option.provider === model?.provider)
       .map((option) => ({ id: option.id, label: accountTag(option.label), detail: option.usage })),

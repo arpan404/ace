@@ -10,6 +10,10 @@ import { ModelPickerPanel } from "./model-picker-panel.tsx";
 const iconButton =
   "grid size-8 place-items-center rounded-full text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-pressed:bg-accent aria-pressed:text-foreground data-disabled:opacity-40";
 
+/** The slider's "Default" stop: the provider's own default effort. Never an effort's name. */
+const defaultStep = "";
+const stepLabel = (step: string) => (step === defaultStep ? "Default" : effortLabel(step));
+
 /**
  * The model chip's popover. First effort and speed for the chosen model ("Medium", the model's
  * name, the slider), then, from the name, the model picker; choosing a model comes back here.
@@ -51,7 +55,8 @@ function EffortPanel(props: {
 }) {
   const { view, actions } = props;
   const efforts = view.efforts;
-  const index = view.effort ? efforts.indexOf(view.effort) : -1;
+  const steps = view.defaultStop && efforts.length ? [defaultStep, ...efforts] : efforts;
+  const index = steps.indexOf(view.effort ?? defaultStep);
   const title = view.effort ? effortLabel(view.effort) : "Default effort";
   return (
     <div className="flex w-[280px] flex-col gap-3 p-3">
@@ -107,20 +112,21 @@ function EffortPanel(props: {
       {view.accounts.length > 1 && (
         <Accounts accounts={view.accounts} value={view.account} onChange={actions.onAccount} />
       )}
-      {efforts.length > 1 && (
+      {steps.length > 1 && (
         <StepSlider
           label="Effort"
-          steps={efforts}
-          value={index}
-          stepLabel={effortLabel}
+          steps={steps}
+          value={Math.max(0, index)}
+          stepLabel={stepLabel}
           disabled={!!view.effortReason}
           onValueChange={(next) => {
-            const effort = efforts[next];
-            if (effort && effort !== view.effort) actions.onEffort(effort);
+            const effort = steps[next];
+            if (effort !== undefined && effort !== (view.effort ?? defaultStep))
+              actions.onEffort(effort === defaultStep ? undefined : effort);
           }}
         />
       )}
-      {(view.effortReason || efforts.length < 2) && (
+      {(view.effortReason || steps.length < 2) && (
         <p className="text-center text-xs text-subtle-foreground">
           {view.effortReason ?? `${view.label ?? "This model"} has one effort level`}
         </p>

@@ -32,6 +32,11 @@ export interface ModelControlView {
   /** The chosen model's picker key. */
   modelKey: string | undefined;
   efforts: readonly string[];
+  /**
+   * The model has no default ace knows of: the slider starts with a "Default" stop, the
+   * provider's own default, which is also where it sits until an effort is picked.
+   */
+  defaultStop: boolean;
   /** The effort in effect, or the model's default. */
   effort: string | undefined;
   /** `effort` is the default rather than a choice the provider reported. */
@@ -51,7 +56,8 @@ export interface ModelControlView {
 }
 
 export interface ModelControlActions {
-  onEffort(effort: string): void;
+  /** An effort level, or undefined for the provider's default. */
+  onEffort(effort: string | undefined): void;
   onFast(on: boolean): void;
   onReset(): void;
   /** A picked model; false when the popover should close (a dialog asks first). */

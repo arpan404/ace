@@ -1,5 +1,5 @@
 import { useClient, useThreadMeta } from "@ace/client-react";
-import type { ExecutionOptions, ThreadStatus } from "@ace/protocol";
+import type { ThreadStatus } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
 import { Suspense, useRef, useState, type Ref } from "react";
@@ -17,6 +17,7 @@ import {
   DeferredQueuedPills,
   DeferredThreadControls,
 } from "./deferred-parts.tsx";
+import { runsOn, selectionIdentity, type PendingTurn } from "./execution.ts";
 import { useQueue } from "./use-queue.ts";
 
 const composerInset = {
@@ -59,16 +60,19 @@ export function ThreadComposer({
   // Toasts (a thread elsewhere needs you, Undo) rise above the composer, never over it.
   const box = useRef<HTMLDivElement>(null);
   useToastClearance(box);
-  // Effort and speed picked for the next message, kept for this thread only.
-  const [picked, setPicked] = useState<{ threadId: string; options: ExecutionOptions }>();
-  const nextOptions = picked?.threadId === props.thread.id ? picked.options : undefined;
+  // Effort and speed picked for the next message: this thread's, for the selection they were
+  // picked for. The controls re-check them when the thread moves to another model.
+  const [picked, setPicked] = useState<PendingTurn & { threadId: string }>();
+  const pending = picked?.threadId === props.thread.id ? picked : undefined;
   const next = {
-    options: nextOptions,
-    onChange: (options: ExecutionOptions | undefined) =>
-      setPicked(options && { threadId: props.thread.id, options }),
+    pending,
+    onChange: (turn: PendingTurn | undefined) =>
+      setPicked(turn && { threadId: props.thread.id, ...turn }),
   };
 
   const submit = async (draft: Draft) => {
+    // Never send options picked for another selection; the controls are re-checking them.
+    const sent = pending?.identity === selectionIdentity(runsOn(meta)) ? pending : undefined;
     try {
       await client.enqueue({
         type: "thread.send",
@@ -78,9 +82,10 @@ export function ThreadComposer({
         // Plain Enter leaves delivery to the daemon's setting; ⌘↵ overrides it. A message that
         // changes effort or speed always waits for the next turn (the daemon queues it).
         ...(draft.opposite ? { delivery: followUp === "steer" ? "queue" : "steer" } : {}),
-        ...(nextOptions ? { options: nextOptions } : {}),
+        ...(sent ? { options: sent.options } : {}),
       });
-      if (nextOptions) setPicked(undefined);
+      // Only what this message carried is spent: a change made while it was saving stays.
+      if (sent) setPicked((latest) => (latest === sent ? undefined : latest));
       return true;
     } catch {
       toast.add({

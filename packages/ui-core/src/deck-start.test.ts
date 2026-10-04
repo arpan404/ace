@@ -14,6 +14,7 @@ const model = (patch: Partial<ModelOption>): ModelOption => ({
   isNew: false,
   legacy: false,
   fastTier: undefined,
+  fastDefault: false,
   ...patch,
 });
 const account = (patch: Partial<AccountOption>): AccountOption => ({

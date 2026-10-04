@@ -114,19 +114,39 @@ export function pickerProviders(
   return out;
 }
 
+/**
+ * The `serviceTier` that asks for a model's standard speed: "default" where the catalog runs it
+ * fast unless asked otherwise, else none (leaving the tier out is already standard).
+ */
+export function speedOffTier(
+  model: { fastTier: string | undefined; fastDefault?: boolean | undefined } | undefined,
+): string | undefined {
+  return model?.fastTier !== undefined && model.fastDefault ? "default" : undefined;
+}
+
 /** The speed toggle: the fast tier on offer, whether it is on, or why it can't change. */
 export interface SpeedControl {
   tier: string | undefined;
+  /** The `serviceTier` that turns speed off: none when the model is standard by default. */
+  off: string | undefined;
   on: boolean;
   reason: string | undefined;
 }
 
 /**
- * Speed for a model: on when the selection names its fast tier. A thread that already exists
- * also needs its provider to take `serviceTier` as a session option.
+ * Speed for a model: on when the selection names its fast tier, or names none and the catalog
+ * runs the model fast by default. A thread that already exists also needs its provider to take
+ * `serviceTier` as a session option.
  */
 export function speedControl(input: {
-  model: { label: string; provider: ProviderKind; fastTier: string | undefined } | undefined;
+  model:
+    | {
+        label: string;
+        provider: ProviderKind;
+        fastTier: string | undefined;
+        fastDefault?: boolean | undefined;
+      }
+    | undefined;
   /** What the selection asks for now (`options.serviceTier`). */
   current: unknown;
   /** A running thread's capabilities; omitted for a thread that hasn't started. */
@@ -135,8 +155,11 @@ export function speedControl(input: {
 }): SpeedControl {
   const { model } = input;
   const tier = model?.fastTier;
-  const on = tier !== undefined && input.current === tier;
-  const blocked = (reason: string): SpeedControl => ({ tier, on, reason });
+  const off = speedOffTier(model);
+  const on =
+    tier !== undefined &&
+    (input.current === undefined ? off !== undefined : input.current === tier);
+  const blocked = (reason: string): SpeedControl => ({ tier, off, on, reason });
   if (!model) return blocked("Choose a model first");
   if (!tier) return blocked(`${model.label} has no faster tier`);
   if (
@@ -145,7 +168,7 @@ export function speedControl(input: {
       !input.capabilities.launchOptions?.includes("serviceTier"))
   )
     return blocked(`${providerNames[model.provider]} sets speed only when a thread starts`);
-  return { tier, on, reason: undefined };
+  return { tier, off, on, reason: undefined };
 }
 
 type Options = Readonly<Record<string, string | number | boolean | null>>;
@@ -202,7 +225,11 @@ export function pickerModelsFromChoices(
   limitReached: (resetsAt: number | undefined) => string,
 ): PickerModel[] {
   const byKey = new Map<string, ModelChoice[]>();
-  for (const choice of choices) byKey.set(choice.key, [...(byKey.get(choice.key) ?? []), choice]);
+  for (const choice of choices) {
+    const group = byKey.get(choice.key);
+    if (group) group.push(choice);
+    else byKey.set(choice.key, [choice]);
+  }
   return [...byKey.values()].flatMap((group) => {
     const first = group[0];
     if (!first) return [];
@@ -236,4 +263,41 @@ export function choiceForModel(
     serving.find((choice) => choice.accountId === account && !choice.exhausted) ??
     serving.find((choice) => !choice.exhausted)
   );
+}
+
+/** What a reconciliation dropped from the next message, for saying so. */
+export type DroppedChoice = "effort" | "speed";
+
+/**
+ * Effort and speed picked for the next message, checked again after the thread moved to
+ * another model, account or provider (here or on another device). What the new model still
+ * takes is kept, over its own `base` options; what it doesn't is dropped and named, so the
+ * person can be told rather than have an unsupported value go out.
+ */
+export function reconcileNextOptions(input: {
+  base: Options;
+  pending: Options;
+  efforts: readonly string[];
+  /** Effort can change on the thread now (`threadEffortControl` gave no reason). */
+  effortAllowed: boolean;
+  fastTier: string | undefined;
+  speedAllowed: boolean;
+}): {
+  options: Record<string, string | number | boolean | null> | undefined;
+  dropped: DroppedChoice[];
+} {
+  const patch: Record<string, string | undefined> = {};
+  const dropped: DroppedChoice[] = [];
+  const effort = input.pending["effort"];
+  if (typeof effort === "string" && effort !== input.base["effort"]) {
+    if (input.effortAllowed && input.efforts.includes(effort)) patch["effort"] = effort;
+    else dropped.push("effort");
+  }
+  const tier = input.pending["serviceTier"];
+  if (typeof tier === "string" && tier !== input.base["serviceTier"]) {
+    const known = tier === input.fastTier || tier === "default";
+    if (input.speedAllowed && input.fastTier !== undefined && known) patch["serviceTier"] = tier;
+    else dropped.push("speed");
+  }
+  return { options: nextOptions(input.base, input.base, patch), dropped };
 }

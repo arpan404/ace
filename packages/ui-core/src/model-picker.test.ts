@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { nextOptions, pickerModelsFromChoices, speedControl } from "./model-picker.ts";
+import {
+  nextOptions,
+  pickerModelsFromChoices,
+  reconcileNextOptions,
+  speedControl,
+} from "./model-picker.ts";
 import { modelKey, recordedChoice, type ModelChoice } from "./models.ts";
 
 const choice = (patch: Partial<ModelChoice>): ModelChoice => {
@@ -53,4 +58,42 @@ test("a change that lands back on what the thread runs with sends no options", (
   expect(raised).toEqual({ effort: "high", summary: "auto" });
   expect(nextOptions(base, raised ?? base, { effort: "low" })).toBeUndefined();
   expect(nextOptions(base, base, { effort: undefined })).toEqual({ summary: "auto" });
+});
+
+test("a model the catalog runs fast by default is fast until turned off explicitly", () => {
+  const model = {
+    label: "GPT-5",
+    provider: "codex" as const,
+    fastTier: "priority",
+    fastDefault: true,
+  };
+  expect(speedControl({ model, current: undefined })).toMatchObject({ on: true, off: "default" });
+  expect(speedControl({ model, current: "default" }).on).toBe(false);
+  const standard = { ...model, fastDefault: false };
+  expect(speedControl({ model: standard, current: undefined })).toMatchObject({
+    on: false,
+    off: undefined,
+  });
+});
+
+test("after the thread moves, what the new model takes is kept and the rest is named", () => {
+  const kept = reconcileNextOptions({
+    base: {},
+    pending: { effort: "high", serviceTier: "priority" },
+    efforts: ["low", "medium", "high"],
+    effortAllowed: true,
+    fastTier: "priority",
+    speedAllowed: true,
+  });
+  expect(kept).toEqual({ options: { effort: "high", serviceTier: "priority" }, dropped: [] });
+
+  const moved = reconcileNextOptions({
+    base: { summary: "auto" },
+    pending: { effort: "minimal", serviceTier: "priority" },
+    efforts: ["low", "medium", "high"],
+    effortAllowed: true,
+    fastTier: undefined,
+    speedAllowed: true,
+  });
+  expect(moved).toEqual({ options: undefined, dropped: ["effort", "speed"] });
 });

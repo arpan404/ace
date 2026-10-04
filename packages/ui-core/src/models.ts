@@ -34,6 +34,8 @@ export interface ModelChoice {
   legacy: boolean;
   /** The `serviceTier` that runs it faster, when it has one ace can ask for. */
   fastTier: string | undefined;
+  /** The catalog runs it on that faster tier unless asked otherwise (`defaultTier`). */
+  fastDefault: boolean;
 }
 
 /**
@@ -50,11 +52,21 @@ export function modelKey(provider: ProviderKind, id: string): string {
  * not something a thread can be started or switched with, so they don't count.
  */
 export function fastTier(model: Pick<CatalogModel, "serviceTiers">): string | undefined {
+  return fastTierEntry(model)?.value;
+}
+
+function fastTierEntry(model: Pick<CatalogModel, "serviceTiers">) {
   for (const tier of model.serviceTiers) {
     const value = tier.parameters["serviceTier"];
-    if (tier.speed === "fast" && typeof value === "string") return value;
+    if (tier.speed === "fast" && typeof value === "string") return { id: tier.id, value };
   }
   return undefined;
+}
+
+/** The catalog's default tier is the faster one: speed is on until the person turns it off. */
+export function fastByDefault(model: Pick<CatalogModel, "serviceTiers" | "defaultTier">): boolean {
+  const tier = fastTierEntry(model);
+  return tier !== undefined && model.defaultTier === tier.id;
 }
 
 /**
@@ -86,6 +98,7 @@ export function recordedChoice(
     isNew: false,
     legacy: false,
     fastTier: undefined,
+    fastDefault: false,
   };
 }
 
@@ -147,6 +160,7 @@ export function modelChoices(
             isNew: model.isNew ?? false,
             legacy: model.deprecated,
             fastTier: fastTier(model),
+            fastDefault: fastByDefault(model),
           },
         ];
       }),
@@ -236,6 +250,8 @@ export interface ModelOption {
   legacy: boolean;
   /** The `serviceTier` that runs it faster, when it has one ace can ask for. */
   fastTier: string | undefined;
+  /** The catalog runs it on that faster tier unless asked otherwise (`defaultTier`). */
+  fastDefault: boolean;
 }
 
 /** A signed-in account of the chosen model's provider, with how much quota it has used. */
@@ -282,6 +298,7 @@ export function newThreadOptions(
       isNew: model.isNew ?? false,
       legacy: model.deprecated,
       fastTier: fastTier(model),
+      fastDefault: fastByDefault(model),
     });
   }
   const listed = new Set(options.map((option) => option.provider));
@@ -301,6 +318,7 @@ export function newThreadOptions(
         isNew: false,
         legacy: false,
         fastTier: undefined,
+        fastDefault: false,
       });
     }
   const signedIn = accounts.filter((account) => account.signedIn);

@@ -7,7 +7,7 @@ import {
   type PickerTab,
 } from "@ace/ui-core";
 import { MagnifyingGlassIcon, StarIcon } from "@phosphor-icons/react";
-import { useId, useState, type KeyboardEvent } from "react";
+import { useEffect, useId, useState, type KeyboardEvent } from "react";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { menuItem, menuLabel } from "@/components/ui/menu-styles.ts";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
@@ -53,6 +53,10 @@ export function ModelPickerPanel(props: {
   );
   const active = Math.min(highlight, Math.max(0, rows.length - 1));
   const listId = useId();
+  // Keyboard moves keep the highlighted row in view inside the scrolling list.
+  useEffect(() => {
+    document.getElementById(`${listId}-${active}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [listId, active]);
   const tabs: { id: PickerTab; reason: string | undefined }[] = [
     { id: "favorites", reason: undefined },
     ...props.providers.map((entry) => ({ id: entry.provider, reason: entry.reason })),
