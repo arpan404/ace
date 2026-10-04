@@ -253,6 +253,11 @@ test("late callbacks from a failed open cannot retire a newer session of the sam
   const id = await h.create();
   const old = h.contexts[0];
   if (!old) throw new Error("Missing failed provider");
+  expect(h.engine.queue(id)).toMatchObject({
+    paused: true,
+    reason: "manual",
+    messages: [{ input: [{ type: "text", text: "first" }], state: "queued" }],
+  });
   h.registry.register(
     {
       ...h.adapter,
@@ -263,10 +268,20 @@ test("late callbacks from a failed open cannot retire a newer session of the sam
     },
     discovery,
   );
-  expect(h.command({ type: "thread.send", threadId: id, input, delivery: "queue" }).ok).toBe(true);
+  // A failed open retains the first input until the user explicitly retries it.
+  expect(
+    h.command({
+      type: "queue.resume",
+      threadId: id,
+      expectedRevision: h.engine.queue(id).revision,
+    }).ok,
+  ).toBe(true);
   await h.engine.flush();
   const current = h.contexts.at(-1);
   if (!current || current === old) throw new Error("Missing new provider");
+  expect(h.adapter.commands.filter((command) => command.type === "send")).toEqual([
+    { type: "send", input: [{ type: "text", text: "first" }], delivery: "queue" },
+  ]);
   old.onFrame(frames.frame({ ...end, nativeTurnId: "fresh" }));
   old.onExit({ deliberate: false, message: "late failure" });
   await h.engine.flush();

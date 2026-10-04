@@ -1,0 +1,81 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProviderStatus.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "accountLabel": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    },
+    "auth": {
+      "enum": [
+        "logged_in",
+        "logged_out",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "authDetail": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "authEvidence": {
+      "const": "credentials_configured",
+      "type": "string"
+    },
+    "checkedAt": {
+      "minimum": 0,
+      "type": "number"
+    },
+    "error": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "installed": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "loginHint": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "provider": {
+      "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
+    },
+    "refreshing": {
+      "type": "boolean"
+    },
+    "runtime": {
+      "enum": [
+        "cli",
+        "cursor-sdk"
+      ],
+      "type": "string"
+    },
+    "stale": {
+      "type": "boolean"
+    },
+    "version": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "provider",
+    "runtime",
+    "installed",
+    "auth",
+    "loginHint",
+    "stale",
+    "refreshing"
+  ],
+  "type": "object"
+}

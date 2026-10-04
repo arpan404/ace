@@ -205,6 +205,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "context",
       "settings",
       "models",
+      "providerStatuses",
       "mcp",
       "notifications",
       "review",

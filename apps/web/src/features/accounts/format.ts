@@ -17,27 +17,3 @@ export function formatClock(at: number, locale?: string): string {
     hour12: false,
   }).format(at);
 }
-
-/** 9_214_000 → "9.2M", 840_000 → "840K". */
-export function formatTokens(value: number): string {
-  if (value >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
-  if (value >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
-  if (value >= 1e3) return `${Math.round(value / 1e3)}K`;
-  return String(Math.round(value));
-}
-
-export function formatUsd(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: value >= 100 ? 0 : 2,
-  }).format(value);
-}
-
-const pad = (n: number) => String(n).padStart(2, "0");
-
-/** Local calendar date as YYYY-MM-DD, `days` before `now`. */
-export function isoDay(now: number, days = 0): string {
-  const date = new Date(now - days * 24 * hour);
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}

@@ -45,6 +45,11 @@
         },
         {
           "properties": {
+            "canonicalPath": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
             "initialBranch": {
               "maxLength": 1024,
               "type": "string"
@@ -71,6 +76,7 @@
           "required": [
             "kind",
             "path",
+            "canonicalPath",
             "roots",
             "initialBranch"
           ],

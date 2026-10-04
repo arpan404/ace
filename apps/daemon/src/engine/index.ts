@@ -1,3 +1,6 @@
+import { CreationAdmissions, type CreationAdmission } from "./creation-admissions.ts";
+import { validateCreation } from "./creation-validation.ts";
+import { workspaceDirectory } from "./workspace-directory.ts";
 import { Command as CommandSchema, type PermissionMode, type CommandResult } from "@ace/protocol";
 import { commandContext } from "../commands.ts";
 import {
@@ -66,6 +69,8 @@ export class Engine {
   readonly handler: CommandHandler;
   private limits: EngineLimits;
   private nextThreadId: () => string;
+  private admissions: CreationAdmissions;
+  private selectInstance: EngineOptions["selectInstance"];
   private repo: EngineRepository;
   private registry: AdapterRegistry;
   private clock: EngineClock;
@@ -103,6 +108,8 @@ export class Engine {
       this.limits.maxActiveThreads,
       options.commandId,
     );
+    this.admissions = new CreationAdmissions(this.repo, this.nextThreadId);
+    this.selectInstance = options.selectInstance;
     this.registry = options.registry ?? new AdapterRegistry();
     this.clock = options.clock ?? systemClock;
     this.batchScheduler = options.batchScheduler ?? systemClock;
@@ -208,6 +215,8 @@ export class Engine {
       options.threadId ?? randomUUID,
       this.recovery,
       this.limits,
+      this.admissions,
+      workspaceDirectory,
       options.selectInstance,
       options.machine,
     );
@@ -536,6 +545,22 @@ export class Engine {
   }
   ready(): Promise<void> {
     return this.readyPromise;
+  }
+  /** Validate before Git I/O and hold an engine slot until acceptance or cancellation. */
+  admitCreation(command: Command): CreationAdmission | string {
+    if (permissionOptions(command)) return "provider_permission_options_forbidden";
+    if (this.closing) return "daemon_shutting_down";
+    if (!this.readyState) return "engine_starting";
+    const validation = validateCreation(
+      command,
+      this.repo,
+      this.registry,
+      this.limits,
+      workspaceDirectory,
+      this.selectInstance,
+    );
+    if (!validation.ok) return validation.error;
+    return this.admissions.acquire(command);
   }
   async prepareCommand(command: Command): Promise<void> {
     await this.readyPromise;
