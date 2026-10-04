@@ -72,7 +72,7 @@ export function humanWaits(reader: Pick<ActivityReader, "interactionIds" | "inte
     if (!interaction || !waitedOnPerson(interaction)) continue;
     spans.push({ from: interaction.createdAt, to: interaction.closedAt });
   }
-  return spans.sort((a, b) => a.from - b.from);
+  return spans.toSorted((a, b) => a.from - b.from);
 }
 
 /** How much of [from, to] was spent waiting on a person (overlapping waits count once). */
