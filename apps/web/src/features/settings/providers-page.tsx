@@ -7,20 +7,26 @@ import { Button } from "@/components/ui/button.tsx";
 import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { providerStatusesKey } from "@/lib/provider-statuses.ts";
 import { AddAcpAgent } from "./add-acp-agent.tsx";
 import type { ProviderAccount, ProviderInstall } from "./data/backend.ts";
 import { settingsQueries, useSettingsBackend } from "./data/use-settings.ts";
 
-/** "claude 2.1.4 · 2 accounts · 1 at limit", "Not installed", "via ACP · 1 account". */
+/**
+ * "claude 2.1.4 · 2 accounts · 1 at limit", "codex · its own login", "Not installed",
+ * "via ACP · 1 account".
+ */
 export function describeInstall(install: ProviderInstall): string {
   if (install.via && install.accounts.length === 0)
     return `${install.via} · runs ${install.binary}`;
-  if (install.version === null)
+  if (install.state === "not_installed")
     return `Not installed · ace looks for ${install.binary} on your PATH`;
   const signedIn = install.accounts.filter((account) => account.auth === "logged_in");
   const atLimit = install.accounts.filter((account) => account.availability === "exhausted");
-  const parts = [install.via ?? `${install.binary} ${install.version}`];
-  if (signedIn.length === 0) parts.push("signed out");
+  const parts = [install.via ?? [install.binary, install.version].filter(Boolean).join(" ")];
+  // No ace account: the daemon runs the CLI on the person's own login.
+  if (install.accounts.length === 0) parts.push("its own login");
+  else if (signedIn.length === 0) parts.push("signed out");
   else if (install.accounts.length === 1 && !install.via) parts.push("signed in");
   else parts.push(`${signedIn.length} account${signedIn.length === 1 ? "" : "s"}`);
   if (atLimit.length) parts.push(`${atLimit.length} at limit`);
@@ -56,8 +62,10 @@ export function RediscoverButton() {
   const queryClient = useQueryClient();
   const rediscover = useMutation({
     mutationFn: () => backend.rediscover(),
-    onSuccess: (list) =>
-      queryClient.setQueryData(settingsQueries.providers(backend).queryKey, list),
+    onSuccess: (list) => {
+      queryClient.setQueryData(settingsQueries.providers(backend).queryKey, list);
+      void queryClient.invalidateQueries({ queryKey: providerStatusesKey });
+    },
   });
   return (
     <Button
@@ -75,7 +83,7 @@ export function RediscoverButton() {
 function ProviderRow(props: { install: ProviderInstall }) {
   const { install } = props;
   const [open, setOpen] = useState(false);
-  const installed = install.version !== null;
+  const installed = install.state !== "not_installed";
   return (
     <>
       <SettingRow

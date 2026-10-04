@@ -1,15 +1,18 @@
-import { useQuery } from "@tanstack/react-query";
 import type { ProviderKind } from "@ace/protocol";
+import { providerChoiceLabel, providerNames } from "@ace/ui-core";
 import { useId } from "react";
 import { SettingRow, SettingSection } from "@/components/setting-row.tsx";
 import { Input } from "@/components/ui/input.tsx";
-import { Select } from "@/components/ui/select.tsx";
+import { Select, type SelectOption } from "@/components/ui/select.tsx";
+import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
 import { useDaemonConnection } from "@/boot/connection.tsx";
+import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useProfileName } from "@/lib/profile.ts";
+import { useProviderStatuses, useStartingProvider } from "@/lib/provider-statuses.ts";
 import { useDesktopPreferences } from "./data/desktop-preferences.ts";
 import { settingKeys, type AutoSettle } from "./data/setting-keys.ts";
-import { settingsQueries, useSetting, useSettingsBackend } from "./data/use-settings.ts";
+import { useSetting } from "./data/use-settings.ts";
 import { DaemonSettings } from "./daemon-settings.tsx";
 import { RecoverySettings } from "./recovery-settings.tsx";
 import { SettingSwitch } from "./setting-switch.tsx";
@@ -34,12 +37,7 @@ export function GeneralSettings() {
         <ProfileNameRow />
       </SettingSection>
       <SettingSection label="Threads">
-        <SettingRow
-          title="Default provider for new threads"
-          description="You can change it per thread in the composer."
-        >
-          <DefaultProvider />
-        </SettingRow>
+        <DefaultProvider />
         <SettingSwitch
           setting={settingKeys.worktree}
           title="New threads use a worktree"
@@ -88,24 +86,46 @@ function OpenAtLogin() {
   );
 }
 
+/**
+ * The provider new threads start on. Every CLI discovery found installed is offered, with its
+ * state; until the person picks one, the page shows the provider new threads would start on
+ * (`useStartingProvider`).
+ */
 function DefaultProvider() {
-  const backend = useSettingsBackend();
-  const providers = useQuery(settingsQueries.providers(backend));
-  const [provider, setProvider] = useSetting(settingKeys.defaultProvider);
-  const options = (providers.data ?? [])
-    .filter((install) => install.version !== null && install.accounts.length > 0)
-    .map((install) => ({ value: install.kind, label: install.name }));
+  const statuses = useProviderStatuses();
+  const start = useStartingProvider();
+  const [, setProvider] = useDaemonSetting("providers.default");
+  const value = start.chosen ?? start.provider;
+  const options: SelectOption<ProviderKind>[] = [];
+  for (const status of statuses.data ?? [])
+    if (status.state !== "not_installed" && !options.some((o) => o.value === status.provider))
+      options.push({ value: status.provider, label: providerChoiceLabel(status) });
   // Keep the stored choice visible even when its CLI is missing, so the page never lies.
-  if (!options.some((option) => option.value === provider))
-    options.unshift({ value: provider, label: `${provider} (not installed)` });
+  if (value && !options.some((option) => option.value === value))
+    options.unshift({
+      value,
+      label: providerChoiceLabel({ name: providerNames[value], state: "not_installed" }),
+    });
+  const description = start.chosen
+    ? "You can change it per thread in the composer."
+    : "Until you pick one, new threads start on the provider you used last, else the first one installed. You can change it per thread in the composer.";
   return (
-    <Select<ProviderKind>
-      label="Default provider for new threads"
-      value={provider}
-      options={options}
-      onValueChange={(value) => void setProvider(value)}
-      disabled={providers.isPending}
-    />
+    <SettingRow title="Default provider for new threads" description={description}>
+      {!start.loaded ? (
+        <LoadingRegion label="providers">
+          <Skeleton className="block h-8 w-36" />
+        </LoadingRegion>
+      ) : value ? (
+        <Select<ProviderKind>
+          label="Default provider for new threads"
+          value={value}
+          options={options}
+          onValueChange={(next) => void setProvider(next)}
+        />
+      ) : (
+        <span className="text-ui text-muted-foreground">No provider CLI installed</span>
+      )}
+    </SettingRow>
   );
 }
 

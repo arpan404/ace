@@ -213,3 +213,29 @@ test("while the window is hidden the browser stops pulling frames, and shows the
     visibility("visible");
   }
 });
+
+test("a tab whose page has closed (as after a restart) names that page and opens it again", async () => {
+  const { panel, browser } = await openBrowser();
+  await within(panel).findByText("is using this page", { exact: false });
+  await goTo(panel, "docs.example.com/guide");
+  await within(panel).findByRole("tab", { name: "docs.example.com", selected: true });
+
+  // The thread's page goes away while the tab keeps its address, as a restart leaves it.
+  await userEvent.click(within(panel).getByRole("button", { name: "Browser options" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Close the thread's page" }));
+  await waitFor(() => expect(browser.view("thread-cold-start")?.closed).toBe(true));
+
+  // Title, address and page all name the same page: no "Open a page" under its title.
+  expect(within(panel).getByRole("tab", { name: "docs.example.com" })).toBeTruthy();
+  expect(await within(panel).findByRole("heading", { name: "docs.example.com" })).toBeTruthy();
+  expect(within(panel).queryByRole("heading", { name: "Open a page" })).toBeNull();
+  expect((address(panel) as HTMLInputElement).value).toBe("docs.example.com/guide");
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Open again" }));
+  await waitFor(() =>
+    expect(browser.view("thread-cold-start")).toMatchObject({
+      closed: false,
+      url: "https://docs.example.com/guide",
+    }),
+  );
+});

@@ -15,6 +15,7 @@ import { DaemonRuntime } from "./daemon/runtime.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
+import { claimKeychainName } from "./keychain.ts";
 import { acceleratorToKey, applicationMenu } from "./menu.ts";
 import { backgroundArgument, startHidden } from "./os/login.ts";
 import { appPaths } from "./paths.ts";
@@ -28,6 +29,8 @@ declare const ACE_APP_VERSION: string;
 // Development keeps window state, sessions and settings in `.ace-dev/electron`.
 if (process.env.ACE_DESKTOP_USER_DATA)
   app.setPath("userData", resolve(process.env.ACE_DESKTOP_USER_DATA));
+// Before anything starts Chromium's network service: never the older ace app's keychain item.
+claimKeychainName(app, process.platform);
 registerAppScheme();
 
 if (!app.requestSingleInstanceLock()) {
@@ -86,6 +89,7 @@ function main(): void {
 
   const background = new Background({
     userData: app.getPath("userData"),
+    trayIcon: paths.trayIcon,
     runtime,
     settings: () => settings.get(),
     window: () => window,
@@ -137,6 +141,15 @@ function main(): void {
     window.webContents.once("did-finish-load", () => {
       for (const link of pending.splice(0)) emit(contents(), "deep-link", link);
     });
+    // A reloaded or crashed page can no longer hide the browser views it placed.
+    const renderer = window.webContents;
+    const rendererId = renderer.id;
+    const forget = () => background.forgetBrowserHost(rendererId);
+    renderer.on("did-start-navigation", (details) => {
+      if (details.isMainFrame && !details.isSameDocument) forget();
+    });
+    renderer.on("render-process-gone", forget);
+    renderer.on("destroyed", forget);
     window.on("closed", () => {
       window = undefined;
       // Embedded views live in the window: without one the app stops offering the backend,
@@ -207,6 +220,7 @@ function main(): void {
   app.on("activate", () => open());
 
   void app.whenReady().then(async () => {
+    if (paths.devIcon) app.dock?.setIcon(paths.devIcon);
     const devUrl = process.env.ACE_DESKTOP_RENDERER_URL;
     // A remote-only app lets the person enter a daemon, which must use TLS (`wss:`).
     const remote =

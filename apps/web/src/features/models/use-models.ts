@@ -8,6 +8,7 @@ import {
 } from "@ace/ui-core";
 import { useMemo } from "react";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
+import { useProviderStatuses } from "@/lib/provider-statuses.ts";
 import { useAccountViews } from "@/features/accounts/index.ts";
 
 /** Pages a large catalog in; the daemon returns at most 100 rows per `models.list`. */
@@ -48,14 +49,19 @@ export function useModelChoices(): readonly ModelChoice[] {
   return useMemo(() => modelChoices(models ?? [], accounts ?? []), [models, accounts]);
 }
 
-/** New thread's model and account pickers, or undefined until both lists have arrived. */
+/**
+ * New thread's model and account pickers over the installed providers, or undefined until the
+ * catalog, the accounts and the providers have arrived.
+ */
 export function useNewThreadOptions():
   | { models: ModelOption[]; accounts: AccountOption[] }
   | undefined {
   const models = settled(useModelCatalog());
   const accounts = settled(useAccountViews());
+  const providers = settled(useProviderStatuses());
   return useMemo(
-    () => (models && accounts ? newThreadOptions(models, accounts) : undefined),
-    [models, accounts],
+    () =>
+      models && accounts && providers ? newThreadOptions(models, accounts, providers) : undefined,
+    [models, accounts, providers],
   );
 }

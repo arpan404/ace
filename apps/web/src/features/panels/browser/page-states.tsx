@@ -211,6 +211,43 @@ export function Parked(props: {
   );
 }
 
+/**
+ * A tab kept from before (a restart, or the thread's page was closed) whose page isn't open
+ * now: its address, its title and this card all name the same page, which opens again in one
+ * click. Nothing opens by itself, since opening starts a browser.
+ */
+export function Reopen(props: {
+  url: string;
+  /** Where the thread's live page is now, when it has one this tab isn't showing. */
+  liveUrl?: string | undefined;
+  disabled?: string | undefined;
+  onReopen(): void;
+}) {
+  const address = displayAddress(props.url) || props.url;
+  return (
+    <EmptyState
+      icon={GlobeSimpleIcon}
+      title={addressHost(props.url) ?? address}
+      description={
+        props.liveUrl === undefined
+          ? `This page isn't open right now. Open ${address} again to pick up where this tab left off.`
+          : `This thread's page is showing ${displayAddress(props.liveUrl) || "a blank page"}. Load ${address} here to bring it back to this tab.`
+      }
+      action={
+        <Button
+          size="sm"
+          disabled={props.disabled !== undefined}
+          title={props.disabled}
+          onClick={props.onReopen}
+        >
+          <ArrowClockwiseIcon aria-hidden size={14} />
+          {props.liveUrl === undefined ? "Open again" : "Load it here"}
+        </Button>
+      }
+    />
+  );
+}
+
 /** Offline with nothing to show: say so; the toolbar stays where it is. */
 export function Offline() {
   return (

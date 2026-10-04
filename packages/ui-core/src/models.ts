@@ -1,5 +1,6 @@
 import type { Capabilities, CatalogModel, ProviderKind } from "@ace/protocol";
 import { blockingReset, tightestWindow, type AccountView } from "./accounts.ts";
+import type { ProviderStatus } from "./provider-status.ts";
 import { modelLabel, providerNames } from "./providers.ts";
 
 /** One model on one of the person's signed-in accounts, as the composer's picker lists it. */
@@ -183,8 +184,6 @@ export interface ModelOption {
   defaultEffort: string | undefined;
 }
 
-/** Providers offered with their own default model when the daemon's catalog is empty. */
-const fallbackProviders: readonly ProviderKind[] = ["claude", "codex", "opencode", "cursor"];
 /** A signed-in account of the chosen model's provider, with how much quota it has used. */
 export interface AccountOption {
   id: string;
@@ -198,18 +197,24 @@ export interface AccountOption {
 
 /**
  * The New thread pickers: each model once per provider (whichever accounts serve it), and the
- * signed-in accounts, the first with headroom marked as the default for its provider. With an
- * empty catalog, each provider is offered with its own default model.
+ * signed-in accounts, the first with headroom marked as the default for its provider. Only
+ * providers discovery found installed are offered; an installed CLI the catalog lists no models
+ * for is offered on its own default model, so a daemon without a model catalog still starts
+ * threads on whatever the person has installed.
  */
 export function newThreadOptions(
   models: readonly CatalogModel[],
   accounts: readonly AccountView[],
+  providers: readonly Pick<ProviderStatus, "provider" | "state">[],
 ): { models: ModelOption[]; accounts: AccountOption[] } {
+  const missing = new Set(
+    providers.filter((status) => status.state === "not_installed").map((s) => s.provider),
+  );
   const seen = new Set<string>();
   const options: ModelOption[] = [];
   for (const model of models) {
     const key = `${model.provider}\u0000${model.nativeModelId}`;
-    if (model.hidden || seen.has(key)) continue;
+    if (model.hidden || missing.has(model.provider) || seen.has(key)) continue;
     seen.add(key);
     options.push({
       id: model.nativeModelId,
@@ -221,18 +226,21 @@ export function newThreadOptions(
       defaultEffort: model.defaultEffort,
     });
   }
-  // A daemon with no model catalog configured can still start threads on a provider's default.
-  if (!options.length)
-    for (const provider of fallbackProviders)
+  const listed = new Set(options.map((option) => option.provider));
+  // An ACP agent needs its identity to start, which only the catalog carries.
+  for (const { provider, state } of providers)
+    if (state !== "not_installed" && provider !== "acp" && !listed.has(provider)) {
+      listed.add(provider);
       options.push({
         id: `${provider}:default`,
         label: `${providerNames[provider]} default`,
         provider,
-        isDefault: provider === fallbackProviders[0],
+        isDefault: true,
         fromCatalog: false,
         efforts: [],
         defaultEffort: undefined,
       });
+    }
   const signedIn = accounts.filter((account) => account.signedIn);
   const defaults = new Map<ProviderKind, string>();
   for (const account of signedIn)

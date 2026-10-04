@@ -7,6 +7,7 @@ import {
   type BrowserBackendServerMessage,
   type BrowserControllerLease,
 } from "@ace/protocol";
+import { claimAfterLease, claimHolds, type RendererClaim } from "./input-grant.ts";
 
 /** Relay limits from ADR 0055; the daemon's relay disconnects a backend that exceeds them. */
 const relayLimits = {
@@ -92,6 +93,8 @@ interface Session {
  */
 export class BrowserBackend {
   private sessions = new Map<string, Session>();
+  /** Renderers' claims to hold each thread's page (by thread id). */
+  private claims = new Map<string, RendererClaim>();
   private opening = new Set<string>();
   private link: BackendLink | undefined;
   private host: ViewHost;
@@ -115,6 +118,19 @@ export class BrowserBackend {
   detach(): void {
     this.link = undefined;
     for (const session of this.sessions.values()) void this.dispose(session);
+  }
+
+  /**
+   * The renderer showing a thread's view says its daemon connection `owner` holds the page
+   * (undefined: it doesn't, or nothing shows the view). The person's input reaches the view
+   * only while the daemon's lease is that connection's; see `claimAfterLease`.
+   */
+  claimControl(threadId: string, owner: string | undefined): void {
+    const session = this.byThread(threadId);
+    if (!owner) this.claims.delete(threadId);
+    else if (this.claims.get(threadId)?.owner !== owner)
+      this.claims.set(threadId, { owner, since: session?.lease.generation ?? -1 });
+    if (session) this.updateInput(session);
   }
 
   /** The thread's embedded session, if one is open here. */
@@ -218,8 +234,7 @@ export class BrowserBackend {
     session.stops.push(
       page.onEvent((method, params) => this.event(session, method, params)),
       page.onBlockedInput(() => {
-        if (session.lease.controller !== "human" || session.lease.owner !== link.connectionId)
-          this.options.onTakeover?.(session.threadId);
+        if (!this.allowsInput(session)) this.options.onTakeover?.(session.threadId);
       }),
     );
     this.applyLease(session, operation.lease);
@@ -230,9 +245,24 @@ export class BrowserBackend {
     if (lease.generation < session.lease.generation)
       throw new Error("Obsolete controller lease generation");
     session.lease = lease;
-    const here = this.isHere(lease);
-    session.page.setNativeInput(here);
+    const claim = claimAfterLease(this.claims.get(session.threadId), lease);
+    if (claim) this.claims.set(session.threadId, claim);
+    else this.claims.delete(session.threadId);
+    this.updateInput(session);
     this.options.onController?.(this.controllerState(session));
+  }
+
+  /** This app's own connection holds the lease, or the renderer showing the view does. */
+  private allowsInput(session: Session): boolean {
+    return (
+      this.isHere(session.lease) || claimHolds(this.claims.get(session.threadId), session.lease)
+    );
+  }
+
+  private updateInput(session: Session): void {
+    session.page.setNativeInput(
+      this.sessions.get(session.id) === session && this.allowsInput(session),
+    );
   }
 
   private event(session: Session, method: string, params: unknown): void {
@@ -311,6 +341,7 @@ export class BrowserBackend {
   private async dispose(session: Session): Promise<void> {
     if (this.sessions.get(session.id) !== session) return;
     this.sessions.delete(session.id);
+    this.claims.delete(session.threadId);
     for (const stop of session.stops.splice(0)) stop();
     session.lease = { generation: session.lease.generation, controller: "none" };
     this.options.onController?.(this.controllerState(session));

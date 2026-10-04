@@ -82,6 +82,7 @@ export function fakeBrowserSession(
           break;
         case "browser.takeover":
           await browser.takeover(id);
+          result = BrowserState.parse(browser.view(id));
           break;
         case "browser.handback":
           await browser.handback(id);

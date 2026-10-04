@@ -20,14 +20,17 @@ export class StatusTray {
   /** What the tray shows now; a status or summary update that changes none of it is skipped. */
   private shown: string | undefined;
   private actions: TrayActions;
+  private iconPath: string;
 
-  constructor(actions: TrayActions) {
+  /** `iconPath` is the 1x template image; its `@2x` sibling is picked up beside it. */
+  constructor(actions: TrayActions, iconPath: string) {
     this.actions = actions;
+    this.iconPath = iconPath;
   }
 
   show(): void {
     if (this.tray) return;
-    this.tray = new Tray(icon());
+    this.tray = new Tray(icon(this.iconPath));
     this.tray.setToolTip("ace");
     this.tray.on("click", () => {
       if (process.platform !== "darwin") this.actions.open();
@@ -84,8 +87,16 @@ export class StatusTray {
   }
 }
 
-/** An 18 pt ring drawn at 2x, as a macOS template image (tinted by the menu bar). */
-function icon(): NativeImage {
+/** The ace glyph as a macOS template image (tinted by the menu bar). */
+function icon(path: string): NativeImage {
+  const image = nativeImage.createFromPath(path);
+  if (image.isEmpty()) return fallbackIcon();
+  image.setTemplateImage(true);
+  return image;
+}
+
+/** An 18 pt ring drawn at 2x, so a missing image file never leaves the tray without an icon. */
+function fallbackIcon(): NativeImage {
   const size = 36;
   const pixels = Buffer.alloc(size * size * 4);
   for (let y = 0; y < size; y++)

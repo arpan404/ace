@@ -1,18 +1,10 @@
 import type { ClientApi } from "@ace/client";
 import type { CatalogModel, ProviderKind } from "@ace/protocol";
-import { accountView, providerNames, type AccountView } from "@ace/ui-core";
+import type { AccountView, ProviderStatus } from "@ace/ui-core";
+import { readProviderStatuses } from "@/lib/provider-statuses.ts";
 import type { AccessSource } from "./access-source.ts";
 import type { ProviderAccount, ProviderInstall, SettingsBackend } from "./backend.ts";
 import { daemonValues } from "./daemon-values.ts";
-
-/** Native CLIs discovery looks for, in the order Settings lists them, with their executables. */
-const natives: readonly { kind: Exclude<ProviderKind, "acp">; binary: string }[] = [
-  { kind: "claude", binary: "claude" },
-  { kind: "codex", binary: "codex" },
-  { kind: "opencode", binary: "opencode" },
-  { kind: "cursor", binary: "cursor-agent" },
-  { kind: "antigravity", binary: "antigravity" },
-];
 
 function login(account: AccountView): ProviderAccount {
   return {
@@ -24,35 +16,18 @@ function login(account: AccountView): ProviderAccount {
   };
 }
 
-/**
- * Providers as Settings lists them, from `accounts.list`: every native CLI (an installed one has
- * at least one account instance), then each ACP agent with its instances.
- */
-export function providerInstalls(accounts: readonly AccountView[]): ProviderInstall[] {
-  const native = natives.map(({ kind, binary }): ProviderInstall => {
-    const own = accounts.filter((account) => account.provider === kind);
-    return {
-      kind,
-      name: providerNames[kind],
-      binary,
-      version: own.length ? (own.find((a) => a.version)?.version ?? "") : null,
-      accounts: own.map(login),
-    };
-  });
-  const agents = new Map<string, AccountView[]>();
-  for (const account of accounts)
-    if (account.provider === "acp")
-      agents.set(account.providerLabel, [...(agents.get(account.providerLabel) ?? []), account]);
-  const acp = [...agents].map(([name, own]): ProviderInstall => ({
-    kind: "acp",
-    acpAgentId: own[0]?.acpAgentId,
-    name,
-    binary: name,
-    version: own.find((a) => a.version)?.version ?? "",
-    via: "via ACP",
-    accounts: own.map(login),
-  }));
-  return [...native, ...acp];
+/** A provider as Settings lists it: what discovery found, with its ace accounts. */
+function providerInstall(status: ProviderStatus): ProviderInstall {
+  return {
+    kind: status.provider,
+    acpAgentId: status.acpAgentId,
+    name: status.name,
+    binary: status.binary,
+    state: status.state,
+    version: status.version,
+    ...(status.provider === "acp" ? { via: "via ACP" } : {}),
+    accounts: status.accounts.map(login),
+  };
 }
 
 /** One row per model, however many accounts serve it. */
@@ -68,8 +43,9 @@ function distinct(models: readonly CatalogModel[]): CatalogModel[] {
 
 /**
  * Settings against the connected daemon: values through `settings.subscribe` / `settings.set`,
- * providers from `accounts.list`, models from `models.list` / `models.refresh`, and paired devices,
- * machines and ACP agents added by command through `access`.
+ * providers from discovery and `accounts.list` (`readProviderStatuses`), models from
+ * `models.list` / `models.refresh`, and paired devices, machines and ACP agents added by command
+ * through `access`.
  */
 export function daemonSettingsBackend(
   client: ClientApi,
@@ -78,16 +54,18 @@ export function daemonSettingsBackend(
   const { access, defaults } = options;
   const values = daemonValues(client, Object.keys(defaults));
   const providers = async () => {
-    const reply = await client.request({ type: "accounts.list" });
+    const statuses = await readProviderStatuses(client);
+    // Agents added by command aren't discovered yet: nothing on the daemon runs them so far.
     const added = (await access.acpAgents()).map((agent): ProviderInstall => ({
       kind: "acp",
       name: agent.name,
       binary: agent.binary,
-      version: null,
+      state: "not_installed",
+      version: undefined,
       via: "via ACP",
       accounts: [],
     }));
-    return [...providerInstalls(reply.accounts.map(accountView)), ...added];
+    return [...statuses.map(providerInstall), ...added];
   };
   const models = async (provider: ProviderKind) => {
     const reply = await client.request({

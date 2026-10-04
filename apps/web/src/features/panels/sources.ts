@@ -125,6 +125,11 @@ export interface PreviewSource {
   close(threadId: string): Promise<void>;
   takeover(threadId: string): Promise<void>;
   handback(threadId: string): Promise<void>;
+  /**
+   * The daemon connection through which this client holds the thread's page, while the page's
+   * current owner is that connection; undefined when it doesn't hold it (another device may).
+   */
+  heldAs(threadId: string): string | undefined;
   input(threadId: string, input: ForwardedInput): void;
   /** Size the page's viewport to the pane, in CSS pixels (BrowserCommand `resize`, 100–4096). */
   resize(threadId: string, width: number, height: number): void;

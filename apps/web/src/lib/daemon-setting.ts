@@ -5,6 +5,7 @@ import {
   type SettingsEntry,
   type SettingsKey,
   type SettingsLayer,
+  type SettingsProvenance,
   type SettingsScope,
 } from "@ace/protocol";
 import { useCallback, useSyncExternalStore } from "react";
@@ -18,6 +19,8 @@ type Value<K extends SettingsKey> = SettingsValues[K];
  */
 class SettingWatch {
   private value: unknown;
+  /** The layer the value came from; `defaults` means nobody has set it. */
+  private provenance: SettingsProvenance | undefined;
   private listeners = new Set<() => void>();
   private stops: (() => void)[] = [];
   private subscribed = false;
@@ -40,6 +43,7 @@ class SettingWatch {
     this.onEmpty = onEmpty;
   }
   get = (): unknown => this.value;
+  getProvenance = (): SettingsProvenance | undefined => this.provenance;
   subscribe = (listener: () => void): (() => void) => {
     if (!this.listeners.size) this.start();
     this.listeners.add(listener);
@@ -53,6 +57,7 @@ class SettingWatch {
     if (!entry) return;
     const parsed = SettingsValues.shape[this.key].safeParse(entry.value);
     this.value = parsed.success ? parsed.data : undefined;
+    this.provenance = entry.provenance;
     for (const listener of this.listeners) listener();
   }
   private ask() {
@@ -140,4 +145,27 @@ export function useDaemonSetting<K extends SettingsKey>(
     [client, key],
   );
   return [value, set];
+}
+
+/**
+ * A daemon setting only when someone has set it on a layer the scope reaches: undefined while
+ * the daemon reports its shipped default, so a schema default is never taken for a choice.
+ * `loaded` is false until the daemon has answered.
+ */
+export function useExplicitDaemonSetting<K extends SettingsKey>(
+  key: K,
+  scope: SettingsScope = {},
+): { value: Value<K> | undefined; loaded: boolean } {
+  const client = useClient();
+  const watch = watchFor(client, key, scope);
+  const [value] = useDaemonSetting(key, scope);
+  const provenance = useSyncExternalStore(
+    watch.subscribe,
+    watch.getProvenance,
+    watch.getProvenance,
+  );
+  return {
+    value: provenance === undefined || provenance === "defaults" ? undefined : value,
+    loaded: provenance !== undefined,
+  };
 }

@@ -191,6 +191,71 @@ describe("embedded browser backend", () => {
     expect(page.nativeInput).toBe(false);
   });
 
+  it("lets the person's input through a renderer's claim only while the lease is its connection's", async () => {
+    const t = setup();
+    await t.open();
+    const page = t.views.only();
+    const lease = (generation: number, controller: string, owner?: string) =>
+      t.response(
+        t.request("s-1", {
+          kind: "controller",
+          lease: { generation, controller, ...(owner ? { owner } : {}) },
+        }),
+      );
+
+    // Another device holds the page: the renderer's claim lets nothing through.
+    await lease(1, "human", "phone-connection");
+    t.backend.claimControl("t-1", "web-connection");
+    expect(page.nativeInput).toBe(false);
+    page.personClicks();
+    expect(t.takeovers).toEqual(["t-1"]);
+    // Its lease ends: the claim is revoked for good, even when the renderer's connection
+    // takes control later without claiming again.
+    await lease(2, "agent");
+    await lease(3, "human", "web-connection");
+    expect(page.nativeInput).toBe(false);
+  });
+
+  it("enables input once the renderer's own take-control lease arrives, and revokes it on handback", async () => {
+    const t = setup();
+    await t.open();
+    const page = t.views.only();
+    const lease = (generation: number, controller: string, owner?: string) =>
+      t.response(
+        t.request("s-1", {
+          kind: "controller",
+          lease: { generation, controller, ...(owner ? { owner } : {}) },
+        }),
+      );
+
+    // The renderer claims as its take-control reply arrives, before the lease reaches here.
+    t.backend.claimControl("t-1", "web-connection");
+    expect(page.nativeInput).toBe(false);
+    await lease(1, "human", "web-connection");
+    expect(page.nativeInput).toBe(true);
+    page.personClicks();
+    expect(t.takeovers).toEqual([]);
+
+    await lease(2, "agent");
+    expect(page.nativeInput).toBe(false);
+  });
+
+  it("stops the person's input when the renderer no longer claims the page", async () => {
+    const t = setup();
+    await t.open();
+    const page = t.views.only();
+    await t.response(
+      t.request("s-1", {
+        kind: "controller",
+        lease: { generation: 1, controller: "human", owner: "web-connection" },
+      }),
+    );
+    t.backend.claimControl("t-1", "web-connection");
+    expect(page.nativeInput).toBe(true);
+    t.backend.claimControl("t-1", undefined);
+    expect(page.nativeInput).toBe(false);
+  });
+
   it("asks the daemon for control when the person uses a view they do not control", async () => {
     const t = setup();
     await t.open();

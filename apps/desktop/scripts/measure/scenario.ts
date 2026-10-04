@@ -83,7 +83,10 @@ async function browser(window: BrowserWindow, config: ScenarioConfig): Promise<v
     return page;
   };
   const place = (id: string, visible: boolean) =>
-    views.place({ threadId: id, bounds: { x: 320, y: 60, width: 900, height: 600 }, visible });
+    views.place(
+      { threadId: id, bounds: { x: 320, y: 60, width: 900, height: 600 }, visible },
+      { id: window.webContents.id, window, zoom: 1 },
+    );
   const page = await open("measure-view");
   place("measure-view", true);
   await phase(window, "browser open, visible", 15_000);

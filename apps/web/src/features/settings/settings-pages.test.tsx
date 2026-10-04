@@ -52,7 +52,7 @@ test("follow-ups and restart recovery are stored on the daemon", async () => {
   ).toContain("Steer");
 });
 
-test("the default provider lists only installed, signed-in CLIs and remembers the choice", async () => {
+test("the default provider lists the installed CLIs and remembers the choice", async () => {
   await harness().open("/settings/general");
   const select = await screen.findByRole("combobox", { name: "Default provider for new threads" });
   await waitFor(() => expect(select.textContent).toContain("Claude Code"));
