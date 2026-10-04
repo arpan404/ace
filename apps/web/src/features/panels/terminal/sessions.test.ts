@@ -12,6 +12,7 @@ function daemon() {
     version: 0,
     subscribe: () => () => {},
     list: () => [],
+    listed: () => true,
     refresh: async () => {},
     open: async () => ({ id: "t1", threadId: "thread", name: "zsh", exited: false }),
     attach(id, _from, listener) {
@@ -112,4 +113,53 @@ test("redraws of a streaming terminal reach its view once per frame", () => {
   frames.shift()?.();
   expect(redraws).toBe(1);
   expect(sessions.screen("t1").text()).toContain("line 49");
+});
+
+test("a tab asking twice for its terminal while it opens gets one shell; asking later opens another", async () => {
+  const pty = daemon();
+  let opened = 0;
+  pty.source.open = async () => ({
+    id: `t${++opened}`,
+    threadId: "thread",
+    name: "Terminal",
+    exited: false,
+  });
+  const sessions = sessionsOf(pty.source, clock().schedule);
+  const [first, again] = await Promise.all([
+    sessions.openFor("terminal:pending-1", "thread"),
+    sessions.openFor("terminal:pending-1", "thread"),
+  ]);
+  expect(again.id).toBe(first.id);
+  expect((await sessions.openFor("terminal:pending-1", "thread")).id).not.toBe(first.id);
+  expect(opened).toBe(2);
+});
+
+test("a closed tab's shell is ended once the daemon is reachable again", async () => {
+  let link: "connected" | "disconnected" = "disconnected";
+  const listeners = new Set<() => void>();
+  const closed: string[] = [];
+  const pty = daemon();
+  const source: TerminalSource = {
+    ...pty.source,
+    get link() {
+      return link;
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    close: async (id) => {
+      if (link !== "connected") throw new Error("terminal_offline");
+      closed.push(id);
+    },
+  };
+  const sessions = sessionsOf(source, clock().schedule);
+  sessions.end("thread", "t1");
+  await Promise.resolve();
+  expect(closed).toEqual([]);
+
+  link = "connected";
+  for (const listener of listeners) listener();
+  await Promise.resolve();
+  expect(closed).toEqual(["t1"]);
 });

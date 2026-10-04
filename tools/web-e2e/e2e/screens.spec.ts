@@ -26,7 +26,14 @@ const rightTab =
     if (navigate) await openThread(path)(page);
     const panel = page.getByRole("region", { name: "Thread panel" });
     if (!(await panel.isVisible())) await page.getByRole("button", { name: "Right panel" }).click();
-    await panel.getByRole("tab", { name: tab }).click();
+    const existing = panel.getByRole("tab", { name: tab });
+    if (await existing.count()) return existing.click();
+    // A tool not open yet comes from the side panel's + (the new-tab launcher).
+    await panel.getByRole("button", { name: "New tab" }).click();
+    await panel
+      .getByRole("list", { name: "Tools" })
+      .getByRole("button", { name: typeof tab === "string" ? new RegExp(`^${tab}`) : tab })
+      .click();
   };
 const bottomTab =
   (path: string, tab: string): Setup =>
@@ -38,8 +45,15 @@ const bottomTab =
       .getByRole("tab", { name: tab })
       .click();
   };
-/** Home lands on a thread (the last opened, else the top row). */
+/**
+ * Home lands on a thread (the last opened, else the top row). The design's hero was the last
+ * one opened here; the top rows are a running deck's lanes.
+ */
 const home: Setup = async (page) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("ace.home.lastThread"))
+      localStorage.setItem("ace.home.lastThread", JSON.stringify("thread-dedupe"));
+  });
   await page.goto("/");
   await page.waitForURL(/\/t\//);
   await transcript(page);
@@ -126,17 +140,162 @@ const screens: Record<string, Setup> = {
   // The same line comment, after switching the diff to Split.
   "thread-changes-split": async (page) => {
     await screens["thread-changes"]?.(page);
-    await page.getByRole("button", { name: "Split" }).click();
+    await page.getByRole("button", { name: /^Diff layout/ }).click();
+    await page.getByRole("menuitemradio", { name: /^Split/ }).click();
     await page.getByRole("article", { name: /Comment on line/ }).waitFor();
+  },
+  // The review in progress: one comment sent to the agent, another resolved, the files tree.
+  "thread-changes-review": async (page) => {
+    await screens["thread-changes"]?.(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel
+      .getByRole("region", { name: "Review" })
+      .getByRole("button", { name: /^Send/ })
+      .click();
+    await panel.getByRole("button", { name: "Resolve" }).waitFor();
+    await page.mouse.move(700, 880);
+  },
+  // A subagent opened from the tree: delegation, its own transcript, the follow-up it can't take.
+  "thread-agent-tab": async (page) => {
+    await rightTab("/t/thread-cold-start", "Agents")(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("button", { name: "Open resume-sweep" }).click();
+    await panel.getByRole("region", { name: "Delegation" }).waitFor();
+  },
+  // ace's risk policy approving, denying and escalating, the denial opened to its target.
+  "thread-permission-review": async (page) => {
+    await openThread("/t/thread-release-audit")(page);
+    const denied = page.getByRole("article", { name: "Permission review: Denied by ace" });
+    await denied.getByRole("button").click();
+    await denied.getByText("rm -rf dist").waitFor();
+  },
+  // A dev server in a Preview tab of its own.
+  "thread-port-tab": async (page) => {
+    await rightTab("/t/thread-install-page", "Preview")(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("textbox", { name: "Dev server port" }).fill("4173");
+    await panel.getByRole("button", { name: "Preview", exact: true }).click();
+    await panel.getByRole("button", { name: "Open in its own tab" }).click();
+    await panel.getByRole("textbox", { name: "Address" }).waitFor();
   },
   // The same hero state as `thread`, queued message included, with the Agents tab open.
   "thread-agents": async (page) => {
     await heroWithQueue(page);
     await rightTab("/t/thread-dedupe", "Agents", false)(page);
   },
+  // The side panel's + : the tool catalog and what the thread suggests opening.
+  "thread-launcher": async (page) => {
+    await rightTab("/t/thread-cold-start", /^Changes/)(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("button", { name: "New tab" }).click();
+    await panel.getByRole("list", { name: "Tools" }).waitFor();
+  },
+  // The side panel hidden: the header counts its tabs and lists them on hover.
+  "thread-open-tabs": async (page) => {
+    await rightTab("/t/thread-cold-start", "Preview")(page);
+    await page.getByRole("button", { name: "Right panel" }).click();
+    // Hover once the panel has gone and the header has its full width back.
+    await expect(page.getByRole("region", { name: "Thread panel" })).toHaveCount(0);
+    // The header's actions unfold into the room the panel left; let that settle first.
+    await page.waitForTimeout(400);
+    await page.getByRole("button", { name: /^\d+ open tabs?$/ }).hover();
+    await page.getByRole("list", { name: "Open tabs" }).waitFor();
+  },
+  // Full view: the side panel fills the work area, with a way back to the conversation.
+  "thread-full-view": async (page) => {
+    await rightTab("/t/thread-cold-start", /^Changes/)(page);
+    await page.getByRole("button", { name: "Full view" }).click();
+    await page.getByRole("button", { name: /Cap cold-start replay/ }).waitFor();
+  },
+  "thread-summary": async (page) => {
+    await openThread("/t/thread-dedupe")(page);
+    await page.getByRole("button", { name: "Pin thread summary" }).click();
+    await page
+      .getByRole("complementary", { name: "Thread summary" })
+      .getByRole("button", { name: "Open reconnect-audit" })
+      .waitFor();
+  },
+  // The summary's project and git menu.
+  "thread-summary-menu": async (page) => {
+    await screens["thread-summary"]?.(page);
+    await page.getByRole("button", { name: "Project and git actions" }).click();
+    await page.getByRole("menu").waitFor();
+  },
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
   // Nothing to preview yet: open a browser, or preview a dev server by its port.
   "thread-preview-empty": rightTab("/t/thread-install-page", "Preview"),
+  // Files: an empty file tab, ⌘P quick open, and a file beside the checkout tree.
+  "thread-files-empty": rightTab("/t/thread-cold-start", "Files"),
+  "thread-quick-open": async (page) => {
+    await openThread("/t/thread-cold-start")(page);
+    await page.keyboard.press("ControlOrMeta+p");
+    await page.getByRole("combobox", { name: "Search files" }).fill("replay");
+    await page.getByRole("option").first().waitFor();
+  },
+  "thread-file": async (page) => {
+    await openThread("/t/thread-cold-start")(page);
+    await page.keyboard.press("ControlOrMeta+p");
+    await page.getByRole("combobox", { name: "Search files" }).fill("replay.ts");
+    await page.getByRole("option", { name: /replay\.ts/ }).waitFor();
+    await page.keyboard.press("Enter");
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("region", { name: "Source of apps/server/src/replay.ts" }).waitFor();
+    await panel.getByRole("button", { name: "Show the file tree" }).click();
+    await panel.getByRole("complementary", { name: "Checkout files" }).waitFor();
+  },
+  // Browser: a page loaded from the new tab's address bar.
+  "thread-browser": async (page) => {
+    await rightTab("/t/thread-cold-start", /^Changes/)(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("button", { name: "New tab" }).click();
+    const address = panel.getByRole("combobox", { name: "Address" });
+    await address.fill("docs.example.com/guide");
+    await address.press("Enter");
+    await panel.getByRole("img", { name: "Live view of https://docs.example.com/guide" }).waitFor();
+  },
+  "thread-side-chat": rightTab("/t/thread-cold-start", "Side chat"),
+  // The composer: its + menu, approvals and model menus, three lines, and an attachment.
+  "composer-add-menu": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("button", { name: "Add files and context" }).click();
+    await page.getByRole("menuitem", { name: /^Files/ }).waitFor();
+  },
+  "composer-approvals": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("button", { name: /^Approvals:/ }).click();
+    await page.getByRole("menuitemradio").first().waitFor();
+  },
+  "composer-model": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("button", { name: /^Model:/ }).click();
+    await page.getByRole("menu").waitFor();
+  },
+  "composer-multiline": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page
+      .getByRole("combobox", { name: "Message" })
+      .fill(
+        "Check the cold-start path before merging\nthen rerun the relay soak\nand post the numbers here",
+      );
+  },
+  "composer-attachments": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("combobox", { name: "Message" }).fill("See the relay log");
+    await page.getByLabel("Files to attach").setInputFiles({
+      name: "relay.log",
+      mimeType: "text/plain",
+      buffer: Buffer.from("2026-10-03 resume seq 0"),
+    });
+    await page.getByRole("list", { name: "Attachments" }).getByText("relay.log").waitFor();
+  },
+  "thread-terminal-new": async (page) => {
+    await bottomTab("/t/thread-cold-start", "zsh")(page);
+    const bottom = page.getByRole("region", { name: "Bottom panel" });
+    await bottom.getByRole("button", { name: "New terminal" }).click();
+    await bottom.getByRole("tab", { name: "zsh 2", selected: true }).waitFor();
+    await page.keyboard.type("git status");
+    await page.keyboard.press("Enter");
+  },
   // A thread stopped at its account's usage limit, with the recovery choices.
   "thread-limited": async (page) => {
     await openThread("/t/thread-limit-search")(page);
@@ -152,6 +311,10 @@ const screens: Record<string, Setup> = {
     await rightTab("/t/thread-install-page", "Devices")(page);
     const panel = page.getByRole("region", { name: "Thread panel" });
     await panel.getByRole("button", { name: "Enable devices" }).click();
+    await panel
+      .getByRole("list", { name: "Devices" })
+      .getByRole("button", { name: /iPhone 16 Pro/ })
+      .click();
     const phone = panel.getByRole("region", { name: "iPhone 16 Pro" });
     await phone.getByRole("button", { name: "Start live view" }).click();
     await phone.getByRole("img", { name: "iPhone 16 Pro screen" }).waitFor();
@@ -182,7 +345,19 @@ const screens: Record<string, Setup> = {
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menu", { name: "More actions" }).waitFor();
   },
-  "thread-terminal": bottomTab("/t/thread-cold-start", "Terminal"),
+  // The bottom panel's terminal picks up the thread's running zsh.
+  "thread-terminal": bottomTab("/t/thread-cold-start", "zsh"),
+  "thread-terminal-sessions": async (page) => {
+    await bottomTab("/t/thread-cold-start", "zsh")(page);
+    await page.getByRole("button", { name: /^Terminal sessions/ }).click();
+    await page.getByRole("menu").waitFor();
+  },
+  "thread-agent-shell": async (page) => {
+    await bottomTab("/t/thread-cold-start", "zsh")(page);
+    await page.getByRole("button", { name: /^Terminal sessions/ }).click();
+    await page.getByRole("menuitem", { name: /relay:soak/ }).click();
+    await page.getByText("Agent shell").waitFor();
+  },
   // A script started from Run, in its own terminal tab.
   "thread-terminal-run": async (page) => {
     await openThread("/t/thread-replay-cursor")(page);
@@ -193,6 +368,12 @@ const screens: Record<string, Setup> = {
       .waitFor();
   },
   "thread-logs": bottomTab("/t/thread-cold-start", "Logs"),
+  "thread-logs-daemon": async (page) => {
+    await bottomTab("/t/thread-cold-start", "Logs")(page);
+    await page.getByRole("button", { name: /^Log source/ }).click();
+    await page.getByRole("menuitemradio", { name: "Daemon" }).click();
+    await page.getByText("Event loop").waitFor();
+  },
   activity: visit("/activity", "Activity"),
   // Automations opens on the first automation.
   automations: async (page) => {
@@ -346,9 +527,13 @@ const screens: Record<string, Setup> = {
     await page.getByText("Decks unavailable").waitFor();
   }),
   "state-preview-download": staged("daemon.browser.requireDownload(180_000_000);", async (page) => {
-    await rightTab("/t/thread-install-page", "Preview")(page);
+    // The thread's first page downloads the browser: the Browser tab shows its progress.
+    await rightTab("/t/thread-settings", /^Changes/)(page);
     const panel = page.getByRole("region", { name: "Thread panel" });
-    await panel.getByRole("button", { name: "Open a browser" }).click();
+    await panel.getByRole("button", { name: "New tab" }).click();
+    const address = panel.getByRole("combobox", { name: "Address" });
+    await address.fill("localhost:5173");
+    await address.press("Enter");
     await panel.getByRole("heading", { name: "Getting the browser ready" }).waitFor();
   }),
 };

@@ -24,7 +24,26 @@ export function fakeBrowserSession(
       for (const entry of subscriptions.values()) entry.stop();
       subscriptions.clear();
     },
+    /** As the daemon's browser bridge: a refusal is a `browser.result` with `ok: false`. */
     async handle(message: BrowserClientMessage) {
+      const id = message.type === "browser.open" ? message.options.threadId : message.threadId;
+      if (!host.thread(id)) throw new Error("thread_not_found");
+      try {
+        await this.serve(message);
+      } catch (error) {
+        if (message.type === "browser.ack") return;
+        send({
+          type: "browser.result",
+          requestId: message.requestId,
+          ok: false,
+          error: (error instanceof Error ? error.message : "Browser operation failed").slice(
+            0,
+            2048,
+          ),
+        });
+      }
+    },
+    async serve(message: BrowserClientMessage) {
       const id = message.type === "browser.open" ? message.options.threadId : message.threadId;
       const thread = host.thread(id);
       if (!thread) throw new Error("thread_not_found");
@@ -72,12 +91,19 @@ export function fakeBrowserSession(
           browser.wireInput(id, message.input);
           break;
         case "browser.execute": {
-          if (!browser.view(id) || browser.view(id)?.closed) throw new Error("browser_not_open");
-          if (browser.view(id)?.controller === "human") throw new Error("human_control_active");
+          if (!browser.view(id) || browser.view(id)?.closed) throw new Error("Browser closed");
           const command = message.command;
-          if (command.action === "navigate") browser.drive(id, { url: command.url });
-          else if (command.action === "type") browser.type(id, command.text);
+          // As the daemon's browser service: a client acts as a person, and a person's commands
+          // (navigate, resize, emulate) need the control lease; reads never do.
+          const reads = ["snapshot", "screenshot", "logs", "wait_for"];
+          if (!reads.includes(command.action) && browser.view(id)?.controller !== "human")
+            throw new Error("Browser controller mismatch");
+          if (command.action === "navigate") {
+            browser.navigate(id, command.url);
+            result = BrowserState.parse(browser.view(id));
+          } else if (command.action === "type") browser.type(id, command.text);
           else if (command.action === "resize") browser.resize(id, command.width, command.height);
+          else if (command.action === "emulate") browser.resize(id, command.width, command.height);
           else if (command.action === "snapshot") result = { text: "Synthetic fixture page" };
           else if (command.action === "screenshot") result = browser.frame(id);
           else if (command.action === "logs") result = [];

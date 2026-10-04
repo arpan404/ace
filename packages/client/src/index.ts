@@ -67,6 +67,8 @@ export type { ArtifactChannel, ArtifactSink } from "@ace/files/client";
 export { downloadFile, uploadFile } from "./files.ts";
 export type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 
+export { deferredProjectsApi, type ProjectsApi, type ProjectCallsModule } from "./projects.ts";
+export { loadServiceWire, type ServiceWire } from "./wire-codec.ts";
 export type {
   TurnsPageInput,
   ItemsWindowInput,

@@ -1,5 +1,6 @@
 import type { ClientApi } from "@ace/client";
 import { daemonPreview } from "./preview/daemon-preview.ts";
+import { onTerminalEnd } from "./terminal/closing.ts";
 import { daemonTerminals } from "./terminal/daemon-terminals.ts";
 import { TerminalSessions } from "./terminal/sessions.ts";
 
@@ -8,8 +9,8 @@ import { TerminalSessions } from "./terminal/sessions.ts";
  * the first time a panel needs them, so the thread screen's first paint doesn't carry them.
  */
 export function createPanelSources(client: ClientApi) {
-  return {
-    terminals: new TerminalSessions(daemonTerminals(client)),
-    preview: daemonPreview(client),
-  };
+  const terminals = new TerminalSessions(daemonTerminals(client));
+  // A closed terminal tab ends its shell (the tab kind's onClose has no client to ask).
+  onTerminalEnd((end) => terminals.end(end.threadId, end.terminalId));
+  return { terminals, preview: daemonPreview(client) };
 }

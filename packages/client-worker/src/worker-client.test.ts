@@ -6,7 +6,13 @@ import {
   flakyCheckout,
   longHistory,
 } from "@ace/fake-daemon";
-import { ServerMessage, type ServerMessage as Message, DeviceId, ThreadId } from "@ace/protocol";
+import {
+  ServerMessage,
+  type ServerMessage as Message,
+  DeviceId,
+  ThreadId,
+  Project,
+} from "@ace/protocol";
 import { afterEach, expect, test, vi } from "vitest";
 import { z } from "zod";
 import { ClientHost, RemoteClient, type HostOptions, type RemoteOptions } from "./index.ts";
@@ -23,12 +29,17 @@ afterEach(async () => {
 });
 
 /** A worker host serving tabs over real MessageChannels, backed by one fake daemon. */
-function world(snapshotItems?: number, hostOptions: Partial<HostOptions> = {}) {
+function world(
+  snapshotItems?: number,
+  hostOptions: Partial<HostOptions> = {},
+  projectScheduler?: (callback: () => void) => void,
+) {
   let now = 1;
   let ids = 0;
   const daemon = new FakeDaemon({
     clock: () => (now += 1),
     ...(snapshotItems ? { snapshotItems } : {}),
+    ...(projectScheduler ? { projectScheduler } : {}),
   });
   const sockets = { opened: 0, open: 0 };
   let hostTime = 0;
@@ -659,6 +670,8 @@ test("one tab leaving preview or closing keeps the other tab's browser subscript
   await first.request({ type: "browser.subscribe", threadId });
   await second.request({ type: "browser.subscribe", threadId });
   await first.request({ type: "browser.unsubscribe", threadId });
+  // A client navigates as a person, holding the control lease.
+  await second.request({ type: "browser.takeover", threadId });
   await second.request({
     type: "browser.execute",
     threadId,
@@ -968,6 +981,7 @@ test("Preview transitions wait for the previous receipt and preserve newer detac
   await a.close();
   await a.left;
   await b.request({ type: "diagnostics.health" });
+  await b.request({ type: "browser.takeover", threadId });
   await b.request({
     type: "browser.execute",
     threadId,
@@ -979,9 +993,107 @@ test("Preview transitions wait for the previous receipt and preserve newer detac
 
 function noop() {}
 
+test("fake creation accepts an existing empty folder and preserves a nonempty destination", async () => {
+  const f = world();
+  const client = f.tab();
+  await client.start();
+  const first = await client.projects.create({ parent: "/fake", name: "existing" });
+  const initialized = await client.projects.create({
+    parent: "/fake",
+    name: "existing",
+    git: { initialBranch: "trunk" },
+  });
+  expect(initialized).toMatchObject({
+    ok: true,
+    workspace: first.workspace,
+    inspection: { git: { branch: "trunk" } },
+  });
+  expect(await client.projects.create({ parent: "/fake", name: "existing" })).toMatchObject({
+    ok: false,
+    error: "destination_not_empty",
+  });
+  await client.projects.create({ parent: "/fake", name: "template", gitignore: "build/\n" });
+  expect(await client.projects.create({ parent: "/fake", name: "template" })).toMatchObject({
+    ok: false,
+    error: "destination_not_empty",
+  });
+  await client.projects.create({ parent: "/fake", name: "parent" });
+  await client.projects.create({ parent: "/fake/parent", name: "child" });
+  expect(await client.projects.create({ parent: "/fake", name: "parent" })).toMatchObject({
+    ok: false,
+    error: "destination_not_empty",
+  });
+});
+
+test("worker project APIs forward create add rename remove folder reads and project pushes", async () => {
+  const f = world();
+  const a = f.tab();
+  const b = f.tab();
+  await a.start();
+  await b.start();
+  const changed = Promise.withResolvers<void>();
+  const changes: string[] = [];
+  b.projects.onChanged((change) => {
+    changes.push(change.change);
+    if (change.change === "removed") changed.resolve();
+  });
+  await b.projects.home();
+  const added = await a.projects.create({ parent: "/fake", name: "empty" });
+  expect(added).toMatchObject({ ok: true, workspace: { name: "empty", path: "/fake/empty" } });
+  if (!added.workspace) throw new Error("Expected created project");
+  expect(await a.projects.add({ path: "/fake/empty" })).toMatchObject({
+    workspace: { id: added.workspace.id },
+  });
+  expect(
+    await b.request({ type: "workspace.request", operation: { op: "workspaces.list" } }),
+  ).toMatchObject({ result: { kind: "workspaces", workspaces: [{ id: added.workspace.id }] } });
+  expect(
+    await a.projects.rename({ workspaceId: added.workspace.id, name: "Renamed" }),
+  ).toMatchObject({ ok: true });
+  expect(await b.projects.home()).toMatchObject({ result: { kind: "home", path: "/fake" } });
+  expect(await b.projects.browse({ path: "/fake" })).toMatchObject({
+    result: { kind: "directories", entries: [{ name: "empty" }] },
+  });
+  expect(await b.projects.inspect("/fake/empty")).toMatchObject({
+    result: { kind: "inspection", git: null },
+  });
+  expect(await b.projects.recentFolders()).toMatchObject({
+    result: { kind: "recentFolders", folders: [{ name: "Renamed" }] },
+  });
+  expect(await a.projects.remove({ workspaceId: added.workspace.id })).toMatchObject({ ok: true });
+  await changed.promise;
+  expect(changes).toEqual(["added", "renamed", "removed"]);
+  expect(
+    await b.request({ type: "workspace.request", operation: { op: "workspaces.list" } }),
+  ).toMatchObject({ result: { workspaces: [] } });
+});
+
+test("worker clone progress arrives before completion and cancellation returns a failed clone receipt", async () => {
+  const stages: (() => void)[] = [];
+  const f = world(undefined, {}, (callback) => stages.push(callback));
+  const client = f.tab();
+  await client.start();
+  const starting = Promise.withResolvers<string>();
+  const stop = client.projects.onCloneProgress((progress) => {
+    if (progress.phase === "starting") starting.resolve(progress.commandId);
+  });
+  const clone = client.projects.clone(
+    { parent: "/fake", name: "cancelled", url: "https://example.com/project.git" },
+    {},
+    "clone-cancel",
+  );
+  const id = await starting.promise;
+  expect(await client.projects.cancelClone(id)).toMatchObject({
+    result: { kind: "cancelled", commandId: id },
+  });
+  expect(await clone).toMatchObject({ ok: false, error: "clone_cancelled" });
+  expect(await client.projects.recentFolders()).toMatchObject({ result: { folders: [] } });
+  stop();
+});
+
 // Mutation cases: dropping named request forwarding, widening a jumped window into the live
 // tail, losing search paging or writing read state for another device. Not executed (tests run at merge).
-test("long-thread reads cross the worker port without replacing a tab's live tail", async () => {
+test("projects and long-thread reads coexist across the worker without replacing a tab's live tail", async () => {
   const { daemon, tab } = world(10);
   const script = new ScenarioPlayer(daemon, longHistory(30));
   script.runUntilBlocked();
@@ -989,6 +1101,22 @@ test("long-thread reads cross the worker port without replacing a tab's live tai
   const reference = await inProcess(daemon);
   await remote.start();
   await Promise.all([settled(remote), settled(reference)]);
+  const changes: string[] = [];
+  const stop = remote.projects.onChanged((change) => changes.push(change.change));
+  const created = await remote.projects.create({ parent: "/fake", name: "worker-project" });
+  expect(created.ok).toBe(true);
+  const project = Project.parse(created.workspace);
+  expect(await remote.projects.browse({ path: "/fake" })).toMatchObject({
+    result: {
+      entries: expect.arrayContaining([
+        expect.objectContaining({
+          name: "worker-project",
+          git: false,
+          modifiedAt: expect.any(Number),
+        }),
+      ]),
+    },
+  });
   const lease = remote.thread(script.threadId);
   await vi.waitFor(() => expect(lease.store.order).toHaveLength(10));
   const tail = [...lease.store.order];
@@ -1052,5 +1180,9 @@ test("long-thread reads cross the worker port without replacing a tab's live tai
   expect(await reference.threadReadState({ threadId: script.threadId })).toMatchObject({
     lastSeenSeq: 0,
   });
+  expect(await remote.projects.remove({ workspaceId: project.id })).toMatchObject({ ok: true });
+  await remote.projects.recentFolders();
+  expect(changes).toEqual(["added", "removed"]);
+  stop();
   lease.release();
 });

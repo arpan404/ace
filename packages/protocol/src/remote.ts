@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { DeviceId } from "./ids.ts";
 
-export const DeviceScope = z.enum(["read", "operate", "admin", "desktop"]);
+export const DeviceScope = z.enum(["read", "operate", "admin", "desktop", "projects"]);
 export type DeviceScope = z.infer<typeof DeviceScope>;
 const timestamp = z.number().int().nonnegative();
 export const Device = z.object({
   id: DeviceId,
   name: z.string().min(1).max(256),
-  scopes: z.array(DeviceScope).min(1).max(4),
+  scopes: z.array(DeviceScope).min(1).max(5),
   createdAt: timestamp,
   lastSeenAt: timestamp,
   revokedAt: timestamp.nullable(),
@@ -17,7 +17,7 @@ export const PairingRequest = z.object({
   scopes: z
     .array(DeviceScope.exclude(["desktop"]))
     .min(1)
-    .max(3)
+    .max(4)
     .default(["read", "operate"]),
 });
 export const PairingRedemption = z.object({

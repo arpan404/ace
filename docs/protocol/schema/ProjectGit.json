@@ -1,0 +1,69 @@
+{
+  "$id": "https://ace.local/protocol/v1/ProjectGit.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "branch": {
+      "anyOf": [
+        {
+          "maxLength": 1024,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "defaultBranch": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "remotes": {
+      "items": {
+        "properties": {
+          "fetchUrls": {
+            "items": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array"
+          },
+          "name": {
+            "maxLength": 256,
+            "type": "string"
+          },
+          "pushUrls": {
+            "items": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 32,
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "fetchUrls",
+          "pushUrls"
+        ],
+        "type": "object"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "root": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "root",
+    "branch",
+    "defaultBranch",
+    "remotes"
+  ],
+  "type": "object"
+}

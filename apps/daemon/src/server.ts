@@ -229,6 +229,13 @@ export async function startServer(options: ServerOptions): Promise<{
       maintenance,
       device: () => device,
       authorize,
+      authorityLease: (scope) => {
+        const actor = authenticated.get(socket);
+        return () => {
+          const current = actor?.revocable ? options.store.devices.get(actor.id) : actor;
+          return current?.revokedAt === null && allows(current, scope);
+        };
+      },
       canReadThread: (thread) =>
         device !== undefined && options.canReadThread?.(device, thread) !== false,
       connected: () => socket.readyState === WebSocket.OPEN && authenticated.has(socket),
@@ -304,6 +311,11 @@ export async function startServer(options: ServerOptions): Promise<{
           fail("unauthorized", "Valid hello required", true);
           return;
         }
+        const bearer =
+          message.token !== undefined && isLocal && !auth.local(message.token)
+            ? auth.deviceBearer(message.token)
+            : undefined;
+        const desktop = bearer?.scopes.includes("desktop") ? bearer : undefined;
         const actor =
           message.ticket !== undefined
             ? auth.consume(message.ticket)
@@ -311,13 +323,16 @@ export async function startServer(options: ServerOptions): Promise<{
               ? {
                   id: message.deviceId,
                   name: "Host",
-                  scopes: ["admin"] as const,
+                  scopes: ["admin", "projects"] as const,
                   createdAt: 0,
                   lastSeenAt: auth.now(),
                   revokedAt: null,
                 }
-              : undefined;
-        if (!actor || (message.ticket !== undefined && actor.id !== message.deviceId)) {
+              : desktop;
+        if (
+          !actor ||
+          ((message.ticket !== undefined || desktop !== undefined) && actor.id !== message.deviceId)
+        ) {
           fail("unauthorized", "Valid hello required", true);
           return;
         }
@@ -326,7 +341,7 @@ export async function startServer(options: ServerOptions): Promise<{
         authenticated.set(socket, {
           ...actor,
           scopes: [...actor.scopes],
-          revocable: message.ticket !== undefined,
+          revocable: message.ticket !== undefined || desktop !== undefined,
         });
         try {
           // HTTP discovery is available while listener features initialize. A

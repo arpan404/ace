@@ -3,7 +3,7 @@ import type { CommandResult, ReviewCommand, ReviewComment, ReviewSession } from 
 type Result = Omit<CommandResult, "commandId">;
 
 /**
- * Review mode (ADR 0038) as far as the client can see it: sessions, line comments and
+ * Review mode (ADR 0038) as far as the client can see it: sessions, line comments, resolving and
  * "Send to agent". The real service anchors comments against git checkpoints; the fake keeps
  * them in memory and delivers sent comments to the thread as a user message, which is what an
  * engine executor does from the transcript's point of view.
@@ -72,6 +72,14 @@ export class FakeReviewDesk {
         for (const comment of comments) this.sent.add(comment.id);
         this.deliver(payload.threadId, describe(comments));
         return { ok: true, review: { intentId: `review-fix-${++this.counter}` } };
+      }
+      case "review.resolve": {
+        const comment = this.notes.get(payload.commentId);
+        if (!comment || comment.sessionId !== payload.sessionId)
+          return { ok: false, error: "not_found" };
+        const next = { ...comment, resolved: payload.resolved };
+        this.notes.set(comment.id, next);
+        return { ok: true, review: { comment: next } };
       }
       case "review.list": {
         const comments = [...this.notes.values()].filter(

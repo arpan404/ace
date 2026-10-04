@@ -1,3 +1,12 @@
+import {
+  cloneRepository,
+  initRepository,
+  initialBranch,
+  defaultBranch,
+  projectInfo,
+  type CloneOptions,
+  type ProjectGitPolicy,
+} from "./projects.ts";
 import { integrateRevision } from "./integration.ts";
 import { commitChanges, pushBranch, listBranches, switchBranch } from "./actions.ts";
 import { deleteBranch, type BranchCleanup } from "./branch-cleanup.ts";
@@ -12,7 +21,10 @@ import { createWorktree, removeWorktree, type CreateWorktreeOptions } from "./wo
 import { GitError } from "./types.ts";
 import type { Checkpoint, DiffSide, GitOptions } from "./types.ts";
 
+export { validateCloneUrl } from "./projects.ts";
+export type { CloneOptions, ProjectGitPolicy } from "./projects.ts";
 export { GitError } from "./types.ts";
+export { spawnGitProcess } from "./process-runtime.ts";
 export type * from "./types.ts";
 export type { CreateWorktreeOptions } from "./worktrees.ts";
 
@@ -33,6 +45,22 @@ export class GitService {
   /** Cancel owned Git process groups and await their pipe/termination cleanup. */
   close(): Promise<void> {
     return this.repository.cli.close();
+  }
+
+  clone(input: CloneOptions, policy: ProjectGitPolicy = {}): Promise<void> {
+    return cloneRepository(this.repository.cli, input, policy);
+  }
+  init(path: string, branch?: string, directoryFd?: number): Promise<void> {
+    return initRepository(this.repository.cli, path, branch, directoryFd);
+  }
+  initialBranch(path: string): Promise<string> {
+    return initialBranch(this.repository.cli, path);
+  }
+  defaultBranch(path: string, directoryFd?: number, signal?: AbortSignal): Promise<string> {
+    return defaultBranch(this.repository.cli, path, directoryFd, signal);
+  }
+  projectInfo(path: string, directoryFd?: number, signal?: AbortSignal) {
+    return projectInfo(this.repository.cli, path, directoryFd, signal);
   }
 
   resourceUsage(): { checkpointCounters: number; activeCalls: number } {

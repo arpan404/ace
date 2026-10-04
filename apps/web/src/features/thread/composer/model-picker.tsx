@@ -1,117 +1,101 @@
-import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import { CaretDownIcon, CheckIcon } from "@phosphor-icons/react";
+import {
+  accountTag,
+  effortLabel,
+  providerNames,
+  type EffortControl,
+  type ModelChoice,
+} from "@ace/ui-core";
+import { Suspense } from "react";
+import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
+import { ModelChipLabel } from "@/features/models/index.ts";
 import { cn } from "@/lib/cn.ts";
-import { Fragment } from "react";
-import { Menu, MenuContent, MenuLabel, MenuSeparator, MenuTrigger } from "@/components/ui/menu.tsx";
-import { menuItem } from "@/components/ui/menu-styles.ts";
-import { accountTag, providerNames } from "@ace/ui-core";
-import type { ModelChoice } from "@ace/ui-core";
+import { useComposerCompact } from "./composer-compact.ts";
+import { chipControl } from "./composer-styles.ts";
+import { DeferredModelMenu, MenuPending } from "./deferred-menus.tsx";
 
-/** "Opus 4.6 personal ▾": model and account, with usage meters where the choice is made. */
+const offlineNote = "Offline: changes apply when the daemon is back";
+
+/**
+ * The thread's model, account and effort in one footer chip ("◆ Opus 4.1 personal high ▾"),
+ * capped so a long name truncates instead of crowding the other controls. The menu lists models
+ * by provider with each account's usage, then the effort levels the provider lets a running
+ * thread change.
+ */
 export function ModelPicker(props: {
   choices: readonly ModelChoice[];
   value: ModelChoice | undefined;
+  /** Offline: the last-known model stays, dimmed, and can't change until the daemon is back. */
+  offline?: boolean | undefined;
+  effort: EffortControl;
   onChange(choice: ModelChoice): void;
+  onEffort(effort: string): void;
 }) {
-  const providers = [...new Set(props.choices.map((choice) => choice.provider))];
+  const { value, effort } = props;
+  const compact = useComposerCompact();
+  const account = value?.account ? accountTag(value.account) : undefined;
+  const effortText = effort.current
+    ? `${effortLabel(effort.current)} effort${effort.reported ? "" : " (default)"}`
+    : effort.efforts.length
+      ? "provider default effort"
+      : undefined;
+  const name = value ? [value.model, account, effortText].filter(Boolean).join(", ") : undefined;
   return (
     <Menu>
-      <MenuTrigger
-        aria-label={
-          props.value
-            ? `Model: ${props.value.model}, ${accountTag(props.value.account)}`
-            : "Choose a model"
+      <Tip
+        label={
+          props.offline
+            ? offlineNote
+            : value
+              ? [
+                  providerNames[value.provider],
+                  value.model,
+                  account,
+                  effortText &&
+                    (effort.reported
+                      ? effortText
+                      : `${effortText}: the daemon doesn't report this thread's effort`),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : "Choose a model"
         }
-        className="inline-flex h-[30px] items-center gap-[5px] rounded-[9px] px-[9px] text-sm font-medium text-muted-foreground transition-colors duration-(--dur-1) outline-none hover:bg-accent hover:text-foreground aria-expanded:bg-accent aria-expanded:text-foreground"
+        side="top"
       >
-        {props.value ? (
-          <>
-            {props.value.model}
-            <span className="font-normal text-subtle-foreground">
-              {accountTag(props.value.account)}
-            </span>
-          </>
-        ) : (
-          "Model"
-        )}
-        <CaretDownIcon aria-hidden size={14} />
-      </MenuTrigger>
-      <MenuContent side="top" align="end" className="w-[300px]">
-        <MenuPrimitive.RadioGroup
-          value={props.value?.id ?? ""}
-          onValueChange={(id: string) => {
-            const choice = props.choices.find((candidate) => candidate.id === id);
-            if (choice) props.onChange(choice);
-          }}
+        <MenuTrigger
+          aria-label={name ? `Model: ${name}` : "Choose a model"}
+          className={cn(chipControl, "max-w-64", props.offline && "opacity-60")}
         >
-          {providers.map((provider, index) => (
-            <Fragment key={provider}>
-              {index > 0 && <MenuSeparator />}
-              <MenuPrimitive.Group>
-                <MenuLabel>{providerNames[provider]}</MenuLabel>
-                {props.choices
-                  .filter((choice) => choice.provider === provider)
-                  .map((choice) => (
-                    <ChoiceItem key={choice.id} choice={choice} />
-                  ))}
-              </MenuPrimitive.Group>
-            </Fragment>
-          ))}
-        </MenuPrimitive.RadioGroup>
+          {value ? (
+            <ModelChipLabel
+              provider={value.provider}
+              model={value.model}
+              account={account}
+              effort={effort.current}
+              compact={compact}
+            />
+          ) : (
+            <span className="truncate">Model</span>
+          )}
+        </MenuTrigger>
+      </Tip>
+      <MenuContent side="top" align="start" className="max-h-[60vh] w-[320px] overflow-y-auto">
+        {props.offline ? (
+          <p role="status" className="px-2.5 py-2 text-xs leading-4 text-muted-foreground">
+            {offlineNote}
+          </p>
+        ) : (
+          <Suspense fallback={<MenuPending />}>
+            <DeferredModelMenu.Component
+              choices={props.choices}
+              value={value}
+              effort={effort}
+              onChange={props.onChange}
+              onEffort={props.onEffort}
+            />
+          </Suspense>
+        )}
       </MenuContent>
     </Menu>
-  );
-}
-
-const clock = new Intl.DateTimeFormat(undefined, {
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
-const limitReached = (resetsAt: number | undefined) =>
-  resetsAt === undefined ? "Limit reached" : `Limit reached · resets ${clock.format(resetsAt)}`;
-
-function ChoiceItem(props: { choice: ModelChoice }) {
-  const { choice } = props;
-  const exhausted = choice.exhausted;
-  return (
-    <MenuPrimitive.RadioItem
-      value={choice.id}
-      disabled={exhausted}
-      aria-label={`${choice.model} · ${accountTag(choice.account)}`}
-      className={cn(menuItem, "h-auto items-start py-[7px]")}
-    >
-      <span className="mt-px grid w-4 shrink-0 place-items-center">
-        <MenuPrimitive.RadioItemIndicator>
-          <CheckIcon aria-hidden size={14} />
-        </MenuPrimitive.RadioItemIndicator>
-      </span>
-      <span className="flex min-w-0 flex-col">
-        <span>
-          {choice.model} · {accountTag(choice.account)}
-        </span>
-        <span className="mt-px text-xs text-subtle-foreground">
-          {exhausted ? limitReached(choice.resetsAt) : choice.note}
-        </span>
-        {choice.used !== undefined && (
-          <span
-            role="meter"
-            aria-label={`${accountTag(choice.account)} usage`}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={Math.round(choice.used * 100)}
-            className="mt-1.5 h-[3px] w-[150px] overflow-hidden rounded-[2px] bg-secondary"
-          >
-            <span
-              className={cn(
-                "block h-full rounded-[2px]",
-                exhausted ? "bg-status-failed" : "bg-muted-foreground",
-              )}
-              style={{ width: `${Math.min(100, choice.used * 100)}%` }}
-            />
-          </span>
-        )}
-      </span>
-    </MenuPrimitive.RadioItem>
   );
 }

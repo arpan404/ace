@@ -17,6 +17,7 @@ import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
   conductor?: import("../conductor-runtime.ts").ConductorRuntimeOptions;
+  projects?: import("../projects.ts").ProjectsOptions;
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntimeOptions;
   /** The host owns daemon cancellation, including initialization before endpoint discovery. */
   signal?: AbortSignal;

@@ -22,13 +22,21 @@ async function openDevices() {
   const app = harness({ clock: () => Date.now() });
   app.play(flakyCheckout()).runThrough("explorer-spawned");
   await app.open("/t/thread-checkout");
-  await userEvent.keyboard("{Meta>}j{/Meta}");
+  // ⌃⇧M opens the Devices tool in the side panel.
+  await userEvent.keyboard("{Control>}{Shift>}m{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await userEvent.click(within(panel).getByRole("tab", { name: "Devices" }));
+  expect(within(panel).getByRole("tab", { name: "Devices", selected: true })).toBeTruthy();
   return { app, panel };
 }
 
-/** The line under the device list: "<device> · <what it is doing>". */
+/** Open a device from the catalog as its own tab; its region once loaded. */
+async function openDevice(panel: HTMLElement, name: string) {
+  const list = await within(panel).findByRole("list", { name: "Devices" });
+  await userEvent.click(within(list).getByRole("button", { name: new RegExp(`^${name}`) }));
+  return within(panel).findByRole("region", { name });
+}
+
+/** The line at the top of a device's tab: "<device> · <what it is doing>". */
 const statusLine = (section: HTMLElement) =>
   within(section).getByText(
     (_, element) => element?.tagName === "P" && /·/.test(element.textContent ?? ""),
@@ -49,7 +57,7 @@ test("devices stay off until enabled, then list the simulator and emulator", asy
 test("approving a device for the thread is what the daemon records", async () => {
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  const iphone = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
 
   await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
 
@@ -62,8 +70,7 @@ test("approving a device for the thread is what the daemon records", async () =>
 test("an emulator boots, streams its screen, and takes keys and text once you take control", async () => {
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  await userEvent.click(await within(panel).findByRole("button", { name: /Pixel 9/ }));
-  const pixel = await within(panel).findByRole("region", { name: "Pixel 9" });
+  const pixel = await openDevice(panel, "Pixel 9");
 
   await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
   await userEvent.click(await within(pixel).findByRole("button", { name: "Start live view" }));
@@ -92,7 +99,7 @@ test("an emulator boots, streams its screen, and takes keys and text once you ta
 test("without control the live screen only watches: keys stay off", async () => {
   const { panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  const iphone = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
 
   await userEvent.click(within(iphone).getByRole("button", { name: "Start live view" }));
 
@@ -112,7 +119,7 @@ test("without control the live screen only watches: keys stay off", async () => 
 test("the device's ⋯ menu stops the live view and shuts the device down", async () => {
   const { panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  const iphone = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
   await userEvent.click(within(iphone).getByRole("button", { name: "Start live view" }));
   await within(iphone).findByRole("img", { name: "iPhone 16 Pro screen" });
 
@@ -130,7 +137,7 @@ test("the device's ⋯ menu stops the live view and shuts the device down", asyn
 test("disabling devices is machine-wide, so it asks first", async () => {
   const { panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  const iphone = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
 
   await userEvent.click(within(iphone).getByRole("button", { name: "Device actions" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Disable devices…" }));
@@ -149,6 +156,7 @@ test("disabling devices is machine-wide, so it asks first", async () => {
 test("the device's logs appear while the log section is open", async () => {
   const { panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await openDevice(panel, "iPhone 16 Pro");
 
   await userEvent.click(await within(panel).findByRole("button", { name: "Logs" }));
 
@@ -159,7 +167,7 @@ test("the device's logs appear while the log section is open", async () => {
 test("revoking approval takes the device away from the thread's agents", async () => {
   const { app, panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  const iphone = await within(panel).findByRole("region", { name: "iPhone 16 Pro" });
+  const iphone = await openDevice(panel, "iPhone 16 Pro");
   await userEvent.click(within(iphone).getByRole("button", { name: "Approve" }));
 
   await userEvent.click(await within(iphone).findByRole("button", { name: "Revoke" }));
@@ -193,8 +201,7 @@ function visibility(state: DocumentVisibilityState) {
 test("while the window is hidden the device screen decodes nothing, and shows the newest frame once shown", async () => {
   const { panel } = await openDevices();
   await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
-  await userEvent.click(await within(panel).findByRole("button", { name: /Pixel 9/ }));
-  const pixel = await within(panel).findByRole("region", { name: "Pixel 9" });
+  const pixel = await openDevice(panel, "Pixel 9");
   await userEvent.click(within(pixel).getByRole("button", { name: "Boot" }));
   await userEvent.click(await within(pixel).findByRole("button", { name: "Start live view" }));
   const screenImage = await within(pixel).findByRole("img", { name: "Pixel 9 screen" });
@@ -214,4 +221,21 @@ test("while the window is hidden the device screen decodes nothing, and shows th
   } finally {
     visibility("visible");
   }
+});
+
+test("each device opens as its own tab beside the others, and the catalog marks the open ones", async () => {
+  const { panel } = await openDevices();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Enable devices" }));
+  await openDevice(panel, "iPhone 16 Pro");
+  expect(within(panel).getByRole("tab", { name: "iPhone 16 Pro", selected: true })).toBeTruthy();
+
+  await userEvent.click(within(panel).getByRole("tab", { name: "Devices" }));
+  const pixel = await openDevice(panel, "Pixel 9");
+  expect(within(panel).getByRole("tab", { name: "Pixel 9", selected: true })).toBeTruthy();
+  expect(within(panel).getByRole("tab", { name: "iPhone 16 Pro" })).toBeTruthy();
+  expect(within(pixel).getByText("Pixel 9 is off.")).toBeTruthy();
+
+  await userEvent.click(within(panel).getByRole("tab", { name: "Devices" }));
+  const list = within(panel).getByRole("list", { name: "Devices" });
+  for (const row of within(list).getAllByRole("button")) expect(row.textContent).toContain("Open");
 });

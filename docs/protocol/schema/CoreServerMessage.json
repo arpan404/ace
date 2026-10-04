@@ -266,6 +266,9 @@
         "health": {
           "$ref": "https://ace.local/protocol/v1/DiagnosticsHealth.json"
         },
+        "inspection": {
+          "$ref": "https://ace.local/protocol/v1/ProjectInspection.json"
+        },
         "ok": {
           "type": "boolean"
         },
@@ -289,6 +292,9 @@
         "type": {
           "const": "commandResult",
           "type": "string"
+        },
+        "workspace": {
+          "$ref": "https://ace.local/protocol/v1/Project.json"
         }
       },
       "required": [

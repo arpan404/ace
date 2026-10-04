@@ -9,6 +9,10 @@ import {
   defaultModelChoice,
   modelChoices,
   newThreadOptions,
+  optionEffort,
+  threadEffortControl,
+  effortLabel,
+  recordedChoice,
 } from "./models.ts";
 
 const account = (
@@ -172,4 +176,80 @@ test("a thread's picker shows what it runs on, or the switch waiting for its nex
     model: "opus",
     instanceId: "claude-work",
   });
+});
+
+test("a thread's effort can change only where the provider takes it as a session option", () => {
+  const [opus] = modelChoices(
+    [
+      CatalogModel.parse({
+        ...model("claude", "claude-personal", "opus", true),
+        reasoningEfforts: ["low", "medium", "high"],
+        defaultEffort: "medium",
+      }),
+    ],
+    [account("claude-personal", "claude", {})],
+  );
+  const sessionOptions = { sessionOptions: true, launchOptions: ["effort" as const] };
+
+  expect(
+    threadEffortControl({ choice: opus, capabilities: sessionOptions, current: "high" }),
+  ).toEqual({
+    efforts: ["low", "medium", "high"],
+    current: "high",
+    reported: true,
+    reason: undefined,
+  });
+  // Nothing reported reads as the model's default, and says it wasn't reported.
+  const inferred = threadEffortControl({
+    choice: opus,
+    capabilities: sessionOptions,
+    current: undefined,
+  });
+  expect([inferred.current, inferred.reported]).toEqual(["medium", false]);
+  expect(
+    threadEffortControl({
+      choice: opus,
+      capabilities: { sessionOptions: false },
+      current: undefined,
+    }).reason,
+  ).toBe("Claude Code sets effort only when a thread starts");
+});
+
+test("a model without effort levels says so instead of offering a choice", () => {
+  const [plain] = modelChoices([model("codex", "codex-personal", "gpt-5")], []);
+  expect(
+    threadEffortControl({
+      choice: plain,
+      capabilities: { sessionOptions: true, launchOptions: ["effort"] },
+      current: undefined,
+    }).reason,
+  ).toBe("gpt-5 has no effort levels");
+});
+
+test("only a string effort in execution options counts", () => {
+  expect(optionEffort({ effort: "high" })).toBe("high");
+  expect(optionEffort({ effort: 3 })).toBeUndefined();
+  expect(optionEffort(undefined)).toBeUndefined();
+});
+
+test("effort levels read as words people use, whatever the provider calls them", () => {
+  expect(["low", "medium", "high", "xhigh", "minimal"].map(effortLabel)).toEqual([
+    "Low",
+    "Medium",
+    "High",
+    "Extra high",
+    "Minimal",
+  ]);
+  expect(effortLabel("very_deep")).toBe("Very deep");
+});
+
+test("offline, a thread's model reads from its own record, claiming no account or usage", () => {
+  expect(recordedChoice({ provider: "claude", model: "claude-opus-4-1" })).toMatchObject({
+    provider: "claude",
+    model: "Opus 4.1",
+    account: "",
+    used: undefined,
+  });
+  expect(recordedChoice({ provider: "claude" })?.model).toBe("Claude Code default");
+  expect(recordedChoice(undefined)).toBeUndefined();
 });

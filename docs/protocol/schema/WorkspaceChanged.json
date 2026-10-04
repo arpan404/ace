@@ -1,0 +1,30 @@
+{
+  "$id": "https://ace.local/protocol/v1/WorkspaceChanged.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "change": {
+      "enum": [
+        "added",
+        "renamed",
+        "removed"
+      ],
+      "type": "string"
+    },
+    "type": {
+      "const": "workspace.changed",
+      "type": "string"
+    },
+    "workspace": {
+      "$ref": "https://ace.local/protocol/v1/Project.json"
+    },
+    "workspaceId": {
+      "$ref": "https://ace.local/protocol/v1/WorkspaceId.json"
+    }
+  },
+  "required": [
+    "type",
+    "workspaceId",
+    "change"
+  ],
+  "type": "object"
+}

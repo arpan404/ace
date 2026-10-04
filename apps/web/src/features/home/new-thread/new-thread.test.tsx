@@ -33,7 +33,7 @@ test("⌘N, a project, a model and a message start a thread that then opens", as
   ).toBeTruthy();
 
   const field = await prompt();
-  expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Send" }).getAttribute("aria-disabled")).toBe("true");
   await userEvent.type(field, "Log every restart with its backoff delay{Enter}");
 
   // The daemon created it from the request, and the app opened it.
@@ -80,7 +80,7 @@ test("a worktree thread starts from the chosen branch, on the chosen account and
   await userEvent.click(await screen.findByRole("button", { name: /^Model: Opus 4.1/ }));
   // Model, account and effort share one menu, which stays open while choosing.
   await userEvent.click(await screen.findByRole("menuitemradio", { name: "GPT-5 Codex" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "high effort" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "High effort" }));
   await userEvent.keyboard("{Escape}");
   await menuClosed();
   await userEvent.click(await screen.findByRole("button", { name: /^Start from branch/ }));
@@ -121,4 +121,44 @@ test("files and @ mentions work before the thread exists and arrive with it", as
   expect(
     reply.result.kind === "attachments" && reply.result.attachments.map((a) => a.name),
   ).toEqual(["relay.log"]);
+});
+
+test("slash commands are offered before the thread exists, for the chosen provider", async () => {
+  await app().open("/new?project=relay");
+  const field = await prompt();
+  await userEvent.type(field, "/");
+  const commands = await screen.findByRole("listbox", { name: "Commands" });
+  const first = within(commands).getAllByRole("option")[0];
+  expect(first?.textContent).toMatch(/^\//);
+  await userEvent.keyboard("{Tab}");
+  expect((field as HTMLTextAreaElement).value).toMatch(/^\/\S+ $/);
+});
+
+test("approvals chosen for a new thread are the ones it starts with", async () => {
+  const made = app();
+  await made.open("/new?project=relay");
+  await userEvent.click(await screen.findByRole("button", { name: "Approvals: Auto-review" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Ask first" }));
+  expect(await screen.findByRole("button", { name: "Approvals: Ask first" })).toBeTruthy();
+
+  await userEvent.type(await prompt(), "Audit the retry budget{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Audit the retry budget" });
+  expect(await screen.findByRole("button", { name: /^Approvals: Ask first/ })).toBeTruthy();
+});
+
+test("an unsent New thread draft waits for the next visit, and goes once the thread starts", async () => {
+  const storage = memoryKeyValue();
+  await app({ storage }).open("/new?project=relay");
+  await userEvent.type(await prompt(), "Trace the reconnect storm");
+  cleanup();
+
+  await app({ storage }).open("/new?project=relay");
+  const field = await prompt();
+  expect((field as HTMLTextAreaElement).value).toBe("Trace the reconnect storm");
+  await userEvent.keyboard("{Enter}");
+  await screen.findByRole("heading", { level: 1, name: "Trace the reconnect storm" });
+  cleanup();
+
+  await app({ storage }).open("/new?project=relay");
+  expect(((await prompt()) as HTMLTextAreaElement).value).toBe("");
 });

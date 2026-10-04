@@ -50,6 +50,7 @@ import { FakeLongThreadWire } from "./long-thread-wire.ts";
 import { FakeOutputStore } from "./output-store.ts";
 import type { FakeBrowser } from "./browser.ts";
 import type { FakeTerminals } from "./terminals.ts";
+import type { FakeProjects } from "./projects.ts";
 import { startedThread } from "./scenarios/started-thread.ts";
 import {
   drainQueue,
@@ -64,6 +65,8 @@ import { forkPointError, switchEvents } from "./transitions.ts";
 export interface FakeDaemonOptions {
   /** Injected clock for event timestamps and core facts. */
   clock(): number;
+  deviceScopes?: Readonly<Record<string, readonly import("@ace/protocol").DeviceScope[]>>;
+  projectScheduler?: (callback: () => void) => void;
   /** Credential the hello must present. */
   token?: string;
   /** Snapshot item window (ADR 0006 default is 200). */
@@ -97,6 +100,7 @@ export class FakeDaemon implements Host {
   private threads = new Map<string, ThreadHost>();
   private list: ThreadListView = createThreadListView();
   private connections = new Set<Connection>();
+  private projectFlights = new Map<string, { device: string; result: Promise<CommandResult> }>();
   private receipts = new Map<string, { deviceId: Command["deviceId"]; result: CommandResult }>();
   private resolvedListeners = new Set<ResolvedListener>();
   private outputs = new FakeOutputStore();
@@ -136,6 +140,12 @@ export class FakeDaemon implements Host {
     this.servicesWire = new FakeServicesWire(
       {
         now: options.clock,
+        canManageProjects: (device) => this.canManageProjects(device),
+        scheduleProject:
+          options.projectScheduler ??
+          ((callback) => {
+            setTimeout(callback, 0);
+          }),
         createThread: (input) => this.createThread(input),
         apply: (id, facts) => this.apply(id, facts),
         thread: (id) => {
@@ -162,6 +172,10 @@ export class FakeDaemon implements Host {
   /** The PTYs clients reach through `terminal.request`, for seeding a scenario's terminals. */
   get terminals(): FakeTerminals {
     return this.servicesWire.workspace.terminals;
+  }
+  /** The host folders and project catalog behind `projects.request` and project commands. */
+  get projects(): FakeProjects {
+    return this.servicesWire.workspace.projects;
   }
   /** The browser and previews clients reach through `browser.*` and `preview.request`. */
   get browser(): FakeBrowser {
@@ -515,6 +529,41 @@ export class FakeDaemon implements Host {
     const host = this.threads.get(threadId);
     return host ? historyPage(host.view, host.creation, before, limit, this.seq) : undefined;
   }
+  private canManageProjects(device: string): boolean {
+    const scopes = this.options.deviceScopes?.[device];
+    return (
+      this.options.deviceScopes === undefined ||
+      scopes?.includes("projects") === true ||
+      scopes?.includes("desktop") === true
+    );
+  }
+  commandAsync(command: Command): Promise<CommandResult> {
+    if (!this.canManageProjects(command.deviceId))
+      return Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
+    if (command.payload.type !== "workspace.clone") return Promise.resolve(this.command(command));
+    const prior = this.receipts.get(command.id);
+    if (prior)
+      return Promise.resolve(
+        prior.deviceId === command.deviceId
+          ? prior.result
+          : { commandId: command.id, ok: false, error: "forbidden" },
+      );
+    const pending = this.projectFlights.get(command.id);
+    if (pending)
+      return pending.device === command.deviceId
+        ? pending.result
+        : Promise.resolve({ commandId: command.id, ok: false, error: "forbidden" });
+    const result = this.servicesWire.workspace.projects
+      .clone(command.payload, command.id, command.deviceId)
+      .then((outcome) => {
+        const receipt = { commandId: command.id, ...outcome };
+        this.receipts.set(command.id, { deviceId: command.deviceId, result: receipt });
+        this.projectFlights.delete(command.id);
+        return receipt;
+      });
+    this.projectFlights.set(command.id, { device: command.deviceId, result });
+    return result;
+  }
   command(command: Command): CommandResult {
     const previous = this.receipts.get(command.id);
     if (previous)
@@ -560,6 +609,22 @@ export class FakeDaemon implements Host {
   }
   private execute(command: Command): CommandResult {
     const payload = command.payload;
+    if (
+      [
+        "workspace.add",
+        "workspace.create",
+        "workspace.clone",
+        "workspace.rename",
+        "workspace.remove",
+      ].includes(payload.type) &&
+      !this.canManageProjects(command.deviceId)
+    )
+      return { commandId: command.id, ok: false, error: "forbidden" };
+    if (
+      (payload.type === "thread.create" || payload.type === "thread.prepare") &&
+      this.servicesWire.workspace.projects.isRemoved(payload.workspaceId)
+    )
+      return { commandId: command.id, ok: false, error: "workspace_unregistered" };
     const commandId = command.id;
     const options =
       "selection" in payload && payload.selection

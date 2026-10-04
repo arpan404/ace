@@ -1,9 +1,12 @@
 import { expect, test } from "@playwright/test";
+import { scrollToRow } from "./thread-list.ts";
 
 test("a thread opens from Home and shows its transcript", async ({ page }) => {
   await page.goto("/");
   const threads = page.getByRole("navigation", { name: "Threads" });
-  await threads.getByRole("link", { name: /Replay cursor resets on every resume/ }).click();
+  const row = threads.getByRole("link", { name: /Replay cursor resets on every resume/ });
+  await scrollToRow(page, row);
+  await row.click();
 
   await expect(page).toHaveURL(/\/t\/thread-replay-cursor$/);
   await expect(
@@ -46,10 +49,10 @@ test("a new thread starts from ⌘N and its first message streams into the trans
   await expect(transcript.getByText("Reading the project before making changes.")).toBeVisible();
 });
 
-test("⌘J opens the agent tree for the thread", async ({ page }) => {
+test("⌃⇧A opens the agent tree for the thread", async ({ page }) => {
   await page.goto("/t/thread-replay-cursor");
   await page.getByRole("feed", { name: "Transcript" }).waitFor();
-  await page.keyboard.press("ControlOrMeta+j");
+  await page.keyboard.press("Control+Shift+a");
 
   const panel = page.getByRole("region", { name: "Thread panel" });
   await expect(panel.getByRole("tab", { name: "Agents", selected: true })).toBeVisible();

@@ -1,12 +1,13 @@
-import { ClientError, type Client } from "@ace/client";
-import { ClientMessage, ThreadId } from "@ace/protocol";
+import { ClientError, type Client, type ServiceWire } from "@ace/client";
+import { ThreadId, type ClientMessage } from "@ace/protocol";
 import { z } from "zod";
 import { BrowserSubscriptions } from "./browser-subscriptions.ts";
 import { objectInput } from "./calls.ts";
 
 /*
  * A tab's channel-scoped state: the binary file channels it opened and its Preview (browser)
- * subscriptions. The host loads this module the first time a tab makes a `files.*` or
+ * subscriptions. The host loads this module, with the client's service wire whose full
+ * `ClientMessage` it decodes requests with, the first time a tab makes a `files.*` or
  * `browser.*` request, so the worker starts without it (ADR 0056).
  */
 
@@ -42,11 +43,13 @@ export interface ChannelCall {
 
 export class TabChannels {
   private subscriber: string;
+  private wire: ServiceWire;
   private browsers = new BrowserSubscriptions();
   /** Open file channels, with the upload each one belongs to. */
   private files = new Map<number, string | undefined>();
-  constructor(subscriber: string) {
+  constructor(subscriber: string, wire: ServiceWire) {
     this.subscriber = subscriber;
+    this.wire = wire;
   }
   /**
    * Whether a tab's one-way file or Preview control may reach the daemon. Lifetimes open and
@@ -93,7 +96,10 @@ export class TabChannels {
       if (!call.current() || client.state !== "ready") throw new ClientError("offline");
       call.signal.throwIfAborted();
     };
-    const parsed = ClientMessage.safeParse({ ...objectInput(args[0]), requestId: "worker" });
+    const parsed = this.wire.ClientMessage.safeParse({
+      ...objectInput(args[0]),
+      requestId: "worker",
+    });
     let browser: BrowserTransition | undefined;
     let forwarded = args;
     if (

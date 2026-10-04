@@ -1,4 +1,4 @@
-import { close, fstat, read, type Stats } from "node:fs";
+import { close, fstat, read, write, type Stats } from "node:fs";
 import { createRequire } from "node:module";
 import { getSystemErrorName } from "node:util";
 import { z } from "zod";
@@ -19,6 +19,7 @@ const binding = z
       input: [z.number().int(), z.string(), z.number().int()],
       output: z.number().int().nonnegative(),
     }),
+    mkdirAt: z.function({ input: [z.number().int(), z.string()], output: z.void() }),
     statAt: z.function({
       input: [z.number().int(), z.string()],
       output: z.object({
@@ -51,9 +52,16 @@ export function openAt(parent: number, name: string, flags: number): Descriptor 
     return nativeFailure(error);
   }
 }
-export function descriptorNames(fd: number): string[] {
+export function mkdirAt(parent: number, name: string): void {
   try {
-    return binding.names(fd, DIRECTORY_CAP).toSorted();
+    binding.mkdirAt(parent, name);
+  } catch (error) {
+    nativeFailure(error);
+  }
+}
+export function descriptorNames(fd: number, limit = DIRECTORY_CAP): string[] {
+  try {
+    return binding.names(fd, limit).toSorted();
   } catch (error) {
     return nativeFailure(error);
   }
@@ -85,6 +93,18 @@ export class Descriptor {
     return new Promise((resolve, reject) =>
       close(this.fd, (error) => (error ? reject(error) : resolve())),
     );
+  }
+  async write(bytes: Buffer): Promise<void> {
+    let offset = 0;
+    while (offset < bytes.length) {
+      const count = await new Promise<number>((resolve, reject) =>
+        write(this.fd, bytes, offset, bytes.length - offset, offset, (error, written) =>
+          error ? reject(error) : resolve(written),
+        ),
+      );
+      if (!count) throw new Error("Short descriptor write");
+      offset += count;
+    }
   }
 }
 

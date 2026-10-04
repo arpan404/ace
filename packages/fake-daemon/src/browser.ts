@@ -1,5 +1,5 @@
 import type { BrowserInput } from "@ace/protocol";
-import { pairPhoneFrame } from "./preview-page.ts";
+import { pairPhoneFrame, sitePage } from "./preview-page.ts";
 
 /**
  * The browser and preview services (ADR 0008, 0009) as a client sees them, simulated in
@@ -43,6 +43,8 @@ interface Entry {
   typed: string;
   /** The page's viewport in CSS pixels; a real browser starts at 760x900 here too. */
   viewport: { width: number; height: number };
+  /** What the page draws: the seeded pairing page, or any other address. */
+  page: "pair" | "site";
 }
 
 /** BrowserCommand `resize` bounds in `@ace/protocol`. */
@@ -136,17 +138,48 @@ export class FakeBrowser {
     entry.viewport = viewport;
     if (entry.view && !entry.view.closed) this.paint(entry, entry.typed);
   }
+  /**
+   * A person (holding control) navigates: the page changes and control stays theirs. A local
+   * address nothing listens on fails the way Chromium reports it; so does an unsafe port.
+   */
+  navigate(threadId: string, url: string): string {
+    const entry = this.entries.get(threadId);
+    if (!entry?.view || entry.view.closed) throw new Error("Browser closed");
+    if (entry.view.controller !== "human") throw new Error("Browser controller mismatch");
+    let parsed: URL | undefined;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error(`net::ERR_INVALID_URL at ${url}`);
+    }
+    const port = Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80));
+    if ([1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25].includes(port))
+      throw new Error(`net::ERR_UNSAFE_PORT at ${url}`);
+    const local = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/.test(parsed.hostname);
+    if (local && !entry.servers.some((server) => server.port === port))
+      throw new Error(`net::ERR_CONNECTION_REFUSED at ${url}`);
+    if (parsed.hostname.endsWith(".invalid"))
+      throw new Error(`net::ERR_NAME_NOT_RESOLVED at ${url}`);
+    entry.view = { ...entry.view, url: parsed.href };
+    entry.page =
+      local && entry.servers.some((server) => server.port === port && server.name === "web")
+        ? "pair"
+        : "site";
+    this.paint(entry, entry.typed);
+    return parsed.href;
+  }
   /** Scripting: an agent opens the browser on a page and starts typing into it. */
   drive(threadId: string, options: { url: string; typed?: string }): void {
     const entry = this.entry(threadId);
     if (!entry.view || entry.view.closed) entry.generation++;
     entry.view = { threadId, controller: "agent", url: options.url, closed: false };
+    entry.page = options.url === "about:blank" ? "site" : "pair";
     this.paint(entry, options.typed ?? "");
   }
   /** Scripting: the agent types more of the device name (ignored while a person has control). */
   type(threadId: string, typed: string): void {
     const entry = this.entries.get(threadId);
-    if (entry?.view?.controller === "agent") this.paint(entry, typed);
+    if (entry?.view?.controller === "agent" && entry.page === "pair") this.paint(entry, typed);
   }
   /** Scripting: the preview gateway detected a dev server for this thread. */
   serve(threadId: string, server: PreviewServer): void {
@@ -177,7 +210,10 @@ export class FakeBrowser {
     const { width, height } = entry.viewport;
     entry.frame = {
       sequence: (entry.frame?.sequence ?? 0) + 1,
-      src: pairPhoneFrame(typed, width, height),
+      src:
+        entry.page === "pair"
+          ? pairPhoneFrame(typed, width, height)
+          : sitePage(entry.view?.url ?? "about:blank", width, height),
       width,
       height,
     };
@@ -187,7 +223,13 @@ export class FakeBrowser {
     let entry = this.entries.get(threadId);
     if (!entry) {
       if (this.entries.size >= 64) throw new Error("browser_limit");
-      entry = { generation: 0, servers: [], typed: "", viewport: { width: 760, height: 900 } };
+      entry = {
+        generation: 0,
+        servers: [],
+        typed: "",
+        viewport: { width: 760, height: 900 },
+        page: "pair",
+      };
       this.entries.set(threadId, entry);
     }
     return entry;

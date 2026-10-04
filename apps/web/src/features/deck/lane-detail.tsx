@@ -1,6 +1,8 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useSidebarThread } from "@ace/client-react";
-import { buttonVariants } from "@/components/ui/button.tsx";
+import { Button, buttonVariants } from "@/components/ui/button.tsx";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { deckLaneTab } from "@/features/panels/index.ts";
 import { StatusPill } from "@/components/status-pill.tsx";
 import { useNow } from "@/lib/time.ts";
 import {
@@ -26,7 +28,12 @@ const pillTone: Record<CardTone, Tone> = {
  * A card's lane: worker and adversarial reviewer, its review rounds so far, then every agent the
  * deck delegated for it (sub-agents included), each with a way into its thread.
  */
-export function LaneDetail(props: { card: DeckCard; run: DeckRun }) {
+export function LaneDetail(props: {
+  card: DeckCard;
+  run: DeckRun;
+  /** Offer to open the lane as a tab beside its thread (not when it already is one). */
+  beside?: boolean;
+}) {
   const { card } = props;
   const status = cardStatus(card, props.run);
   const lane = card.lane;
@@ -41,7 +48,12 @@ export function LaneDetail(props: { card: DeckCard; run: DeckRun }) {
           <CardTimes card={card} />
         </div>
         <StatusPill tone={lane ? pillTone[status.tone] : "idle"} label={status.label} />
-        {lane?.threadId && <OpenThread threadId={lane.threadId} />}
+        {lane?.threadId && (
+          <OpenThread
+            threadId={lane.threadId}
+            lane={props.beside === false ? undefined : { run: props.run, card }}
+          />
+        )}
       </div>
       {lane ? (
         <>
@@ -93,18 +105,43 @@ function CardTimes(props: { card: DeckCard }) {
   );
 }
 
-/** The lane's current thread, once this client lists it. */
-function OpenThread(props: { threadId: string }) {
+/**
+ * The lane's current thread, once this client lists it: open it, or open it with this lane as a
+ * tab beside its conversation.
+ */
+function OpenThread(props: {
+  threadId: string;
+  lane: { run: DeckRun; card: DeckCard } | undefined;
+}) {
   const thread = useSidebarThread(props.threadId);
+  const workspace = useWorkspaceActions(props.threadId);
+  const navigate = useNavigate();
   if (!thread) return null;
+  const { lane } = props;
   return (
-    <Link
-      to="/t/$threadId"
-      params={{ threadId: props.threadId }}
-      className={buttonVariants({ variant: "ghost", size: "sm" })}
-    >
-      Open thread
-    </Link>
+    <>
+      {lane && (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => {
+            workspace.open(
+              deckLaneTab({ runId: lane.run.id, cardId: lane.card.id, title: lane.card.title }),
+            );
+            void navigate({ to: "/t/$threadId", params: { threadId: props.threadId } });
+          }}
+        >
+          Open beside thread
+        </Button>
+      )}
+      <Link
+        to="/t/$threadId"
+        params={{ threadId: props.threadId }}
+        className={buttonVariants({ variant: "ghost", size: "sm" })}
+      >
+        Open thread
+      </Link>
+    </>
   );
 }
 

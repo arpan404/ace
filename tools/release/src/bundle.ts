@@ -1,6 +1,11 @@
 import { build, type PluginBuild } from "esbuild";
 import { runtimePackages, stageRuntimePackages } from "./runtime-assets.ts";
 import { stagePtyRuntime } from "./pty-assets.ts";
+import {
+  guardianBundlePath,
+  guardianSourcePath,
+  stageTerminalGuardian,
+} from "./terminal-assets.ts";
 import { readFile, cp } from "node:fs/promises";
 import { join } from "node:path";
 export { stageNativeFiles } from "./native-assets.ts";
@@ -31,7 +36,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection|history-publisher|fork)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection|history-publisher|fork|pty)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -60,6 +65,8 @@ export async function bundleDaemon(
                 contents = contents.replace('"./host-entry.ts"', '"./cursor-sdk-host.mjs"');
               if (args.path.endsWith("/workspace/src/descriptor.ts"))
                 contents = contents.replace('"../dist/descriptor.node"', '"./descriptor.node"');
+              if (args.path.endsWith("/terminal/src/pty.ts"))
+                contents = contents.replace(guardianSourcePath, guardianBundlePath);
               if (args.path.endsWith("/workspace/src/node-search.ts"))
                 contents = contents.replace(
                   '"./node-search-worker.ts"',
@@ -124,6 +131,8 @@ export async function bundleDaemon(
   );
   if (workspaceIncluded)
     await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
+  if ([...inputs].some((input) => input.endsWith("packages/terminal/src/pty.ts")))
+    stageTerminalGuardian(repo, root, target);
   const helpers = [
     ["packages/adapter-claude/src/fork-worker.ts", "claude-fork-worker.mjs"],
     ["apps/daemon/src/history-publish-worker.ts", "history-publish-worker.mjs"],

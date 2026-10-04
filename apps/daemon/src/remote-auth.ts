@@ -39,7 +39,7 @@ export class RemoteAuth {
       return {
         id: DeviceId.parse("local"),
         name: "Host",
-        scopes: ["admin"],
+        scopes: ["admin", "projects"],
         createdAt: 0,
         lastSeenAt: this.now(),
         revokedAt: null,

@@ -9,6 +9,8 @@ import { Kbd } from "@/components/ui/kbd.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { SidebarHeader } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
+import { useProjectDirectory } from "@/lib/projects.ts";
+import { useProjectDialogs } from "@/features/projects/index.ts";
 import { activityOf, isUnread } from "@ace/ui-core";
 import { ProjectFilter } from "./project-filter.tsx";
 import { ThreadList } from "./thread-list.tsx";
@@ -28,6 +30,9 @@ export function HomeSidebar() {
   useSeenWhileOpen();
   const loaded = useSidebarLoaded();
   const empty = !arrangement.active.length && !arrangement.settled.length;
+  const directory = useProjectDirectory();
+  const dialogs = useProjectDialogs();
+  const noProjects = directory.loaded && directory.projects.length === 0;
   return (
     <>
       <SidebarHeader title="Threads" actions={<ProjectFilter />} />
@@ -61,10 +66,21 @@ export function HomeSidebar() {
             description={
               project
                 ? "Threads from this project will land here."
-                : "Start one with ⌘N. Threads from every project and machine land here."
+                : noProjects
+                  ? "Add a project first: a folder agents can work in."
+                  : "Start one with ⌘N. Threads from every project and machine land here."
             }
             action={
-              project ? (
+              !project && noProjects ? (
+                <button
+                  type="button"
+                  className="text-ui font-medium text-foreground underline-offset-4 hover:underline"
+                  onClick={() => dialogs.open({ kind: "add", tab: "open" })}
+                  onPointerEnter={dialogs.preload}
+                >
+                  Add project…
+                </button>
+              ) : project ? (
                 <button
                   type="button"
                   className="text-ui font-medium text-foreground underline-offset-4 hover:underline"

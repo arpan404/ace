@@ -3,6 +3,7 @@ import {
   ScenarioPlayer,
   devWorld,
   fakeTransport,
+  hostFolders,
   seedPanels,
   workbenchServices,
 } from "@ace/fake-daemon";
@@ -33,20 +34,32 @@ export function bootFake(): {
   /** The name the design's account disc shows ("AB"), used when this device has none yet. */
   profileName: string;
 } {
-  const daemon = new FakeDaemon({ clock: () => Date.now(), snapshotItems: 40 });
+  const daemon = new FakeDaemon({
+    clock: () => Date.now(),
+    snapshotItems: 40,
+    // A clone takes a few seconds, so its progress and Cancel can be seen.
+    projectScheduler: (callback) => void setTimeout(callback, 700),
+  });
+  // `aceFakeWorld = "empty"` (set before boot, as the screens do) starts on a daemon with no
+  // threads and no projects: the first run.
+  const empty = (globalThis as { aceFakeWorld?: string }).aceFakeWorld === "empty";
   // Every thread is stamped back by its age; live ones keep moving while the app is open.
-  for (const thread of devWorld()) {
+  for (const thread of empty ? [] : devWorld()) {
     const player = new ScenarioPlayer(daemon, thread.scenario, { agoMs: thread.agoMs });
     if (thread.through) player.runThrough(thread.through);
     else if (!thread.live) player.runUntilBlocked();
     if (thread.live) player.autoplay(timer, thread.live.speed);
   }
+  // The folders the Add project dialog browses.
+  const host = hostFolders(Date.now());
+  daemon.projects.seedFolders(host.home, host.folders);
   // The panels' terminals, browser and dev server, in the daemon's own services.
-  seedPanels(daemon);
+  if (!empty) seedPanels(daemon);
   // Decks, automations, plugins and linked pull requests, served over the wire like a daemon's.
-  daemon.seedServices(
-    workbenchServices(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
-  );
+  if (!empty)
+    daemon.seedServices(
+      workbenchServices(Date.now(), Intl.DateTimeFormat().resolvedOptions().timeZone),
+    );
   // Playwright's screens stage failures and empty states before the app's first request.
   const setup = (globalThis as { aceFakeSetup?: (daemon: FakeDaemon) => void }).aceFakeSetup;
   setup?.(daemon);

@@ -38,3 +38,17 @@ export function accept(
 export function mentionsIn(text: string, picked: ReadonlySet<string>): Mention[] {
   return [...picked].filter((path) => text.includes(`@${path}`)).map((path) => ({ path }));
 }
+
+/**
+ * Insert `insert` at the caret as its own word: a space before it unless the caret already
+ * follows whitespace or starts the text. Returns the text and the caret after the insert.
+ */
+export function insertAt(
+  text: string,
+  caret: number,
+  insert: string,
+): { text: string; caret: number } {
+  const before = text.slice(0, caret);
+  const spaced = before && !/\s$/.test(before) ? ` ${insert}` : insert;
+  return { text: before + spaced + text.slice(caret), caret: caret + spaced.length };
+}

@@ -2,7 +2,7 @@ import { ArrowRightIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { cn } from "@/lib/cn.ts";
-import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
+import { ProviderIconTip } from "@/components/ui/provider-icons.tsx";
 import { cardStatus, type DeckRun } from "@ace/ui-core";
 import { StatusMark } from "./card-graph.tsx";
 
@@ -51,7 +51,7 @@ export function LanesTab(props: { run: DeckRun; onOpen(cardId: string): void }) 
               <span className="flex items-center gap-1.5 text-sm whitespace-nowrap text-muted-foreground">
                 {lane ? (
                   <>
-                    {lane.worker?.provider && <ProviderMark provider={lane.worker.provider} />}
+                    {lane.worker?.provider && <ProviderIconTip provider={lane.worker.provider} />}
                     <span>{lane.worker?.account ?? "No worker"}</span>
                     <Icon icon={ArrowRightIcon} size={12} className="text-subtle-foreground" />
                     <span>{lane.reviewer?.account ?? "No reviewer yet"}</span>

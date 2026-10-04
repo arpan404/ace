@@ -1,0 +1,36 @@
+{
+  "$id": "https://ace.local/protocol/v1/WorkspaceCloneProgress.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "commandId": {
+      "$ref": "https://ace.local/protocol/v1/CommandId.json"
+    },
+    "percent": {
+      "maximum": 100,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "phase": {
+      "enum": [
+        "starting",
+        "receiving",
+        "resolving",
+        "checkout",
+        "completed",
+        "cancelled",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "type": {
+      "const": "workspace.clone.progress",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "commandId",
+    "phase"
+  ],
+  "type": "object"
+}

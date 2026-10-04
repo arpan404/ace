@@ -10,12 +10,18 @@ import {
   type RequestOf,
   type ResultOf,
 } from "../shared/channels.ts";
-import type { AppInfo } from "../shared/contract.ts";
+import { AbsolutePath, type AppInfo } from "../shared/contract.ts";
 
 /** The slice of `ipcRenderer` the bridge needs; injected so it can be tested without Electron. */
 export interface BridgeIpc {
   invoke(channel: string, payload: unknown): Promise<unknown>;
   on(channel: string, listener: (payload: unknown) => void): () => void;
+}
+
+/** What the preload reads in its own world: Electron's `webUtils`, injected for tests. */
+export interface BridgeNative {
+  /** The file system path behind a dropped `File`; empty for one with no path. */
+  pathForFile(file: File): string;
 }
 
 /** Thrown to the page when a call is refused before it reaches the main process. */
@@ -28,7 +34,7 @@ export class BridgeError extends Error {
  * returned, and events before listeners see them; malformed events are dropped, never thrown
  * into the page. The page gets plain functions and data only, never `ipcRenderer`.
  */
-export function createBridge(ipc: BridgeIpc, info: AppInfo) {
+export function createBridge(ipc: BridgeIpc, info: AppInfo, native?: BridgeNative) {
   async function call<C extends RequestChannel>(
     channel: C,
     payload?: RequestOf<C>,
@@ -80,6 +86,27 @@ export function createBridge(ipc: BridgeIpc, info: AppInfo) {
         call("shell.openInEditor", request),
       reveal: (path: string) => call("shell.reveal", { path }),
       openExternal: (url: string) => call("shell.openExternal", url),
+    },
+    dialogs: {
+      /** The native folder picker: an absolute path, or null when cancelled. */
+      openFolder: () => call("dialog.openFolder"),
+    },
+    files: {
+      /**
+       * The absolute path of a file or folder dropped on the page, or null when it has none (a
+       * dragged browser image, a file from another app). The page learns nothing else.
+       */
+      pathForFile(file: File): string | null {
+        if (!native) return null;
+        let path: unknown;
+        try {
+          path = native.pathForFile(file);
+        } catch {
+          return null;
+        }
+        const parsed = AbsolutePath.safeParse(path);
+        return parsed.success ? parsed.data : null;
+      },
     },
     notifications: {
       show: (request: RequestOf<"notify.show">) => call("notify.show", request),

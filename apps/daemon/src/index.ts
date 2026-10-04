@@ -201,6 +201,7 @@ export async function startDaemon(options: DaemonOptions = {}) {
       "engine",
       "transitions",
       "workspaceActions",
+      "projects",
       "canReadThread",
       "previewClient",
       "conductor",

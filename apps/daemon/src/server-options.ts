@@ -33,6 +33,7 @@ export interface ServerOptions {
   previewClient?: import("./preview-client.ts").PreviewClient;
   conductor?: import("./conductor-runtime.ts").ConductorRuntime;
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;
+  projects?: import("./projects.ts").Projects;
   workspaceActions?: import("./workspace-runtime.ts").WorkspaceRuntime;
   engine?: import("./engine/index.ts").Engine;
   mcp?: Pick<Awaited<ReturnType<typeof import("./mcp.ts").startDaemonMcp>>, "providers">;

@@ -3,17 +3,15 @@ import {
   CaretRightIcon,
   DotsThreeIcon,
   SidebarSimpleIcon,
-  SquareHalfBottomIcon,
-  SquareSplitHorizontalIcon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
+import { useElementSize } from "@/lib/element-size.ts";
 import { useHistoryNav } from "@/lib/history-nav.ts";
-import { useLayout } from "@/lib/layout.tsx";
 import { useViewFrame } from "./view-frame.tsx";
 
 export interface HeaderProps {
@@ -23,41 +21,30 @@ export interface HeaderProps {
   subtitle?: ReactNode;
   /** Items for the ⋯ menu beside the title. */
   menu?: ReactNode;
+  /** After the ⋯ menu: a toggle for the screen's summary (a thread's outline). */
+  summary?: ReactNode;
   /** Right-hand actions (Run, Open, Commit, Mark all read, …). */
   actions?: ReactNode;
 }
 
 /**
- * The one header every screen uses (Codex desktop): sidebar toggle when hidden, history
- * back and forward, title and ⋯ menu; actions and panel toggles on the right. 50px, a drag
- * region in Electron, hairline only once the content scrolls.
+ * The sidebar toggle, then history back and forward: always the first controls of the window's
+ * top row, in the same place whether the sidebar shows or not (and in full view, where the
+ * side panel's strip carries them).
  */
-export function AppHeader(
-  props: HeaderProps & {
-    scrolled: boolean;
-    panels: { right: boolean; bottom: boolean };
-  },
-) {
+export function HeaderNav() {
   const frame = useViewFrame();
   const nav = useHistoryNav();
-  const { layout, togglePanel } = useLayout();
-  const hasPanels = props.panels.right || props.panels.bottom;
-  const wide = useSidebarInline();
-  // A phone keeps one ⋯ for the title menu and the actions, and leaves history to the system.
+  // A phone leaves history to the system.
   const phone = usePhone();
   return (
-    <header
-      className={cn(
-        "relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 border-b border-transparent pr-2.5 pl-3 transition-[border-color] duration-(--dur-2) [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
-        props.scrolled && "border-border",
-      )}
-    >
-      {!frame.sidebarShown && (
+    <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+      {frame.hasSidebar && (
         <IconButton
           icon={SidebarSimpleIcon}
-          label="Show sidebar"
+          label={frame.sidebarShown ? "Hide sidebar" : "Show sidebar"}
           shortcut="toggleSidebar"
-          onClick={frame.showSidebar}
+          onClick={frame.sidebarShown ? frame.hideSidebar : frame.showSidebar}
         />
       )}
       {!phone && (
@@ -66,7 +53,6 @@ export function AppHeader(
             icon={CaretLeftIcon}
             label="Back"
             shortcut="back"
-            size="sm"
             disabled={!nav.canGoBack}
             onClick={nav.back}
           />
@@ -74,63 +60,93 @@ export function AppHeader(
             icon={CaretRightIcon}
             label="Forward"
             shortcut="forward"
-            size="sm"
             disabled={!nav.canGoForward}
             onClick={nav.forward}
           />
         </>
       )}
-      <div className="ml-1.5 flex min-w-0 items-center gap-2">
+    </div>
+  );
+}
+
+/**
+ * The one header every screen uses: sidebar toggle and history, then the title, its project,
+ * the ⋯ menu and the summary; actions and the dock toggles on the right. 50px, a drag region in
+ * Electron, hairline only once the content scrolls. Every control is a 30px box on one centre
+ * line.
+ */
+export function AppHeader(
+  props: HeaderProps & {
+    scrolled: boolean;
+    /** The far-right cluster: the dock toggles, while the side panel isn't showing beside it. */
+    trailing?: ReactNode;
+  },
+) {
+  const sidebarInline = useSidebarInline();
+  const phone = usePhone();
+  // The title comes first. Beside an open side panel the header is a container: below 720px
+  // the actions drop their labels (they keep their accessible names and shortcut tooltips);
+  // only below 420px, or on a phone, do they fold, together with the title menu, into one ⋯.
+  const header = useRef<HTMLElement>(null);
+  const roomy = useElementSize(header).width >= foldBelow;
+  const wide = sidebarInline && roomy && !phone;
+  // Folded, the title menu joins the actions behind one ⋯: a header never shows two.
+  const folded = !wide && !!props.actions;
+  const titleMenu = props.menu && !phone && !folded;
+  return (
+    <header
+      ref={header}
+      className={cn(
+        // The hairline is drawn with box-shadow, not a border, so the 50px row keeps its exact centre.
+        "@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 shadow-[inset_0_-1px_0_transparent] transition-shadow duration-(--dur-2) [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
+        props.scrolled && "shadow-[inset_0_-1px_0_var(--border)]",
+      )}
+    >
+      <HeaderNav />
+      <div className="ml-1.5 flex min-w-0 flex-1 items-center gap-2">
         <h1 className="min-w-0 truncate text-base font-semibold tracking-[-0.005em]">
           {props.title}
         </h1>
         {props.subtitle && (
           // The title keeps the room: a long subtitle (a Deck lane's branch) truncates first.
-          <span className="hidden min-w-0 shrink-[3] truncate text-base font-normal text-muted-foreground md:inline">
+          <span className="hidden min-w-0 shrink-[3] truncate text-base font-normal text-muted-foreground md:inline @max-[45rem]/header:hidden">
             {props.subtitle}
           </span>
         )}
-        {props.menu && !phone && (
-          <Menu>
-            <MenuTrigger
-              render={<IconButton icon={DotsThreeIcon} label="More actions" size="sm" />}
-            />
-            <MenuContent>{props.menu}</MenuContent>
-          </Menu>
+        {(titleMenu || props.summary) && (
+          <span className="flex shrink-0 items-center gap-0.5">
+            {titleMenu && (
+              <Menu>
+                <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="More actions" />} />
+                <MenuContent>{props.menu}</MenuContent>
+              </Menu>
+            )}
+            {props.summary}
+          </span>
         )}
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {props.actions && wide && props.actions}
-        {/* Narrower, the actions (and on a phone the title menu) fold into one ⋯. */}
-        {(props.actions || props.menu) && !wide && (
-          <Overflow actions={props.actions} menu={phone ? props.menu : undefined} />
+        {/* Narrower, the actions and the title menu fold into one ⋯. */}
+        {(folded || (phone && props.menu)) && (
+          <Overflow actions={props.actions} menu={titleMenu ? undefined : props.menu} />
         )}
-        {hasPanels && (
+        {props.trailing && (
           <>
             {props.actions && wide && <span aria-hidden className="mx-1 h-4 w-px bg-border" />}
-            {props.panels.bottom && (
-              <IconButton
-                icon={SquareHalfBottomIcon}
-                label="Bottom panel"
-                shortcut="bottomPanel"
-                pressed={layout.bottom.open}
-                onClick={() => togglePanel("bottom")}
-              />
-            )}
-            {props.panels.right && (
-              <IconButton
-                icon={SquareSplitHorizontalIcon}
-                label="Right panel"
-                pressed={layout.right.open}
-                onClick={() => togglePanel("right")}
-              />
-            )}
+            {props.trailing}
           </>
         )}
       </div>
     </header>
   );
 }
+
+/**
+ * A header narrower than this folds its actions and title menu into one ⋯. Between this and
+ * 720px the actions show as icons (`SplitButton`'s `@container/header` rule).
+ */
+const foldBelow = 420;
 
 /**
  * The folded header: the actions in a row, then the title menu behind one more tap. One ⋯ in
@@ -146,7 +162,9 @@ function Overflow(props: { actions: ReactNode; menu: ReactNode }) {
     );
   return (
     <Popover>
-      <PopoverTrigger render={<IconButton icon={DotsThreeIcon} label="More actions" />} />
+      <PopoverTrigger
+        render={<IconButton icon={DotsThreeIcon} label={props.menu ? "More actions" : "Actions"} />}
+      />
       <PopoverContent
         align="end"
         className="flex max-w-[calc(100vw-1.5rem)] flex-col gap-1.5 p-1.5"

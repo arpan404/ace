@@ -27,18 +27,26 @@ test("Run, a terminal and Commit work on a real daemon's checkout", async ({ pag
   // Run: the project's only script, in a new terminal in the bottom panel.
   await page.getByRole("button", { name: "Run npm run 'greet'" }).click();
   const bottom = page.getByRole("region", { name: "Bottom panel" });
-  const terminals = bottom.getByRole("tablist", { name: "Terminals" });
-  await expect(terminals.getByRole("tab", { name: "greet", selected: true })).toBeVisible();
+  await expect(bottom.getByRole("tab", { name: "greet", selected: true })).toBeVisible();
   await expect(bottom.getByRole("group", { name: "greet terminal" })).toContainText(scriptOutput);
 
   // A terminal of your own, in the thread's checkout.
   await bottom.getByRole("button", { name: "New terminal" }).click();
-  await expect(terminals.getByRole("tab", { name: "Terminal", selected: true })).toBeVisible();
+  await expect(bottom.getByRole("tab", { name: "Terminal", selected: true })).toBeVisible();
   const shell = bottom.getByRole("group", { name: "Terminal terminal" });
   await shell.getByRole("textbox").focus();
   await page.keyboard.type("echo $((6*7))");
   await page.keyboard.press("Enter");
   await expect(shell).toContainText("42");
+
+  // Closing its tab ends that shell in the daemon; the script's terminal is still listed.
+  await bottom.getByRole("button", { name: "Close Terminal" }).click();
+  await bottom.getByRole("tab", { name: "greet" }).click();
+  await bottom.getByRole("button", { name: /^Terminal sessions/ }).click();
+  const sessions = page.getByRole("menu");
+  await expect(sessions.getByRole("menuitem", { name: /^greet/ })).toBeVisible();
+  await expect(sessions.getByRole("menuitem", { name: /^Terminal/ })).toHaveCount(0);
+  await page.keyboard.press("Escape");
 
   // Commit the uncommitted README edit with a message of our own.
   await page.getByRole("button", { name: "Commit", exact: true }).click();
@@ -74,7 +82,7 @@ test("Open hands the daemon's validated editor launch to this machine", async ({
   expect(opened.at(-1)).toMatch(new RegExp(`^zed://file/.*/${workspaceName}$`));
 });
 
-test("Preview offers a browser, and no port preview when the daemon runs no gateway", async ({
+test("Preview points at the Browser, and offers no port preview when the daemon runs no gateway", async ({
   page,
 }) => {
   const token = readFileSync(daemonTokenPath, "utf8").trim();
@@ -86,8 +94,36 @@ test("Preview offers a browser, and no port preview when the daemon runs no gate
 
   await page.getByRole("button", { name: "Right panel" }).click();
   const panel = page.getByRole("region", { name: "Thread panel" });
-  await panel.getByRole("tab", { name: "Preview" }).click();
-  await expect(panel.getByRole("button", { name: "Open a browser" })).toBeEnabled();
+  // Tools beyond Changes and Agents open from the side panel's + (the new-tab launcher).
+  await panel.getByRole("button", { name: "New tab" }).click();
+  await panel
+    .getByRole("list", { name: "Tools" })
+    .getByRole("button", { name: /^Preview/ })
+    .click();
   // The e2e daemon, like `ace` itself, starts without a preview gateway (ADR 0008).
+  await expect(
+    panel.getByText("This daemon runs no preview gateway", { exact: false }),
+  ).toBeVisible();
   await expect(panel.getByRole("form", { name: "Preview a dev server" })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Open the Browser" })).toBeEnabled();
+});
+
+test("⌘P finds a file in a real checkout and opens its source", async ({ page }) => {
+  const token = readFileSync(daemonTokenPath, "utf8").trim();
+  await page.goto(`/#token=${token}&daemon=${encodeURIComponent(`ws://127.0.0.1:${daemonPort}/`)}`);
+  await expect(page.getByRole("status", { name: "Daemon: Connected" })).toBeAttached();
+  const threads = page.getByRole("navigation", { name: "Threads" });
+  await threads.getByRole("link", { name: new RegExp(previewTitle) }).click();
+  await expect(page.getByRole("heading", { level: 1, name: previewTitle })).toBeVisible();
+
+  // The daemon's path index finds it; the files channel reads it from the thread's checkout.
+  await page.keyboard.press("ControlOrMeta+p");
+  await page.getByRole("combobox", { name: "Search files" }).fill("package");
+  await expect(page.getByRole("option", { name: /package\.json/ })).toBeVisible();
+  await page.keyboard.press("Enter");
+  const panel = page.getByRole("region", { name: "Thread panel" });
+  await expect(panel.getByRole("tab", { name: "package.json", selected: true })).toBeVisible();
+  await expect(panel.getByRole("region", { name: "Source of package.json" })).toContainText(
+    '"name": "e2e-project"',
+  );
 });
