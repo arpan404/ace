@@ -43,6 +43,7 @@ const Response = z.object({
 const run = promisify(execFile);
 const argument = (name: string, fallback: string) =>
   process.argv.find((arg) => arg.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
+const idleOnly = process.argv.includes("--idle-only");
 const idleMs = z.coerce.number().int().min(3000).parse(argument("idle-ms", "60000"));
 const count = z.coerce.number().int().min(1).max(64).parse(argument("sessions", "16"));
 const events = z.coerce.number().int().min(100).max(100000).parse(argument("events", "1000"));
@@ -64,26 +65,33 @@ const home = await mkdtemp(join(tmpdir(), "ace-perf-"));
 const telemetry = join(home, "telemetry");
 await mkdir(telemetry);
 const started = performance.now();
-const child = fork(resolve(argument("entry", join(import.meta.dirname, "entry.ts"))), [], {
-  execPath: resolve(argument("node", process.execPath)),
-  execArgv: [
-    ...(collect ? ["--expose-gc"] : []),
-    "--import",
-    join(import.meta.dirname, "telemetry.mjs"),
-  ],
-  env: {
-    ...process.env,
-    ACE_HOME: home,
-    ACE_PORT: "0",
-    ACE_LISTEN: "local",
-    ACE_RELAY_URL: undefined,
-    ACE_WORKSPACE_ROOT: home,
-    ACE_PERF_TELEMETRY: telemetry,
-    ...(collectWorkers ? { ACE_PERF_COLLECT_WORKERS: "1" } : {}),
-    ...(allocationOutput ? { MallocStackLogging: "1" } : {}),
+const child = fork(
+  resolve(argument("entry", join(import.meta.dirname, "entry.ts"))),
+  idleOnly ? ["start"] : [],
+  {
+    execPath: resolve(argument("node", process.execPath)),
+    execArgv: [
+      ...(collect ? ["--expose-gc"] : []),
+      "--import",
+      join(import.meta.dirname, "telemetry.mjs"),
+    ],
+    env: {
+      ...process.env,
+      ACE_HOME: home,
+      ACE_HISTORY_INSTANCES: "[]",
+      ACE_MODEL_INSTANCES: "[]",
+      ...(idleOnly ? { PATH: "", ACE_LOG_LEVEL: "silent" } : {}),
+      ACE_PORT: "0",
+      ACE_LISTEN: "local",
+      ACE_RELAY_URL: undefined,
+      ACE_WORKSPACE_ROOT: home,
+      ACE_PERF_TELEMETRY: telemetry,
+      ...(collectWorkers ? { ACE_PERF_COLLECT_WORKERS: "1" } : {}),
+      ...(allocationOutput ? { MallocStackLogging: "1" } : {}),
+    },
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
   },
-  stdio: ["ignore", "pipe", "pipe", "ipc"],
-});
+);
 let stderr = "";
 let expectedExit = false;
 const aborted = Promise.withResolvers<never>();
@@ -199,6 +207,30 @@ async function measure() {
     (idleEnd.cpu.user + idleEnd.cpu.system - (idle10.cpu.user + idle10.cpu.system)) /
     Math.max(1, idleMs - Math.min(10000, idleMs)) /
     10;
+  if (idleOnly) {
+    mark("shutdown");
+    expectedExit = true;
+    const exited = once(child, "exit");
+    child.kill("SIGTERM");
+    const [exitCode] = await exited;
+    if (exitCode !== 0) throw new Error(`Shutdown failed: ${stderr}`);
+    const result = {
+      runtime: idle10.runtime,
+      platform: `${process.platform}-${process.arch}`,
+      entry: argument("entry", "source"),
+      startupMs,
+      idleSampleMs: idleMs,
+      idle10,
+      idle60,
+      idleCpuPercent,
+      idleRegions,
+      stderr,
+    };
+    const json = JSON.stringify(result, null, 2) + "\n";
+    await writeMeasurement(argument("output", ""), json);
+    process.stdout.write(json);
+    return;
+  }
   mark("sessions");
   const active = await request({ op: "sessions", count });
   await delay(1000);

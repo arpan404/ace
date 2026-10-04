@@ -9,7 +9,13 @@ const root = resolve(
   process.argv.find((arg) => arg.startsWith("--output="))?.slice(9) ?? ".ace-dev/perf-bundle",
 );
 await mkdir(root, { recursive: true });
-await bundleDaemon(repo, root, "", undefined, resolve(import.meta.dirname, "entry.ts"));
+await bundleDaemon(
+  repo,
+  root,
+  "",
+  undefined,
+  process.argv.includes("--cli") ? undefined : resolve(import.meta.dirname, "entry.ts"),
+);
 if (process.argv.includes("--runtime")) {
   const cacheDir = resolve(repo, ".ace-dev/node-cache");
   await mkdir(cacheDir, { recursive: true });

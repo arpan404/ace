@@ -41,3 +41,9 @@ Raw measurements are checked in beside this file. Single-run startup, throughput
 `--regions` records macOS vmmap or Linux smaps summaries before and after the soak. On macOS, `--malloc-stacks=PATH` enables allocation stack logging and saves the first 64 KiB of allocations sorted by count. That diagnostic mode adds overhead and must not be used for headline latency or RSS comparisons. Stack collection is bounded to 30 seconds. The measured malloc totals distinguish native allocation growth from V8 heap or resident-page retention.
 
 Long raw series are stored losslessly as `.json.gz`. Any measurement accepts `--output=FILE.json.gz`; stdout remains JSON. Read a checked-in series with `python3 -c 'import gzip,json; print(json.load(gzip.open("apps/daemon/bench/long-after.json.gz"))["retainedEnd"])'`. Small summaries remain plain JSON.
+
+For packaged-desktop idle diagnosis, `compile.ts --cli --runtime` builds the actual
+release CLI entry. `measure.ts --idle-only --entry=… --node=…` samples it for one
+minute and quits with SIGTERM, without sending scripted IPC or provider prompts.
+See [desktop smoke measurements](desktop-smoke-REPORT.md) for the measured source,
+bundle, worker and SQLite differences.
