@@ -128,8 +128,8 @@ export async function deckFixture(
       agentControl: { policy: { maxConcurrent: options.hostCapacity ?? 4 } },
     });
   daemon = await launch();
-  for (const provider of ["codex", "claude"] as const)
-    await seedScriptedModels(daemon.models, scriptedModelInstance(provider, home), "scripted");
+  for (const modelProvider of ["codex", "claude"] as const)
+    await seedScriptedModels(daemon.models, scriptedModelInstance(modelProvider, home), "scripted");
   const workspace = daemon.store.createWorkspace(repo, "Deck repo");
   const model = { provider: "codex", model: "scripted", tier: "normal", cost: 0, quota: 1 };
   const fixturePath = join(home, "fixture.json");

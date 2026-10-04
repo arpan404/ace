@@ -135,6 +135,13 @@
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
         },
+        "raw": {
+          "default": [],
+          "items": {
+            "$ref": "https://ace.local/protocol/v1/RawPayload.json"
+          },
+          "type": "array"
+        },
         "role": {
           "maxLength": 1024,
           "type": "string"

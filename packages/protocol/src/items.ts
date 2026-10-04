@@ -59,6 +59,7 @@ export const AgentItem = z.discriminatedUnion("type", [
     updatedAt: Timestamp,
     generation: z.number().int().nonnegative(),
     outcome: DelegationOutcome.nullable().default(null),
+    raw: z.array(RawPayload).default([]),
   }),
   ItemBase.extend({
     type: z.literal("delegation.settled"),

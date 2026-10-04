@@ -282,8 +282,8 @@ export class DelegationService {
           this.deps.engine.discardRecovery(child.childId);
         child.phase = "cancelling";
         this.journal.save(child);
-        const thread = this.deps.store.getThread(child.childId);
-        if (thread) this.deps.engine.delegationStarted(child, thread);
+        const childThread = this.deps.store.getThread(child.childId);
+        if (childThread) this.deps.engine.delegationStarted(child, childThread);
         const result = this.command(
           controlCommandId(child.childId, `${request}:${child.generation}`, "cascade.interrupt"),
           {

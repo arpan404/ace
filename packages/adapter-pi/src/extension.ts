@@ -158,7 +158,10 @@ export default async function aceExtension(
             const result = Result.parse(
               await client.callTool(
                 { name: tool.name, arguments: args },
-                { ...(signal ? { signal } : {}), timeout: tool._meta?.["ace/timeoutMs"] ?? 30_000 },
+                {
+                  ...(signal ? { signal } : {}),
+                  timeout: tool["_meta"]?.["ace/timeoutMs"] ?? 30_000,
+                },
               ),
             );
             return {
