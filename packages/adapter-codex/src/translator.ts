@@ -1,3 +1,4 @@
+import { PermissionMode } from "@ace/protocol";
 import { answerEchoes } from "./answer-echo.ts";
 import { confirmModel } from "./model.ts";
 import { unknownBuffers, RecentSet } from "./retention.ts";
@@ -15,6 +16,7 @@ import { list, obj, raw, requestKey, str, type Obj } from "./native.ts";
 export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }): Translator {
   const agents = new Map<string, Agent>();
   const sent = new Map<string, { method: string; params: Obj; interaction?: string }>();
+  const reviewPolicies = new Map<string, import("@ace/protocol").PermissionMode>();
   let recordedAnswer: string | undefined;
   const userTurns = new RecentSet();
   const buffers = unknownBuffers();
@@ -96,6 +98,10 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     const id = message["id"];
     if (frame.dir === "note") {
       translation.answerEchoes.note(message);
+      if (message["event"] === "permission-review-policy") {
+        const mode = PermissionMode.safeParse(message["mode"]);
+        if (mode.success) reviewPolicies.set(str(message["interaction"]), mode.data);
+      }
       if (message["event"] === "thread-discovered") {
         const thread = obj(message["thread"]);
         const source = obj(obj(obj(thread["source"])["subAgent"])["thread_spawn"]);
@@ -250,7 +256,13 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     if (isInteractiveRequest(method) && id !== undefined) {
       const key = requestKey(id);
       const item = str(p["itemId"]);
-      facts.push(...openRequest(agent.key, key, method, p, agent.items.has(item)));
+      const opened = openRequest(agent.key, key, method, p, agent.items.has(item));
+      const mode = reviewPolicies.get(key);
+      reviewPolicies.delete(key);
+      for (const fact of opened)
+        if (fact.type === "interaction.opened" && mode)
+          fact.raw = [...(fact.raw ?? []), { type: "ace.permission-policy", data: { mode } }];
+      facts.push(...opened);
       if (item) agent.items.add(item);
       agent.requests.set(key, { item, turn: str(p["turnId"], agent.turn) });
       delete agent.unmatchedFlag;

@@ -1,4 +1,5 @@
-import type { PermissionMode } from "@ace/protocol";
+import { turnPolicyState } from "./turn-policy-state.ts";
+import { PermissionMode } from "@ace/protocol";
 import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
 import { codexThreadPolicy, codexTurnPolicy } from "./permission-policy.ts";
 import { CodexSelectionOptions } from "./selection.ts";
@@ -27,6 +28,7 @@ export async function openCodexSession(
   options: CodexOptions = {},
 ): Promise<ProviderSession> {
   let permissionMode = ctx.permissionMode ?? "auto-review";
+  const policies = turnPolicyState(permissionMode);
   let selectedOptions = CodexSelectionOptions.parse(ctx.options ?? {});
   if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
   if (ctx.fork?.point.type === "item")
@@ -100,6 +102,7 @@ export async function openCodexSession(
       const p = obj(m["params"]);
       const method = str(m["method"]);
       const thread = str(p["threadId"]);
+      if (dir === "send" && method === "turn/start") policies.sent(m["id"], thread);
       if (
         dir === "send" &&
         ["thread/start", "thread/resume", "thread/fork", "turn/start"].includes(method)
@@ -113,18 +116,29 @@ export async function openCodexSession(
         if (control && m["error"] === undefined) {
           if (control.method === "turn/start") {
             const id = str(obj(result["turn"])["id"]);
+            policies.reply(m["id"], id);
             if (id) active.set(control.thread, id);
             if (id && control.thread === nativeSessionId)
               emit("note", { event: "permission-mode-applied", mode: control.mode });
           } else {
             nativeSessionId = str(snapshot["id"]);
             if (nativeSessionId) {
+              policies.root(nativeSessionId);
               known.add(nativeSessionId);
               if (Array.isArray(snapshot["turns"])) recovered.add(nativeSessionId);
               hydrateControls(snapshot, active, shells);
             }
           }
         }
+        if (control?.method === "turn/start" && m["error"] !== undefined)
+          policies.reply(m["id"], "");
+        policies.observe(method, p);
+        if (isInteractiveRequest(method) && m["id"] !== undefined)
+          emit("note", {
+            event: "permission-review-policy",
+            interaction: requestKey(m["id"]),
+            mode: policies.policy(thread, str(p["turnId"]), str(p["itemId"])),
+          });
         if (scopedReads.has(m["id"]) && str(snapshot["id"]))
           readRevisions.set(str(snapshot["id"]), revisions.get(str(snapshot["id"])) ?? 0);
         if (
@@ -417,11 +431,14 @@ export async function openCodexSession(
       getLaunchOptions: async () => {
         permissionMode = (await ctx.getPermissionMode?.()) ?? permissionMode;
         return {
-          ...codexTurnPolicy(permissionMode, ctx.cwd),
-          ...(selectedOptions.effort !== undefined ? { effort: selectedOptions.effort } : {}),
-          ...(selectedOptions.serviceTier !== undefined
-            ? { serviceTier: selectedOptions.serviceTier }
-            : {}),
+          mode: permissionMode,
+          options: {
+            ...codexTurnPolicy(permissionMode, ctx.cwd),
+            ...(selectedOptions.effort !== undefined ? { effort: selectedOptions.effort } : {}),
+            ...(selectedOptions.serviceTier !== undefined
+              ? { serviceTier: selectedOptions.serviceTier }
+              : {}),
+          },
         };
       },
       active,
@@ -433,7 +450,15 @@ export async function openCodexSession(
       plans,
       assertOpen,
       request,
-      emit,
+      emit: (dir, data, channel) => {
+        const note = obj(data);
+        if (dir === "note" && note["event"] === "permission-turn-submitting") {
+          const mode = PermissionMode.parse(note["mode"]);
+          permissionMode = mode;
+          policies.submit(str(note["threadId"]), mode);
+        }
+        emit(dir, data, channel);
+      },
       getModel: () => model,
       userMessageId: io.userMessageId,
       refreshQueue,

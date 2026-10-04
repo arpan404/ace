@@ -493,3 +493,25 @@ test("an exact ordinary regular-file read earns one-shot automatic permission", 
     await h.close();
   }
 });
+
+test.each(["ask", "read-only", "auto-review"] as const)(
+  "an older Codex approval retains its %s authority after Full access is applied",
+  async (mode) => {
+    const frames = scriptFrames();
+    const fact = approval("echo mutation");
+    if (fact.type !== "interaction.opened") throw new Error("No approval");
+    fact.raw = [{ type: "ace.permission-policy", data: { mode } }];
+    const h = await harness([{ on: "send", frames: [frames.frame(start, fact)] }], frames, {
+      permissionSettings: async () => "full-access",
+    });
+    try {
+      const id = await h.create();
+      const interaction = Object.values(h.store.snapshotThread(id).interactions)[0];
+      expect(interaction?.state).toBe(mode === "read-only" ? "resolved" : "pending");
+      if (mode !== "ask") expect(interaction?.review?.mode).toBe(mode);
+      else expect(interaction?.review).toBeUndefined();
+    } finally {
+      await h.close();
+    }
+  },
+);

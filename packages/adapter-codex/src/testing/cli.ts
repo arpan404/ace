@@ -141,6 +141,53 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (process.env["ACE_FAKE_RESUME"] === "overlap-policy") {
+      const turnId = `overlap-${++policyTurn}`;
+      const approve = (requestId: number, threadId: string, turn: string, itemId: string) =>
+        write({
+          id: requestId,
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId,
+            turnId: turn,
+            itemId,
+            command: "pwd",
+            availableDecisions: ["accept", "decline"],
+          },
+        });
+      if (policyTurn === 2) approve(101, "native", turnId, "pre-ack");
+      respond({ turn: { id: turnId } });
+      active.set("native", turnId);
+      notify("turn/started", { threadId: "native", turn: { id: turnId } });
+      if (policyTurn === 1) {
+        item("native", turnId, {
+          id: "spawn",
+          type: "subAgentActivity",
+          kind: "started",
+          agentThreadId: "child",
+          agentPath: "/root/worker",
+        });
+        active.set("child", "child-turn");
+        notify("turn/started", { threadId: "child", turn: { id: "child-turn" } });
+        item(
+          "native",
+          turnId,
+          {
+            id: "old-shell",
+            type: "commandExecution",
+            command: "loop",
+            commandActions: [],
+            status: "inProgress",
+          },
+          false,
+        );
+      } else {
+        approve(102, "child", "child-turn", "child-approval");
+        approve(103, "native", "overlap-1", "old-shell");
+      }
+      end();
+      continue;
+    }
     if (process.env["ACE_FAKE_RESUME"] === "policy-boundary") {
       if (text === "invalid-policy") {
         respond({ turn: {} });

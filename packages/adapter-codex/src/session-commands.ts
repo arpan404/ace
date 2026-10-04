@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ProviderSession } from "@ace/engine-api";
-import type { ContentPart, InteractionId, Question } from "@ace/protocol";
+import type { ContentPart, InteractionId, Question, PermissionMode } from "@ace/protocol";
 import type { ServerRequest } from "@ace/provider-kit/jsonrpc";
 import type { TurnStartParams } from "./generated/v2/TurnStartParams.ts";
 import type { TurnSteerParams } from "./generated/v2/TurnSteerParams.ts";
@@ -30,12 +30,13 @@ export type Pending = {
 };
 export type SessionCommandsContext = {
   nativeSessionId: string;
-  getLaunchOptions?(): Promise<
-    Pick<
+  getLaunchOptions?(): Promise<{
+    mode: PermissionMode;
+    options: Pick<
       TurnStartParams,
       "effort" | "serviceTier" | "approvalPolicy" | "sandboxPolicy" | "approvalsReviewer"
-    >
-  >;
+    >;
+  }>;
   active: Map<string, string>;
   parents: Map<string, string>;
   shells: Map<string, string>;
@@ -65,6 +66,18 @@ export function createSessionCommands(
     request,
     emit,
   } = config;
+  async function startTurn(
+    threadId: string,
+    params: Omit<TurnStartParams, "threadId">,
+  ): Promise<unknown> {
+    const launch = await config.getLaunchOptions?.();
+    if (launch) emit("note", { event: "permission-turn-submitting", threadId, mode: launch.mode });
+    return request(
+      "turn/start",
+      { ...params, ...launch?.options, threadId } satisfies TurnStartParams,
+      true,
+    );
+  }
   async function sendTo(
     threadId: string,
     parts: ContentPart[],
@@ -85,18 +98,9 @@ export function createSessionCommands(
         { threadId, expectedTurnId: turn, input: input(parts) } satisfies TurnSteerParams,
         true,
       );
-    else {
-      await request(
-        "turn/start",
-        {
-          threadId,
-          input: input(parts),
-          ...(await config.getLaunchOptions?.()),
-        } satisfies TurnStartParams,
-        true,
-      );
-    }
+    else await startTurn(threadId, { input: input(parts) });
   }
+
   async function stopShells(threadId: string, itemId?: string): Promise<void> {
     let cursor: string | undefined;
     const cursors = new Set<string>();
@@ -255,31 +259,25 @@ export function createSessionCommands(
             key,
             resolution.decision === "approve" ? "Implement the plan." : (resolution.feedback ?? ""),
             async () =>
-              request(
-                "turn/start",
-                {
-                  threadId: plan.thread,
-                  ...(await config.getLaunchOptions?.()),
-                  input: input([
-                    {
-                      type: "text",
-                      text:
-                        resolution.decision === "approve"
-                          ? "Implement the plan."
-                          : (resolution.feedback ?? ""),
-                    },
-                  ]),
-                  collaborationMode: {
-                    mode: resolution.decision === "approve" ? "default" : "plan",
-                    settings: {
-                      model: config.getModel(),
-                      reasoning_effort: null,
-                      developer_instructions: null,
-                    },
+              startTurn(plan.thread, {
+                input: input([
+                  {
+                    type: "text",
+                    text:
+                      resolution.decision === "approve"
+                        ? "Implement the plan."
+                        : (resolution.feedback ?? ""),
                   },
-                } satisfies TurnStartParams,
-                true,
-              ),
+                ]),
+                collaborationMode: {
+                  mode: resolution.decision === "approve" ? "default" : "plan",
+                  settings: {
+                    model: config.getModel(),
+                    reasoning_effort: null,
+                    developer_instructions: null,
+                  },
+                },
+              }),
           );
         plans.delete(key);
         emit("note", { event: "interaction-resolved", interaction: key });

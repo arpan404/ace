@@ -190,7 +190,20 @@ export class Permissions {
       // than walking every pending approval for each newly opened approval.
       const key = this.repo.nativeEntity(state.threadId, "interactions", interaction.id);
       if (key === undefined || state.interactions[key]?.state !== "pending") continue;
-      const mode = this.effective(state.threadId);
+      const attributed = interaction.raw.find((raw) => raw.type === "ace.permission-policy");
+      const parsed = z
+        .object({ mode: PermissionMode })
+        .safeParse(attributed && "data" in attributed ? attributed.data : undefined);
+      // Only adapter-owned attribution can grant Full access to a Codex approval.
+      const mode =
+        state.config.provider === "codex"
+          ? limitPermissionMode(
+              parsed.success
+                ? parsed.data.mode
+                : limitPermissionMode(this.effective(state.threadId), "auto-review"),
+              this.ceiling(state.threadId),
+            )
+          : this.effective(state.threadId);
       if (mode === "ask") continue;
       if (this.repo.reserved(interaction.id)) continue;
       const previous = this.repo.store.atomic((db) =>
