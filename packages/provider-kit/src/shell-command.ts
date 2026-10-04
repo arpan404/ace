@@ -1,7 +1,7 @@
 /** Decode only a single, conventional login-shell wrapper. Never execute the script. */
-export function unwrapShellCommand(command: string): { inner: string; shell?: string } | undefined {
+export function unwrapShellCommand(command: string): { inner: string; shell: string } | undefined {
   const match =
-    /^(\/(?:[^/\s"'\\]+\/)*(?:sh|bash|zsh|dash|fish)) (?:-lc|-c) '((?:[^']|'\\'')*)'$/.exec(
+    /^(\/(?:[A-Za-z0-9_.-]+\/)*(?:sh|bash|zsh|dash|fish)) (?:-lc|-c) '((?:[^']|'\\'')*)'$/.exec(
       command,
     );
   const shell = match?.[1];

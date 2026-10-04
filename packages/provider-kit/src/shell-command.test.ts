@@ -14,6 +14,8 @@ test("decodes standard embedded single quotes and preserves script whitespace", 
   expect(unwrapShellCommand("/bin/sh -c 'echo '\\''hello'\\''\n'")?.inner).toBe("echo 'hello'\n");
 });
 test.each([
+  "/repo/evil;touch-owned/bash -c 'pwd'",
+  "/repo/$HOME/bash -c 'pwd'",
   "sh -c 'pwd'",
   "/bin/zsh -l -c 'pwd'",
   "/bin/zsh -lc 'pwd' extra",

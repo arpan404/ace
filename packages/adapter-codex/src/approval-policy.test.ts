@@ -31,7 +31,12 @@ test.each([
     expect(request.target.command).toBe(command);
     expect(request.target.input).toEqual(params);
     expect(
-      reviewPermission({ mode: "auto-review", target: request.target, paths: [] }).decision,
+      reviewPermission({
+        mode: "auto-review",
+        target: request.target,
+        paths: [],
+        trustedShells: ["/bin/sh"],
+      }).decision,
     ).toBe("escalate");
   },
 );

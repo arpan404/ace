@@ -80,6 +80,8 @@ export function reviewPermission(input: {
   mode: PermissionMode;
   target?: ApprovalTarget;
   paths: readonly PathRisk[];
+  /** Executables verified by the host filesystem boundary, never provider metadata. */
+  trustedShells?: readonly string[];
 }): RiskDecision {
   const { mode, target, paths } = input;
   const text = [
@@ -104,7 +106,10 @@ export function reviewPermission(input: {
       !["shell", "Bash", "bash", "item/commandExecution/requestApproval"].includes(target.tool)
     )
       return { decision: "escalate", reason: "Tool is not a verified command execution gate" };
-    const command = unwrapShellCommand(target.command)?.inner ?? target.command;
+    const wrapper = unwrapShellCommand(target.command);
+    if (wrapper && !input.trustedShells?.includes(wrapper.shell))
+      return { decision: "escalate", reason: "Shell executable identity could not be verified" };
+    const command = wrapper?.inner ?? target.command;
     // Absolute paths, expansion and composition must not hide outside-workspace destruction.
     if (/(?:^|[\s=])(?:\/|~)|(?:^|[\s=/])\.\.(?:\/|$)|[;&|<>`$\n\\'"]/.test(command))
       return {

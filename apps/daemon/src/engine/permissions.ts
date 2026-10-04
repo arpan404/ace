@@ -21,7 +21,7 @@ import {
 } from "@ace/core";
 import { z } from "zod";
 import type { EngineRepository } from "./repository.ts";
-import { permissionPaths } from "./permission-paths.ts";
+import { permissionPaths, permissionShells } from "./permission-paths.ts";
 
 const Record = z.object({
   override: PermissionMode.nullable(),
@@ -205,6 +205,7 @@ export class Permissions {
         mode,
         ...(target ? { target } : {}),
         paths: permissionPaths(this.repo.session(state.threadId).cwd, target),
+        trustedShells: permissionShells(this.repo.session(state.threadId).cwd, target),
       });
       const option = permissionDecisionOption(interaction.request, decision.decision);
       if (decision.decision !== "escalate" && !option)
