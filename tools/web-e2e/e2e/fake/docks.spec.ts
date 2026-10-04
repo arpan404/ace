@@ -144,3 +144,23 @@ test("with five tabs in the side panel, the showing tab stays whole inside the s
   await strip.getByRole("tab").last().click();
   await inside("Open file");
 });
+
+test("with the side panel open at its default width, the thread title keeps at least 280px", async ({
+  page,
+}) => {
+  await open(page, "/t/thread-cold-start", "Cap cold-start replay at 200 events");
+  await page.getByRole("button", { name: "Right panel" }).click();
+  await expect(sidePanel(page)).toBeVisible();
+  const title = page.getByRole("heading", { level: 1 });
+  // Run, Open and Commit fold into one ⋯ Actions beside a narrow column.
+  await expect(
+    page.getByRole("banner").getByRole("button", { name: "Actions", exact: true }),
+  ).toBeVisible();
+  const room = await title.evaluate((element) => ({
+    shown: element.clientWidth,
+    whole: element.scrollWidth,
+  }));
+  expect(room.shown).toBeGreaterThanOrEqual(Math.min(280, room.whole));
+  const box = await title.boundingBox();
+  expect(box && Math.round(box.width)).toBeGreaterThanOrEqual(Math.min(280, room.whole));
+});

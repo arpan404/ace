@@ -5,11 +5,12 @@ import {
   SidebarSimpleIcon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
+import { useElementSize } from "@/lib/element-size.ts";
 import { useHistoryNav } from "@/lib/history-nav.ts";
 import { useViewFrame } from "./view-frame.tsx";
 
@@ -81,13 +82,19 @@ export function AppHeader(
     trailing?: ReactNode;
   },
 ) {
-  const wide = useSidebarInline();
+  const sidebarInline = useSidebarInline();
   // A phone keeps one ⋯ for the title menu and the actions.
   const phone = usePhone();
+  // The title comes first: below 640px of header (a side panel open beside a narrow column)
+  // the actions fold into one ⋯ Actions so the title keeps at least 280px.
+  const header = useRef<HTMLElement>(null);
+  const roomy = useElementSize(header).width >= foldBelow;
+  const wide = sidebarInline && roomy;
   return (
     // A container: beside an open side panel the column can be narrow, and below 720px the
     // actions drop their labels (they stay their accessible names) so the title keeps its room.
     <header
+      ref={header}
       className={cn(
         // The hairline is drawn with box-shadow, not a border, so the 50px row keeps its exact centre.
         "@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 shadow-[inset_0_-1px_0_transparent] transition-shadow duration-(--dur-2) [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
@@ -120,7 +127,7 @@ export function AppHeader(
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {props.actions && wide && props.actions}
         {/* Narrower, the actions (and on a phone the title menu) fold into one ⋯. */}
-        {(props.actions || props.menu) && !wide && (
+        {(props.actions || (phone && props.menu)) && !wide && (
           <Overflow actions={props.actions} menu={phone ? props.menu : undefined} />
         )}
         {props.trailing && (
@@ -134,9 +141,13 @@ export function AppHeader(
   );
 }
 
+/** A header narrower than this folds its actions into one ⋯. */
+const foldBelow = 640;
+
 /**
  * The folded header: the actions in a row, then the title menu behind one more tap. One ⋯ in
- * the header, so the title keeps the room.
+ * the header, so the title keeps the room. With the title menu still beside the title (a side
+ * panel narrowing a wide window), it is "Actions".
  */
 function Overflow(props: { actions: ReactNode; menu: ReactNode }) {
   if (!props.actions && props.menu)
@@ -148,7 +159,9 @@ function Overflow(props: { actions: ReactNode; menu: ReactNode }) {
     );
   return (
     <Popover>
-      <PopoverTrigger render={<IconButton icon={DotsThreeIcon} label="More actions" />} />
+      <PopoverTrigger
+        render={<IconButton icon={DotsThreeIcon} label={props.menu ? "More actions" : "Actions"} />}
+      />
       <PopoverContent
         align="end"
         className="flex max-w-[calc(100vw-1.5rem)] flex-col gap-1.5 p-1.5"
