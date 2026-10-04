@@ -16,6 +16,28 @@ export const nativeProviders: readonly { kind: Exclude<ProviderKind, "acp">; bin
 ];
 
 /**
+ * How a person signs in to a provider, outside ace and in its own CLI (ADR 0002): a terminal
+ * command and, for CLIs that sign in from their own prompt, what to type there. Undefined when
+ * the provider has no single command (Antigravity and ACP agents configure their own auth).
+ */
+export interface SignIn {
+  run: string;
+  /** What to type at the CLI's own prompt once it runs. */
+  prompt?: string;
+}
+const signIns: Partial<Record<ProviderKind, SignIn>> = {
+  claude: { run: "claude", prompt: "/login" },
+  codex: { run: "codex login" },
+  opencode: { run: "opencode auth login" },
+  cursor: { run: "agent login" },
+  // Pi signs in from its interactive prompt (docs/research/providers/pi.md, ADR 0050).
+  pi: { run: "pi", prompt: "/login" },
+};
+export function signInSteps(provider: ProviderKind): SignIn | undefined {
+  return signIns[provider];
+}
+
+/**
  * Whether a provider can take a new thread: `ready` (installed, and signed in as far as the
  * daemon reports), `signed_out` (installed, but every ace account of it is signed out) or
  * `not_installed` (discovery didn't find its CLI).

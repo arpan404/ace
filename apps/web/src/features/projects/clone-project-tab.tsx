@@ -88,6 +88,7 @@ export function CloneProjectTab(props: { offline: boolean; clone: CloneControl }
         onSelect={setSelected}
         home={home?.path}
         roots={home?.roots ?? []}
+        start={home?.start}
         disabled={running}
       />
       {running ? (

@@ -9,7 +9,8 @@ import { PermissionReviewNote } from "@/components/permission-review.tsx";
  * text stands in.
  */
 export function ReviewNote(props: { threadId: string; item: Extract<Item, { type: "notice" }> }) {
-  const review = useInteraction(props.threadId, reviewedInteraction(props.item) ?? "")?.review;
+  const interaction = useInteraction(props.threadId, reviewedInteraction(props.item) ?? "");
+  const review = interaction?.review;
   if (!review) return <p className="text-ui text-muted-foreground">{props.item.text}</p>;
-  return <PermissionReviewNote review={review} />;
+  return <PermissionReviewNote review={review} waiting={interaction.state === "pending"} />;
 }

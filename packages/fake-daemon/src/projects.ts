@@ -33,8 +33,12 @@ export class FakeProjects {
   private hasOwnedWork: (id: string) => boolean;
   private projects = new Map<string, Project>();
   private nextProject = 0;
-  /** The host user's home and the only allowed root. */
+  /** The host user's home, canonical; the only allowed root unless `seedFolders` names others. */
   private home = "/fake";
+  /** Allowed roots, canonical, as a real daemon reports them. */
+  private roots: string[] = ["/fake"];
+  /** The home folder as the host names it, when that is a symlink to `home`. */
+  private homeLink: string | undefined;
   private removed = new Set<string>();
   private retained = new Map<string, Project>();
   private directories = new Map<string, Directory>([
@@ -84,11 +88,19 @@ export class FakeProjects {
   /**
    * A host filesystem for the folder browser: `home` becomes the home and only allowed root,
    * and each folder is created with its parents. Seeded projects outside it stay listed but
-   * can't be browsed, like a project outside a real daemon's roots.
+   * can't be browsed, like a project outside a real daemon's roots. `roots` replaces the allowed
+   * roots (canonical paths); `homeLink` is a symlink to `home` the host reports as its home,
+   * which the daemon resolves before checking roots.
    */
-  seedFolders(home: string, folders: readonly FolderSeed[]): void {
+  seedFolders(
+    home: string,
+    folders: readonly FolderSeed[],
+    options: { roots?: readonly string[]; homeLink?: string } = {},
+  ): void {
     const root = home.replace(/\/+$/, "") || "/";
     this.home = root;
+    this.roots = options.roots ? [...options.roots] : [root];
+    this.homeLink = options.homeLink;
     const ensure = (path: string, value?: Partial<Directory>) => {
       const existing = this.directories.get(path);
       this.directories.set(path, {
@@ -100,15 +112,17 @@ export class FakeProjects {
         ...value,
       });
     };
-    ensure(root);
+    for (const top of new Set([root, ...this.roots])) ensure(top);
     for (const folder of folders) {
+      const top = [root, ...this.roots].find((entry) => folder.path.startsWith(`${entry}/`));
+      if (top === undefined) continue;
       const relative = folder.path
-        .slice(root.length + 1)
+        .slice(top.length + 1)
         .split("/")
         .filter(Boolean);
-      if (!folder.path.startsWith(`${root}/`) || relative.includes("..")) continue;
+      if (relative.includes("..")) continue;
       for (let depth = 1; depth < relative.length; depth++)
-        ensure(`${root}/${relative.slice(0, depth).join("/")}`);
+        ensure(`${top}/${relative.slice(0, depth).join("/")}`);
       ensure(folder.path, {
         git: folder.git ?? false,
         ...(folder.modifiedAt === undefined ? {} : { modifiedAt: folder.modifiedAt }),
@@ -135,9 +149,14 @@ export class FakeProjects {
   private checked(path: string): string {
     if (!path.startsWith("/") || path.split("/").includes("..") || path.includes("\0"))
       throw new Error("invalid_path");
-    if (path !== this.home && !path.startsWith(`${this.home}/`))
+    const link = this.homeLink;
+    const canonical =
+      link && (path === link || path.startsWith(`${link}/`))
+        ? this.home + path.slice(link.length)
+        : path;
+    if (!this.roots.some((root) => canonical === root || canonical.startsWith(`${root}/`)))
       throw new Error("outside_project_roots");
-    return path.replace(/\/+$/, "") || "/";
+    return canonical.replace(/\/+$/, "") || "/";
   }
   private inspection(path: string) {
     this.seed();
@@ -366,7 +385,12 @@ export class FakeProjects {
       if (op.op === "workspace.inspect")
         return wrap({ kind: "inspection", ...this.inspection(op.path) });
       if (op.op === "fs.home")
-        return wrap({ kind: "home", path: this.home, roots: [this.home], initialBranch: "main" });
+        return wrap({
+          kind: "home",
+          path: this.homeLink ?? this.home,
+          roots: this.roots,
+          initialBranch: "main",
+        });
       if (op.op === "fs.recentFolders")
         return wrap({
           kind: "recentFolders",

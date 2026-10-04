@@ -94,6 +94,7 @@ export function CreateProjectTab(props: { offline: boolean; onAdded(result: Adde
         onSelect={setSelected}
         home={home?.path}
         roots={home?.roots ?? []}
+        start={home?.start}
         disabled={creating}
       />
       <div className="grid gap-3 rounded-md bg-secondary p-3">

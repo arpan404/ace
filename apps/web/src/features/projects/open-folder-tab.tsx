@@ -98,6 +98,7 @@ export function OpenFolderTab(props: {
         onSelect={setSelected}
         home={home?.path}
         roots={home?.roots ?? []}
+        start={home?.start}
       />
       {problem && problem.path === target ? (
         <Problem>{problem.message}</Problem>

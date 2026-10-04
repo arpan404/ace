@@ -6,7 +6,7 @@ import {
   LockSimpleIcon,
   WifiSlashIcon,
 } from "@phosphor-icons/react";
-import { crumbs, folderName, formatAge, parentFolder, startFolder } from "@ace/ui-core";
+import { crumbs, folderName, formatAge, parentFolder } from "@ace/ui-core";
 import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
@@ -40,6 +40,8 @@ export function FolderBrowser(props: {
   /** The host's home and allowed roots: the breadcrumb starts at home, Up stops at a root. */
   home: string | undefined;
   roots: readonly string[];
+  /** Where browsing starts (`useHostHome().start`); a refused folder offers to go there. */
+  start: string | undefined;
 }) {
   const [showHidden, setShowHidden] = useState(false);
   const listing = useFolderListing(props.path, showHidden);
@@ -78,9 +80,7 @@ export function FolderBrowser(props: {
   };
 
   const failure = listing.error ? projectFailure(listing.error) : undefined;
-  // A refused folder offers the place browsing starts: home, or the first root when home is
-  // outside every root.
-  const start = startFolder(props.home, props.roots);
+  const start = props.start;
   return (
     <div className="flex min-h-0 flex-col gap-2">
       <div className="flex items-center gap-1">

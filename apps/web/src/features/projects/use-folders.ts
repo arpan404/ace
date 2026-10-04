@@ -6,23 +6,33 @@ import { projectReads } from "./project-commands.ts";
 
 const folderKey = ["projects", "folders"] as const;
 
-/** The host's answer plus `start`, the folder browsing opens at (`startFolder`). */
-const withStart = <T extends { path: string; roots: readonly string[] }>(home: T) => ({
-  ...home,
-  start: startFolder(home.path, home.roots) ?? home.path,
-});
-
 /**
- * The daemon host's home folder, its allowed roots, where browsing starts and Git's initial
- * branch there. Waits for a ready connection, since folder reads never queue while offline.
+ * The daemon host's home folder, its allowed roots, `start` (where browsing opens) and Git's
+ * initial branch there. Waits for a ready connection, since folder reads never queue while
+ * offline.
+ *
+ * Browsing starts at home when an allowed root holds it, else at the first root
+ * (`startFolder`). The daemon reports home as written and roots canonical, so a home reached
+ * through a symlink can look outside roots that do hold it: then home is read once, and opened
+ * if the daemon allows it.
  */
 export function useHostHome() {
   const client = useClient();
   const ready = useConnectionState() === "ready";
   return useQuery({
     queryKey: [...folderKey, "home"],
-    queryFn: ({ signal }) => projectReads(client).home(signal),
-    select: withStart,
+    queryFn: async ({ signal }) => {
+      const reads = projectReads(client);
+      const home = await reads.home(signal);
+      const start = startFolder(home.path, home.roots) ?? home.path;
+      if (start === home.path) return { ...home, start };
+      const readable = await reads.browse({ path: home.path, showHidden: false }, signal).then(
+        () => true,
+        () => false,
+      );
+      signal.throwIfAborted();
+      return { ...home, start: readable ? home.path : start };
+    },
     enabled: ready,
     staleTime: 60_000,
     retry: false,
