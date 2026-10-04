@@ -7,6 +7,7 @@ import type { CSSProperties, RefObject } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { useTopFade } from "@/lib/edge-fade.ts";
 import { scrollToEnd as glideToEnd, useListMotion } from "@/lib/motion.ts";
 import { BlockView } from "../items/block-view.tsx";
 import { openWorkIndex, type Block } from "./blocks.ts";
@@ -36,10 +37,7 @@ const gap: Record<Block["kind"], string> = {
  * Blocks that arrive while the thread is open rise in; streaming text grows in place and the
  * follow is instant, so the column never jitters.
  */
-const viewportStyle = {
-  paddingRight: "var(--summary-inset, 0px)",
-  "--scroll-fade-reveal": "2px",
-} as CSSProperties;
+const viewportStyle = { paddingRight: "var(--summary-inset, 0px)" } as CSSProperties;
 
 export function Transcript(props: { threadId: string }) {
   const blocks = useBlocks(props.threadId);
@@ -93,6 +91,7 @@ export function Transcript(props: { threadId: string }) {
     if (firstVisible === 0 && hasOlder && !loading && !pinnedRef.current) void loadOlder();
   }, [firstVisible, hasOlder, loading, loadOlder]);
   const margin = virtualizer.options.scrollMargin;
+  const fadeTop = useTopFade(viewport);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
@@ -101,10 +100,14 @@ export function Transcript(props: { threadId: string }) {
         data-virtual-viewport=""
         // A classic scrollbar reserves the same room on both edges, so the column stays centred
         // on the composer's axis; `useGutter` gives the composer the same inset.
-        // The top fade reaches its full 24px within 2px of scrolling, so nothing reads as cut
-        // under the header; a pinned summary beside the text keeps it clear (`--summary-inset`).
-        style={viewportStyle}
-        className="scroll-fade-t min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-fade-t-6 [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
+        // Once scrolled, the top 16px fade, so nothing reads as cut under the header; a pinned
+        // summary beside the text keeps it clear (`--summary-inset`).
+        style={
+          fadeTop
+            ? { ...viewportStyle, maskImage: fadeTop, WebkitMaskImage: fadeTop }
+            : viewportStyle
+        }
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
         onScroll={(event) => {
           const el = event.currentTarget;
           const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;

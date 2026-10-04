@@ -49,3 +49,22 @@ export function useEdgeFade(scroller: RefObject<HTMLElement | null>): string | u
   const to = edges.end ? `#000 calc(100% - ${fade}px), transparent` : "#000";
   return `linear-gradient(to right, ${from}, ${to})`;
 }
+
+/**
+ * A mask for a vertical scroller (a transcript) that fades its top 16px once it has scrolled
+ * at all, so a line passing under the header dissolves instead of being sliced; at the top
+ * nothing fades. The fade switches without animating, which also suits reduced motion. Apply it
+ * as `mask-image`.
+ */
+export function useTopFade(scroller: RefObject<HTMLElement | null>): string | undefined {
+  const [scrolled, setScrolled] = useState(false);
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const measure = () => setScrolled(element.scrollTop > 0);
+    measure();
+    element.addEventListener("scroll", measure, { passive: true });
+    return () => element.removeEventListener("scroll", measure);
+  }, [scroller]);
+  return scrolled ? `linear-gradient(to bottom, transparent, #000 ${fade}px)` : undefined;
+}
