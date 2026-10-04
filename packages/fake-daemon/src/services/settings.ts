@@ -7,6 +7,7 @@ import {
   type ServerMessage,
 } from "@ace/protocol";
 import { defaults } from "@ace/settings/defaults";
+import { legacyPermissionMode } from "@ace/settings/legacy-permissions";
 import { z } from "zod";
 
 /** Where a connection's pushes go; the connection owns its own lifetime. */
@@ -49,6 +50,10 @@ export class FakeSettings {
   seed(values: Readonly<Record<string, unknown>>): void {
     for (const [key, value] of Object.entries(values))
       if (SettingsKey.safeParse(key).success) this.global.set(key, value);
+    if (!this.global.has("permissions.defaultMode") && this.global.has("approvals.policy")) {
+      const policy = this.global.get("approvals.policy");
+      this.global.set("permissions.defaultMode", legacyPermissionMode(policy));
+    }
   }
   /** The effective global value, as tests check what a page wrote. */
   get(key: string): unknown {
@@ -139,6 +144,10 @@ export class FakeSettings {
           this.layers.set(id ?? "", values);
         }
         values.set(key.data, value.data);
+        if (key.data === "approvals.policy") {
+          values.set("permissions.defaultMode", legacyPermissionMode(value.data));
+          this.notify("permissions.defaultMode");
+        }
         this.notify(key.data);
         const scope: SettingsScope =
           layer.kind === "thread"

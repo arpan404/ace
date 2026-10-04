@@ -28,6 +28,9 @@
     "options": {
       "$ref": "https://ace.local/protocol/v1/AgentLaunchOptions.json"
     },
+    "permissionMode": {
+      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+    },
     "provider": {
       "$ref": "https://ace.local/protocol/v1/ProviderKind.json"
     }

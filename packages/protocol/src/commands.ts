@@ -1,4 +1,5 @@
 import { ThreadMarkReadCommand } from "./long-thread.ts";
+import { PermissionMode } from "./permissions.ts";
 import { WorkspaceCommands } from "./workspace-actions.ts";
 import { ForgeCommand } from "./forge.ts";
 import { ThreadOrganizationCommands, TurnOptions } from "./thread-client.ts";
@@ -38,6 +39,11 @@ export type ThreadCreateOptions = z.infer<typeof ThreadCreateOptions>;
 export const CommandPayload = z.discriminatedUnion("type", [
   ThreadPrepareCommand,
   ThreadMarkReadCommand,
+  z.object({
+    type: z.literal("thread.permission.set"),
+    threadId: ThreadId,
+    permissionMode: PermissionMode.nullable(),
+  }),
   ...QueueCommands,
   ...TransitionCommands,
   DiagnosticsHealthCommand,
@@ -51,6 +57,7 @@ export const CommandPayload = z.discriminatedUnion("type", [
   OrchestrationPickCommand,
   z.object({
     type: z.literal("thread.create"),
+    permissionMode: PermissionMode.optional(),
     /** Explicit portable fork/migration, preserving the source and allocating fresh native state. */
     handoffFrom: ThreadId.optional(),
     workspaceId: WorkspaceId,

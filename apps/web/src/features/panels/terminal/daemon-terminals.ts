@@ -9,6 +9,8 @@ import type { TerminalEvent, TerminalInfo, TerminalSource } from "../sources.ts"
 
 /** `terminal.request` `write` carries at most this many characters. */
 const writeChunk = 8192;
+/** Threads whose terminal lists are kept; a thread read again after that is listed again. */
+const keptLists = 64;
 
 type Output = Extract<ServerMessage, { type: "terminal.output" }>;
 
@@ -36,7 +38,9 @@ export function terminalName(taken: readonly TerminalInfo[], base = "Terminal"):
  * The daemon's PTYs (ADR 0057; the terminal service owns them). Output is credit-paced: the
  * daemon sends one `terminal.output` per credit, so a slow page never buffers unbounded output.
  * A `resync` (the ring dropped our offset) or `exit` ends a stream; a resync re-subscribes from
- * the oldest offset the daemon still has. Lists are read per thread and kept until a change.
+ * the oldest offset the daemon still has. Credit is granted while the page is hidden too: the
+ * daemon's ring holds only the newest output, so pausing a hidden page would lose a long build's
+ * log. Lists are read per thread and kept until a change, for the most recently read threads.
  */
 export function daemonTerminals(client: ClientApi): TerminalSource {
   const listeners = new Set<() => void>();
@@ -57,9 +61,30 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
     if (!reply.ok) throw new Error(reply.error ?? "terminal_failed");
     return reply;
   };
-  const remember = (threadId: string, terminals: readonly TerminalInfo[]) => {
+  const streaming = (terminalId: string) => {
+    for (const stream of streams.values()) if (stream.terminalId === terminalId) return true;
+    return false;
+  };
+  /** Forget a terminal's thread unless a stream still needs it (to subscribe after a resync). */
+  const forget = (terminals: readonly TerminalInfo[], kept: readonly TerminalInfo[] = []) => {
+    for (const terminal of terminals)
+      if (!kept.some((other) => other.id === terminal.id) && !streaming(terminal.id))
+        threadOf.delete(terminal.id);
+  };
+  /** Most recently read last; the oldest lists beyond `keptLists` are dropped. */
+  const touch = (threadId: string, terminals: readonly TerminalInfo[]) => {
+    lists.delete(threadId);
     lists.set(threadId, terminals);
+    for (const [oldest, gone] of lists) {
+      if (lists.size <= keptLists) break;
+      lists.delete(oldest);
+      forget(gone);
+    }
+  };
+  const remember = (threadId: string, terminals: readonly TerminalInfo[]) => {
+    forget(lists.get(threadId) ?? [], terminals);
     for (const terminal of terminals) threadOf.set(terminal.id, threadId);
+    touch(threadId, terminals);
     changed();
   };
   /** The shell ended: its tab stops showing it running without another list read. */
@@ -150,8 +175,11 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
     },
     list(threadId) {
       const known = lists.get(threadId);
-      if (known) return known;
-      lists.set(threadId, []);
+      if (known) {
+        touch(threadId, known);
+        return known;
+      }
+      touch(threadId, []);
       if (link === "connected") void refresh(threadId).catch(() => {});
       return [];
     },

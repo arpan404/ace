@@ -11,6 +11,7 @@ import {
   desktop,
   electronBinary,
   electronBundles,
+  mainEntry,
   repo,
 } from "../scripts/common.ts";
 
@@ -47,7 +48,7 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
     userData = await mkdtemp(join(tmpdir(), "ace-e2e-"));
     app = await electron.launch({
       executablePath: await electronBinary(),
-      args: [join(out, "main.cjs")],
+      args: [join(out, mainEntry)],
       env: {
         ...appEnvironment(process.env),
         ACE_DESKTOP_DAEMON: "fake",
@@ -66,7 +67,8 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
   it("renders the app shell from the bundled renderer", async () => {
     await page.getByRole("navigation", { name: "Views" }).waitFor({ timeout: 30_000 });
     expect(new URL(page.url()).protocol).toBe("app:");
-    await expect(page.getByRole("heading", { level: 1 }).first().isVisible()).resolves.toBe(true);
+    // The page may render its heading a frame after the rail; wait for it to be visible.
+    await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 15_000 });
   });
 
   it("exposes a working window.ace bridge and no Node APIs", async () => {

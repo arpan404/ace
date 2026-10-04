@@ -48,7 +48,7 @@ test("load is negotiated before sending any resume request and legacy model sele
   ).rejects.toThrow("loading");
   const h = await open(
     { load: true, legacy: true },
-    { resume, model: "model-a" },
+    { resume, model: "model-a", permissionMode: "full-access" },
     "gemini",
     "0.43.0",
   );

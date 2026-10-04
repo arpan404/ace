@@ -8,15 +8,41 @@ export interface WorkSummary {
   working: number;
 }
 
-export function summarize(entries: Iterable<ThreadListEntry>): WorkSummary {
-  let needsYou = 0;
-  let working = 0;
-  for (const entry of entries) {
-    if (entry.archivedAt) continue;
-    if (entry.status.state === "needs_you") needsYou++;
-    else if (entry.status.state === "working" || entry.status.state === "waiting") working++;
+type Work = keyof WorkSummary;
+
+function workOf(entry: ThreadListEntry): Work | undefined {
+  if (entry.archivedAt) return undefined;
+  if (entry.status.state === "needs_you") return "needsYou";
+  if (entry.status.state === "working" || entry.status.state === "waiting") return "working";
+  return undefined;
+}
+
+/**
+ * The work summary, kept one thread at a time: a thread list update costs the same with ten
+ * threads or ten thousand, and only a change of the counts is news.
+ */
+export class WorkTally {
+  private work = new Map<string, Work>();
+  private counts: WorkSummary = { needsYou: 0, working: 0 };
+
+  /** Record a thread's latest entry (undefined once it is gone); true if the counts moved. */
+  set(id: string, entry: ThreadListEntry | undefined): boolean {
+    const next = entry && workOf(entry);
+    const previous = this.work.get(id);
+    if (next === previous) return false;
+    const counts = { ...this.counts };
+    if (previous) counts[previous]--;
+    if (next) {
+      counts[next]++;
+      this.work.set(id, next);
+    } else this.work.delete(id);
+    this.counts = counts;
+    return true;
   }
-  return { needsYou, working };
+
+  summary(): WorkSummary {
+    return this.counts;
+  }
 }
 
 /**

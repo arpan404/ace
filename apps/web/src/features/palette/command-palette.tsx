@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { whenIdle } from "@/lib/idle.ts";
 import { useLayout } from "@/lib/layout.tsx";
 
 // The palette's sheet (Base UI's Autocomplete) and its commands, which reach into most views,
@@ -13,8 +14,7 @@ export function CommandPalette() {
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     let live = true;
-    const idle = globalThis.requestIdleCallback ?? ((run: () => void) => setTimeout(run, 2_000));
-    idle(
+    const cancel = whenIdle(
       () =>
         void load().then(() => {
           if (live) setLoaded(true);
@@ -22,6 +22,7 @@ export function CommandPalette() {
     );
     return () => {
       live = false;
+      cancel();
     };
   }, []);
   // Mounted once loaded (or asked for), so its exit animation always has a dialog to play on.

@@ -10,7 +10,9 @@ import type { BrowserOpen } from "@ace/protocol";
 import type { BrowserPlacement } from "../../shared/contract.ts";
 import type { ViewHost, ViewPage } from "./backend.ts";
 import { parseChord } from "./keys.ts";
+import { PartitionPool } from "./partition-pool.ts";
 import { WebSocketGate } from "./socket-gate.ts";
+import { throttleDecision } from "./throttle.ts";
 
 export interface ViewHostOptions {
   window(): BaseWindow | undefined;
@@ -23,6 +25,9 @@ const passive = new Set(["about:", "data:", "blob:", "devtools:"]);
 const fetched = new Set(["http:", "https:"]);
 const sockets = new Set(["ws:", "wss:"]);
 
+/** A hidden view the agent has not driven for this long runs its timers at background rate. */
+const throttleIdleMs = 30_000;
+
 /** Removes `navigator.serviceWorker` before any page script runs (ADR 0055: no workers). */
 const blockServiceWorkers = `Object.defineProperty(Navigator.prototype, "serviceWorker", { get() { return undefined; }, configurable: false });`;
 
@@ -31,14 +36,17 @@ const digest = (value: string) => createHash("sha256").update(value).digest("hex
 /**
  * The app's in-app browser: Electron's own Chromium in `WebContentsView`s drawn inside a
  * thread's Browser panel. Persistent profiles get one partition per workspace and ephemeral
- * ones a throwaway in-memory partition; never the app's session or the person's Chrome
- * profile. Popups, downloads, permission prompts, dialogs and service workers are refused
- * before a view is reported open, and each refusal is reported as an audit event.
+ * ones an in-memory partition from a pool, cleared before it is lent again; never the app's
+ * session or the person's Chrome profile. Popups, downloads, permission prompts, dialogs and
+ * service workers are refused before a view is reported open, and each refusal is reported
+ * as an audit event. A hidden view the agent is not driving is background-throttled.
  */
 export class EmbeddedViews implements ViewHost {
   private pages = new Map<string, EmbeddedPage>();
   private byContents = new Map<number, EmbeddedPage>();
+  /** Partitions already given their handlers: the pool's few, plus one per workspace. */
   private configured = new Set<string>();
+  private ephemeralPartitions = new PartitionPool("ace-browser-ephemeral-");
   private options: ViewHostOptions;
 
   constructor(options: ViewHostOptions) {
@@ -55,28 +63,36 @@ export class EmbeddedViews implements ViewHost {
     const { threadId, workspaceId, profile } = request.options;
     if (this.pages.has(threadId)) throw new Error("This thread already has an embedded view");
     const ephemeral = profile !== "persistent";
-    const partition = ephemeral
-      ? `ace-browser-ephemeral-${digest(request.sessionId)}`
-      : `persist:ace-browser-${digest(workspaceId)}`;
-    const partitionSession = this.configure(partition);
-    const view = new WebContentsView({
-      webPreferences: {
-        partition,
-        sandbox: true,
-        contextIsolation: true,
-        nodeIntegration: false,
-        webviewTag: false,
-        backgroundThrottling: false,
-        spellcheck: false,
-      },
-    });
+    const pool = this.ephemeralPartitions;
+    const partition = ephemeral ? pool.acquire() : `persist:ace-browser-${digest(workspaceId)}`;
+    let view: WebContentsView;
+    let partitionSession: Session;
+    try {
+      partitionSession = this.configure(partition);
+      view = new WebContentsView({
+        webPreferences: {
+          partition,
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          webviewTag: false,
+          // Full speed while driven or shown; `EmbeddedPage` throttles it when neither.
+          backgroundThrottling: false,
+          spellcheck: false,
+        },
+      });
+    } catch (error) {
+      // Nothing ran in the partition, so it is still clean.
+      if (ephemeral) pool.release(partition, true);
+      throw error;
+    }
     view.setVisible(false);
     view.setBounds({ x: 0, y: 0, ...request.viewport });
     window.contentView.addChildView(view);
     const page = new EmbeddedPage({
       view,
       session: partitionSession,
-      ephemeral,
+      released: ephemeral ? (cleared) => pool.release(partition, cleared) : undefined,
       window,
       platform: this.options.platform,
       log: this.options.log,
@@ -153,7 +169,8 @@ export class EmbeddedViews implements ViewHost {
 interface PageOptions {
   view: WebContentsView;
   session: Session;
-  ephemeral: boolean;
+  /** Ephemeral sessions: the partition was cleared (or not) and may go back to its pool. */
+  released: ((cleared: boolean) => void) | undefined;
   window: BaseWindow;
   platform: NodeJS.Platform;
   log(message: string): void;
@@ -173,6 +190,10 @@ class EmbeddedPage implements ViewPage {
   private placed = false;
   private closing: Promise<void> | undefined;
   private detachedSent = false;
+  private lastDrivenAt = Date.now();
+  private screencasting = false;
+  private throttled = false;
+  private throttleTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(options: PageOptions) {
     this.options = options;
@@ -206,6 +227,8 @@ class EmbeddedPage implements ViewPage {
 
   /** Attach CDP and install the refusals before the daemon sees the view. */
   async prepare(viewport: { width: number; height: number }): Promise<void> {
+    // A view that never navigated has no renderer, and CDP domains wait for one forever.
+    await this.contents.loadURL("about:blank");
     this.contents.debugger.attach("1.3");
     await this.send("Page.enable");
     await this.send("Page.addScriptToEvaluateOnNewDocument", {
@@ -235,9 +258,13 @@ class EmbeddedPage implements ViewPage {
     this.placed = placement.visible && width > 0 && height > 0;
     // Hidden views stay alive (and attached) but stop painting.
     view.setVisible(this.placed);
+    this.updateThrottle();
   }
 
   async cdp(method: string, params?: Record<string, unknown>): Promise<unknown> {
+    if (method === "Page.startScreencast") this.screencasting = true;
+    else if (method === "Page.stopScreencast") this.screencasting = false;
+    this.driven();
     this.gate.command(method, params);
     if (!method.startsWith("Input.")) return this.send(method, params);
     this.agentInput++;
@@ -259,6 +286,7 @@ class EmbeddedPage implements ViewPage {
   }
 
   navigate(url: string, timeoutMs: number): Promise<string> {
+    this.driven();
     const contents = this.contents;
     return new Promise((resolve, reject) => {
       let settled = false;
@@ -301,6 +329,7 @@ class EmbeddedPage implements ViewPage {
   }
 
   async press(key: string): Promise<void> {
+    this.driven();
     const press = parseChord(key, this.options.platform);
     this.agentInput++;
     try {
@@ -317,6 +346,7 @@ class EmbeddedPage implements ViewPage {
   }
 
   async resize(width: number, height: number): Promise<void> {
+    this.driven();
     await this.send("Emulation.setDeviceMetricsOverride", {
       width,
       height,
@@ -329,6 +359,7 @@ class EmbeddedPage implements ViewPage {
 
   setNativeInput(enabled: boolean): void {
     this.nativeInput = enabled;
+    this.updateThrottle();
   }
 
   url(): string {
@@ -344,17 +375,45 @@ class EmbeddedPage implements ViewPage {
     this.options.forget();
     this.listeners.clear();
     this.blocked.clear();
-    const { view, window, session, ephemeral } = this.options;
+    clearTimeout(this.throttleTimer);
+    const { view, window, session, released } = this.options;
     if (!window.isDestroyed()) window.contentView.removeChildView(view);
     const contents = this.contents;
     if (!contents.isDestroyed()) {
       if (contents.debugger.isAttached()) contents.debugger.detach();
       contents.close();
     }
-    if (ephemeral) {
-      await session.clearStorageData().catch(() => {});
-      await session.clearCache().catch(() => {});
+    if (released) released(await clearPartition(session));
+  }
+
+  /** The agent used the view: full speed now, and throttled again once it goes quiet. */
+  private driven(): void {
+    this.lastDrivenAt = Date.now();
+    if (this.throttled) this.updateThrottle();
+    // One pending check at a time, however many commands arrive (frame acks are commands).
+    else this.throttleTimer ??= setTimeout(() => this.updateThrottle(), throttleIdleMs);
+  }
+
+  private updateThrottle(): void {
+    clearTimeout(this.throttleTimer);
+    this.throttleTimer = undefined;
+    if (this.closing || this.contents.isDestroyed()) return;
+    const decision = throttleDecision(
+      {
+        visible: this.placed,
+        nativeInput: this.nativeInput,
+        screencasting: this.screencasting,
+        lastDrivenAt: this.lastDrivenAt,
+      },
+      Date.now(),
+      throttleIdleMs,
+    );
+    if (decision.throttle !== this.throttled) {
+      this.throttled = decision.throttle;
+      this.contents.setBackgroundThrottling(decision.throttle);
     }
+    if (!decision.throttle && decision.recheckInMs !== undefined)
+      this.throttleTimer = setTimeout(() => this.updateThrottle(), decision.recheckInMs);
   }
 
   private send(method: string, params?: Record<string, unknown>): Promise<unknown> {
@@ -379,6 +438,25 @@ class EmbeddedPage implements ViewPage {
     if (this.closing || this.detachedSent) return;
     this.detachedSent = true;
     this.emit("Inspector.detached", { reason });
+  }
+}
+
+/**
+ * Everything an ephemeral session left behind (storage, cookies, caches, auth, DNS, open
+ * connections), so the partition can serve the next session. False if any of it failed.
+ */
+async function clearPartition(session: Session): Promise<boolean> {
+  try {
+    await session.closeAllConnections();
+    await session.clearData();
+    await session.clearStorageData();
+    await session.clearCache();
+    await session.clearAuthCache();
+    await session.clearHostResolverCache();
+    await session.clearCodeCaches({});
+    return true;
+  } catch {
+    return false;
   }
 }
 

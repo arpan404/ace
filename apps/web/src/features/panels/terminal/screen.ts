@@ -49,6 +49,9 @@ export class TerminalScreen {
   private style: Style = plain;
   private pending = "";
   private cache: Row[] | undefined;
+  /** Rows built for the last `rows()`, by id; a row written since is dropped from here. */
+  private built = new Map<number, Row>();
+  private lastWritten = -1;
   private limit: number;
   constructor(options: { scrollback?: number } = {}) {
     this.limit = options.scrollback ?? 5000;
@@ -81,12 +84,21 @@ export class TerminalScreen {
     this.col = 0;
     this.cache = undefined;
   }
+  /**
+   * The rows, a new array after each write. Rows that did not change keep their object, so a
+   * redraw re-renders only the rows output touched.
+   */
   rows(): readonly Row[] {
-    this.cache ??= this.lines.map((cells, index) => ({
-      id: this.ids[index] ?? index,
-      segments: segment(cells),
-    }));
-    return this.cache;
+    if (this.cache) return this.cache;
+    const built = this.built;
+    const rows = this.lines.map((cells, index) => {
+      const id = this.ids[index] ?? index;
+      return built.get(id) ?? { id, segments: segment(cells) };
+    });
+    this.built = new Map(rows.map((row) => [row.id, row]));
+    this.lastWritten = -1;
+    this.cache = rows;
+    return rows;
   }
   /** Plain text, rows joined by newlines; trailing empty rows dropped. */
   text(): string {
@@ -205,10 +217,16 @@ export class TerminalScreen {
     }
     this.style = Object.keys(style).length ? style : plain;
   }
+  /** The cursor's line, for writing: its built row is stale from here on. */
   private line(): Cell[] {
     this.ensureRow();
     const line = this.lines[this.row];
     if (!line) throw new Error("unreachable: row ensured");
+    const id = this.ids[this.row] ?? this.row;
+    if (id !== this.lastWritten) {
+      this.built.delete(id);
+      this.lastWritten = id;
+    }
     return line;
   }
   private ensureRow(): void {

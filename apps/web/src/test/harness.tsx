@@ -9,6 +9,7 @@ import { App, AppFrame, createQueryClient } from "@/app.tsx";
 import { memoryStorage } from "@/boot/client.ts";
 import { DaemonConnectionContext } from "@/boot/connection.tsx";
 import { fakeConnection } from "@/boot/fake.ts";
+import { preloadDeferred } from "@/features/thread/index.ts";
 import { type KeyValueStorage } from "@ace/ui-core";
 
 const running: ClientApi[] = [];
@@ -74,7 +75,8 @@ export function harness(
     storage,
     play: (scenario: Scenario) => new ScenarioPlayer(daemon, scenario),
     async open(path: string) {
-      await client.start();
+      // The browser warms these while idle after first paint; tests start with them warm.
+      await Promise.all([client.start(), preloadDeferred()]);
       const connection = fakeConnection(daemon);
       return render(
         <AppFrame

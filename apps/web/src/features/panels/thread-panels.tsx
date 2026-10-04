@@ -15,7 +15,11 @@ const AgentsTab = lazy(() => loadTabs().then((m) => ({ default: m.AgentsTab })))
 const TerminalTab = lazy(() => loadTabs().then((m) => ({ default: m.TerminalTab })));
 const LogsTab = lazy(() => loadTabs().then((m) => ({ default: m.LogsTab })));
 const BottomActions = lazy(() => loadTabs().then((m) => ({ default: m.BottomActions })));
-const DevicesTab = lazy(() => loadTabs().then((m) => ({ default: m.DevicesTab })));
+// Devices has a chunk of its own: its channel, frame decoding and device screens load only when
+// the tab shows.
+const DevicesTab = lazy(() =>
+  import("@/features/devices/index.ts").then((m) => ({ default: m.DevicesTab })),
+);
 
 function Waiting() {
   return (

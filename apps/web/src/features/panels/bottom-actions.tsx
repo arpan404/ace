@@ -1,6 +1,7 @@
 import { PlusIcon, TrashIcon } from "@phosphor-icons/react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { useLayout } from "@/lib/layout.tsx";
+import { hideLogLines } from "./logs/cleared.ts";
 import { useThreadLog } from "./logs/logs-tab.tsx";
 import { usePanelServices } from "./services.ts";
 import { useOpenTerminal } from "./terminal/terminal-tab.tsx";
@@ -16,8 +17,10 @@ export function BottomActions(props: { threadId: string }) {
   const clear = () => {
     if (!terminal) {
       if (lines.length)
-        services.logCleared.set((previous) =>
-          new Map(previous).set(props.threadId, new Set(lines.map((line) => line.key))),
+        hideLogLines(
+          services.logCleared,
+          props.threadId,
+          lines.map((line) => line.key),
         );
     } else {
       const shown = sessions.shown(props.threadId);

@@ -8,8 +8,8 @@ import {
   type FileDiff,
   type Turn,
 } from "@ace/ui-core";
-import { useEffect, useMemo, useSyncExternalStore } from "react";
-import { diffKey, diffService } from "./diff-service.ts";
+import { useMemo, useSyncExternalStore } from "react";
+import { diffKey, diffService, diffView, type Keyed } from "./diff-service.ts";
 
 export interface FileDiffs {
   /** Diffs that are ready, in first-touched order. */
@@ -18,21 +18,13 @@ export interface FileDiffs {
   pending: number;
 }
 
-interface Keyed {
-  file: FileChanges;
-  key: string;
-}
-
-/** Each file's diff once the worker has it (undefined until then), in the order given. */
-function useReadyDiffs(groups: readonly Keyed[]): (FileDiff | undefined)[] {
-  const ready = useSyncExternalStore(diffService.subscribe, diffService.ready, diffService.ready);
-  const diffs = useMemo(() => groups.map(({ file, key }) => ready.get(key, file)), [groups, ready]);
-  useEffect(() => {
-    groups.forEach(({ file, key }, index) => {
-      if (!diffs[index]) void diffService.load(key, file).catch(() => {});
-    });
-  }, [groups, diffs]);
-  return diffs;
+/**
+ * Each file's diff once the worker has it (undefined until then), in the order given. The diffs
+ * are held while this view shows them; only a diff of one of these files re-renders it.
+ */
+function useReadyDiffs(groups: readonly Keyed[]): readonly (FileDiff | undefined)[] {
+  const view = useMemo(() => diffView(diffService, groups), [groups]);
+  return useSyncExternalStore(view.subscribe, view.read, view.read);
 }
 
 const keyed = (files: readonly FileChanges[]): Keyed[] =>

@@ -1,10 +1,10 @@
 import { CaretDownIcon, CodeIcon, PlusIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { Fragment, lazy, Suspense, useState } from "react";
+import { Fragment, lazy, Suspense } from "react";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import type { ReactNode } from "react";
 import { pairRows, type DiffLine, type DiffRow, type SplitRow, type FileDiff } from "@ace/ui-core";
-import { VirtualRows } from "@/components/virtual-rows.tsx";
+import { LongRows } from "@/components/virtual-rows.tsx";
 import { DiffStat } from "./diff-stat.tsx";
 import { useDiffRenderer } from "./diff-renderer.ts";
 
@@ -25,6 +25,25 @@ export const targetOf = (line: DiffLine): LineTarget | undefined =>
 const sameTarget = (a: LineTarget | undefined, b: LineTarget | undefined) =>
   !!a && !!b && a.side === b.side && a.line === b.line;
 
+/** Above this many rows a file mounts only the rows near the viewport. */
+const virtualAbove = 400;
+const rowHeight = 20;
+
+/**
+ * How a file is shown: open or collapsed, which folds are expanded, and whether a huge diff is
+ * read as text. Held by the list, so a file scrolled out of a long list and back keeps it.
+ */
+export interface FileView {
+  open: boolean;
+  expanded: ReadonlySet<number>;
+  asText: boolean;
+}
+export const freshView: FileView = { open: true, expanded: new Set(), asText: false };
+
+/** Typical height of a file block before it is measured: its header and, if open, its rows. */
+export const fileHeight = (file: FileDiff, view: FileView) =>
+  34 + (view.open ? file.rows.length * rowHeight : 0);
+
 /**
  * One changed file: a sticky header that collapses it, then its lines in unified or split
  * layout. Unchanged runs fold; folds with known lines expand on click. `renderAnnotation` renders
@@ -33,17 +52,17 @@ const sameTarget = (a: LineTarget | undefined, b: LineTarget | undefined) =>
 export function FileDiffBlock(props: {
   id?: string;
   file: FileDiff;
+  view: FileView;
+  onView(next: FileView): void;
   mode: "unified" | "split";
   wrap: boolean;
   highlighted(target: LineTarget): boolean;
   renderAnnotation(target: LineTarget): ReactNode;
   onComment(target: LineTarget): void;
 }) {
-  const [open, setOpen] = useState(true);
-  const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set());
-  const [asText, setAsText] = useState(false);
-  const renderer = useDiffRenderer(props.file.rows.length);
-  const { file } = props;
+  const { file, view, onView } = props;
+  const { open, expanded, asText } = view;
+  const renderer = useDiffRenderer(file.rows.length);
   const slash = file.path.lastIndexOf("/");
   const rows: DiffRow[] = file.rows.flatMap((row, index) =>
     row.kind === "fold" && expanded.has(index) && row.lines ? row.lines : [row],
@@ -51,14 +70,14 @@ export function FileDiffBlock(props: {
   const indexOf = new Map(file.rows.map((row, index) => [row, index]));
   const expand = (row: DiffRow) => {
     const index = indexOf.get(row);
-    if (index !== undefined) setExpanded((previous) => new Set(previous).add(index));
+    if (index !== undefined) onView({ ...view, expanded: new Set(expanded).add(index) });
   };
   return (
     <section id={props.id} aria-label={file.path} className="min-w-0">
       <button
         type="button"
         aria-expanded={open}
-        onClick={() => setOpen(!open)}
+        onClick={() => onView({ ...view, open: !open })}
         className="sticky top-9 z-[1] flex h-[34px] w-full items-center gap-2 bg-panel px-3.5 text-left font-mono text-[12px] text-muted-foreground hover:text-foreground"
       >
         <CaretDownIcon
@@ -90,7 +109,7 @@ export function FileDiffBlock(props: {
             path={file.path}
             rows={rows}
             renderer={renderer}
-            onShowText={() => setAsText(true)}
+            onShowText={() => onView({ ...view, asText: true })}
           />
         </Suspense>
       )}
@@ -132,21 +151,14 @@ const lineKey = (row: DiffRow) =>
     ? `fold:${row.lines?.[0]?.old ?? row.count ?? ""}`
     : `${row.kind}:${row.old ?? ""}:${row.new ?? ""}`;
 
-/** Above this many rows a file mounts only the rows near the viewport. */
-const virtualAbove = 400;
-const rowHeight = 20;
-
 function Rows<T>(props: {
   items: readonly { item: T; key: string }[];
   render(item: T, key: string): ReactNode;
 }) {
-  if (props.items.length <= virtualAbove)
-    return props.items.map(({ item, key }) => (
-      <Fragment key={key}>{props.render(item, key)}</Fragment>
-    ));
   return (
-    <VirtualRows
+    <LongRows
       items={props.items}
+      virtualAbove={virtualAbove}
       rowKey={(entry) => entry.key}
       estimate={rowHeight}
       render={(entry) => props.render(entry.item, entry.key)}

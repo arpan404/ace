@@ -138,6 +138,7 @@ export function updateThread(thread: Thread, event: Event): void {
     }
   }
   if (payload.type === "thread.updated") {
+    if (payload.permission !== undefined) thread.permission = structuredCopy(payload.permission);
     if (payload.backend !== undefined) thread.backend = payload.backend;
     if (payload.capabilities !== undefined)
       thread.capabilities = structuredCopy(payload.capabilities);
@@ -260,6 +261,11 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
     case "interaction.opened":
       put(view.interactions, p.interaction.id, structuredCopy(p.interaction));
       break;
+    case "permission.reviewed": {
+      const interaction = get(view.interactions, p.review.interactionId);
+      if (interaction) interaction.review = structuredCopy(p.review);
+      break;
+    }
     case "interaction.closed": {
       const interaction = get(view.interactions, p.interactionId);
       if (interaction) {

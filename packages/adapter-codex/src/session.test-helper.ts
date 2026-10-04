@@ -11,6 +11,7 @@ export async function sessionHarness(
   fork?: SessionContext["fork"],
   options?: SessionContext["options"],
   aceMcp?: SessionContext["aceMcp"],
+  permissionMode?: SessionContext["permissionMode"],
 ) {
   const directory = await mkdtemp(join(tmpdir(), "ace-codex-session-"));
   const binary = join(directory, "codex.mjs");
@@ -45,6 +46,7 @@ export async function sessionHarness(
   const session = await adapter.openSession({
     threadId: ThreadId.parse("fixture"),
     cwd: directory,
+    ...(permissionMode ? { permissionMode } : {}),
     ...(fork ? { fork } : {}),
     ...(options ? { options } : {}),
     ...(aceMcp ? { aceMcp } : {}),
@@ -66,6 +68,7 @@ export async function sessionHarness(
     },
   });
   return {
+    cwd: directory,
     session,
     frames,
     replay,

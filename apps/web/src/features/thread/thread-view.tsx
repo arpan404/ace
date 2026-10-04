@@ -1,6 +1,6 @@
 import { useThreadError, useThreadMeta } from "@ace/client-react";
 import type { ForkPoint } from "@ace/protocol";
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { WarningCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
@@ -23,6 +23,8 @@ const ForkDialog = lazy(() =>
 );
 import { Transcript } from "./transcript/transcript.tsx";
 import { useProjectName } from "@/lib/projects.ts";
+import { whenIdle } from "@/lib/idle.ts";
+import { preloadDeferred } from "./deferred.ts";
 
 /**
  * A thread: the transcript and composer in the main column, Run · Open · Commit in the header,
@@ -35,6 +37,8 @@ export function ThreadView(props: { threadId: string }) {
   const [forking, setForking] = useState<ForkPoint>();
   const id = props.threadId;
   const projectName = useProjectName();
+  // Step details and interaction cards load once the transcript has painted.
+  useEffect(() => whenIdle(() => void preloadDeferred()), []);
   const title = meta?.title;
   const thread = useMemo<ThreadRef | undefined>(
     () => (meta && title !== undefined ? { id, workspaceId: meta.workspaceId, title } : undefined),

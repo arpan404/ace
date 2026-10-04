@@ -1,0 +1,57 @@
+{
+  "$id": "https://ace.local/protocol/v1/PermissionGuarantee.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "gates": {
+      "properties": {
+        "network": {
+          "type": "boolean"
+        },
+        "protectedReads": {
+          "type": "boolean"
+        },
+        "shell": {
+          "type": "boolean"
+        },
+        "writes": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "writes",
+        "network",
+        "protectedReads",
+        "shell"
+      ],
+      "type": "object"
+    },
+    "level": {
+      "enum": [
+        "tool-gate",
+        "sandbox",
+        "tool-selection",
+        "permission-requests"
+      ],
+      "type": "string"
+    },
+    "limitations": {
+      "items": {
+        "maxLength": 2048,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "mode": {
+      "$ref": "https://ace.local/protocol/v1/PermissionMode.json"
+    }
+  },
+  "required": [
+    "mode",
+    "level",
+    "gates",
+    "limitations"
+  ],
+  "type": "object"
+}

@@ -83,6 +83,8 @@ export {
 export * from "./thread-transitions.ts";
 export * from "./handoff-read.ts";
 export * from "./pi.ts";
+export * from "./permissions.ts";
+export * from "./permission-client.ts";
 
 export * from "./deck-ownership.ts";
 export * from "./machines.ts";

@@ -1,4 +1,5 @@
 import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
+import { codexThreadPolicy, codexTurnPolicy } from "./permission-policy.ts";
 import { CodexSelectionOptions } from "./selection.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { isInteractiveRequest } from "./interactions.ts";
@@ -23,6 +24,7 @@ export async function openCodexSession(
   ctx: SessionContext,
   options: CodexOptions = {},
 ): Promise<ProviderSession> {
+  const permissionMode = ctx.permissionMode ?? "auto-review";
   let selectedOptions = CodexSelectionOptions.parse(ctx.options ?? {});
   if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
   if (ctx.fork?.point.type === "item")
@@ -340,6 +342,7 @@ export async function openCodexSession(
     rpc.notify("initialized");
     const params = {
       cwd: ctx.cwd,
+      ...codexThreadPolicy(permissionMode, ctx.cwd),
       ...(injection ? { developerInstructions: injection.developerInstructions } : {}),
       ...(ctx.model ? { model: ctx.model } : {}),
     } satisfies ThreadStartParams;
@@ -399,6 +402,7 @@ export async function openCodexSession(
     ...createSessionCommands({
       nativeSessionId,
       getLaunchOptions: () => ({
+        ...codexTurnPolicy(permissionMode, ctx.cwd),
         ...(selectedOptions.effort !== undefined ? { effort: selectedOptions.effort } : {}),
         ...(selectedOptions.serviceTier !== undefined
           ? { serviceTier: selectedOptions.serviceTier }

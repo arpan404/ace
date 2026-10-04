@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { GlyphAtlas } from "./atlas.ts";
+import { acquireAtlas } from "./atlas.ts";
 import { themeColors, type TextBackend } from "./backend.ts";
 import { layoutFrame, totalHeight, type Metrics, type TextLine } from "./layout.ts";
 import { webglBackend } from "./webgl.ts";
@@ -29,7 +29,8 @@ function measureCell(): Cell {
 /**
  * Very large monospace text drawn by the GPU (ADR 0056): the canvas covers the visible box and
  * redraws only what is in view on scroll, at most once per frame. If the backend cannot start,
- * `onFail` hands the document back to the DOM view.
+ * `onFail` hands the document back to the DOM view. The backend and its GPU resources live as
+ * long as the view (new lines only redraw) and are released when it unmounts.
  */
 export function GpuTextView(props: {
   lines: readonly TextLine[];
@@ -42,6 +43,8 @@ export function GpuTextView(props: {
   const scroller = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [cell] = useState(measureCell);
+  const shown = useRef(lines);
+  const redraw = useRef<(() => void) | undefined>(undefined);
   const columns = useMemo(
     () => lines.reduce((max, line) => Math.max(max, line.text.length), 0) + gutterCells + 2,
     [lines, gutterCells],
@@ -56,13 +59,14 @@ export function GpuTextView(props: {
     let visible = true;
     let buffer: Float32Array | undefined;
     const metrics: Metrics = { lineHeight, cellWidth: cell.width, gutterCells };
-    const atlas = new GlyphAtlas({
+    const glyphs = acquireAtlas({
       fontPx,
       family: cell.family,
       cellWidth: cell.width,
       lineHeight,
       scale: cell.scale,
     });
+    const atlas = glyphs.atlas;
     const draw = () => {
       frame = 0;
       if (!backend || stopped || !visible) return;
@@ -74,10 +78,11 @@ export function GpuTextView(props: {
       };
       const generation = atlas.generation;
       const glyph = (char: string) => atlas.glyph(char);
-      let laid = layoutFrame(lines, view, metrics, glyph, atlas.solid, buffer);
+      const text = shown.current;
+      let laid = layoutFrame(text, view, metrics, glyph, atlas.solid, buffer);
       // The atlas filled up and started over mid-frame: lay out again with fresh glyphs.
       if (atlas.generation !== generation)
-        laid = layoutFrame(lines, view, metrics, glyph, atlas.solid, laid.quads);
+        laid = layoutFrame(text, view, metrics, glyph, atlas.solid, laid.quads);
       buffer = laid.quads;
       surface.style.width = `${view.width}px`;
       surface.style.height = `${view.height}px`;
@@ -88,6 +93,7 @@ export function GpuTextView(props: {
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(draw);
     };
+    redraw.current = schedule;
     const recolor = () => {
       backend?.colors(themeColors(box));
       schedule();
@@ -123,14 +129,21 @@ export function GpuTextView(props: {
     });
     return () => {
       stopped = true;
+      redraw.current = undefined;
       if (frame) cancelAnimationFrame(frame);
       box.removeEventListener("scroll", schedule);
       resize.disconnect();
       seen.disconnect();
       theme.disconnect();
       backend?.dispose();
+      backend = undefined;
+      glyphs.release();
     };
-  }, [lines, renderer, gutterCells, onFail, cell]);
+  }, [renderer, gutterCells, onFail, cell]);
+  useEffect(() => {
+    shown.current = lines;
+    redraw.current?.();
+  }, [lines]);
   return (
     <div
       ref={scroller}

@@ -12,7 +12,7 @@ import {
   type ThreadSource,
 } from "@ace/client";
 import type { ContextMeter, Item, ThreadListEntry, ThreadView } from "@ace/protocol";
-import { splitKey, type AgentLinks, type Patch } from "./patches.ts";
+import { hasText, splitKey, type AgentLinks, type Patch } from "./patches.ts";
 import { toError, trusted } from "./trusted.ts";
 import type { ErrorShape } from "./wire.ts";
 
@@ -204,6 +204,10 @@ export class MirrorThread implements ThreadSource {
     else this.cut.delete(id);
     if (patch.append === undefined) return set(this.items, id, patch.v);
     const item = this.items.get(id);
+    if (item && hasText(item)) {
+      this.items.set(id, { ...item, text: item.text + patch.append });
+      return;
+    }
     if (item?.type !== "message") return;
     const parts = [...item.parts];
     const last = parts.at(-1);
@@ -261,6 +265,7 @@ export class MirrorSidebar implements SidebarSource {
       if (kind === "ids") this.list = trusted<readonly string[] | undefined>(patch.v) ?? none;
       else if (kind === "thread") set(this.threads, id, patch.v);
       else this.failure = errorOf(trusted<ErrorShape | undefined>(patch.v));
+      if (kind === "ids" || kind === "thread") keys.add("threads");
     }
     this.notifications.emit(keys);
   }

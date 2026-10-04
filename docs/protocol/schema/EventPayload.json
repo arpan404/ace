@@ -7,6 +7,22 @@
     },
     {
       "properties": {
+        "review": {
+          "$ref": "https://ace.local/protocol/v1/PermissionReview.json"
+        },
+        "type": {
+          "const": "permission.reviewed",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "review"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "thread": {
           "$ref": "https://ace.local/protocol/v1/Thread.json"
         },
@@ -54,6 +70,9 @@
         },
         "lineage": {
           "$ref": "https://ace.local/protocol/v1/ThreadLineage.json"
+        },
+        "permission": {
+          "$ref": "https://ace.local/protocol/v1/PermissionState.json"
         },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/ProviderKind.json"

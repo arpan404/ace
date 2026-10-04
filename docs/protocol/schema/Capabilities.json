@@ -79,6 +79,9 @@
       "maxItems": 2,
       "type": "array"
     },
+    "permissions": {
+      "$ref": "https://ace.local/protocol/v1/PermissionCapabilities.json"
+    },
     "planMode": {
       "type": "boolean"
     },

@@ -31,30 +31,39 @@ The app and its Vitest projects compile with React Compiler (Babel preset throug
 
 - `ClientHost` (worker) keeps one `Client` per daemon target (URL, device and token), so every tab of the origin shares one socket, one decode, one projection and one outbox. Requests (`command`, `registry`, `itemsPage`, `loadOlder`, `outputRead`, `text`, `output`) cross the port with their abort signals.
 - Stores gained `observe(tap)` (every emitted key, or `"all"` after a snapshot) and `export()`. A tab leases a store; the host forwards the keys it emits, coalesced per frame (16 ms), as patches: a key's current value, or for a streaming message only the text it gained. The mirror applies them and notifies the same keys, so selectors re-render exactly as in-process. Work is proportional to what changed in a frame, not to history.
-- A hidden tab (`visibilitychange`) receives nothing; when shown it receives every key that changed meanwhile. Tabs ping every 5 s; a tab silent for 30 s is dropped and its leases released. A client outlives its last tab by 10 s so a reload reattaches to a warm socket.
+- A hidden tab (`visibilitychange`) receives nothing; when shown it receives every key that changed meanwhile, or one copy of the store once more than 1,024 keys changed, so a tab hidden through a month of streaming holds a bounded backlog in the worker.
+- Liveness: where Web Locks exist a tab holds a lock named for itself for its lifetime and the worker asks for the same lock, which the browser grants only once the tab has closed or crashed; such a tab is never dropped for silence. Elsewhere tabs ping every 5 s; a visible tab silent for 30 s, or a hidden one silent for 10 minutes, is dropped and its leases released. (Browsers throttle a hidden page's timers to one wake a minute after five minutes, or freeze the page, so a 30 s window dropped live tabs and left them on stale mirrors.) A client outlives its last tab by 10 s so a reload reattaches to a warm socket.
+- Messages, reasoning and notices stream to tabs as the text they gained, not the whole item each frame.
 - The outbox moves from `localStorage` (unreachable from workers) to IndexedDB, one record per daemon and device, replaced in one transaction. An older build's `localStorage` outbox is carried over once.
+- Decoding: `@ace/protocol` keeps the core stream (hello and welcome, subscriptions, snapshots, events, commands and their results, item pages, output reads) in `wire-core.ts` as `CoreClientMessage` and `CoreServerMessage`; the full `ClientMessage` and `ServerMessage` add the service families to them. The client's `WireCodec` decodes core frames with the core schemas and loads the service families (settings, history, registry, files, terminals, ...) as a lazy chunk when the client starts. A service frame that arrives first waits for them, and every frame after it waits too, so order is kept; service requests await them, item pages and output reads never do. Every message is still parsed with its full schema before use.
 - Trust boundary: tab and worker are the same build on one origin. Envelopes are checked with Zod at both ends and request arguments are decoded in the worker; entity payloads were decoded from the daemon's frames by `@ace/protocol` schemas in the worker and are not decoded a second time in the page (`trusted()` in `packages/client-worker/src/trusted.ts` is the only place that asserts their type).
 
 ### Rendering cadence
 
-`ClientProvider` takes a `NotifyBatch`. The browser entry uses `frameBatch(requestAnimationFrame)`: every selection that changed during a frame reaches React together on the next animation frame, where React renders them as one update. Hidden documents get no animation frames and so render nothing. Tests notify immediately. Panel tabs that are not showing stay mounted inside React `<Activity mode="hidden">`: their effects (subscriptions, xterm, GPU views) stop, updates render at idle priority, and the tab comes back as it was left.
+`ClientProvider` takes a `NotifyBatch`. The browser entry uses `frameBatch(requestAnimationFrame)`: every selection that changed during a frame reaches React together on the next animation frame, where React renders them as one update. Hidden documents get no animation frames and so render nothing. Tests notify immediately. A subscribed selection is kept current by its keys, so React reading its snapshot on a render with nothing new does no work; an unsubscribed one reads again only after its store changed. Views over the whole thread list subscribe to the list's `threads` key (any entry or membership changed) rather than one key per thread. Clocks ("4m ago", "Working for 12s") are one shared timer per period, stopped while the page is hidden. Panel tabs that are not showing stay mounted inside React `<Activity mode="hidden">`: their effects (subscriptions, xterm, GPU views) stop, updates render at idle priority, and the tab comes back as it was left.
 
 ### Bounded memory
 
 Nothing grows with history. Every cache is an `LruCache` (`@ace/ui-core`, bounded by entries and by weight) or an existing client limit:
 
-| Holder                                   | Bound                                                                                |
-| ---------------------------------------- | ------------------------------------------------------------------------------------ |
-| Thread window (client, and each mirror)  | 200 items; older history pages in on demand and the window stays at 200              |
-| Cached thread stores                     | 32, least recently used released first                                               |
-| Item text                                | 64 Ki UTF-16 units per item; overflow keeps the tail and marks truncation            |
-| Agents, runs, interactions, tasks, usage | 4,096 each; the oldest ended runs no loaded item belongs to are evicted              |
-| Markdown documents / blocks              | 400 documents and 16 MB / 4,000 blocks (page); highlight 512 and 4 MB (worker)       |
-| File diffs                               | 600 diffs and 200,000 rows in memory; 2,000 in IndexedDB, oldest use pruned          |
-| Terminal                                 | 1 M characters of raw output per PTY for late-mounting views; xterm scrollback 5,000 |
-| Selection listeners                      | 4,096 per store                                                                      |
+| Holder                                   | Bound                                                                                                                                 |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Thread window (client, and each mirror)  | 200 items; older history pages in on demand and the window stays at 200                                                               |
+| Cached thread stores                     | 32, least recently used released first                                                                                                |
+| Item text                                | 64 Ki UTF-16 units per item; overflow keeps the tail and marks truncation                                                             |
+| Agents, runs, interactions, tasks, usage | 4,096 each; the oldest ended runs, closed interactions and ended tasks no loaded item refers to are evicted                           |
+| Thread list order                        | Deleted threads leave it                                                                                                              |
+| A hidden tab's backlog in the worker     | 1,024 changed keys, then one copy of the store when shown                                                                             |
+| Sent commands nobody watches (tab)       | The newest 64                                                                                                                         |
+| Markdown documents / blocks              | 400 documents and 16 MB / 4,000 blocks and 16 MB (page); highlight 512 and 4 MB (worker); a streaming draft is not kept               |
+| File diffs                               | 600 diffs and 200,000 rows in memory, shown diffs held; 2,000 entries and 128 MB in IndexedDB, oldest use pruned                      |
+| Terminal                                 | 1 M characters of raw output per watched PTY; unwatched ones released on exit, after 5 idle minutes or past 4; xterm scrollback 5,000 |
+| Preview and device frames                | One object URL per view, revoked when replaced; nothing decoded or acked while hidden; 8 unwatched threads' state                     |
+| Virtual lists                            | Measured sizes of rows no longer listed are forgotten; rows fading out at most 12 changes                                             |
+| Activity read marks                      | The newest 10,000                                                                                                                     |
+| Selection listeners                      | 4,096 per store                                                                                                                       |
 
-The month-long soak found the one unbounded holder: every run stayed in the thread store, and after 4,096 turns the thread failed with "Entity capacity exceeded". Ended runs that no loaded item belongs to are now evicted oldest first; active runs and the window's runs stay, so status and turn grouping never depend on an evicted run.
+The month-long soak found the first unbounded holder: every run stayed in the thread store, and after 4,096 turns the thread failed with "Entity capacity exceeded". Ended runs that no loaded item belongs to are now evicted oldest first; active runs and the window's runs stay, so status and turn grouping never depend on an evicted run. Closed interactions and ended tasks followed the same way (a pending interaction and a running or `unknown` task always stay). The browser memory run found the second: TanStack Virtual keeps the measured size of every row key it has seen, so a streaming transcript's page heap grew 12 MB in 10 minutes at 5,000 events/s; keys of rows that left are now forgotten.
 
 ### Markdown and highlighting
 
@@ -72,32 +81,40 @@ Where WebGL2 exists, PTY terminals use xterm.js (loaded on first show) with its 
 
 `bun run check:perf` (part of `bun run check`; `tools/web-perf`) enforces, from `tools/web-perf/src/budgets.ts`:
 
-| Budget                                                                                   | Limit     | Measured on 2026-10-03          |
-| ---------------------------------------------------------------------------------------- | --------- | ------------------------------- |
-| Initial JS, gzip (entry and its static imports)                                          | ≤ 345 KB  | 312 KB                          |
-| Any route's own chunks, gzip                                                             | ≤ 140 KB  | thread 134 KB, settings 70 KB   |
-| CSS, gzip                                                                                | ≤ 22 KB   | 18 KB                           |
-| Each worker, gzip                                                                        | ≤ 70 KB   | client 60, diff 48, markdown 39 |
-| Month-long soak: 3,000,000 events through client, host and mirrors, retained heap growth | ≤ 12 MB   | −3 MB (flat, 24 MB)             |
-| Events streamed in the browser run                                                       | ≥ 5,000/s | 5,000/s                         |
-| Input to next paint, p95, while streaming                                                | ≤ 100 ms  | 80 ms                           |
-| Longest main-thread task while streaming                                                 | ≤ 200 ms  | none over 50 ms                 |
-| Share of the run in long tasks                                                           | ≤ 10 %    | 0 %                             |
+| Budget                                                                                        | Limit     | Measured on 2026-10-03                   |
+| --------------------------------------------------------------------------------------------- | --------- | ---------------------------------------- |
+| Initial JS, gzip (entry and its static imports)                                               | ≤ 270 KB  | 262 KB (was 295)                         |
+| First screen: shell plus the heaviest route, gzip                                             | ≤ 405 KB  | 396 KB, thread (was 434)                 |
+| Any route's own chunks, gzip                                                                  | ≤ 138 KB  | thread 134 KB, settings 123 KB           |
+| CSS, gzip                                                                                     | ≤ 21 KB   | 20.2 KB                                  |
+| Each worker's eager script, gzip                                                              | ≤ 60 KB   | client 56 (was 68), markdown 33, diff 24 |
+| A worker with its lazy chunks, gzip                                                           | ≤ 73 KB   | client 69                                |
+| Month-long soak: 3,000,000 events through client, host and mirrors, retained heap growth      | ≤ 6 MB    | −3 MB (flat, 28.5 MB)                    |
+| Events streamed in the browser run                                                            | ≥ 5,000/s | 5,000/s                                  |
+| Input to next paint, p95, while streaming                                                     | ≤ 100 ms  | 40 ms                                    |
+| Longest main-thread task while streaming                                                      | ≤ 200 ms  | none over 50 ms                          |
+| Share of the run in long tasks                                                                | ≤ 10 %    | 0 %                                      |
+| Transcript and composer usable after navigation                                               | ≤ 3 s     | 1.4 s (first contentful paint 0.2 s)     |
+| DOM nodes at any point (streaming, or a 1,000,000-item thread paged back)                     | ≤ 1,500   | 840 peak                                 |
+| Retained page heap growth while streaming at 5,000 events/s, or paging back through 1 M items | ≤ 4 MB    | 0.8 MB in 5 minutes (was 12.4 in 10)     |
+| Retained client worker heap growth while streaming                                            | ≤ 3 MB    | 0.4 MB                                   |
 
 - Bundle: one production build, weighed per route from the Vite manifest.
 - Soak: `SoakDaemon` (`@ace/fake-daemon`) is an endless agent: one exchange folded through `@ace/core` once and replayed with fresh ids, keeping a bounded window, so it publishes millions of events at a fixed cost and growth measured in the process is the client's. Its clock runs 30 days over the run.
 - Browser: the production build in `--mode perf`, whose client worker is fed by `SoakDaemon` at 5,000 events/s, in Chromium while a person types into the composer and scrolls the transcript. Long tasks and Event Timing are recorded from first paint; the run first checks that its detector sees a deliberate 120 ms task.
+- Memory (`tools/web-perf/src/memory.ts`): the same build. It times the load; opens a thread with 1,000,000 items of history (`SoakDaemon` makes pages of it on demand, `?history=`) and pages back through it; then streams at 5,000 events/s for `MEMORY_MINUTES` (2 in CI). The page heap and the client worker's heap are read through DevTools after forced garbage collection, so growth is what is retained.
+- Bundle: workers are weighed by following their own chunk imports, eager and lazy, so splitting a worker never hides bytes.
 
-The initial-JS budget is a ratchet at today's size. Declaring `sideEffects` in `apps/web` (so a route importing one component from a slice's index no longer pulls in the slice) and loading the palette lazily took it from 501 KB to 328 KB. The page then still bundled the in-page `Client` (used only where the browser has neither worker) and with it the protocol's frame schemas; loading that fallback on demand (`boot/page-client.ts`) and declaring `sideEffects: false` in `@ace/client` and `@ace/client-worker` (so the page's `RemoteClient` no longer drags in `Client`, `ClientHost` and their request schemas through the package indexes) took it to 312 KB. ADR 0045's 200 KB target needs the shell's view chrome split by route.
+The initial-JS budget is a ratchet at today's size. Declaring `sideEffects` in `apps/web` (so a route importing one component from a slice's index no longer pulls in the slice) and loading the palette lazily took it from 501 KB to 328 KB. The page then still bundled the in-page `Client` (used only where the browser has neither worker) and with it the protocol's frame schemas; loading that fallback on demand (`boot/page-client.ts`) and declaring `sideEffects: false` in `@ace/client` and `@ace/client-worker` (so the page's `RemoteClient` no longer drags in `Client`, `ClientHost` and their request schemas through the package indexes) took it to 312 KB. ADR 0045's 200 KB target needs the shell's view chrome split by route. Then (2026-10-03): the page's own schemas (tab and worker envelopes, connection target, layout, appearance, route search) moved to `zod/mini`, so classic Zod loads only with routes that parse protocol replies; the connection screen and its TanStack Form load on demand; `cn` uses tables compiled ahead of time (`bun run --filter @ace/web cn:tables`) instead of compiling them at startup; Phosphor icons keep only the four weights the design draws (`apps/web/icon-weights.ts`); browser builds leave out Zod's JSON Schema generator, which nothing there calls (`apps/web/zod-json-schema.ts`); and a thread's step detail and interaction card load after first paint, warmed while idle, through `deferredComponent`. Initial JS went from 295 to 262 KB and the first screen from 434 to 396 KB. Of the 396 KB, React DOM, the router, Base UI's popups and classic Zod (which the thread route needs to parse protocol replies on the page) are the bulk; reaching 200 KB would need those parsed in the worker or loaded in pieces.
 
-CI runs the bundle and soak budgets in the `check` job and the browser budgets in the `browser` job.
+CI runs the bundle and soak budgets in the `check` job and the browser and memory budgets in the `browser` job.
 
 ## Consequences
 
 - The UI binds to interfaces, not to `Client`. Anything that needs the concrete class (tests, the worker) constructs it; everything else takes `ClientApi`.
-- One socket per origin instead of one per tab. A crashed tab holds its leases for up to 30 s.
+- One socket per origin instead of one per tab. A crashed tab holds its leases until its Web Lock frees (at once), or up to 30 s (10 minutes if it was hidden) where there are no Web Locks.
 - Where only dedicated workers exist, each tab has its own client and they share one outbox key, as tabs did with `localStorage` before; concurrent tabs can overwrite each other's pending intents there.
 - `vite --mode fake` keeps the fake daemon and client in the page (the console handle `ace.daemon` needs it); `--mode perf` exercises the worker path.
 - The GPU diff view is read-only and not readable by screen readers; it announces itself and offers "Show as text". It stays behind a flag until it supports line comments.
-- Evicted runs mean history paged in long after its turn ended may not group under that turn in the Changes tab.
+- Evicted runs mean history paged in long after its turn ended may not group under that turn in the Changes tab; an evicted closed interaction or ended task is no longer shown for such history either.
 - Browser budgets depend on the runner; a budget failure on a loaded machine is re-run before it is believed.

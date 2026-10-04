@@ -11,6 +11,23 @@ export function capabilities(cli: DiscoveryResult): Capabilities {
         ((version[1] ?? 0) > 1 || (version[1] === 1 && (version[2] ?? 0) >= 286))));
   return {
     steer: false,
+    permissions: {
+      modes: supported ? ["read-only", "ask", "auto-review", "full-access"] : [],
+      nativeAutoReview: true,
+      toolGate: supported,
+      guarantees: supported
+        ? [
+            {
+              mode: "auto-review",
+              level: "tool-gate",
+              gates: { writes: true, network: true, protectedReads: true, shell: true },
+              limitations: [
+                "All tools, including child tools, enter ace through PreToolUse and canUseTool; native auto mode is unused.",
+              ],
+            },
+          ]
+        : [],
+    },
     launchOptions: supported ? ["effort"] : [],
     interruptCascades: false,
     resume: supported,

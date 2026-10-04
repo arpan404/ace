@@ -25,6 +25,7 @@ import { createPluginsSession } from "./plugins.ts";
 import { createBrowserSession } from "./browser.ts";
 import { createContextSession } from "./context.ts";
 import { createSettingsSession } from "./settings.ts";
+import { createPermissionsSession } from "./permissions.ts";
 import { createHistorySession } from "./history.ts";
 import { createMcpSession } from "./mcp.ts";
 import { createUsageSession } from "./usage.ts";
@@ -55,6 +56,7 @@ export const socketServiceFactories = [
   createBrowserSession,
   createContextSession,
   createSettingsSession,
+  createPermissionsSession,
   createHistorySession,
   createUsageSession,
   createMcpSession,

@@ -1,3 +1,4 @@
+import { opencodePermissionRules } from "./permission-policy.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import type { Key } from "@ace/core";
 import type { ContentPart, InteractionResolution } from "@ace/protocol";
@@ -137,9 +138,14 @@ export class OpenCodeSession implements ProviderSession {
               title: "ace",
               location: { directory: ctx.cwd },
               model: selectedModel(ctx.model),
-              permissions: [],
+              permissions: opencodePermissionRules(ctx.permissionMode ?? "auto-review"),
             }),
       );
+      if (ctx.resume)
+        await s.client.session.update({
+          sessionID: info.id,
+          permissions: opencodePermissionRules(ctx.permissionMode ?? "auto-review"),
+        });
       s.ownership.establish(info);
       s.emit("recv", "snapshot.info", { info, root: true });
       s.opening = false;

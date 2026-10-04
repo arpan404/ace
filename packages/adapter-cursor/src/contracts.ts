@@ -47,7 +47,7 @@ export const Open = z.strictObject({
   afterFrameOffset: z.number().int().nonnegative().max(10000000).default(0),
   policy: z.enum(["restricted", "full-access"]),
   limits: Limits,
-  // Trusted composition must establish classifier availability before setting this.
+  // Legacy availability hint, retained for host compatibility. Never authorizes a downgrade.
   autoReviewAvailable: z.boolean().default(false),
   mcp: z
     .strictObject({ url: z.string().max(4096), bearer: z.string().regex(/^[a-f0-9]{64}$/) })

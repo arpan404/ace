@@ -1,4 +1,6 @@
-import { z } from "zod";
+// zod/mini: the tab parses every worker message on its first paint path, and mini is a fraction of
+// classic Zod's size.
+import * as z from "zod/mini";
 
 /*
  * Messages between a tab and the worker that runs `@ace/client` (ADR 0056). Both ends are the
@@ -6,12 +8,12 @@ import { z } from "zod";
  * worker's client already decoded with @ace/protocol schemas are not decoded a second time.
  */
 
-const id = z.number().int().nonnegative();
+const id = z.number().check(z.int(), z.nonnegative());
 const ErrorShape = z.object({ code: z.string(), message: z.string() });
 export type ErrorShape = z.infer<typeof ErrorShape>;
 
 export const Scope = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("thread"), threadId: z.string().min(1) }),
+  z.object({ kind: z.literal("thread"), threadId: z.string().check(z.minLength(1)) }),
   z.object({ kind: z.literal("threads") }),
 ]);
 export type Scope = z.infer<typeof Scope>;
@@ -61,34 +63,41 @@ export const TabMessage = z.discriminatedUnion("t", [
   /** A hidden tab receives nothing until it is visible again; then it gets what changed. */
   z.object({ t: z.literal("visible"), visible: z.boolean() }),
   z.object({ t: z.literal("ping") }),
+  /** The tab holds this Web Lock for its lifetime; the worker drops it once the lock frees. */
+  z.object({ t: z.literal("alive"), lock: z.string().check(z.minLength(1)) }),
   z.object({ t: z.literal("bye") }),
 ]);
 export type TabMessage = z.infer<typeof TabMessage>;
 
 const Patch = z.object({
   k: z.string(),
-  v: z.unknown().optional(),
-  append: z.string().optional(),
-  cut: z.boolean().optional(),
+  v: z.optional(z.unknown()),
+  append: z.optional(z.string()),
+  cut: z.optional(z.boolean()),
 });
 export const LeaseChanges = z.object({
   lease: id,
   /** A whole-store copy (ThreadExport or SidebarExport); replaces everything the mirror holds. */
-  reset: z.unknown().optional(),
-  patches: z.array(Patch).optional(),
+  reset: z.optional(z.unknown()),
+  patches: z.optional(z.array(Patch)),
 });
 export type LeaseChanges = z.infer<typeof LeaseChanges>;
 
 export const WorkerMessage = z.discriminatedUnion("t", [
-  z.object({ t: z.literal("attached"), error: ErrorShape.optional() }),
-  z.object({ t: z.literal("connection"), state: z.string(), error: ErrorShape.optional() }),
-  z.object({ t: z.literal("intent"), id: z.string(), intent: z.unknown().optional() }),
+  z.object({ t: z.literal("attached"), error: z.optional(ErrorShape) }),
+  z.object({ t: z.literal("connection"), state: z.string(), error: z.optional(ErrorShape) }),
+  z.object({ t: z.literal("intent"), id: z.string(), intent: z.optional(z.unknown()) }),
   /** An uncorrelated service message the worker's client already decoded. */
   z.object({ t: z.literal("message"), message: z.unknown() }),
   z.object({ t: z.literal("changes"), leases: z.array(LeaseChanges) }),
-  z.object({ t: z.literal("reply"), call: id, value: z.unknown().optional() }),
+  z.object({ t: z.literal("reply"), call: id, value: z.optional(z.unknown()) }),
   z.object({ t: z.literal("failed"), call: id, error: ErrorShape }),
-  z.object({ t: z.literal("yield"), call: id, done: z.boolean(), value: z.unknown().optional() }),
+  z.object({
+    t: z.literal("yield"),
+    call: id,
+    done: z.boolean(),
+    value: z.optional(z.unknown()),
+  }),
 ]);
 export type WorkerMessage = z.infer<typeof WorkerMessage>;
 

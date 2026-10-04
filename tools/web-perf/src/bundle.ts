@@ -67,7 +67,7 @@ try {
     process.stdout.write(`${size > limit ? "✗" : " "} ${line}\n`);
     if (size > limit) failures.push(line);
   };
-  report("initial JS (shell + first route)", initialJs, budgets.bundle.initialKb);
+  report("initial JS (entry and its static imports)", initialJs, budgets.bundle.initialKb);
   report("CSS", css, budgets.bundle.cssKb);
   const routes = Object.entries(manifest)
     .filter(([, chunk]) => chunk.isDynamicEntry && chunk.src?.includes("/routes/"))
@@ -76,18 +76,59 @@ try {
       return { name: chunk.src ?? key, size: weigh(own) };
     })
     .toSorted((a, b) => b.size - a.size);
+  const heaviest = routes[0];
+  if (heaviest)
+    report(
+      `first screen (shell + ${heaviest.name.replace(/^src\/routes\//, "").replace(/\?.*$/, "")})`,
+      initialJs + heaviest.size,
+      budgets.bundle.firstScreenKb,
+    );
   for (const route of routes.slice(0, 8))
     report(`route ${route.name.replace(/^src\/routes\//, "")}`, route.size, budgets.bundle.routeKb);
   for (const route of routes.slice(8))
     if (route.size > budgets.bundle.routeKb)
       report(`route ${route.name}`, route.size, budgets.bundle.routeKb);
   const assets = readdirSync(join(out, "assets"));
-  for (const file of assets.filter((name) => /worker/.test(name) && name.endsWith(".js")))
-    report(
-      `worker ${file.replace(/-[\w-]{8}\.js$/, "")}`,
-      kb(gz(join("assets", file))),
-      budgets.bundle.workerKb,
-    );
+  // Workers are bundled apart from the page and are not in its manifest: follow each entry's
+  // own imports. What it imports statically loads before it runs; what it imports dynamically
+  // loads later and is weighed as well, so splitting a worker never hides bytes.
+  const imports = (file: string) => {
+    const code = readFileSync(join(out, "assets", file), "utf8");
+    const found = (pattern: RegExp) =>
+      [...code.matchAll(pattern)].flatMap((match) => (match[1] ? [match[1]] : []));
+    return {
+      eager: found(/(?:\bfrom|\bimport)\s*["'`]\.\/([^"'`]+\.js)["'`]/g),
+      lazy: found(/\bimport\(\s*["'`]\.\/([^"'`]+\.js)["'`]\s*\)/g),
+    };
+  };
+  const workerClosure = (file: string, into = new Set<string>()) => {
+    if (into.has(file)) return into;
+    into.add(file);
+    for (const next of imports(file).eager) workerClosure(next, into);
+    return into;
+  };
+  for (const worker of assets.filter((name) => /worker/.test(name) && name.endsWith(".js"))) {
+    const label = `worker ${worker.replace(/-[\w-]{8}\.js$/, "")}`;
+    const eager = workerClosure(worker);
+    const weighOf = (files: Iterable<string>) =>
+      weigh([...files].map((file) => join("assets", file)));
+    report(label, weighOf(eager), budgets.bundle.workerKb);
+    const lazy = new Set<string>();
+    const queue = [...eager];
+    for (const file of queue)
+      for (const next of imports(file).lazy)
+        for (const chunk of workerClosure(next))
+          if (!eager.has(chunk) && !lazy.has(chunk)) {
+            lazy.add(chunk);
+            queue.push(chunk);
+          }
+    if (lazy.size)
+      report(
+        `${label} with its lazy chunks`,
+        weighOf([...eager, ...lazy]),
+        budgets.bundle.workerTotalKb,
+      );
+  }
   if (failures.length) {
     process.stderr.write(`bundle budgets exceeded:\n${failures.join("\n")}\n`);
     process.exitCode = 1;

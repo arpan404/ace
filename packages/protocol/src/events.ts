@@ -1,3 +1,4 @@
+import { PermissionState, PermissionReview } from "./permissions.ts";
 import { RunClientUpdated } from "./run-client.ts";
 import { ThreadClientUpdated } from "./thread-client.ts";
 import { ThreadLineage, ExecutionSelection, ThreadSwitch } from "./thread-transitions.ts";
@@ -38,11 +39,13 @@ export type UsageUpdated = z.infer<typeof UsageUpdated>;
 
 export const EventPayload = z.discriminatedUnion("type", [
   ThreadClientUpdated,
+  z.object({ type: z.literal("permission.reviewed"), review: PermissionReview }),
   z.object({ type: z.literal("thread.created"), thread: Thread }),
   z.object({
     type: z.literal("thread.updated"),
     backend: Thread.shape.backend,
     capabilities: Thread.shape.capabilities,
+    permission: PermissionState.optional(),
     title: z.string().optional(),
     provider: ExecutionSelection.shape.provider.optional(),
     lineage: ThreadLineage.optional(),

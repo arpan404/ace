@@ -33,6 +33,13 @@ export function createTurnProvider(options: {
     return { seq: sequence, t: options.now(), dir: "recv", channel, data: payload.data, payload };
   };
   const capabilities = Capabilities.parse({
+    // Deterministic simulated turns perform no native tool execution.
+    // The engine owns surfaced approval requests and permission admission.
+    permissions: {
+      modes: ["read-only", "ask", "auto-review", "full-access"],
+      nativeAutoReview: false,
+      toolGate: true,
+    },
     steer: Boolean(options.markers),
     interruptCascades: false,
     resume: true,

@@ -1,0 +1,43 @@
+{
+  "$id": "https://ace.local/protocol/v1/ApprovalTarget.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "access": {
+      "enum": [
+        "read",
+        "write",
+        "execute",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "command": {
+      "maxLength": 32768,
+      "type": "string"
+    },
+    "cwd": {
+      "maxLength": 4096,
+      "type": "string"
+    },
+    "input": {},
+    "paths": {
+      "items": {
+        "maxLength": 4096,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 128,
+      "type": "array"
+    },
+    "tool": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "tool",
+    "access"
+  ],
+  "type": "object"
+}

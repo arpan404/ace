@@ -1,10 +1,5 @@
 import { ClientMessage, ServerMessage, type ServerMessage as ServerFrame } from "@ace/protocol";
-import {
-  connectPortableRelay,
-  type PortableRelay,
-  type PortableRelayOptions,
-  type PortableSocket,
-} from "./portable-relay.ts";
+import type { PortableRelay, PortableRelayOptions, PortableSocket } from "./portable-relay.ts";
 import type { Credential } from "./credentials.ts";
 import type { DeviceTransport } from "@ace/devices/client";
 
@@ -115,6 +110,10 @@ export function authenticatedChannel(
           channel: kind,
         });
         if (options.target.kind === "relay") {
+          // The relay's Noise handshake and ciphers load only for relay targets, so a local
+          // channel (the web app's only kind) never fetches them.
+          const { connectPortableRelay } = await import("./portable-relay.ts");
+          if (epoch !== stamp) return;
           const opened = await connectPortableRelay({
             relayUrl: options.target.url,
             pinnedFingerprint: options.target.pinnedFingerprint,

@@ -1,7 +1,9 @@
-import { useId, useState } from "react";
-import { StepDetail } from "./step-detail.tsx";
+import { Suspense, useId, useState } from "react";
+import { DeferredStepDetail } from "../deferred.ts";
 import { useToolStep, useWorkLog } from "./use-work-log.ts";
 import { StepRow, WorkLogHeader } from "./work-log-view.tsx";
+
+const StepDetail = DeferredStepDetail.Component;
 
 /**
  * "Worked for 4m 12s › Explored 6 files · Ran 3 commands · Edited 2 files". The whole tool log
@@ -48,7 +50,9 @@ export function ToolStep(props: { threadId: string; itemId: string }) {
       <StepRow step={data.step} open={open} panel={panel} onToggle={() => setOpen(!open)} />
       {open && (
         <div id={panel} className="mt-1 mb-2 pl-6">
-          <StepDetail item={data.item} />
+          <Suspense fallback={null}>
+            <StepDetail item={data.item} />
+          </Suspense>
         </div>
       )}
     </li>

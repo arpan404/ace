@@ -295,6 +295,11 @@ const server = createServer(async (req, res) => {
           .end(JSON.stringify({ message: "Unknown session" }));
         return;
       }
+      if (req.method === "PATCH") {
+        Object.assign(info, body);
+        res.writeHead(204).end();
+        return;
+      }
       json({ data: info });
       return;
     }

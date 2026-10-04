@@ -110,6 +110,7 @@ for (const provider of [
         adapter,
         {
           threadId: thread.id,
+          permissionMode: provider === "pi" ? "full-access" : "auto-review",
           cwd: directory,
           env: {
             PATH: directory,

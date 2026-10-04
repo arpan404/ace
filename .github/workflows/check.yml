@@ -118,3 +118,5 @@ jobs:
         run: node packages/browser/ci/sandbox.ts && bun run test -- packages/browser apps/daemon/src/browser.process.test.ts apps/daemon/src/browser-remote.process.test.ts
       - name: Web main-thread budgets (5,000 events/s, input latency, long tasks)
         run: cd tools/web-perf && bunx playwright install --with-deps chromium && bun run browser
+      - name: Web memory budgets (flat heaps while streaming, a 1M-item thread, DOM size)
+        run: cd tools/web-perf && bun run memory

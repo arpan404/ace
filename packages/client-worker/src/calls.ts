@@ -1,12 +1,5 @@
+import { ClientError, type Client, type RegistryQuery, type ServiceRequest } from "@ace/client";
 import {
-  ClientError,
-  isOneWayMessage,
-  type Client,
-  type RegistryQuery,
-  type ServiceRequest,
-} from "@ace/client";
-import {
-  ClientMessage,
   CommandPayload,
   TextSource,
   TurnsPageRequest,
@@ -176,10 +169,11 @@ export async function callArgs(
  * malformed or reserved message is dropped, and an offline client drops it as the socket would.
  */
 export function sendArgs(client: Client, value: unknown): void {
-  const parsed = ClientMessage.safeParse(value);
-  if (!parsed.success || !isOneWayMessage(parsed.data)) return;
+  // Undefined while the client's service schemas load: dropped, as by an offline socket.
+  const control = client.decodeOneWay(value);
+  if (!control) return;
   try {
-    client.send(parsed.data);
+    client.send(control);
   } catch {
     // The tab already sees the connection state that explains the drop.
   }
