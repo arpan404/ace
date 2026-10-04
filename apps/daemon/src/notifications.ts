@@ -19,6 +19,7 @@ export interface DaemonNotifications {
   ready(): Promise<void>;
   activate(): void;
   start(): Promise<void>;
+  stop(): void;
   close(): Promise<void>;
 }
 export function createDaemonNotifications(
@@ -29,7 +30,11 @@ export function createDaemonNotifications(
   windowMs = 5000,
   runtime: Pick<ConstructorParameters<typeof NotificationWorker>[0], "signal" | "spawn"> = {},
 ): DaemonNotifications {
-  const { signal, spawn } = runtime;
+  const deliveryLifetime = new AbortController();
+  const signal = runtime.signal
+    ? AbortSignal.any([runtime.signal, deliveryLifetime.signal])
+    : deliveryLifetime.signal;
+  const { spawn } = runtime;
   let send: (device: DeviceId, notification: Notification) => boolean = offline;
   const delivery = createNotificationRouter({
     ...channels,
@@ -49,7 +54,10 @@ export function createDaemonNotifications(
       },
     },
   });
-  const attached = attachNotifications(service, store, onError);
+  const attached = attachNotifications(service, store, (error) => {
+    if (signal?.aborted && error instanceof Error && error.name === "AbortError") return;
+    onError(error);
+  });
   let timer: NodeJS.Timeout | undefined;
   let closed = false;
   const ready = async () => {
@@ -58,13 +66,16 @@ export function createDaemonNotifications(
     for (const device of store.devices.list())
       if (device.revokedAt !== null) await service.revoke(device.id);
     while (!(await attached.recover())) {
-      if (closed || signal?.aborted) throw new Error("Notification recovery aborted");
+      signal?.throwIfAborted();
+      if (closed) throw new DOMException("Notification recovery aborted", "AbortError");
       await setImmediate();
     }
-    if (closed || signal?.aborted) throw new Error("Notification startup aborted");
+    signal?.throwIfAborted();
+    if (closed) throw new DOMException("Notification startup aborted", "AbortError");
   };
   const activate = () => {
-    if (closed || signal?.aborted) throw new Error("Notification startup aborted");
+    signal?.throwIfAborted();
+    if (closed) throw new DOMException("Notification startup aborted", "AbortError");
     if (timer) return;
     // Replay and delivery ticks are lifetime work, separate from readiness.
     void attached.tick();
@@ -73,7 +84,15 @@ export function createDaemonNotifications(
     }, 1000);
     timer.unref();
   };
+  let stopped: Promise<void> | undefined;
+  const stop = () => {
+    closed = true;
+    deliveryLifetime.abort();
+    if (timer) clearInterval(timer);
+    stopped ??= attached.close();
+  };
   return {
+    stop,
     service,
     open: async () => {
       await service.cursor();
@@ -88,9 +107,8 @@ export function createDaemonNotifications(
       activate();
     },
     async close() {
-      closed = true;
-      if (timer) clearInterval(timer);
-      attached.close();
+      stop();
+      await stopped;
       await service.close();
     },
   };

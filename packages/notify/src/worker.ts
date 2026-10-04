@@ -56,10 +56,17 @@ export class NotificationWorker {
       this.fail(error instanceof Error ? error : new Error("Notification worker failed")),
     );
     this.worker.on("exit", () => this.fail(new Error("Notification worker exited")));
+    let opened = false;
     if (options.signal) {
       const signal = options.signal;
       const abort = () => {
-        this.fail(new Error("Notification worker aborted"));
+        if (opened) {
+          // Quiesce transport delivery while keeping presence/database RPCs
+          // available until the daemon's ordered cleanup reaches close.
+          for (const flight of this.flights.values()) flight.abort();
+          return;
+        }
+        this.fail(new DOMException("Notification worker aborted", "AbortError"));
         void this.worker.terminate();
       };
       signal.addEventListener("abort", abort, { once: true });
@@ -74,6 +81,7 @@ export class NotificationWorker {
       }
       const message = parsed.data;
       if (message.type === "ready") {
+        opened = true;
         this.readyResolve();
       } else if (message.type === "result") {
         const waiter = this.pending.get(message.id);
@@ -84,7 +92,7 @@ export class NotificationWorker {
         else waiter?.reject(new Error("Notification operation rejected"));
       } else if (message.type === "cancel") this.flights.get(message.id)?.abort();
       else {
-        if (this.flights.size >= 16) {
+        if (options.signal?.aborted || this.flights.size >= 16) {
           this.worker.postMessage({ type: "deliveryResult", id: message.id, result: "retry" }, []);
           return;
         }
