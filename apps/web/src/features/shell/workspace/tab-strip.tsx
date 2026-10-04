@@ -1,12 +1,5 @@
 import { CaretDownIcon, CheckIcon, PlusIcon } from "@phosphor-icons/react";
-import {
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type DragEvent,
-  type KeyboardEvent,
-} from "react";
+import { useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/components/ui/menu.tsx";
@@ -19,11 +12,14 @@ import type {
 import { shownTab } from "@/lib/workspace/index.ts";
 import { useReducedMotion } from "@/lib/motion.ts";
 import { tabDragType, TabItem, type DropSide } from "./tab-item.tsx";
+import { useEdgeFade, useRevealShown, useTabFit } from "./use-tab-layout.ts";
 
 /**
  * A dock's tabs: one tab stop (arrows move between tabs and show them, Home/End jump, Delete
  * closes, Alt+Shift+arrows reorder), drag to reorder or to the other dock, a + for a new tab
- * and, once the tabs no longer fit, a menu of all of them.
+ * and, once the tabs no longer fit, a menu of all of them. Short of room, the other tabs narrow
+ * and then fold to their icons while the showing tab keeps its title; only then does the strip
+ * scroll, fading the edge it clips.
  */
 export function TabStrip(props: {
   scope: string;
@@ -35,6 +31,7 @@ export function TabStrip(props: {
 }) {
   const { state, actions, definition, dock } = props;
   const shown = shownTab(state)?.key;
+  const row = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   /** After a keyboard move or close, the tab focus should land on once the strip re-renders. */
   const focusNext = useRef<string>(undefined);
@@ -42,12 +39,9 @@ export function TabStrip(props: {
   const [announcement, setAnnouncement] = useState("");
   const overflowing = useOverflow(scroller, state.tabs.length);
   const entering = useEntering(state.tabs.map((tab) => tab.key));
-
-  // Keep the showing tab in view when it changes (opened from a shortcut, the launcher, a menu).
-  useEffect(() => {
-    if (shown)
-      tabButton(scroller.current, shown)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-  }, [shown]);
+  const fit = useTabFit(row, scroller, shown);
+  const mask = useEdgeFade(scroller);
+  useRevealShown(scroller, shown);
   useLayoutEffect(() => {
     const key = focusNext.current;
     if (!key) return;
@@ -123,9 +117,10 @@ export function TabStrip(props: {
 
   const launcher = definition.kind(definition.launcher);
   return (
-    <div className="flex min-w-0 flex-1 items-center gap-1">
+    <div ref={row} className="flex min-w-0 flex-1 items-center gap-1">
       <div
         ref={scroller}
+        style={mask ? { maskImage: mask, WebkitMaskImage: mask } : undefined}
         role="tablist"
         aria-label={props.label}
         onDragOver={(event) => onDragOver(event)}
@@ -133,7 +128,7 @@ export function TabStrip(props: {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDrop(undefined);
         }}
         onDrop={onDrop}
-        className="flex min-w-0 items-center gap-0.5 overflow-x-auto px-0.5 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="relative flex min-w-0 items-center gap-0.5 overflow-x-auto px-0.5 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {state.tabs.map((tab, index) => (
           <TabItem
@@ -149,6 +144,8 @@ export function TabStrip(props: {
             actions={actions}
             drop={drop?.key === tab.key ? drop.side : undefined}
             entering={entering.has(tab.key)}
+            width={fit?.widths.get(tab.key)}
+            iconOnly={fit?.icons.has(tab.key) ?? false}
             onKeyDown={onKeyDown(index)}
             onDragOver={(event, side) => {
               event.stopPropagation();

@@ -24,6 +24,26 @@ export const tabDragType = "application/x-ace-workspace-tab";
 export type DropSide = "before" | "after";
 
 /**
+ * A tab's width without its title or badge: 8px lead, 14px icon, 6px gap, then 28px of close
+ * room on the showing tab (10px on the others, whose close shows over the title's end on hover,
+ * and on a pinned tab, which has none). The strip's layout pass adds the measured title.
+ */
+export const tabChrome = (closeRoom: boolean) => 8 + 14 + 6 + (closeRoom ? 28 : 10);
+const badgeGap = 6;
+/** Fewer title pixels than this read as noise: the tab folds to its icon instead. */
+const leastTitle = 32;
+
+/** A tab's natural and least labelled widths, read however narrow it is drawn now. */
+export function measureTab(element: HTMLElement): { natural: number; least: number } {
+  const title = element.querySelector<HTMLElement>("[data-tab-title]")?.scrollWidth ?? 0;
+  const badge = element.querySelector<HTMLElement>("[data-tab-badge]")?.scrollWidth ?? 0;
+  // +1: scrollWidth rounds, and half a pixel short would ellipsize the showing tab's title.
+  const fixed =
+    1 + tabChrome(element.dataset.closeRoom === "true") + (badge > 0 ? badgeGap + badge : 0);
+  return { natural: fixed + title, least: fixed + Math.min(title, leastTitle) };
+}
+
+/**
  * One tab: icon, title, live badge and a close button whose room is always kept, so the strip
  * never shifts on hover. Pinned tool tabs have no close button (their menu still closes them).
  * Right-click (or the context-menu key) for pin, move and close actions.
@@ -41,6 +61,10 @@ export function TabItem(props: {
   actions: WorkspaceActions;
   drop: DropSide | undefined;
   entering: boolean;
+  /** From the strip's layout pass; until it has run, CSS bounds the tab. */
+  width: number | undefined;
+  /** Folded to its icon: the strip is short and this isn't the showing tab. */
+  iconOnly: boolean;
   onKeyDown(event: KeyboardEvent<HTMLButtonElement>): void;
   onDragOver(event: DragEvent<HTMLElement>, side: DropSide): void;
 }) {
@@ -51,13 +75,16 @@ export function TabItem(props: {
   const canMove = kind?.docks.includes(other) ?? false;
   const Badge = kind?.Badge;
   const closable = !tab.pinned;
+  const iconOnly = props.iconOnly && !props.active;
   return (
     <ContextMenu>
       <ContextMenuTrigger
         render={
           <div
             data-tab-key={tab.key}
+            data-close-room={closable && props.active}
             draggable
+            style={props.width === undefined ? undefined : { width: props.width }}
             onDragStart={(event) => {
               event.dataTransfer.setData(tabDragType, tab.key);
               event.dataTransfer.effectAllowed = "move";
@@ -71,7 +98,7 @@ export function TabItem(props: {
             }}
             className={cn(
               "group/tab relative flex h-7 min-w-0 shrink-0 items-center [-webkit-app-region:no-drag]",
-              !tab.pinned && "max-w-[220px] min-w-[88px] shrink",
+              props.width === undefined && !tab.pinned && "max-w-[220px] min-w-[88px] shrink",
               props.entering && "fx-pop",
             )}
           />
@@ -92,6 +119,7 @@ export function TabItem(props: {
           id={tabDomId(props.dock, tab.key, "tab")}
           aria-controls={tabDomId(props.dock, tab.key, "panel")}
           aria-selected={props.active}
+          aria-label={iconOnly ? title : undefined}
           tabIndex={props.focusable ? 0 : -1}
           title={title}
           onClick={() => actions.activate(tab.key)}
@@ -106,19 +134,39 @@ export function TabItem(props: {
             "hover:text-foreground hover:not-aria-selected:bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)]",
             "focus-visible:text-foreground focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_70%,transparent)]",
             "aria-selected:bg-[color-mix(in_oklab,var(--foreground)_8%,transparent)] aria-selected:text-foreground",
-            closable ? "pr-7" : "pr-2.5",
+            iconOnly
+              ? "justify-center gap-0 px-0"
+              : !closable
+                ? "pr-2.5"
+                : props.active
+                  ? "pr-7"
+                  : // The strip sized the tab, so making room for the close never moves it.
+                    "pr-2.5 group-focus-within/tab:pr-7 group-hover/tab:pr-7",
           )}
         >
           <Icon
             icon={kind?.icon ?? XIcon}
             size={14}
             active={props.active}
-            className="text-current opacity-80"
+            className="shrink-0 text-current opacity-80"
           />
-          <span className="min-w-0 truncate">{title}</span>
-          {Badge && <Badge scope={props.scope} tab={tab} />}
+          {/* Folded, the title and badge keep their width to measure but take no room. */}
+          <span data-tab-title className={cn("min-w-0 truncate", iconOnly && "w-0")}>
+            {title}
+          </span>
+          {Badge && (
+            <span
+              data-tab-badge
+              className={cn(
+                "flex min-w-0 shrink-0 items-center empty:hidden",
+                iconOnly && "w-0 overflow-hidden",
+              )}
+            >
+              <Badge scope={props.scope} tab={tab} />
+            </span>
+          )}
         </button>
-        {closable && (
+        {closable && !iconOnly && (
           <Tip label={`Close ${title}`} shortcut="closeTab">
             <button
               type="button"
