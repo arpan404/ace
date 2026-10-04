@@ -65,3 +65,46 @@ test("interleaved control frames and independent agents cannot combine each othe
   expect(frames).toContainEqual({ seq: 1, note: "control" });
   expect(Fragment.parse(frames[2]).data.body.text).toBe("safe text\n");
 });
+
+test.each(["see (", "file://", "path="])(
+  "interleaved %s paths cannot publish a username continuation",
+  (prefix) => {
+    const redact = createRecordingRedactor(context);
+    const frames = [
+      record(0, prefix + "/Users/private-", "B"),
+      record(1, "done\n", "A"),
+      record(2, "person/x)\n", "B"),
+    ];
+    const output = [...frames.flatMap((line) => redact.push(line)), ...redact.finish()].join("\n");
+    expect(output).not.toMatch(/private-|person\/x/);
+    expect(output).toContain("done");
+  },
+);
+
+test("a secret split across the record bound never publishes either portion", () => {
+  const redact = createRecordingRedactor(context);
+  const fragments = [
+    record(0, "Bearer sk-private", "B"),
+    ...Array.from({ length: 31 }, (_, i) => JSON.stringify({ seq: i + 1, note: "control" })),
+    record(32, "-credential-value\n", "B"),
+  ];
+  const output = [...fragments.flatMap((line) => redact.push(line)), ...redact.finish()].join("\n");
+  expect(output).not.toMatch(/sk-private|credential-value/);
+  expect(output).toContain("OMITTED");
+});
+
+test.each(["Bearer ", "Bear", "Basic "])(
+  "credential introducer %s keeps redaction context across forced windows",
+  (intro) => {
+    const redact = createRecordingRedactor(context);
+    const prefix = intro === "Bear" ? "er " : "";
+    const lines = [
+      record(0, intro, "B"),
+      record(1, "done\n", "A"),
+      record(2, prefix + "opaque-private-credential\n", "B"),
+    ];
+    const output = [...lines.flatMap((line) => redact.push(line)), ...redact.finish()].join("\n");
+    expect(output).not.toContain("opaque-private-credential");
+    expect(output).toContain("done");
+  },
+);

@@ -155,8 +155,11 @@ node tools/recorder/src/scan-cursor-sdk-fixtures.ts
 The capture sink and generic fixture writer join text fragments in a window capped
 at 32 records and 256 KiB. Stream identity includes the thread, operation, agent,
 run and text field. Interleaved control records retain their original order.
-An unfinished path at the buffer limit is omitted, along with its continuation,
-until the next text boundary. Home paths, disposable workspaces and macOS
+A forced flush omits any unfinished token and its continuation until the next
+text boundary, including wrapped paths (`(/Users`, `file:///Users`, `path=/Users`)
+and secret prefixes. Bearer/Basic introducers retain a bounded drop state until
+the credential ends. This privacy policy can omit unfinished prose when another
+stream forces a flush; the stream and record budgets remain unchanged. Home paths, disposable workspaces and macOS
 per-user temp roots are scrubbed before records reach disk. Closing flushes the
 last window and retains source coordinates.
 
@@ -165,5 +168,7 @@ The hardening batch on 2026-10-03 found no raw copy of
 the local fixture-instance directory or temporary capture locations. The SDK
 sink previously wrote only the redacted form directly into fixtures. The
 existing capture has not been edited or recorded again. The passive sink
-regression proves that new captures redact split home and temp/workspace paths;
+regression is designed to guard new captures against split home and temp/workspace paths;
 it does not launch a provider or consume quota.
+
+Review follow-up regressions have not executed under the owner’s merge-only test rule. Their privacy and replay claims need a run at merge.
