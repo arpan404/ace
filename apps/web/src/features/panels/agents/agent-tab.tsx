@@ -12,11 +12,12 @@ import {
 } from "@ace/ui-core";
 import { ArrowLeftIcon, ArrowUpRightIcon, RobotIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { Suspense, useEffect, useState, type KeyboardEvent } from "react";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
+import { SkeletonText } from "@/components/ui/skeleton.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { keymap } from "@/lib/keymap.ts";
@@ -158,11 +159,13 @@ function AgentDetail(props: { threadId: string; agent: Agent }) {
               {agent.childThreadId ? "Its thread" : "Transcript"}
             </h3>
             {AgentTranscript ? (
-              agent.childThreadId ? (
-                <AgentTranscript threadId={agent.childThreadId} />
-              ) : (
-                <AgentTranscript threadId={props.threadId} agentId={agent.id} />
-              )
+              <Suspense fallback={<SkeletonText lines={3} />}>
+                {agent.childThreadId ? (
+                  <AgentTranscript threadId={agent.childThreadId} />
+                ) : (
+                  <AgentTranscript threadId={props.threadId} agentId={agent.id} />
+                )}
+              </Suspense>
             ) : (
               <p className="text-sm text-muted-foreground">
                 The transcript shows beside its thread's conversation.

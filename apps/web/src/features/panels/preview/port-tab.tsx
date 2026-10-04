@@ -1,6 +1,6 @@
 import {
   ArrowClockwiseIcon,
-  ArrowSquareOutIcon,
+  ArrowUpRightIcon,
   BrowserIcon,
   StopCircleIcon,
 } from "@phosphor-icons/react";
@@ -85,7 +85,7 @@ function PortView(props: { threadId: string; port: number; tabKey: string }) {
           className="mx-1 h-7 min-w-0 flex-1 rounded-full bg-[color-mix(in_oklab,var(--foreground)_5%,transparent)] px-3 font-mono text-[12px] text-muted-foreground outline-none focus-visible:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
         />
         <IconButton
-          icon={ArrowSquareOutIcon}
+          icon={ArrowUpRightIcon}
           label="Open in browser"
           className="size-7"
           nativeButton={false}

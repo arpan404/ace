@@ -1,9 +1,4 @@
-import {
-  PermissionReview,
-  type ApprovalTarget,
-  type Item,
-  type PermissionMode,
-} from "@ace/protocol";
+import type { ApprovalTarget, Item, PermissionMode, PermissionReview } from "@ace/protocol";
 
 /*
  * ace's permission review (ADR 0061): before an approval reaches a person, ace's risk policy
@@ -12,13 +7,20 @@ import {
  * payload carries the review; these turn either into the words the transcript and Activity show.
  */
 
-/** The review a `permission-review:*` notice carries, if the item is one. */
-export function reviewOfItem(item: Item | undefined): PermissionReview | undefined {
+/**
+ * The interaction a `permission-review:*` notice is about, if the item is one. The review
+ * itself is read from that interaction (`interaction.review`), which the client parsed when the
+ * daemon's `permission.reviewed` event arrived; the notice's raw copy is only its pointer.
+ */
+export function reviewedInteraction(item: Item | undefined): string | undefined {
   if (item?.type !== "notice") return undefined;
   for (const raw of item.raw) {
     if (raw.type !== "permission.reviewed" || !("data" in raw)) continue;
-    const parsed = PermissionReview.safeParse(raw.data);
-    if (parsed.success) return parsed.data;
+    const data: unknown = raw.data;
+    if (typeof data === "object" && data !== null && "interactionId" in data) {
+      const id = data.interactionId;
+      if (typeof id === "string" && id) return id;
+    }
   }
   return undefined;
 }

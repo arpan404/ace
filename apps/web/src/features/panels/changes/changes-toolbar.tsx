@@ -5,8 +5,7 @@ import {
   CaretDownIcon,
   ColumnsIcon,
   RowsIcon,
-  SidebarSimpleIcon,
-  SquareSplitHorizontalIcon,
+  TreeViewIcon,
 } from "@phosphor-icons/react";
 import type { Turn } from "@ace/ui-core";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -120,13 +119,7 @@ function LayoutMenu(props: {
       <MenuTrigger
         render={
           <IconButton
-            icon={
-              props.mode === "auto"
-                ? SquareSplitHorizontalIcon
-                : props.shown === "split"
-                  ? ColumnsIcon
-                  : RowsIcon
-            }
+            icon={props.shown === "split" ? ColumnsIcon : RowsIcon}
             label={label}
             className={control}
           />
@@ -200,7 +193,7 @@ export function ChangesToolbar(props: {
       />
       {props.canShowTree && (
         <IconButton
-          icon={SidebarSimpleIcon}
+          icon={TreeViewIcon}
           label={prefs.tree ? "Hide files" : "Show files"}
           pressed={prefs.tree}
           className={control}

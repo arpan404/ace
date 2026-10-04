@@ -7,7 +7,6 @@ import {
   FolderIcon,
   FolderOpenIcon,
   MagnifyingGlassIcon,
-  XIcon,
 } from "@phosphor-icons/react";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
@@ -112,9 +111,9 @@ export function FileTree(props: {
               type="button"
               aria-label="Clear filter"
               onClick={() => setFilter("")}
-              className="grid size-5 shrink-0 place-items-center rounded-xs text-subtle-foreground outline-none hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+              className="h-5 shrink-0 rounded-xs px-1 text-xs text-subtle-foreground outline-none hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)]"
             >
-              <XIcon aria-hidden size={12} />
+              Clear
             </button>
           )}
         </label>

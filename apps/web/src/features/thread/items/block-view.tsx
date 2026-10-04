@@ -1,8 +1,7 @@
 import { useItem } from "@ace/client-react";
 import { ArchiveIcon, InfoIcon, WarningIcon } from "@phosphor-icons/react";
-import { memo } from "react";
-import { reviewOfItem } from "@ace/ui-core";
-import { PermissionReviewNote } from "@/components/permission-review.tsx";
+import { memo, Suspense } from "react";
+import { DeferredReviewNote } from "./deferred-review.ts";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import type { Block } from "../transcript/blocks.ts";
 import { BackgroundTaskLine } from "./background-task.tsx";
@@ -47,8 +46,12 @@ function QuietItem(props: { threadId: string; itemId: string }) {
   switch (item.type) {
     case "notice": {
       // ace's risk policy decided an approval: the decision, its reason and the exact target.
-      const review = reviewOfItem(item);
-      if (review) return <PermissionReviewNote review={review} />;
+      if (item.raw.some((raw) => raw.type === "permission.reviewed"))
+        return (
+          <Suspense fallback={<p className="text-ui text-muted-foreground">{item.text}</p>}>
+            <DeferredReviewNote.Component threadId={props.threadId} item={item} />
+          </Suspense>
+        );
       return (
         <p className="flex items-start gap-2 text-ui text-muted-foreground">
           {item.level === "info" ? (

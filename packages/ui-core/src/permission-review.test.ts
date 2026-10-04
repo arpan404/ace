@@ -1,6 +1,6 @@
 import { InteractionId, Item, type PermissionReview } from "@ace/protocol";
 import { expect, test } from "vitest";
-import { describeReview, reviewOfItem } from "./permission-review.ts";
+import { describeReview, reviewedInteraction } from "./permission-review.ts";
 
 const review: PermissionReview = {
   interactionId: InteractionId.parse("interaction-1"),
@@ -29,14 +29,16 @@ const notice = (raw: Notice["raw"]): Notice =>
     createdAt: 1,
   }) as Notice;
 
-test("a permission-review notice yields the review the daemon recorded", () => {
-  expect(reviewOfItem(notice([{ type: "permission.reviewed", data: review }]))).toEqual(review);
+test("a permission-review notice points at the interaction the daemon reviewed", () => {
+  expect(reviewedInteraction(notice([{ type: "permission.reviewed", data: review }]))).toBe(
+    "interaction-1",
+  );
 });
 
-test("an ordinary notice, or one whose payload doesn't parse, is not a review", () => {
-  expect(reviewOfItem(notice([]))).toBeUndefined();
+test("an ordinary notice, or one whose payload names no interaction, points nowhere", () => {
+  expect(reviewedInteraction(notice([]))).toBeUndefined();
   expect(
-    reviewOfItem(notice([{ type: "permission.reviewed", data: { decision: "maybe" } }])),
+    reviewedInteraction(notice([{ type: "permission.reviewed", data: { decision: "deny" } }])),
   ).toBeUndefined();
 });
 

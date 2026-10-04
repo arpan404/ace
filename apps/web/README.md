@@ -87,7 +87,7 @@ Each slice owns `src/features/<slice>/` and the route files for its screens:
 | Home (thread list, New thread)                                    | `features/home`                                                              | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx`   |
 | Thread (transcript, composer, header actions)                     | `features/thread`                                                            | `_home.t.$threadId.tsx`                                         |
 | Thread workspace tools (Changes, Preview, Agents, Terminal, Logs) | `features/panels`                                                            | tab kinds of the thread screen (`threadWorkspace`)              |
-| Devices (simulators and emulators, a right-panel tab)             | `features/devices`                                                           | none; loaded with the panel tabs                                |
+| Devices (a catalog of simulators and emulators, a tab per device) | `features/devices`                                                           | none; loaded with the panel tabs                                |
 | Activity                                                          | `features/activity`                                                          | `activity.tsx`, `activity.index.tsx`                            |
 | Deck (`@ace/conductor`)                                           | `features/deck`                                                              | `deck.tsx`, `deck.index.tsx`, `deck.new.tsx`, `deck.$runId.tsx` |
 | Automations                                                       | `features/automations`                                                       | `automations.tsx`, `automations.index.tsx`                      |
@@ -158,6 +158,13 @@ export const fileKind = defineTabKind({
   `useWorkspaceActions(scope).update(tab.key, { title })`.
 - A tool the daemon can't serve yet still registers, with a view that says exactly what is
   missing (`features/panels/placeholders.tsx`); replace it by registering a kind with the same id.
+- A view that needs another slice's components (an agent tab draws the transcript's blocks, a
+  deck-lane tab draws Deck's lane) reads them from `useThreadParts()`: the thread screen and the
+  thread route hand them down through `ThreadPartsProvider`, since those slices import the panels
+  and the panels can't import them back. Hand down lazy components so the route stays light.
+- Resource tabs so far: `agent` (one per agent of the tree), `deck-lane` (`run/card`), `device`
+  (one per simulator or emulator, from the Devices catalog) and `port` (one per dev server,
+  from Preview).
 
 Shortcuts (`lib/keymap.ts`): ⇧⌘B side panel, ⌘J bottom panel, ⇧⌘F full view, ⌥⌘T new tab,
 ⌥⌘W close tab, ⇧⌘] and ⇧⌘[ next and previous tab, and each tool's own (⇧⌘D Changes, ⌃⇧A Agents,

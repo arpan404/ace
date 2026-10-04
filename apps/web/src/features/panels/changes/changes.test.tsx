@@ -299,8 +299,8 @@ test("the review's comments list jumps to a comment's file", async () => {
   );
   const review = within(panel).getByRole("region", { name: "Review" });
   await userEvent.click(within(review).getByRole("button", { name: "Comments" }));
-  const toSend = await screen.findByRole("region", { name: "To send" });
-  await userEvent.click(within(toSend).getByRole("button", { name: /outbox\.ts:\d+/ }));
+  const toSend = await screen.findByRole("group", { name: "To send" });
+  await userEvent.click(within(toSend).getByRole("menuitem", { name: /outbox\.ts:\d+/ }));
   const tree = within(panel).getByRole("tree", { name: "Changed files" });
   expect(within(tree).getByRole("treeitem", { selected: true }).getAttribute("aria-label")).toMatch(
     /^apps\/web\/src\/relay\/outbox\.ts, 1 comment$/,
