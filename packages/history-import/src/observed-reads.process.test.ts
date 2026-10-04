@@ -53,7 +53,7 @@ test("item pages refuse limits above 200 instead of silently increasing the page
     service.itemsPage({ threadId: init(source.id).threadId, limit: 201 }),
   ).rejects.toThrow();
 });
-test("a database changed while scanning cannot publish stale sampled metadata", async () => {
+test("a commit after snapshot acquisition keeps its consistent metadata and refreshes later", async () => {
   const env = await environment();
   cleanup.push(env.close);
   const home = join(env.root, "oc");
@@ -74,10 +74,8 @@ test("a database changed while scanning cannot publish stale sampled metadata", 
     }
   });
   expect(changed).toBe(true);
-  expect(scan.unsupported).toMatchObject([
-    { reason: expect.stringContaining("changed during scan") },
-  ]);
-  expect((await service.list({ type: "history.list", cwd })).sessions).toEqual([]);
+  expect(scan.unsupported).toEqual([]);
+  expect((await service.list({ type: "history.list", cwd })).sessions[0]?.title).toBe("before");
   await service.scan();
   expect((await service.list({ type: "history.list", cwd })).sessions[0]?.title).toBe(
     "changed while scanning",
