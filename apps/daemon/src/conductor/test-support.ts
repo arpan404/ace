@@ -21,6 +21,7 @@ import { ManualClock } from "../engine/test-support.ts";
 import { scriptedForge } from "./test-forge.ts";
 import { deckProvider } from "./test-provider.ts";
 import { git } from "./test-git.ts";
+import { seedScriptedModels, scriptedModelInstance } from "../testing/models.ts";
 export { git } from "./test-git.ts";
 const noop = () => {};
 
@@ -127,6 +128,8 @@ export async function deckFixture(
       agentControl: { policy: { maxConcurrent: options.hostCapacity ?? 4 } },
     });
   daemon = await launch();
+  for (const provider of ["codex", "claude"] as const)
+    await seedScriptedModels(daemon.models, scriptedModelInstance(provider, home), "scripted");
   const workspace = daemon.store.createWorkspace(repo, "Deck repo");
   const model = { provider: "codex", model: "scripted", tier: "normal", cost: 0, quota: 1 };
   const fixturePath = join(home, "fixture.json");

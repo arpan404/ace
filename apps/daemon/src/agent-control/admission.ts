@@ -102,15 +102,13 @@ export class DelegationAdmission {
         : undefined;
       if (provider.success && (input.accountId || candidates.length > 0) && !selected)
         throw new Error("Account unavailable or quota exhausted");
-      const resolvedModel = this.deps.models
-        ? delegationModel(
-            this.deps.models,
-            input,
-            callerThread(this.deps.store, caller),
-            selected?.id ?? input.instanceId,
-            configuredModel,
-          )
-        : undefined;
+      const resolvedModel = delegationModel(
+        this.deps.models,
+        input,
+        callerThread(this.deps.store, caller),
+        selected?.id ?? input.instanceId ?? `${input.provider}-cli-default`,
+        configuredModel,
+      );
       const reservation: DelegationReservation = {
         record: {
           childId: ThreadId.parse(this.deps.id()),
@@ -198,9 +196,7 @@ export class DelegationAdmission {
             provider: r.request.provider,
             ...identity,
             title: r.request.role.slice(0, 256),
-            ...((r.resolvedModel ?? r.request.model)
-              ? { model: r.resolvedModel ?? r.request.model }
-              : {}),
+            ...(r.resolvedModel ? { model: r.resolvedModel } : {}),
             ...(r.request.options ? { options: r.request.options } : {}),
             ...(current.accountId ? { accountId: current.accountId } : {}),
           },

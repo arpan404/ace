@@ -33,7 +33,8 @@ export interface DelegationDependencies {
   clock: EngineClock;
   id(): string;
   accounts?: AccountRegistry;
-  models?: import("@ace/models").ModelCatalogApi;
+  models: import("@ace/models").ModelCatalogApi;
+  modelsReady?: Promise<void>;
   configuredModel?(caller: McpAttribution, request: DelegationRequest): Promise<string | undefined>;
   /** Host may lower the durable receipt cap, never raise its 10,000 hard limit. */
   journalCapacity?: number;
@@ -139,18 +140,19 @@ export class DelegationService {
     return result;
   }
   async prepareModels(caller: McpAttribution, request: DelegationRequest) {
+    await this.deps.modelsReady;
     const catalog = this.deps.models;
+    const filter = {
+      provider: request.provider,
+      ...(request.accountId ? { instance: request.accountId } : {}),
+    };
+    const page = catalog.list(filter);
+    // Auto-selection can choose an account whose catalog is still cold.
     if (
-      catalog &&
-      !catalog.list({
-        provider: request.provider,
-        ...(request.accountId ? { instance: request.accountId } : {}),
-      }).models.length
+      !page.models.length ||
+      page.instances.some((instance) => instance.refreshedAt === undefined)
     )
-      await catalog.refresh({
-        provider: request.provider,
-        ...(request.accountId ? { instance: request.accountId } : {}),
-      });
+      await catalog.refresh(filter);
     return this.deps.configuredModel?.(caller, request);
   }
   prepare(

@@ -3,6 +3,7 @@ import { createScriptedAdapter } from "@ace/adapter-testkit";
 import type { SessionContext } from "@ace/engine-api";
 import { start, end } from "../engine/test-support.ts";
 import { setup } from "./test-support.ts";
+import { scriptedModelInstance, seedScriptedModels } from "../testing/models.ts";
 
 test("delegation carries approved ACP installation identity without inventing an account assignment", async () => {
   const h = setup();
@@ -30,6 +31,10 @@ test("delegation carries approved ACP installation identity without inventing an
     { installed: true, auth: "unknown", loginHint: "synthetic" },
   );
   const parent = await h.parent();
+  await seedScriptedModels(h.catalog, {
+    ...scriptedModelInstance("acp", h.home, identity.instanceId),
+    ...identity,
+  });
   const request = {
     requestId: "acp",
     provider: "acp" as const,
@@ -50,6 +55,6 @@ test("delegation carries approved ACP installation identity without inventing an
       requestId: "unapproved",
       installationId: "not-approved",
     }),
-  ).toThrow(/provider_unavailable/);
+  ).toThrow(/no valid configured default/);
   expect(h.store.listThreads()).toHaveLength(2);
 });

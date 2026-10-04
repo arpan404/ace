@@ -26,10 +26,15 @@ export function delegationModel(
     offset = page.nextOffset;
   }
   const available = rows.filter((row) => !row.hidden && !row.deprecated);
-  const find = (id: string | undefined) =>
-    id
-      ? available.find((row) => [row.id, row.nativeModelId, row.resolvedModelId].includes(id))
-      : undefined;
+  const find = (id: string | undefined) => {
+    if (!id) return undefined;
+    const exact = available.find((row) => row.id === id);
+    if (exact) return exact;
+    const aliases = available.filter(
+      (row) => !row.nativeProviderId && [row.nativeModelId, row.resolvedModelId].includes(id),
+    );
+    return aliases.length === 1 ? aliases[0] : undefined;
+  };
   const chosen =
     find(request.model) ??
     find(configured) ??
