@@ -18,7 +18,9 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
+import { portTab } from "./port.ts";
 import { useBrowserDriver } from "./use-browser-driver.ts";
 import { useViewportSync } from "./use-viewport-sync.ts";
 import type {
@@ -439,6 +441,7 @@ function DevServer(props: {
   servers: readonly PreviewServer[];
 }) {
   const [port, setPort] = useState(props.servers[0]?.port);
+  const workspace = useWorkspaceActions(props.threadId);
   const server = props.servers.find((candidate) => candidate.port === port) ?? props.servers[0];
   if (!server) return null;
   const url = server.origin ?? `http://localhost:${server.port}`;
@@ -468,6 +471,9 @@ function DevServer(props: {
             Stop preview
           </Button>
         )}
+        <Button size="sm" variant="ghost" onClick={() => workspace.open(portTab(server))}>
+          Open in its own tab
+        </Button>
         <Button size="sm" render={<a href={url} target="_blank" rel="noreferrer" />}>
           <ArrowSquareOutIcon aria-hidden size={14} />
           Open in browser

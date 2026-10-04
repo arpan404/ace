@@ -5,6 +5,7 @@ import {
   DeviceMobileIcon,
   FilesIcon,
   GitDiffIcon,
+  GlobeSimpleIcon,
   PlusIcon,
   RobotIcon,
   ScrollIcon,
@@ -87,6 +88,14 @@ export const devicesKind = defineTabKind({
   load: () => import("./devices-view.tsx").then((m) => ({ default: m.DevicesView })),
 });
 
+/** One dev server (id: its port), previewed edge to edge in its own tab. */
+export const portKind = defineTabKind({
+  kind: "port",
+  label: "Preview",
+  icon: GlobeSimpleIcon,
+  load: () => import("./preview/port-tab.tsx").then((m) => ({ default: m.PortTab })),
+});
+
 /** One simulator or emulator (id: the device's), opened from the Devices catalog. */
 export const deviceKind = defineTabKind({
   kind: "device",
@@ -148,6 +157,7 @@ export const threadKinds: readonly TabKind[] = [
   filesKind,
   sideChatKind,
   previewKind,
+  portKind,
   devicesKind,
   deviceKind,
   agentsKind,
