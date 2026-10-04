@@ -25,6 +25,9 @@ const long = process.argv.includes("--long");
 const items = option("items", long ? 1_000_000 : 10_000);
 const cycles = option("cycles", long ? 12 : 4);
 const duration = option("duration-ms", long ? 172_800_000 : 0);
+const benchmarkStarted = performance.now();
+const phases = { itemsMs: 0, pendingApprovalsMs: 0 };
+let report: Record<string, unknown> | undefined;
 const root = await mkdtemp(join(tmpdir(), "ace-long-thread-"));
 const path = join(root, "events.sqlite");
 const store = new Store(path);
@@ -136,11 +139,13 @@ try {
   const id = result.threadId;
   await engine.flush();
   console.error("seed items");
+  const itemsStarted = performance.now();
   for (let first = 0; first < items; first += 128) {
     const committed = provider.frame({ kind: "items", first, count: Math.min(128, items - first) });
     await engine.flush();
     await committed;
   }
+  phases.itemsMs = performance.now() - itemsStarted;
   console.error("seed approvals");
   for (let first = 0; first < 5000; first += 128) {
     const committed = provider.frame({
@@ -215,6 +220,7 @@ try {
   assert(store.getThread(imported)?.imported);
   const { walBytesPerDelta, rowsPerDelta } = await measureWrites("x");
   console.error("seed pending approvals");
+  const pendingStarted = performance.now();
   for (let first = 5000; first < 10000; first += 128) {
     const ack = provider.frame({
       kind: "pending_approvals",
@@ -224,6 +230,7 @@ try {
     await engine.flush();
     await ack;
   }
+  phases.pendingApprovalsMs = performance.now() - pendingStarted;
   const pendingView = store.snapshotThread(id);
   assert.equal(
     Object.values(pendingView.interactions).filter((interaction) => interaction.state === "pending")
@@ -328,27 +335,25 @@ try {
   assert(last.rss - first.rss < 64 * 1024 * 1024, "retained RSS grew");
   assert(largestFrame < 2 * 1024 * 1024, "oversized client frame");
   assert(snapshotCount >= cycles, "reconnect did not fall back to snapshots");
-  console.log(
-    JSON.stringify({
-      items,
-      approvals: 5000,
-      subagents: 48,
-      cycles: cycle,
-      snapshotBytes,
-      pendingApprovals: 5000,
-      pendingSnapshotBytes,
-      pendingWrites,
-      largestFrame,
-      snapshotCount,
-      walBytesPerDelta,
-      rowsPerDelta,
-      first,
-      last,
-      samples,
-      elapsedMs: performance.now() - started,
-      errors: errors.length,
-    }),
-  );
+  report = {
+    items,
+    approvals: 5000,
+    subagents: 48,
+    cycles: cycle,
+    snapshotBytes,
+    pendingApprovals: 5000,
+    pendingSnapshotBytes,
+    pendingWrites,
+    largestFrame,
+    snapshotCount,
+    walBytesPerDelta,
+    rowsPerDelta,
+    first,
+    last,
+    samples,
+    elapsedMs: performance.now() - started,
+    errors: errors.length,
+  };
   subscription.release();
 } finally {
   await client.close();
@@ -358,3 +363,7 @@ try {
   store.close();
   await rm(root, { recursive: true, force: true });
 }
+if (report)
+  console.log(
+    JSON.stringify({ ...report, phases, totalElapsedMs: performance.now() - benchmarkStarted }),
+  );
