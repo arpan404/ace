@@ -24,6 +24,8 @@ export * from "./models.ts";
 export * from "./lru.ts";
 export * from "./organizer.ts";
 export * from "./profile.ts";
+export type { Brand } from "./brand-art/index.gen.ts";
+export type { BrandArt, BrandPath } from "./brand-art-types.ts";
 export * from "./providers.ts";
 export * from "./questions.ts";
 export * from "./queue.ts";

@@ -1,6 +1,6 @@
 import type { ProviderKind, ThreadListEntry } from "@ace/protocol";
 import { activityOf, isSnoozed, isUnread } from "./arrange.ts";
-import { providerLabel } from "./providers.ts";
+import { providerDisplayName, providerLabel } from "./providers.ts";
 import { describeWake } from "./snooze.ts";
 import {
   runningSubagents,
@@ -78,6 +78,8 @@ export interface ThreadCard {
   branch: { name: string; pr: number | undefined; worktree: boolean } | undefined;
   status: { label: string; tone: Tone; mark: ThreadMarkKind };
   provider: ProviderKind;
+  /** The ACP registry agent behind an `acp` thread, which picks its mark and name. */
+  acpAgentId: string | undefined;
   /** Subagents working beside the root agent right now. */
   subagents: number;
   /** "Codex · 2 subagents running". */
@@ -124,6 +126,7 @@ export function threadCard(input: ThreadCardInput): ThreadCard {
     status: { label, tone, mark: threadStatusMark(entry.status) },
     provider: entry.provider,
     subagents,
-    providerLabel: providerLabel(entry.provider, subagents),
+    acpAgentId: entry.acpAgentId,
+    providerLabel: providerLabel(providerDisplayName(entry.provider, entry.acpAgentId), subagents),
   };
 }

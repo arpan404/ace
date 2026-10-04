@@ -18,6 +18,7 @@
     "record": "bun run --filter @ace/recorder record",
     "record:cursor-sdk": "node tools/recorder/src/record-cursor-sdk.ts",
     "check:size": "node scripts/check-file-size.ts",
+    "icons:providers": "node scripts/provider-icons.ts",
     "check:deps": "depcruise apps/web/src packages/client/src packages/client-worker/src packages/client-react/src packages/fake-daemon/src packages/ui-core/src --config .dependency-cruiser.cjs --output-type err",
     "check:perf": "bun run --filter @ace/web-perf check",
     "web:dev": "bun run --filter @ace/web dev",
@@ -43,6 +44,7 @@
   },
   "devDependencies": {
     "@ace/provider-kit": "workspace:*",
+    "@lobehub/icons-static-svg": "1.95.1",
     "@swc/core": "^1.16.13",
     "@types/node": "^26.6.4",
     "dependency-cruiser": "^18.5.0",
