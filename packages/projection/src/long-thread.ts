@@ -75,7 +75,9 @@ export function itemDigestContribution(item: Item): DigestContribution {
   if (item.type !== "tool_call") return result;
   const call = item.call;
   result.counters[`tool:${call.kind}`] = 1;
-  result.counters["live:tools"] = Number(call.status === "pending" || call.status === "awaiting_approval" || call.status === "running");
+  result.counters["live:tools"] = Number(
+    call.status === "pending" || call.status === "awaiting_approval" || call.status === "running",
+  );
   if (call.error || call.status === "failed") result.counters.errors = 1;
   if (call.detail.kind === "shell") {
     const failed =
@@ -110,9 +112,43 @@ export function agentThreadStatus(status: import("@ace/protocol").AgentStatus): 
   if (status.state === "failed" || status.state === "unresponsive") return { state: status.state };
   if (status.state === "blocked") {
     if (status.on === "human") return { state: "needs_you", interactions: 1 };
-    return { state: "waiting", on: status.on === "subagents" ? "background_task" : status.on };
+    if (status.on === "subagents") return { state: "working", agents: 1 };
+    if (status.on === "rate_limit")
+      return { state: "limited", ...(status.until === undefined ? {} : { until: status.until }) };
+    return { state: "waiting", on: status.on };
   }
   return { state: "working", agents: 1 };
+}
+
+/** Historical turns combine their own live activity, rather than a later root turn's status. */
+export function turnActivityStatus(
+  counters: Readonly<Record<string, number>>,
+  candidates: readonly ThreadStatus[],
+): ThreadStatus | undefined {
+  const interactions = Math.max(
+    counters["live:interactions"] ?? 0,
+    ...candidates.map((status) => (status.state === "needs_you" ? status.interactions : 0)),
+  );
+  if (interactions > 0) return { state: "needs_you", interactions };
+  if ((counters["live:runs"] ?? 0) > 0 || candidates.some((s) => s.state === "working"))
+    return { state: "working", agents: Math.max(1, counters["live:agents"] ?? 0) };
+  const limited = candidates.find((s) => s.state === "limited");
+  if (limited) return limited;
+  for (const reason of ["network", "upstream"] as const)
+    if (candidates.some((s) => s.state === "waiting" && s.on === reason))
+      return { state: "waiting", on: reason };
+  if (
+    (counters["live:tasks"] ?? 0) > 0 ||
+    (counters["live:tools"] ?? 0) > 0 ||
+    candidates.some((s) => s.state === "waiting" && s.on === "background_task")
+  )
+    return { state: "waiting", on: "background_task" };
+  if (candidates.some((s) => s.state === "unresponsive")) return { state: "unresponsive" };
+  const waiting = candidates.find((s) => s.state === "waiting");
+  if (waiting) return waiting;
+  if ((counters["live:agents"] ?? 0) > 0)
+    return { state: "working", agents: counters["live:agents"] ?? 1 };
+  return undefined;
 }
 
 export function turnIsSettled(status: ThreadStatus): boolean {

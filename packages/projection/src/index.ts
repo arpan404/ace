@@ -5,6 +5,7 @@ export {
   itemDigestContribution,
   agentThreadStatus,
   turnIsSettled,
+  turnActivityStatus,
 } from "./long-thread.ts";
 export type { DigestContribution } from "./long-thread.ts";
 export { usageSnapshotKey } from "./usage.ts";
