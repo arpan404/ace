@@ -50,6 +50,8 @@ export interface EngineOptions {
   commandId?: () => string;
   registry?: AdapterRegistry;
   clock?: EngineClock;
+  /** Durable batching latency is independent of the status/recovery clock. */
+  batchScheduler?: Pick<EngineClock, "setTimer">;
   idleMs?: number;
   silenceMs?: number;
   onError?: (error: unknown) => void;
@@ -66,6 +68,7 @@ export class Engine {
   private repo: EngineRepository;
   private registry: AdapterRegistry;
   private clock: EngineClock;
+  private batchScheduler: Pick<EngineClock, "setTimer">;
   private idleMs: number;
   private report: (error: unknown) => void;
   private actors = new Map<ThreadId, ThreadActor>();
@@ -100,6 +103,7 @@ export class Engine {
     );
     this.registry = options.registry ?? new AdapterRegistry();
     this.clock = options.clock ?? systemClock;
+    this.batchScheduler = options.batchScheduler ?? systemClock;
     this.idleMs = options.idleMs ?? 30 * 60_000;
     const silenceMs = options.silenceMs ?? 60_000;
     if (!Number.isSafeInteger(this.idleMs) || this.idleMs < 0) throw new Error("Invalid idleMs");
@@ -247,6 +251,7 @@ export class Engine {
   bindCommandPolicy(policy: NonNullable<Engine["commandPolicy"]>): void {
     this.commandPolicy = policy;
   }
+  private flushDepth = 0;
   private actor(id: ThreadId): ThreadActor {
     let actor = this.actors.get(id);
     if (!actor) {
@@ -268,6 +273,8 @@ export class Engine {
         () => this.wake(id),
         this.report,
         this.limits,
+        () => this.flushDepth > 0,
+        this.batchScheduler,
       );
       this.actors.set(id, actor);
     }
@@ -543,8 +550,22 @@ export class Engine {
       this.wakeQueued();
     }
   }
+  private deferredWakes = new Set<ThreadId>();
   private wake(id: ThreadId): void {
     if (this.closing) return;
+    if (this.repo.store.isHistoryWriting()) {
+      if (!this.deferredWakes.has(id)) {
+        this.deferredWakes.add(id);
+        void this.repo.store
+          .writable()
+          .then(() => {
+            this.deferredWakes.delete(id);
+            this.wake(id);
+          })
+          .catch(this.report);
+      }
+      return;
+    }
     this.releaseDormant(id);
     if (!this.repo.reservedSlot(id)) return;
     this.sends.wake(id);
@@ -689,17 +710,24 @@ export class Engine {
   }
   /** Drain accepted commands and frames. Does not wait for queued work to become runnable. */
   async flush(): Promise<void> {
-    await this.readyPromise;
-    await Promise.resolve();
-    do {
-      await Promise.all([this.sends.flush(), this.controls.flush(), this.steering.flush()]);
-      await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
-      await this.recovery.flush();
-    } while (this.sends.active || this.controls.active || this.steering.active);
+    this.flushDepth++;
+    try {
+      await this.readyPromise;
+      await Promise.resolve();
+      do {
+        await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
+        await Promise.all([this.sends.flush(), this.controls.flush(), this.steering.flush()]);
+        await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
+        await this.recovery.flush();
+      } while (this.sends.active || this.controls.active || this.steering.active);
+    } finally {
+      this.flushDepth--;
+    }
   }
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
+      this.flushDepth++;
       await Promise.allSettled(this.workspaceChanges.values());
       await this.readyPromise;
       this.recovery.close();

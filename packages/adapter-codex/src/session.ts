@@ -45,6 +45,7 @@ export async function openCodexSession(
     command: cli.path,
     args: ["app-server", ...(injection?.args ?? [])],
     cwd: ctx.cwd,
+    ...(ctx.outputFlow ? { outputFlow: ctx.outputFlow } : {}),
     env: { ...(ctx.env ?? options.discovery?.env), ...injection?.env },
     name: "ace-codex",
   });

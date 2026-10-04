@@ -3,6 +3,7 @@ import { externalAgentStatus } from "./external.ts";
 import type { Key } from "./facts.ts";
 import { lookup, type AgentRecord, type ThreadState } from "./state.ts";
 import { emit } from "./emit.ts";
+import { announceAgentBranch } from "./tree.ts";
 import { isActionableInteraction } from "./human.ts";
 import { liveToolKeys, pendingInteractionKeys, runningTaskKeys } from "./indexes.ts";
 import { statusInputs, suppressesActiveSilence } from "./status-inputs.ts";
@@ -391,6 +392,8 @@ export function recomputeStatuses(state: ThreadState, now: number, events: Event
   for (const [key, record] of Object.entries(state.agents)) {
     const status = resolve(key);
     if (equal(record.agent.status, status)) continue;
+    if (isSettled(record.agent.status) && !isSettled(status))
+      announceAgentBranch(state, key, events);
     record.agent.status = status;
     emit(events, { type: "agent.status", agentId: record.agent.id, status });
   }

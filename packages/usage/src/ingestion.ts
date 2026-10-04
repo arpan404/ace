@@ -112,9 +112,14 @@ export class Ingestion {
       return;
     }
     if (p.type === "agent.created") {
+      const retained = this.sql("SELECT thread FROM usage_agents WHERE agent=?").get(p.id);
+      if (retained && retained.thread !== thread) throw new Error("Cross-thread usage agent");
       this.link(thread, p.id, p.parent);
+      // Windowed consumers receive creation again when an old agent becomes active.
+      // Refresh its metadata without resetting its run or cumulative counters.
       this.sql(
-        "INSERT INTO usage_agents(agent, thread, parent, model, provider) VALUES (?, ?, ?, ?, ?)",
+        `INSERT INTO usage_agents(agent, thread, parent, model, provider) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(agent) DO UPDATE SET parent=excluded.parent, model=excluded.model, provider=excluded.provider`,
       ).run(p.id, thread, p.parent, p.model, p.provider);
       return;
     }

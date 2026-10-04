@@ -30,7 +30,7 @@ Agents routinely run builds, test suites and log tails, so this is the normal ca
 
 ### 3. Snapshots are windowed
 
-- A `thread` subscription snapshot carries every agent, run, interaction and background task (these are small and needed for status), but **only the most recent items**: by default the last 200 items or 1 MiB, whichever is smaller. It also carries `itemsBefore: cursor | null`.
+- A `thread` subscription snapshot carries open/active agents, runs, interactions and background tasks, their required ancestors, and the most recent settled entities (up to 200 and 128 KiB per collection). Older entities are available through `entities.page` with exclusive creation-sequence cursors in `entitiesBefore`. Items carry **only the most recent window**: by default the last 200 items or 1 MiB, whichever is smaller. It also carries `itemsBefore: cursor | null`.
 - A new wire request, `items.page{ threadId, before, limit }`, returns older items in order, so clients load history on scroll.
 - Live events after the snapshot are unaffected. A client holding a windowed view still applies all events. An event for an item outside its window is ignored, unless the client is tracking that item (e.g. an open detail view).
 
@@ -55,3 +55,13 @@ Item cursors are exclusive creation sequences. Snapshots take the newest contigu
 Raw blobs contain JSON-serialized data, with byte sizes and hashes computed over those bytes. They are deduplicated within a thread and deleted with that thread. Blob retrieval is left for the detail/debugging API; this decision adds only output reads and item pages to the wire protocol.
 
 Text and reasoning deltas both append to reasoning and notice items. Messages accept only text, and shells accept only output. The shared projection delta function owns these rules.
+
+### Long-thread implementation (2026-10-03)
+
+Intake pauses above 256 queued frames (or a quarter of the byte budget) and resumes below 64 (or a sixteenth). The line reader checks pressure between lines within a single stdout read; JSON-RPC, SDK iterators and event streams use the same session flow port. A much larger last-resort cap ends that provider session with a durable notice and permits explicit resume.
+
+The mailbox accumulates at most 256 frames or 256 KiB until the next 1 ms batch timer. Adjacent appends merge within 4 KiB, preserving structural fact boundaries. Acknowledgement follows the SQLite commit containing canonical events, state records and SDK recovery offsets/provenance. Unacknowledged input can be replayed by its provider; committed facts are never acknowledged from memory alone. SQLite admission occurs before stateful translation, and transient contention retries without poisoning the actor. History publication pauses intake and Store-writing engine work while WAL readers remain available. Timers catch failures and retry with bounded delays; delegation failures cannot monopolize the earliest deadline.
+
+Replay has both count and byte budgets. Gaps beyond either budget receive a fresh snapshot. Outbound event batches stay below 1 MiB, including after coalescing. A snapshot with many simultaneously active entities is streamed as ordered `snapshot.part` fragments; transport pressure pauses fragment production. `subscription.ready` releases one of the client's four in-flight subscriptions. Durable command replay permits eight in flight. These limits bound work in progress without rejecting a thread for its historical entity count.
+
+Oversized entity pages use correlated `entities.page.part` fragments so a settled plan excluded from the recent window remains readable. The client admits at most four incomplete streams with 64 MiB of aggregate retained UTF-16 text and an absolute 30-second completion deadline per stream. Exhaustion or expiry clears assemblies and reconnects. These are stream resource budgets, independent of historical entity count; a single page beyond the retained-text budget returns a correlated request error. Reactivated agents announce their existing metadata and ancestors before new live facts, preserving original agent ids and turn ownership.

@@ -201,12 +201,14 @@ export async function openPiSession(
     },
     fatal,
     redact,
+    ctx.outputFlow,
   );
   const detachStderr = readJsonLines(
     proc.stderr,
     1024 * 1024,
     (line) => emit("stderr", new ProviderPayload(JSON.stringify(redact(line)))),
     fatal,
+    ctx.outputFlow,
   );
   function close(_reason: "idle" | "user" | "shutdown", expected = true): Promise<void> {
     if (closePromise) return closePromise;

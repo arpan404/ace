@@ -9,11 +9,10 @@ export interface EngineLimits {
 export function engineLimits(input: Partial<EngineLimits> = {}): EngineLimits {
   const limits = {
     maxActiveThreads: 64,
-    // Adapters deliver every line of one 64 KiB stdout read synchronously, before the
-    // mailbox can drain. The frame cap must sit far above that burst (about 1,100 short
-    // JSON-RPC lines); maxQueuedBytes is what bounds memory.
-    maxQueuedFrames: 4096,
-    maxQueuedBytes: 8 * 1024 * 1024,
+    // Intake pauses at 256 frames and resumes at 64; these are last-resort limits
+    // for faulty adapters. An exhausted mailbox ends its session and can be resumed.
+    maxQueuedFrames: 16384,
+    maxQueuedBytes: 16 * 1024 * 1024,
     maxFrameBytes: 4 * 1024 * 1024,
     maxPendingInputs: 32,
     maxInputBytes: 262144,

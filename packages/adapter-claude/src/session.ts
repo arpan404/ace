@@ -199,6 +199,7 @@ export async function openSession(
       env: { ...env, CLAUDE_AGENT_SDK_CLIENT_APP: "ace/0.0.0" },
       spawnClaudeCodeProcess: (spawn) =>
         spawnSdkProcess(spawn, {
+          ...(ctx.outputFlow ? { outputFlow: ctx.outputFlow } : {}),
           onStderr: (line) => frame("stderr", "sdk", line),
           onWire: (dir, data) => {
             const cancel = object(data)["type"] === "control_cancel_request";
@@ -234,6 +235,7 @@ export async function openSession(
   const pump = (async () => {
     try {
       for await (const message of q) {
+        if (ctx.outputFlow?.paused()) await ctx.outputFlow.wait();
         try {
           const data = object(message);
           frame("recv", "sdk", message);

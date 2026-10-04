@@ -1,7 +1,21 @@
 import { expect, test } from "vitest";
-import { EventPayload } from "@ace/protocol";
+import { Agent, EventPayload, type ThreadId } from "@ace/protocol";
 import { usageSnapshotKey } from "@ace/projection";
 import { setup, ready, when, barrier } from "./test-support.ts";
+
+function rootAgent(threadId: ThreadId, cwd: string) {
+  return Agent.parse({
+    id: "root",
+    threadId,
+    parentId: null,
+    origin: "root",
+    native: { provider: "codex" },
+    fidelity: "full",
+    cwd,
+    status: { state: "working", activity: "thinking" },
+    createdAt: 1,
+  });
+}
 
 test("agent activity and multiple model snapshots survive live delivery and snapshot reconnect separately", async () => {
   const h = await setup();
@@ -97,3 +111,143 @@ test("agent activity and multiple model snapshots survive live delivery and snap
     await h.cleanup();
   }
 });
+
+test("usage before agent metadata survives snapshots while a daemon cache is live", async () => {
+  const h = await setup();
+  h.daemon.store.acquireThread(h.thread.id);
+  try {
+    h.daemon.store.appendEvents(h.thread.id, [
+      EventPayload.parse({
+        type: "usage.updated",
+        agentId: "root",
+        inputTokens: 10,
+        outputTokens: 2,
+      }),
+    ]);
+    const { client } = h.make();
+    await ready(client);
+    const { store } = client.thread(h.thread.id);
+    await when(
+      store.select(["thread"], (view) => view.thread),
+      Boolean,
+    );
+    expect(store.usage("root")).toMatchObject({ inputTokens: 10, outputTokens: 2 });
+    h.daemon.store.appendEvents(h.thread.id, [
+      {
+        type: "agent.created",
+        agent: rootAgent(h.thread.id, h.directory),
+      },
+    ]);
+    await when(
+      store.select(["agent:root"], (view) => view.agent("root")),
+      Boolean,
+    );
+    expect(h.daemon.store.snapshotThread(h.thread.id).usage.root).toMatchObject({
+      inputTokens: 10,
+      outputTokens: 2,
+    });
+  } finally {
+    h.daemon.store.releaseThread(h.thread.id);
+    await h.cleanup();
+  }
+});
+
+test.each([false, true])(
+  "unlinked activity snapshots stay bounded and keep retained agent usage with a live cache %s",
+  async (cached) => {
+    const h = await setup();
+    if (cached) h.daemon.store.acquireThread(h.thread.id);
+    try {
+      h.daemon.store.appendEvents(h.thread.id, [
+        { type: "agent.created", agent: rootAgent(h.thread.id, h.directory) },
+        EventPayload.parse({
+          type: "usage.updated",
+          agentId: "root",
+          inputTokens: 7,
+          outputTokens: 1,
+        }),
+      ]);
+      h.daemon.store.appendEvents(
+        h.thread.id,
+        Array.from({ length: 250 }, (_, i) =>
+          EventPayload.parse({
+            type: "usage.updated",
+            agentId: `unlinked-${i}`,
+            inputTokens: i,
+            outputTokens: 2,
+          }),
+        ),
+      );
+      const { client } = h.make();
+      await ready(client);
+      const { store } = client.thread(h.thread.id);
+      await when(
+        store.select(["thread"], (view) => view.thread),
+        Boolean,
+      );
+      expect(Object.keys(store.export().view?.usage ?? {})).toHaveLength(201);
+      expect(store.usage("root")).toMatchObject({ inputTokens: 7, outputTokens: 1 });
+      expect(store.usage("unlinked-0")).toBeUndefined();
+      expect(store.usage("unlinked-49")).toBeUndefined();
+      expect(store.usage("unlinked-50")?.inputTokens).toBe(50);
+      expect(store.usage("unlinked-249")?.inputTokens).toBe(249);
+    } finally {
+      if (cached) h.daemon.store.releaseThread(h.thread.id);
+      await h.cleanup();
+    }
+  },
+);
+
+test.each([false, true])(
+  "pre-linkage usage and context snapshots obey their byte budgets with a live cache %s",
+  async (cached) => {
+    const h = await setup();
+    if (cached) h.daemon.store.acquireThread(h.thread.id);
+    try {
+      h.daemon.store.appendEvents(
+        h.thread.id,
+        Array.from({ length: 4 }, (_, i) => [
+          EventPayload.parse({
+            type: "usage.updated",
+            agentId: `large-${i}`,
+            inputTokens: i,
+            outputTokens: 2,
+            model: "m".repeat(50 * 1024),
+          }),
+          EventPayload.parse({
+            type: "context_meter.updated",
+            meter: {
+              agentId: `large-${i}`,
+              epoch: 0,
+              usedTokens: i,
+              windowTokens: 100,
+              model: "m".repeat(50 * 1024),
+              source: "provider",
+            },
+          }),
+        ]).flat(),
+      );
+      const { client } = h.make();
+      await ready(client);
+      const { store } = client.thread(h.thread.id);
+      await when(
+        store.select(["thread"], (view) => view.thread),
+        Boolean,
+      );
+      expect(store.usage("large-0")).toBeUndefined();
+      expect(store.contextMeter("large-0")).toBeUndefined();
+      expect(store.usage("large-2")?.inputTokens).toBe(2);
+      expect(store.contextMeter("large-2")?.usedTokens).toBe(2);
+      expect(store.usage("large-3")?.inputTokens).toBe(3);
+      expect(store.contextMeter("large-3")?.usedTokens).toBe(3);
+      const snapshot = store.export().view;
+      for (const values of [snapshot?.usage, snapshot?.contextMeters]) {
+        expect(Object.keys(values ?? {})).toHaveLength(2);
+        expect(Buffer.byteLength(JSON.stringify(values))).toBeLessThan(128 * 1024);
+      }
+    } finally {
+      if (cached) h.daemon.store.releaseThread(h.thread.id);
+      await h.cleanup();
+    }
+  },
+);

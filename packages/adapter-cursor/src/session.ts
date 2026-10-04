@@ -58,36 +58,39 @@ export async function openCursorSession(
       payload,
     });
   };
-  const host = new CursorHost(options, async (data, payload) => {
-    if (data.boundaryOffset) seq = data.boundaryOffset * 1024 - 1;
-    if (data.kind === "open" && data.agentId)
-      context.onSessionIdentity?.({
-        backend: "cursor-sdk",
-        instanceId: options.instanceId,
-        nativeSessionId: data.agentId,
-      });
-    if (
-      (data.kind === "result" || data.kind === "error") &&
-      data.operationId === operation &&
-      data.segment === segment
-    ) {
-      const result = z.object({ status: z.string() }).safeParse(data.body);
+  const host = new CursorHost(
+    { ...options, ...(context.outputFlow ? { outputFlow: context.outputFlow } : {}) },
+    async (data, payload) => {
+      if (data.boundaryOffset) seq = data.boundaryOffset * 1024 - 1;
+      if (data.kind === "open" && data.agentId)
+        context.onSessionIdentity?.({
+          backend: "cursor-sdk",
+          instanceId: options.instanceId,
+          nativeSessionId: data.agentId,
+        });
       if (
-        data.kind === "error" ||
-        (result.success && ["finished", "cancelled", "error"].includes(result.data.status))
-      )
-        active = false;
-      else uncertain = true;
-    }
-    await context.onFrame({
-      seq: ++seq,
-      t: now() - started,
-      dir: data.kind === "send" ? "send" : "recv",
-      channel: "sdk",
-      data: payload.data,
-      payload,
-    });
-  });
+        (data.kind === "result" || data.kind === "error") &&
+        data.operationId === operation &&
+        data.segment === segment
+      ) {
+        const result = z.object({ status: z.string() }).safeParse(data.body);
+        if (
+          data.kind === "error" ||
+          (result.success && ["finished", "cancelled", "error"].includes(result.data.status))
+        )
+          active = false;
+        else uncertain = true;
+      }
+      await context.onFrame({
+        seq: ++seq,
+        t: now() - started,
+        dir: data.kind === "send" ? "send" : "recv",
+        channel: "sdk",
+        data: payload.data,
+        payload,
+      });
+    },
+  );
   let deliberate = false;
   let exited = false;
   let operation = "open";

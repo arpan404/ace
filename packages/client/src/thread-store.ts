@@ -1,9 +1,9 @@
-import { closedInteractions, endedRuns, endedTasks } from "./eviction.ts";
+import { closedInteractions, endedRuns, endedTasks, endedAgents } from "./eviction.ts";
 import { clipItem } from "./item-window.ts";
 import { pageWindow } from "./page-window.ts";
 import { MessageDeltas } from "./message-deltas.ts";
 import { PageJournal } from "./page-journal.ts";
-import { applyDelivery, usageSnapshotKey } from "@ace/projection";
+import { applyDelivery, usageSnapshotKey, rebuildAgentChildren } from "@ace/projection";
 import type { ThreadView, EventBatch, Progress, ItemsPage } from "@ace/protocol";
 import type { Mirrorable, ThreadExport, ThreadSource } from "./api.ts";
 import type { ThreadKey, ThreadReader } from "./readers.ts";
@@ -51,6 +51,9 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
   }
   get cursor() {
     return this.view?.seq;
+  }
+  get entitiesBefore() {
+    return this.view?.entitiesBefore;
   }
   get itemsBefore() {
     return this.view?.itemsBefore;
@@ -124,6 +127,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
         items: view.items,
         itemOrder: view.itemOrder,
         itemsBefore: view.itemsBefore,
+        ...(view.entitiesBefore ? { entitiesBefore: view.entitiesBefore } : {}),
         interactions: view.interactions,
         backgroundTasks: view.backgroundTasks,
         usage: view.usage,
@@ -141,13 +145,14 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       throw new ClientError("limit", "Snapshot item capacity exceeded");
     if (Object.keys(view.itemSeqs ?? {}).length > 200)
       throw new ClientError("limit", "Item cursor capacity exceeded");
-    const parentKeys = Object.keys(view.agentChildren);
-    const parentReferences = Object.values(view.agentChildren).reduce(
-      (count, children) => count + children.length,
-      0,
+    closedInteractions(
+      view,
+      Math.max(0, Object.keys(view.interactions).length - this.limits.entities),
     );
-    if (parentKeys.length > this.limits.entities || parentReferences > this.limits.entities)
-      throw new ClientError("limit", "Parent reference capacity exceeded");
+    endedTasks(view, Math.max(0, Object.keys(view.backgroundTasks).length - this.limits.entities));
+    endedAgents(view, Math.max(0, Object.keys(view.agents).length - this.limits.entities));
+    // Parent indexes are derived from retained agents, never retained from stale wire references.
+    rebuildAgentChildren(view);
     const counts = new Map<string, number>();
     // Entity collections must stay bounded without discarding tree status facts.
     for (const [name, record] of Object.entries({
@@ -158,11 +163,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       usage: view.usage,
       contextMeters: view.contextMeters ?? {},
       usageSnapshots: view.usageSnapshots,
-    })) {
-      const size = Object.keys(record).length;
-      if (size > this.limits.entities) throw new ClientError("limit", "Entity capacity exceeded");
-      counts.set(name, size);
-    }
+    }))
+      counts.set(name, Object.keys(record).length);
     this.view = view;
     this.failure = undefined;
     this.journal.reset(view.seq);
@@ -189,11 +191,17 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     let count = (this.counts.get(name) ?? 0) + 1;
     if (count > this.limits.entities && this.view) {
       const batch = Math.ceil(this.limits.entities / 4);
-      if (name === "runs") count -= endedRuns(this.view, batch, keys);
+      if (name === "agents") count -= endedAgents(this.view, batch, keys);
+      else if (name === "usageSnapshots") {
+        for (const id of Object.keys(this.view.usageSnapshots).slice(0, batch)) {
+          delete this.view.usageSnapshots[id];
+          keys?.add(`usageSnapshot:${id}`);
+          count--;
+        }
+      } else if (name === "runs") count -= endedRuns(this.view, batch, keys);
       else if (name === "interactions") count -= closedInteractions(this.view, batch, keys);
       else if (name === "tasks") count -= endedTasks(this.view, batch, keys);
     }
-    if (count > this.limits.entities) throw new ClientError("limit", "Entity capacity exceeded");
     this.counts.set(name, count);
   }
   delivery(message: EventBatch | Progress): "applied" | "ignored" | "gap" {
@@ -214,7 +222,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
             const itemId =
               payload.type === "item.created" || payload.type === "item.updated"
                 ? payload.item.id
-                : payload.type === "item.delta"
+                : payload.type === "item.delta" || payload.type === "item.deleted"
                   ? payload.itemId
                   : undefined;
             if (itemId && event.seq <= (this.hydrated.get(itemId) ?? -1)) return false;
@@ -242,7 +250,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
           keys.add("thread");
           break;
         case "agent.created":
-          if (!keys.has(`agent:${p.agent.id}`)) this.capacity("agents", !!this.agent(p.agent.id));
+          if (!keys.has(`agent:${p.agent.id}`))
+            this.capacity("agents", !!this.agent(p.agent.id), keys);
           if (p.agent.origin === "root") {
             view.thread = { ...view.thread };
             keys.add("thread");
@@ -272,6 +281,14 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
             keys.add("order");
           }
           keys.add(`item:${p.item.id}`);
+          break;
+        case "item.deleted":
+          this.clipped.delete(p.itemId);
+          this.hydrated.delete(p.itemId);
+          this.creation.delete(p.itemId);
+          keys.add(`item:${p.itemId}`);
+          keys.add("order");
+          keys.add("history");
           break;
         case "item.delta":
           {
@@ -377,7 +394,7 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
     if (!view) throw new ClientError("offline");
     if (page.threadId !== view.thread.id) throw new ClientError("protocol");
     const items = this.journal.reconcile(page, view.seq);
-    const window = pageWindow(view.itemOrder, this.creation, page, this.limits.items);
+    const window = pageWindow(view.itemOrder, this.creation, { ...page, items }, this.limits.items);
     const retained = new Set(window.order);
     const keys = new Set<ThreadKey>();
     for (const item of items)

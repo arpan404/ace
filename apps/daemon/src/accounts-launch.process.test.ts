@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createInstance, openRegistry } from "@ace/accounts";
+import { UsageStore } from "@ace/usage";
 import { createScriptedAdapter } from "@ace/adapter-testkit";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { Command } from "@ace/protocol";
@@ -17,6 +18,79 @@ import { scriptFrames, start, end } from "./engine/test-support.ts";
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
+});
+test("reannouncing a retained agent preserves usage counters and cannot move it to another thread", () => {
+  const store = new UsageStore(":memory:");
+  const at = Date.parse("2026-10-03T12:00:00Z");
+  const agent = {
+    type: "agent.created",
+    id: "root",
+    parent: null,
+    model: null,
+    provider: "claude",
+  };
+  const usage = (inputTokens: number) => ({
+    type: "usage.updated",
+    agentId: agent.id,
+    inputTokens,
+    outputTokens: 0,
+    counterMode: "cumulative",
+  });
+  try {
+    store.ingest({
+      afterSeq: 0,
+      throughSeq: 4,
+      events: [
+        {
+          seq: 1,
+          at,
+          threadId: "thread",
+          payload: { type: "thread.created", workspace: "w", provider: agent.provider },
+        },
+        { seq: 2, at, threadId: "thread", payload: agent },
+        {
+          seq: 3,
+          at,
+          threadId: "thread",
+          payload: { type: "run.started", agent: "root", run: "run" },
+        },
+        { seq: 4, at, threadId: "thread", payload: usage(10) },
+      ],
+    });
+    store.ingest({
+      afterSeq: 4,
+      throughSeq: 6,
+      events: [
+        { seq: 5, at, threadId: "thread", payload: agent },
+        { seq: 6, at, threadId: "thread", payload: usage(15) },
+      ],
+    });
+    expect(
+      store.summary({ from: "2026-10-03", to: "2026-10-03" }).rows[0]?.totals.inputTokens,
+    ).toBe(15);
+    expect(() =>
+      store.ingest({
+        afterSeq: 6,
+        throughSeq: 8,
+        events: [
+          {
+            seq: 7,
+            at,
+            threadId: "other",
+            payload: { type: "thread.created", workspace: "w", provider: agent.provider },
+          },
+          { seq: 8, at, threadId: "other", payload: agent },
+        ],
+      }),
+    ).toThrow();
+    expect(store.cursor()).toBe(6);
+    expect(
+      store.summary({ from: "2026-10-03", to: "2026-10-03", filters: { thread: ["thread"] } })
+        .rows[0]?.totals.inputTokens,
+    ).toBe(15);
+  } finally {
+    store.close();
+  }
 });
 test("daemon binds an account registered after startup and retains that account after restart", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-account-launch-"));

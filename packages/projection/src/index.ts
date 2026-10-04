@@ -84,7 +84,7 @@ function put<T>(record: Record<string, T>, id: string, value: T): void {
     configurable: true,
   });
 }
-function reparentAgent(
+export function reparentAgent(
   view: ThreadView,
   id: string,
   oldParent: string | null | undefined,

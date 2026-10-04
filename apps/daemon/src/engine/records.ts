@@ -24,6 +24,9 @@ export class Records<T> {
   private replaced = new Set<string>();
   private appended = new Set<string>();
   private touched = new Map<string, T | undefined>();
+  // Transaction baselines must survive LRU eviction. Reading is not a write.
+  private originals = new Map<string, string>();
+  private enumerated: Set<string> | undefined;
   private db: Pick<DatabaseSync, "prepare">;
   private thread: ThreadId;
   private group: string;
@@ -72,6 +75,7 @@ export class Records<T> {
         if (typeof key === "string") {
           this.touched.set(key, undefined);
           this.cache.delete(key);
+          this.enumerated?.delete(key);
         }
         return true;
       },
@@ -88,6 +92,7 @@ export class Records<T> {
     );
     this.replaced.add(key);
     this.touched.set(key, decorated);
+    this.enumerated?.add(key);
   }
   private read(key: string): T | undefined {
     if (this.appendValue?.key === key) {
@@ -118,22 +123,28 @@ export class Records<T> {
     this.cache.delete(key);
     this.cache.set(key, entry, entry.bytes);
     // An accessed plain entity can be mutated in place by core.
-    if (this.tracking) this.touched.set(key, entry.value);
+    if (this.tracking) {
+      this.touched.set(key, entry.value);
+      this.originals.set(key, entry.json);
+    }
     return entry.value;
   }
   private keys(): string[] {
-    const keys = new Set(
-      this.db
-        .prepare(
-          "SELECT key FROM engine_state_records WHERE thread_id=? AND section=? ORDER BY rowid",
-        )
-        .all(this.thread, this.group)
-        .map((row) => String(row.key)),
-    );
+    const keys =
+      this.enumerated ??
+      new Set(
+        this.db
+          .prepare(
+            "SELECT key FROM engine_state_records WHERE thread_id=? AND section=? ORDER BY rowid",
+          )
+          .all(this.thread, this.group)
+          .map((row) => String(row.key)),
+      );
     for (const [key, value] of this.touched) {
       if (value === undefined) keys.delete(key);
       else keys.add(key);
     }
+    if (this.tracking) this.enumerated = keys;
     return Object.keys(Object.fromEntries([...keys].map((key) => [key, true])));
   }
   hasReplacement(key: string): boolean {
@@ -185,7 +196,10 @@ export class Records<T> {
       }
       if (this.appended.has(key) && !this.replaced.has(key)) continue;
       const json = this.encode(key, value);
-      if (json !== this.cache.get(key)?.json || this.replaced.has(key)) {
+      if (
+        json !== (this.originals.get(key) ?? this.cache.get(key)?.json) ||
+        this.replaced.has(key)
+      ) {
         this.db
           .prepare("DELETE FROM engine_state_appends WHERE thread_id=? AND section=? AND key=?")
           .run(this.thread, this.group, key);
@@ -198,6 +212,8 @@ export class Records<T> {
       this.cache.set(key, { value, json, bytes: Buffer.byteLength(json) }, Buffer.byteLength(json));
     }
     this.touched.clear();
+    this.originals.clear();
+    this.enumerated = undefined;
     this.replaced.clear();
     this.appended.clear();
     this.tracking = false;
