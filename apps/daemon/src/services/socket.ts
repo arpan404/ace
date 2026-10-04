@@ -23,7 +23,7 @@ export interface CommandRegistration {
 }
 export interface SocketService {
   binary?(frame: Buffer): boolean;
-  authenticated?(): void;
+  authenticated?(channel: Extract<ClientMessage, { type: "hello" }>["channel"]): void;
   handle?(message: SocketMessage, device: DeviceId): boolean | Promise<boolean>;
   command?: CommandRegistration;
   close?(): void;

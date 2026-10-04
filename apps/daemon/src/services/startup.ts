@@ -19,11 +19,13 @@ export interface ServiceStatus {
 }
 export interface StartupRuntime {
   timeoutMs: number;
+  cleanupTimeoutMs?: number;
   onStatus?(status: ServiceStatus): void;
   schedule(name: string, expire: () => void, milliseconds: number): () => void;
 }
 export const systemStartup: StartupRuntime = {
   timeoutMs: 15_000,
+  cleanupTimeoutMs: 8_000,
   schedule(_name, expire, milliseconds) {
     const timer = setTimeout(expire, milliseconds);
     return () => clearTimeout(timer);
@@ -36,6 +38,7 @@ async function bounded<T>(
   run: () => T | Promise<T>,
   runtime: StartupRuntime,
   signal?: AbortSignal,
+  operation = "startup",
 ): Promise<T> {
   signal?.throwIfAborted();
   let onAbort: (() => void) | undefined;
@@ -47,7 +50,7 @@ async function bounded<T>(
   const deadline = new Promise<never>((_resolve, reject) => {
     cancel = runtime.schedule(
       name,
-      () => reject(new Error(`Service ${name} startup exceeded ${runtime.timeoutMs}ms`)),
+      () => reject(new Error(`Service ${name} ${operation} exceeded ${runtime.timeoutMs}ms`)),
       runtime.timeoutMs,
     );
   });
@@ -64,6 +67,20 @@ async function bounded<T>(
     cancel?.();
     if (onAbort) signal?.removeEventListener("abort", onAbort);
   }
+}
+
+function boundedCleanup(
+  name: string,
+  resources: Resources,
+  runtime: StartupRuntime,
+): Promise<void> {
+  return bounded(
+    name,
+    () => resources.close(),
+    { ...runtime, timeoutMs: runtime.cleanupTimeoutMs ?? 8_000 },
+    undefined,
+    "cleanup",
+  );
 }
 
 /** Ordered startup with private publication and resource ownership for each attempt. */
@@ -85,6 +102,11 @@ export class ServiceStartup {
     this.runtime = runtime;
     if (!Number.isFinite(runtime.timeoutMs) || runtime.timeoutMs < 1)
       throw new Error("Invalid service startup deadline");
+    if (
+      runtime.cleanupTimeoutMs !== undefined &&
+      (!Number.isFinite(runtime.cleanupTimeoutMs) || runtime.cleanupTimeoutMs < 1)
+    )
+      throw new Error("Invalid service cleanup deadline");
   }
   private readonly context: ServiceContext;
   status = (): ServiceStatus[] =>
@@ -175,9 +197,7 @@ export class ServiceStartup {
     const onListen: ServiceContext["onListen"] = [];
     resources.onShutdown(() => controller.abort());
     this.context.resources.onShutdown(() => resources.beginShutdown());
-    this.context.resources.own(() =>
-      bounded(`${name} cleanup`, () => resources.close(), this.runtime),
-    );
+    this.context.resources.own(() => boundedCleanup(name, resources, this.runtime));
     try {
       await bounded(
         name,
@@ -203,9 +223,8 @@ export class ServiceStartup {
         resources.beginShutdown();
         for (const key of Object.keys(published))
           Reflect.deleteProperty(this.context.services, key);
-        void bounded(`${name} cleanup`, () => resources.close(), this.runtime).catch(
-          (failure: unknown) =>
-            this.context.log.log("error", "Degraded service cleanup failed", failure),
+        void boundedCleanup(name, resources, this.runtime).catch((failure: unknown) =>
+          this.context.log.log("error", "Degraded service cleanup failed", failure),
         );
       };
       this.listeners.push(...onListen.map((start) => ({ name, start, disable })));
@@ -214,9 +233,8 @@ export class ServiceStartup {
       resources.beginShutdown();
       this.degraded(name, error);
       // A stuck disposer must not hold startup either. Shutdown retains the cleanup promise.
-      void bounded(`${name} cleanup`, () => resources.close(), this.runtime).catch(
-        (failure: unknown) =>
-          this.context.log.log("error", "Degraded service cleanup failed", failure),
+      void boundedCleanup(name, resources, this.runtime).catch((failure: unknown) =>
+        this.context.log.log("error", "Degraded service cleanup failed", failure),
       );
       this.context.signal.throwIfAborted();
     }

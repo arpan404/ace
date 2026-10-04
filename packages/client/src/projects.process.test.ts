@@ -7,7 +7,10 @@ import { setup, ready } from "./test-support.ts";
 
 test("client projects and long-thread requests coexist while updating another client live", async () => {
   const root = await mkdtemp(join(homedir(), ".ace-client-projects-"));
-  const f = await setup(undefined, undefined, undefined, { home: root, roots: async () => [root] });
+  const f = await setup(undefined, undefined, undefined, undefined, {
+    home: root,
+    roots: async () => [root],
+  });
   try {
     const { client, scheduler } = f.make();
     const { client: other } = f.make();

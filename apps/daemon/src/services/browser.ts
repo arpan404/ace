@@ -16,6 +16,13 @@ export async function startBrowser(context: ServiceContext): Promise<void> {
   const browser = new BrowserService({
     ...options.browser,
     dataDir: config.dataDir,
+    cleanup: {
+      ...options.browser?.cleanup,
+      onTimeout(message) {
+        context.log.log("warn", message);
+        options.browser?.cleanup?.onTimeout?.(message);
+      },
+    },
     now,
     id,
     backendPreference:

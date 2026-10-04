@@ -138,8 +138,8 @@ export async function startServer(options: ServerOptions): Promise<{
         socket.destroy();
         return;
       }
-      // Browsers always send Origin, so a page the user merely visits cannot reach the
-      // loopback socket. Native clients send none.
+      // Loopback shares the HTTP access allowlist. Remote clients authenticate
+      // with paired-device tickets, including native clients with URL-derived Origin.
       const origin = request.headers.origin;
       if (isLocal && origin !== undefined && !access.allowedOrigins.has(origin)) {
         refuseUpgrade(socket, "403 Forbidden");
@@ -364,7 +364,14 @@ export async function startServer(options: ServerOptions): Promise<{
           }
           connections.set(socket, send);
         }
-        for (const service of sessions) service.authenticated?.();
+        try {
+          for (const service of sessions) service.authenticated?.(message.channel);
+        } catch (error) {
+          const limit = error instanceof Error && "code" in error && error.code === "limit";
+          const code = limit ? "connection_limit" : "service_unavailable";
+          socket.close(limit ? 4013 : 1011, code);
+          return;
+        }
         send({
           type: "welcome",
           hostId,
