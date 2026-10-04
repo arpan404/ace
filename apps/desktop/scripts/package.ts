@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { cp } from "node:fs/promises";
 import { join } from "node:path";
 import { build, Platform, type Configuration } from "electron-builder";
-import { desktop, dist, electronVersion, targetArch } from "./common.ts";
+import { desktop, dist, electronVersion, installedElectronDist, targetArch } from "./common.ts";
 import { verifyNatives } from "./verify-natives.ts";
 
 /**
@@ -43,7 +43,7 @@ const config: Configuration = {
   executableName: "ace",
   electronVersion: electronVersion(),
   // A local build reuses the installed Electron instead of downloading it again.
-  ...(full ? {} : { electronDist: join(desktop, "node_modules/electron/dist") }),
+  ...(full ? {} : { electronDist: installedElectronDist() }),
   directories: {
     app: join(dist, "app"),
     output: join(dist, "release"),

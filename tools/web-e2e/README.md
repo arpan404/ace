@@ -15,5 +15,11 @@ bun run web:screens   # screenshots
 ```
 
 Playwright starts the two Vite servers (ports 5190 fake, 5191 real) and the daemon (port 4391,
-home in the system temp dir) itself. The browsers come from the shared Playwright cache; run
+home in the system temp dir) itself. `ACE_E2E_FAKE_PORT`, `ACE_E2E_WEB_PORT`,
+`ACE_E2E_DAEMON_PORT` and `ACE_E2E_DAEMON_HOME` move them, so two checkouts can run side by side.
+
+The project journeys (`real-daemon-projects.spec.ts`) work in `/tmp/<daemon home>-projects`, the
+e2e daemon's only project root. Their clone address is rewritten by the daemon home's global Git
+config to a local bare repository, whose pack a hook paces so progress and Cancel can be seen;
+the e2e daemon alone allows Git's file transport (a host-injected `gitPolicy`). The browsers come from the shared Playwright cache; run
 `bunx playwright install chromium` once if it is missing.

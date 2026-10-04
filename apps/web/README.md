@@ -82,21 +82,22 @@ presentational components that render it (see `home/use-thread-card.ts` and `hom
 
 Each slice owns `src/features/<slice>/` and the route files for its screens:
 
-| Slice                                                                             | Folder                                                                       | Routes                                                          |
-| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Home (thread list, New thread)                                                    | `features/home`                                                              | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx`   |
-| Thread (transcript, composer, header actions)                                     | `features/thread`                                                            | `_home.t.$threadId.tsx`                                         |
-| Thread workspace tools (Changes, Files, Browser, Preview, Agents, Terminal, Logs) | `features/panels`                                                            | tab kinds of the thread screen (`threadWorkspace`)              |
-| Devices (a catalog of simulators and emulators, a tab per device)                 | `features/devices`                                                           | none; loaded with the panel tabs                                |
-| Activity                                                                          | `features/activity`                                                          | `activity.tsx`, `activity.index.tsx`                            |
-| Deck (`@ace/conductor`)                                                           | `features/deck`                                                              | `deck.tsx`, `deck.index.tsx`, `deck.new.tsx`, `deck.$runId.tsx` |
-| Automations                                                                       | `features/automations`                                                       | `automations.tsx`, `automations.index.tsx`                      |
-| Skills                                                                            | `features/skills`                                                            | `skills.tsx`, `skills.index.tsx`                                |
-| Thread organization (actions, Undo, the shared thread menu)                       | `features/organize`                                                          | none; used by Home, the thread ⋯ menu and the palette           |
-| Model catalog (pickers)                                                           | `features/models`                                                            | none; used by thread and Home                                   |
-| More: accounts, files, search                                                     | `features/more` (+ `features/accounts`, `features/files`, `features/search`) | `more.*.tsx`                                                    |
-| Settings                                                                          | `features/settings`                                                          | `settings.*.tsx`                                                |
-| Palette                                                                           | `features/palette`                                                           | none; register commands in `commands.ts`                        |
+| Slice                                                                              | Folder                                                                       | Routes                                                          |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Home (thread list, New thread)                                                     | `features/home`                                                              | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx`   |
+| Thread (transcript, composer, header actions)                                      | `features/thread`                                                            | `_home.t.$threadId.tsx`                                         |
+| Thread workspace tools (Changes, Files, Browser, Preview, Agents, Terminal, Logs)  | `features/panels`                                                            | tab kinds of the thread screen (`threadWorkspace`)              |
+| Devices (a catalog of simulators and emulators, a tab per device)                  | `features/devices`                                                           | none; loaded with the panel tabs                                |
+| Activity                                                                           | `features/activity`                                                          | `activity.tsx`, `activity.index.tsx`                            |
+| Deck (`@ace/conductor`)                                                            | `features/deck`                                                              | `deck.tsx`, `deck.index.tsx`, `deck.new.tsx`, `deck.$runId.tsx` |
+| Automations                                                                        | `features/automations`                                                       | `automations.tsx`, `automations.index.tsx`                      |
+| Skills                                                                             | `features/skills`                                                            | `skills.tsx`, `skills.index.tsx`                                |
+| Thread organization (actions, Undo, the shared thread menu)                        | `features/organize`                                                          | none; used by Home, the thread ⋯ menu and the palette           |
+| Projects (Add project: open, create, clone; rename, remove; first-run empty state) | `features/projects`                                                          | none; `/new?folder=` renders its `OpenFolderScreen`             |
+| Model catalog (pickers)                                                            | `features/models`                                                            | none; used by thread and Home                                   |
+| More: accounts, files, search                                                      | `features/more` (+ `features/accounts`, `features/files`, `features/search`) | `more.*.tsx`                                                    |
+| Settings                                                                           | `features/settings`                                                          | `settings.*.tsx`                                                |
+| Palette                                                                            | `features/palette`                                                           | none; register commands in `commands.ts`                        |
 
 Rules:
 
@@ -212,6 +213,20 @@ ace's, and ⌃` always leaves. Colours come from the theme (`terminal/palette.ts
 rows. In a strip: arrows
 move between tabs and show them, Home and End jump, Delete closes, Alt+Shift+arrows reorder;
 right-click (or the context-menu key) for pin, move, full view and close.
+
+## Projects
+
+`features/projects` adds and manages projects over `ClientApi.projects` (ADR 0063). `ProjectsHost`
+(in the app shell) owns ⇧⌘O, a folder dropped on the window, the dialogs and keeping the shared
+project list (`lib/project-cache.ts`) live from the daemon's workspace pushes; open a dialog from
+anywhere with `useProjectDialogs().open({ kind: "add", tab })` (or `rename`, `remove`). The dialogs
+load on first use (`dialogs-loader.ts`) and stay mounted, so a clone carries on with its dialog
+closed. Every path is the daemon host's: the web picks folders with `fs.browse`; the desktop app
+adds its native picker and dropped-folder paths (`boot/desktop-folders.ts`, `window.ace.dialogs`
+and `window.ace.files`). `/new?folder=<path>` (the desktop's `ace://open?folder=`) adds or finds
+the folder and opens New thread in it. Wording, name and address checks live in
+`@ace/ui-core` (`projects.ts`). In fake mode `hostFolders()` seeds a home to browse, and
+`aceFakeWorld = "empty"` boots the first run.
 
 ## Daemon services and protocol gaps
 

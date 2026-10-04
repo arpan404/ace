@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { openNewTerminal } from "@/features/panels/index.ts";
+import { useProjectDialogs } from "@/features/projects/index.ts";
 import { railViews, type RailView } from "@/features/shell/index.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useFocusedScope, useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -31,6 +32,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
   const workspace = useScopeWorkspace(scope);
   const docks = useWorkspaceActions(scope ?? "");
   const threadGroups = useThreadCommands(close);
+  const projects = useProjectDialogs();
   const staticGroups = useMemo(() => {
     const run = (action: () => void) => () => {
       close();
@@ -54,6 +56,19 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
             keys: keymap.newDeck.keys,
             icon: "action",
             run: go("/deck/new"),
+          },
+          {
+            id: "add-project",
+            label: "Add project…",
+            keys: keymap.addProject.keys,
+            icon: "action",
+            run: run(() => projects.open({ kind: "add", tab: "open" })),
+          },
+          {
+            id: "clone-repository",
+            label: "Clone a repository…",
+            icon: "action",
+            run: run(() => projects.open({ kind: "add", tab: "clone" })),
           },
         ],
       },
@@ -198,7 +213,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
       },
     ];
     return groups;
-  }, [close, navigate, themes, theme.scheme, update, scope, docks, workspace]);
+  }, [close, navigate, themes, theme.scheme, update, scope, docks, workspace, projects]);
   return useMemo(
     () => [...threadGroups, ...staticGroups].filter((group) => group.items.length > 0),
     [threadGroups, staticGroups],

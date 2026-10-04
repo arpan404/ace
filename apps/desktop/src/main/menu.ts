@@ -12,6 +12,7 @@ interface Shortcut {
 export const shortcuts: readonly Shortcut[] = [
   { command: "new-thread", label: "New Thread", accelerator: "CmdOrCtrl+N" },
   { command: "new-deck", label: "New Deck", accelerator: "CmdOrCtrl+Shift+N" },
+  { command: "add-project", label: "Add Project…", accelerator: "CmdOrCtrl+Shift+O" },
   { command: "palette", label: "Command Palette…", accelerator: "CmdOrCtrl+K" },
   { command: "back", label: "Back", accelerator: "CmdOrCtrl+[" },
   { command: "forward", label: "Forward", accelerator: "CmdOrCtrl+]" },
@@ -74,6 +75,8 @@ export function applicationMenu(options: {
       submenu: [
         item("new-thread"),
         item("new-deck"),
+        { type: "separator" },
+        item("add-project"),
         { type: "separator" },
         ...(mac ? [{ role: "close" } as const] : [item("settings"), { role: "quit" } as const]),
       ],

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import { deepLinkRoute, AppInfo } from "../shared/contract.ts";
 import { createBridge, type BridgeIpc } from "./bridge.ts";
 import { attachPageHooks } from "./page-hooks.ts";
@@ -17,6 +17,6 @@ const ipc: BridgeIpc = {
     };
   },
 };
-const bridge = createBridge(ipc, info);
+const bridge = createBridge(ipc, info, { pathForFile: (file) => webUtils.getPathForFile(file) });
 contextBridge.exposeInMainWorld("ace", bridge);
 attachPageHooks(bridge, window, deepLinkRoute);
