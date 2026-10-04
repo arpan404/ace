@@ -103,3 +103,26 @@ test("all read/search paths survive started and completed command updates", () =
     call: { detail: { kind: "search", path: "src", query: "x" } },
   });
 });
+
+test("missing action command text never duplicates a large executable script", () => {
+  const h = setup();
+  const script = "echo " + "x".repeat(10000);
+  h.item(
+    {
+      id: "large",
+      type: "commandExecution",
+      command: `/bin/sh -c '${script}'`,
+      commandActions: Array.from({ length: 1000 }, (_, index) => ({
+        type: "read",
+        path: `file-${index}`,
+      })),
+    },
+    true,
+  );
+  expect(h.state.items["large"]).toMatchObject({
+    call: { detail: { kind: "shell", command: script } },
+  });
+  expect(h.state.items["large:action:999"]).toMatchObject({
+    call: { detail: { kind: "file.read", path: "file-999" } },
+  });
+});

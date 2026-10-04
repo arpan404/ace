@@ -1,5 +1,8 @@
+import { createHash } from "node:crypto";
 import { InteractionId, type MessageOrigin } from "@ace/protocol";
 import { obj, str } from "./native.ts";
+
+const digest = (text: string) => createHash("sha256").update(text).digest("hex");
 
 /** Match only the next exact-text echo in the answered thread, retaining provenance on updates. */
 export function answerEchoes() {
@@ -16,6 +19,8 @@ export function answerEchoes() {
       } else if (
         note["event"] === "interaction-answer" &&
         thread &&
+        thread.length <= 1024 &&
+        key.length <= 1024 &&
         typeof note["text"] === "string"
       ) {
         const id = InteractionId.safeParse(note["interactionId"]);
@@ -23,16 +28,18 @@ export function answerEchoes() {
         pending.push({
           thread,
           key,
-          text: note["text"],
+          text: digest(note["text"]),
           origin: { kind: "interaction_answer", ...(id.success ? { interactionId: id.data } : {}) },
         });
       }
     },
     match(thread: string, item: string, text: string): MessageOrigin | undefined {
+      if (thread.length > 1024 || item.length > 1024) return undefined;
       const identity = JSON.stringify([thread, item]);
       const previous = matched.get(identity);
       if (previous) return previous;
-      const index = pending.findIndex((entry) => entry.thread === thread && entry.text === text);
+      const hash = digest(text);
+      const index = pending.findIndex((entry) => entry.thread === thread && entry.text === hash);
       if (index < 0) return undefined;
       const [entry] = pending.splice(index, 1);
       if (!entry) return undefined;

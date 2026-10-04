@@ -7,9 +7,11 @@ export function commandDetail(item: Obj): ToolDetailDraft {
   const rawCommand = str(item["command"]);
   // Decode once; action fallback is O(1), even for large action arrays.
   const decoded = unwrapShellCommand(rawCommand)?.inner ?? rawCommand;
-  const command = actions.length
-    ? actions.map((value) => str(obj(value)["command"], decoded)).join(" && ")
-    : decoded;
+  const commands = actions.map((value) => obj(value)["command"]);
+  const exact = commands.filter((value): value is string => typeof value === "string");
+  const command =
+    commands.length > 0 && exact.length === commands.length ? exact.join(" && ") : decoded;
+
   return (
     (actions.length === 1 ? actionDetail(obj(actions[0])) : undefined) ?? {
       kind: "shell",
@@ -36,7 +38,7 @@ export function commandActionItems(
   complete: boolean,
 ): { key: string; draft: ItemDraft }[] {
   const actions = list(item["commandActions"]);
-  if (actions.length < 2) return [];
+  if (!complete || actions.length < 2) return [];
   return actions.flatMap((value, index) => {
     const action = obj(value),
       detail = actionDetail(action);

@@ -61,3 +61,19 @@ test("a refused answer never tags a later person's equal message", () => {
   h.item(echo("person"), true);
   expect(h.state.items["person"]).not.toHaveProperty("origin");
 });
+
+test("large answer provenance is bounded without losing exact echo matching", () => {
+  const h = setup();
+  const text = "é".repeat(200_000);
+  h.feed({
+    seq: 100,
+    t: 100,
+    dir: "note",
+    channel: "stdio",
+    data: { event: "interaction-answer", interaction: "async:large", threadId: "native", text },
+  });
+  h.item(echo("different", text + "!"), true);
+  h.item(echo("large", text), true);
+  expect(h.state.items["different"]).not.toHaveProperty("origin");
+  expect(h.state.items["large"]).toMatchObject({ origin: { kind: "interaction_answer" } });
+});
