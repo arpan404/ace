@@ -5,12 +5,12 @@ import {
   SidebarSimpleIcon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { useRef, type ReactNode } from "react";
+import { Suspense, useRef, useState, type ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useElementSize } from "@/lib/element-size.ts";
+import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useHistoryNav } from "@/lib/history-nav.ts";
 import { useViewFrame } from "./view-frame.tsx";
 
@@ -148,11 +148,18 @@ export function AppHeader(
  */
 const foldBelow = 420;
 
+/** The folded header's popover: only a narrow header shows one, so its code loads when it does. */
+const DeferredOverflow = deferredComponent(() =>
+  import("./header-overflow.tsx").then((module) => module.Overflow),
+);
+
 /**
  * The folded header: the actions in a row, then the title menu behind one more tap. One ⋯ in
- * the header, so the title keeps the room.
+ * the header, so the title keeps the room. Until the popover's code has arrived the ⋯ is a
+ * plain button, and a click on it opens the popover once it has.
  */
 function Overflow(props: { actions: ReactNode; menu: ReactNode }) {
+  const [wanted, setWanted] = useState(false);
   if (!props.actions && props.menu)
     return (
       <Menu>
@@ -160,29 +167,17 @@ function Overflow(props: { actions: ReactNode; menu: ReactNode }) {
         <MenuContent align="end">{props.menu}</MenuContent>
       </Menu>
     );
+  const label = props.menu ? "More actions" : "Actions";
   return (
-    <Popover>
-      <PopoverTrigger
-        render={<IconButton icon={DotsThreeIcon} label={props.menu ? "More actions" : "Actions"} />}
+    <Suspense
+      fallback={<IconButton icon={DotsThreeIcon} label={label} onClick={() => setWanted(true)} />}
+    >
+      <DeferredOverflow.Component
+        actions={props.actions}
+        menu={props.menu}
+        label={label}
+        defaultOpen={wanted}
       />
-      <PopoverContent
-        align="end"
-        className="flex max-w-[calc(100vw-1.5rem)] flex-col gap-1.5 p-1.5"
-      >
-        {props.actions && (
-          <div className="flex flex-wrap items-center gap-1.5">{props.actions}</div>
-        )}
-        {props.actions && props.menu && <span aria-hidden className="-mx-1.5 h-px bg-border" />}
-        {props.menu && (
-          <Menu>
-            <MenuTrigger className="flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-ui text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:bg-accent aria-expanded:bg-accent">
-              <DotsThreeIcon aria-hidden size={16} />
-              More options
-            </MenuTrigger>
-            <MenuContent align="end">{props.menu}</MenuContent>
-          </Menu>
-        )}
-      </PopoverContent>
-    </Popover>
+    </Suspense>
   );
 }

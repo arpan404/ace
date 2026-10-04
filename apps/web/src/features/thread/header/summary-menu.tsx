@@ -48,8 +48,12 @@ const liveStates: ReadonlySet<ThreadStatus["state"]> = new Set([
  * push, branches, a pull request). What the checkout or the daemon can't do yet stays listed,
  * disabled, with the reason, so the menu reads the same on every thread.
  */
-export function SummaryMenu(props: { thread: ThreadRef }) {
-  const [open, setOpen] = useState(false);
+export function SummaryMenu(props: {
+  thread: ThreadRef;
+  /** The ⋯ was pressed while this code loaded: open at once. */
+  defaultOpen?: boolean | undefined;
+}) {
+  const [open, setOpen] = useState(props.defaultOpen ?? false);
   const git = useGitFlow(props.thread);
   const workspace = useWorkspaceActions(props.thread.id);
   const sources = useThreadSources();

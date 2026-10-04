@@ -1,5 +1,5 @@
 import { useThreadMeta } from "@ace/client-react";
-import { ListBulletsIcon, PushPinSimpleSlashIcon } from "@phosphor-icons/react";
+import { DotsThreeIcon, ListBulletsIcon, PushPinSimpleSlashIcon } from "@phosphor-icons/react";
 import { Suspense, useLayoutEffect, useState, type RefObject } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { SkeletonText } from "@/components/ui/skeleton.tsx";
@@ -7,9 +7,8 @@ import { useHotkey } from "@/lib/hotkeys.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useProjectName } from "@/lib/projects.ts";
 import { useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
-import { DeferredSummaryBody } from "../deferred.ts";
+import { DeferredSummaryBody, DeferredSummaryMenu } from "../deferred.ts";
 import type { ThreadRef } from "../sources/index.ts";
-import { SummaryMenu } from "./summary-menu.tsx";
 
 /** The pinned card's width; the transcript keeps this much (and a 16px gap) clear beside it. */
 export const summaryWidth = 288;
@@ -86,6 +85,8 @@ export function PinnedSummary(props: {
   const actions = useWorkspaceActions(props.thread.id);
   const workspaceId = useThreadMeta(props.thread.id)?.workspaceId ?? props.thread.workspaceId;
   const project = useProjectName()(workspaceId);
+  // The ⋯ pressed before its menu's code arrived opens the menu once it has.
+  const [menuWanted, setMenuWanted] = useState(false);
   if (!pinned) return null;
   return (
     <aside
@@ -109,7 +110,19 @@ export function PinnedSummary(props: {
           className="size-7"
           onClick={() => actions.setSummaryPinned(false)}
         />
-        <SummaryMenu thread={props.thread} />
+        <Suspense
+          fallback={
+            <IconButton
+              icon={DotsThreeIcon}
+              label="Project and git actions"
+              size="sm"
+              className="size-7"
+              onClick={() => setMenuWanted(true)}
+            />
+          }
+        >
+          <DeferredSummaryMenu.Component thread={props.thread} defaultOpen={menuWanted} />
+        </Suspense>
       </div>
       <Suspense fallback={<SkeletonText lines={4} className="px-2.5 py-2" />}>
         <DeferredSummaryBody.Component thread={props.thread} onAddSource={props.onAddSource} />

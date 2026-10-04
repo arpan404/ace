@@ -1,4 +1,4 @@
-import type { ThreadReader } from "@ace/client";
+import { rootRunOf, type TurnReader } from "./turn-ordinals.ts";
 import type { FileChange, Item } from "@ace/protocol";
 import { countChanges, diffTexts, fold, parseUnifiedDiff, type DiffRow } from "./diff.ts";
 
@@ -23,22 +23,12 @@ const changesOf = (item: Item): readonly FileChange[] =>
  * root turn that spawned it (following `spawnedBy`), so "Turn 2" shows everything turn 2 set
  * in motion. Pure over the reader.
  */
-export function collectTurns(
-  reader: Pick<ThreadReader, "order" | "item" | "run" | "agent" | "thread">,
-): Turn[] {
-  const rootAgent = reader.thread?.rootAgentId;
+export function collectTurns(reader: TurnReader): Turn[] {
   const turns = new Map<string, ToolItem[]>();
-  const rootRun = (runId: string | undefined, depth = 0): string | undefined => {
-    const run = runId ? reader.run(runId) : undefined;
-    if (!run || depth > 16) return undefined;
-    if (run.agentId === rootAgent) return run.id;
-    const spawn = reader.agent(run.agentId)?.spawnedBy;
-    return rootRun(spawn ? reader.item(spawn)?.runId : undefined, depth + 1);
-  };
   for (const id of reader.order) {
     const item = reader.item(id);
     if (!item) continue;
-    const turn = rootRun(item.runId);
+    const turn = rootRunOf(reader, item.runId)?.id;
     if (!turn) continue;
     let edits = turns.get(turn);
     if (!edits) turns.set(turn, (edits = []));
