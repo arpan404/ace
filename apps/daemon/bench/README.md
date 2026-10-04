@@ -42,6 +42,14 @@ Raw measurements are checked in beside this file. Single-run startup, throughput
 
 Long raw series are stored losslessly as `.json.gz`. Any measurement accepts `--output=FILE.json.gz`; stdout remains JSON. Read a checked-in series with `python3 -c 'import gzip,json; print(json.load(gzip.open("apps/daemon/bench/long-after.json.gz"))["retainedEnd"])'`. Small summaries remain plain JSON.
 
+## Long-thread acceptance
+
+`node --expose-gc apps/daemon/bench/long-thread-reliability.ts` runs the fast acceptance workload: 10,000 initial items, 5,000 answered approvals followed by 5,000 pending approvals, 48 provider subagents, four large-gap reconnects, 64 KiB stdout bursts and a concurrent worker history publication. Pending approvals remain open through reconnects. It verifies item counts, exact committed text length, snapshot and frame budgets, retained memory and writes per delta, including a separate pending-approval write sample. Both write samples budget below 2,048 WAL bytes and one changed row per delta. `check:perf` includes this workload in the daemon gate. This review round does not execute it under the owner's merge-time rule.
+
+`node --expose-gc apps/daemon/bench/long-thread-reliability.ts --long` seeds one million items and runs for two days. `--items=N`, `--cycles=N` and `--duration-ms=N` allow shorter investigations. The synthetic provider is a local Node fixture; it never invokes a provider CLI. Memory telemetry retains at most 128 samples, and SQLite checkpointing resumes after the isolated write-volume sample.
+
+`long-thread-writes.ts` compares 1,000 one-character tokens, each preceded by a transport signal, on a WAL truncated immediately before measurement. `long-thread-snapshot.ts` compares the same 10,000-item, 5,000-approval, 48-subagent fixture on both branches. Run each copied script from its own worktree so workspace dependencies resolve to that checkout.
+
 For packaged-desktop idle diagnosis, `compile.ts --cli --runtime` builds the actual
 release CLI entry. `measure.ts --idle-only --entry=… --node=…` samples it for one
 minute and quits with SIGTERM, without sending scripted IPC or provider prompts.

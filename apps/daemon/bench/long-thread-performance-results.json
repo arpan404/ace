@@ -1,0 +1,720 @@
+{
+  "runtime": "Node v26.8.1",
+  "baseCommit": "fb4409a9",
+  "productionCommit": "e8ed215f97a3e97a10438589f5ffcc626d3216ba",
+  "before": {
+    "fastAcceptance": {
+      "timeoutMs": 180000,
+      "result": "SIGTERM after seed pending approvals, reported by orchestrator",
+      "idleRun": "more than ten minutes, reported by owner"
+    },
+    "publicEngineRegression": {
+      "pendingApprovals": 400,
+      "transcriptUpdateChangedRows": 858,
+      "approvalStatusPayloadBytes": 3177128
+    }
+  },
+  "after": {
+    "publicEngineRegression": {
+      "pendingApprovals": 400,
+      "transcriptUpdateChangedRows": 58,
+      "approvalStatusPayloadBytes": 39620,
+      "interleavedTransportHeartbeatStatusPayloadBytesBudget": 65536
+    },
+    "firstDaemonPerformanceGate": {
+      "command": "node apps/daemon/bench/check.ts",
+      "acceptance": {
+        "items": 10000,
+        "approvals": 5000,
+        "subagents": 48,
+        "cycles": 4,
+        "snapshotBytes": 222565,
+        "pendingApprovals": 5000,
+        "pendingSnapshotBytes": 3263553,
+        "pendingWrites": {
+          "walBytesPerDelta": 836.392,
+          "rowsPerDelta": 0.175
+        },
+        "largestFrame": 222632,
+        "snapshotCount": 5,
+        "walBytesPerDelta": 894.072,
+        "rowsPerDelta": 0.181,
+        "first": {
+          "rss": 231112704,
+          "heap": 78979056,
+          "heapTotal": 81821696,
+          "external": 8543886,
+          "arrayBuffers": 411105
+        },
+        "last": {
+          "rss": 236126208,
+          "heap": 79228584,
+          "heapTotal": 82083840,
+          "external": 8543886,
+          "arrayBuffers": 411105
+        },
+        "samples": [
+          {
+            "rss": 259227648,
+            "heap": 78707856,
+            "heapTotal": 82083840,
+            "external": 8543846,
+            "arrayBuffers": 411105
+          },
+          {
+            "rss": 231112704,
+            "heap": 78979056,
+            "heapTotal": 81821696,
+            "external": 8543886,
+            "arrayBuffers": 411105
+          },
+          {
+            "rss": 233930752,
+            "heap": 79445368,
+            "heapTotal": 82083840,
+            "external": 8543886,
+            "arrayBuffers": 411105
+          },
+          {
+            "rss": 236126208,
+            "heap": 79228584,
+            "heapTotal": 82083840,
+            "external": 8543886,
+            "arrayBuffers": 411105
+          }
+        ],
+        "elapsedMs": 37463.378832999995,
+        "errors": 0
+      },
+      "measurement": {
+        "limits": {
+          "idleRss": 268435456,
+          "startupMs": 5000,
+          "idleThreads": 18,
+          "idleWorkers": 1,
+          "activeThreads": 20,
+          "eventsPerSecond": 300,
+          "p99Ms": 50,
+          "retainedHeapGrowth": 8388608,
+          "retainedRssGrowth": 67108864,
+          "shutdownMs": 1500
+        },
+        "measurement": {
+          "startupMs": 1123.8173339999998,
+          "idle10": {
+            "memory": {
+              "rss": 234078208,
+              "heapUsed": 48256184
+            },
+            "threads": 14,
+            "workers": [
+              {
+                "threadId": 3,
+                "entry": "/private/var/folders/5s/qdmf2wmx7rs0qz1l16dnk16c0000gn/T/ace-perf-gate-W2XsCq/notification-worker.mjs",
+                "memory": {
+                  "rss": 234078208,
+                  "heapUsed": 9138576,
+                  "heapTotal": 21118976,
+                  "external": 3457457,
+                  "arrayBuffers": 71914
+                },
+                "collection": ""
+              }
+            ]
+          },
+          "active": {
+            "memory": {
+              "rss": 268304384,
+              "heapUsed": 47398304
+            },
+            "threads": 15,
+            "workers": [
+              {
+                "threadId": 3,
+                "entry": "/private/var/folders/5s/qdmf2wmx7rs0qz1l16dnk16c0000gn/T/ace-perf-gate-W2XsCq/notification-worker.mjs",
+                "memory": {
+                  "rss": 268304384,
+                  "heapUsed": 11502304,
+                  "heapTotal": 21118976,
+                  "external": 3457457,
+                  "arrayBuffers": 71914
+                },
+                "collection": ""
+              },
+              {
+                "threadId": 4,
+                "entry": "/private/var/folders/5s/qdmf2wmx7rs0qz1l16dnk16c0000gn/T/ace-perf-gate-W2XsCq/usage-worker.mjs",
+                "memory": {
+                  "rss": 268304384,
+                  "heapUsed": 9912464,
+                  "heapTotal": 21643264,
+                  "external": 3457457,
+                  "arrayBuffers": 71914
+                },
+                "collection": ""
+              }
+            ]
+          },
+          "eventsPerSecond": 375.37832852064923,
+          "p99Ms": 5.0244140625,
+          "shutdownMs": 213.11466700000165,
+          "retainedStart": {
+            "rss": 259620864,
+            "heapUsed": 45998256
+          },
+          "retainedEnd": {
+            "rss": 255328256,
+            "heapUsed": 46215512
+          },
+          "soak": [
+            {
+              "elapsedMs": 2796.635333,
+              "rss": 265682944
+            },
+            {
+              "elapsedMs": 9534.127040999998,
+              "rss": 277856256
+            }
+          ]
+        },
+        "violations": []
+      }
+    },
+    "secondDaemonPerformanceGate": {
+      "command": "node apps/daemon/bench/check.ts",
+      "acceptance": {
+        "items": 10000,
+        "approvals": 5000,
+        "subagents": 48,
+        "cycles": 4,
+        "snapshotBytes": 222565,
+        "pendingApprovals": 5000,
+        "pendingSnapshotBytes": 3263553,
+        "pendingWrites": {
+          "walBytesPerDelta": 873.472,
+          "rowsPerDelta": 0.175
+        },
+        "largestFrame": 222632,
+        "snapshotCount": 5,
+        "walBytesPerDelta": 840.512,
+        "rowsPerDelta": 0.18,
+        "first": {
+          "rss": 227786752,
+          "heap": 79061160,
+          "heapTotal": 81035264,
+          "external": 8543886,
+          "arrayBuffers": 411105
+        },
+        "last": {
+          "rss": 231931904,
+          "heap": 79222856,
+          "heapTotal": 82083840,
+          "external": 8543886,
+          "arrayBuffers": 411105
+        },
+        "samples": [
+          {
+            "rss": 247808000,
+            "heap": 78725464,
+            "heapTotal": 82345984,
+            "external": 8543846,
+            "arrayBuffers": 411105
+          },
+          {
+            "rss": 227786752,
+            "heap": 79061160,
+            "heapTotal": 81035264,
+            "external": 8543886,
+            "arrayBuffers": 411105
+          },
+          {
+            "rss": 230031360,
+            "heap": 79323424,
+            "heapTotal": 82083840,
+            "external": 8543886,
+            "arrayBuffers": 411105
+          },
+          {
+            "rss": 231931904,
+            "heap": 79222856,
+            "heapTotal": 82083840,
+            "external": 8543886,
+            "arrayBuffers": 411105
+          }
+        ],
+        "elapsedMs": 44040.974791,
+        "errors": 0,
+        "phases": {
+          "itemsMs": 7284.101834,
+          "pendingApprovalsMs": 13992.341917
+        },
+        "totalElapsedMs": 72697.47975
+      },
+      "measurement": {
+        "limits": {
+          "idleRss": 268435456,
+          "startupMs": 5000,
+          "idleThreads": 18,
+          "idleWorkers": 1,
+          "activeThreads": 20,
+          "eventsPerSecond": 300,
+          "p99Ms": 50,
+          "retainedHeapGrowth": 8388608,
+          "retainedRssGrowth": 67108864,
+          "shutdownMs": 1500
+        },
+        "measurement": {
+          "startupMs": 1123.513792,
+          "idle10": {
+            "memory": {
+              "rss": 235126784,
+              "heapUsed": 44995640
+            },
+            "threads": 14,
+            "workers": [
+              {
+                "threadId": 3,
+                "entry": "/private/var/folders/5s/qdmf2wmx7rs0qz1l16dnk16c0000gn/T/ace-perf-gate-pINRy9/notification-worker.mjs",
+                "memory": {
+                  "rss": 235126784,
+                  "heapUsed": 9131912,
+                  "heapTotal": 21381120,
+                  "external": 3457457,
+                  "arrayBuffers": 71914
+                },
+                "collection": ""
+              }
+            ]
+          },
+          "active": {
+            "memory": {
+              "rss": 258932736,
+              "heapUsed": 47277560
+            },
+            "threads": 15,
+            "workers": [
+              {
+                "threadId": 3,
+                "entry": "/private/var/folders/5s/qdmf2wmx7rs0qz1l16dnk16c0000gn/T/ace-perf-gate-pINRy9/notification-worker.mjs",
+                "memory": {
+                  "rss": 258932736,
+                  "heapUsed": 11494544,
+                  "heapTotal": 21381120,
+                  "external": 3457457,
+                  "arrayBuffers": 71914
+                },
+                "collection": ""
+              },
+              {
+                "threadId": 4,
+                "entry": "/private/var/folders/5s/qdmf2wmx7rs0qz1l16dnk16c0000gn/T/ace-perf-gate-pINRy9/usage-worker.mjs",
+                "memory": {
+                  "rss": 258932736,
+                  "heapUsed": 9912720,
+                  "heapTotal": 21381120,
+                  "external": 3457457,
+                  "arrayBuffers": 71914
+                },
+                "collection": ""
+              }
+            ]
+          },
+          "eventsPerSecond": 321.259667689668,
+          "p99Ms": 11.295166015625,
+          "shutdownMs": 141.26245799999742,
+          "retainedStart": {
+            "rss": 253804544,
+            "heapUsed": 45992784
+          },
+          "retainedEnd": {
+            "rss": 258048000,
+            "heapUsed": 43501712
+          },
+          "soak": [
+            {
+              "elapsedMs": 483.75004199999967,
+              "rss": 253804544
+            },
+            {
+              "elapsedMs": 985.983291999999,
+              "rss": 273121280
+            },
+            {
+              "elapsedMs": 1451.6636249999992,
+              "rss": 274317312
+            },
+            {
+              "elapsedMs": 1936.207207999998,
+              "rss": 292896768
+            },
+            {
+              "elapsedMs": 2406.466125000001,
+              "rss": 297615360
+            },
+            {
+              "elapsedMs": 2917.723583000001,
+              "rss": 297893888
+            },
+            {
+              "elapsedMs": 3403.463207999999,
+              "rss": 327319552
+            },
+            {
+              "elapsedMs": 3906.5558330000003,
+              "rss": 329515008
+            },
+            {
+              "elapsedMs": 4442.696916999999,
+              "rss": 331792384
+            },
+            {
+              "elapsedMs": 4943.746042000001,
+              "rss": 333381632
+            },
+            {
+              "elapsedMs": 5458.556542,
+              "rss": 333479936
+            }
+          ]
+        },
+        "violations": []
+      }
+    },
+    "daemonPerformanceGate": {
+      "productionCommit": "108906b6",
+      "command": "node apps/daemon/bench/check.ts",
+      "acceptance": {
+        "items": 10000,
+        "approvals": 5000,
+        "subagents": 48,
+        "cycles": 4,
+        "snapshotBytes": 222565,
+        "pendingApprovals": 5000,
+        "pendingSnapshotBytes": 3263553,
+        "pendingWrites": {
+          "walBytesPerDelta": 844.632,
+          "rowsPerDelta": 0.175
+        },
+        "largestFrame": 222632,
+        "snapshotCount": 5,
+        "walBytesPerDelta": 852.872,
+        "rowsPerDelta": 0.181,
+        "first": {
+          "rss": 225427456,
+          "heap": 79148992,
+          "heapTotal": 81821696,
+          "external": 8543886,
+          "arrayBuffers": 411105
+        },
+        "last": {
+          "rss": 226623488,
+          "heap": 79165048,
+          "heapTotal": 82083840,
+          "external": 8543886,
+          "arrayBuffers": 411105
+        },
+        "samples": [
+          {
+            "rss": 259178496,
+            "heap": 78683496,
+            "heapTotal": 81821696,
+            "external": 8543846,
+            "arrayBuffers": 411105
+          },
+          {
+            "rss": 225427456,
+            "heap": 79148992,
+            "heapTotal": 81821696,
+            "external": 8543886,
+            "arrayBuffers": 411105
+          },
+          {
+            "rss": 226361344,
+            "heap": 79112824,
+            "heapTotal": 81559552,
+            "external": 8543886,
+            "arrayBuffers": 411105
+          },
+          {
+            "rss": 226623488,
+            "heap": 79165048,
+            "heapTotal": 82083840,
+            "external": 8543886,
+            "arrayBuffers": 411105
+          }
+        ],
+        "elapsedMs": 45153.39462500001,
+        "errors": 0,
+        "phases": {
+          "itemsMs": 9292.138792,
+          "pendingApprovalsMs": 22749.905833
+        },
+        "totalElapsedMs": 85413.13833399999
+      },
+      "measurement": {
+        "limits": {
+          "idleRss": 268435456,
+          "startupMs": 5000,
+          "idleThreads": 18,
+          "idleWorkers": 1,
+          "activeThreads": 20,
+          "eventsPerSecond": 300,
+          "p99Ms": 50,
+          "retainedHeapGrowth": 8388608,
+          "retainedRssGrowth": 67108864,
+          "shutdownMs": 1500
+        },
+        "measurement": {
+          "startupMs": 988.8656659999999,
+          "idle10": {
+            "memory": {
+              "rss": 223199232,
+              "heapUsed": 51410928
+            },
+            "threads": 14,
+            "workers": [
+              {
+                "threadId": 3,
+                "entry": "/private/var/folders/5s/qdmf2wmx7rs0qz1l16dnk16c0000gn/T/ace-perf-gate-6LrzOK/notification-worker.mjs",
+                "memory": {
+                  "rss": 223199232,
+                  "heapUsed": 9132096,
+                  "heapTotal": 21118976,
+                  "external": 3457457,
+                  "arrayBuffers": 71914
+                },
+                "collection": ""
+              }
+            ]
+          },
+          "active": {
+            "memory": {
+              "rss": 265748480,
+              "heapUsed": 47393080
+            },
+            "threads": 15,
+            "workers": [
+              {
+                "threadId": 3,
+                "entry": "/private/var/folders/5s/qdmf2wmx7rs0qz1l16dnk16c0000gn/T/ace-perf-gate-6LrzOK/notification-worker.mjs",
+                "memory": {
+                  "rss": 265748480,
+                  "heapUsed": 11494720,
+                  "heapTotal": 21118976,
+                  "external": 3457457,
+                  "arrayBuffers": 71914
+                },
+                "collection": ""
+              },
+              {
+                "threadId": 4,
+                "entry": "/private/var/folders/5s/qdmf2wmx7rs0qz1l16dnk16c0000gn/T/ace-perf-gate-6LrzOK/usage-worker.mjs",
+                "memory": {
+                  "rss": 265748480,
+                  "heapUsed": 9915512,
+                  "heapTotal": 21643264,
+                  "external": 3457457,
+                  "arrayBuffers": 71914
+                },
+                "collection": ""
+              }
+            ]
+          },
+          "eventsPerSecond": 390.08632035282176,
+          "p99Ms": 5.253173828125,
+          "shutdownMs": 115.2542919999978,
+          "retainedStart": {
+            "rss": 261242880,
+            "heapUsed": 45991008
+          },
+          "retainedEnd": {
+            "rss": 262356992,
+            "heapUsed": 43499128
+          },
+          "soak": [
+            {
+              "elapsedMs": 448.23649999999907,
+              "rss": 261259264
+            },
+            {
+              "elapsedMs": 888.0451250000006,
+              "rss": 279363584
+            },
+            {
+              "elapsedMs": 1332.999582999999,
+              "rss": 284606464
+            },
+            {
+              "elapsedMs": 1789.5064579999998,
+              "rss": 297664512
+            },
+            {
+              "elapsedMs": 2251.506374999999,
+              "rss": 301481984
+            },
+            {
+              "elapsedMs": 2736.234291999999,
+              "rss": 301989888
+            },
+            {
+              "elapsedMs": 3207.823083000001,
+              "rss": 328712192
+            },
+            {
+              "elapsedMs": 3662.9434999999994,
+              "rss": 333676544
+            },
+            {
+              "elapsedMs": 4134.781417,
+              "rss": 333676544
+            },
+            {
+              "elapsedMs": 4612.8566249999985,
+              "rss": 337018880
+            },
+            {
+              "elapsedMs": 5072.677541999999,
+              "rss": 338362368
+            }
+          ]
+        },
+        "violations": []
+      }
+    },
+    "millionItemAcceptance": {
+      "productionCommit": "e8ed215f97a3e97a10438589f5ffcc626d3216ba",
+      "benchmarkSourceCommit": "8417f9f4",
+      "command": "node --expose-gc apps/daemon/bench/long-thread-reliability.ts --long --duration-ms=0",
+      "result": {
+        "items": 1000000,
+        "approvals": 5000,
+        "subagents": 48,
+        "cycles": 12,
+        "snapshotBytes": 223369,
+        "pendingApprovals": 5000,
+        "pendingSnapshotBytes": 3263959,
+        "pendingWrites": {
+          "walBytesPerDelta": 832.272,
+          "rowsPerDelta": 0.179
+        },
+        "largestFrame": 223438,
+        "snapshotCount": 13,
+        "walBytesPerDelta": 922.912,
+        "rowsPerDelta": 0.183,
+        "first": {
+          "rss": 229588992,
+          "heap": 78133816,
+          "heapTotal": 81428480,
+          "external": 8544989,
+          "arrayBuffers": 411107
+        },
+        "last": {
+          "rss": 235896832,
+          "heap": 78396464,
+          "heapTotal": 80642048,
+          "external": 8544990,
+          "arrayBuffers": 411108
+        },
+        "samples": [
+          {
+            "rss": 253067264,
+            "heap": 77737952,
+            "heapTotal": 80642048,
+            "external": 8544949,
+            "arrayBuffers": 411107
+          },
+          {
+            "rss": 229588992,
+            "heap": 78133816,
+            "heapTotal": 81428480,
+            "external": 8544989,
+            "arrayBuffers": 411107
+          },
+          {
+            "rss": 230064128,
+            "heap": 77999848,
+            "heapTotal": 80642048,
+            "external": 8544989,
+            "arrayBuffers": 411107
+          },
+          {
+            "rss": 230588416,
+            "heap": 78188104,
+            "heapTotal": 81428480,
+            "external": 8544989,
+            "arrayBuffers": 411107
+          },
+          {
+            "rss": 231440384,
+            "heap": 78010704,
+            "heapTotal": 81166336,
+            "external": 8544989,
+            "arrayBuffers": 411107
+          },
+          {
+            "rss": 232488960,
+            "heap": 78149592,
+            "heapTotal": 80904192,
+            "external": 8544989,
+            "arrayBuffers": 411107
+          },
+          {
+            "rss": 233799680,
+            "heap": 78175448,
+            "heapTotal": 80904192,
+            "external": 8544989,
+            "arrayBuffers": 411107
+          },
+          {
+            "rss": 233652224,
+            "heap": 78277784,
+            "heapTotal": 81166336,
+            "external": 8544989,
+            "arrayBuffers": 411107
+          },
+          {
+            "rss": 233897984,
+            "heap": 78317216,
+            "heapTotal": 81166336,
+            "external": 8544990,
+            "arrayBuffers": 411108
+          },
+          {
+            "rss": 234143744,
+            "heap": 78474344,
+            "heapTotal": 81166336,
+            "external": 8544990,
+            "arrayBuffers": 411108
+          },
+          {
+            "rss": 234242048,
+            "heap": 78392512,
+            "heapTotal": 81428480,
+            "external": 8544990,
+            "arrayBuffers": 411108
+          },
+          {
+            "rss": 235896832,
+            "heap": 78396464,
+            "heapTotal": 80642048,
+            "external": 8544990,
+            "arrayBuffers": 411108
+          }
+        ],
+        "elapsedMs": 199426.13749999995,
+        "errors": 0,
+        "phases": {
+          "itemsMs": 1383851.892959,
+          "pendingApprovalsMs": 22544.595541000133
+        },
+        "totalElapsedMs": 1618683.2468750002
+      },
+      "coverage": "Includes the persistence, permission and entity-batching fixes. This synthetic provider emits no standalone signal facts; the subsequent interleaved-heartbeat fix is covered by the final head gate and process regressions."
+    },
+    "processTests": {
+      "command": "bunx vitest run apps/daemon/src/engine/records-write-budget.process.test.ts apps/daemon/src/engine/permissions.process.test.ts",
+      "passed": 21
+    }
+  },
+  "sampling": "Retained memory samples follow completed asynchronous last-resort major GC. They measure retained memory, not ordinary daemon allocator RSS."
+}

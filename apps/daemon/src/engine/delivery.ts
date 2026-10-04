@@ -34,6 +34,7 @@ export async function executeIntent(
     } catch (error) {
       throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error));
     }
+    await repo.store.writable();
     if (repo.cancelled(intent.id)) throw new Error("Cancelled before delivery");
     const capabilities =
       actor.effectiveCapabilities ??
@@ -62,6 +63,7 @@ export async function executeIntent(
             capabilities,
           )
         : undefined;
+    await repo.store.writable();
     if (
       repo.cancelled(intent.id) ||
       actor.lifetime?.signal.aborted ||
@@ -88,6 +90,7 @@ export async function executeIntent(
           throw new DeliveryNotStarted(error instanceof Error ? error.message : String(error));
         }
       }
+      await repo.store.writable();
       if (
         repo.cancelled(intent.id) ||
         actor.lifetime?.signal.aborted ||
@@ -125,6 +128,7 @@ export async function executeIntent(
           : "queue",
         intent.command.id,
       );
+      await repo.store.writable();
       transitions.delivered(actor.id);
     } catch (error) {
       actor.releaseInput(intent.id);

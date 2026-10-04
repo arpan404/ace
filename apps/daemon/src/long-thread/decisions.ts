@@ -21,12 +21,14 @@ export function itemTurnOrdinal(facts: {
 }
 
 export function createdAgentTurnOrdinal(facts: {
+  existingOrdinal: number | undefined;
   origin: AgentOrigin;
   headOrdinal: number;
   spawnedByOrdinal: number | undefined;
   parentOrdinal: number | undefined;
   currentOrdinal: number;
 }): number {
+  if (facts.existingOrdinal !== undefined) return facts.existingOrdinal;
   return facts.origin === "root"
     ? facts.headOrdinal
     : (facts.spawnedByOrdinal ?? facts.parentOrdinal ?? facts.currentOrdinal);

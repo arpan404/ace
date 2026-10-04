@@ -43,6 +43,7 @@ export class Sessions {
     this.dependencies = dependencies;
   }
   async open(actor: ThreadActor): Promise<void> {
+    await this.dependencies.repo.store.writable();
     const stateBefore = this.dependencies.repo.requireState(actor.id);
     // A prepared root is starting before its first turn, not a pinned live policy.
     const ownLive = stateBefore.hasRun && !this.dependencies.repo.quiescent(stateBefore);
@@ -53,6 +54,7 @@ export class Sessions {
           actor.id,
           this.dependencies.permissionSettings,
         );
+    await this.dependencies.repo.store.writable();
     const entry = this.dependencies.registry.get(
       stateBefore.config.provider,
       this.dependencies.repo.backend(actor.id),
@@ -86,6 +88,7 @@ export class Sessions {
         if (!this.dependencies.prepareWorkspace)
           throw new Error("Worktree preparation unavailable");
         const cwd = await this.dependencies.prepareWorkspace(actor.id);
+        await this.dependencies.repo.store.writable();
         this.dependencies.repo.store.completeWorkspacePreparation(actor.id, metadata.cwd, cwd);
         metadata = this.dependencies.repo.session(actor.id);
         if (!metadata.workspaceReady || metadata.cwd !== cwd)
@@ -111,9 +114,11 @@ export class Sessions {
           ? this.dependencies.mcp?.(actor.id, rootAgent.id, lifetime.signal)
           : undefined;
       const context = await this.dependencies.context?.(actor.id, lifetime.signal);
+      await this.dependencies.repo.store.writable();
       this.dependencies.repo.store.workspaceReservations.assertAvailable(metadata.cwd);
       const session = await adapter.openSession({
         ...context,
+        outputFlow: actor.outputFlow,
         permissionMode: mode,
         ...(aceMcp ? { aceMcp } : {}),
         options: transition.selection?.options ?? metadata.options ?? {},
@@ -170,8 +175,8 @@ export class Sessions {
           });
         },
         onFrame: (frame) => {
-          actor.frame(frame, generation);
-          const committed = actor.flush().then(() => {
+          const accepted = actor.frame(frame, generation);
+          const committed = accepted.then(() => {
             if (actor.poisoned) throw new Error("Provider frame failed to commit");
           });
           // Void consumers rely on the actor's failure facts; ACK consumers still

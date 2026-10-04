@@ -49,3 +49,69 @@ export function zodWithoutJsonSchema(): Plugin {
     },
   };
 }
+
+/** Protocol sources, whose `.meta()` annotations exist only for the generated protocol docs. */
+const protocolSource = /\/packages\/protocol\/src\/[^?]*\.ts(?:\?|$)/;
+
+interface Node {
+  type: string;
+  start: number;
+  end: number;
+  [key: string]: unknown;
+}
+
+const isNode = (value: unknown): value is Node =>
+  typeof value === "object" && value !== null && typeof (value as Node).type === "string";
+
+/** `schema.meta(annotations)`: the span from the end of `schema` to the closing parenthesis. */
+function metaCall(node: Node): [number, number] | undefined {
+  if (node.type !== "CallExpression" || (node["arguments"] as unknown[]).length !== 1) return;
+  const callee = node["callee"];
+  if (!isNode(callee) || callee.type !== "MemberExpression" || callee["computed"]) return;
+  const property = callee["property"];
+  const object = callee["object"];
+  if (!isNode(property) || property["name"] !== "meta" || !isNode(object)) return;
+  return [object.end, node.end];
+}
+
+/**
+ * Schema annotations (`.meta({...})`: constraint prose, examples, JSON Schema keywords) only
+ * feed JSON Schema generation, which browser builds don't bundle (see above), and parsing never
+ * reads them. They are several kilobytes of prose in the client worker, so browser builds drop
+ * each `.meta(annotations)` call from protocol sources. The call returns a registered copy of
+ * its receiver, so the receiver alone parses identically. Removed spans become whitespace, so
+ * every other position, and the sourcemap, is unchanged; reading `.meta()` returns undefined.
+ */
+export function zodWithoutMetadata(): Plugin {
+  return {
+    name: "ace:zod-without-metadata",
+    transform(code, id) {
+      if (!protocolSource.test(id) || !code.includes(".meta(")) return null;
+      const spans: [number, number][] = [];
+      const visit = (value: unknown): void => {
+        if (Array.isArray(value)) {
+          for (const entry of value) visit(entry);
+          return;
+        }
+        if (!isNode(value)) return;
+        const span = metaCall(value);
+        // Annotations never nest schemas, so the receiver is the only part left to visit.
+        if (span) {
+          spans.push(span);
+          visit((value["callee"] as Node)["object"]);
+          return;
+        }
+        for (const key in value) if (key !== "type") visit(value[key]);
+      };
+      visit(this.parse(code));
+      if (!spans.length) return null;
+      let out = "";
+      let at = 0;
+      for (const [start, end] of spans.toSorted((a, b) => a[0] - b[0])) {
+        out += code.slice(at, start) + code.slice(start, end).replace(/[^\n]/g, " ");
+        at = end;
+      }
+      return { code: out + code.slice(at), map: null };
+    },
+  };
+}

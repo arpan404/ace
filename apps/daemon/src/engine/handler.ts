@@ -273,12 +273,16 @@ export function engineHandler(
               return fail("unsupported_child_control");
           }
         } else if (p.type === "interaction.resolve" || p.type === "background_task.stop") {
-          for (const state of repo.states()) {
+          const owner = repo.entityThread(
+            p.type === "interaction.resolve" ? "interactions" : "backgroundTasks",
+            p.type === "interaction.resolve" ? p.interactionId : p.taskId,
+          );
+          const state = owner ? repo.state(owner) : undefined;
+          if (state) {
             if (p.type === "interaction.resolve") {
-              const interaction = Object.values(state.interactions).find(
-                (item) => item.id === p.interactionId,
-              );
-              if (!interaction) continue;
+              const key = repo.nativeEntity(state.threadId, "interactions", p.interactionId);
+              const interaction = key === undefined ? undefined : state.interactions[key];
+              if (!interaction) return fail("already_resolved");
               if (interaction.state !== "pending" || repo.reserved(interaction.id))
                 return fail("already_resolved");
               if (!validResolution(interaction.request, p.resolution))
@@ -291,13 +295,13 @@ export function engineHandler(
               if (permissionError) return fail(permissionError);
               threadId = state.threadId;
               resolutionId = interaction.id;
-              break;
+            } else {
+              const key = repo.nativeEntity(state.threadId, "tasks", p.taskId);
+              const task = key === undefined ? undefined : state.tasks[key];
+              if (!task) return fail("task_not_found");
+              if (task.status !== "running" || !task.stoppable) return fail("task_not_stoppable");
+              threadId = state.threadId;
             }
-            const task = Object.values(state.tasks).find((entry) => entry.id === p.taskId);
-            if (!task) continue;
-            if (task.status !== "running" || !task.stoppable) return fail("task_not_stoppable");
-            threadId = state.threadId;
-            break;
           }
           if (!threadId)
             return fail(p.type === "interaction.resolve" ? "already_resolved" : "task_not_found");

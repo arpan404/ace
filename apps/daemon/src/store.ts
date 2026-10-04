@@ -36,6 +36,7 @@ import { systemCredentials, type CredentialRuntime } from "./credential-runtime.
 import { randomUUID } from "node:crypto";
 import { DatabaseSync, type StatementSync, type SQLOutputValue } from "@ace/provider-kit/sqlite";
 import {
+  EntitiesPage,
   McpIntent,
   CommandResult,
   Event,
@@ -50,7 +51,7 @@ import {
   WorkspaceId,
   WorkspaceFileChange,
 } from "@ace/protocol";
-import { applyDelivery, updateThread } from "@ace/projection";
+import { updateThread } from "@ace/projection";
 import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
 import { migrate } from "./migrations.ts";
@@ -155,10 +156,15 @@ export class Store {
       });
       this.searchQueries = new SearchQueries(path, options.searchWorkerFactory);
       this.stopSearchTimer = (options.searchScheduler ?? scheduleSearch)(() => {
+        if (this.historyWriting) return;
         try {
           this.search.flush();
         } catch (error) {
-          this.onError(error);
+          try {
+            this.onError(error);
+          } catch {
+            /* The interval retries on its next pass. */
+          }
         }
       });
     } catch (error) {
@@ -225,7 +231,6 @@ export class Store {
   }
   private transaction<T>(run: () => T): T {
     if (this.installingHistory) return run();
-    if (this.historyWriting) throw new Error("History publication in progress");
     if (this.transactionEvents) {
       const length = this.transactionEvents.length;
       const savepoint = `nested_${++this.depth}`;
@@ -242,7 +247,7 @@ export class Store {
         this.depth--;
       }
     }
-    this.db.exec("BEGIN IMMEDIATE");
+    this.db.exec(this.historyWriting ? "BEGIN" : "BEGIN IMMEDIATE");
     this.transactionEvents = [];
     let result: T;
     let events: Event[];
@@ -287,17 +292,13 @@ export class Store {
     try {
       let batch: Event[] | undefined;
       while ((batch = this.publications.shift())) {
-        for (const { view } of this.caches.values())
-          applyDelivery(view, {
-            type: "events",
-            subscriptionId: "cache",
-            afterSeq: view.seq,
-            throughSeq: batch.at(-1)?.seq ?? view.seq,
-            events: batch.filter(
-              (event) =>
-                event.threadId === view.thread.id && !event.payload.type.startsWith("item."),
-            ),
-          });
+        for (const { view } of this.caches.values()) {
+          const changes = batch.filter(
+            (event) => event.threadId === view.thread.id && !event.payload.type.startsWith("item."),
+          );
+          if (changes.length) this.status.updateCache(view, changes);
+          view.seq = batch.at(-1)?.seq ?? view.seq;
+        }
         const listeners = [...this.listeners];
         for (const listener of listeners) {
           try {
@@ -315,11 +316,23 @@ export class Store {
       this.publishing = false;
     }
   }
+  private historyWaiters = new Set<() => void>();
+  isHistoryWriting(): boolean {
+    return this.historyWriting;
+  }
+  async writable(): Promise<void> {
+    while (this.historyWriting)
+      await new Promise<void>((resolve) => this.historyWaiters.add(resolve));
+  }
   setHistoryWriting(active: boolean): void {
     if (active && this.historyWriting) throw new Error("History publication in progress");
     this.historyWriting = active;
     // Main-thread writes fail immediately while the worker holds the import transaction.
     this.db.exec(active ? "PRAGMA busy_timeout=0" : "PRAGMA busy_timeout=5000");
+    if (!active) {
+      for (const resolve of this.historyWaiters) resolve();
+      this.historyWaiters.clear();
+    }
   }
   installHistory(archive: ArchiveReader, at: number, cancelled: () => boolean): void {
     if (this.transactionEvents || this.installingHistory) throw new Error("Store is busy");
@@ -397,7 +410,6 @@ export class Store {
     return row ? this.decodeThread(row) : undefined;
   }
   createWorkspace(path: string, name: string, at = this.now(), deck?: DeckOwnership): WorkspaceId {
-    if (this.historyWriting) throw new Error("History publication in progress");
     return this.atomic(() => {
       const existing = this.statement("SELECT id FROM workspaces WHERE path = ?").get(path);
       const id = WorkspaceId.parse(existing?.id ?? this.nextId());
@@ -521,7 +533,7 @@ export class Store {
             thread.imported ? JSON.stringify(thread.imported) : null,
           );
         } else {
-          const existing = this.getThread(threadId);
+          const existing = previous;
           if (!existing) throw new Error("Unknown thread");
           thread = existing;
         }
@@ -536,28 +548,29 @@ export class Store {
             encodeThreadClient(thread),
             thread.id,
           );
-        this.statement(
-          "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ?, provider = ?, transitions = ?, provider_metadata = ? WHERE id = ?",
-        ).run(
-          thread.title,
-          JSON.stringify(thread.status),
-          thread.updatedAt,
-          thread.archivedAt ?? null,
-          thread.rootAgentId ?? null,
-          thread.provider,
-          JSON.stringify({
-            lineage: thread.lineage,
-            execution: thread.execution,
-            switch: thread.switch,
-          }),
-          JSON.stringify({
-            backend: thread.backend,
-            capabilities: thread.capabilities,
-            handoff: thread.handoff,
-            permission: thread.permission,
-          }),
-          thread.id,
-        );
+        if (event.payload.type !== "item.delta")
+          this.statement(
+            "UPDATE threads SET title = ?, status = ?, updated_at = ?, archived_at = ?, root_agent_id = ?, provider = ?, transitions = ?, provider_metadata = ? WHERE id = ?",
+          ).run(
+            thread.title,
+            JSON.stringify(thread.status),
+            thread.updatedAt,
+            thread.archivedAt ?? null,
+            thread.rootAgentId ?? null,
+            thread.provider,
+            JSON.stringify({
+              lineage: thread.lineage,
+              execution: thread.execution,
+              switch: thread.switch,
+            }),
+            JSON.stringify({
+              backend: thread.backend,
+              capabilities: thread.capabilities,
+              handoff: thread.handoff,
+              permission: thread.permission,
+            }),
+            thread.id,
+          );
         if (
           event.payload.type === "thread.created" ||
           (event.payload.type === "thread.updated" &&
@@ -624,25 +637,37 @@ export class Store {
   listMcpAgents(threadId: ThreadId, cursor: string, limit: number) {
     return this.mcp.agents(threadId, cursor, limit);
   }
-  readEvents(options: { afterSeq: number; threadId?: ThreadId; limit: number }): Event[] {
+  readEvents(options: {
+    afterSeq: number;
+    threadId?: ThreadId;
+    limit: number;
+    byteLimit?: number;
+  }): Event[] {
     const rows =
       options.threadId === undefined
-        ? this.statement("SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?").all(
+        ? this.statement("SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?").iterate(
             options.afterSeq,
             options.limit,
           )
         : this.statement(
             "SELECT * FROM events WHERE seq > ? AND thread_id = ? ORDER BY seq LIMIT ?",
-          ).all(options.afterSeq, options.threadId, options.limit);
-    return rows.map((row) =>
-      Event.parse({
+          ).iterate(options.afterSeq, options.threadId, options.limit);
+    const events: Event[] = [];
+    let bytes = 0;
+    for (const row of rows) {
+      const event = Event.parse({
         seq: row.seq,
         id: row.id,
         threadId: row.thread_id,
         at: row.at,
         payload: JSON.parse(String(row.payload)),
-      }),
-    );
+      });
+      events.push(event);
+      bytes += Buffer.byteLength(JSON.stringify(event));
+      // Include the crossing event so replay's caller can distinguish overflow from completion.
+      if (bytes > (options.byteLimit ?? Infinity)) break;
+    }
+    return events;
   }
   /** Usage replay skips transcript/output payloads while advancing host coverage. */
   readUsagePage(options: { afterSeq: number; limit: number; maxBytes?: number }) {
@@ -728,7 +753,7 @@ export class Store {
     if (view.seq < head) {
       const thread = this.getThread(id);
       if (!thread) throw new Error("Unknown thread");
-      Object.assign(view, this.status.snapshot(thread, head));
+      this.status.replaceCache(view, this.status.snapshot(thread, head));
     }
   }
   snapshotThread(id: ThreadId): ThreadView {
@@ -740,10 +765,24 @@ export class Store {
       view.itemOrder = page.items.map((item) => item.id);
       view.itemsBefore = page.itemsBefore;
       if (page.itemSeqs) view.itemSeqs = page.itemSeqs;
+      this.status.retainItemAgents(view);
       return view;
     } finally {
       this.releaseThread(id);
     }
+  }
+  readEntityPage(
+    threadId: ThreadId,
+    collection: import("@ace/protocol").EntityCollection,
+    before: number,
+    limit: number,
+  ) {
+    const thread = this.getThread(threadId);
+    if (!thread) throw new Error("Unknown thread");
+    return EntitiesPage.parse({
+      ...this.status.page(thread, collection, before, limit),
+      seq: this.headSeq(),
+    });
   }
   getInteraction(id: string) {
     return this.status.interaction(id);

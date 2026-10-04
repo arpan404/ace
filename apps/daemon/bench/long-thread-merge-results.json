@@ -1,0 +1,251 @@
+{
+  "runtime": "Node v26.8.1",
+  "fastDiagnostic": {
+    "productionCommit": "8d86e90a7227361e5053377665b598b44b0d3095",
+    "sampling": "synchronous regular GC, before the collection-completion correction",
+    "command": "node --expose-gc apps/daemon/bench/long-thread-reliability.ts --items=10000 --cycles=12 --duration-ms=0",
+    "result": {
+      "items": 10000,
+      "approvals": 5000,
+      "subagents": 48,
+      "cycles": 12,
+      "snapshotBytes": 222565,
+      "pendingApprovals": 5000,
+      "pendingSnapshotBytes": 3263553,
+      "pendingWrites": {
+        "walBytesPerDelta": 877.592,
+        "rowsPerDelta": 0.175
+      },
+      "largestFrame": 222632,
+      "snapshotCount": 13,
+      "walBytesPerDelta": 840.512,
+      "rowsPerDelta": 0.181,
+      "first": {
+        "rss": 387923968,
+        "heap": 78651352,
+        "heapTotal": 149585920,
+        "external": 13816346,
+        "arrayBuffers": 476704
+      },
+      "last": {
+        "rss": 403243008,
+        "heap": 79510936,
+        "heapTotal": 155877376,
+        "external": 13488106,
+        "arrayBuffers": 476706
+      },
+      "samples": [
+        {
+          "rss": 518701056,
+          "heap": 78597328,
+          "heapTotal": 196624384,
+          "external": 9928525,
+          "arrayBuffers": 476704
+        },
+        {
+          "rss": 387923968,
+          "heap": 78651352,
+          "heapTotal": 149585920,
+          "external": 13816346,
+          "arrayBuffers": 476704
+        },
+        {
+          "rss": 404160512,
+          "heap": 78859232,
+          "heapTotal": 185499648,
+          "external": 8896791,
+          "arrayBuffers": 476704
+        },
+        {
+          "rss": 388546560,
+          "heap": 78876264,
+          "heapTotal": 186023936,
+          "external": 8962451,
+          "arrayBuffers": 476704
+        },
+        {
+          "rss": 384892928,
+          "heap": 79145160,
+          "heapTotal": 157188096,
+          "external": 13487610,
+          "arrayBuffers": 476704
+        },
+        {
+          "rss": 392265728,
+          "heap": 79265104,
+          "heapTotal": 157712384,
+          "external": 13488059,
+          "arrayBuffers": 476704
+        },
+        {
+          "rss": 389038080,
+          "heap": 78880648,
+          "heapTotal": 151420928,
+          "external": 12619344,
+          "arrayBuffers": 476705
+        },
+        {
+          "rss": 401702912,
+          "heap": 79115584,
+          "heapTotal": 171606016,
+          "external": 8897273,
+          "arrayBuffers": 476705
+        },
+        {
+          "rss": 403898368,
+          "heap": 79219952,
+          "heapTotal": 173965312,
+          "external": 8897287,
+          "arrayBuffers": 476706
+        },
+        {
+          "rss": 393166848,
+          "heap": 79469536,
+          "heapTotal": 155615232,
+          "external": 13488106,
+          "arrayBuffers": 476706
+        },
+        {
+          "rss": 371097600,
+          "heap": 79519496,
+          "heapTotal": 155877376,
+          "external": 13488106,
+          "arrayBuffers": 476706
+        },
+        {
+          "rss": 403243008,
+          "heap": 79510936,
+          "heapTotal": 155877376,
+          "external": 13488106,
+          "arrayBuffers": 476706
+        }
+      ],
+      "elapsedMs": 996640.7860000001,
+      "errors": 0
+    }
+  },
+  "million": {
+    "sourceCommit": "4e0df66d82e6eeb5734470b36167dd2bbffa0ba6",
+    "sampling": "awaited asynchronous major collection and compaction, last-resort flavor",
+    "command": "node --expose-gc apps/daemon/bench/long-thread-reliability.ts --items=1000000 --cycles=12 --duration-ms=0",
+    "result": {
+      "items": 1000000,
+      "approvals": 5000,
+      "subagents": 48,
+      "cycles": 12,
+      "snapshotBytes": 223369,
+      "pendingApprovals": 5000,
+      "pendingSnapshotBytes": 3263959,
+      "pendingWrites": {
+        "walBytesPerDelta": 877.592,
+        "rowsPerDelta": 0.179
+      },
+      "largestFrame": 223438,
+      "snapshotCount": 13,
+      "walBytesPerDelta": 906.432,
+      "rowsPerDelta": 0.183,
+      "first": {
+        "rss": 216809472,
+        "heap": 79129808,
+        "heapTotal": 82214912,
+        "external": 8610588,
+        "arrayBuffers": 476706
+      },
+      "last": {
+        "rss": 225738752,
+        "heap": 79111680,
+        "heapTotal": 81428480,
+        "external": 8610589,
+        "arrayBuffers": 476707
+      },
+      "samples": [
+        {
+          "rss": 213549056,
+          "heap": 78250272,
+          "heapTotal": 81018880,
+          "external": 8610548,
+          "arrayBuffers": 476706
+        },
+        {
+          "rss": 216809472,
+          "heap": 79129808,
+          "heapTotal": 82214912,
+          "external": 8610588,
+          "arrayBuffers": 476706
+        },
+        {
+          "rss": 220823552,
+          "heap": 79099960,
+          "heapTotal": 81952768,
+          "external": 8610588,
+          "arrayBuffers": 476706
+        },
+        {
+          "rss": 220692480,
+          "heap": 78684552,
+          "heapTotal": 81428480,
+          "external": 8610588,
+          "arrayBuffers": 476706
+        },
+        {
+          "rss": 220839936,
+          "heap": 78673464,
+          "heapTotal": 81166336,
+          "external": 8610588,
+          "arrayBuffers": 476706
+        },
+        {
+          "rss": 220954624,
+          "heap": 78744040,
+          "heapTotal": 81428480,
+          "external": 8610588,
+          "arrayBuffers": 476706
+        },
+        {
+          "rss": 224002048,
+          "heap": 78759024,
+          "heapTotal": 81166336,
+          "external": 8610588,
+          "arrayBuffers": 476706
+        },
+        {
+          "rss": 224837632,
+          "heap": 78995272,
+          "heapTotal": 81428480,
+          "external": 8610588,
+          "arrayBuffers": 476706
+        },
+        {
+          "rss": 224919552,
+          "heap": 79094432,
+          "heapTotal": 81690624,
+          "external": 8610589,
+          "arrayBuffers": 476707
+        },
+        {
+          "rss": 224903168,
+          "heap": 79069936,
+          "heapTotal": 81428480,
+          "external": 8610589,
+          "arrayBuffers": 476707
+        },
+        {
+          "rss": 225427456,
+          "heap": 78979320,
+          "heapTotal": 81166336,
+          "external": 8610589,
+          "arrayBuffers": 476707
+        },
+        {
+          "rss": 225738752,
+          "heap": 79111680,
+          "heapTotal": 81428480,
+          "external": 8610589,
+          "arrayBuffers": 476707
+        }
+      ],
+      "elapsedMs": 921087.9546670001,
+      "errors": 0
+    }
+  }
+}

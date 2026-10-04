@@ -392,3 +392,25 @@ test("agents page large child output and cannot substitute another thread's stre
     ),
   ).toEqual({ ok: false, code: "forbidden" });
 });
+
+test("a rejected delegation expiry backs off while an unrelated child result still wakes its parent", async () => {
+  const h = setup({ durationMs: 100, coalesceMs: 10 });
+  const failing = await h.parent();
+  const healthy = await h.parent();
+  h.delegate(failing, "stuck");
+  const done = h.delegate(healthy, "done");
+  await h.engine.flush();
+  await h.complete(done.childId, "delivered");
+  h.store.atomic((db) =>
+    db.exec(
+      `CREATE TRIGGER reject_expiry BEFORE UPDATE OF cancelled ON delegation_trees WHEN NEW.root_id='${failing.threadId}' BEGIN SELECT RAISE(ABORT, 'expiry rejected'); END`,
+    ),
+  );
+  h.clock.advance(1100);
+  await h.engine.flush();
+  expect(wakes(h.events, healthy.threadId)).toHaveLength(1);
+  expect(h.errors.map(String).filter((error) => error.includes("expiry rejected"))).toHaveLength(1);
+  h.clock.advance(1101);
+  await h.engine.flush();
+  expect(h.errors.map(String).filter((error) => error.includes("expiry rejected"))).toHaveLength(1);
+});

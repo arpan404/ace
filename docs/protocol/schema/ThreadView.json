@@ -45,6 +45,24 @@
       "type": "object",
       "x-ace-constraint": "Plain JSON object with every own opaque ID, including __proto__, validated and retained."
     },
+    "entitiesBefore": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "propertyNames": {
+        "$ref": "https://ace.local/protocol/v1/EntityCollection.json"
+      },
+      "type": "object"
+    },
     "interactions": {
       "additionalProperties": {
         "$ref": "https://ace.local/protocol/v1/Interaction.json"

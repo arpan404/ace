@@ -1558,12 +1558,14 @@ Example:
 | type | yes | `"subscribe"` |  |
 | subscriptionId | yes | string | {"minLength":1} |
 | scope | yes | [SubscriptionScope.json](schema/SubscriptionScope.json) |  |
+| paced | no | boolean |  |
 | afterSeq | no | integer | {"minimum":0,"maximum":9007199254740991} |
 
 Example:
 
 ```json
 {
+  "afterSeq": 7,
   "scope": {
     "kind": "thread",
     "threadId": "example"
@@ -1604,9 +1606,9 @@ Example:
     "deviceId": "example",
     "id": "example",
     "payload": {
-      "threadId": "example",
-      "title": "example",
-      "type": "thread.rename"
+      "commentId": "example",
+      "sessionId": "example",
+      "type": "review.applySuggestion"
     }
   },
   "type": "command"
@@ -1627,8 +1629,8 @@ Example:
 
 ```json
 {
-  "limit": 8,
-  "offset": 7,
+  "limit": 9,
+  "offset": 0,
   "requestId": "example",
   "streamId": "example",
   "type": "output.read"
@@ -1649,11 +1651,35 @@ Example:
 
 ```json
 {
-  "before": 1,
-  "limit": 9,
+  "before": 8,
+  "limit": 8,
   "requestId": "example",
   "threadId": "example",
   "type": "items.page"
+}
+```
+
+### entities.page
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"entities.page"` |  |
+| requestId | yes | string | {"minLength":1} |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| collection | yes | [EntityCollection.json](schema/EntityCollection.json) |  |
+| before | yes | integer | {"exclusiveMinimum":0,"maximum":9007199254740991} |
+| limit | yes | integer | {"exclusiveMinimum":0,"maximum":200} |
+
+Example:
+
+```json
+{
+  "before": 3,
+  "collection": "agents",
+  "limit": 8,
+  "requestId": "example",
+  "threadId": "example",
+  "type": "entities.page"
 }
 ```
 

@@ -1,7 +1,8 @@
-import { nextDeadline, type Fact } from "@ace/core";
+import { type Fact } from "@ace/core";
 import type { Frame, ProviderSession, Translator } from "@ace/engine-api";
 import type { ThreadId, EventPayload, Capabilities } from "@ace/protocol";
 import { z } from "zod";
+import { isStoreBusy } from "../store-busy.ts";
 import { ProviderPayload } from "@ace/provider-kit/payload";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import type { EngineLimits } from "./limits.ts";
@@ -45,10 +46,47 @@ export class ThreadActor {
   private queuedBytes = 0;
   private limits: EngineLimits;
   private tail: Promise<void> = Promise.resolve();
+  private pendingFrames: {
+    frame: Frame;
+    generation: number;
+    bytes: number;
+    resolve(): void;
+    reject(error: unknown): void;
+  }[] = [];
+  private pendingBytes = 0;
+  private cancelBatch: (() => void) | undefined;
+  private overflowed = false;
+  private pressure = false;
+  private drains = new Set<() => void>();
+  readonly outputFlow = {
+    paused: () => this.pressure || this.repo.store.isHistoryWriting(),
+    wait: async () => {
+      await this.repo.store.writable();
+      if (this.pressure) await new Promise<void>((resolve) => this.drains.add(resolve));
+    },
+  };
+  private updatePressure(): void {
+    if (
+      this.backlog().frames >=
+        Math.min(256, Math.max(1, Math.floor(this.limits.maxQueuedFrames / 4))) ||
+      this.backlog().bytes >= this.limits.maxQueuedBytes / 4
+    )
+      this.pressure = true;
+    if (
+      this.backlog().frames <= Math.min(64, Math.floor(this.limits.maxQueuedFrames / 16)) &&
+      this.backlog().bytes <= this.limits.maxQueuedBytes / 16
+    ) {
+      this.pressure = false;
+      for (const resolve of this.drains) resolve();
+      this.drains.clear();
+    }
+  }
   private cancelTimer: (() => void) | undefined;
   private stopped = false;
+  private draining: () => boolean;
   private repo: EngineRepository;
   private clock: EngineClock;
+  private batchScheduler: Pick<EngineClock, "setTimer">;
   private idleMs: number;
   private wake: () => void;
   private report: (error: unknown) => void;
@@ -60,7 +98,11 @@ export class ThreadActor {
     wake: () => void,
     report: (error: unknown) => void,
     limits: EngineLimits,
+    privateDrain: () => boolean = () => false,
+    batchScheduler: Pick<EngineClock, "setTimer"> = systemClock,
   ) {
+    this.draining = privateDrain;
+    this.batchScheduler = batchScheduler;
     this.limits = limits;
     this.id = id;
     this.repo = repo;
@@ -101,35 +143,77 @@ export class ThreadActor {
     }
   }
   enqueue(run: () => void): void {
+    this.sealFrames();
     this.accept(run, 0);
   }
-  private accept(run: () => void, bytes: number): void {
-    if (this.stopped) return;
+  private accept(run: () => void, bytes: number, frames = 1): boolean {
+    if (this.stopped || this.overflowed) return false;
     if (
-      this.queued >= this.limits.maxQueuedFrames ||
-      bytes > this.limits.maxFrameBytes ||
+      this.queued + frames > this.limits.maxQueuedFrames ||
       this.queuedBytes + bytes > this.limits.maxQueuedBytes
     ) {
-      this.stop();
+      this.overflowed = true;
       // Preserve the accepted prefix, then fail explicitly instead of silently dropping facts.
       this.tail = this.tail
-        .then(() => {
-          throw new Error("Provider mailbox capacity exceeded");
+        .then(async () => {
+          await this.runWhenWritable(() => {
+            this.lifetime?.abort();
+            this.session = undefined;
+            this.translator = undefined;
+            this.generation++;
+            this.apply([
+              {
+                type: "process.exited",
+                deliberate: false,
+                message: "Provider mailbox capacity exceeded; resume the thread to recover",
+              },
+              { type: "queue.changed", source: "provider", count: 0 },
+              {
+                type: "item.upsert",
+                agent: "root",
+                item: "engine:overload",
+                draft: {
+                  type: "notice",
+                  level: "error",
+                  text: "Provider mailbox capacity exceeded; resume the thread to recover",
+                  complete: true,
+                },
+              },
+            ]);
+            this.overflowed = false;
+            this.wake();
+          });
         })
         .catch((error: unknown) => this.fail(error));
-      return;
+      return false;
     }
-    this.queued++;
+    this.queued += frames;
     this.queuedBytes += bytes;
+    this.updatePressure();
     this.tail = this.tail
-      .then(() => {
-        if (!this.poisoned) run();
+      .then(async () => {
+        await this.runWhenWritable(run);
       })
       .catch((error: unknown) => this.fail(error))
       .finally(() => {
-        this.queued--;
+        this.queued -= frames;
         this.queuedBytes -= bytes;
+        this.updatePressure();
       });
+    return true;
+  }
+  private async runWhenWritable(run: () => void): Promise<void> {
+    while (!this.poisoned) {
+      await this.repo.store.writable();
+      try {
+        // Reserve SQLite before translating: translators can consume native sequence state.
+        this.repo.store.atomic(run);
+        return;
+      } catch (error) {
+        if (!isStoreBusy(error)) throw error;
+        await new Promise<void>((resolve) => this.clock.setTimer(resolve, 100));
+      }
+    }
   }
   private fail(error: unknown): void {
     this.poisoned = true;
@@ -159,14 +243,15 @@ export class ThreadActor {
     }
     this.wake();
   }
-  frame(frame: Frame, generation: number): void {
-    if (this.stopped || generation !== this.generation) return;
+  frame(frame: Frame, generation: number): Promise<void> {
+    if (this.stopped || generation !== this.generation) return Promise.resolve();
+    if (this.poisoned) return Promise.reject(new Error("Provider frame failed to commit"));
     const result = frameSchema.safeParse(frame);
     if (!result.success) {
       this.enqueue(() => {
         throw result.error;
       });
-      return;
+      return this.flush();
     }
     const { payload, ...metadata } = result.data;
     const decoded: Frame = { ...metadata, ...(payload ? { payload } : {}) };
@@ -183,60 +268,104 @@ export class ThreadActor {
       this.enqueue(() => {
         throw error;
       });
-      return;
+      return this.flush();
     }
-    this.accept(() => {
-      if (generation !== this.generation) return;
-      const cursorSdk =
-        decoded.channel === "sdk" &&
-        this.repo.requireState(this.id).config.provider === "cursor" &&
-        this.repo.backend(this.id) === "cursor-sdk";
-      if (cursorSdk && this.repo.recovery.committed(this.id, decoded)) return;
-      const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
-      const before = this.repo.requireState(this.id).status;
-      this.repo.store.atomic(() => {
-        if (cursorSdk) {
-          const body = sdkBody.safeParse(decoded.data);
-          if (body.success && body.data.kind === "blob")
-            this.repo.store.appendRawChunk(this.id, body.data.body);
-          this.repo.captureFrame(this.id, decoded);
-        }
+    if (bytes > this.limits.maxFrameBytes) {
+      this.enqueue(() => {
+        throw new Error("Provider frame capacity exceeded");
+      });
+      return this.flush();
+    }
+    if (this.overflowed) return Promise.reject(new Error("Provider mailbox capacity exceeded"));
+    const acknowledgement = new Promise<void>((resolve, reject) => {
+      this.pendingFrames.push({ frame: decoded, generation, bytes, resolve, reject });
+      this.pendingBytes += bytes;
+      this.updatePressure();
+      this.cancelBatch ??= this.batchScheduler.setTimer(() => this.sealFrames(), 1);
+      if (
+        this.draining() ||
+        this.backlog().frames >= this.limits.maxQueuedFrames ||
+        this.backlog().bytes >= this.limits.maxQueuedBytes ||
+        this.pendingFrames.length >= 256 ||
+        this.pendingBytes >= 262144
+      )
+        this.sealFrames();
+    });
+    void acknowledgement.catch(() => {});
+    return acknowledgement;
+  }
+  private sealFrames(): void {
+    this.cancelBatch?.();
+    this.cancelBatch = undefined;
+    const pending = this.pendingFrames;
+    if (!pending.length) return;
+    const bytes = this.pendingBytes;
+    this.pendingFrames = [];
+    this.pendingBytes = 0;
+    const admitted = this.accept(
+      () => {
+        const live = pending.filter((entry) => entry.generation === this.generation);
+        const before = this.repo.requireState(this.id).status;
+        const cursorSdk =
+          this.repo.requireState(this.id).config.provider === "cursor" &&
+          this.repo.backend(this.id) === "cursor-sdk";
+        const facts = live.flatMap((entry) => this.translateFrame(entry.frame, cursorSdk));
         this.apply(facts);
         if (
-          facts.some(
-            (fact) =>
-              fact.type === "turn.started" ||
-              fact.type === "input.admitted" ||
-              fact.type === "turn.ended" ||
-              fact.type === "process.exited" ||
-              fact.type === "queue.changed" ||
-              fact.type === "limit.cleared" ||
-              (fact.type === "retry" && fact.on === "rate_limit"),
+          live.some((entry) => entry.frame.channel === "sdk") &&
+          facts.some((fact) => fact.type === "process.exited" && !fact.deliberate)
+        )
+          this.lifetime?.abort();
+        if (
+          before !== this.repo.requireState(this.id).status ||
+          facts.some((fact) =>
+            [
+              "turn.started",
+              "input.admitted",
+              "turn.ended",
+              "process.exited",
+              "queue.changed",
+              "limit.cleared",
+              "interaction.closed",
+              "background.ended",
+              "retry",
+            ].includes(fact.type),
           )
-        )
+        ) {
           this.syncQueue();
-        if (cursorSdk) this.repo.recovery.commit(this.id, decoded);
-      });
-      if (
-        decoded.channel === "sdk" &&
-        facts.some((fact) => fact.type === "process.exited" && !fact.deliberate)
-      )
-        this.lifetime?.abort();
-      if (
-        before !== this.repo.requireState(this.id).status ||
-        facts.some(
-          (fact) =>
-            fact.type === "turn.started" ||
-            fact.type === "input.admitted" ||
-            fact.type === "turn.ended" ||
-            fact.type === "queue.changed" ||
-            fact.type === "process.exited" ||
-            fact.type === "background.ended" ||
-            fact.type === "interaction.closed",
-        )
-      )
-        this.wake();
-    }, bytes);
+          this.wake();
+        }
+      },
+      bytes,
+      pending.length,
+    );
+    const commit = this.tail;
+    void commit.then(
+      () => {
+        for (const entry of pending) {
+          if (!admitted || this.poisoned || this.overflowed)
+            entry.reject(new Error("Provider frame failed to commit"));
+          else entry.resolve();
+        }
+      },
+      (error) => {
+        for (const entry of pending) entry.reject(error);
+      },
+    );
+  }
+  private translateFrame(decoded: Frame, cursorBackend: boolean): Fact[] {
+    const cursorSdk = decoded.channel === "sdk" && cursorBackend;
+    if (cursorSdk && this.repo.recovery.committed(this.id, decoded)) return [];
+    const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
+    if (cursorSdk) {
+      const body = sdkBody.safeParse(decoded.data);
+      if (body.success && body.data.kind === "blob")
+        this.repo.store.appendRawChunk(this.id, body.data.body);
+      this.repo.captureFrame(this.id, decoded);
+      // The outer mailbox transaction commits provenance, offsets and facts together.
+      this.repo.recovery.commit(this.id, decoded);
+    }
+    return facts;
   }
   private queueFact(): Extract<Fact, { type: "queue.changed" }> {
     return {
@@ -268,7 +397,7 @@ export class ThreadActor {
       this.idleDue = false;
     }
     const deadlines = [
-      nextDeadline(state, this.translator?.nextDeadline?.()),
+      this.repo.deadline(this.id, this.translator?.nextDeadline?.()),
       this.idleSince === undefined ? undefined : this.idleSince + this.idleMs,
     ].filter((value): value is number => value !== undefined);
     if (!deadlines.length) return;
@@ -288,14 +417,27 @@ export class ThreadActor {
     );
   }
   backlog(): { frames: number; bytes: number } {
-    return { frames: this.queued, bytes: this.queuedBytes };
+    return {
+      frames: this.queued + this.pendingFrames.length,
+      bytes: this.queuedBytes + this.pendingBytes,
+    };
   }
   async flush(): Promise<void> {
-    await this.tail;
+    this.sealFrames();
+    await this.repo.store.writable();
+    let pending: Promise<void>;
+    do {
+      pending = this.tail;
+      await pending;
+    } while (pending !== this.tail);
   }
   stop(): void {
+    this.sealFrames();
     this.stopped = true;
     for (const id of this.inputLeases.keys()) this.releaseInput(id);
     this.cancelTimer?.();
+    this.pressure = false;
+    for (const resolve of this.drains) resolve();
+    this.drains.clear();
   }
 }

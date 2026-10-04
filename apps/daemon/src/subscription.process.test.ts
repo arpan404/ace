@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Store, createDevThread } from "./index.ts";
 import { message as transcriptMessage } from "./payload-test-support.ts";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Agent, AgentId, ThreadId, type ServerMessage } from "@ace/protocol";
+import { Agent, AgentId, ItemId, ThreadId, type ServerMessage } from "@ace/protocol";
 import { applyDelivery, createThreadView } from "@ace/projection";
 import { fixture } from "./socket-test-support.ts";
 import { subscribe, type SubscriptionStore } from "./subscription.ts";
@@ -350,29 +350,80 @@ it("thread replay never reads another thread's event payloads", () => {
   expect(messages.at(-1)).toMatchObject({ throughSeq: store.headSeq() });
 });
 
-it("a large replay is split into contiguous frames below the client frame limit", async () => {
-  const f = await setup();
-  const view = createThreadView(f.thread);
-  const before = f.store.headSeq();
-  view.seq = before;
-  const texts = Array.from({ length: 4 }, (_, i) => String(i).repeat(700 * 1024));
-  for (const [i, text] of texts.entries())
-    f.store.appendEvents(f.thread.id, [
-      { type: "item.created", item: transcriptMessage(`big-${i}`, text) },
-    ]);
-  f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Head" }]);
-  const messages: ServerMessage[] = [];
-  cleanups.push(
-    subscribe(f.store, "s", { kind: "thread", threadId: f.thread.id }, before, 5000, (m) =>
-      messages.push(m),
-    ),
-  );
-  expect(messages.length).toBeGreaterThan(1);
-  for (const message of messages) {
-    expect(Buffer.byteLength(JSON.stringify(message))).toBeLessThan(2 * 1024 * 1024);
-    if (message.type !== "events") throw new Error(`Unexpected ${message.type}`);
-    expect(applyDelivery(view, message).kind).toBe("applied");
-  }
-  expect(view.seq).toBe(f.store.headSeq());
-  expect(view.thread.title).toBe("Head");
-});
+it.each([2, 4])(
+  "a replay with %s large items splits within budget or falls back to a snapshot",
+  async (count) => {
+    const f = await setup();
+    const view = createThreadView(f.thread);
+    const before = f.store.headSeq();
+    view.seq = before;
+    const texts = Array.from({ length: count }, (_, i) => String(i).repeat(700 * 1024));
+    for (const [i, text] of texts.entries())
+      f.store.appendEvents(f.thread.id, [
+        { type: "item.created", item: transcriptMessage(`big-${i}`, text) },
+      ]);
+    f.store.appendEvents(f.thread.id, [{ type: "thread.updated", title: "Head" }]);
+    const messages: ServerMessage[] = [];
+    cleanups.push(
+      subscribe(f.store, "s", { kind: "thread", threadId: f.thread.id }, before, 5000, (m) =>
+        messages.push(m),
+      ),
+    );
+    if (count === 4) {
+      expect(messages).toHaveLength(1);
+      expect(messages[0]).toMatchObject({
+        type: "snapshot",
+        seq: f.store.headSeq(),
+        view: { thread: { title: "Head" } },
+      });
+      const snapshot = messages[0];
+      if (snapshot?.type !== "snapshot" || !("thread" in snapshot.view))
+        throw new Error("Missing thread snapshot");
+      const recovered = new Map(Object.values(snapshot.view.items).map((item) => [item.id, item]));
+      let cursor = snapshot.view.itemsBefore;
+      while (cursor !== null && cursor !== undefined) {
+        const page = f.store.readItemPage(f.thread.id, cursor, 200);
+        for (const item of page.items) recovered.set(item.id, item);
+        cursor = page.itemsBefore;
+      }
+      expect(
+        Array.from(recovered.values()).filter((item) => item.id.startsWith("big-")).length,
+      ).toBe(count);
+      for (const [i, text] of texts.entries()) {
+        const item = recovered.get(ItemId.parse(`big-${i}`));
+        if (item?.type !== "message") throw new Error("Missing recovered message");
+        const actual = item.parts
+          .map((part) => {
+            if (part.type !== "text") return "";
+            if (!part.source) return part.text;
+            const bytes: Buffer[] = [];
+            for (let offset = 0; offset < part.source.bytes;) {
+              const chunk = f.store.readOutputBytes(
+                part.source.streamId,
+                offset,
+                Math.min(256 * 1024, part.source.bytes - offset),
+              );
+              expect(chunk.nextOffset).toBeGreaterThan(offset);
+              bytes.push(chunk.bytes);
+              offset = chunk.nextOffset;
+            }
+            return Buffer.concat(bytes).toString("utf16le");
+          })
+          .join("");
+        expect(actual === text).toBe(true);
+      }
+      return;
+    }
+    expect(messages.length).toBeGreaterThan(1);
+    for (const message of messages) {
+      expect(Buffer.byteLength(JSON.stringify(message))).toBeLessThan(2 * 1024 * 1024);
+      if (message.type !== "events") throw new Error(`Unexpected ${message.type}`);
+      expect(applyDelivery(view, message).kind).toBe("applied");
+    }
+    expect(view.seq).toBe(f.store.headSeq());
+    expect(view.thread.title).toBe("Head");
+    expect(Object.values(view.items)).toHaveLength(count);
+    for (const [i, text] of texts.entries())
+      expect(view.items[`big-${i}`]).toMatchObject({ parts: [{ type: "text", text }] });
+  },
+);

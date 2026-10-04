@@ -97,6 +97,7 @@ export class OpenCodeSession implements ProviderSession {
     }
     const s = new OpenCodeSession(ctx, server);
     s.unsubscribe = server.subscribe({
+      ...(ctx.outputFlow ? { outputFlow: ctx.outputFlow } : {}),
       accepts: (data) => s.owns(data),
       receive: (data) => s.receive(data),
       buffered: (data, watermark) => s.evidence.observe(data, watermark),

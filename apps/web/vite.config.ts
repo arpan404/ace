@@ -5,7 +5,7 @@ import { defineConfig } from "vite";
 import { phosphorWeights } from "./icon-weights.ts";
 import { initialPreloads } from "./initial-preloads.ts";
 import { reactPlugins } from "./react-plugins.ts";
-import { zodWithoutJsonSchema } from "./zod-json-schema.ts";
+import { zodWithoutJsonSchema, zodWithoutMetadata } from "./zod-json-schema.ts";
 
 const preloads = initialPreloads();
 
@@ -17,6 +17,7 @@ export default defineConfig({
     tailwindcss(),
     phosphorWeights(),
     zodWithoutJsonSchema(),
+    zodWithoutMetadata(),
     preloads.plugin,
   ],
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
@@ -26,5 +27,5 @@ export default defineConfig({
     modulePreload: { resolveDependencies: preloads.resolveDependencies },
   },
   // Workers (the client worker, markdown, diffs) are ES modules so they can share chunks.
-  worker: { format: "es", plugins: () => [zodWithoutJsonSchema()] },
+  worker: { format: "es", plugins: () => [zodWithoutJsonSchema(), zodWithoutMetadata()] },
 });

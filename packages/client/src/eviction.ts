@@ -81,3 +81,41 @@ export function endedRuns(view: ThreadView, count: number, keys?: Set<ThreadKey>
   }
   return freed;
 }
+
+/** Keep retained references and their ancestors; settled historical branches can page back. */
+export function endedAgents(view: ThreadView, count: number, keys?: Set<ThreadKey>): number {
+  const keep = new Set<string>(view.thread.rootAgentId ? [view.thread.rootAgentId] : []);
+  for (const entity of [
+    ...Object.values(view.items),
+    ...Object.values(view.runs),
+    ...Object.values(view.interactions),
+    ...Object.values(view.backgroundTasks),
+  ])
+    if (entity.agentId) keep.add(entity.agentId);
+  for (const agent of Object.values(view.agents))
+    if (!["idle", "interrupted", "failed"].includes(agent.status.state)) keep.add(agent.id);
+  for (const id of keep) {
+    const parent = Object.hasOwn(view.agents, id) ? view.agents[id]?.parentId : undefined;
+    if (parent) keep.add(parent);
+  }
+  let freed = 0;
+  for (const id of Object.keys(view.agents)) {
+    if (freed >= count) break;
+    if (keep.has(id)) continue;
+    const parent = view.agents[id]?.parentId;
+    if (parent && Object.hasOwn(view.agentChildren, parent))
+      view.agentChildren[parent] = (view.agentChildren[parent] ?? []).filter(
+        (child) => child !== id,
+      );
+    delete view.agentChildren[id];
+    delete view.agents[id];
+    delete view.usage[id];
+    if (view.contextMeters) delete view.contextMeters[id];
+    keys?.add(`agent:${id}`);
+    keys?.add(`usage:${id}`);
+    keys?.add(`context:${id}`);
+    freed++;
+  }
+  if (freed) keys?.add("agents");
+  return freed;
+}

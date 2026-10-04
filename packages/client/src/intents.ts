@@ -26,6 +26,8 @@ export class Intents {
   private retryAfter: (attempt: number, run: () => void) => () => void;
   private retries = new Map<string, { attempt: number; cancel: (() => void) | undefined }>();
   private ready = false;
+  private connected = false;
+  private inFlight = new Set<string>();
   private initializing: Promise<void> | undefined;
   constructor(
     storage: Storage,
@@ -89,7 +91,8 @@ export class Intents {
       if (existing) {
         if (JSON.stringify(existing.command) !== JSON.stringify(command))
           throw new ClientError("protocol", "Idempotency key reused with different payload");
-        this.send(existing.command);
+        if (existing.state === "pending") this.pump();
+        else if (this.connected) this.send(existing.command);
         return;
       }
       let evicted: string | undefined;
@@ -115,7 +118,7 @@ export class Intents {
       }
       this.records.set(id, intent);
       this.changed(id);
-      this.send(command);
+      this.pump();
     });
   }
   /** A daemon refusal of one command. Transient ones stay pending and resend with backoff. */
@@ -125,12 +128,14 @@ export class Intents {
     const retry = this.retries.get(commandId) ?? { attempt: 0, cancel: undefined };
     if (!retryable || retry.attempt >= maxRetries)
       return this.acknowledge({ commandId: intent.command.id, ok: false, error: code });
+    this.inFlight.delete(commandId);
     retry.cancel?.();
     retry.cancel = this.retryAfter(retry.attempt++, () => {
       retry.cancel = undefined;
-      if (this.records.get(commandId)?.state === "pending") this.send(intent.command);
+      if (this.records.get(commandId)?.state === "pending") this.pump();
     });
     this.retries.set(commandId, retry);
+    this.pump();
     return Promise.resolve();
   }
   acknowledge(result: CommandResult): Promise<void> {
@@ -163,18 +168,45 @@ export class Intents {
       this.changed(result.commandId);
     }).finally(() => {
       this.acknowledging.delete(result.commandId);
+      this.inFlight.delete(result.commandId);
+      this.pump();
     });
   }
   settled(): Promise<void> {
     return this.chain;
   }
+  disconnect(): void {
+    this.connected = false;
+    this.inFlight.clear();
+    for (const retry of this.retries.values()) {
+      retry.cancel?.();
+      retry.cancel = undefined;
+    }
+  }
+  private pump(): void {
+    if (!this.connected) return;
+    for (const intent of this.records.values()) {
+      if (!this.connected || this.inFlight.size >= 8) break;
+      const id = intent.command.id;
+      if (
+        intent.state !== "pending" ||
+        this.inFlight.has(id) ||
+        this.acknowledging.has(id) ||
+        this.retries.get(id)?.cancel
+      )
+        continue;
+      this.inFlight.add(id);
+      this.send(intent.command);
+    }
+  }
   replay(): void {
+    this.connected = true;
+    this.inFlight.clear();
     // Replay resends every pending intent; a scheduled retry would only duplicate it.
     for (const retry of this.retries.values()) {
       retry.cancel?.();
       retry.cancel = undefined;
     }
-    for (const intent of this.records.values())
-      if (intent.state === "pending") this.send(intent.command);
+    this.pump();
   }
 }

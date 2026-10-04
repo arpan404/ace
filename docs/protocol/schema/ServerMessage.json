@@ -780,6 +780,130 @@
     },
     {
       "properties": {
+        "data": {
+          "maxLength": 131072,
+          "type": "string"
+        },
+        "done": {
+          "type": "boolean"
+        },
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "requestId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "threadId": {
+          "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+        },
+        "type": {
+          "const": "entities.page.part",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "threadId",
+        "seq",
+        "index",
+        "done",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subscriptionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "subscription.ready",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "subscriptionId",
+        "seq"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "data": {
+          "maxLength": 131072,
+          "type": "string"
+        },
+        "done": {
+          "type": "boolean"
+        },
+        "index": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "subscriptionId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "snapshot.part",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "subscriptionId",
+        "seq",
+        "index",
+        "done",
+        "data"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "page": {
+          "$ref": "https://ace.local/protocol/v1/EntitiesPage.json"
+        },
+        "requestId": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "type": {
+          "const": "entities.page",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "page"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
         "headSeq": {
           "maximum": 9007199254740991,
           "minimum": 0,

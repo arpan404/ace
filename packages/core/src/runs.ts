@@ -3,7 +3,7 @@ import type { Fact } from "./facts.ts";
 import type { AgentRecord, ApplyContext, ThreadState } from "./state.ts";
 import { dictionary } from "./state.ts";
 import { emit, get, put } from "./emit.ts";
-import { ensureAgent } from "./tree.ts";
+import { ensureAgent, announceAgentBranch } from "./tree.ts";
 import { cancelOpenWork } from "./cleanup.ts";
 
 type Started = Extract<Fact, { type: "turn.started" }>;
@@ -32,6 +32,7 @@ export function startTurn(
   // Replayed native boundaries must not create runs or reopen completed ones.
   if (fact.nativeTurnId !== undefined && matchingRun(state, record, fact.nativeTurnId)) return;
   if (active && fact.nativeTurnId === undefined) return;
+  if (!active && record.lastRun) announceAgentBranch(state, fact.agent, events);
   if (active) {
     endTurn(
       state,
