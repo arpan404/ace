@@ -72,6 +72,13 @@ export function Composer({
   imagesUnavailable?: string | undefined;
   placeholder?: string | undefined;
   autoFocus?: boolean | undefined;
+  /** The input's accessible name; "Message" by default. */
+  label?: string | undefined;
+  /**
+   * Why nothing can be sent here at all (a side chat the daemon can't run): the composer keeps
+   * its shape, but its input and actions are off and point at the reason.
+   */
+  unavailable?: { reason: string; describedBy: string } | undefined;
   ref?: Ref<ComposerHandle> | undefined;
 }) {
   const { storage } = useLayout();
@@ -152,13 +159,16 @@ export function Composer({
     if (item.path) mention(item.path);
     edit(accept(text, trigger, item.insert));
   };
-  const blocked = sending
-    ? "Sending…"
-    : attachments.uploading
-      ? "Waiting for the files to upload"
-      : empty
-        ? "Write a message first"
-        : undefined;
+  const off = props.unavailable?.reason;
+  const blocked = off
+    ? off
+    : sending
+      ? "Sending…"
+      : attachments.uploading
+        ? "Waiting for the files to upload"
+        : empty
+          ? "Write a message first"
+          : undefined;
   // The draft stays until the daemon has it, so a refusal never loses the text or files.
   const submit = async (opposite: boolean) => {
     if (blocked) return;
@@ -249,8 +259,10 @@ export function Composer({
           rows={1}
           value={text}
           readOnly={sending}
+          disabled={!!off}
+          aria-describedby={props.unavailable?.describedBy}
           autoFocus={props.autoFocus}
-          aria-label="Message"
+          aria-label={props.label ?? "Message"}
           placeholder={placeholder}
           role="combobox"
           aria-autocomplete="list"
@@ -270,7 +282,7 @@ export function Composer({
               attachments.add(files);
             }
           }}
-          className="block min-h-11 w-full resize-none overflow-y-auto bg-transparent px-4 py-3 text-base leading-5 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground"
+          className="block min-h-11 w-full resize-none overflow-y-auto bg-transparent px-4 py-3 text-base leading-5 text-foreground outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-subtle-foreground disabled:cursor-not-allowed"
         />
         {/* Clicking the footer's empty space writes in the message, as the input's own area does. */}
         <div
@@ -285,10 +297,11 @@ export function Composer({
           <AddButton
             handle={addMenu}
             reasons={{
-              files: unscoped,
-              images: unscoped ?? props.imagesUnavailable,
-              mention: unscoped,
-              command: text.trim() ? "Commands go at the start of an empty message" : undefined,
+              files: off ?? unscoped,
+              images: off ?? unscoped ?? props.imagesUnavailable,
+              mention: off ?? unscoped,
+              command:
+                off ?? (text.trim() ? "Commands go at the start of an empty message" : undefined),
             }}
             recent={() => recentFiles(storage, props.thread.workspaceId)}
             focusTarget={input}

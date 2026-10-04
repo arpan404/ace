@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-test("Side chat says the daemon can't run one, with its composer off and the reason attached", async () => {
+test("Side chat has the thread composer's shape, switched off, with the reason attached", async () => {
   const app = harness();
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
@@ -13,9 +13,13 @@ test("Side chat says the daemon can't run one, with its composer off and the rea
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).getByRole("tab", { name: "Side chat", selected: true })).toBeTruthy();
 
-  const box = await within(panel).findByRole("textbox", { name: "Side chat message" });
+  const box = await within(panel).findByRole("combobox", { name: "Side chat message" });
   expect(box.hasAttribute("disabled")).toBe(true);
   const reason = document.getElementById(box.getAttribute("aria-describedby") ?? "");
-  expect(reason?.textContent).toContain("no way to start a temporary conversation beside a thread");
-  expect(within(panel).getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+  expect(reason?.textContent).toBe(
+    "This daemon can't start side chats yet. Fork the thread to explore without changing it.",
+  );
+  // The same send button as the thread's composer, saying why it can't send.
+  const send = within(panel).getByRole("button", { name: "Send" });
+  expect(send.getAttribute("aria-disabled")).toBe("true");
 });
