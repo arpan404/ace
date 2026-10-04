@@ -4,9 +4,10 @@ import { homedir, tmpdir } from "node:os";
 import { join, relative, isAbsolute } from "node:path";
 import { promisify } from "node:util";
 import { expect, test, vi } from "vitest";
+import { z } from "zod";
 import { localService, resolveDaemonHome } from "@ace/service";
 import { readConfig } from "./config.ts";
-import { startDaemon } from "./index.ts";
+import { ownedDaemonAttempt } from "./testing/test-home-fixture.ts";
 
 test("default config and child processes inherit an isolated user home and data directory", async () => {
   const realHome = process.env.ACE_TEST_REAL_HOME;
@@ -17,12 +18,24 @@ test("default config and child processes inherit an isolated user home and data 
   const { stdout } = await promisify(execFile)(process.execPath, [
     "--input-type=module",
     "-e",
-    `import {homedir} from 'node:os'; console.log(JSON.stringify({home:homedir(), data:process.env.ACE_HOME, guard:process.env.ACE_TEST_REAL_HOME}));`,
+    `import {homedir} from 'node:os'; console.log(JSON.stringify({home:homedir(), data:process.env.ACE_HOME, guard:process.env.ACE_TEST_REAL_HOME, xdg:process.env.XDG_DATA_HOME, tmp:process.env.TMPDIR}));`,
   ]);
-  expect(JSON.parse(stdout)).toEqual({
+  expect(
+    z
+      .object({
+        home: z.string(),
+        data: z.string(),
+        guard: z.string(),
+        xdg: z.string(),
+        tmp: z.string(),
+      })
+      .parse(JSON.parse(stdout)),
+  ).toEqual({
     home: homedir(),
     data: process.env.ACE_HOME,
     guard: realHome,
+    xdg: process.env.XDG_DATA_HOME,
+    tmp: process.env.TMPDIR,
   });
 });
 
@@ -46,10 +59,15 @@ test("the test guard rejects real-home resolution and explicit data dirs before 
     protectedHome,
     join(protectedHome, "Library"),
     join(protectedHome, "child/.."),
+    join(protectedHome, "..cache"),
   ]) {
     expect(() => resolveDaemonHome(home)).toThrow(/ACE_TEST_REAL_HOME guard/);
     expect(() => readConfig({}, home)).toThrow(/ACE_TEST_REAL_HOME guard/);
   }
+  expect(() => resolveDaemonHome(protectedHome, safeHome)).toThrow(/ACE_TEST_REAL_HOME guard/);
+  expect(() => readConfig({ ACE_HOME: safeHome }, protectedHome)).toThrow(
+    /ACE_TEST_REAL_HOME guard/,
+  );
   for (const dataDir of [
     protectedHome,
     join(protectedHome, ".ace"),
@@ -58,7 +76,7 @@ test("the test guard rejects real-home resolution and explicit data dirs before 
     expect(() => readConfig({ ACE_HOME: dataDir }, safeHome)).toThrow(/ACE_TEST_REAL_HOME guard/);
     expect(() => localService(dataDir)).toThrow(/ACE_TEST_REAL_HOME guard/);
     await expect(
-      startDaemon({
+      ownedDaemonAttempt(onTestFinished, {
         config: {
           dataDir,
           host: "127.0.0.1",
@@ -74,7 +92,7 @@ test("the test guard rejects real-home resolution and explicit data dirs before 
   vi.stubEnv("USERPROFILE", protectedHome);
   expect(() => localService(join(safeHome, "data"))).toThrow(/ACE_TEST_REAL_HOME guard/);
   await expect(
-    startDaemon({
+    ownedDaemonAttempt(onTestFinished, {
       config: {
         dataDir: join(safeHome, "data"),
         host: "127.0.0.1",

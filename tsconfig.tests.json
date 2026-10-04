@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "vitest.config.ts",
+    "scripts/test-home*.ts",
+    "scripts/test-project-isolation*.ts",
+    "scripts/process-test-setup.ts"
+  ]
+}

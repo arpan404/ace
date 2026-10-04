@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "node-pty": "^1.1.0"
   }
 }

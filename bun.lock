@@ -650,6 +650,7 @@
     "packages/terminal": {
       "name": "@ace/terminal",
       "dependencies": {
+        "@ace/provider-kit": "workspace:*",
         "@ace/protocol": "workspace:*",
         "node-pty": "^1.1.0",
       },

@@ -85,8 +85,7 @@ function inspect(root: string, directory: PinnedDirectory): HomeLayout {
   if (has(directory, "host-id")) return "rewrite";
   return directory.empty() ? "empty" : "unknown";
 }
-export function assertCompatibleHome(root: string): void {
-  assertTestHomeIsolation(root);
+function inspectCompatibleHome(root: string): void {
   let directory: PinnedDirectory;
   try {
     directory = PinnedDirectory.atBoundary(root);
@@ -117,6 +116,10 @@ export function assertCompatibleHome(root: string): void {
   } finally {
     directory.closeSync();
   }
+}
+export function assertCompatibleHome(root: string): void {
+  assertTestHomeIsolation(root);
+  inspectCompatibleHome(root);
 }
 function marker(
   directory: PinnedDirectory | undefined,
@@ -188,13 +191,15 @@ function closeSelection(
 /** Stable shared API for daemon and desktop; the caller's home is an I/O boundary. */
 export interface HomeFileSystem {
   open(path: string): PinnedDirectory;
+  assertSafePath(path: string): void;
 }
 export function createDaemonHomeResolver(filesystem: HomeFileSystem) {
   return function resolveHome(home: string, requested?: string): string {
-    assertTestHomeIsolation(home);
+    filesystem.assertSafePath(home);
     if (requested !== undefined) {
       const root = resolve(requested);
-      assertCompatibleHome(root);
+      filesystem.assertSafePath(root);
+      inspectCompatibleHome(root);
       return root;
     }
     const canonicalHome = resolve(home);
@@ -258,4 +263,7 @@ export function createDaemonHomeResolver(filesystem: HomeFileSystem) {
   };
 }
 export const resolveDaemonHome: (home: string, requested?: string) => string =
-  createDaemonHomeResolver({ open: PinnedDirectory.atBoundary });
+  createDaemonHomeResolver({
+    open: PinnedDirectory.atBoundary,
+    assertSafePath: assertTestHomeIsolation,
+  });

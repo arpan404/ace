@@ -2,6 +2,7 @@ import { z } from "zod";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 import { resolveDaemonHome } from "@ace/service";
+import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import { WebOrigins } from "./web-origins.ts";
 
 const LogLevelSchema = z.enum(["debug", "info", "warn", "error", "silent"]);
@@ -38,6 +39,7 @@ export interface Config {
 }
 export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir()): Config {
   const settings = Environment.parse(env);
+  assertTestEnvironmentIsolation(env);
   const port = settings.ACE_PORT;
   const remotePort = settings.ACE_REMOTE_PORT ?? (port === 0 || port === 65535 ? 0 : port + 1);
   return {

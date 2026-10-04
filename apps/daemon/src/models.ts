@@ -9,20 +9,38 @@ import {
   type DiscoveryOptions,
 } from "@ace/models";
 import { z } from "zod";
+import {
+  assertTestHomeIsolation,
+  assertTestEnvironmentIsolation,
+} from "@ace/provider-kit/test-isolation";
 import type { ClientMessage, ServerMessage } from "@ace/protocol";
+
+/** Shared test-only preflight for CLI, daemon startup and direct model-service callers. */
+export function assertModelTestIsolation(instances: readonly InstanceInput[]): void {
+  if (!process.env.ACE_TEST_REAL_HOME) return;
+  for (const instance of instances) {
+    assertTestHomeIsolation(instance.cwd);
+    if (instance.homeDir) assertTestHomeIsolation(instance.homeDir);
+    if (instance.env) assertTestEnvironmentIsolation(instance.env);
+  }
+}
 
 /** Local launch configuration only. Never accepted from remote socket clients. */
 export function readModelInstances(env: NodeJS.ProcessEnv = process.env): InstanceInput[] {
-  return z
+  const instances = z
     .array(ModelInstance)
     .max(64)
     .parse(JSON.parse(env.ACE_MODEL_INSTANCES ?? "[]"));
+  assertModelTestIsolation(instances);
+  return instances;
 }
 export function openDaemonModels(
   dataDir: string,
   instances: readonly InstanceInput[],
   discoveryOptions: DiscoveryOptions = {},
 ): ModelCatalog {
+  assertTestHomeIsolation(dataDir);
+  assertModelTestIsolation(instances);
   const storage = openModelStorage(join(dataDir, "models.sqlite"));
   try {
     return new ModelCatalog({

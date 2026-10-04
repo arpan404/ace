@@ -13,4 +13,6 @@ const context: TestHomeContext = {
 const home = mkdtempSync(
   join(context.testHomeRoot, `worker-${process.env.VITEST_POOL_ID ?? "0"}-`),
 );
-Object.assign(process.env, testHomeEnvironment(home, context.testRealHome));
+const env = testHomeEnvironment(home, context.testRealHome);
+for (const key of Object.keys(process.env)) if (!(key in env)) delete process.env[key];
+Object.assign(process.env, env);

@@ -17,10 +17,7 @@ export default async function setup(project: TestProject) {
   const tls = join(tlsHome, "tls");
   const gitTemplate = join(directory, "git-template");
   try {
-    const env = {
-      ...process.env,
-      ...testHomeEnvironment(join(directory, "home"), context.testRealHome),
-    };
+    const env = testHomeEnvironment(join(directory, "home"), context.testRealHome);
     // Bundle output lives outside the real home. Only dependency code resolves into the checkout.
     await symlink(
       join(project.config.root, "apps/daemon/node_modules"),

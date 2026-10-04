@@ -4,6 +4,7 @@ import { setTimeout } from "node:timers/promises";
 import { performance } from "node:perf_hooks";
 import { constants as osConstants, tmpdir } from "node:os";
 import { spawn } from "node-pty";
+import { assertTestEnvironmentIsolation } from "@ace/provider-kit/test-isolation";
 import type { ExitStatus, OpenTerminalOptions } from "./types.ts";
 import { decodeBytes, decodeExit } from "./decode.ts";
 import { sessionOwnership } from "./ownership.ts";
@@ -73,6 +74,8 @@ export function createPosixBackendFactory(
   const read = createProcessTable();
   return (options, shell, context) => {
     if (process.platform === "win32") throw new Error("Terminal service currently requires POSIX");
+    const env = { ...process.env, ...options.env, TERM: "xterm-256color", COLORTERM: "truecolor" };
+    assertTestEnvironmentIsolation(env);
     const lease = ports?.createLease?.() ?? createGroupLease(leaseRoot, context.scheduler);
     const keeper = fileURLToPath(new URL("../native/group-keeper", import.meta.url));
     if (!ports?.createLease) {
@@ -105,7 +108,7 @@ export function createPosixBackendFactory(
           cols: options.cols,
           rows: options.rows,
           name: "xterm-256color",
-          env: { ...process.env, ...options.env, TERM: "xterm-256color", COLORTERM: "truecolor" },
+          env,
           encoding: null,
           handleFlowControl: false,
         },
