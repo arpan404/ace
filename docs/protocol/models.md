@@ -42,24 +42,22 @@ Example:
 
 ```json
 {
-  "contextWindow": 3,
-  "defaultTier": "example",
   "deprecated": false,
   "displayName": "example",
-  "hidden": false,
+  "hidden": true,
   "id": "example",
   "inputModalities": [],
-  "installationId": "example",
   "instance": "example",
-  "isDefault": false,
-  "modelConfigId": "example",
+  "instanceId": "example",
+  "isDefault": true,
   "nativeModelId": "example",
-  "provider": "opencode",
+  "provider": "acp",
   "raw": {
     "json": "example",
     "truncated": true
   },
   "reasoningEfforts": [],
+  "resolvedModelId": "example",
   "serviceTiers": []
 }
 ```
@@ -80,8 +78,7 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "installationId": "example"
+  "instance": "example"
 }
 ```
 
@@ -105,12 +102,12 @@ Example:
 
 ```json
 {
-  "error": "timeout",
+  "acpAgentId": "example",
   "instance": "example",
   "provider": "opencode",
-  "refreshedAt": 4,
+  "refreshedAt": 6,
   "refreshing": true,
-  "stale": true
+  "stale": false
 }
 ```
 
@@ -132,10 +129,7 @@ Example:
 
 ```json
 {
-  "installationId": "example",
-  "instanceId": "example",
-  "limit": 1,
-  "offset": 1
+  "limit": 10
 }
 ```
 
@@ -178,23 +172,20 @@ Example:
 ```json
 {
   "model": {
-    "contextWindow": 9,
     "deprecated": true,
     "displayName": "example",
     "hidden": true,
     "id": "example",
     "inputModalities": [],
     "instance": "example",
-    "isDefault": false,
-    "isNew": true,
+    "isDefault": true,
     "nativeModelId": "example",
-    "provider": "acp",
+    "provider": "opencode",
     "raw": {
       "json": "example",
-      "truncated": false
+      "truncated": true
     },
     "reasoningEfforts": [],
-    "resolvedModelId": "example",
     "serviceTiers": []
   },
   "ok": true,
@@ -242,9 +233,11 @@ Example:
 
 ```json
 {
-  "instanceId": "example",
+  "effort": "example",
+  "instance": "example",
+  "provider": "antigravity",
   "role": "example",
-  "selection": "strongest"
+  "tier": "example"
 }
 ```
 
@@ -281,9 +274,6 @@ Example:
 
 ```json
 {
-  "filter": {
-    "instanceId": "example"
-  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -305,12 +295,8 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "imageInput": false,
-    "instance": "example",
-    "instanceId": "example",
-    "provider": "pi",
-    "role": "example",
-    "tier": "example"
+    "imageInput": true,
+    "role": "example"
   },
   "type": "models.resolve"
 }
@@ -355,6 +341,7 @@ Example:
 ```json
 {
   "id": "example",
-  "name": "example"
+  "name": "example",
+  "parameters": {}
 }
 ```

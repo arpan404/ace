@@ -129,6 +129,15 @@
     "title": {
       "type": "string"
     },
+    "titleSource": {
+      "enum": [
+        "provisional",
+        "provider",
+        "person",
+        "agent"
+      ],
+      "type": "string"
+    },
     "unread": {
       "type": "boolean"
     },
