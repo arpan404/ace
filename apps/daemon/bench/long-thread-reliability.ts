@@ -54,7 +54,7 @@ const server = await startServer({
 let nextId = 0;
 let snapshotCount = 0;
 let largestFrame = 0;
-const messageType = z.object({ type: z.string() });
+const messageType = z.object({ type: z.string(), done: z.boolean().optional() });
 const client = new Client({
   deviceId: DeviceId.parse("soak"),
   credential: async () => token,
@@ -76,7 +76,9 @@ const client = new Client({
           ...events,
           message(text) {
             largestFrame = Math.max(largestFrame, Buffer.byteLength(text));
-            if (messageType.parse(JSON.parse(text)).type === "snapshot") snapshotCount++;
+            const message = messageType.parse(JSON.parse(text));
+            if (message.type === "snapshot" || (message.type === "snapshot.part" && message.done))
+              snapshotCount++;
             events.message(text);
           },
         });
@@ -91,6 +93,22 @@ async function waitFor(predicate: () => boolean) {
     assert(performance.now() < timeout, "soak operation timed out");
     await setImmediate();
   }
+}
+async function measureWrites(append: string) {
+  store.statement("PRAGMA wal_autocheckpoint=0").get();
+  store.statement("PRAGMA wal_checkpoint(TRUNCATE)").get();
+  const initialWal = statSync(path + "-wal").size;
+  const beforeWrites = Number(store.statement("SELECT total_changes() AS n").get()?.n);
+  for (let i = 0; i < 1000; i++)
+    void provider.frame({ kind: "delta", append: append }).catch((error) => errors.push(error));
+  await engine.flush();
+  const walBytesPerDelta = (statSync(path + "-wal").size - initialWal) / 1000;
+  const rowsPerDelta =
+    (Number(store.statement("SELECT total_changes() AS n").get()?.n) - beforeWrites) / 1000;
+  assert(walBytesPerDelta < 2048, `WAL write budget exceeded: ${walBytesPerDelta}`);
+  assert(rowsPerDelta < 1, `row write budget exceeded: ${rowsPerDelta}`);
+  store.statement("PRAGMA wal_autocheckpoint=256").get();
+  return { walBytesPerDelta, rowsPerDelta };
 }
 const samples: { rss: number; heap: number }[] = [];
 let baseline: { rss: number; heap: number } | undefined;
@@ -189,21 +207,28 @@ try {
   console.error("burst complete");
   await engine.flush();
   assert(store.getThread(imported)?.imported);
-  store.statement("PRAGMA wal_autocheckpoint=0").get();
-  store.statement("PRAGMA wal_checkpoint(TRUNCATE)").get();
-  const initialWal = statSync(path + "-wal").size;
-  const beforeWrites = Number(store.statement("SELECT total_changes() AS n").get()?.n);
-  for (let i = 0; i < 1000; i++)
-    void provider.frame({ kind: "delta", append: "x" }).catch((error) => errors.push(error));
-  await engine.flush();
-  const walBytesPerDelta = (statSync(path + "-wal").size - initialWal) / 1000;
-  const rowsPerDelta =
-    (Number(store.statement("SELECT total_changes() AS n").get()?.n) - beforeWrites) / 1000;
-  assert(walBytesPerDelta < 2048, `WAL write budget exceeded: ${walBytesPerDelta}`);
-  assert(rowsPerDelta < 1, `row write budget exceeded: ${rowsPerDelta}`);
-  store.statement("PRAGMA wal_autocheckpoint=256").get();
+  const { walBytesPerDelta, rowsPerDelta } = await measureWrites("x");
+  console.error("seed pending approvals");
+  for (let first = 5000; first < 10000; first += 128) {
+    const ack = provider.frame({
+      kind: "pending_approvals",
+      first,
+      count: Math.min(128, 10000 - first),
+    });
+    await engine.flush();
+    await ack;
+  }
+  const pendingView = store.snapshotThread(id);
+  assert.equal(
+    Object.values(pendingView.interactions).filter((interaction) => interaction.state === "pending")
+      .length,
+    5000,
+  );
+  const pendingSnapshotBytes = Buffer.byteLength(JSON.stringify(pendingView));
+  assert(pendingSnapshotBytes < 4 * 1024 * 1024, "pending snapshot grew with history");
+  const pendingWrites = await measureWrites("p");
   const started = performance.now();
-  let expectedStream = 4 + provider.burstDeltas + 1000;
+  let expectedStream = 4 + provider.burstDeltas + 2000;
   let cycle = 0;
   let added = 0;
   while (cycle < cycles || performance.now() - started < duration) {
@@ -285,6 +310,9 @@ try {
       subagents: 48,
       cycles: cycle,
       snapshotBytes,
+      pendingApprovals: 5000,
+      pendingSnapshotBytes,
+      pendingWrites,
       largestFrame,
       snapshotCount,
       walBytesPerDelta,

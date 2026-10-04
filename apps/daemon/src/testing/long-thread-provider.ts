@@ -18,6 +18,16 @@ const Input = z.discriminatedUnion("kind", [
     count: z.number().int().min(1).max(128),
   }),
   z.object({ kind: z.literal("children"), count: z.number().int().min(1).max(64) }),
+  z.object({
+    kind: z.literal("pending_approvals"),
+    first: z.number().int().nonnegative(),
+    count: z.number().int().min(1).max(128),
+  }),
+  z.object({
+    kind: z.literal("close_approvals"),
+    first: z.number().int().nonnegative(),
+    count: z.number().int().min(1).max(128),
+  }),
   z.object({ kind: z.literal("start") }),
 ]);
 export type SyntheticInput = z.infer<typeof Input>;
@@ -46,6 +56,7 @@ export function syntheticFacts(frame: Frame): Fact[] {
         },
       }));
     case "approvals":
+    case "pending_approvals":
       return Array.from({ length: data.count }, (_, i): Fact[] => [
         {
           type: "interaction.opened",
@@ -58,12 +69,22 @@ export function syntheticFacts(frame: Frame): Fact[] {
             options: [{ id: "yes", label: "Yes", kind: "allow_once" }],
           },
         },
-        {
-          type: "interaction.closed",
-          interaction: `approval:${data.first + i}`,
-          state: "resolved",
-        },
+        ...(data.kind === "approvals"
+          ? [
+              {
+                type: "interaction.closed",
+                interaction: `approval:${data.first + i}`,
+                state: "resolved",
+              } satisfies Fact,
+            ]
+          : []),
       ]).flat();
+    case "close_approvals":
+      return Array.from({ length: data.count }, (_, i) => ({
+        type: "interaction.closed",
+        interaction: `approval:${data.first + i}`,
+        state: "resolved",
+      }));
     case "children":
       return Array.from({ length: data.count }, (_, i): Fact[] => [
         {
