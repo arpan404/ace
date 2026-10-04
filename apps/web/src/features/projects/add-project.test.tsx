@@ -155,3 +155,35 @@ test("while the daemon is away the dialog says so and adds nothing", async () =>
     ),
   );
 });
+
+test("with home outside projects.roots, browsing opens the first root and adds from there", async () => {
+  const made = harness();
+  made.daemon.projects.seedFolders("/home/dev", [{ path: "/srv/www/site", git: true }], {
+    roots: ["/srv"],
+  });
+  await made.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Open a folder" }));
+
+  await dialog();
+  await userEvent.dblClick(await option("www"));
+  await userEvent.click(await option("site"));
+  await userEvent.click(screen.getByRole("button", { name: "Add site" }));
+
+  await screen.findByRole("heading", { name: "What should we work on in site?" });
+  expect(registered(made)).toEqual(["/srv/www/site"]);
+});
+
+test("a home reached through a symlink still opens at home when a root holds its target", async () => {
+  const made = harness();
+  made.daemon.projects.seedFolders(
+    "/mnt/users/dev",
+    [{ path: "/mnt/users/dev/code/weather", git: true }, { path: "/srv/www" }],
+    { roots: ["/srv", "/mnt/users"], homeLink: "/home/dev" },
+  );
+  await made.open("/");
+  await userEvent.click(await screen.findByRole("button", { name: "Open a folder" }));
+
+  await dialog();
+  expect(await option("code")).toBeTruthy();
+  expect(within(await folders()).queryByRole("option", { name: /^www/ })).toBeNull();
+});

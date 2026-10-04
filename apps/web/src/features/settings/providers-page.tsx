@@ -1,4 +1,5 @@
 import type { ProviderKind } from "@ace/protocol";
+import { signInSteps } from "@ace/ui-core";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -125,6 +126,30 @@ function accountState(account: ProviderAccount): string {
   return "Signed in";
 }
 
+function Code(props: { text: string }) {
+  return <code className="font-mono">{props.text}</code>;
+}
+
+/** The provider's own sign-in, run outside ace (`signInSteps`). */
+function SignInHint(props: { install: ProviderInstall }) {
+  const steps = signInSteps(props.install.kind);
+  return (
+    <p className="text-sm text-muted-foreground">
+      {!steps ? (
+        <>Sign in with {props.install.name}'s own setup, outside ace.</>
+      ) : steps.prompt ? (
+        <>
+          Run <Code text={steps.run} /> in a terminal, then type <Code text={steps.prompt} />.
+        </>
+      ) : (
+        <>
+          Sign in with <Code text={steps.run} /> in a terminal.
+        </>
+      )}
+    </p>
+  );
+}
+
 function ProviderDetail(props: { install: ProviderInstall }) {
   const { install } = props;
   return (
@@ -135,11 +160,7 @@ function ProviderDetail(props: { install: ProviderInstall }) {
     >
       <div>
         <h4 className="mb-1.5 text-[12px] font-medium text-subtle-foreground">Accounts</h4>
-        {install.accounts.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            Sign in with <code className="font-mono">{install.binary} login</code> in a terminal.
-          </p>
-        )}
+        {install.accounts.length === 0 && <SignInHint install={install} />}
         <ul className="flex flex-col gap-1">
           {install.accounts.map((account) => (
             <li key={account.id} className="flex items-baseline gap-2 text-ui">

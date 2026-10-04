@@ -1,3 +1,8 @@
+import {
+  loadSessionReference,
+  saveSessionReference,
+  sessionReferenceDirectory,
+} from "./session-references.ts";
 import { AceMcpConnectionSchema } from "@ace/mcp-server";
 import { fileURLToPath } from "node:url";
 import type { ProviderSession, SessionContext, Frame } from "@ace/engine-api";
@@ -25,6 +30,8 @@ export interface PiSession extends ProviderSession {
   rollback(entryId: string): Promise<void>;
 }
 export type PiOptions = {
+  /** Host-owned durable reference directory, isolated by daemon data home. */
+  sessionReferenceDir?: string;
   cli?: DiscoveryResult;
   executable?: string;
   permissionMode?: PiPermissionMode;
@@ -40,7 +47,6 @@ export async function openPiSession(
   options: PiOptions = {},
 ): Promise<PiSession> {
   ctx.signal.throwIfAborted();
-  const resume = ctx.resume ? await checkedSessionReference(ctx.resume.nativeSessionId) : undefined;
   const io = { ...runtime, ...options.runtime };
   const cli =
     options.cli ??
@@ -58,6 +64,10 @@ export async function openPiSession(
         ? "read_only"
         : (options.permissionMode ?? "read_only");
   const permissionArgs = piPermissionArgs(mode);
+  const referenceDir = sessionReferenceDirectory(options.sessionReferenceDir);
+  const resume = ctx.resume
+    ? await loadSessionReference(referenceDir, ctx.resume.nativeSessionId)
+    : undefined;
   const lifetime = new AbortController();
   const controlSecret = io.secret();
   // The daemon's existing session lease owns capabilities and revocation. Reuse it.
@@ -260,7 +270,7 @@ export async function openPiSession(
     const state = State.parse(await rpc.request("get_state"));
     const reference = encodeSessionReference({ path: state.sessionFile, id: state.sessionId });
     await checkedSessionReference(reference);
-    return reference;
+    return saveSessionReference(referenceDir, { path: state.sessionFile, id: state.sessionId });
   }
   try {
     note({ type: "started", processId: io.processKey() });
@@ -268,7 +278,10 @@ export async function openPiSession(
     if (resume) await restore(resume);
     const state = State.parse(await rpc.request("get_state"));
     nativeFile = state.sessionFile;
-    nativeId = encodeSessionReference({ path: state.sessionFile, id: state.sessionId });
+    nativeId = await saveSessionReference(referenceDir, {
+      path: state.sessionFile,
+      id: state.sessionId,
+    });
     ctx.signal.throwIfAborted();
   } catch (error) {
     await close("shutdown", false);
@@ -339,7 +352,7 @@ export async function openPiSession(
           throw error;
         }
         if ("error" in fork) throw fork.error;
-        if (fork.reference === encodeSessionReference(sourceRef)) throw new PiHistoryError("fork");
+        if (fork.reference === nativeId) throw new PiHistoryError("fork");
         return { nativeSessionId: fork.reference };
       } finally {
         control = false;
@@ -351,14 +364,17 @@ export async function openPiSession(
       control = true;
       try {
         await idle();
-        await checkedSessionReference(nativeId);
+        await loadSessionReference(referenceDir, nativeId);
         await verifyExtension();
         const id = io.secret();
         rollbackAck = { id, success: undefined };
         await rpc.request("prompt", { message: `/ace-rollback ${controlSecret} ${entryId} ${id}` });
         if (rollbackAck.success !== true) throw new PiHistoryError("acknowledgement");
         const state = State.parse(await rpc.request("get_state"));
-        if (encodeSessionReference({ path: state.sessionFile, id: state.sessionId }) !== nativeId) {
+        if (
+          state.sessionFile !== nativeFile ||
+          state.sessionId !== (await loadSessionReference(referenceDir, nativeId)).id
+        ) {
           await close("shutdown", false);
           throw new PiHistoryError("identity");
         }

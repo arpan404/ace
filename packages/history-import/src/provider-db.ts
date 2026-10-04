@@ -1,10 +1,9 @@
+import { copySqliteSnapshot, SnapshotChanged } from "./sqlite-snapshot.ts";
 import { pathToFileURL } from "node:url";
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { lstat, mkdtemp, rm, chmod } from "node:fs/promises";
-import { createWriteStream } from "node:fs";
-import { pipeline } from "node:stream/promises";
 import { join } from "node:path";
-import { safeOpen, fingerprint, object, string, timestamp } from "@ace/native-session";
+import { safeOpen, object, string, timestamp } from "@ace/native-session";
 import { HistorySession } from "@ace/protocol/history";
 import type { ProviderHome } from "./contracts.ts";
 import { sourceId } from "./metadata.ts";
@@ -20,7 +19,7 @@ async function exists(path: string): Promise<boolean> {
 }
 /** SQLite readOnly still updates WAL read marks in the source -shm file.
  * Live homes therefore need a bounded private snapshot, never a source SQLite handle. */
-export async function openProviderDb(
+async function openProviderDbAttempt(
   instance: ProviderHome,
   path: string,
   scratchRoot: string,
@@ -41,35 +40,15 @@ export async function openProviderDb(
   const stage = await mkdtemp(join(scratchRoot, "sqlite-read-"));
   const target = join(stage, "snapshot.sqlite");
   try {
-    const sources = wal ? [path, path + "-wal"] : [path];
-    const stamps: string[] = [];
-    for (const [index, source] of sources.entries()) {
-      signal.throwIfAborted();
-      const file = await safeOpen(instance.homeDir, source);
-      try {
-        const before = await file.stat();
-        stamps.push(fingerprint(before));
-        await pipeline(
-          file.createReadStream({
-            autoClose: false,
-            highWaterMark: 64 * 1024,
-            start: 0,
-            end: Math.max(0, before.size - 1),
-          }),
-          createWriteStream(index === 0 ? target : target + "-wal", { flags: "wx", mode: 0o600 }),
-          { signal },
-        );
-        if (fingerprint(before) !== fingerprint(await file.stat()))
-          throw new Error("Provider database changed during snapshot");
-      } finally {
-        await file.close();
-      }
-    }
-    for (const [index, source] of sources.entries())
-      if (fingerprint(await lstat(source)) !== stamps[index])
-        throw new Error("Provider database changed during snapshot");
+    await copySqliteSnapshot(
+      instance.homeDir,
+      path,
+      target,
+      signal,
+      wal ? path + "-wal" : undefined,
+    );
     if (wal !== (await exists(path + "-wal")) || (await exists(path + "-journal")))
-      throw new Error("Provider journal changed during snapshot");
+      throw new SnapshotChanged();
     await chmod(target, 0o600);
     const db = new DatabaseSync(target, { readOnly: true });
     return {
@@ -82,6 +61,22 @@ export async function openProviderDb(
   } catch (error) {
     await rm(stage, { recursive: true, force: true });
     throw error;
+  }
+}
+/** Retry only checkpoint races, with a fixed bound and cancellation between attempts. */
+export async function openProviderDb(
+  instance: ProviderHome,
+  path: string,
+  scratchRoot: string,
+  signal: AbortSignal,
+) {
+  for (let attempt = 0; ; attempt++) {
+    signal.throwIfAborted();
+    try {
+      return await openProviderDbAttempt(instance, path, scratchRoot, signal);
+    } catch (error) {
+      if (!(error instanceof SnapshotChanged) || attempt >= 2) throw error;
+    }
   }
 }
 export function columns(
@@ -111,18 +106,10 @@ export function* dbSessions(
     const cols = columns(db, "threads");
     if (!["id", "cwd", "title", "updated_at"].every((c) => cols.has(c)))
       throw new Error("Unknown Codex state database schema");
-    if (
-      Number(
-        db
-          .prepare(
-            "SELECT EXISTS(SELECT 1 FROM threads WHERE octet_length(id)>1024 OR octet_length(cwd)>8192 OR octet_length(title)>65536) AS too_large",
-          )
-          .get()?.too_large,
-      ) > 0
-    )
-      throw new Error("Codex session metadata exceeds supported limits");
     for (const row of db
-      .prepare("SELECT id,cwd,title,updated_at FROM threads ORDER BY id")
+      .prepare(
+        "SELECT id,cwd,CASE WHEN octet_length(title)<=1048576 THEN substr(title,1,256) ELSE '[Title exceeds display limit]' END AS title,updated_at FROM threads WHERE octet_length(id)<=1024 AND octet_length(cwd)<=8192 ORDER BY id",
+      )
       .iterate()) {
       yield HistorySession.parse({
         id: sourceId(instance.id, path, String(row.id)),
@@ -147,7 +134,7 @@ export function* dbSessions(
     Number(
       db
         .prepare(
-          "SELECT EXISTS(SELECT 1 FROM session WHERE octet_length(id)>1024 OR octet_length(directory)>8192 OR octet_length(title)>65536 OR octet_length(parent_id)>1024) OR EXISTS(SELECT 1 FROM message WHERE octet_length(id)>1024) OR EXISTS(SELECT 1 FROM part WHERE octet_length(id)>1024) AS too_large",
+          "SELECT EXISTS(SELECT 1 FROM session WHERE octet_length(id)>1024 OR octet_length(directory)>8192 OR octet_length(parent_id)>1024) OR EXISTS(SELECT 1 FROM message WHERE octet_length(id)>1024) OR EXISTS(SELECT 1 FROM part WHERE octet_length(id)>1024) AS too_large",
         )
         .get()?.too_large,
     ) > 0
@@ -164,7 +151,9 @@ export function* dbSessions(
     "SELECT EXISTS(SELECT 1 FROM message WHERE session_id=? AND octet_length(data)>1048576) OR EXISTS(SELECT 1 FROM part p JOIN message m ON m.id=p.message_id WHERE m.session_id=? AND octet_length(p.data)>1048576) AS too_large",
   );
   for (const row of db
-    .prepare("SELECT id,directory,title,time_updated,parent_id FROM session ORDER BY id")
+    .prepare(
+      "SELECT id,directory,CASE WHEN octet_length(title)<=1048576 THEN substr(title,1,256) ELSE '[Title exceeds display limit]' END AS title,time_updated,parent_id FROM session ORDER BY id",
+    )
     .iterate()) {
     let model: string | undefined;
     for (const entry of latest.iterate(String(row.id))) {

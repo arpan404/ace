@@ -95,6 +95,7 @@ export async function sessionHarness(
         },
       },
       {
+        sessionReferenceDir: join(home, "references"),
         ...options,
         cli: {
           installed: true,

@@ -16,6 +16,7 @@ const Environment = z.object({
   ACE_SCREEN_HELPER: z.string().min(1).optional(),
   ACE_SCREEN_HELPER_MANIFEST: z.string().min(1).optional(),
   ACE_HOME: z.string().optional(),
+  ACE_CURSOR_SDK_HOME: z.string().min(1).optional(),
   ACE_WORKSPACE_ROOT: z.string().optional(),
   ACE_RELAY_URL: z.url().optional(),
   ACE_ADVERTISE_HOST: z.string().optional(),
@@ -23,6 +24,8 @@ const Environment = z.object({
 });
 export interface Config {
   dataDir: string;
+  /** Private instance root; the SDK uses its user subdirectory as HOME. */
+  cursorSdkHome?: string;
   workspaceRoot?: string;
   relayUrl?: string;
   host: "127.0.0.1";
@@ -48,6 +51,9 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir(
       ? { screenHelperManifest: resolve(settings.ACE_SCREEN_HELPER_MANIFEST) }
       : {}),
     dataDir: resolveDaemonHome(home, settings.ACE_HOME),
+    ...(settings.ACE_CURSOR_SDK_HOME
+      ? { cursorSdkHome: resolve(settings.ACE_CURSOR_SDK_HOME) }
+      : {}),
     ...(settings.ACE_WORKSPACE_ROOT ? { workspaceRoot: resolve(settings.ACE_WORKSPACE_ROOT) } : {}),
     ...(settings.ACE_RELAY_URL ? { relayUrl: settings.ACE_RELAY_URL } : {}),
     host: "127.0.0.1",

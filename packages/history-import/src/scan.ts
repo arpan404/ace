@@ -195,8 +195,8 @@ export async function scan(
               epoch,
             );
           }
-          if (fp !== (await databaseFingerprint(path)))
-            throw new Error("Provider database changed during scan");
+          // The private snapshot is consistent even if the live provider has committed again.
+          // Remember the original fingerprint so its newer data is picked up next scan.
           const info = await lstat(path);
           catalog.remember(instance, path, info.size, info.mtimeMs, fp, epoch);
           catalog.db.exec("RELEASE provider_scan");

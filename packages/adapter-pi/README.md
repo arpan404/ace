@@ -12,8 +12,13 @@ branch must contain an assistant message: Pi otherwise defers saving the fork.
 A bounded native-entry preflight refuses root clones and forks before the first
 user while preserving the live source. Failed fork-file validation restores the
 source before returning the error.
-`nativeSessionFile` exposes its native path. Saved references retain the expected
-header ID; legacy raw paths are accepted and upgraded on reopen. Missing, empty
+`nativeSessionFile` exposes its native path. Public session IDs are stable 75-character
+`ace-pi-ref:<sha256>` references. The adapter atomically keeps the path and expected
+header ID in `<ACE_HOME>/pi-session-references`, with no transcript or credentials.
+The daemon injects this directory; standalone hosts can pass `sessionReferenceDir`.
+Legacy `ace-pi:` references and raw paths remain accepted and are upgraded on reopen.
+Fresh sessions can open before Pi flushes their file; resume and fork still require
+an existing matching header. Missing, empty
 and replaced history fails resume. Headers are limited to 64 KiB; missing versions
 mean native v1. Native conversation navigation
 never restores files. The generic adapter `forkSession` also cold-clones a saved session, reading only

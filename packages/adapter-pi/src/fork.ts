@@ -1,6 +1,6 @@
 import { ThreadId } from "@ace/protocol";
 import { openPiSession, type PiOptions } from "./session.ts";
-import { checkedSessionReference } from "./session-header.ts";
+import { loadSessionReference, sessionReferenceDirectory } from "./session-references.ts";
 
 /** Cold history operation: only a bounded header is read; Pi owns all tree copying. */
 export async function forkPiSession(
@@ -8,7 +8,10 @@ export async function forkPiSession(
   options: PiOptions,
 ): Promise<string> {
   input.signal.throwIfAborted();
-  const source = await checkedSessionReference(input.nativeSessionId);
+  const source = await loadSessionReference(
+    sessionReferenceDirectory(options.sessionReferenceDir),
+    input.nativeSessionId,
+  );
   input.signal.throwIfAborted();
   const coldOptions = { ...options };
   delete coldOptions.openMcp;

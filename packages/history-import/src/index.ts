@@ -120,7 +120,9 @@ export class HistoryService {
           });
         return;
       }
-      const reply = Reply.parse(value);
+      const reply = Reply.safeParse(value).data;
+      // Node watch mode also sends worker dependency notifications on this channel.
+      if (!reply) return;
       const read = this.reads.get(reply.id);
       if (read) {
         this.reads.delete(reply.id);

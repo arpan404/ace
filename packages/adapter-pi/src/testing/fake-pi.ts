@@ -47,7 +47,9 @@ async function handle(line: string) {
       return;
     case "get_state":
       reply(c, {
-        sessionFile: history.path,
+        sessionFile: process.env.FAKE_PI_UNSAVED
+          ? join(process.env.FAKE_PI_HOME ?? "", "unsaved.jsonl")
+          : history.path,
         sessionId: process.env.FAKE_PI_WRONG_ID ? "wrong-native-id" : history.id,
         isStreaming: false,
         isCompacting: false,
