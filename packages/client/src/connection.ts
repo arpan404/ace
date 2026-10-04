@@ -223,6 +223,10 @@ export class Connection {
       if (message.type === "snapshot.part") {
         let snapshot = this.snapshots.get(message.subscriptionId);
         if (message.index === 0) {
+          if (!this.snapshots.has(message.subscriptionId) && this.snapshots.size >= 4) {
+            this.lost(4009);
+            return;
+          }
           snapshot = { seq: message.seq, index: 0, parts: [] };
           this.snapshots.set(message.subscriptionId, snapshot);
         }

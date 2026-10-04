@@ -74,6 +74,7 @@ export class Outbox {
   private pending = new Map<number, PendingFrame>();
   private snapshots = new Map<string, number>();
   private tail = 0;
+  private snapshotSources = 0;
   private bytes = 0;
   private aboveHardSince: number | undefined;
   private options: PressureOptions;
@@ -100,6 +101,13 @@ export class Outbox {
       else {
         // The active-entity source may exceed the queue budget. Produce only the next
         // fragment when transport drains; serialized fragments share the admission cap.
+        // Released subscriptions can still have bytes in flight. Bound their retained
+        // logical sources too, independently of the serialized transport queue.
+        if (this.snapshotSources >= 4) {
+          this.resync();
+          return;
+        }
+        this.snapshotSources++;
         this.pending.set(++this.tail, {
           type: "snapshot",
           chargedBytes: 0,
@@ -208,7 +216,10 @@ export class Outbox {
           data: frame.encoded.slice(frame.offset, end),
         });
         frame.offset = end;
-        if (end >= frame.encoded.length) this.pending.delete(index);
+        if (end >= frame.encoded.length) {
+          this.pending.delete(index);
+          this.snapshotSources--;
+        }
       } else
         encoded =
           frame.type === "serialized"
@@ -243,6 +254,7 @@ export class Outbox {
     this.snapshots.clear();
     this.bytes = 0;
     this.tail = 0;
+    this.snapshotSources = 0;
     this.socket.close(RESYNC_CLOSE_CODE, "Reconnect with afterSeq");
   }
   clear(): void {
@@ -250,5 +262,6 @@ export class Outbox {
     this.snapshots.clear();
     this.bytes = 0;
     this.tail = 0;
+    this.snapshotSources = 0;
   }
 }

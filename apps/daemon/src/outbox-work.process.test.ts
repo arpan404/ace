@@ -240,3 +240,45 @@ it("a congested delta burst keeps every append and contiguous coverage below the
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+it("releasing and replacing large subscriptions cannot retain unlimited snapshot sources", async () => {
+  const { Store, createDevThread } = await import("./index.ts");
+  const { Interaction } = await import("@ace/protocol");
+  const store = new Store(":memory:");
+  const thread = createDevThread(store, store.createWorkspace("/synthetic", "Synthetic"));
+  const view = store.snapshotThread(thread.id);
+  view.interactions.large = Interaction.parse({
+    id: "large",
+    threadId: thread.id,
+    agentId: "root",
+    state: "pending",
+    blocking: true,
+    createdAt: 1,
+    request: { kind: "approval", title: "x".repeat(2 * 1024 * 1024), options: [] },
+  });
+  const server = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+  await once(server, "listening");
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Missing port");
+  const connected = once(server, "connection");
+  const client = new Client(`ws://127.0.0.1:${address.port}`);
+  const opened = once(client.socket, "open");
+  const [socket] = await connected;
+  if (!(socket instanceof WebSocket)) throw new Error("Missing socket");
+  await opened;
+  try {
+    Object.defineProperty(socket, "bufferedAmount", {
+      configurable: true,
+      get: () => defaultPressure.softLimit + 1,
+    });
+    const closed = once(client.socket, "close").then(([code]) => code);
+    const outbox = new Outbox(socket, defaultPressure);
+    for (let index = 0; index < 5; index++)
+      outbox.send({ type: "snapshot", subscriptionId: `s${index}`, seq: view.seq, view });
+    expect(await closed).toBe(4009);
+  } finally {
+    await client.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await store.close();
+  }
+});

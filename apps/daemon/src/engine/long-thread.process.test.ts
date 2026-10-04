@@ -175,7 +175,7 @@ test("resolving one thread's approval does not decode unrelated thread snapshots
       .statement("UPDATE thread_state SET state='unavailable',seq=seq+1 WHERE thread_id=?")
       .run(unrelated);
     const interaction = Object.values(h.store.snapshotThread(owner).interactions).find(
-      (interaction) => interaction.threadId === owner,
+      (candidate) => candidate.threadId === owner,
     );
     if (!interaction) throw new Error("Missing approval");
     expect(
