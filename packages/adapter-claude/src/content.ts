@@ -84,6 +84,28 @@ export function message(
     });
     return;
   }
+  const userText = content
+    .map(object)
+    .filter(
+      (block) => block["type"] === "text" && block["text"] !== "[Request interrupted by user]",
+    );
+  if (role === "user" && userText.length) {
+    const item =
+      agent !== state.root ? state.key("prompt", agent) : state.key("message", `${agent}:${id}:0`);
+    state.emit({
+      type: "item.upsert",
+      agent,
+      item,
+      draft: {
+        type: "message",
+        role: "user",
+        parts: userText.map((block) => ({ type: "text" as const, text: string(block["text"]) })),
+        complete: true,
+        ...(string(data["uuid"]) ? { nativeId: string(data["uuid"]) } : {}),
+        ...state.keepMessageRaw(item, data, agent),
+      },
+    });
+  }
   const blocks = messages.forMessage(agent, id);
   for (const [index, value] of content.entries()) {
     const block = object(value);
@@ -154,8 +176,8 @@ export function message(
         state.notice(data, `${seq}`, agent, "info", contentText);
         continue;
       }
-      const item =
-        role === "user" && agent !== state.root ? state.key("prompt", agent) : messageItem;
+      if (role === "user") continue;
+      const item = messageItem;
       state.emit({
         type: "item.upsert",
         agent,
@@ -186,7 +208,6 @@ export function message(
       });
     else state.notice(data, `${seq}:${index}`, agent);
   }
-
 }
 export interface StreamState {
   id: string;

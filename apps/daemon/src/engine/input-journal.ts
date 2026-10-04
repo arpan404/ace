@@ -51,10 +51,25 @@ export class InputJournal {
       )
       .run(thread, key, signature(parts), JSON.stringify(origin));
   }
-  sending(thread: ThreadId, key: string, parts: ContentPart[]): void {
+  sending(
+    thread: ThreadId,
+    key: string,
+    parts: ContentPart[],
+    provider?: import("@ace/protocol").ProviderKind,
+  ): void {
     this.store
       .statement("UPDATE engine_inputs SET signature=?,sent=1 WHERE thread_id=? AND item_key=?")
-      .run(signature(parts), thread, key);
+      .run(
+        signature(
+          provider === "claude"
+            ? parts.map((part) =>
+                part.type === "file" ? { type: "text", text: `@${part.path}` } : part,
+              )
+            : parts,
+        ),
+        thread,
+        key,
+      );
   }
   correlate(thread: ThreadId, fact: Fact, root: string): Fact {
     if (
@@ -64,6 +79,8 @@ export class InputJournal {
       fact.draft.role !== "user" ||
       !fact.draft.parts
     )
+      return fact;
+    if (fact.draft.origin && fact.draft.origin.kind !== "person" && !fact.draft.origin.commandId)
       return fact;
     const alias = this.store
       .statement("SELECT item_key FROM engine_input_echoes WHERE thread_id=? AND native_key=?")
@@ -77,6 +94,7 @@ export class InputJournal {
         .get(thread, signature(fact.draft.parts));
     if (!row) return fact;
     const key = z.string().parse(row.item_key);
+    if (key === fact.item && !alias) return fact;
     this.store
       .statement("UPDATE engine_inputs SET matched=1 WHERE thread_id=? AND item_key=?")
       .run(thread, key);

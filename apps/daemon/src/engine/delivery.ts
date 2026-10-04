@@ -122,7 +122,7 @@ export async function executeIntent(
         ...(prepared?.input ??
           (p.type === "thread.fork" ? [{ type: "text" as const, text: p.input }] : p.input)),
       ];
-      repo.inputs.sending(actor.id, `input:${intent.command.id}`, input);
+      repo.inputs.sending(actor.id, `input:${intent.command.id}`, input, state.config.provider);
       await session.send(
         input,
         p.type === "thread.send" && p.delivery === "steer" && capabilities.steer
@@ -174,6 +174,7 @@ export async function executeIntent(
     const targetKey =
       p.agentId === undefined ? state.rootKey : state.indexes.agentKeysById[p.agentId];
     if (p.runId && (!targetKey || state.agents[targetKey]?.activeRun !== p.runId)) return;
+
     const agent = p.agentId === undefined ? undefined : state.indexes.agentKeysById[p.agentId];
     const capabilities =
       actor.effectiveCapabilities ??

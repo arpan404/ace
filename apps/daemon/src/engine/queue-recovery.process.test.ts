@@ -69,6 +69,8 @@ test("editing attachments, moving and removing queued messages changes only the 
     h.adapter.commands.filter((command) => command.type === "send").map((command) => command.input),
   ).toEqual([text("first"), text("c"), text("edited")]);
   expect(h.engine.queue(id).messages).toEqual([]);
+  expect(h.store.snapshotThread(id).items["input:a"]).toMatchObject({ parts: text("edited") });
+  expect(h.store.snapshotThread(id).items["input:b"]).toBeUndefined();
 });
 
 test("two devices racing the same revision get one winner and replaying its receipt cannot edit twice", async () => {
@@ -279,9 +281,14 @@ test("native restart continuation records lost shells monitors and subagents onc
   });
   await recovered.engine.flush();
   expect(recovered.store.getThread(id)?.status.state).toBe("done");
-  const continuationItems = Object.values(recovered.store.snapshotThread(id).items).filter(item => item.type === "message" && item.origin?.kind === "restart");
+  const continuationItems = Object.values(recovered.store.snapshotThread(id).items).filter(
+    (item) => item.type === "message" && item.origin?.kind === "restart",
+  );
   expect(continuationItems).toHaveLength(1);
-  expect(continuationItems[0]).toMatchObject({synthetic:true,parts:[{type:"text",text:expect.stringContaining("shell: Background build")}]});
+  expect(continuationItems[0]).toMatchObject({
+    synthetic: true,
+    parts: [{ type: "text", text: expect.stringContaining("shell: Background build") }],
+  });
   expect(JSON.stringify(continuationItems[0])).toContain("monitor: Watch tests");
   expect(JSON.stringify(continuationItems[0])).toContain("subagent: Research");
 

@@ -235,7 +235,10 @@ export class EngineRepository {
             input = { ...input, trigger: queue.trigger };
           let fact = capFact(
             (raw) => this.store.capRaw(raw, id),
-            shapeProviderError(this.inputs.correlate(id, input, state.rootKey ?? "root"), state.config.provider),
+            shapeProviderError(
+              this.inputs.correlate(id, input, state.rootKey ?? "root"),
+              state.config.provider,
+            ),
           );
           if (
             (fact.type === "item.upsert" || fact.type === "item.reconciled") &&
@@ -347,7 +350,32 @@ export class EngineRepository {
         // Persist the acknowledgement policy in the existing per-thread record store,
         // so a later run cannot acknowledge the next, unrelated engine input.
         const root = state.agents[state.rootKey ?? ""]?.agent.id;
+        const inputUpdates: EventPayload[] = [];
         for (const event of events) {
+          const pending = this.pending.awaiting(id);
+          const commandId =
+            event.type === "input.admitted"
+              ? (event.commandId ?? pending?.commandId)
+              : event.type === "run.started" && event.run.agentId === root
+                ? pending?.commandId
+                : undefined;
+          const key = commandId ? `input:${commandId}` : undefined;
+          const item = key ? state.items[key] : undefined;
+          if (
+            key &&
+            item?.type === "message" &&
+            item.agentId === root &&
+            (event.type === "run.started" || event.type === "input.admitted")
+          ) {
+            const updated = {
+              ...item,
+              ...(event.type === "run.started"
+                ? { runId: event.run.id }
+                : { nativeId: event.nativeInputId }),
+            };
+            state.items[key] = updated;
+            inputUpdates.push({ type: "item.updated", item: updated });
+          }
           const admitted =
             event.type === "input.admitted" && event.agentId === root && !this.opening.has(id);
           if (admitted) this.admissionStatements.mark.run(id);
@@ -375,6 +403,7 @@ export class EngineRepository {
                 : [];
           for (const row of acknowledged) this.queue.prune(Number(row.id));
         }
+        events.push(...inputUpdates);
         if (continuationStarted && this.queue.get(id).trigger) {
           this.queue.set(id, { continuation: null, trigger: null }, now);
           this.pending.finishContinuation(id);
@@ -455,6 +484,15 @@ export class EngineRepository {
       ],
       at,
     );
+  }
+
+  removeInput(id: ThreadId, commandId: CommandId, at: number): void {
+    const state = this.requireState(id);
+    const key = `input:${commandId}`;
+    const item = state.items[key];
+    if (!item) return;
+    delete state.items[key];
+    this.save(state, [{ type: "item.deleted", itemId: item.id }], at);
   }
 
   cancelPending(id: ThreadId, now: number): ThreadId[] {

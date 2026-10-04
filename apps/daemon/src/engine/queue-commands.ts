@@ -41,9 +41,13 @@ export function handleQueue(
         ...(p.context ? { context: p.context } : {}),
         ...(old.type === "thread.send" && p.delivery ? { delivery: p.delivery } : {}),
       };
-      dependencies.repo.queue.edit(entry.id, Command.parse({ ...entry.command, payload }));
-    } else if (p.type === "queue.remove" && entry) dependencies.repo.queue.remove(entry.id);
-    else if (p.type === "queue.move" && entry) {
+      const edited = Command.parse({ ...entry.command, payload });
+      dependencies.repo.queue.edit(entry.id, edited);
+      dependencies.repo.admitInput(edited, p.threadId, dependencies.clock.now());
+    } else if (p.type === "queue.remove" && entry) {
+      dependencies.repo.queue.remove(entry.id);
+      dependencies.repo.removeInput(p.threadId, entry.command.id, dependencies.clock.now());
+    } else if (p.type === "queue.move" && entry) {
       if (dependencies.repo.queue.hasUncertain(p.threadId)) return fail("uncertain_delivery");
       const after =
         p.after === null ? null : dependencies.repo.queue.editable(p.threadId, p.after)?.id;
