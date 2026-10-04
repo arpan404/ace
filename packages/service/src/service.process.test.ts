@@ -41,7 +41,7 @@ test("LaunchAgent starts at login with throttled restart and escaped environment
       StandardErrorPath: z.string(),
     })
     .parse(parse(plan.content));
-  expect(plist.Label).toBe("dev.ace.daemon");
+  expect(plist.Label).toBe("dev.ace.next.daemon");
   expect(plist.ProgramArguments).toEqual(["/Users/A & B/.ace/bin/ace", "supervise"]);
   expect(plist.RunAtLoad).toBe(true);
   expect(plist.KeepAlive).toBe(true);
@@ -175,8 +175,17 @@ if(mac){
   if(verb==='bootstrap'){if(a.length!==3||a[1]!==domain.slice(0,domain.lastIndexOf('/'))||a[2]!==file)process.exit(64);}
   else if(!['print','bootout'].includes(verb)||a.length!==2||a[1]!==domain)process.exit(64);
 }else if(verb==='daemon-reload'){if(a.length!==1)process.exit(64);}
-else if(!['is-active','start','stop','enable','disable'].includes(verb)||a.length!==2||a[1]!=='ace.service')process.exit(64);
-if(verb==='print'||verb==='is-active')process.exit(s.active?0:(mac?113:3));
+else if(!['show','start','stop','enable','disable'].includes(verb)||a[1]!==domain||(verb==='show'?a.length!==3:a.length!==2))process.exit(64);
+if(verb==='print'){
+  if(!s.active)process.exit(113);
+  const command=${JSON.stringify(plan.command[0])};
+  console.log('\\tpath = '+file+'\\n\\tprogram = '+command+'\\n\\targuments = {\\n\\t\\t'+command+'\\n\\t\\tsupervise\\n\\t}');process.exit(0);
+}
+if(verb==='show'){
+  const loaded=s.loaded && (()=>{try{readFileSync(file);return true;}catch{return false;}})();
+  const command=${JSON.stringify(plan.command[0])};
+  console.log('LoadState='+(loaded?'loaded':'not-found')+'\\nActiveState='+(s.active?'active':'inactive')+'\\nFragmentPath='+(loaded?file:'')+'\\nExecStart='+(loaded?'{ path='+command+' ; argv[]='+command+' supervise ; ignore_errors=no ; }':'')+'\\nExecCondition=\\nExecStartPre=\\nExecStartPost=\\nExecReload=\\nExecStop=\\nExecStopPost=\\nDropInPaths=');process.exit(0);
+}
 if(verb==='bootstrap'||verb==='start'){s.active=true;s.loaded=readFileSync(file,'utf8');}
 if(verb==='bootout'||verb==='stop')s.active=false;
 if(verb==='enable'){readFileSync(file);s.enabled=true;}

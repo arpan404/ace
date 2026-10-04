@@ -1,4 +1,4 @@
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { z } from "zod";
 const text = z
   .string()
@@ -34,6 +34,7 @@ export const ServiceConfig = z.object({
 export type ServiceConfig = z.input<typeof ServiceConfig>;
 export interface ServicePlan {
   platform: ServiceConfig["platform"];
+  command: readonly [string, "supervise"];
   file: string;
   content: string;
   domain: string;
@@ -51,8 +52,8 @@ const quote = (s: string) =>
 export function planService(input: ServiceConfig): ServicePlan {
   const c = ServiceConfig.parse(input);
   const logDir = join(c.dataDir, "logs");
-  const label = basename(c.dataDir) === ".ace-next" ? "dev.ace.next.daemon" : "dev.ace.daemon";
-  const unit = basename(c.dataDir) === ".ace-next" ? "ace-next.service" : "ace.service";
+  const label = "dev.ace.next.daemon";
+  const unit = "ace-next.service";
   const variables: [string, string][] = [
     ["ACE_HOME", c.dataDir],
     ["PATH", c.path],
@@ -67,6 +68,7 @@ export function planService(input: ServiceConfig): ServicePlan {
   if (c.platform === "darwin")
     return {
       platform: c.platform,
+      command: [c.executable, "supervise"],
       file: join(c.home, `Library/LaunchAgents/${label}.plist`),
       domain: `gui/${c.uid}/${label}`,
       logDir,
@@ -82,6 +84,7 @@ export function planService(input: ServiceConfig): ServicePlan {
     };
   return {
     platform: c.platform,
+    command: [c.executable, "supervise"],
     file: join(c.home, `.config/systemd/user/${unit}`),
     domain: unit,
     logDir,

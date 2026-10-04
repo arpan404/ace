@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, onTestFinished as cleanup } from "vitest";
 import { readConfig } from "./config.ts";
-import { serviceCommand } from "@ace/service";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 async function legacy(home: string) {
   const root = join(home, ".ace");
@@ -53,8 +54,26 @@ test.each(["install", "start", "status", "stop", "uninstall"])(
     const home = await mkdtemp(join(tmpdir(), "ace-legacy-service-"));
     cleanup(() => rm(home, { recursive: true, force: true }));
     const old = await legacy(home);
-    await expect(serviceCommand(old, [action])).rejects.toThrow(/legacy|incompatible/i);
+    const bin = join(home, "fake-managers"),
+      contact = join(home, "manager-contact");
+    await mkdir(bin);
+    for (const manager of ["launchctl", "systemctl"])
+      await writeFile(join(bin, manager), `#!/bin/sh\necho contacted > "${contact}"\nexit 1\n`, {
+        mode: 0o755,
+      });
+    await expect(
+      promisify(execFile)(
+        process.execPath,
+        [
+          "--input-type=module",
+          "-e",
+          `import {serviceCommand} from ${JSON.stringify(new URL("../../../packages/service/src/index.ts", import.meta.url).href)}; await serviceCommand(${JSON.stringify(old)}, [${JSON.stringify(action)}]);`,
+        ],
+        { env: { ...process.env, HOME: home, PATH: bin } },
+      ),
+    ).rejects.toThrow(/legacy|incompatible/i);
     await expect(readFile(join(old, "executed"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(contact)).rejects.toMatchObject({ code: "ENOENT" });
   },
 );
 
@@ -63,8 +82,6 @@ test("ace status refuses a live legacy daemon instead of accepting its health re
 }) => {
   const { createServer } = await import("node:http");
   const { once } = await import("node:events");
-  const { execFile } = await import("node:child_process");
-  const { promisify } = await import("node:util");
   const { daemonCli } = await import("./process-test-support.ts");
   const root = await mkdtemp(join(tmpdir(), "ace-legacy-health-"));
   onTestFinished(() => rm(root, { recursive: true, force: true }));

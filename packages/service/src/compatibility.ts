@@ -1,27 +1,26 @@
-import { readFile } from "node:fs/promises";
+import { dirname, basename } from "node:path";
+import { PinnedDirectory } from "@ace/workspace/pinned-directory";
 import type { ServicePlan } from "./plan.ts";
 import { assertCompatibleHome, installedVersion } from "./home.ts";
+import { assertRegistration, incompatibleService } from "./service-identity.ts";
 
-function program(plan: ServicePlan, content: string): string | undefined {
-  return plan.platform === "darwin"
-    ? /<key>ProgramArguments<\/key>\s*(<array>.*?<\/array>)/s.exec(content)?.[1]
-    : /^ExecStart=(.*)$/m.exec(content)?.[1];
+/** A bounded, no-follow registration read; missing registration never authorizes a loaded service. */
+export function readRegistration(plan: ServicePlan): string | undefined {
+  let directory: PinnedDirectory | undefined;
+  try {
+    directory = PinnedDirectory.atBoundary(dirname(plan.file));
+    return directory.readText(basename(plan.file), 64 * 1024);
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined;
+    throw incompatibleService(plan, error);
+  } finally {
+    directory?.closeSync();
+  }
 }
-
-/** Validate installation metadata and the registered command without executing it. */
 export async function assertCompatibleService(plan: ServicePlan, root: string): Promise<void> {
   assertCompatibleHome(root);
-  let content: string;
-  try {
-    content = await readFile(plan.file, "utf8");
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return;
-    throw error;
-  }
+  const content = readRegistration(plan);
+  if (content === undefined) return;
   installedVersion(root);
-  const expected = program(plan, plan.content);
-  if (!expected || program(plan, content) !== expected)
-    throw new Error(
-      `Incompatible or legacy ace service at ${plan.file}. Refusing to adopt, start or modify it. Choose a separate ACE_HOME; leave migration to the owner.`,
-    );
+  assertRegistration(plan, content);
 }
