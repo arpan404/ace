@@ -1,9 +1,11 @@
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import type { PermissionCapabilities, PermissionMode } from "@ace/protocol";
+import type { PermissionCapabilities, PermissionMode, ProviderKind } from "@ace/protocol";
 import {
   accountTag,
   permissionChoices,
+  permissionCoverageNote,
   permissionLabel,
+  providerNames,
   type EffortControl,
   type ModelChoice,
 } from "@ace/ui-core";
@@ -15,6 +17,7 @@ import {
   CommandIcon,
   FileTextIcon,
   ImageIcon,
+  InfoIcon,
   PaperclipIcon,
 } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
@@ -41,12 +44,13 @@ function Note(props: { children: string; pending?: boolean }) {
 }
 
 /**
- * The approval modes the provider supports, each with what it means and what this provider can
- * actually gate in it. A thread with its own mode can go back to the default.
+ * The approval modes the provider supports, each with what it means in one line, then once
+ * what this provider actually gates. A thread with its own mode can go back to the default.
  */
 export function PermissionMenu(props: {
   mode: PermissionMode | undefined;
   capabilities: PermissionCapabilities | undefined;
+  provider?: ProviderKind | undefined;
   loading: boolean;
   unavailable?: string | undefined;
   inherited?: boolean | undefined;
@@ -85,10 +89,9 @@ export function PermissionMenu(props: {
                 <span className={cn(choice.attention && "text-status-needs-you")}>
                   {choice.label}
                 </span>
-                <span className="text-xs leading-4 text-muted-foreground">
+                <span className="truncate text-xs leading-4 text-muted-foreground">
                   {choice.description}
                 </span>
-                <span className="text-xs leading-4 text-subtle-foreground">{choice.coverage}</span>
               </span>
               <span className="grid size-4 shrink-0 place-items-center">
                 <MenuPrimitive.RadioItemIndicator>
@@ -99,6 +102,14 @@ export function PermissionMenu(props: {
           ))}
         </MenuPrimitive.RadioGroup>
       </MenuGroup>
+      <p className="flex items-start gap-2 px-2.5 pt-1.5 pb-1 text-xs leading-4 text-subtle-foreground">
+        <InfoIcon aria-hidden size={14} className="mt-px shrink-0" />
+        {permissionCoverageNote(
+          props.capabilities,
+          props.provider ? providerNames[props.provider] : "This provider",
+          props.mode,
+        )}
+      </p>
       {props.defaultMode && !props.inherited && (
         <>
           <MenuSeparator />

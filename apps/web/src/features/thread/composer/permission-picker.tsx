@@ -1,4 +1,4 @@
-import type { PermissionCapabilities, PermissionMode } from "@ace/protocol";
+import type { PermissionCapabilities, PermissionMode, ProviderKind } from "@ace/protocol";
 import { permissionCoverage, permissionLabel, permissionNeedsAttention } from "@ace/ui-core";
 import { ShieldCheckIcon } from "@phosphor-icons/react";
 import { Suspense } from "react";
@@ -18,6 +18,8 @@ import { permissionIcons } from "./permission-icons.ts";
 export function PermissionPicker(props: {
   mode: PermissionMode | undefined;
   capabilities: PermissionCapabilities | undefined;
+  /** Whose modes these are, for the menu's note on what they gate. */
+  provider?: ProviderKind | undefined;
   loading: boolean;
   /** Why the mode can't be chosen here, e.g. the daemon couldn't report the provider's modes. */
   unavailable?: string | undefined;
@@ -63,6 +65,7 @@ export function PermissionPicker(props: {
           <DeferredPermissionMenu.Component
             mode={mode}
             capabilities={props.capabilities}
+            provider={props.provider}
             loading={props.loading}
             unavailable={props.unavailable}
             inherited={props.inherited}

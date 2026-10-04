@@ -50,6 +50,7 @@ export function ThreadPermissionControl(props: { thread: ThreadRef }) {
     <PermissionPicker
       mode={summary?.mode}
       capabilities={capabilities}
+      provider={meta?.provider}
       loading={loading || (!meta?.permission && !failed)}
       unavailable={
         failed && !meta?.permission

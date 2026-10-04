@@ -97,9 +97,13 @@ test("approvals show the thread's mode and what the provider gates, and change f
   await userEvent.click(chip);
   const auto = await screen.findByRole("menuitemradio", { name: "Auto-review" });
   expect(auto.getAttribute("aria-checked")).toBe("true");
-  expect(auto.textContent).toContain("Gates edits, shell commands, network and protected reads");
+  // Each mode in one line; what the provider gates, said once for the mode in effect.
+  expect(auto.textContent).toContain("Approves low-risk actions, asks the rest");
+  expect(
+    screen.getByText("Auto-review: Gates edits, shell commands, network and protected reads"),
+  ).toBeTruthy();
   const full = screen.getByRole("menuitemradio", { name: "Full access" });
-  expect(full.textContent).toContain("Nothing is gated");
+  expect(full.textContent).toContain("Edits, runs and fetches without asking");
 
   await userEvent.click(screen.getByRole("menuitemradio", { name: "Read only" }));
   // The agent is mid-turn: the new mode waits for the turn to end.

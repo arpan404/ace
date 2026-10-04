@@ -120,6 +120,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                 <PermissionPicker
                   mode={chosen ?? defaultMode}
                   capabilities={permissions.capabilities}
+                  provider={provider}
                   loading={!!provider && (permissions.loading || defaultMode === undefined)}
                   unavailable={
                     permissions.failed
