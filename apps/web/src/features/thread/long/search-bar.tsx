@@ -7,7 +7,7 @@ import { IconButton } from "@/components/ui/icon-button.tsx";
 import { SegmentedControl } from "@/components/ui/segmented-control.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Switch } from "@/components/ui/switch.tsx";
-import { VirtualRows } from "@/components/virtual-rows.tsx";
+import { LongRows } from "@/components/virtual-rows.tsx";
 import { cn } from "@/lib/cn.ts";
 import type { ThreadNav } from "./nav.tsx";
 import { ThreadSearch, type SearchFilter, type SearchHit } from "./search-state.ts";
@@ -40,6 +40,8 @@ export function SearchBar(props: { nav: ThreadNav }) {
   const [filter, setFilter] = useState<SearchFilter | "all">("all");
   const [tree, setTree] = useState(false);
   const [active, setActive] = useState(-1);
+  // The list folds away once the reader steps to a hit, so the hit shows under the bar.
+  const [listOpen, setListOpen] = useState(true);
   const input = useRef<HTMLInputElement>(null);
   // ⌘F focuses the field, now and whenever it is pressed again while the bar is open.
   useEffect(() => {
@@ -68,6 +70,7 @@ export function SearchBar(props: { nav: ThreadNav }) {
 
   const open = (hit: SearchHit, index: number) => {
     setActive(index);
+    setListOpen(false);
     if (hit.threadId === nav.threadId)
       void nav.jump.toSeq(hit.seq, { turn: hit.turnOrdinal, ...(query ? { query } : {}) });
     else
@@ -91,13 +94,20 @@ export function SearchBar(props: { nav: ThreadNav }) {
   };
   const count = resultCountLabel(state.hits.length, state.more, state.loading);
   const indexing = indexingLabel(state.pending);
-  const showList = !!query && (state.hits.length > 0 || !state.loading);
+  const showList = listOpen && !!query && (state.hits.length > 0 || !state.loading);
 
   return (
     <div
       role="search"
       aria-label="Search this thread"
       style={{ pointerEvents: "auto" }}
+      // Esc closes from anywhere in the bar: the field, a filter, the subagent switch.
+      onKeyDown={(event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        close();
+      }}
       className="glass fx-rise-in flex w-[min(620px,calc(100vw-2rem))] flex-col rounded-lg shadow-[var(--glass-shadow)]"
     >
       <div className="flex h-11 items-center gap-2 pr-1.5 pl-3">
@@ -108,15 +118,15 @@ export function SearchBar(props: { nav: ThreadNav }) {
           placeholder="Search this thread"
           value={text}
           spellCheck={false}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            setText(event.target.value);
+            setListOpen(true);
+          }}
+          onClick={() => setListOpen(true)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
               step(event.shiftKey ? -1 : 1);
-            } else if (event.key === "Escape") {
-              event.preventDefault();
-              event.stopPropagation();
-              close();
             } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
               step(event.key === "ArrowDown" ? 1 : -1);
@@ -150,10 +160,19 @@ export function SearchBar(props: { nav: ThreadNav }) {
           size="sm"
           value={filter}
           options={filters}
-          onValueChange={setFilter}
+          onValueChange={(next) => {
+            setFilter(next);
+            setListOpen(true);
+          }}
         />
         <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-          <Switch checked={tree} onCheckedChange={setTree} aria-label="Include subagents" />
+          <Switch
+            checked={tree}
+            onCheckedChange={(next) => {
+              setTree(next);
+              setListOpen(true);
+            }}
+          />
           Subagents
         </label>
       </div>
@@ -192,12 +211,14 @@ function Results(props: {
 }) {
   const { hits } = props;
   return (
-    <div className="max-h-80 overflow-y-auto border-t border-border p-1">
+    // The scroller VirtualRows finds by its computed overflow.
+    <div className="border-t border-border p-1" style={{ maxHeight: 320, overflowY: "auto" }}>
       {hits.length === 0 && !props.failed && (
         <p className="px-2.5 py-2 text-ui text-muted-foreground">Nothing in this thread matches.</p>
       )}
       <div role="listbox" aria-label="Results">
-        <VirtualRows
+        <LongRows
+          virtualAbove={60}
           items={hits}
           rowKey={(hit) => `${hit.threadId}:${hit.itemId}`}
           estimate={52}

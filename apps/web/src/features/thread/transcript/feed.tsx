@@ -370,7 +370,7 @@ export function Feed(props: FeedProps) {
             <DeferredSearchBar.Component nav={nav} />
           </Suspense>
         )}
-        {detached && (
+        {window && (
           <JumpBar turn={jump.turn} count={props.turnCount} failed={jump.failed} onLive={toLive} />
         )}
         {!window && jump.failed && (
@@ -385,7 +385,7 @@ export function Feed(props: FeedProps) {
             </Button>
           </p>
         )}
-        {!detached && props.overlay}
+        {!window && props.overlay}
       </div>
       {(!pinned || detached) && (
         <LivePill
