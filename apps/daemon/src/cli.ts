@@ -74,6 +74,7 @@ async function main(args: string[]): Promise<void> {
     const daemon = await runDaemonProcess(startDaemon, {
       config: config,
       handler: development ? stubHandler({ development }) : undefined,
+      preview: { host: "127.0.0.1", wildcardHost: "preview.localhost", port: 0 },
       toolkits: [],
       modelInstances: readModelInstances(),
       history: { instances: readHistoryInstances() },
