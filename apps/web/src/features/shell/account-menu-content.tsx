@@ -1,13 +1,6 @@
-import {
-  ChartBarIcon,
-  FilesIcon,
-  MagnifyingGlassIcon,
-  PlugsIcon,
-  SignOutIcon,
-} from "@phosphor-icons/react";
+import { ChartBarIcon, PlugsIcon, SignOutIcon } from "@phosphor-icons/react";
 import { useConnectionState } from "@ace/client-react";
 import { useNavigate } from "@tanstack/react-router";
-import { Icon, type IconGlyph } from "@/components/icon.tsx";
 import {
   MenuContent,
   MenuGroup,
@@ -19,40 +12,10 @@ import { useDaemonConnection } from "@/boot/connection.tsx";
 import { useProfileName } from "@/lib/profile.ts";
 import { connectionLabels } from "./connection-labels.ts";
 
-/*
- * What the sidebar's menus hold, loaded after the first paint (`SidebarMenu`). The menus and
- * their triggers are there from the start; only their contents arrive a moment later.
+/**
+ * The account menu's contents, loaded after the first paint (`SidebarMenu`): who this is, the
+ * daemon connection, usage and connection settings.
  */
-
-/** The less used places. */
-const morePages: readonly {
-  to: "/more/accounts" | "/more/files" | "/more/search";
-  label: string;
-  icon: IconGlyph;
-}[] = [
-  { to: "/more/accounts", label: "Usage & accounts", icon: ChartBarIcon },
-  { to: "/more/files", label: "Files", icon: FilesIcon },
-  { to: "/more/search", label: "Search", icon: MagnifyingGlassIcon },
-];
-
-export function MoreMenuContent() {
-  const navigate = useNavigate();
-  return (
-    <MenuContent side="right" align="start">
-      {morePages.map((page) => (
-        <MenuItem
-          key={page.to}
-          icon={<Icon icon={page.icon} />}
-          onClick={() => void navigate({ to: page.to })}
-        >
-          {page.label}
-        </MenuItem>
-      ))}
-    </MenuContent>
-  );
-}
-
-/** Who this is, the daemon connection, usage and connection settings. */
 export function AccountMenuContent(props: { compact: boolean }) {
   const label = connectionLabels[useConnectionState()];
   const [name] = useProfileName();

@@ -14,7 +14,6 @@ export function GlobalHotkeys() {
   useHotkey(keymap.newDeck.keys, () => void navigate({ to: "/deck/new" }));
   useHotkey(keymap.back.keys, nav.back);
   useHotkey(keymap.forward.keys, nav.forward);
-  useHotkey(keymap.toggleSidebar.keys, layout.toggleSidebar);
   useHotkey(keymap.settings.keys, () => void navigate({ to: "/settings" }));
   useHotkey(keymap.goHome.keys, () => void navigate({ to: "/" }));
   useHotkey(keymap.goActivity.keys, () => void navigate({ to: "/activity" }));

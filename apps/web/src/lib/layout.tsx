@@ -22,7 +22,6 @@ const storageKey = "ace.layout";
 
 interface LayoutValue {
   layout: ShellLayout;
-  toggleSidebar(): void;
   setSidebarOpen(open: boolean): void;
   setSidebarCollapsed(collapsed: boolean): void;
   paletteOpen: boolean;
@@ -79,7 +78,6 @@ export function LayoutProvider(props: {
       setRightPanel,
       storage,
       workspaceStore,
-      toggleSidebar: () => change((p) => ({ ...p, sidebarOpen: !p.sidebarOpen })),
       setSidebarOpen: (open) => change((p) => ({ ...p, sidebarOpen: open })),
       setSidebarCollapsed: (collapsed) => change((p) => ({ ...p, sidebarCollapsed: collapsed })),
     }),

@@ -54,6 +54,10 @@ test("More holds usage and accounts, files and search", async () => {
   await userEvent.click(within(views()).getByRole("button", { name: "More" }));
   await userEvent.click(await screen.findByRole("menuitem", { name: "Usage & accounts" }));
   await title("Usage & accounts");
+
+  await userEvent.click(within(views()).getByRole("button", { name: "More" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Search" }));
+  await title("Search");
 });
 
 test("every view's shortcut opens it from anywhere", async () => {
@@ -94,7 +98,25 @@ test("as icons the sidebar keeps every view, its count and its name, and stays s
   const deck = within(views()).getByRole("link", { name: "Deck" });
   await userEvent.hover(deck);
   // Its tooltip names it, with its shortcut.
-  expect((await screen.findByText("G D")).parentElement?.textContent).toBe("DeckG D");
+  const tip = await screen.findByRole("tooltip");
+  expect(within(tip).getByText("Deck")).toBeTruthy();
+  expect(within(tip).getByText("G D")).toBeTruthy();
+  await userEvent.click(deck);
+  await screen.findByRole("complementary", { hidden: true, name: "Decks" });
+  expect(within(views()).getByRole("link", { name: "Deck" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+  for (const row of ["Automations", "Skills"]) {
+    await userEvent.click(within(views()).getByRole("link", { name: row }));
+    // The view's list is there, hidden while the sidebar is icons.
+    await screen.findByRole("complementary", { hidden: true, name: row });
+    expect(within(views()).getByRole("link", { name: row }).getAttribute("aria-current")).toBe(
+      "page",
+    );
+  }
+  await userEvent.click(within(views()).getByRole("button", { name: "More" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Files" }));
+  await title("Files");
   await userEvent.click(screen.getByRole("link", { name: "Settings" }));
   await title("Settings");
   await userEvent.click(screen.getByRole("link", { name: /^New thread/ }));
@@ -111,6 +133,15 @@ test("as icons the sidebar keeps every view, its count and its name, and stays s
   expect(within(views()).getByRole("link", { name: /^Activity/ }).textContent).toContain(
     "Activity",
   );
+});
+
+test("as icons the wordmark still goes Home", async () => {
+  await harness().open("/activity");
+  await title("Activity");
+  await userEvent.click(button("Collapse sidebar"));
+  await userEvent.click(screen.getByRole("link", { name: "Home" }));
+  await title("Home");
+  expect(button("Expand sidebar")).toBeTruthy();
 });
 
 test("⌘\\ hides the sidebar, icons or not, and brings back the same one", async () => {

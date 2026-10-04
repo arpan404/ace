@@ -1,6 +1,8 @@
 import { useRouterState } from "@tanstack/react-router";
 import { createContext, lazy, Suspense, useContext, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useHotkey } from "@/lib/hotkeys.ts";
+import { keymap } from "@/lib/keymap.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import { crowdedQuery, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useMediaQuery } from "@/lib/media.ts";
@@ -91,6 +93,9 @@ export function SidebarFrame(props: { sidebar: ReactNode; children: ReactNode })
     }),
     [shown, wide, collapsed, yielded, body, setSidebarOpen, setSidebarCollapsed, hideRightPanel],
   );
+  // ⌘\ shows or hides the sidebar where it is: the sheet on a narrow window (leaving the wide
+  // window's remembered choice alone), the sidebar beside the content elsewhere.
+  useHotkey(keymap.toggleSidebar.keys, value.sidebarShown ? value.hideSidebar : value.showSidebar);
   return (
     <FrameContext.Provider value={value}>
       <div

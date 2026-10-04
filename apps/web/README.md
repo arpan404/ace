@@ -79,10 +79,14 @@ and at the foot the connection dot and account menu, Settings (⌘,) and the swi
   body through a portal, so it keeps the route's providers. It is the only part that scrolls;
   collapsed, it stays mounted and hidden.
 - The More and account menus are there from the start; their contents load just after the first
-  paint (`sidebar-menus.tsx`), keeping their icons and wording out of the initial bundle.
+  paint (`SidebarMenu`), keeping their icons and wording out of the initial bundle. More's pages
+  are defined once, in `features/more/pages.ts`; the app layer hands the sidebar More's menu.
+- `⌘\` is bound by `SidebarFrame`: it opens and closes the sheet on a narrow window and hides or
+  shows the sidebar elsewhere, so a narrow window never changes the wide window's choice.
 - New thread (the row and ⌘N) starts in the project Home is narrowed to, else the last one used.
 - The desktop app styles `data-sidebar` (`expanded`, `collapsed`, `hidden`) and the `sidebar-top`,
-  `sidebar-wordmark` and `header-nav` slots so the macOS traffic lights never cover a control.
+  `sidebar-wordmark` and `header-nav` slots so the macOS traffic lights never cover a control (as
+  icons, the top row grows so the wordmark, the Home link, sits below them).
 
 ## Module boundaries
 

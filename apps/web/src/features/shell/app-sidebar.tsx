@@ -6,7 +6,7 @@ import {
   MagnifyingGlassIcon,
   NotePencilIcon,
 } from "@phosphor-icons/react";
-import { useRef, type ReactElement } from "react";
+import { useRef, type ReactElement, type ReactNode } from "react";
 import { cn } from "@/lib/cn.ts";
 import { useLayout } from "@/lib/layout.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";
@@ -40,6 +40,8 @@ const look = (icons: boolean, active: boolean) =>
 export function AppSidebar(props: {
   /** Counts the views own (Activity's needs-you total), composed in by the app layer. */
   badges?: Partial<Record<View["id"], number>>;
+  /** What More holds (the More slice's menu contents), composed in by the app layer. */
+  moreMenu: ReactNode;
 }) {
   const { collapsed: icons, setBody } = useViewFrame();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -97,7 +99,7 @@ export function AppSidebar(props: {
           <button
             type="button"
             onClick={() => setPaletteOpen(true)}
-            className="flex h-8 w-full items-center gap-2 rounded-[9px] bg-sidebar-accent pr-2 pl-2.5 text-ui text-subtle-foreground outline-none transition-[background-color,box-shadow] duration-(--dur-1) hover:bg-[color-mix(in_oklab,var(--sidebar-accent),var(--foreground)_4%)] hover:shadow-[var(--glass-highlight)]"
+            className="flex h-8 w-full items-center gap-2 rounded-[9px] bg-sidebar-accent pr-2 pl-2.5 text-ui text-subtle-foreground outline-none transition-[background-color,box-shadow] duration-(--dur-1) hover:bg-[color-mix(in_oklab,var(--sidebar-accent),var(--foreground)_4%)] hover:shadow-[var(--glass-highlight)] focus-visible:shadow-[0_0_0_2px_var(--ring)]"
           >
             <Icon icon={MagnifyingGlassIcon} />
             Search
@@ -119,8 +121,6 @@ export function AppSidebar(props: {
           ))}
           <li className="flex flex-col">
             <SidebarMenu
-              menu="more"
-              compact={icons}
               tip={icons ? "More" : undefined}
               trigger={
                 <button
@@ -137,7 +137,9 @@ export function AppSidebar(props: {
                   )}
                 </button>
               }
-            />
+            >
+              {props.moreMenu}
+            </SidebarMenu>
           </li>
         </ul>
       </nav>

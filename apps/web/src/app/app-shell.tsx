@@ -1,6 +1,7 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { ActivityNotifier, useNeedsYouCount } from "@/features/activity/index.ts";
+import { MoreMenuItems } from "@/features/more/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost } from "@/features/projects/index.ts";
 import { AppSidebar, GlobalHotkeys, SidebarFrame } from "@/features/shell/index.ts";
@@ -32,9 +33,12 @@ export function AppShell() {
   );
 }
 
-/** The sidebar with Activity's count (the number its header shows): a change re-renders only it. */
+/**
+ * The sidebar with what other slices own: Activity's count (the number its header shows; a
+ * change re-renders only the sidebar) and More's menu.
+ */
 function Sidebar() {
-  return <AppSidebar badges={{ activity: useNeedsYouCount() }} />;
+  return <AppSidebar badges={{ activity: useNeedsYouCount() }} moreMenu={<MoreMenuItems />} />;
 }
 
 /** After client-side navigation, move focus to the new view's title so keyboard and

@@ -76,13 +76,13 @@ html, body { background: transparent !important; }
 
 /**
  * macOS: the traffic lights sit at (16, 16) over the sidebar's top row, which drags the window.
- * Full width, the row's wordmark starts after them; as a 68 px column of icons, they take the
- * row. With no sidebar beside it (hidden, or a sheet on a narrow window), the header's first
- * controls start after them; the sheet's own top row does the same.
+ * Full width, the row's wordmark (the Home link) starts after them; as a 68 px column of icons,
+ * the row grows so the wordmark sits below them. With no sidebar beside it (hidden, or a sheet on
+ * a narrow window), the header's first controls start after them; the sheet's top row does too.
  */
 export const macTitleBarCss = `
 [data-sidebar="expanded"] [data-slot="sidebar-top"],
 [data-slot="sheet-content"] [data-slot="sidebar-top"] { padding-left: 80px; }
-[data-sidebar="collapsed"] [data-slot="sidebar-wordmark"] { visibility: hidden; }
+[data-sidebar="collapsed"] [data-slot="sidebar-top"] { height: auto; padding: 40px 0 6px; }
 [data-sidebar="hidden"] [data-slot="header-nav"] { margin-left: 68px; }
 `;

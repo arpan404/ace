@@ -71,6 +71,20 @@ test("on a narrow window the sidebar is a sheet from the header, and it closes o
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
 });
 
+test("on a narrow window ⌘\\ opens and closes the sheet and leaves the wide window's choice alone", async () => {
+  windowWidth(390);
+  const app = await openThread();
+  const layout = () => app.storage.getItem("ace.layout");
+  const before = layout();
+
+  await userEvent.keyboard("{Meta>}\\{/Meta}");
+  const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
+  expect(within(sheet).getByRole("navigation", { name: "Views" })).toBeTruthy();
+  await userEvent.keyboard("{Meta>}\\{/Meta}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
+  expect(layout()).toBe(before);
+});
+
 test("on a phone the header keeps one ⋯ for the actions and the thread menu, and no history", async () => {
   windowWidth(390);
   await openThread();

@@ -5,8 +5,13 @@ import { cn } from "@/lib/cn.ts";
 import { useProfileName } from "@/lib/profile.ts";
 import { Icon } from "@/components/icon.tsx";
 import { useDaemonConnection } from "@/boot/connection.tsx";
+import { lazy } from "react";
 import { connectionLabels } from "./connection-labels.ts";
 import { SidebarMenu } from "./sidebar-menu.tsx";
+
+const AccountMenuContent = lazy(() =>
+  import("./account-menu-content.tsx").then((module) => ({ default: module.AccountMenuContent })),
+);
 
 /**
  * The account at the foot of the sidebar: the person's initials on a neutral disc (a silhouette
@@ -22,8 +27,6 @@ export function AccountMenu(props: { compact: boolean }) {
   const { compact } = props;
   return (
     <SidebarMenu
-      menu="account"
-      compact={compact}
       trigger={
         <button
           type="button"
@@ -67,6 +70,8 @@ export function AccountMenu(props: { compact: boolean }) {
           )}
         </button>
       }
-    />
+    >
+      <AccountMenuContent compact={compact} />
+    </SidebarMenu>
   );
 }

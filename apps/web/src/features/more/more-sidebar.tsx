@@ -1,41 +1,14 @@
-import { ChartBarIcon, FilesIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import type { IconGlyph } from "@/components/icon.tsx";
 import { Icon } from "@/components/icon.tsx";
 import { ViewSidebar } from "@/features/shell/index.ts";
-
-const pages: readonly {
-  to: "/more/accounts" | "/more/files" | "/more/search";
-  title: string;
-  description: string;
-  icon: IconGlyph;
-}[] = [
-  {
-    to: "/more/accounts",
-    title: "Usage & accounts",
-    description: "Quota per account window, scheduling",
-    icon: ChartBarIcon,
-  },
-  {
-    to: "/more/files",
-    title: "Files",
-    description: "Changed files across threads",
-    icon: FilesIcon,
-  },
-  {
-    to: "/more/search",
-    title: "Search",
-    description: "Full-text search in every thread",
-    icon: MagnifyingGlassIcon,
-  },
-];
+import { morePages } from "./pages.ts";
 
 /** More's list in the sidebar: the less frequent places. */
 export function MoreSidebar() {
   return (
     <ViewSidebar title="More">
       <ul className="flex flex-col gap-px">
-        {pages.map((page) => (
+        {morePages.map((page) => (
           <li key={page.to}>
             <Link
               to={page.to}
