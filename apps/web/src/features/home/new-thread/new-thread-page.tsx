@@ -13,7 +13,8 @@ import {
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { useLayout } from "@/lib/layout.tsx";
-import { useProjectChoices } from "@/lib/projects.ts";
+import { useRegisteredProjects } from "@/lib/projects.ts";
+import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { WorkspaceId } from "@ace/protocol";
 import { loadChoices, pickProject, resolve, saveChoices, type Choices } from "./choices.ts";
@@ -31,7 +32,7 @@ import { useCreateThread } from "./use-create-thread.ts";
 export function NewThreadPage(props: { project?: string | undefined; base?: string | undefined }) {
   const { storage } = useLayout();
   const { project: filter } = useOrganizerState();
-  const { ids: projects, name } = useProjectChoices();
+  const { ids: projects, name, loaded } = useRegisteredProjects();
   const [choices, setChoices] = useState<Choices>(() => loadChoices(storage));
   const [requested, setRequested] = useState(props.project);
   const project = pickProject(projects, requested, choices.project, filter);
@@ -101,6 +102,13 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     return created;
   };
 
+  // The first run: nothing to start a thread in until a project is added.
+  if (loaded && !projects.length)
+    return (
+      <Screen title="New thread">
+        <ProjectsEmptyState />
+      </Screen>
+    );
   return (
     <Screen title="New thread" subtitle={projectName}>
       <div className="flex h-full flex-col justify-center overflow-y-auto px-5 pt-8 pb-[12vh] sm:px-8">
@@ -158,11 +166,6 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
           {error && (
             <p role="alert" className="mt-3 px-2 text-ui text-status-failed">
               {error}
-            </p>
-          )}
-          {!projects.length && (
-            <p className="mt-3 px-2 text-ui text-muted-foreground">
-              This daemon has no projects yet.
             </p>
           )}
         </div>

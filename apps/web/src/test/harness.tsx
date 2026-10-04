@@ -60,12 +60,15 @@ export function harness(
     throughWorker?: boolean;
     /** The daemon's clock; by default a counter from 1,000 ms. */
     clock?: () => number;
+    /** When each stage of a project clone runs (tests step clones by hand). */
+    projectScheduler?: (callback: () => void) => void;
   } = {},
 ) {
   let now = 1_000;
   const daemon = new FakeDaemon({
     clock: options.clock ?? (() => (now += 1)),
     ...(options.snapshotItems ? { snapshotItems: options.snapshotItems } : {}),
+    ...(options.projectScheduler ? { projectScheduler: options.projectScheduler } : {}),
   });
   const client = options.throughWorker ? workerClient(daemon) : fakeClient(daemon);
   const storage = options.storage ?? memoryKeyValue();
