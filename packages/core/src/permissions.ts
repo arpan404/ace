@@ -1,3 +1,4 @@
+import { unwrapShellCommand } from "@ace/provider-kit/shell-command";
 import type {
   ApprovalTarget,
   PermissionMode,
@@ -104,22 +105,23 @@ export function reviewPermission(input: {
       !["shell", "Bash", "bash", "item/commandExecution/requestApproval"].includes(target.tool)
     )
       return { decision: "escalate", reason: "Tool is not a verified command execution gate" };
+    const command = unwrapShellCommand(target.command)?.inner ?? target.command;
     // Absolute paths, expansion and composition must not hide outside-workspace destruction.
-    if (/(?:^|[\s=])(?:\/|~)|(?:^|[\s=/])\.\.(?:\/|$)|[;&|<>`$\n\\'"]/.test(target.command))
+    if (/(?:^|[\s=])(?:\/|~)|(?:^|[\s=/])\.\.(?:\/|$)|[;&|<>`$\n\\'"]/.test(command))
       return {
         decision: "escalate",
         reason: "Shell paths, expansion or composition require a human",
       };
     if (
       /^(?:sudo\s+)?(?:rm|rmdir|shred|mkfs|dd)(?:\s|$)|^git\s+(?:reset\s+--hard|clean|push)(?:\s|$)/.test(
-        target.command,
+        command,
       )
     )
       return {
         decision: "deny",
         reason: "Destructive command is outside the automatic risk policy",
       };
-    if (/^pwd$/.test(target.command.trim()))
+    if (/^pwd$/.test(command.trim()))
       return { decision: "approve", reason: "Read-only workspace inspection command" };
     return { decision: "escalate", reason: "Command is not in the low-risk allowlist" };
   }

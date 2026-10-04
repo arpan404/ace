@@ -392,6 +392,7 @@
       "dependencies": {
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
       },
     },
@@ -651,8 +652,8 @@
     "packages/terminal": {
       "name": "@ace/terminal",
       "dependencies": {
-        "@ace/provider-kit": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "node-pty": "^1.1.0",
       },
     },

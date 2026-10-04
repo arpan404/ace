@@ -72,3 +72,31 @@ test.each(["Grep", "Glob", "arbitrary-plugin"])(
     ).toBe("escalate");
   },
 );
+
+test("auto-review approves a wrapped Codex workspace inspection", () => {
+  expect(
+    reviewPermission({
+      mode: "auto-review",
+      target: {
+        tool: "item/commandExecution/requestApproval",
+        access: "execute",
+        command: "/bin/zsh -lc 'pwd'",
+      },
+      paths: [],
+    }).decision,
+  ).toBe("approve");
+});
+test.each([
+  "/bin/zsh -lc 'pwd; rm -rf build'",
+  "/bin/zsh -lc 'cat .env'",
+  "/bin/sh -c 'rm -rf build'",
+  "/bin/zsh -lc 'pwd' extra",
+])("wrapped command stays subject to the risk policy: %s", (command) => {
+  expect(
+    reviewPermission({
+      mode: "auto-review",
+      target: { tool: "shell", access: "execute", command },
+      paths: [],
+    }).decision,
+  ).not.toBe("approve");
+});
