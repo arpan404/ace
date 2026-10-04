@@ -981,3 +981,79 @@ test("Preview transitions wait for the previous receipt and preserve newer detac
 });
 
 function noop() {}
+
+// Mutation cases: dropping named request forwarding, widening a jumped window into the live
+// tail, losing search paging or writing read state for another device. Not executed (tests run at merge).
+test("long-thread reads cross the worker port without replacing a tab's live tail", async () => {
+  const { daemon, tab } = world(10);
+  const script = new ScenarioPlayer(daemon, longHistory(30));
+  script.runUntilBlocked();
+  const remote = tab();
+  const reference = await inProcess(daemon);
+  await remote.start();
+  await Promise.all([settled(remote), settled(reference)]);
+  const lease = remote.thread(script.threadId);
+  await vi.waitFor(() => expect(lease.store.order).toHaveLength(10));
+  const tail = [...lease.store.order];
+  const turns = await remote.turnsPage(
+    { threadId: script.threadId },
+    { requestId: "worker-turns" },
+  );
+  expect(turns.turns).toHaveLength(1);
+  expect(turns).toEqual(
+    await reference.turnsPage({ threadId: script.threadId }, { requestId: "worker-turns" }),
+  );
+  const window = await remote.itemsWindow(
+    { threadId: script.threadId, aroundSeq: 0, before: 0, after: 3 },
+    { requestId: "worker-window" },
+  );
+  expect(window.items).toHaveLength(4);
+  expect(window).toEqual(
+    await reference.itemsWindow(
+      { threadId: script.threadId, aroundSeq: 0, before: 0, after: 3 },
+      { requestId: "worker-window" },
+    ),
+  );
+  expect(lease.store.order).toEqual(tail);
+  const hits = await remote.threadSearch({
+    threadId: script.threadId,
+    text: "Question",
+    filter: "messages",
+    limit: 2,
+  });
+  expect(hits.hits).toHaveLength(2);
+  expect(hits.hits[0]?.snippet.text).toContain("Question");
+  if (!hits.cursor) throw new Error("Expected search continuation");
+  const next = await remote.threadSearch({
+    threadId: script.threadId,
+    text: "Question",
+    filter: "messages",
+    limit: 2,
+    cursor: hits.cursor,
+  });
+  expect(next.hits).toHaveLength(2);
+  expect(
+    next.hits.some((hit) => hits.hits.some((previous) => previous.itemId === hit.itemId)),
+  ).toBe(false);
+  const catchUp = await remote.threadCatchUp(
+    { threadId: script.threadId, sinceSeq: 0 },
+    { requestId: "worker-catch-up" },
+  );
+  expect(catchUp).toEqual(
+    await reference.threadCatchUp(
+      { threadId: script.threadId, sinceSeq: 0 },
+      { requestId: "worker-catch-up" },
+    ),
+  );
+  expect(catchUp.latestAgentMessagePreview).toContain("Answer 30");
+  expect(
+    (await remote.markThreadRead({ threadId: script.threadId, lastSeenSeq: window.seq })).ok,
+  ).toBe(true);
+  expect(await remote.threadReadState({ threadId: script.threadId })).toMatchObject({
+    lastSeenSeq: window.seq,
+  });
+  expect(await reference.threadReadState({ threadId: script.threadId })).toMatchObject({
+    lastSeenSeq: 0,
+  });
+  lease.release();
+});

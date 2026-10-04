@@ -6,6 +6,7 @@ import { recordSchemas } from "./snapshot.ts";
 import { itemMetadata } from "./item-metadata.ts";
 import { Records } from "./records.ts";
 import { engineSchemaVersion } from "./schema-version.ts";
+const nativeRunId = z.custom<RunId>((value) => RunId.safeParse(value).success);
 
 /** A complete core snapshot is a small header plus native-keyed entity records. */
 export class Snapshot {
@@ -13,7 +14,7 @@ export class Snapshot {
   private items: Records<Item>;
   private metadata: Records<Item>;
   private sections: { flush(): void; begin(): void }[] = [];
-  constructor(db: DatabaseSync, state: ThreadState) {
+  constructor(db: Pick<DatabaseSync, "prepare">, state: ThreadState) {
     const segment = <T>(section: string, schema: z.ZodType<T>, initial: Record<string, T>) => {
       const records = new Records(db, state.threadId, section, schema, initial);
       this.sections.push(records);
@@ -24,11 +25,7 @@ export class Snapshot {
       if (record.nativeRuns !== undefined) {
         let runs = nativeRuns.get(key);
         if (!runs) {
-          runs = segment<RunId>(
-            `nativeRuns:${key}`,
-            z.custom<RunId>((value) => RunId.safeParse(value).success),
-            record.nativeRuns,
-          );
+          runs = segment<RunId>(`nativeRuns:${key}`, nativeRunId, record.nativeRuns);
           nativeRuns.set(key, runs);
         }
         record.nativeRuns = runs;

@@ -1,6 +1,7 @@
 // Node worker_threads.postMessage has no browser targetOrigin.
 /* eslint-disable unicorn/require-post-message-target-origin */
 import { Worker, type WorkerOptions } from "node:worker_threads";
+import { IdleWorker } from "@ace/provider-kit/idle-worker";
 import {
   Command,
   ReviewerOutput,
@@ -16,7 +17,8 @@ export interface ReviewWorkerOptions {
 }
 
 export class ReviewWorker {
-  private readonly worker: Worker;
+  private readonly worker: IdleWorker;
+  private readonly persistent: boolean;
   private readonly pending = new Map<
     number,
     { resolve: (result: CommandResult) => void; reject: (error: Error) => void }
@@ -29,14 +31,26 @@ export class ReviewWorker {
   private exited = false;
   private closing: Promise<void> | undefined;
   constructor(path: string, executor?: ReviewExecutor, options: ReviewWorkerOptions = {}) {
+    this.persistent = path !== ":memory:";
     const create = options.createWorker ?? ((url, init) => new Worker(url, init));
-    this.worker = create(new URL("./worker.ts", import.meta.url), {
-      workerData: {
-        path,
-        executor: Boolean(executor),
-        ...(options.gitBinary ? { gitBinary: options.gitBinary } : {}),
+    this.worker = new IdleWorker(
+      new URL("./worker.ts", import.meta.url),
+      {
+        workerData: {
+          path,
+          executor: Boolean(executor),
+          ...(options.gitBinary ? { gitBinary: options.gitBinary } : {}),
+        },
       },
-    });
+      {
+        spawn: create,
+        delay(callback, milliseconds) {
+          const timer = setTimeout(callback, milliseconds);
+          timer.unref();
+          return () => clearTimeout(timer);
+        },
+      },
+    );
     this.worker.on("error", (error) =>
       this.fail(error instanceof Error ? error : new Error("Review worker failed")),
     );
@@ -57,6 +71,7 @@ export class ReviewWorker {
       if (message.type === "result") {
         this.pending.get(message.key)?.resolve(message.result);
         this.pending.delete(message.key);
+        this.retireIfIdle();
         return;
       }
       if (this.closed) return;
@@ -93,8 +108,14 @@ export class ReviewWorker {
         );
       this.executions.add(execution);
       void execution.then(
-        () => this.executions.delete(execution),
-        () => this.executions.delete(execution),
+        () => {
+          this.executions.delete(execution);
+          this.retireIfIdle();
+        },
+        () => {
+          this.executions.delete(execution);
+          this.retireIfIdle();
+        },
       );
     });
   }
@@ -160,6 +181,9 @@ export class ReviewWorker {
       }),
     );
   }
+  private retireIfIdle() {
+    if (this.persistent && !this.pending.size && !this.executions.size) this.worker.idle();
+  }
   private fail(error: Error) {
     this.closed = true;
     this.lifetime.abort();
@@ -171,7 +195,10 @@ export class ReviewWorker {
     const completion = Promise.withResolvers<void>();
     this.closing = completion.promise;
     this.fail(new Error("Review worker closed"));
-    if (!this.exited) this.worker.postMessage({ type: "close" });
+    if (!this.exited) {
+      if (this.worker.started) this.worker.postMessage({ type: "close" });
+      else void this.worker.terminate();
+    }
     void Promise.all([this.exit.promise, Promise.allSettled(this.executions)]).then(
       () => completion.resolve(),
       completion.reject,

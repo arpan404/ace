@@ -74,6 +74,7 @@ export function closeInteraction(
   interaction.closedAt = ctx.now;
   if (fact.resolution !== undefined) interaction.resolution = structuredClone(fact.resolution);
   if (fact.resolvedBy !== undefined) interaction.resolvedBy = fact.resolvedBy;
+  if (fact.autoReviewed !== undefined) interaction.autoReviewed = fact.autoReviewed;
   refreshInteractionIndex(state, fact.interaction);
   emit(events, {
     type: "interaction.closed",
@@ -82,6 +83,7 @@ export function closeInteraction(
     closedAt: ctx.now,
     ...(fact.resolution === undefined ? {} : { resolution: fact.resolution }),
     ...(fact.resolvedBy === undefined ? {} : { resolvedBy: fact.resolvedBy }),
+    ...(fact.autoReviewed === undefined ? {} : { autoReviewed: fact.autoReviewed }),
   });
 }
 

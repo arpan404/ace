@@ -3,6 +3,9 @@ import { PROCESS_TEST_TIMEOUT } from "@ace/provider-kit/testing";
 
 /** React packages run in their own jsdom projects with their own Vite plugins. */
 const react = ["apps/web/**", "packages/client-react/**"];
+// This review suite owns real history workers and awaits their replies and shutdown.
+// Preserve its review path while applying the process project's shared hang guards.
+const historyWorkerReview = "packages/history-import/src/review.test.ts";
 
 export default defineConfig({
   test: {
@@ -18,7 +21,7 @@ export default defineConfig({
             "tools/*/src/**/*.test.ts",
             "apps/*/src/**/*.test.ts",
           ],
-          exclude: ["**/*.process.test.ts", "**/node_modules/**", ...react],
+          exclude: ["**/*.process.test.ts", historyWorkerReview, "**/node_modules/**", ...react],
           maxWorkers: 2,
           sequence: { groupOrder: 0 },
         },
@@ -26,7 +29,7 @@ export default defineConfig({
       {
         test: {
           name: "process",
-          include: ["{packages,tools,apps}/*/src/**/*.process.test.ts"],
+          include: ["{packages,tools,apps}/*/src/**/*.process.test.ts", historyWorkerReview],
           exclude: ["**/node_modules/**", ...react],
           maxWorkers: 2,
           sequence: { groupOrder: 1 },

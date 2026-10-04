@@ -78,6 +78,24 @@ Example:
 }
 ```
 
+### thread.markRead
+
+| Field | Required | Type | Constraints |
+| --- | --- | --- | --- |
+| type | yes | `"thread.markRead"` |  |
+| threadId | yes | [ThreadId.json](schema/ThreadId.json) |  |
+| lastSeenSeq | yes | integer | {"minimum":0,"maximum":9007199254740991} |
+
+Example:
+
+```json
+{
+  "lastSeenSeq": 4,
+  "threadId": "example",
+  "type": "thread.markRead"
+}
+```
+
 ### thread.permission.set
 
 | Field | Required | Type | Constraints |
@@ -90,7 +108,7 @@ Example:
 
 ```json
 {
-  "permissionMode": "full-access",
+  "permissionMode": null,
   "threadId": "example",
   "type": "thread.permission.set"
 }

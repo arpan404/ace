@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { StatementSync } from "node:sqlite";
 import { HistoryListRequest, HistoryListResponse, HistorySession } from "@ace/protocol/history";
 import { z } from "zod";
+import { ScanUpdates } from "./scan-updates.ts";
 
 export const Source = z.object({
   summary: HistorySession,
@@ -21,10 +22,15 @@ export class Catalog {
   private readStatements = new Map<string, StatementSync>();
   readonly scratchRoot: string;
   private statements = new Map<string, StatementSync>();
+  readonly updates: ScanUpdates;
+  private registryKey = "";
+  private needsCleanup = true;
   constructor(path: string) {
     this.scratchRoot = dirname(path);
     this.db = new DatabaseSync(path);
-    this.db.exec("PRAGMA journal_mode=WAL; PRAGMA cache_size=-2048");
+    this.db.exec(
+      "PRAGMA journal_mode=WAL; PRAGMA cache_size=-1024; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256",
+    );
     this.db
       .exec(`CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY,instance TEXT NOT NULL,path TEXT NOT NULL,fingerprint TEXT NOT NULL,kind TEXT NOT NULL,cwd TEXT NOT NULL,activity INTEGER NOT NULL,native TEXT NOT NULL,parent TEXT,summary TEXT NOT NULL,epoch INTEGER NOT NULL,own_activity INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS source_path ON sources(instance,path);
@@ -33,8 +39,14 @@ export class Catalog {
       CREATE INDEX IF NOT EXISTS source_parent ON sources(instance,parent);
       CREATE TABLE IF NOT EXISTS scans(instance TEXT PRIMARY KEY,epoch INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS files(instance TEXT NOT NULL,path TEXT NOT NULL,size INTEGER NOT NULL,mtime REAL NOT NULL,fingerprint TEXT NOT NULL,home TEXT NOT NULL,provider TEXT NOT NULL,epoch INTEGER NOT NULL,PRIMARY KEY(instance,path));`);
+    this.db.exec(
+      "CREATE TABLE IF NOT EXISTS catalog_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL)",
+    );
+    this.updates = new ScanUpdates(this.db);
     this.reader = new DatabaseSync(path, { readOnly: true });
-    this.reader.exec("PRAGMA cache_size=-2048");
+    this.reader.exec(
+      "PRAGMA cache_size=-1024; PRAGMA mmap_size=0; PRAGMA temp_store=FILE; PRAGMA wal_autocheckpoint=256",
+    );
   }
   private readStatement(sql: string) {
     let stmt = this.readStatements.get(sql);
@@ -54,6 +66,14 @@ export class Catalog {
   }
   /** Install bounded trust filters before serving cached rows; defer inventory cleanup. */
   reconcile(instances: ProviderHome[]): void {
+    this.registryKey = JSON.stringify(
+      instances
+        .map((instance) => [instance.id, resolve(instance.homeDir), instance.provider])
+        .toSorted((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+    );
+    this.needsCleanup =
+      this.statement("SELECT value FROM catalog_settings WHERE key='instances'").get()?.value !==
+      this.registryKey;
     for (const db of [this.db, this.reader]) {
       db.exec(
         "CREATE TEMP TABLE registered_instances(id TEXT PRIMARY KEY,home TEXT,provider TEXT)",
@@ -73,6 +93,7 @@ export class Catalog {
     }
   }
   async cleanup(signal: AbortSignal): Promise<void> {
+    if (!this.needsCleanup) return;
     let after = "";
     for (;;) {
       signal.throwIfAborted();
@@ -89,6 +110,10 @@ export class Catalog {
       await setImmediate();
     }
     await this.cleanupFiles(signal);
+    this.statement("INSERT OR REPLACE INTO catalog_settings VALUES ('instances',?)").run(
+      this.registryKey,
+    );
+    this.needsCleanup = false;
   }
   private async cleanupFiles(signal: AbortSignal): Promise<void> {
     let after = 0;
@@ -157,6 +182,7 @@ export class Catalog {
   }
   put(source: Source, epoch: number): void {
     const s = source.summary;
+    this.updates.source(source.instanceId, s.nativeId, s.parentNativeId);
     this.statement(
       "INSERT INTO sources VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET fingerprint=excluded.fingerprint,cwd=excluded.cwd,activity=excluded.activity,parent=excluded.parent,summary=excluded.summary,epoch=excluded.epoch,own_activity=excluded.own_activity",
     ).run(

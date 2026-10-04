@@ -1,0 +1,69 @@
+{
+  "command": "bunx vitest run apps/daemon/src/conductor/admission.process.test.ts",
+  "consecutiveFilePasses": 10,
+  "testsPassed": 80,
+  "testsFailed": 0,
+  "timeoutRaised": false,
+  "runs": [
+    {
+      "run": 1,
+      "testsPassed": 8,
+      "testsFailed": 0,
+      "durationSeconds": 26.94
+    },
+    {
+      "run": 2,
+      "testsPassed": 8,
+      "testsFailed": 0,
+      "durationSeconds": 18.62
+    },
+    {
+      "run": 3,
+      "testsPassed": 8,
+      "testsFailed": 0,
+      "durationSeconds": 26.47
+    },
+    {
+      "run": 4,
+      "testsPassed": 8,
+      "testsFailed": 0,
+      "durationSeconds": 18.68
+    },
+    {
+      "run": 5,
+      "testsPassed": 8,
+      "testsFailed": 0,
+      "durationSeconds": 18.91
+    },
+    {
+      "run": 6,
+      "testsPassed": 8,
+      "testsFailed": 0,
+      "durationSeconds": 17.54
+    },
+    {
+      "run": 7,
+      "testsPassed": 8,
+      "testsFailed": 0,
+      "durationSeconds": 18.23
+    },
+    {
+      "run": 8,
+      "testsPassed": 8,
+      "testsFailed": 0,
+      "durationSeconds": 18.51
+    },
+    {
+      "run": 9,
+      "testsPassed": 8,
+      "testsFailed": 0,
+      "durationSeconds": 18.51
+    },
+    {
+      "run": 10,
+      "testsPassed": 8,
+      "testsFailed": 0,
+      "durationSeconds": 18.32
+    }
+  ]
+}

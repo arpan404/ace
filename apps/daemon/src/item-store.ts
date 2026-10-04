@@ -183,15 +183,21 @@ export class ItemStore {
     let bytes = 512;
     for (const row of decoded.slice(0, limit)) {
       const id = String(row.id);
-      const item =
-        row.item_type === "message" || row.item_type === "notice" || row.item_type === "reasoning"
-          ? this.texts.read(id)
-          : this.materialize(
-              id,
-              this.statement("SELECT item FROM items WHERE id = ?").get(id)?.item,
-            );
-      const size =
-        Buffer.byteLength(JSON.stringify(item)) + Buffer.byteLength(JSON.stringify(id)) + 64;
+      const overhead = Buffer.byteLength(JSON.stringify(id)) + 64;
+      const preview =
+        row.item_type === "message" || row.item_type === "notice" || row.item_type === "reasoning";
+      // The authoritative encoded size is already persisted by the payload owner.
+      // Tool/artifact details have no smaller wire preview: reject them before
+      // loading their body into JS, parsing it, or allocating its serialized copy.
+      // Text items instead carry bounded previews and separate full-text sources.
+      if (!preview && bytes + row.size + overhead > byteLimit) {
+        if (!items.length) throw new Error("Item detail exceeds page capacity");
+        break;
+      }
+      const item = preview
+        ? this.texts.read(id)
+        : this.materialize(id, this.statement("SELECT item FROM items WHERE id = ?").get(id)?.item);
+      const size = Buffer.byteLength(JSON.stringify(item)) + overhead;
       if (bytes + size > byteLimit) {
         if (!items.length) throw new Error("Item detail exceeds page capacity");
         break;
@@ -206,6 +212,93 @@ export class ItemStore {
       items,
       itemSeqs: Object.fromEntries(cursors),
       itemsBefore: rows.length > items.length ? (cursors.at(-1)?.[1] ?? before) : null,
+    };
+  }
+  window(threadId: ThreadId, aroundSeq: number, before: number, after: number, byteLimit: number) {
+    const target =
+      this.statement(
+        "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq>=? ORDER BY created_seq LIMIT 1",
+      ).get(threadId, aroundSeq) ??
+      this.statement(
+        "SELECT created_seq FROM item_heads WHERE thread_id=? ORDER BY created_seq DESC LIMIT 1",
+      ).get(threadId);
+    if (!target)
+      return {
+        threadId,
+        targetSeq: null,
+        items: [],
+        itemSeqs: {},
+        itemsBefore: null,
+        itemsAfter: null,
+      };
+    const targetSeq = Number(target.created_seq);
+    const older = this.statement(
+      "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq<? ORDER BY created_seq DESC LIMIT ?",
+    ).all(threadId, targetSeq, before);
+    const newer = this.statement(
+      "SELECT created_seq FROM item_heads WHERE thread_id=? AND created_seq>? ORDER BY created_seq LIMIT ?",
+    ).all(threadId, targetSeq, after);
+    const selected = new Map<number, Item>();
+    let bytes = 512;
+    // Read the target first so a byte-limited window always includes the jump point.
+    const add = (seq: number): boolean => {
+      let page: Omit<ItemsPage, "seq">;
+      try {
+        // wirePage reserves 512 envelope bytes itself. Pass only this window's
+        // remaining item allowance so neighbor preflight also rejects details
+        // that fit a standalone page but cannot fit alongside the jump target.
+        page = this.wirePage(threadId, seq + 1, 1, byteLimit - bytes + 512);
+      } catch (error) {
+        if (
+          seq !== targetSeq &&
+          error instanceof Error &&
+          error.message === "Item detail exceeds page capacity"
+        )
+          return false;
+        throw error;
+      }
+      const item = page.items[0];
+      if (!item) return false;
+      const size =
+        Buffer.byteLength(JSON.stringify(item)) + Buffer.byteLength(JSON.stringify(item.id)) + 64;
+      bytes += size;
+      selected.set(seq, item);
+      return true;
+    };
+    if (!add(targetSeq)) throw new Error("Item detail exceeds window capacity");
+    // Alternate sides until the budget is reached, preserving one contiguous interval.
+    let left = 0,
+      right = 0;
+    while (left < older.length || right < newer.length) {
+      const old = older[left];
+      if (old) {
+        if (!add(Number(old.created_seq))) break;
+        left++;
+      }
+      const next = newer[right];
+      if (next) {
+        if (!add(Number(next.created_seq))) break;
+        right++;
+      }
+    }
+    const entries = [...selected].toSorted((a, b) => a[0] - b[0]);
+    const first = entries[0]?.[0] ?? targetSeq,
+      last = entries.at(-1)?.[0] ?? targetSeq;
+    return {
+      threadId,
+      targetSeq,
+      items: entries.map(([, item]) => item),
+      itemSeqs: Object.fromEntries(entries.map(([seq, item]) => [item.id, seq])),
+      itemsBefore: this.statement(
+        "SELECT 1 FROM item_heads WHERE thread_id=? AND created_seq<? LIMIT 1",
+      ).get(threadId, first)
+        ? first
+        : null,
+      itemsAfter: this.statement(
+        "SELECT 1 FROM item_heads WHERE thread_id=? AND created_seq>? LIMIT 1",
+      ).get(threadId, last)
+        ? last
+        : null,
     };
   }
   page(
