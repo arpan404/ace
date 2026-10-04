@@ -24,7 +24,7 @@ function record(text: string): Record<string, unknown> | undefined {
   return undefined;
 }
 
-/** Return only allowlisted auth labels; all identity and credential fields are ignored. */
+/** Return only allowlisted status and account labels; credential fields are ignored. */
 export function parseClaudeAuth(text: string): AuthStatus {
   const value = record(text);
   if (value?.["loggedIn"] === false) return { auth: "logged_out" };
@@ -125,7 +125,7 @@ export function parseOpenCodeAuth(text: string): AuthStatus {
     clean.split("\n").some((line) => line.includes(`●  ${name} `) || line.includes(`●  ${name}\t`)),
   );
   return {
-    auth: "logged_in",
+    auth: "unknown",
     authEvidence: "credentials_configured",
     authDetail: connected.length ? connected.join(", ") : `${Number(count)} configured credentials`,
   };

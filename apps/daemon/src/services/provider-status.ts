@@ -1,3 +1,4 @@
+import { instanceEnv } from "@ace/accounts";
 import { createCursorAccountDriver, discoverCursorSdk } from "@ace/adapter-cursor";
 import { ProviderStatuses } from "../provider-status.ts";
 import { daemonCursorInstance } from "./cursor-instance.ts";
@@ -12,6 +13,13 @@ export function startProviderStatuses(context: ServiceContext): void {
     limits: { ...cursor?.limits, timeoutMs: 4000 },
     slots: cursorHosts(context),
     launchEnv: cursor?.env ?? process.env,
+    environment(identity) {
+      const selected = context.services.accountRegistry?.get(identity.id)?.instance;
+      if (!selected) return cursor?.env ?? process.env;
+      if (selected.provider !== "cursor" || selected.homeDir !== identity.homeDir)
+        throw new Error("Cursor SDK status requires its registered home");
+      return instanceEnv(selected, cursor?.env ?? process.env, "cursor-sdk");
+    },
     stopInstance: async () => {
       throw new Error("Discovery cannot change authentication");
     },
@@ -39,7 +47,10 @@ export function startProviderStatuses(context: ServiceContext): void {
           try {
             if (context.services.cursorAccounts?.isFenced(instance.id))
               throw new Error("SDK auth change in progress");
-            const status = await driver.status(instance, signal);
+            const status = await driver.status(
+              { id: instance.id, homeDir: instance.homeDir },
+              signal,
+            );
             return {
               ...installation,
               auth: status.status === "logged-in" ? "logged_in" : "logged_out",

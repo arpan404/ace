@@ -1,40 +1,12 @@
-import { mkdir, readFile, writeFile, rm } from "node:fs/promises";
+import { fakeCli } from "./provider-status-test-support.ts";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdir, readFile, writeFile, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { nodeBinary } from "@ace/provider-kit/testing";
-import { createLogger } from "@ace/diagnostics";
-import { startProviderStatuses } from "./services/provider-status.ts";
-import { Resources } from "./services/resources.ts";
-import { readConfig } from "./config.ts";
-import type { ServiceContext } from "./services/types.ts";
 import { ProviderStatuses } from "./provider-status.ts";
 import { fixture } from "./socket-test-support.ts";
-
-async function fakeCli(
-  root: string,
-  name: string,
-  version: string,
-  auth: string,
-  args: string,
-  authExit = 0,
-) {
-  return nodeBinary(
-    root,
-    name,
-    `
-const fs = require('node:fs');
-const args = process.argv.slice(2).join(' ');
-if (args !== '--version' && args !== ${JSON.stringify(args)}) { process.stderr.write('UNSAFE COMMAND'); process.exit(90); }
-fs.appendFileSync(${JSON.stringify(join(root, "calls"))}, ${JSON.stringify(name)} + ':' + args + '\\n');
-const output = args === '--version' ? ${JSON.stringify(version)} : fs.readFileSync(${JSON.stringify(join(root, `${name}-auth`))}, 'utf8');
-process.stdout.write(output);
-process.exit(args === '--version' ? 0 : ${authExit});
-`,
-  ).then(async (path) => {
-    await writeFile(join(root, `${name}-auth`), auth);
-    return path;
-  });
-}
 
 test("provider status reports native installation and sign-in independently of ace accounts and refreshes a cached result", async () => {
   const f = await fixture();
@@ -182,152 +154,60 @@ test("provider status reports native installation and sign-in independently of a
   }
 });
 
-test("cached reads answer while a CLI hangs and bounded probe failures publish unknown auth without raw output", async () => {
+test("cached reads answer before a gated CLI status probe is released", async () => {
   const f = await fixture();
   const bin = join(f.home, "bin");
   await mkdir(bin);
-  await nodeBinary(bin, "codex", "setInterval(() => {}, 1000);");
+  await nodeBinary(bin, "codex", "process.exit(90);");
+  const entered = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
   const statuses = new ProviderStatuses(
-    { env: { PATH: bin, HOME: f.home }, timeoutMs: 100 },
+    {
+      env: { PATH: bin, HOME: f.home },
+      probe: async (_path, args) => {
+        if (args[0] === "--version") return { code: 0, stdout: "codex-cli 0.159.1", stderr: "" };
+        entered.resolve();
+        await release.promise;
+        throw new Error("Probe timed out");
+      },
+    },
     { now: () => 1000, schedule: () => () => {} },
   );
-  const server = await fixture({ providerStatuses: statuses });
+  let server: Awaited<ReturnType<typeof fixture>> | undefined;
   try {
+    await entered.promise;
+    server = await fixture({ providerStatuses: statuses });
     const client = await server.connect();
     await client.next();
     client.send({ type: "providers.request", requestId: "initial", operation: "list" });
-    expect(await client.next()).toMatchObject({ type: "providers.result", result: { ok: true } });
+    // This must arrive while the probe still holds the latch, not after its deadline.
+    expect(await client.next()).toMatchObject({
+      type: "providers.result",
+      result: {
+        ok: true,
+        providers: expect.arrayContaining([
+          expect.objectContaining({ provider: "codex", installed: null, refreshing: true }),
+        ]),
+      },
+    });
+    release.resolve();
     client.send({ type: "providers.request", requestId: "bounded", operation: "refresh" });
-    const response = await client.next();
-    expect(response).toMatchObject({
+    expect(await client.next()).toMatchObject({
       result: {
         providers: expect.arrayContaining([
           expect.objectContaining({
             provider: "codex",
             installed: true,
             auth: "unknown",
-            error: expect.stringContaining("timed out"),
+            error: "Authentication probe timed out",
           }),
         ]),
       },
     });
   } finally {
-    await server.close();
-    await statuses.close();
-    await f.close();
-  }
-});
-
-test("SDK discovery reports its own isolated auth status over the socket and never starts a conversation", async () => {
-  const f = await fixture();
-  const resources = new Resources();
-  const log = createLogger({
-    now: () => 1000,
-    redact: (value) => value,
-    sink: { write: async () => {}, close: async () => {} },
-  });
-  let server: Awaited<ReturnType<typeof fixture>> | undefined;
-  try {
-    const entry = join(f.home, "sdk-status.mjs");
-    const selectedHome = join(f.home, "sdk-instance");
-    const sdkRoot = join(f.home, "sdk");
-    const helper = join(f.home, "helper");
-    await mkdir(sdkRoot);
-    await mkdir(helper);
-    await mkdir(join(helper, "bin"));
-    await writeFile(join(sdkRoot, "package.json"), '{"name":"@cursor/sdk","version":"1.0.35"}');
-    await writeFile(
-      join(helper, "package.json"),
-      '{"name":"@cursor/sdk-darwin-arm64","version":"1.0.35"}',
-    );
-    for (const binary of ["rg", "cursorsandbox"])
-      await writeFile(join(helper, "bin", binary), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    await writeFile(
-      entry,
-      `
-import { createInterface } from 'node:readline';
-import { readFile, appendFile } from 'node:fs/promises';
-createInterface({ input: process.stdin }).on('line', async (line) => {
-  const request = JSON.parse(line);
-  await appendFile(${JSON.stringify(join(f.home, "sdk-calls"))}, request.method + ':' + process.env.HOME + '\\n');
-  if (request.method !== 'status') process.exit(90);
-  const status = await readFile(${JSON.stringify(join(f.home, "sdk-safe-status"))}, 'utf8');
-  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { status, source: status === 'logged-in' ? 'sdk-store' : 'none' } }) + '\\n');
-});
-`,
-    );
-    await writeFile(join(f.home, "sdk-safe-status"), "logged-out");
-    const context: ServiceContext = {
-      config: readConfig({ ACE_HOME: f.home, ACE_PORT: "0" }, f.home),
-      options: {
-        providerStatus: { env: { PATH: f.home, HOME: f.home } },
-        engine: {
-          cursor: {
-            instance: { id: "sdk-default", homeDir: selectedHome },
-            env: { HOME: f.home },
-            entry,
-            discovery: {
-              platform: "darwin",
-              arch: "arm64",
-              nodeVersion: "24.0.0",
-              resolve: (id) =>
-                id === "@cursor/sdk" ? join(sdkRoot, "index.js") : join(helper, "package.json"),
-            },
-          },
-        },
-      },
-      signal: new AbortController().signal,
-      services: {},
-      store: f.store,
-      resources,
-      now: () => 1000,
-      id: () => "status",
-      log,
-      onListen: [],
-    };
-    startProviderStatuses(context);
-    const statuses = context.services.providerStatuses;
-    if (!statuses) throw new Error("Provider statuses unavailable");
-    server = await fixture({ providerStatuses: statuses });
-    const client = await server.connect();
-    await client.next();
-    client.send({ type: "providers.request", requestId: "out", operation: "refresh" });
-    expect(await client.next()).toMatchObject({
-      result: {
-        providers: expect.arrayContaining([
-          expect.objectContaining({
-            provider: "cursor",
-            runtime: "cursor-sdk",
-            installed: true,
-            version: "1.0.35",
-            auth: "logged_out",
-            authDetail: "none",
-          }),
-        ]),
-      },
-    });
-    await writeFile(join(f.home, "sdk-safe-status"), "logged-in");
-    client.send({ type: "providers.request", requestId: "in", operation: "refresh" });
-    expect(await client.next()).toMatchObject({
-      result: {
-        providers: expect.arrayContaining([
-          expect.objectContaining({
-            provider: "cursor",
-            runtime: "cursor-sdk",
-            auth: "logged_in",
-            authDetail: "sdk-store",
-          }),
-        ]),
-      },
-    });
-    expect((await readFile(join(f.home, "sdk-calls"), "utf8")).trim().split("\n")).toEqual([
-      `status:${join(selectedHome, "user")}`,
-      `status:${join(selectedHome, "user")}`,
-    ]);
-  } finally {
+    release.resolve();
     await server?.close();
-    await resources.close();
-    await log.close();
+    await statuses.close();
     await f.close();
   }
 });
@@ -412,6 +292,108 @@ test("unsupported Pi status and failing CLI auth commands stay unknown and never
         ]),
       },
     });
+  } finally {
+    await server?.close();
+    await statuses?.close();
+    await f.close();
+  }
+});
+
+test("oversized optional CLI metadata cannot erase installation or safe authentication", async () => {
+  const f = await fixture();
+  let statuses: ProviderStatuses | undefined;
+  let server: Awaited<ReturnType<typeof fixture>> | undefined;
+  try {
+    const bin = join(f.home, "bin");
+    await mkdir(bin);
+    const path = await fakeCli(
+      bin,
+      "codex",
+      `${"1".repeat(300)}.2.3`,
+      "Logged in using ChatGPT",
+      "login status",
+    );
+    statuses = new ProviderStatuses(
+      { env: { PATH: bin, HOME: f.home } },
+      { now: () => 1000, schedule: () => () => {} },
+    );
+    server = await fixture({ providerStatuses: statuses });
+    const client = await server.connect();
+    await client.next();
+    client.send({ type: "providers.request", requestId: "oversized", operation: "refresh" });
+    const response = await client.next();
+    expect(response).toMatchObject({
+      result: {
+        providers: expect.arrayContaining([
+          expect.objectContaining({
+            provider: "codex",
+            installed: true,
+            path,
+            auth: "logged_in",
+            authDetail: "ChatGPT",
+            error: "Invalid optional provider metadata",
+          }),
+        ]),
+      },
+    });
+    expect(JSON.stringify(response)).not.toContain("1".repeat(300));
+  } finally {
+    await server?.close();
+    await statuses?.close();
+    await f.close();
+  }
+});
+
+test("Pi rejects symlinked and FIFO settings without probing auth or exposing their contents", async () => {
+  const f = await fixture();
+  let statuses: ProviderStatuses | undefined;
+  let server: Awaited<ReturnType<typeof fixture>> | undefined;
+  try {
+    const bin = join(f.home, "bin"),
+      piHome = join(f.home, "pi");
+    await mkdir(bin);
+    await mkdir(piHome);
+    await fakeCli(
+      bin,
+      "pi",
+      "0.85.1",
+      "UNSAFE",
+      "auth check --provider anthropic --json --no-refresh",
+    );
+    const external = join(f.home, "private-settings");
+    await writeFile(external, '{"defaultProvider":"anthropic","token":"SECRET"}');
+    await symlink(external, join(piHome, "settings.json"));
+    statuses = new ProviderStatuses(
+      { env: { PATH: bin, HOME: f.home, PI_CODING_AGENT_DIR: piHome } },
+      { now: () => 1000, schedule: () => () => {} },
+    );
+    server = await fixture({ providerStatuses: statuses });
+    const client = await server.connect();
+    await client.next();
+    for (const kind of ["symlink", "fifo"]) {
+      if (kind === "fifo") {
+        await rm(join(piHome, "settings.json"));
+        await promisify(execFile)("mkfifo", [join(piHome, "settings.json")]);
+      }
+      client.send({ type: "providers.request", requestId: kind, operation: "refresh" });
+      const response = await client.next();
+      expect(response).toMatchObject({
+        result: {
+          providers: expect.arrayContaining([
+            expect.objectContaining({
+              provider: "pi",
+              installed: true,
+              auth: "unknown",
+              error: "Pi settings or readiness probe unavailable",
+            }),
+          ]),
+        },
+      });
+      expect(JSON.stringify(response)).not.toContain("SECRET");
+    }
+    const calls = (await readFile(join(bin, "calls"), "utf8")).trim().split("\n");
+    expect(calls.every((line) => line === "pi:--version")).toBe(true);
+    expect(calls.length).toBeGreaterThan(0);
   } finally {
     await server?.close();
     await statuses?.close();

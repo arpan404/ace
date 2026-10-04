@@ -1,4 +1,5 @@
-import { ProviderStatus, type ProviderStatus as Status } from "@ace/protocol";
+import { providerStatusRow } from "./provider-status-row.ts";
+import { type ProviderStatus as Status } from "@ace/protocol";
 import {
   discoverProvider,
   discoverPiStatus,
@@ -89,14 +90,7 @@ export class ProviderStatuses {
     const work = this.rows.map(async (row): Promise<Status> => {
       try {
         const status = await probe(row);
-        return ProviderStatus.parse({
-          provider: row.provider,
-          runtime: row.runtime,
-          ...status,
-          checkedAt: this.runtime.now(),
-          stale: false,
-          refreshing: false,
-        });
+        return providerStatusRow(row, status, this.runtime.now());
       } catch {
         return {
           provider: row.provider,
