@@ -6,7 +6,7 @@ import { createAgentControlPort } from "@ace/daemon";
 import { question, end } from "../engine/test-support.ts";
 import { setup, wakes } from "./test-support.ts";
 
-test("cross-provider child preserves its selection, waits for the whole thread, and wakes its parent", async () => {
+test("cross-provider child preserves its selection and returns the whole thread result to its waiting parent", async () => {
   const h = setup();
   const parent = await h.parent();
   const edge = h.delegate(parent, "implementation", true);
@@ -22,7 +22,7 @@ test("cross-provider child preserves its selection, waits for the whole thread, 
   expect(await waiting).toMatchObject({ outcome: "completed", result: "implemented" });
   h.clock.advance(1050);
   await h.engine.flush();
-  expect(wakes(h.events, parent.threadId)).toHaveLength(1);
+  expect(wakes(h.events, parent.threadId)).toHaveLength(0);
   const view = h.store.snapshotThread(parent.threadId);
   expect(Object.values(view.agents).some((agent) => agent.childThreadId === edge.childId)).toBe(
     true,

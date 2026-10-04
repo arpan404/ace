@@ -20,14 +20,18 @@ test("asynchronous child results survive native user-role echoes as ace events",
     item: "provider-echo",
     draft: { type: "message", role: "user", parts: [{ type: "text", text }], complete: true },
   });
-  h.restartOwner();
-  await h.emit(parent.threadId, {
+  await h.close();
+  const restarted = setup({}, h.dbPath);
+  const caller = restarted.caller(parent.threadId);
+  restarted.service.message(caller, "resume-after-restart", parent.threadId, "Continue", "queue");
+  await restarted.engine.flush();
+  await restarted.emit(parent.threadId, {
     type: "item.reconciled",
     agent: "root",
     item: "replayed-echo",
     draft: { type: "message", role: "user", parts: [{ type: "text", text }], complete: true },
   });
-  const page = h.store.readItemPage(parent.threadId, h.store.headSeq() + 1, 50);
+  const page = restarted.store.readItemPage(parent.threadId, restarted.store.headSeq() + 1, 50);
   expect(page.items.filter((item) => item.type === "message" && item.role === "user")).toEqual([]);
   const results = page.items.filter((item) => item.type === "delegation.settled");
   expect(results).toHaveLength(1);
@@ -37,7 +41,7 @@ test("asynchronous child results survive native user-role echoes as ace events",
     results: [{ threadId: child.childId, outcome: "completed", result: "Hello from the child" }],
   });
   expect(
-    Object.values(h.store.snapshotThread(parent.threadId).items).filter(
+    Object.values(restarted.store.snapshotThread(parent.threadId).items).filter(
       (item) => item.type === "delegation.settled",
     ),
   ).toHaveLength(1);

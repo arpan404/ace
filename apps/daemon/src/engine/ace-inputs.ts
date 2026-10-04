@@ -17,7 +17,8 @@ export class AceInputs {
     this.store = store;
     store.atomic((db) =>
       db.exec(`CREATE TABLE IF NOT EXISTS engine_ace_inputs (
-      thread_id TEXT NOT NULL, command_id TEXT NOT NULL, value TEXT NOT NULL,
+      thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      command_id TEXT NOT NULL, value TEXT NOT NULL,
       PRIMARY KEY(thread_id,command_id)
     )`),
     );
