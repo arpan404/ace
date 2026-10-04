@@ -12,7 +12,7 @@ import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useElementSize } from "@/lib/element-size.ts";
 import { deferredComponent } from "@/lib/deferred-component.tsx";
 import { useHistoryNav } from "@/lib/history-nav.ts";
-import { useViewFrame } from "./view-frame.tsx";
+import { useViewFrame } from "./sidebar-frame.tsx";
 
 export interface HeaderProps {
   /** 14px semibold. Rendered as the view's h1. */
@@ -38,7 +38,11 @@ export function HeaderNav() {
   // A phone leaves history to the system.
   const phone = usePhone();
   return (
-    <div className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
+    // `header-nav`: with no sidebar beside it, the desktop app clears the traffic lights here.
+    <div
+      data-slot="header-nav"
+      className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
+    >
       {frame.hasSidebar && (
         <IconButton
           icon={SidebarSimpleIcon}

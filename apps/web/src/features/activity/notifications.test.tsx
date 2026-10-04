@@ -93,16 +93,12 @@ test("turning a toast off in Activity's toast settings silences it", async () =>
   expect(needsYou.getAttribute("aria-checked")).toBe("false");
   await userEvent.keyboard("{Escape}");
 
-  await userEvent.click(
-    within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", {
-      name: "Settings",
-    }),
-  );
+  await userEvent.click(screen.getByRole("link", { name: "Settings" }));
   await screen.findByRole("heading", { level: 1, name: "Settings" });
   checkout.runThrough("approval-requested");
 
-  const rail = screen.getByRole("navigation", { name: "Views" });
-  await within(rail).findByLabelText("1 need you");
+  const views = screen.getByRole("navigation", { name: "Views" });
+  await within(views).findByLabelText("1 need you");
   expect(within(toasts()).queryByText("billing-api · needs you")).toBeNull();
   expect(JSON.parse(localStorage.getItem("ace.notifications.toasts") ?? "{}")).toMatchObject({
     needsYou: false,

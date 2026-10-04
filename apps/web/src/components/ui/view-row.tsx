@@ -54,7 +54,7 @@ export function ViewRowBody(props: {
   );
 }
 
-/** Group label inside a second sidebar ("Gated", "Plugins"). */
+/** Group label inside a view's list in the sidebar ("Gated", "Plugins"). */
 export function ViewRowSection(props: { label: string; children: ReactNode }) {
   return (
     <section aria-label={props.label} className="mt-3 first:mt-1">
@@ -67,7 +67,7 @@ export function ViewRowSection(props: { label: string; children: ReactNode }) {
 }
 
 /**
- * A second sidebar whose list failed while the main pane explains why: one quiet line and a way
+ * A view's list in the sidebar that failed while the main pane explains why: one quiet line and a way
  * to read it again, so the failure isn't told twice in two voices.
  */
 export function ViewSidebarError(props: { onRetry(): void }) {

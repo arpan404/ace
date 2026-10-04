@@ -5,26 +5,29 @@ import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import type { WorkspaceStore } from "./workspace/store.ts";
 
 /**
- * Shell layout: the second sidebar, the palette, and whether a screen's right dock is showing.
+ * Shell layout: the sidebar, the palette, and whether a screen's right dock is showing.
  * Local UI state, persisted to storage. The docks' tabs and sizes are per scope (thread) in the
  * workspace store (`lib/workspace`), which reads the same storage.
  */
 export const ShellLayout = z.object({
+  /** The sidebar is on screen (⌘\ hides it completely). */
   sidebarOpen: z.catch(z.boolean(), true),
+  /** Shown, the sidebar is a narrow column of icons rather than the full one. */
+  sidebarCollapsed: z.catch(z.boolean(), false),
 });
 export type ShellLayout = z.infer<typeof ShellLayout>;
 
-const defaultLayout: ShellLayout = { sidebarOpen: true };
+const defaultLayout: ShellLayout = { sidebarOpen: true, sidebarCollapsed: false };
 const storageKey = "ace.layout";
 
 interface LayoutValue {
   layout: ShellLayout;
-  toggleSidebar(): void;
   setSidebarOpen(open: boolean): void;
+  setSidebarCollapsed(collapsed: boolean): void;
   paletteOpen: boolean;
   setPaletteOpen(open: boolean): void;
   /** A screen is showing its right dock now (not just remembered open), so a crowded window
-   * can give it the second sidebar's room. Set by the dock itself. */
+   * can give it the sidebar's room. Set by the dock itself. */
   rightPanelShown: boolean;
   /** Put the showing right dock away (asking for the sidebar back on a crowded window). */
   hideRightPanel(): void;
@@ -75,8 +78,8 @@ export function LayoutProvider(props: {
       setRightPanel,
       storage,
       workspaceStore,
-      toggleSidebar: () => change((p) => ({ ...p, sidebarOpen: !p.sidebarOpen })),
       setSidebarOpen: (open) => change((p) => ({ ...p, sidebarOpen: open })),
+      setSidebarCollapsed: (collapsed) => change((p) => ({ ...p, sidebarCollapsed: collapsed })),
     }),
     [layout, paletteOpen, rightPanel, setRightPanel, change, storage, workspaceStore],
   );

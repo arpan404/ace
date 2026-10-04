@@ -1,17 +1,19 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-test("the account button shows the initials of the name given in Settings", async () => {
+const account = () => screen.findByRole("button", { name: "Account and connection" });
+
+test("the account button shows the initials and the name given in Settings", async () => {
   await harness().open("/settings/general");
-  const account = await screen.findByRole("button", { name: "Account and connection" });
-  expect(account.textContent).toBe("");
+  expect(within(await account()).queryByText("AB")).toBeNull();
 
   const name = await screen.findByRole("textbox", { name: "Your name" });
   await userEvent.type(name, "Arpan Bhandari{Enter}");
 
-  expect(account.textContent).toBe("AB");
+  expect(within(await account()).getByText("AB")).toBeTruthy();
+  expect(within(await account()).getByText("Arpan Bhandari")).toBeTruthy();
 });
 
 test("the name is kept on this device across reloads", async () => {
@@ -22,7 +24,5 @@ test("the name is kept on this device across reloads", async () => {
   first.unmount();
 
   await harness({ storage: app.storage }).open("/settings/general");
-  expect((await screen.findByRole("button", { name: "Account and connection" })).textContent).toBe(
-    "AL",
-  );
+  expect(within(await account()).getByText("AL")).toBeTruthy();
 });

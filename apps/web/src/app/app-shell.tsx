@@ -1,27 +1,20 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
-import { cn } from "@/lib/cn.ts";
 import { ActivityNotifier, useNeedsYouCount } from "@/features/activity/index.ts";
+import { MoreMenuItems } from "@/features/more/index.ts";
 import { CommandPalette } from "@/features/palette/index.ts";
 import { ProjectsHost } from "@/features/projects/index.ts";
-import { GlobalHotkeys, Rail, TabBar } from "@/features/shell/index.ts";
-import { usePhone } from "@/lib/breakpoints.ts";
+import { AppSidebar, GlobalHotkeys, SidebarFrame } from "@/features/shell/index.ts";
 import { useDismissBootSplash } from "@/lib/boot-splash.ts";
 
-/** Wallpaper, the rail of views, and the selected view (its sidebar and main column). */
+/** Wallpaper, the one sidebar, and the selected view (its list in the sidebar, its column). */
 export function AppShell() {
   const shell = useRouteFocus();
-  const phone = usePhone();
   // The static boot shell from index.html fades into this one.
   useDismissBootSplash();
-  // Activity's count on the rail (or the phone's tab bar): the same number its header shows.
-  const badges = { activity: useNeedsYouCount() };
   return (
     <ProjectsHost>
-      <div
-        ref={shell}
-        className={cn("relative flex h-dvh min-h-0 overflow-hidden", phone && "flex-col")}
-      >
+      <div ref={shell} className="relative flex h-dvh min-h-0 overflow-hidden">
         <div className="wallpaper" />
         <a
           href="#main"
@@ -29,17 +22,23 @@ export function AppShell() {
         >
           Skip to content
         </a>
-        {!phone && <Rail badges={badges} />}
-        <div className="relative z-[1] flex min-h-0 min-w-0 flex-1">
+        <SidebarFrame sidebar={<Sidebar />}>
           <Outlet />
-        </div>
-        {phone && <TabBar badges={badges} />}
+        </SidebarFrame>
         <CommandPalette />
         <GlobalHotkeys />
         <ActivityNotifier />
       </div>
     </ProjectsHost>
   );
+}
+
+/**
+ * The sidebar with what other slices own: Activity's count (the number its header shows; a
+ * change re-renders only the sidebar) and More's menu.
+ */
+function Sidebar() {
+  return <AppSidebar badges={{ activity: useNeedsYouCount() }} moreMenu={<MoreMenuItems />} />;
 }
 
 /** After client-side navigation, move focus to the new view's title so keyboard and

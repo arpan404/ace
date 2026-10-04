@@ -37,7 +37,7 @@ function ownThreads(view: ConductorRunView, into: Map<string, DeckOwner>): void 
   }
 }
 
-/** Every open decision across the daemon's decks, for Activity's Needs you and the rail. */
+/** Every open decision across the daemon's decks, for Activity's Needs you and the sidebar's count. */
 export function useDeckDecisions(): DeckDecisions {
   const snapshot = useDeckSnapshot();
   const threads = new Map<string, DeckOwner>();

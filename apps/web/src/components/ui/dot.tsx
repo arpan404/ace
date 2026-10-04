@@ -27,7 +27,7 @@ function Dot(props: {
   );
 }
 
-/** Needs-you count on the rail. Hidden at zero. */
+/** Needs-you count in the sidebar. Hidden at zero. */
 function CountBadge(props: { count: number; label: string; className?: string }) {
   if (props.count <= 0) return null;
   return (
@@ -35,7 +35,7 @@ function CountBadge(props: { count: number; label: string; className?: string })
       data-slot="count-badge"
       aria-label={props.label}
       className={cn(
-        "inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-status-needs-you px-1 text-[10px] leading-4 font-bold text-[#1E1306] shadow-[0_0_0_2px_var(--rail)]",
+        "inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-status-needs-you px-1 text-[10px] leading-4 font-bold text-[#1E1306] shadow-[0_0_0_2px_var(--sidebar)]",
         props.className,
       )}
     >

@@ -42,7 +42,7 @@ function matches(skill: Skill, query: string): boolean {
   );
 }
 
-/** Skills' second sidebar: what installed plugins ship, searchable and by plugin. */
+/** Skills' list in the sidebar: what installed plugins ship, searchable and by plugin. */
 export function SkillsSidebar() {
   const skills = useSkills();
   const [query, setQuery] = useState("");

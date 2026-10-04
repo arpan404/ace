@@ -12,7 +12,7 @@
         color-scheme: dark;
       }
       /*
-       * The boot shell: rail, sidebar rows and header painted before the app's script runs,
+       * The boot shell: sidebar rows and header painted before the app's script runs,
        * in the theme replayed below (Dark defaults on a first visit). The app fades it out over
        * --dur-2 once the real shell has painted (src/lib/boot-splash.ts).
        */
@@ -39,29 +39,13 @@
         background: color-mix(in oklab, var(--foreground, #ededed) 6%, transparent);
         animation: boot-breathe 1.6s ease-in-out infinite;
       }
-      #boot .rail {
-        width: 68px;
-        flex: none;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 22px;
-        padding-top: 18px;
-        background: rgb(var(--rail-rgb, 17 17 19) / 0.9);
-        border-right: 1px solid var(--sidebar-border, rgb(255 255 255 / 0.06));
-      }
-      #boot .rail i {
-        width: 26px;
-        height: 26px;
-        border-radius: 7px;
-      }
       #boot .side {
         width: 296px;
         flex: none;
         display: flex;
         flex-direction: column;
         gap: 22px;
-        padding: 18px 16px;
+        padding: 20px 16px;
         background: rgb(var(--sidebar-rgb, 19 19 21) / 0.92);
         border-right: 1px solid var(--sidebar-border, rgb(255 255 255 / 0.06));
       }
@@ -83,27 +67,9 @@
         width: 220px;
         height: 12px;
       }
-      #boot .tabs {
-        display: none;
-      }
       @media (max-width: 47.99rem) {
         #boot .side {
           display: none;
-        }
-      }
-      @media (max-width: 39.99rem) {
-        #boot {
-          flex-direction: column-reverse;
-        }
-        #boot .rail {
-          display: none;
-        }
-        #boot .tabs {
-          display: block;
-          height: 56px;
-          flex: none;
-          background: rgb(var(--rail-rgb, 17 17 19) / 0.9);
-          border-top: 1px solid var(--sidebar-border, rgb(255 255 255 / 0.06));
         }
       }
       @keyframes boot-breathe {
@@ -145,11 +111,10 @@
   </head>
   <body>
     <div id="boot" aria-hidden="true">
-      <div class="tabs"></div>
-      <div class="rail"><i></i><i></i><i></i><i></i><i></i></div>
       <div class="side">
-        <i style="width: 40%"></i><i style="width: 86%"></i><i style="width: 72%"></i
-        ><i style="width: 80%"></i><i style="width: 64%"></i><i style="width: 76%"></i>
+        <i style="width: 18%"></i><i style="width: 52%"></i><i style="width: 100%"></i
+        ><i style="width: 44%"></i><i style="width: 34%"></i><i style="width: 50%"></i
+        ><i style="width: 86%"></i><i style="width: 72%"></i><i style="width: 80%"></i>
       </div>
       <div class="main">
         <div class="head"><i></i></div>

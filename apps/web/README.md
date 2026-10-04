@@ -1,6 +1,6 @@
 # @ace/web
 
-The ace client: React 19, Vite, TanStack Router (file routes), shadcn/ui on Base UI, Tailwind v4. Electron will load this same bundle. Read ADR 0045 (stack), 0004 (agent tree and status), 0006 (windowing) and 0030 (client SDK) first. The approved design is `ace-ui-prototype/index-fable.html` with its spec `DESIGN-fable.md`; match it.
+The ace client: React 19, Vite, TanStack Router (file routes), shadcn/ui on Base UI, Tailwind v4. Electron will load this same bundle. Read ADR 0045 (stack), 0004 (agent tree and status), 0006 (windowing) and 0030 (client SDK) first. The approved design is `ace-ui-prototype/index-fable.html` with its spec `DESIGN-fable.md`; match it, except that its rail and per-view second sidebar are now one sidebar (see Sidebar below).
 
 ```sh
 bun run web:dev:fake   # whole app against the in-page fake daemon
@@ -23,9 +23,9 @@ Import `cn` from `@/lib/cn.ts`, never from `cn` directly: the local one knows th
 | `components/`       | foundation | `Icon`, `SettingRow` / `SettingSection`, `StatusPill`, `DataTable`                                                                  |
 | `lib/`              | foundation | `keymap.ts` (every shortcut), `hotkeys.ts` (`useHotkey`), `layout.tsx` (sidebar and panels), `history-nav.ts`, `time.ts` (`useNow`) |
 | `boot/`             | foundation | Client construction, daemon URL and token handling, fake boot, the fake backend for features without protocol (`fake-backend.ts`)   |
-| `features/shell/`   | foundation | Rail, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice, `useWorkspaces`                                 |
+| `features/shell/`   | foundation | `AppSidebar`, `SidebarFrame`, `ViewFrame`, `ViewSidebar`, `AppHeader`, `Screen`, panels, connection notice, `useWorkspaces`         |
 | `features/<slice>/` | the slice  | Everything for one slice: components, hooks, adapters, tests. Its `index.ts` is the only door in                                    |
-| `app/`              | app        | Composition of several slices: `AppShell` (rail, palette, notifier), `ConnectionGate`                                               |
+| `app/`              | app        | Composition of several slices: `AppShell` (sidebar, palette, notifier), `ConnectionGate`                                            |
 | `routes/`           | per route  | TanStack file routes: route definition, search schema and params only. Screens live in the slice                                    |
 
 Headless view logic (status wording, Home ordering and settling, thread cards, work-log and diff
@@ -40,7 +40,7 @@ One motion system, in `styles/motion.css` (tokens `--dur-1..4`, `--dur-exit`, cu
 transform and opacity only.
 
 - Popovers, menus, selects and tooltips use `popupMotion` from `components/ui/menu-styles.ts`.
-- Panels and the second sidebar: `usePresence(open)` keeps them mounted for their exit;
+- Panels and the sidebar: `usePresence(open)` keeps them mounted for their exit;
   `panelMotion(presence)` plays `fx-panel-in` / `fx-panel-out` only after a toggle.
 - Virtualized lists: `useListMotion(items, keyOf)` gives each row a phase (`rowMotion`) and a
   `moving` flag for `fx-list-moving`; put the class on an inner wrapper, never on the row that
@@ -59,10 +59,34 @@ transform and opacity only.
 ## Window sizes
 
 The widths the shell adapts at live in `lib/breakpoints.ts` (`usePhone`, `useSidebarInline`, ...),
-in line with Tailwind's `sm` and `md`. Below 640px the rail is a bottom tab bar (Home, Activity,
-Deck, More), the header folds its actions and ⋯ menu into one, and panels open as a sheet over the
-content. Below 768px the second sidebar is a sheet; below 1100px it steps aside while a right panel
+in line with Tailwind's `sm` and `md`. Below 640px the header folds its actions and ⋯ menu into
+one and panels open as a sheet over the content. Below 768px the sidebar is a sheet opened from the
+header (it closes once a place is chosen); below 1100px it steps down to icons while a right panel
 is open; below 1152px panels float over the content.
+
+## Sidebar
+
+One sidebar, as in desktop chat apps (`features/shell/app-sidebar.tsx`, composed in
+`app/app-shell.tsx`): the `ace` wordmark (Home), New thread (⌘N) and Search (⌘K); a row per view,
+Activity with its needs-you count, Deck, Automations and Skills (`g a`, `g d`, `g u`, `g s`;
+`g h` is Home); More, a menu of usage and accounts, files and search; the current view's own list;
+and at the foot the connection dot and account menu, Settings (⌘,) and the switch to icons.
+
+- `SidebarFrame` owns where it sits (inline, sheet, hidden with `⌘\`, collapsed to a 68px column
+  of icons with tooltips) and stays mounted for the app's life. Hidden and collapsed are the
+  person's choice, persisted in `ace.layout` (`sidebarOpen`, `sidebarCollapsed`).
+- A view's list is the `sidebar` of its layout route's `<ViewFrame>`, drawn into the sidebar's
+  body through a portal, so it keeps the route's providers. It is the only part that scrolls;
+  collapsed, it stays mounted and hidden.
+- The More and account menus are there from the start; their contents load just after the first
+  paint (`SidebarMenu`), keeping their icons and wording out of the initial bundle. More's pages
+  are defined once, in `features/more/pages.ts`; the app layer hands the sidebar More's menu.
+- `⌘\` is bound by `SidebarFrame`: it opens and closes the sheet on a narrow window and hides or
+  shows the sidebar elsewhere, so a narrow window never changes the wide window's choice.
+- New thread (the row and ⌘N) starts in the project Home is narrowed to, else the last one used.
+- The desktop app styles `data-sidebar` (`expanded`, `collapsed`, `hidden`) and the `sidebar-top`,
+  `sidebar-wordmark` and `header-nav` slots so the macOS traffic lights never cover a control (as
+  icons, the top row grows so the wordmark, the Home link, sits below them).
 
 ## Module boundaries
 
@@ -102,7 +126,7 @@ Each slice owns `src/features/<slice>/` and the route files for its screens:
 Rules:
 
 - A screen renders `<Screen title subtitle menu summary actions workspace>` from `features/shell/screen.tsx`. Don't build another header or panel container. Docks and their tabs are declared as tab kinds (see Workspace tabs); the shell owns open state, order, sizes, persistence and the shortcuts.
-- A view's second sidebar is the `sidebar` of its layout route's `<ViewFrame>`. Use `<ViewSidebar title actions toolbar>` or `<SidebarHeader>` for the header.
+- A view's list in the sidebar is the `sidebar` of its layout route's `<ViewFrame>`. Use `<ViewSidebar title actions toolbar>` or `<SidebarHeader>` for its heading.
 - Live state (threads, sidebar, agent tree, interactions, intents) comes only from `@ace/client-react` hooks. TanStack Query is only for one-off reads. Never copy live state into Query or React state.
 - Primitives you need but don't find in `components/ui` belong to the foundation: add them there, styled from the design tokens, not inside your feature folder.
 - Shortcuts are added to `lib/keymap.ts` and bound with `useHotkey(keymap.x.keys, …)`; tooltips take `shortcut="x"`.

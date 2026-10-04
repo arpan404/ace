@@ -1,6 +1,6 @@
 /*
- * How big each dock may be. Computed from the room the screen actually has (after the rail and
- * the second sidebar), not from the viewport minus a constant.
+ * How big each dock may be. Computed from the room the screen actually has (after the sidebar),
+ * not from the viewport minus a constant.
  */
 
 export const dockLimits = {

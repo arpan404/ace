@@ -67,9 +67,36 @@ describe.skipIf(!enabled)("desktop app (fake daemon)", () => {
   it("renders the app shell from the bundled renderer", async () => {
     await page.getByRole("navigation", { name: "Views" }).waitFor({ timeout: 30_000 });
     expect(new URL(page.url()).protocol).toBe("app:");
-    // The page may render its heading a frame after the rail; wait for it to be visible.
+    // The page may render its heading a frame after the sidebar; wait for it to be visible.
     await page.getByRole("heading", { level: 1 }).first().waitFor({ timeout: 15_000 });
   });
+
+  it.runIf(process.platform === "darwin")(
+    "keeps the sidebar, its Home link as icons, and the header with it hidden clear of the traffic lights",
+    async () => {
+      // The traffic lights end 68 px from the window's left edge.
+      const home = page.getByRole("link", { name: "Home", exact: true });
+      expect((await home.boundingBox())?.x).toBeGreaterThanOrEqual(68);
+      await page.getByRole("button", { name: "Hide sidebar" }).click();
+      const show = page.getByRole("button", { name: "Show sidebar" });
+      await show.waitFor();
+      expect((await show.boundingBox())?.x).toBeGreaterThanOrEqual(68);
+      await show.click();
+      await home.waitFor();
+
+      // As icons, Home sits below the traffic lights (which end 28 px from the top) and works.
+      await page.getByRole("link", { name: "Activity", exact: false }).first().click();
+      await page.getByRole("button", { name: "Collapse sidebar" }).click();
+      await page.getByRole("button", { name: "Expand sidebar" }).waitFor();
+      const box = await home.boundingBox();
+      expect(box?.y).toBeGreaterThanOrEqual(28);
+      await expect.poll(() => home.isVisible()).toBe(true);
+      await home.click();
+      await expect.poll(() => new URL(page.url()).pathname).not.toBe("/activity");
+      await page.getByRole("button", { name: "Expand sidebar" }).click();
+      await page.getByRole("button", { name: "Collapse sidebar" }).waitFor();
+    },
+  );
 
   it("exposes a working window.ace bridge and no Node APIs", async () => {
     const result = await page.evaluate(async () => {

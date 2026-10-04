@@ -1,11 +1,10 @@
-import { ChatsIcon, MagnifyingGlassIcon, NotePencilIcon } from "@phosphor-icons/react";
+import { ChatsIcon, FolderPlusIcon } from "@phosphor-icons/react";
 import { useClient, useSidebarLoaded, useSidebarThread } from "@ace/client-react";
 import { ThreadId } from "@ace/protocol";
-import { Link, useParams } from "@tanstack/react-router";
+import { useParams } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
-import { Icon } from "@/components/icon.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { Kbd } from "@/components/ui/kbd.tsx";
+import { IconButton } from "@/components/ui/icon-button.tsx";
 import { ListSkeleton } from "@/components/ui/skeleton.tsx";
 import { SidebarHeader } from "@/features/shell/index.ts";
 import { useLayout } from "@/lib/layout.tsx";
@@ -19,14 +18,13 @@ import { rememberThread } from "./last-thread.ts";
 import { useOrganizer, useOrganizerState } from "@/features/organize/index.ts";
 
 /**
- * Home's second sidebar: New thread, search, and every thread from every project and machine
- * in one list ordered by what is owed, with Settled folded away at the end.
+ * Home's list in the sidebar: every thread from every project and machine in one list ordered
+ * by what is owed, with Settled folded away at the end. New thread and Search sit above it.
  */
 export function HomeSidebar() {
   const arrangement = useHomeArrangement();
   const { project } = useOrganizerState();
   const organizer = useOrganizer();
-  const { setPaletteOpen } = useLayout();
   useSeenWhileOpen();
   const loaded = useSidebarLoaded();
   const empty = !arrangement.active.length && !arrangement.settled.length;
@@ -35,27 +33,22 @@ export function HomeSidebar() {
   const noProjects = directory.loaded && directory.projects.length === 0;
   return (
     <>
-      <SidebarHeader title="Threads" actions={<ProjectFilter />} />
-      <Link
-        to="/new"
-        search={project ? { project } : {}}
-        className="mx-2 mb-1.5 flex h-8 shrink-0 items-center gap-[9px] rounded-md px-2.5 text-ui font-medium text-sidebar-foreground outline-none transition-colors duration-(--dur-1) hover:bg-sidebar-accent focus-visible:bg-sidebar-accent [&_svg]:text-muted-foreground"
-      >
-        <Icon icon={NotePencilIcon} />
-        New thread
-        <Kbd keys="mod+n" variant="bare" className="ml-auto" />
-      </Link>
-      <div className="shrink-0 pr-2.5 pb-2 pl-3">
-        <button
-          type="button"
-          onClick={() => setPaletteOpen(true)}
-          className="flex h-8 w-full items-center gap-2 rounded-[9px] bg-sidebar-accent pr-2 pl-2.5 text-ui text-subtle-foreground outline-none transition-[background-color,box-shadow] duration-(--dur-1) hover:bg-[color-mix(in_oklab,var(--sidebar-accent),var(--foreground)_4%)] hover:shadow-[var(--glass-highlight)]"
-        >
-          <Icon icon={MagnifyingGlassIcon} />
-          Search
-          <Kbd keys="mod+k" variant="outline" className="ml-auto" />
-        </button>
-      </div>
+      <SidebarHeader
+        title="Threads"
+        actions={
+          <>
+            <ProjectFilter />
+            <IconButton
+              icon={FolderPlusIcon}
+              label="Add project"
+              shortcut="addProject"
+              onClick={() => dialogs.open({ kind: "add", tab: "open" })}
+              onPointerEnter={dialogs.preload}
+              className="size-[26px] rounded-[7px] hover:bg-sidebar-accent"
+            />
+          </>
+        }
+      />
       <nav aria-label="Threads" className="flex min-h-0 flex-1 flex-col">
         {!loaded ? (
           <ListSkeleton label="threads" shape="card" className="px-2" />

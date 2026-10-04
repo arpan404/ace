@@ -3,7 +3,7 @@ import type { Gate } from "./deck.ts";
 
 /*
  * A deck's title and its open decisions, from the conductor view. Kept apart from the full
- * mapper (deck-view.ts): the rail counts open decisions on every screen.
+ * mapper (deck-view.ts): the sidebar counts open decisions on every screen.
  */
 
 type View = ConductorRunView;

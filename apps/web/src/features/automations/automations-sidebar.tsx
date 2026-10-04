@@ -47,7 +47,7 @@ function triggerIcon(trigger: Automation["trigger"]): PhosphorIcon {
   return weekly ? CalendarBlankIcon : ClockIcon;
 }
 
-/** Automations' second sidebar: every schedule and trigger, then the latest runs. */
+/** Automations' list in the sidebar: every schedule and trigger, then the latest runs. */
 export function AutomationsSidebar() {
   const list = useAutomations();
   const automations = list.data;

@@ -37,7 +37,6 @@
   --color-bubble: var(--bubble);
   --color-reading: var(--reading);
   --color-panel: var(--panel);
-  --color-rail: var(--rail);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
@@ -172,7 +171,7 @@
       0 0 0 0.5px var(--glass-edge),
       var(--glass-shadow);
   }
-  /* Rail, second sidebar and reading column blur the wallpaper behind them. */
+  /* The sidebar and reading column blur the wallpaper behind them. */
   .vibrancy {
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
     backdrop-filter: blur(var(--glass-blur)) saturate(120%);

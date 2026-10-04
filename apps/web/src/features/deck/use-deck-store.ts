@@ -7,7 +7,7 @@ import type { DeckSnapshot, DeckStore } from "./deck-store.ts";
 const empty: DeckSnapshot = { ready: false, entries: [], error: undefined };
 
 /**
- * The deck store, loaded after first paint: the rail counts Deck decisions on every screen,
+ * The deck store, loaded after first paint: the sidebar counts Deck decisions on every screen,
  * but the store and its protocol code aren't needed to draw the first one.
  */
 export class LazyDeckStore {

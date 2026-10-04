@@ -59,7 +59,7 @@
     pointer-events: none;
     animation: fx-fade-out var(--dur-exit) var(--leave) both;
   }
-  /* Panels and the second sidebar slide a short way from their edge. */
+  /* Panels and the sidebar slide a short way from their edge. */
   .fx-panel-in {
     animation: fx-panel-in var(--dur-3) var(--sheet) both;
   }

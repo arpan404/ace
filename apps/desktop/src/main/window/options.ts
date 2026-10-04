@@ -2,9 +2,9 @@ import type { BrowserWindowConstructorOptions } from "electron";
 import { minimumSize, type Rectangle } from "./bounds.ts";
 
 /**
- * The approved design is translucent: the rail and sidebar are glass over the desktop.
- * - macOS: sidebar vibrancy, hidden inset title bar, traffic lights inside the 68 px rail
- *   (the prototype draws them 16 px from the top and left).
+ * The approved design is translucent: the sidebar is glass over the desktop.
+ * - macOS: sidebar vibrancy, hidden inset title bar, traffic lights over the sidebar's top row
+ *   (16 px from the top and left).
  * - Windows 11: Mica behind a hidden title bar with native caption buttons overlaid.
  * - Linux: solid, with the system frame.
  */
@@ -75,10 +75,14 @@ html, body { background: transparent !important; }
 `;
 
 /**
- * macOS: the traffic lights sit at (16, 16) inside the rail, as in the prototype; the rail's
- * first item starts below them (16 + 12 + 14 px) and the rail's empty space drags the window.
+ * macOS: the traffic lights sit at (16, 16) over the sidebar's top row, which drags the window.
+ * Full width, the row's wordmark (the Home link) starts after them; as a 68 px column of icons,
+ * the row grows so the wordmark sits below them. With no sidebar beside it (hidden, or a sheet on
+ * a narrow window), the header's first controls start after them; the sheet's top row does too.
  */
 export const macTitleBarCss = `
-nav[aria-label="Views"] { padding-top: 42px; -webkit-app-region: drag; }
-nav[aria-label="Views"] a, nav[aria-label="Views"] button { -webkit-app-region: no-drag; }
+[data-sidebar="expanded"] [data-slot="sidebar-top"],
+[data-slot="sheet-content"] [data-slot="sidebar-top"] { padding-left: 80px; }
+[data-sidebar="collapsed"] [data-slot="sidebar-top"] { height: auto; padding: 40px 0 6px; }
+[data-sidebar="hidden"] [data-slot="header-nav"] { margin-left: 68px; }
 `;

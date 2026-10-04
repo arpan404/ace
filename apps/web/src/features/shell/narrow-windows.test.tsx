@@ -50,18 +50,39 @@ async function openThread() {
   return app;
 }
 
-test("on a phone the views are a bottom tab bar, and More reaches the rest", async () => {
+test("on a narrow window the sidebar is a sheet from the header, and it closes once a view is chosen", async () => {
   windowWidth(390);
   await openThread();
-  const views = screen.getByRole("navigation", { name: "Views" });
-  expect(within(views).getByRole("link", { name: /Home/ }).getAttribute("aria-current")).toBe(
-    "page",
-  );
-  expect(within(views).queryByRole("link", { name: /Automations/ })).toBeNull();
+  expect(screen.queryByRole("navigation", { name: "Views" })).toBeNull();
 
-  await userEvent.click(within(views).getByRole("button", { name: "More views" }));
-  await userEvent.click(await screen.findByRole("menuitem", { name: "Automations" }));
+  await userEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
+  const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
+  expect(within(sheet).getByRole("complementary", { name: "Threads" })).toBeTruthy();
+  expect(within(sheet).getByLabelText("Daemon: Connected")).toBeTruthy();
+  await userEvent.click(within(sheet).getByRole("link", { name: /^Automations/ }));
   await screen.findByRole("heading", { level: 2, name: "Nightly dependency audit" });
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
+
+  // It covers the header's toggle, so it carries its own.
+  await userEvent.click(screen.getByRole("button", { name: "Show sidebar" }));
+  const again = await screen.findByRole("dialog", { name: "Sidebar" });
+  expect(within(again).getByRole("complementary", { name: "Automations" })).toBeTruthy();
+  await userEvent.click(within(again).getByRole("button", { name: "Hide sidebar" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
+});
+
+test("on a narrow window ⌘\\ opens and closes the sheet and leaves the wide window's choice alone", async () => {
+  windowWidth(390);
+  const app = await openThread();
+  const layout = () => app.storage.getItem("ace.layout");
+  const before = layout();
+
+  await userEvent.keyboard("{Meta>}\\{/Meta}");
+  const sheet = await screen.findByRole("dialog", { name: "Sidebar" });
+  expect(within(sheet).getByRole("navigation", { name: "Views" })).toBeTruthy();
+  await userEvent.keyboard("{Meta>}\\{/Meta}");
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Sidebar" })).toBeNull());
+  expect(layout()).toBe(before);
 });
 
 test("on a phone the header keeps one ⋯ for the actions and the thread menu, and no history", async () => {
@@ -114,7 +135,7 @@ test("on a phone a panel covers the thread as a sheet with its own close", async
   await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
 });
 
-test("below 1100px the sidebar steps aside for the right panel and comes back when it closes", async () => {
+test("below 1100px the sidebar steps down to icons for the right panel and comes back when it closes", async () => {
   windowWidth(1024);
   await openThread();
   expect(sidebar()).toBeTruthy();
@@ -122,9 +143,25 @@ test("below 1100px the sidebar steps aside for the right panel and comes back wh
   await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await waitFor(() => expect(sidebar()).toBeNull());
+  // The views stay one click away, as icons.
+  expect(
+    within(screen.getByRole("navigation", { name: "Views" })).getByRole("link", { name: "Deck" }),
+  ).toBeTruthy();
 
   await userEvent.click(within(panel).getByRole("button", { name: "Right panel" }));
   await waitFor(() => expect(sidebar()).toBeTruthy());
+});
+
+test("below 1100px asking for the full sidebar puts the right panel away", async () => {
+  windowWidth(1024);
+  await openThread();
+  await userEvent.click(screen.getByRole("button", { name: "Right panel" }));
+  await screen.findByRole("region", { name: "Thread panel" });
+  await waitFor(() => expect(sidebar()).toBeNull());
+
+  await userEvent.click(screen.getByRole("button", { name: "Expand sidebar" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Thread panel" })).toBeNull());
+  expect(sidebar()).toBeTruthy();
 });
 
 test("on a tablet the floating panel closes with Escape, as an overlay does, and focus returns to its toggle", async () => {

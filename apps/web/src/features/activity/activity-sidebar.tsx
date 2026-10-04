@@ -21,7 +21,7 @@ const tabs: { id: ActivityTab; label: string }[] = [
 ];
 
 /**
- * Activity's second sidebar: the feed. Needs-you rows (approvals answerable inline) come
+ * Activity's list in the sidebar: the feed. Needs-you rows (approvals answerable inline) come
  * first, then mentions, CI and pull-request events and automation results, newest first.
  */
 export function ActivitySidebar() {
