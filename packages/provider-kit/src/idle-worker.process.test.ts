@@ -81,25 +81,28 @@ test("new work cancels retirement and keeps the current isolate until its owner 
   }
 });
 
-test("watch import notifications do not consume application replies or poison later work", async () => {
-  const home = await mkdtemp(join(tmpdir(), "ace-worker-watch-"));
-  const path = join(home, "worker.mjs");
-  await writeFile(
-    path,
-    `
+test.each(["watch:import", "watch:require"])(
+  "%s notifications do not consume application replies or poison later work",
+  async (kind) => {
+    const home = await mkdtemp(join(tmpdir(), "ace-worker-watch-"));
+    const path = join(home, "worker.mjs");
+    await writeFile(
+      path,
+      `
 import { parentPort } from "node:worker_threads";
 parentPort.on("message", input => {
- parentPort.postMessage({ "watch:import": ["file:///dependency.ts"] });
+ parentPort.postMessage({ ${JSON.stringify(kind)}: ["file:///dependency.ts"] });
  parentPort.postMessage({ input, count: input });
 });
 `,
-  );
-  const worker = new IdleWorker(pathToFileURL(path), { env: { HOME: home } });
-  try {
-    expect(await echo(worker, 1)).toEqual({ input: 1, count: 1 });
-    expect(await echo(worker, 2)).toEqual({ input: 2, count: 2 });
-  } finally {
-    await worker.terminate();
-    await rm(home, { recursive: true, force: true });
-  }
-});
+    );
+    const worker = new IdleWorker(pathToFileURL(path), { env: { HOME: home } });
+    try {
+      expect(await echo(worker, 1)).toEqual({ input: 1, count: 1 });
+      expect(await echo(worker, 2)).toEqual({ input: 2, count: 2 });
+    } finally {
+      await worker.terminate();
+      await rm(home, { recursive: true, force: true });
+    }
+  },
+);
