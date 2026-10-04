@@ -5,12 +5,14 @@ import {
   FilesIcon,
   GitDiffIcon,
   PlusIcon,
-  ScrollIcon,
-  TerminalWindowIcon,
   TreeStructureIcon,
 } from "@phosphor-icons/react";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
 import { ThreadDiffStat } from "./changes/diff-stat.tsx";
+import { logsKind } from "./logs/logs-kind.tsx";
+import { shellKind, terminalKind } from "./terminal/terminal-kinds.tsx";
+
+export { logsKind, shellKind, terminalKind };
 
 /*
  * The thread workspace's tab kinds: the tools and resources that open beside a conversation.
@@ -33,17 +35,6 @@ export const changesKind = defineTabKind({
   load: () => views().then((m) => ({ default: m.ChangesView })),
   // A file the agents edited opens where its diff is (a Files tool can claim this later).
   fromFile: (path) => ({ kind: "changes", data: { path } }),
-});
-
-export const terminalKind = defineTabKind({
-  kind: "terminal",
-  label: "Terminal",
-  icon: TerminalWindowIcon,
-  singleton: true,
-  pinned: true,
-  docks: ["bottom", "right"],
-  launcher: 20,
-  load: () => views().then((m) => ({ default: m.TerminalView, Actions: m.TerminalActions })),
 });
 
 export const filesKind = defineTabKind({
@@ -94,17 +85,6 @@ export const agentsKind = defineTabKind({
   load: () => views().then((m) => ({ default: m.AgentsView })),
 });
 
-export const logsKind = defineTabKind({
-  kind: "logs",
-  label: "Logs",
-  icon: ScrollIcon,
-  singleton: true,
-  pinned: true,
-  docks: ["bottom", "right"],
-  launcher: 80,
-  load: () => views().then((m) => ({ default: m.LogsView, Actions: m.LogsActions })),
-});
-
 /** The + button's new tab: a catalog of tools and what this thread suggests opening. */
 export const launcherKind = defineTabKind({
   kind: "new-tab",
@@ -123,6 +103,7 @@ export const threadKinds: readonly TabKind[] = [
   devicesKind,
   agentsKind,
   logsKind,
+  shellKind,
   launcherKind,
 ];
 

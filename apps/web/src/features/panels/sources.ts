@@ -24,13 +24,16 @@ export interface TerminalSource {
   subscribe(listener: () => void): () => void;
   /** The thread's terminals as last read; reading a thread for the first time fetches them. */
   list(threadId: string): readonly TerminalInfo[];
+  /** The thread's terminals have been read from the daemon (until then `list` is empty). */
+  listed(threadId: string): boolean;
   /** Read the thread's terminals again (one started elsewhere, such as a script run). */
   refresh(threadId: string): Promise<void>;
   open(threadId: string, cols: number, rows: number): Promise<TerminalInfo>;
   attach(id: string, fromOffset: number, listener: (event: TerminalEvent) => void): () => void;
   write(id: string, data: string): void;
   resize(id: string, cols: number, rows: number): void;
-  close(id: string): Promise<void>;
+  /** End the shell. `threadId` is needed for a terminal this client hasn't listed yet. */
+  close(id: string, threadId?: string): Promise<void>;
 }
 
 export interface BrowserView {

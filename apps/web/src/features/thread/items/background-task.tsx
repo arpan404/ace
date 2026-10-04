@@ -2,6 +2,8 @@ import { useIntentSender, useItem, useTask } from "@ace/client-react";
 import { StopIcon, TerminalIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { shellTab } from "@/features/panels/index.ts";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTicker } from "../lib/clock.ts";
 import { formatElapsed } from "@ace/ui-core";
 
@@ -23,6 +25,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
   const running = task?.status === "running";
   const now = useTicker(running);
   const { send, intent, error } = useIntentSender();
+  const workspace = useWorkspaceActions(props.threadId);
   if (!task) return null;
   const command =
     item?.type === "tool_call" && item.call.detail.kind === "shell"
@@ -42,9 +45,22 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
           {ended[task.status]}
         </span>
         <span className="flex min-w-0 flex-1 items-center gap-2 @max-[360px]:order-last @max-[360px]:basis-full">
-          <code className="min-w-0 truncate rounded-[5px] bg-secondary px-1.5 py-px font-mono text-[12.5px] text-foreground">
-            {command}
-          </code>
+          {task.kind === "shell" ? (
+            // The shell's output opens as a read-only tab in the bottom panel.
+            <button
+              type="button"
+              title="Show its output"
+              aria-label={`Show output of ${command}`}
+              onClick={() => workspace.open(shellTab(task))}
+              className="min-w-0 truncate rounded-[5px] bg-secondary px-1.5 py-px font-mono text-[12.5px] text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]"
+            >
+              {command}
+            </button>
+          ) : (
+            <code className="min-w-0 truncate rounded-[5px] bg-secondary px-1.5 py-px font-mono text-[12.5px] text-foreground">
+              {command}
+            </code>
+          )}
           {age && (
             <span className="shrink-0 text-subtle-foreground">{age.replace(/ \d+s$/, "")}</span>
           )}

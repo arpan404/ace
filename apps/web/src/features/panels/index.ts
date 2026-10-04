@@ -3,4 +3,6 @@
  * new-tab launcher) and the definition the thread screen hands to `<Screen workspace>`.
  */
 export { threadWorkspace } from "./thread-workspace.ts";
-export { revealRunningTerminal, revealTerminal } from "./services.ts";
+export { findRunningTerminal } from "./services.ts";
+export { newTerminal, shellLabel, shellTab, terminalTab } from "./terminal/tabs.ts";
+export { useBackgroundShells } from "./terminal/use-terminals.ts";

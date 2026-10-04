@@ -1,8 +1,8 @@
 import { defineWorkspace } from "@/lib/workspace/index.ts";
 
 /**
- * A thread's workspace: Changes and Agents beside the conversation, Terminal and Logs below, all
- * pinned; everything else opens from the + launcher or a tool's shortcut. Only these strings load
+ * A thread's workspace: Changes and Agents pinned beside the conversation, a terminal and Logs
+ * below; everything else opens from the + launcher or a tool's shortcut. Only these strings load
  * with the thread screen; the kinds (icons, badges, loaders) follow once it has painted.
  */
 export const threadWorkspace = defineWorkspace({
@@ -12,8 +12,9 @@ export const threadWorkspace = defineWorkspace({
   initial: [
     { kind: "changes", dock: "right", pinned: true },
     { kind: "agents", dock: "right", pinned: true },
-    { kind: "terminal", dock: "bottom", pinned: true },
-    { kind: "logs", dock: "bottom", pinned: true },
+    // A terminal that starts (or picks up a spare shell) the first time the bottom panel shows.
+    { kind: "terminal", dock: "bottom" },
+    { kind: "logs", dock: "bottom" },
   ],
   shortcuts: {
     changes: "changes",

@@ -13,6 +13,7 @@ import { Dot } from "@/components/ui/dot.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { keymap, type KeymapId } from "@/lib/keymap.ts";
+import { shellTab, useBackgroundShells } from "@/features/panels/index.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useCheckoutState } from "../lib/use-git.ts";
 import type { ThreadRef } from "../sources/index.ts";
@@ -57,6 +58,7 @@ export function SummaryBody(props: { thread: ThreadRef }) {
   const { checkout, state } = useCheckoutState(props.thread);
   const agents = useThread(id, ["agents"], countAgents, sameCounts);
   const tasks = useThread(id, ["tasks"], runningTasks) ?? 0;
+  const shells = useBackgroundShells(id);
   const open = (kind: string) => workspace.open({ kind });
   const agentParts = agents
     ? [
@@ -122,7 +124,11 @@ export function SummaryBody(props: { thread: ThreadRef }) {
         icon={TerminalWindowIcon}
         label="Background"
         shortcut="terminal"
-        onClick={() => open("terminal")}
+        onClick={() => {
+          // The newest running agent shell, else a terminal of your own.
+          const latest = shells.findLast((task) => task.status === "running");
+          workspace.open(latest ? shellTab(latest) : { kind: "terminal" });
+        }}
         detail={tasks ? `${tasks} running` : "Nothing running"}
       />
     </div>

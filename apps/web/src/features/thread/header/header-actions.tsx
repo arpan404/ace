@@ -20,7 +20,12 @@ import { launchEditor } from "@/boot/editor-launch.ts";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { revealRunningTerminal, revealTerminal } from "@/features/panels/index.ts";
+import {
+  findRunningTerminal,
+  shellTab,
+  terminalTab,
+  useBackgroundShells,
+} from "@/features/panels/index.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useEditors } from "@/lib/editors.ts";
 import { keymap } from "@/lib/keymap.ts";
@@ -38,14 +43,16 @@ const failure = (error: unknown) =>
 
 /**
  * Run ▶: the project's first script, or another from the picker, in a bottom terminal. A script
- * still running goes back to its terminal instead of starting a second copy. While the scripts
- * load, fail to load or don't exist, the caret's menu says so.
+ * still running goes back to its terminal (or the agent's background shell running the same
+ * command) instead of starting a second copy. While the scripts load, fail to load or don't
+ * exist, the caret's menu says so.
  */
 export function RunButton(props: { thread: ThreadRef }) {
   const sources = useThreadSources();
   const client = useClient();
   const toast = useToast();
   const workspace = useWorkspaceActions(props.thread.id);
+  const shells = useBackgroundShells(props.thread.id);
   const query = useDaemonQuery({
     queryKey: ["thread", "scripts", props.thread.id],
     staleTime: 60_000,
@@ -54,15 +61,18 @@ export function RunButton(props: { thread: ThreadRef }) {
   });
   const scripts = query.data;
   const first = scripts?.[0];
-  const show = (terminalId?: string) => {
-    workspace.open({ kind: "terminal" });
-    // The bottom panel opening on the running tab is the confirmation.
-    if (terminalId) void revealTerminal(client, props.thread.id, terminalId);
-  };
+  // The bottom panel opening on the script's terminal is the confirmation.
   const run = async (script: Script) => {
     try {
-      if (await revealRunningTerminal(client, props.thread.id, script.name)) return show();
-      show(await sources.workspace.runScript(props.thread, script));
+      // An agent already runs it in the background: show that shell rather than a second copy
+      // fighting it for the same port.
+      const agentShell = shells.find(
+        (task) => task.status === "running" && task.title.trim() === script.command.trim(),
+      );
+      if (agentShell) return workspace.open(shellTab(agentShell));
+      const running = await findRunningTerminal(client, props.thread.id, script.name);
+      const terminalId = running?.id ?? (await sources.workspace.runScript(props.thread, script));
+      workspace.open(terminalTab({ id: terminalId, name: script.name }));
     } catch (error) {
       toast.add({ title: `Couldn't run ${script.command}`, description: failure(error) });
     }
