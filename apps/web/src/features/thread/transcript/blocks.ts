@@ -223,33 +223,33 @@ export function buildBlocks(source: BlockSource): Block[] {
       );
   }
   // Each ended turn's changed files after its last answer and, if it didn't complete, how it
-  // ended after its last block. From the last turn back, so earlier positions hold.
-  const ended = [...turns]
-    .flatMap(([id, turn]) => {
-      const ending = id.startsWith("ask:") || id === "" ? "completed" : source.turnEnded?.(id);
-      return ending && turn.lastBlock >= 0 ? [{ id, turn, ending }] : [];
-    })
-    .sort((a, b) => b.turn.lastBlock - a.turn.lastBlock);
-  for (const { id, turn, ending } of ended) {
-    if (ending !== "completed")
-      blocks.splice(turn.lastBlock + 1, 0, {
-        kind: "end",
-        key: `end:${id}`,
-        runId: id,
-        askId: turn.askId,
-      });
+  // ended after its last block: one pass that places them after those blocks.
+  const after = new Map<number, Block[]>();
+  const place = (index: number, block: Block) => {
+    const list = after.get(index);
+    if (list) list.push(block);
+    else after.set(index, [block]);
+  };
+  for (const [id, turn] of turns) {
+    const ending = id.startsWith("ask:") || id === "" ? "completed" : source.turnEnded?.(id);
+    if (!ending || turn.lastBlock < 0) continue;
     if (turn.edits.length)
-      blocks.splice((turn.lastMessage >= 0 ? turn.lastMessage : turn.lastBlock) + 1, 0, {
+      place(turn.lastMessage >= 0 ? turn.lastMessage : turn.lastBlock, {
         kind: "files",
         key: `files:${id || turn.askId || "start"}`,
         itemIds: turn.edits,
       });
+    if (ending !== "completed")
+      place(turn.lastBlock, { kind: "end", key: `end:${id}`, runId: id, askId: turn.askId });
   }
+  const result = after.size
+    ? blocks.flatMap((block, index) => [block, ...(after.get(index) ?? [])])
+    : blocks;
   // A turn that stopped or failed before any of its output arrived: the ask has no reply.
-  const last = blocks.at(-1);
+  const last = result.at(-1);
   if (source.stoppedTail && last?.kind === "user")
-    blocks.push({ kind: "end", key: `end:${last.itemId}`, runId: undefined, askId: last.itemId });
-  return blocks;
+    result.push({ kind: "end", key: `end:${last.itemId}`, runId: undefined, askId: last.itemId });
+  return result;
 }
 
 /** The items a block shows, for finding its turn and the row a jump lands on. */
