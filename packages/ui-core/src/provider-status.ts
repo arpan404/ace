@@ -70,9 +70,12 @@ export function providerStatuses(
     };
   });
   const agents = new Map<string, AccountView[]>();
-  for (const account of accounts)
-    if (account.provider === "acp")
-      agents.set(account.providerLabel, [...(agents.get(account.providerLabel) ?? []), account]);
+  for (const account of accounts) {
+    if (account.provider !== "acp") continue;
+    const bucket = agents.get(account.providerLabel);
+    if (bucket) bucket.push(account);
+    else agents.set(account.providerLabel, [account]);
+  }
   const acp = [...agents].map(([name, own]): ProviderStatus => ({
     provider: "acp",
     acpAgentId: own[0]?.acpAgentId,
