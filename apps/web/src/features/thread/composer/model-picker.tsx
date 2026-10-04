@@ -1,4 +1,10 @@
-import { accountTag, providerNames, type EffortControl, type ModelChoice } from "@ace/ui-core";
+import {
+  accountTag,
+  effortLabel,
+  providerNames,
+  type EffortControl,
+  type ModelChoice,
+} from "@ace/ui-core";
 import { Suspense } from "react";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -24,17 +30,26 @@ export function ModelPicker(props: {
   const { value, effort } = props;
   const compact = useComposerCompact();
   const account = value?.account ? accountTag(value.account) : undefined;
-  const name = value
-    ? [value.model, account, effort.current && `${effort.current} effort`]
-        .filter(Boolean)
-        .join(", ")
-    : undefined;
+  const effortText = effort.current
+    ? `${effortLabel(effort.current)} effort${effort.reported ? "" : " (default)"}`
+    : effort.efforts.length
+      ? "provider default effort"
+      : undefined;
+  const name = value ? [value.model, account, effortText].filter(Boolean).join(", ") : undefined;
   return (
     <Menu>
       <Tip
         label={
           value
-            ? [providerNames[value.provider], value.model, account, effort.current]
+            ? [
+                providerNames[value.provider],
+                value.model,
+                account,
+                effortText &&
+                  (effort.reported
+                    ? effortText
+                    : `${effortText}: the daemon doesn't report this thread's effort`),
+              ]
                 .filter(Boolean)
                 .join(" · ")
             : "Choose a model"

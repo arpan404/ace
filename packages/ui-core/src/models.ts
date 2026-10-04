@@ -233,10 +233,30 @@ export function optionEffort(
   return typeof effort === "string" ? effort : undefined;
 }
 
+const effortNames: Readonly<Record<string, string>> = {
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+  max: "Max",
+};
+
+/** An effort level as people read it: "high" → "High", "xhigh" → "Extra high". */
+export function effortLabel(effort: string): string {
+  const known = effortNames[effort];
+  if (known) return known;
+  const words = effort.replace(/[-_]+/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /** A thread's effort selector: the levels on offer and the current one, or why it can't change. */
 export interface EffortControl {
   efforts: readonly string[];
+  /** What the thread runs at: reported by the daemon, else the model's default, if any. */
   current: string | undefined;
+  /** The daemon reported `current`; otherwise it is the provider's default as far as ace knows. */
+  reported: boolean;
   /** Set when effort can't be changed on this thread. */
   reason: string | undefined;
 }
@@ -253,10 +273,11 @@ export function threadEffortControl(input: {
   const { choice, capabilities } = input;
   const efforts = choice?.efforts ?? [];
   const current = input.current ?? choice?.defaultEffort;
-  const blocked = (reason: string): EffortControl => ({ efforts, current, reason });
+  const reported = input.current !== undefined;
+  const blocked = (reason: string): EffortControl => ({ efforts, current, reported, reason });
   if (!choice) return blocked("Choose a model first");
   if (!efforts.length) return blocked(`${choice.model} has no effort levels`);
   if (!capabilities?.sessionOptions || !capabilities.launchOptions?.includes("effort"))
     return blocked(`${providerNames[choice.provider]} sets effort only when a thread starts`);
-  return { efforts, current, reason: undefined };
+  return { efforts, current, reported, reason: undefined };
 }

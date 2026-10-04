@@ -114,13 +114,22 @@ test("approvals show the thread's mode and what the provider gates, and change f
   await waitFor(() => expect(thread(app, "thread-replay-cursor")?.permission?.override).toBeNull());
 });
 
-test("effort changes on a running thread from the next turn", async () => {
+test("effort changes on a running thread from the next turn, from the provider's default", async () => {
   const { app } = await open("busy");
-  await userEvent.click(await screen.findByRole("button", { name: "Model: Opus 4.1, personal" }));
-  await userEvent.click(await screen.findByRole("menuitemradio", { name: "high effort" }));
+  // The daemon hasn't reported this thread's effort: it runs at the provider's default.
+  await userEvent.click(
+    await screen.findByRole("button", {
+      name: "Model: Opus 4.1, personal, provider default effort",
+    }),
+  );
+  const fallback = await screen.findByRole("menuitemradio", {
+    name: "Default (Claude Code) effort",
+  });
+  expect(fallback.getAttribute("aria-checked")).toBe("true");
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "High effort" }));
 
   expect(
-    await screen.findByRole("button", { name: "Model: Opus 4.1, personal, high effort" }),
+    await screen.findByRole("button", { name: "Model: Opus 4.1, personal, High effort" }),
   ).toBeTruthy();
   const pending = thread(app, "thread-replay-cursor")?.switch;
   expect(pending).toMatchObject({ state: "queued", selection: { options: { effort: "high" } } });

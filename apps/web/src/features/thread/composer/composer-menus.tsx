@@ -240,6 +240,8 @@ export function ThreadModelMenu(props: {
       <EffortSection
         efforts={props.effort.efforts}
         value={props.effort.current}
+        reported={props.effort.reported}
+        provider={props.value?.provider}
         reason={props.effort.reason}
         place="first"
         onChange={props.onEffort}
@@ -259,7 +261,11 @@ export function ThreadModelMenu(props: {
               {props.choices
                 .filter((choice) => choice.provider === provider)
                 .map((choice) => (
-                  <ChoiceItem key={choice.id} choice={choice} />
+                  <ChoiceItem
+                    key={choice.id}
+                    choice={choice}
+                    selected={choice.id === props.value?.id}
+                  />
                 ))}
             </MenuPrimitive.Group>
           </Fragment>
@@ -269,32 +275,49 @@ export function ThreadModelMenu(props: {
   );
 }
 
-function ChoiceItem(props: { choice: ModelChoice }) {
+/**
+ * One model on one account. A single line (the model, its account and how much of the window
+ * it has used) keeps the list short; the chosen one adds its note and usage meter beneath, and
+ * one at its limit says when it resets.
+ */
+function ChoiceItem(props: { choice: ModelChoice; selected: boolean }) {
   const { choice } = props;
   const exhausted = choice.exhausted;
+  const account = accountTag(choice.account);
+  const detail = exhausted
+    ? limitReached(choice.resetsAt)
+    : props.selected
+      ? choice.note
+      : undefined;
   return (
     <MenuPrimitive.RadioItem
       value={choice.id}
       disabled={exhausted}
-      aria-label={`${choice.model} · ${accountTag(choice.account)}`}
-      className={cn(menuItem, "h-auto items-start py-[7px]")}
+      aria-label={`${choice.model} · ${account}`}
+      className={cn(menuItem, "h-auto min-h-[30px] items-start py-[6px]")}
     >
       <span className="mt-px grid w-4 shrink-0 place-items-center">
         <MenuPrimitive.RadioItemIndicator>
           <CheckIcon aria-hidden size={14} />
         </MenuPrimitive.RadioItemIndicator>
       </span>
-      <span className="flex min-w-0 flex-col">
-        <span className="truncate">
-          {choice.model} · {accountTag(choice.account)}
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="min-w-0 truncate">{choice.model}</span>
+          <span className="min-w-0 shrink-[2] truncate text-xs text-subtle-foreground">
+            {account}
+          </span>
+          {!props.selected && !exhausted && choice.used !== undefined && (
+            <span className="ml-auto shrink-0 text-xs text-subtle-foreground tabular-nums">
+              {Math.round(choice.used * 100)}%
+            </span>
+          )}
         </span>
-        <span className="mt-px text-xs text-subtle-foreground">
-          {exhausted ? limitReached(choice.resetsAt) : choice.note}
-        </span>
-        {choice.used !== undefined && (
+        {detail && <span className="mt-px text-xs text-subtle-foreground">{detail}</span>}
+        {props.selected && choice.used !== undefined && (
           <span
             role="meter"
-            aria-label={`${accountTag(choice.account)} usage`}
+            aria-label={`${account} usage`}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(choice.used * 100)}
