@@ -195,7 +195,8 @@ test("the new tab suggests the thread's dev server and edited files, and opens t
   await userEvent.click(within(panel).getByRole("button", { name: "New tab" }));
   const suggested = await within(panel).findByRole("list", { name: "Suggested" });
   expect(await within(suggested).findByRole("button", { name: /^web/ })).toBeTruthy();
+  // An edited file opens in the Files tool, in the new tab's place.
   await userEvent.click(within(suggested).getByRole("button", { name: /^replay\.ts/ }));
-  expect(selected(panel).textContent).toMatch(/^Changes/);
-  expect(tabNames(panel)).toEqual(["Changes", "Agents"]);
+  expect(selected(panel).textContent).toBe("replay.ts");
+  expect(tabNames(panel)).toEqual(["Changes", "Agents", "replay.ts"]);
 });

@@ -15,7 +15,7 @@ import {
 import { HeaderNav } from "../app-header.tsx";
 import { bottomBounds, rightBounds } from "./bounds.ts";
 import { DockControls, loadOpenTabs } from "./dock-controls.tsx";
-import { useElementSize } from "./use-size.ts";
+import { useElementSize } from "@/lib/element-size.ts";
 import { WorkspaceHotkeys } from "./workspace-hotkeys.tsx";
 
 // The docks (strip, tabs, menus, views) load the first time one shows, warmed while idle after
@@ -44,13 +44,15 @@ function DockWhenReady(props: { definition: WorkspaceDefinition; children: React
 function KindOverlays(props: { scope: string; definition: WorkspaceDefinition }) {
   return (
     <DockWhenReady definition={props.definition}>
-      {props.definition
-        .kinds()
-        .map((kind) =>
-          kind.Overlay ? <kind.Overlay key={kind.kind} scope={props.scope} /> : null,
-        )}
+      <Overlays {...props} />
     </DockWhenReady>
   );
+}
+
+function Overlays(props: { scope: string; definition: WorkspaceDefinition }) {
+  return props.definition
+    .kinds()
+    .map((kind) => (kind.Overlay ? <kind.Overlay key={kind.kind} scope={props.scope} /> : null));
 }
 
 /** The header row's height (`--header-h`), which the bottom dock's limit leaves room for. */

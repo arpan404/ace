@@ -11,6 +11,19 @@ import {
 } from "@phosphor-icons/react";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
 import { ThreadDiffStat } from "./changes/diff-stat.tsx";
+import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
+import { quickOpen } from "./files/quick-open-store.ts";
+import { fileTabId } from "./files/tab-id.ts";
+
+/** The path a file tab shows, read defensively: tab data comes from storage. */
+function tabPath(data: unknown): string | undefined {
+  return typeof data === "object" &&
+    data !== null &&
+    "path" in data &&
+    typeof data.path === "string"
+    ? data.path
+    : undefined;
+}
 
 /*
  * The thread workspace's tab kinds: the tools and resources that open beside a conversation.
@@ -31,8 +44,6 @@ export const changesKind = defineTabKind({
   launcher: 10,
   Badge: (props) => <ThreadDiffStat threadId={props.scope} />,
   load: () => views().then((m) => ({ default: m.ChangesView })),
-  // A file the agents edited opens where its diff is (a Files tool can claim this later).
-  fromFile: (path) => ({ kind: "changes", data: { path } }),
 });
 
 export const terminalKind = defineTabKind({
@@ -46,13 +57,23 @@ export const terminalKind = defineTabKind({
   load: () => views().then((m) => ({ default: m.TerminalView, Actions: m.TerminalActions })),
 });
 
+/**
+ * Files of the thread's checkout: one tab per file (the empty one is "Open file"), each with the
+ * tree beside it. ⌘P opens the quick-open palette rather than toggling a tab.
+ */
 export const filesKind = defineTabKind({
   kind: "files",
   label: "Files",
   icon: FilesIcon,
-  singleton: true,
   launcher: 30,
-  load: () => import("./placeholders.tsx").then((m) => ({ default: m.FilesPlaceholder })),
+  title: (tab) => {
+    const path = tabPath(tab.data);
+    return path ? (path.split("/").at(-1) ?? path) : "Open file";
+  },
+  load: () => import("./files/file-tab.tsx"),
+  fromFile: (path) => ({ kind: "files", id: fileTabId(path), data: { path } }),
+  onShortcut: (scope) => quickOpen.set(() => scope),
+  Overlay: QuickOpenOverlay,
 });
 
 export const sideChatKind = defineTabKind({

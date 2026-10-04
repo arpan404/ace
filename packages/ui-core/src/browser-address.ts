@@ -75,9 +75,10 @@ export function addressHost(url: string): string | undefined {
 }
 
 /** Same page for history: ignores a trailing slash and the scheme the relay may have dropped. */
+const pageKey = (url: string) => url.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+
 export function samePage(a: string, b: string): boolean {
-  const key = (url: string) => url.replace(/^https?:\/\//i, "").replace(/\/$/, "");
-  return key(a) === key(b);
+  return pageKey(a) === pageKey(b);
 }
 
 export interface PageHistory {
