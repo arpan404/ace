@@ -273,23 +273,24 @@ test.each([
       { type: "text", text: "Uncorrelated native input" },
     ]);
     await h.engine.flush();
-    const unknownInput = h.store
-      .readItemPage(parent, h.store.headSeq() + 1, 100)
-      .items.find(
-        (entry) =>
-          entry.type === "message" &&
-          entry.parts.some(
-            (part) => part.type === "text" && part.text === "Uncorrelated native input",
-          ),
-      );
+    const unknownPage = h.store.readItemPage(parent, h.store.headSeq() + 1, 100);
+    const unknownInput = unknownPage.items.find(
+      (entry) =>
+        entry.type === "message" &&
+        entry.parts.some(
+          (part) => part.type === "text" && part.text === "Uncorrelated native input",
+        ),
+    );
     expect(unknownInput).toMatchObject({
       type: "message",
       role: "user",
       parts: [{ type: "text", text: "Uncorrelated native input" }],
     });
-    expect(unknownInput && "raw" in unknownInput && JSON.stringify(unknownInput.raw)).toContain(
-      unknownIdentity,
-    );
+    expect(
+      unknownPage.items.some(
+        (entry) => "raw" in entry && JSON.stringify(entry.raw).includes(unknownIdentity),
+      ),
+    ).toBe(true);
     expect(h.errors).toEqual([]);
     function assertTranscript(thread: ThreadId) {
       const items = h.store.readItemPage(thread, h.store.headSeq() + 1, 100).items;
