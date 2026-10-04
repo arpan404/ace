@@ -1,0 +1,167 @@
+{
+  "runtime": "v26.8.1",
+  "platform": "darwin-arm64",
+  "entry": ".ace-dev/perf-bundle/ace.mjs",
+  "startupMs": 4079.4281250000004,
+  "idleSampleMs": 10000,
+  "idle10": {
+    "memory": {
+      "rss": 371326976,
+      "heapUsed": 83418352,
+      "heapTotal": 118800384,
+      "external": 15573588,
+      "arrayBuffers": 167440
+    },
+    "cpu": {
+      "user": 960221,
+      "system": 139797
+    },
+    "threads": 19,
+    "workers": [
+      {
+        "threadId": 1,
+        "memory": {
+          "rss": 371326976,
+          "heapUsed": 10366904,
+          "heapTotal": 14516224,
+          "external": 3480700,
+          "arrayBuffers": 71914
+        }
+      },
+      {
+        "threadId": 2,
+        "memory": {
+          "rss": 371326976,
+          "heapUsed": 11607712,
+          "heapTotal": 15040512,
+          "external": 3480686,
+          "arrayBuffers": 71914
+        }
+      },
+      {
+        "threadId": 3,
+        "memory": {
+          "rss": 371326976,
+          "heapUsed": 11785000,
+          "heapTotal": 33292288,
+          "external": 3921756,
+          "arrayBuffers": 78058
+        }
+      },
+      {
+        "threadId": 4,
+        "memory": {
+          "rss": 371326976,
+          "heapUsed": 11777368,
+          "heapTotal": 19300352,
+          "external": 3747161,
+          "arrayBuffers": 78186
+        }
+      },
+      {
+        "threadId": 5,
+        "memory": {
+          "rss": 371326976,
+          "heapUsed": 9745224,
+          "heapTotal": 21905408,
+          "external": 3457436,
+          "arrayBuffers": 71914
+        }
+      },
+      {
+        "threadId": 6,
+        "memory": {
+          "rss": 371326976,
+          "heapUsed": 9924776,
+          "heapTotal": 21905408,
+          "external": 3457436,
+          "arrayBuffers": 71914
+        }
+      }
+    ]
+  },
+  "idle60": null,
+  "idleCpuPercent": 0,
+  "activeSessions": 16,
+  "active": {
+    "memory": {
+      "rss": 406208512,
+      "heapUsed": 79314184,
+      "heapTotal": 146849792,
+      "external": 15559743,
+      "arrayBuffers": 219131
+    },
+    "cpu": {
+      "user": 1155638,
+      "system": 190137
+    },
+    "threads": 20,
+    "workers": [
+      {
+        "threadId": 1,
+        "memory": {
+          "rss": 406208512,
+          "heapUsed": 11338496,
+          "heapTotal": 14778368,
+          "external": 3480700,
+          "arrayBuffers": 71914
+        }
+      },
+      {
+        "threadId": 2,
+        "memory": {
+          "rss": 406208512,
+          "heapUsed": 11613224,
+          "heapTotal": 15040512,
+          "external": 3480686,
+          "arrayBuffers": 71914
+        }
+      },
+      {
+        "threadId": 3,
+        "memory": {
+          "rss": 406208512,
+          "heapUsed": 11793272,
+          "heapTotal": 33292288,
+          "external": 3921756,
+          "arrayBuffers": 78058
+        }
+      },
+      {
+        "threadId": 4,
+        "memory": {
+          "rss": 406208512,
+          "heapUsed": 11785640,
+          "heapTotal": 19300352,
+          "external": 3747161,
+          "arrayBuffers": 78186
+        }
+      },
+      {
+        "threadId": 5,
+        "memory": {
+          "rss": 406208512,
+          "heapUsed": 10782152,
+          "heapTotal": 21905408,
+          "external": 3457436,
+          "arrayBuffers": 71914
+        }
+      },
+      {
+        "threadId": 6,
+        "memory": {
+          "rss": 406208512,
+          "heapUsed": 12714016,
+          "heapTotal": 22429696,
+          "external": 3457436,
+          "arrayBuffers": 71914
+        }
+      }
+    ]
+  },
+  "events": 1000,
+  "eventsPerSecond": 1132.9099770348193,
+  "p99Ms": 4.53271484375,
+  "soak": [],
+  "shutdownMs": 91.44983400000274
+}

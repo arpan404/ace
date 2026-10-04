@@ -57,6 +57,12 @@ export class ServerPool {
     }
     // Native MCP config is process-wide. Never share its bearer between sessions.
     if (connection) key = `mcp:${++this.serial}`;
+    // A last-user release owns shutdown. Reopening the same account waits for confirmed
+    // exit, so it cannot borrow a closing server or accumulate retired native processes.
+    while (this.entries.get(key)?.closing) {
+      await this.entries.get(key)?.closing;
+      this.assertOpen();
+    }
     const serverOptions: ServerOptions = {
       ...this.options,
       discovery: { ...this.options.discovery, ...(env ? { env } : {}) },
@@ -104,7 +110,7 @@ export class ServerPool {
           released = true;
           acquired.users--;
         }
-        if (!acquired.scoped) return Promise.resolve();
+        if (acquired.users > 0) return Promise.resolve();
         acquired.closing ??= acquired.server.close().then(() => {
           if (this.entries.get(key) === acquired) this.entries.delete(key);
         });

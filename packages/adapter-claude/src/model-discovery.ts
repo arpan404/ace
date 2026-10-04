@@ -1,4 +1,4 @@
-import { query, type Query } from "@anthropic-ai/claude-agent-sdk";
+import type { Query } from "@anthropic-ai/claude-agent-sdk";
 import type { SpawnOptions, SupervisedProcess } from "@ace/provider-kit/process";
 import { InputStream } from "./input.ts";
 import { spawnSdkProcess } from "./sdk-process.ts";
@@ -28,6 +28,8 @@ export async function discoverClaudeModels(input: {
   let models: unknown;
   let outputLimited = false;
   try {
+    const { query } = await import("@anthropic-ai/claude-agent-sdk");
+    input.signal.throwIfAborted();
     q = query({
       prompt,
       options: {

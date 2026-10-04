@@ -4,7 +4,6 @@ import { delimiter, join } from "node:path";
 import { spawnProcess, type ProcessSpawner } from "./io.ts";
 import { createRequire } from "node:module";
 import { z } from "zod";
-import { chromium } from "playwright-core";
 
 export async function detectChromium(
   options: {
@@ -31,7 +30,6 @@ export async function detectChromium(
     for (const name of ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"])
       if (root) candidates.push(join(root, name));
   }
-  candidates.push(chromium.executablePath());
   for (const candidate of candidates) {
     if (!candidate) continue;
     try {
@@ -40,6 +38,14 @@ export async function detectChromium(
     } catch {
       /* Try next installation. */
     }
+  }
+  const { chromium } = await import("playwright-core");
+  const bundled = chromium.executablePath();
+  try {
+    await access(bundled, constants.X_OK);
+    return bundled;
+  } catch {
+    /* Try private cache. */
   }
   if (options.dataDir) {
     const path = await cacheExecutable(options.dataDir, options.spawn);

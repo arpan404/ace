@@ -6,6 +6,46 @@ import { setup, deferred } from "./testing/v2-session.ts";
 import { array, object } from "./data.ts";
 import type { Frame } from "@ace/engine-api";
 
+it("the last account session reaps its owned process and a later session starts fresh", async () => {
+  const boundary = await setup();
+  let exit: Promise<unknown> | undefined;
+  const adapter = createOpenCodeAdapter({
+    ...boundary.options,
+    runtime: {
+      ...boundary.options.runtime,
+      spawn(options) {
+        const process = spawnSupervised(options);
+        exit = process.exited;
+        return process;
+      },
+    },
+  });
+  const open = () =>
+    adapter.openSession({
+      cwd: "/account",
+      instanceId: "reaped",
+      threadId: ThreadId.parse("reaped"),
+      signal: new AbortController().signal,
+      onFrame() {},
+      onExit() {},
+    });
+  try {
+    const first = await open();
+    const terminated = exit;
+    if (!terminated) throw new Error("Provider process did not start");
+    await first.close("user");
+    await terminated;
+    const reopened = await open();
+    // The fake provider allocates monotonically in each process. A fresh process resets it.
+    expect(reopened.nativeSessionId).toBe("session-1");
+    await reopened.send([{ type: "text", text: "usable after reap" }], "queue");
+    await reopened.close("user");
+    await exit;
+  } finally {
+    await adapter.close();
+  }
+});
+
 it("metadata discovery retains variants and limits while excluding secrets and closing its own server", async () => {
   const h = await setup();
   const exited = deferred<void>();

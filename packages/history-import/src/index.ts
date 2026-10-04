@@ -1,5 +1,8 @@
 /* oxlint-disable unicorn/require-post-message-target-origin -- Node worker_threads has no targetOrigin. */
 import { Worker, type WorkerOptions } from "node:worker_threads";
+import { IdleWorker, type WorkerPort, type IdleWorkerRuntime } from "@ace/provider-kit/idle-worker";
+import { InventoryWatch, type WatchDirectory } from "./inventory-watch.ts";
+type HistoryWorker = WorkerPort & { idle?(): void; started?: boolean };
 import { Agent, ThreadId } from "@ace/protocol";
 import {
   ArchiveCommand,
@@ -26,28 +29,51 @@ import {
 export type { HistoryOptions, ImportSink, ProviderHome } from "./contracts.ts";
 export type { HistorySession } from "@ace/protocol/history";
 
+export interface HistoryRuntime {
+  watch?: WatchDirectory;
+  delay?: IdleWorkerRuntime["delay"];
+}
 const Iteration = z.object({ done: z.boolean(), values: z.array(Packet).max(16) });
 /** One worker owns writes; up to eight bounded reads may overlap its yielded scan. */
 export async function openHistory(
   options: HistoryOptions,
   spawnWorker: (url: URL, options: WorkerOptions) => Worker = (url, workerOptions) =>
     new Worker(url, workerOptions),
+  runtime: HistoryRuntime = {},
 ): Promise<HistoryService> {
-  const worker = spawnWorker(new URL("./worker.ts", import.meta.url), {
-    workerData: Options.parse(options),
-    resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
-  });
-  const service = new HistoryService(worker);
+  const worker = new IdleWorker(
+    new URL("./worker.ts", import.meta.url),
+    {
+      workerData: Options.parse(options),
+      resourceLimits: { maxOldGenerationSizeMb: 128, maxYoungGenerationSizeMb: 16 },
+    },
+    {
+      spawn: spawnWorker,
+      delay:
+        runtime.delay ??
+        ((callback, milliseconds) => {
+          const timer = setTimeout(callback, milliseconds);
+          timer.unref();
+          return () => clearTimeout(timer);
+        }),
+    },
+  );
+  const inventory = new InventoryWatch(Options.parse(options).instances, runtime.watch);
+  const service = new HistoryService(worker, inventory);
+  worker.start();
   try {
     await service.ready;
     return service;
   } catch (error) {
+    inventory.close();
     await worker.terminate();
     throw error;
   }
 }
 export class HistoryService {
-  private worker: Worker;
+  private worker: HistoryWorker;
+  private archiveWriting = false;
+  private inventory: InventoryWatch | undefined;
   private seq = 0;
   private pending:
     | { id: number; resolve: (value: unknown) => void; reject: (error: Error) => void }
@@ -62,8 +88,9 @@ export class HistoryService {
   private reads = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
   private scanning = false;
   readonly ready: Promise<unknown>;
-  constructor(worker: Worker) {
+  constructor(worker: HistoryWorker, inventory?: InventoryWatch) {
     this.worker = worker;
+    this.inventory = inventory;
     this.ready = new Promise((resolve, reject) => {
       this.pending = { id: 0, resolve, reject };
     });
@@ -78,8 +105,19 @@ export class HistoryService {
       if (progress) {
         void Promise.resolve()
           .then(() => this.onProgress?.(progress.progress, progress.result))
-          .finally(() => this.worker.postMessage({ progressAck: progress.progressId }))
-          .catch(() => this.worker.postMessage("cancel"));
+          .then(
+            () => {
+              if (!this.closed && !this.closing)
+                this.worker.postMessage({ progressAck: progress.progressId });
+            },
+            () => {
+              if (!this.closed && !this.closing) this.worker.postMessage("cancel");
+            },
+          )
+          .catch((error: unknown) => {
+            if (!this.closed && !this.closing)
+              this.fail(error instanceof Error ? error : new Error("History progress failed"));
+          });
         return;
       }
       const reply = Reply.parse(value);
@@ -88,6 +126,7 @@ export class HistoryService {
         this.reads.delete(reply.id);
         if (reply.error) read.reject(new Error(reply.error));
         else read.resolve(reply.value);
+        this.retireIfIdle();
         return;
       }
       if (this.pending?.id !== reply.id) return;
@@ -135,6 +174,7 @@ export class HistoryService {
       return result;
     } finally {
       this.requestDone = undefined;
+      this.retireIfIdle();
       signal?.removeEventListener("abort", cancel);
     }
   }
@@ -142,16 +182,61 @@ export class HistoryService {
     signal?: AbortSignal,
     onProgress?: (files: number, result: z.infer<typeof ScanResult>) => void | Promise<void>,
   ) {
+    if (this.importing || this.pending || this.scanning || this.closed || this.closing)
+      throw new Error("History operation already in progress or closed");
+    // The authoritative scan covers already observed paths. Keep changes arriving
+    // during the scan for the next batch rather than retaining startup debris.
+    this.inventory?.take();
+    return this.runScan({ op: "scan" }, signal, onProgress);
+  }
+  /** Consume observed changes. Explicit scan() stays authoritative when native events are delayed. */
+  async scanChanges(
+    signal?: AbortSignal,
+    onProgress?: (files: number, result: z.infer<typeof ScanResult>) => void | Promise<void>,
+  ) {
+    if (this.importing || this.pending || this.scanning || this.closed || this.closing)
+      throw new Error("History operation already in progress or closed");
+    const changes = this.inventory?.take();
+    return this.runScan(
+      { op: "scan", ...(changes === undefined ? {} : { changes }) },
+      signal,
+      onProgress,
+    );
+  }
+  subscribeChanges(listener: () => void): () => void {
+    return this.inventory?.subscribe(listener) ?? (() => {});
+  }
+  private async runScan(
+    request: Extract<z.infer<typeof Request>, { op: "scan" }>,
+    signal?: AbortSignal,
+    onProgress?: (files: number, result: z.infer<typeof ScanResult>) => void | Promise<void>,
+  ) {
     if (this.importing) throw new Error("Import in progress");
-    if (this.pending) throw new Error("History operation already in progress");
+    if (this.pending || this.scanning) throw new Error("History operation already in progress");
     this.onProgress = onProgress;
     this.scanning = true;
     try {
-      return ScanResult.parse(await this.request({ op: "scan" }, signal));
+      const result = ScanResult.parse(await this.request(request, signal));
+      this.inventory?.commit();
+      return result;
+    } catch (error) {
+      this.inventory?.reset();
+      throw error;
     } finally {
       this.onProgress = undefined;
       this.scanning = false;
+      this.retireIfIdle();
     }
+  }
+  private retireIfIdle(): void {
+    if (
+      !this.importing &&
+      !this.archiveWriting &&
+      !this.scanning &&
+      !this.pending &&
+      !this.reads.size
+    )
+      this.worker.idle?.();
   }
   private requireIdle(): void {
     if (this.importing) throw new Error("Import in progress");
@@ -169,7 +254,16 @@ export class HistoryService {
   archiveSink(): ImportSink {
     const write = async (command: z.infer<typeof ArchiveCommand>) => {
       if (command.type === "rollback" && (this.closed || this.closing)) return;
-      await this.request({ op: "archive.write", command });
+      if (command.type === "begin") this.archiveWriting = true;
+      try {
+        await this.request({ op: "archive.write", command });
+      } catch (error) {
+        if (command.type === "begin") this.archiveWriting = false;
+        throw error;
+      } finally {
+        if (command.type === "commit" || command.type === "rollback") this.archiveWriting = false;
+        this.retireIfIdle();
+      }
     };
     return {
       begin: (thread) => write({ type: "begin", thread }),
@@ -226,6 +320,7 @@ export class HistoryService {
         return ImportResult.parse(await this.request({ op: "import.persist", init }, signal));
       } finally {
         this.importing = false;
+        this.retireIfIdle();
       }
     }
     let began = false;
@@ -265,6 +360,7 @@ export class HistoryService {
       throw error;
     } finally {
       this.importing = false;
+      this.retireIfIdle();
     }
   }
   async continuation(
@@ -298,7 +394,13 @@ export class HistoryService {
       .parse(await fork({ instanceId, nativeSessionId }));
   }
   async close(): Promise<void> {
+    this.inventory?.close();
     this.closing ??= (async () => {
+      if (this.worker.started === false) {
+        this.closed = true;
+        await this.worker.terminate();
+        return;
+      }
       this.worker.postMessage("cancel");
       await this.requestDone?.catch(() => undefined);
       if (!this.closed) await this.request({ op: "close" });

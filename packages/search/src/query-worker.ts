@@ -9,7 +9,9 @@ const { path } = SearchWorkerData.parse(workerData);
 const port = parentPort;
 if (!port) throw new Error("Search worker requires a parent");
 const db = new DatabaseSync(path, { readOnly: true });
-db.exec("PRAGMA busy_timeout=5000; PRAGMA cache_size=-8192");
+db.exec(
+  "PRAGMA busy_timeout=5000; PRAGMA cache_size=-2048; PRAGMA mmap_size=0; PRAGMA temp_store=FILE",
+);
 const sql = new Statements(db);
 const Meta = z.object({
   generation: z.number().int().nonnegative(),

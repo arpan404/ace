@@ -66,6 +66,7 @@ export function createDaemonUsage(
 ) {
   const worker = new UsageWorker(join(dataDir, "usage.sqlite"), settings);
   let stopped = false;
+  let replayFailed = false;
   let running: Promise<void> | undefined;
   let timer: NodeJS.Timeout | undefined;
   let scheduled: NodeJS.Immediate | undefined;
@@ -84,9 +85,19 @@ export function createDaemonUsage(
         if (stopped) break;
         await new Promise<void>((resolve) => setImmediate(resolve));
       }
-    })().finally(() => {
-      running = undefined;
-    });
+    })()
+      .then(
+        () => {
+          replayFailed = false;
+        },
+        (error: unknown) => {
+          replayFailed = true;
+          throw error;
+        },
+      )
+      .finally(() => {
+        running = undefined;
+      });
     return running;
   };
   const unsubscribe = store.subscribeUsage(schedule);
@@ -116,7 +127,10 @@ export function createDaemonUsage(
     async start() {
       await worker.cursor();
       schedule();
-      timer = setInterval(schedule, 1000);
+      // The append subscription wakes new data immediately; polling only recovers failed replay.
+      timer = setInterval(() => {
+        if (replayFailed) schedule();
+      }, 1000);
       timer.unref();
     },
     async close() {

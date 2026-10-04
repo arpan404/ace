@@ -4,6 +4,54 @@ import { expect, test } from "vitest";
 import { ModelCatalog, normalizeCodex, openModelStorage } from "./index.ts";
 import { Clock, codexPayload, instance, workspace } from "./testing/support.ts";
 
+test("large model replacements reject byte overflow while admitted rows remain durable", async () => {
+  const work = await workspace();
+  const path = join(work.path, "models.sqlite");
+  const storage = openModelStorage(path);
+  const config = instance();
+  const base = normalizeCodex(codexPayload(), config)[0];
+  if (!base) throw new Error("Missing model");
+  const models = Array.from({ length: 512 }, (_, index) => ({
+    ...base,
+    id: `model-${index}`,
+    nativeModelId: `model-${index}`,
+    raw: { json: JSON.stringify({ data: "x".repeat(1900) }), truncated: false },
+  }));
+  try {
+    const writes = Array.from({ length: 16 }, (_, refreshedAt) =>
+      storage.replace({
+        provider: config.provider,
+        instance: config.id,
+        revision: config.loginRevision,
+        refreshedAt,
+        models,
+      }),
+    );
+    const settled = Promise.allSettled(writes);
+    await storage.close();
+    const results = await settled;
+    expect(results[0]?.status).toBe("fulfilled");
+    expect(
+      results.some(
+        (result) =>
+          result.status === "rejected" && String(result.reason).includes("byte backpressure"),
+      ),
+    ).toBe(true);
+    const last = results.findLastIndex((result) => result.status === "fulfilled");
+    const reopened = openModelStorage(path);
+    try {
+      const entry = reopened.load()[0];
+      expect(entry?.refreshedAt).toBe(last);
+      expect(entry?.models.at(-1)?.nativeModelId).toBe("model-511");
+    } finally {
+      await reopened.close();
+    }
+  } finally {
+    await storage.close();
+    await work.close();
+  }
+});
+
 test("closing a full queue preserves every admitted replacement across restart", async () => {
   const work = await workspace();
   const path = join(work.path, "models.sqlite");

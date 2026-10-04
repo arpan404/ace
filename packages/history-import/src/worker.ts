@@ -105,6 +105,7 @@ port.on("message", async (value: unknown) => {
             progressWaiters.set(nextProgressId, resolve);
             port.postMessage({ progress: files, result: scanProgress, progressId: nextProgressId });
           }),
+        request.changes,
       );
     } else if (request.op === "list") result = catalog.list(request.request);
     else if (request.op === "get") result = catalog.get(request.id)?.summary ?? null;

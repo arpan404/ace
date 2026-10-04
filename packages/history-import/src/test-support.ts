@@ -2,7 +2,13 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { AgentId, ThreadId, WorkspaceId, type Item, type Agent, type Thread } from "@ace/protocol";
-import { openHistory, type ImportSink, type HistoryOptions, type HistoryService } from "./index.ts";
+import {
+  openHistory,
+  type ImportSink,
+  type HistoryOptions,
+  type HistoryService,
+  type HistoryRuntime,
+} from "./index.ts";
 
 export const nativeId = "11111111-1111-4111-8111-111111111111";
 export const otherId = "22222222-2222-4222-8222-222222222222";
@@ -78,18 +84,22 @@ export function init(sourceId: string, id = "imported-thread") {
 }
 export async function environment(instances: HistoryOptions["instances"] = []): Promise<{
   root: string;
-  start: (homes?: HistoryOptions["instances"]) => Promise<HistoryService>;
+  start: (homes?: HistoryOptions["instances"], runtime?: HistoryRuntime) => Promise<HistoryService>;
   close: () => Promise<void>;
 }> {
   const root = await mkdtemp(join(tmpdir(), "ace-history-"));
   const services: HistoryService[] = [];
   return {
     root,
-    start: async (homes = instances) => {
-      const service = await openHistory({
-        indexPath: join(root, "ace/index.sqlite"),
-        instances: homes,
-      });
+    start: async (homes = instances, runtime = {}) => {
+      const service = await openHistory(
+        {
+          indexPath: join(root, "ace/index.sqlite"),
+          instances: homes,
+        },
+        undefined,
+        runtime,
+      );
       services.push(service);
       return service;
     },
