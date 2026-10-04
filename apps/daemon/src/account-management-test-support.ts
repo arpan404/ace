@@ -30,8 +30,8 @@ const readline = require('node:readline');
 const provider = path.basename(process.argv[1]);
 const args = process.argv.slice(2);
 const home = process.env.CODEX_HOME || process.env.CLAUDE_CONFIG_DIR || process.env.CURSOR_CONFIG_DIR || process.env.PI_CODING_AGENT_DIR || process.env.XDG_DATA_HOME;
-const marker = path.join(home, 'fixture-signed-in');
 fs.appendFileSync(process.env.ACE_FIXTURE_INVOCATIONS, JSON.stringify({provider,args,home}) + '\\n');
+const marker = path.join(home, 'fixture-signed-in');
 
 if (args[0] === '--version') {
   console.log(provider === 'codex' ? 'codex-cli 0.150.0' : provider === 'agent' ? '2026.09.26-dd393fe' : '2.1.4');
