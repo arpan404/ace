@@ -9,14 +9,39 @@ import {
   HostRuntime,
   CursorLimitsSchema,
   type RuntimeSdkBoundary,
+  createCursorAdapter,
+  probeCursorSandbox,
 } from "./index.ts";
 
-test.each(["restricted", "full-access"] as const)(
-  "Cursor %s launches and resumes with native guards even when classifier availability is unknown",
-  async (policy) => {
+test.each([
+  { policy: "restricted", sandboxSupported: true, readOnly: false },
+  { policy: "restricted", sandboxSupported: false, readOnly: false },
+  { policy: "full-access", sandboxSupported: false, readOnly: false },
+  { policy: "restricted", sandboxSupported: true, readOnly: true },
+] as const)(
+  "Cursor $policy launches and resumes with sandbox support=$sandboxSupported, read-only=$readOnly",
+  async ({ policy, sandboxSupported, readOnly }) => {
     const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-permission-")));
     const boundary: RuntimeSdkBoundary = {
       ...sdk,
+      sandboxSupport: (options) =>
+        probeCursorSandbox(
+          {
+            ConfigurationError: sdk.ConfigurationError,
+            async createAgentPlatform() {
+              return {
+                async prewarmLocalWorkspace() {
+                  if (!sandboxSupported)
+                    throw new sdk.ConfigurationError(
+                      "Local SDK sandboxing was requested, but sandboxing is not supported in this environment.",
+                    );
+                  return async () => {};
+                },
+              };
+            },
+          },
+          options,
+        ),
       Cursor: {
         auth: {
           async status() {
@@ -32,8 +57,21 @@ test.each(["restricted", "full-access"] as const)(
             options.local?.subagentInherit !== undefined;
           const unrestricted =
             options.local?.sandboxOptions?.enabled === false && options.local?.autoReview === false;
+          const fallback =
+            unrestricted &&
+            JSON.stringify(options.tools) === JSON.stringify(["read", "grep", "glob", "ls"]);
+          if (policy === "restricted" && sandboxSupported && !guarded)
+            throw new Error("Missing sandbox");
+          if (policy === "restricted" && !sandboxSupported && !fallback)
+            throw new Error("Unsupported sandbox requested or tools unrestricted");
           if (!guarded && !unrestricted) throw new Error("Native policy was omitted");
-          const agentId = guarded ? "restricted-native-agent" : "full-native-agent";
+          if (
+            readOnly &&
+            (JSON.stringify(options.tools) !== JSON.stringify(["read", "grep", "glob", "ls"]) ||
+              options.mcpServers !== undefined)
+          )
+            throw new Error("Read-only admitted shell, writes, Task or MCP tools");
+          const agentId = policy === "restricted" ? "restricted-native-agent" : "full-native-agent";
           const store = options.local?.store;
           if (!store) throw new Error("Missing local checkpoint store");
           const blobId = "ab".repeat(32);
@@ -49,7 +87,7 @@ test.each(["restricted", "full-access"] as const)(
           });
           await store.checkpoints.create({ agentId, blobId, data: new Uint8Array([1, 2, 3]) });
           return {
-            agentId: guarded ? "restricted-native-agent" : "full-native-agent",
+            agentId,
             async send() {
               throw new Error("No provider prompts");
             },
@@ -59,9 +97,12 @@ test.each(["restricted", "full-access"] as const)(
         async resume(nativeId, options) {
           const local = options?.local;
           if (
-            local?.sandboxOptions?.enabled !== true ||
-            local.autoReview !== true ||
-            local.subagentInherit === undefined
+            (readOnly && options?.mcpServers !== undefined) ||
+            local?.sandboxOptions?.enabled !== sandboxSupported ||
+            local?.autoReview !== sandboxSupported ||
+            local?.subagentInherit === undefined ||
+            ((!sandboxSupported || readOnly) &&
+              JSON.stringify(options?.tools) !== JSON.stringify(["read", "grep", "glob", "ls"]))
           )
             throw new Error("Resumed native agent lost its restricted policy");
           return {
@@ -91,6 +132,8 @@ test.each(["restricted", "full-access"] as const)(
           policy,
           autoReviewAvailable: false,
           limits: CursorLimitsSchema.parse({}),
+          readOnly,
+          ...(readOnly ? { mcp: { url: "http://127.0.0.1:1/mcp", bearer: "a".repeat(64) } } : {}),
         }),
       ).toEqual({
         agentId: policy === "restricted" ? "restricted-native-agent" : "full-native-agent",
@@ -112,6 +155,8 @@ test.each(["restricted", "full-access"] as const)(
             policy: "restricted",
             autoReviewAvailable: false,
             limits: CursorLimitsSchema.parse({}),
+            readOnly,
+            ...(readOnly ? { mcp: { url: "http://127.0.0.1:1/mcp", bearer: "a".repeat(64) } } : {}),
           }),
         ).toEqual({
           agentId: policy === "restricted" ? "restricted-native-agent" : "full-native-agent",
@@ -167,6 +212,31 @@ createInterface({input:process.stdin}).on('line',line=>{
       await session.close("shutdown");
     }
   } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("Cursor capability previews disclose the read-only fallback until sandbox support is established", async () => {
+  const home = await mkdtemp(join(tmpdir(), "cursor-preview-"));
+  const adapter = createCursorAdapter({ instance: { id: "private", homeDir: home } });
+  try {
+    const capabilities = adapter.capabilities({
+      installed: true,
+      version: "1.0.35",
+      auth: "unknown",
+      loginHint: "unused",
+    });
+    expect(capabilities.permissions?.modes).not.toContain("auto-review");
+    expect(capabilities.permissions?.modes).toContain("read-only");
+    expect(capabilities.permissions?.nativeAutoReview).toBe(false);
+    expect(
+      capabilities.permissions?.guarantees?.find((g) => g.mode === "auto-review"),
+    ).toMatchObject({
+      level: "tool-selection",
+      gates: { writes: true, shell: true, network: true, protectedReads: false },
+    });
+  } finally {
+    await adapter.close();
     await rm(home, { recursive: true, force: true });
   }
 });

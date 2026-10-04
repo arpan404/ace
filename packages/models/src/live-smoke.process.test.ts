@@ -60,7 +60,7 @@ test("OpenCode rejects metadata from a different location", async () => {
   ).rejects.toThrow();
 });
 
-test("Pi metadata uses only get_available_models with no persisted session or extension startup", async () => {
+test("Pi metadata uses the provider-selected default without persisted sessions, extensions or prompts", async () => {
   const work = await workspace();
   cleanup.push(work.close);
   const script = join(work.path, "pi.mjs");
@@ -74,6 +74,7 @@ if (!process.argv.includes('--no-extensions')) writeFileSync(process.env.HOME+'/
 if (!process.argv.includes('--no-tools')) process.exit(7);
 createInterface({input:process.stdin}).on('line', line => {
   const request = JSON.parse(line);
+  if (request.type === 'get_state') { console.log(JSON.stringify({type:'response',id:request.id,command:request.type,success:true,data:{model:{provider:'two',id:'same-model'}}})); return; }
   if (request.type !== 'get_available_models') process.exit(8);
   console.log('unrelated startup text');
   console.log(JSON.stringify({type:'agent_start'}));
@@ -99,6 +100,7 @@ createInterface({input:process.stdin}).on('line', line => {
     ["two/same-model", 128000],
   ]);
   expect(rows[0]?.inputModalities).toEqual(["text", "image"]);
+  expect(rows.filter((row) => row.isDefault).map((row) => row.id)).toEqual(["two/same-model"]);
   expect(await readdir(work.path)).not.toContain("session-created");
   expect(await readdir(work.path)).not.toContain("extension-started");
 });

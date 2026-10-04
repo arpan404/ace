@@ -43,7 +43,13 @@ export function supportsPermissionMode(
   capabilities: PermissionCapabilities | undefined,
   mode: PermissionMode,
 ): boolean {
-  return capabilities?.modes.includes(mode) === true;
+  return (
+    capabilities?.modes.includes(mode) === true ||
+    (mode !== "full-access" &&
+      capabilities?.guarantees?.some(
+        (guarantee) => guarantee.mode === mode || guarantee.mode === "auto-review",
+      ) === true)
+  );
 }
 export interface RiskDecision {
   decision: "approve" | "deny" | "escalate";

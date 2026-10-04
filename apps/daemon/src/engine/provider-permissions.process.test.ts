@@ -34,14 +34,14 @@ const providers = [
   {
     adapter: createCursorAdapter(),
     version: "1.0.35",
-    level: "sandbox",
-    gates: [true, false, false, true],
+    level: "tool-selection",
+    gates: [true, true, false, true],
   },
   {
     adapter: createPiAdapter(),
     version: "0.85.1",
-    level: "tool-selection",
-    gates: [true, true, false, true],
+    level: "tool-gate",
+    gates: [true, true, true, true],
   },
   {
     adapter: createAcpAdapter(genericQuirks),

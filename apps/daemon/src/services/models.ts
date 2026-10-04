@@ -1,3 +1,5 @@
+import { discoverCursorSdk } from "@ace/adapter-cursor";
+import { daemonCursorInstance } from "./cursor-instance.ts";
 import { createInstance, instanceEnv } from "@ace/accounts";
 import { cursorHosts } from "./cursor-hosts.ts";
 import { openDaemonModels, registerDefaultModelInstances } from "../models.ts";
@@ -34,13 +36,24 @@ export async function startModels(context: ServiceContext): Promise<void> {
   services.models = models;
   const selected = services.accountRegistry?.selectedCursorSdk();
   const account = selected ? services.accountRegistry?.get(selected) : undefined;
-  if (account)
+  const sdk =
+    account || options.modelInstances !== undefined
+      ? undefined
+      : await discoverCursorSdk(options.engine?.cursor?.discovery);
+  const privateSdkConfigured =
+    options.engine?.cursor?.instance !== undefined || config.cursorSdkHome !== undefined;
+  const sdkInstance =
+    account?.instance ??
+    (options.modelInstances === undefined && (sdk?.installed || privateSdkConfigured)
+      ? daemonCursorInstance(context)
+      : undefined);
+  if (sdkInstance)
     models.registerInstance({
-      id: account.instance.id,
+      id: sdkInstance.id,
       provider: "cursor",
       backend: "cursor-sdk",
-      homeDir: account.instance.homeDir,
-      cwd: account.instance.homeDir,
+      homeDir: sdkInstance.homeDir,
+      cwd: sdkInstance.homeDir,
       loginRevision: "cursor-sdk-default-v1",
     });
   if (options.modelInstances === undefined) {
@@ -49,7 +62,7 @@ export async function startModels(context: ServiceContext): Promise<void> {
       config.dataDir,
       process.env,
       context.signal,
-      new Set(account ? ["cursor"] : []),
+      new Set(sdkInstance ? ["cursor"] : []),
     );
     services.modelsReady = admission;
     resources.own(() => admission);
