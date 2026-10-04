@@ -20,9 +20,11 @@ export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "entit
     ? Extract<Reply, { type: "queue.result" }>
     : Q["type"] extends "permissions.capabilities"
       ? Replies<"permissions.capabilities.result">
-      : Q["type"] extends "projects.request"
-        ? Replies<"projects.result">
-        : ExistingServiceResponse<Q>;
+      : Q["type"] extends "providers.request"
+        ? Replies<"providers.result">
+        : Q["type"] extends "projects.request"
+          ? Replies<"projects.result">
+          : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends
   | "turns.page"
@@ -117,6 +119,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "terminal.request": ["terminal.result"],
   "workspace.request": ["workspace.result"],
   "projects.request": ["projects.result"],
+  "providers.request": ["providers.result"],
   "context.request": ["context.result"],
   "models.list": ["models.result"],
   "models.refresh": ["models.result"],

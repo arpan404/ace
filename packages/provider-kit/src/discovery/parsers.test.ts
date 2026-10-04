@@ -9,14 +9,14 @@ import {
 import { fixture } from "./testing/cli.ts";
 
 describe("CLI auth parsing", () => {
-  it("reports this machine's captured auth and versions without identity or credential fields", async () => {
+  it("reports this machine's captured auth and versions with safe labels and without credential fields", async () => {
     const expected = {
       claude: { version: "2.1.286", auth: { auth: "logged_in", authDetail: "claude.ai" } },
       codex: { version: "0.159.1", auth: { auth: "logged_in", authDetail: "ChatGPT" } },
       opencode: {
         version: "1.18.33",
         auth: {
-          auth: "logged_in",
+          auth: "unknown",
           authDetail: "GitHub Copilot, OpenCode Go, LMStudio",
           authEvidence: "credentials_configured",
         },
@@ -62,20 +62,25 @@ describe("CLI auth parsing", () => {
     });
     expect(parseVersion("codex", "codex-cli 0.159.1\n")).toBe("0.159.1");
   });
-  it("ignores identity fields and unrecognized auth labels in JSON status", () => {
+  it("reports only allowlisted account labels and excludes secret fields", () => {
     expect(
       parseClaudeAuth(
         '{"loggedIn":true,"authMethod":"sk-synthetic-secret","email":"private@example.test","orgName":"private"}',
       ),
-    ).toEqual({ auth: "logged_in" });
+    ).toEqual({ auth: "logged_in", accountLabel: "private@example.test" });
     expect(
       parseCursorAuth(
         '{"isAuthenticated":true,"userInfo":{"email":"private@example.test"},"accessToken":"synthetic-secret"}',
       ),
     ).toEqual({ auth: "logged_in" });
+    const safe = parseCursorAuth(
+      '{"isAuthenticated":true,"email":"private@example.test","accessToken":"synthetic-secret","apiKey":"synthetic-key"}',
+    );
+    expect(safe).toEqual({ auth: "logged_in", accountLabel: "private@example.test" });
+    expect(JSON.stringify(safe)).not.toContain("synthetic");
     expect(parseCursorAuth('{"isAuthenticated":false}')).toEqual({ auth: "logged_out" });
     expect(parseOpenCodeAuth("●  private@example.test api\n└  1 credential")).toEqual({
-      auth: "logged_in",
+      auth: "unknown",
       authDetail: "1 configured credentials",
       authEvidence: "credentials_configured",
     });
@@ -86,7 +91,7 @@ describe("CLI auth parsing", () => {
       authDetail: "ChatGPT",
     });
     expect(parseOpenCodeAuth("●  GitHub \u001b[32mCopilot\u001b[0m api\n└  1 credential")).toEqual({
-      auth: "logged_in",
+      auth: "unknown",
       authDetail: "GitHub Copilot",
       authEvidence: "credentials_configured",
     });

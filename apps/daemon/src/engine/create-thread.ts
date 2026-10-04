@@ -17,6 +17,7 @@ export function createEngineThread(
     title: string;
     selection: ExecutionSelection;
     cwd: string;
+    workspaceReady?: boolean;
     at: number;
     silenceMs: number;
     lineage?: ThreadLineage;
@@ -33,7 +34,7 @@ export function createEngineThread(
   const project = repo.store.getWorkspace(workspaceId);
   const parentDetails = lineage ? repo.store.getThread(lineage.parentThreadId)?.details : undefined;
   const mode = input.client?.details?.mode ?? parentDetails?.mode;
-  const unprepared = input.client?.details?.mode === "worktree";
+  const unprepared = input.client?.details?.mode === "worktree" && !input.workspaceReady;
   const thread = Thread.parse({
     ...input.client,
     details: {

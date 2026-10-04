@@ -36,7 +36,7 @@ export function transitionHarness(
   } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), "ace-transition-"));
-  const store = new Store(join(home, "events.sqlite"));
+  let store = new Store(join(home, "events.sqlite"));
   const workspace = store.createWorkspace(home, "Workspace");
   const clock = new ManualClock();
   const frames = scriptFrames();
@@ -273,7 +273,9 @@ export function transitionHarness(
   }
   return {
     home,
-    store,
+    get store() {
+      return store;
+    },
     workspace,
     registry,
     clock,
@@ -293,6 +295,13 @@ export function transitionHarness(
     async restart() {
       await engine.close();
       engine = new Engine(store, engineOptions);
+    },
+    async reopen() {
+      await engine.close();
+      await store.close();
+      store = new Store(join(home, "events.sqlite"));
+      engine = new Engine(store, engineOptions);
+      await engine.ready();
     },
     async close() {
       await engine.close();
