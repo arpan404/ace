@@ -1,4 +1,10 @@
-import { Client, type ClientApi, type Scheduler, type ThreadSource } from "@ace/client";
+import {
+  Client,
+  type ClientApi,
+  type Scheduler,
+  type ThreadSource,
+  type Storage,
+} from "@ace/client";
 import {
   FakeDaemon,
   ScenarioPlayer,
@@ -33,6 +39,7 @@ function world(
   snapshotItems?: number,
   hostOptions: Partial<HostOptions> = {},
   projectScheduler?: (callback: () => void) => void,
+  outbox?: Storage,
 ) {
   let now = 1;
   let ids = 0;
@@ -118,7 +125,7 @@ function world(
               };
             },
             credential: async () => daemon.token,
-            storage: { load: async () => null, save: async () => {} },
+            storage: outbox ?? { load: async () => null, save: async () => {} },
             scheduler: timers,
             random: () => 0.5,
             id: () => `id-${++ids}`,
@@ -1185,4 +1192,47 @@ test("projects and long-thread reads coexist across the worker without replacing
   expect(changes).toEqual(["added", "removed"]);
   stop();
   lease.release();
+});
+
+test("a tab sees its send synchronously and another tab sees it while worker storage is held", async () => {
+  let held = false;
+  const gate = Promise.withResolvers<void>();
+  const { daemon, tab } = world(undefined, {}, undefined, {
+    load: async () => null,
+    save: async () => {
+      if (held) await gate.promise;
+    },
+  });
+  new ScenarioPlayer(daemon, flakyCheckout()).runUntilBlocked();
+  const first = tab();
+  const second = tab();
+  await Promise.all([first.start(), second.start()]);
+  await settled(first);
+  await settled(second);
+  const left = first.pendingSends("thread-checkout");
+  const right = second.pendingSends("thread-checkout");
+  const stopLeft = left.subscribe(() => {});
+  const stopRight = right.subscribe(() => {});
+  held = true;
+  const sent = first.enqueue(
+    {
+      type: "thread.send",
+      threadId: ThreadId.parse("thread-checkout"),
+      delivery: "queue",
+      input: [{ type: "text", text: "Shared before save" }],
+    },
+    "shared-send",
+  );
+  expect(left.getSnapshot()).toMatchObject([{ commandId: "shared-send", state: "saving" }]);
+  await vi.waitFor(() =>
+    expect(right.getSnapshot()).toMatchObject([{ commandId: "shared-send", state: "saving" }]),
+  );
+  held = false;
+  gate.resolve();
+  await sent;
+  await vi.waitFor(() =>
+    expect(right.getSnapshot()).toMatchObject([{ commandId: "shared-send", state: "accepted" }]),
+  );
+  stopLeft();
+  stopRight();
 });

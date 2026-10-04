@@ -310,10 +310,38 @@ export class RemoteClient implements ClientApi {
     payload: CommandPayload,
     options: RequestOptions = {},
     id = this.options.id?.() ?? crypto.randomUUID(),
-  ) {
+  ): Promise<CommandResult> {
+    if (options.signal?.aborted) return Promise.reject(new ClientError("aborted"));
     this.saving(payload, id);
-    const args = [payload, timeout(options), id];
-    return this.invoke<CommandResult>("command", args, options.signal);
+    return this.invoke<CommandResult>("command", [payload, timeout(options), id], options.signal)
+      .then((result) => {
+        const previous = this.sends.get(id);
+        if (previous && previous.state !== "delivered")
+          this.sends.set(id, {
+            ...previous,
+            state: result.ok ? "accepted" : "failed",
+            waiting: false,
+            ...(result.threadId ? { threadId: result.threadId } : {}),
+            ...(result.error ? { error: result.error } : {}),
+          });
+        this.notifications.emit(["pendingSends"]);
+        return result;
+      })
+      .catch((error: unknown) => {
+        const previous = this.sends.get(id);
+        // Aborting detaches only this waiter; the durable command can still apply.
+        if (
+          previous &&
+          error instanceof ClientError &&
+          error.code !== "aborted" &&
+          error.code !== "offline"
+        ) {
+          this.sends.set(id, { ...previous, state: "failed", error: error.message });
+          this.notifications.emit(["pendingSends"]);
+        }
+        throw error;
+      })
+      .finally(() => this.localSaving.delete(id));
   }
   registry(input: RegistryQuery, options: RequestOptions = {}) {
     return this.invoke<RegistryResult>("registry", [input, timeout(options)], options.signal);
@@ -418,6 +446,7 @@ export class RemoteClient implements ClientApi {
       if (excess <= 0) return;
       if (record.watchers > 0) continue;
       this.intents.delete(id);
+      if (!this.pendingWatchers) this.sends.delete(id);
       excess--;
     }
   }
