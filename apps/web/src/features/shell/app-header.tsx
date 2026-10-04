@@ -83,16 +83,17 @@ export function AppHeader(
   },
 ) {
   const sidebarInline = useSidebarInline();
-  // A phone keeps one ⋯ for the title menu and the actions.
   const phone = usePhone();
-  // The title comes first: below 640px of header (a side panel open beside a narrow column)
-  // the actions fold into one ⋯ Actions so the title keeps at least 280px.
+  // The title comes first. Beside an open side panel the header is a container: below 720px
+  // the actions drop their labels (they keep their accessible names and shortcut tooltips);
+  // only below 420px, or on a phone, do they fold, together with the title menu, into one ⋯.
   const header = useRef<HTMLElement>(null);
   const roomy = useElementSize(header).width >= foldBelow;
-  const wide = sidebarInline && roomy;
+  const wide = sidebarInline && roomy && !phone;
+  // Folded, the title menu joins the actions behind one ⋯: a header never shows two.
+  const folded = !wide && !!props.actions;
+  const titleMenu = props.menu && !phone && !folded;
   return (
-    // A container: beside an open side panel the column can be narrow, and below 720px the
-    // actions drop their labels (they stay their accessible names) so the title keeps its room.
     <header
       ref={header}
       className={cn(
@@ -112,9 +113,9 @@ export function AppHeader(
             {props.subtitle}
           </span>
         )}
-        {(props.menu || props.summary) && (
+        {(titleMenu || props.summary) && (
           <span className="flex shrink-0 items-center gap-0.5">
-            {props.menu && !phone && (
+            {titleMenu && (
               <Menu>
                 <MenuTrigger render={<IconButton icon={DotsThreeIcon} label="More actions" />} />
                 <MenuContent>{props.menu}</MenuContent>
@@ -126,9 +127,9 @@ export function AppHeader(
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {props.actions && wide && props.actions}
-        {/* Narrower, the actions (and on a phone the title menu) fold into one ⋯. */}
-        {(props.actions || (phone && props.menu)) && !wide && (
-          <Overflow actions={props.actions} menu={phone ? props.menu : undefined} />
+        {/* Narrower, the actions and the title menu fold into one ⋯. */}
+        {(folded || (phone && props.menu)) && (
+          <Overflow actions={props.actions} menu={titleMenu ? undefined : props.menu} />
         )}
         {props.trailing && (
           <>
@@ -141,13 +142,15 @@ export function AppHeader(
   );
 }
 
-/** A header narrower than this folds its actions into one ⋯. */
-const foldBelow = 640;
+/**
+ * A header narrower than this folds its actions and title menu into one ⋯. Between this and
+ * 720px the actions show as icons (`SplitButton`'s `@container/header` rule).
+ */
+const foldBelow = 420;
 
 /**
  * The folded header: the actions in a row, then the title menu behind one more tap. One ⋯ in
- * the header, so the title keeps the room. With the title menu still beside the title (a side
- * panel narrowing a wide window), it is "Actions".
+ * the header, so the title keeps the room.
  */
 function Overflow(props: { actions: ReactNode; menu: ReactNode }) {
   if (!props.actions && props.menu)

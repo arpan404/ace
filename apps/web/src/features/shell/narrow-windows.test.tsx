@@ -1,7 +1,7 @@
 import { coldStartReplay, workbenchServices } from "@ace/fake-daemon";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 /** Pretend the window is `width` px wide: media queries answer as a browser would. */
@@ -26,7 +26,18 @@ function windowWidth(width: number) {
 const original = globalThis.matchMedia;
 afterEach(() => {
   globalThis.matchMedia = original;
+  vi.restoreAllMocks();
 });
+
+/** Pretend the header is laid out `width` px wide (a side panel open beside the column). */
+function headerWidth(width: number) {
+  const measure = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    return this.tagName === "HEADER" ? new DOMRect(0, 0, width, 50) : measure.call(this);
+  });
+}
 
 const sidebar = () => screen.queryByRole("complementary", { name: "Threads" });
 
@@ -63,6 +74,31 @@ test("on a phone the header keeps one ⋯ for the actions and the thread menu, a
 
   await userEvent.click(overflow[0]!);
   expect(await screen.findByRole("button", { name: "Open" })).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "More options" }));
+  expect(await screen.findByRole("menuitem", { name: /Rename/ })).toBeTruthy();
+});
+
+test("a header narrowed by a side panel keeps Commit one click away and shows one ⋯", async () => {
+  windowWidth(1440);
+  headerWidth(560);
+  await openThread();
+  const header = screen.getByRole("banner");
+  expect(within(header).getByRole("button", { name: "Commit" })).toBeTruthy();
+  expect(within(header).getByRole("button", { name: "Open" })).toBeTruthy();
+  expect(within(header).getAllByRole("button", { name: "More actions" })).toHaveLength(1);
+});
+
+test("a header too narrow even for icons folds the actions and the thread menu into one ⋯", async () => {
+  windowWidth(1440);
+  headerWidth(400);
+  await openThread();
+  const header = screen.getByRole("banner");
+  expect(within(header).queryByRole("button", { name: "Commit" })).toBeNull();
+  const overflow = within(header).getAllByRole("button", { name: "More actions" });
+  expect(overflow).toHaveLength(1);
+
+  await userEvent.click(overflow[0]!);
+  expect(await screen.findByRole("button", { name: "Commit" })).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "More options" }));
   expect(await screen.findByRole("menuitem", { name: /Rename/ })).toBeTruthy();
 });
