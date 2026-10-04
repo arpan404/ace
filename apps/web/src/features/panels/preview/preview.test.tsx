@@ -1,5 +1,5 @@
 import { failingSubagent } from "@ace/fake-daemon";
-import { screen, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
@@ -55,4 +55,38 @@ test("Open the Browser from an empty preview opens the Browser tool", async () =
   await userEvent.click(await within(panel).findByRole("button", { name: "Open the Browser" }));
   expect(await within(panel).findByRole("tab", { name: "New page", selected: true })).toBeTruthy();
   expect(await within(panel).findByRole("heading", { name: "Open a page" })).toBeTruthy();
+});
+
+test("a dev server opens in a tab of its own, which keeps its address while the server is gone", async () => {
+  const { panel, browser } = await openPreview();
+  act(() =>
+    browser.serve("thread-settings", {
+      port: 3000,
+      origin: "http://localhost:3000",
+      name: "api",
+      source: "listener",
+    }),
+  );
+  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
+  await userEvent.click(await within(panel).findByRole("button", { name: "Open in its own tab" }));
+
+  expect(within(panel).getByRole("tab", { name: "api · :3000", selected: true })).toBeTruthy();
+  const address = await within(panel).findByRole("textbox", { name: "Address" });
+  expect((address as HTMLInputElement).value).toBe("http://localhost:3000");
+  const tab = within(panel).getByRole("tabpanel");
+  expect(within(tab).getByTitle("Preview of http://localhost:3000").getAttribute("src")).toBe(
+    "http://localhost:3000",
+  );
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Stop previewing this port" }));
+  expect(
+    await within(panel).findByRole("heading", { name: "Nothing is previewed on port 3000" }),
+  ).toBeTruthy();
+  expect((within(panel).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe(
+    "http://localhost:3000",
+  );
+  await userEvent.click(within(panel).getByRole("button", { name: "Preview port 3000 again" }));
+  expect(await within(tab).findByTitle(/^Preview of http:\/\/127\.0\.0\.1:3000/)).toBeTruthy();
+  expect(browser.servers("thread-settings").map((server) => server.port)).toEqual([3000]);
 });

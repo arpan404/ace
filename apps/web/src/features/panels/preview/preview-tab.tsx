@@ -2,6 +2,7 @@ import {
   ArrowClockwiseIcon,
   ArrowSquareOutIcon,
   BrowserIcon,
+  BrowsersIcon,
   StopIcon,
 } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
@@ -14,6 +15,7 @@ import { Select } from "@/components/ui/select.tsx";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
 import type { PreviewServer, PreviewSource } from "../sources.ts";
+import { portTab } from "./port.ts";
 
 function useServers(source: PreviewSource, threadId: string) {
   // The source's reads change whenever its version does; React Compiler would memoize them
@@ -125,6 +127,7 @@ function DevServer(props: {
 }) {
   const [port, setPort] = useState(props.servers[0]?.port);
   const [reloads, setReloads] = useState(0);
+  const workspace = useWorkspaceActions(props.threadId);
   const server = props.servers.find((candidate) => candidate.port === port) ?? props.servers[0];
   if (!server) return null;
   const url = server.origin ?? `http://localhost:${server.port}`;
@@ -164,6 +167,12 @@ function DevServer(props: {
             onClick={() => void props.source.unforward(props.threadId, server.port).catch(() => {})}
           />
         )}
+        <IconButton
+          icon={BrowsersIcon}
+          label="Open in its own tab"
+          className="size-7 rounded-[7px]"
+          onClick={() => workspace.open(portTab(server))}
+        />
         <IconButton
           icon={ArrowSquareOutIcon}
           label="Open in your browser"

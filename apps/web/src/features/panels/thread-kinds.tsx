@@ -1,11 +1,13 @@
 import {
   BrowserIcon,
-  GlobeSimpleIcon,
+  CardsIcon,
   ChatsCircleIcon,
   DeviceMobileIcon,
   FilesIcon,
   GitDiffIcon,
+  GlobeSimpleIcon,
   PlusIcon,
+  RobotIcon,
   ScrollIcon,
   TerminalWindowIcon,
   TreeStructureIcon,
@@ -14,6 +16,7 @@ import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
 import { bindPage, nextBrowserId, pageOwners, setLoading } from "./browser/loading.ts";
+import { AgentBadge } from "./agents/agent-badge.tsx";
 import { ThreadDiffStat } from "./changes/diff-stat.tsx";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
@@ -129,6 +132,22 @@ export const devicesKind = defineTabKind({
   load: () => import("./devices-view.tsx").then((m) => ({ default: m.DevicesView })),
 });
 
+/** One dev server (id: its port), previewed edge to edge in its own tab. */
+export const portKind = defineTabKind({
+  kind: "port",
+  label: "Preview",
+  icon: BrowserIcon,
+  load: () => import("./preview/port-tab.tsx").then((m) => ({ default: m.PortTab })),
+});
+
+/** One simulator or emulator (id: the device's), opened from the Devices catalog. */
+export const deviceKind = defineTabKind({
+  kind: "device",
+  label: "Device",
+  icon: DeviceMobileIcon,
+  load: () => import("./devices-view.tsx").then((m) => ({ default: m.DeviceView })),
+});
+
 export const agentsKind = defineTabKind({
   kind: "agents",
   label: "Agents",
@@ -150,6 +169,23 @@ export const logsKind = defineTabKind({
   load: () => views().then((m) => ({ default: m.LogsView, Actions: m.LogsActions })),
 });
 
+/** One agent of the tree, opened from its row: its delegation, transcript and follow-up. */
+export const agentKind = defineTabKind({
+  kind: "agent",
+  label: "Agent",
+  icon: RobotIcon,
+  Badge: AgentBadge,
+  load: () => import("./agents/agent-tab.tsx").then((m) => ({ default: m.AgentTab })),
+});
+
+/** One lane of the deck a thread works for (id `run/card`); the whole deck stays in Deck. */
+export const deckLaneKind = defineTabKind({
+  kind: "deck-lane",
+  label: "Deck lane",
+  icon: CardsIcon,
+  load: () => import("./deck-lane-view.tsx").then((m) => ({ default: m.DeckLaneView })),
+});
+
 /** The + button's new tab: a catalog of tools and what this thread suggests opening. */
 export const launcherKind = defineTabKind({
   kind: "new-tab",
@@ -166,9 +202,13 @@ export const threadKinds: readonly TabKind[] = [
   sideChatKind,
   browserKind,
   previewKind,
+  portKind,
   devicesKind,
+  deviceKind,
   agentsKind,
   logsKind,
+  agentKind,
+  deckLaneKind,
   launcherKind,
 ];
 

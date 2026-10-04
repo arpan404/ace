@@ -158,7 +158,7 @@ export interface FileTreeRow {
 }
 
 /** The rows a tree shows: every node under an expanded folder, depth first. */
-export function treeRows(
+export function checkoutTreeRows(
   nodes: readonly FileTreeNode[],
   isExpanded: (folder: string) => boolean,
   depth = 0,
@@ -167,7 +167,7 @@ export function treeRows(
   for (const node of nodes) {
     const expanded = node.kind === "folder" && isExpanded(node.path);
     out.push({ node, depth, expanded });
-    if (expanded) treeRows(node.children, isExpanded, depth + 1, out);
+    if (expanded) checkoutTreeRows(node.children, isExpanded, depth + 1, out);
   }
   return out;
 }

@@ -6,7 +6,7 @@ import { Link } from "@tanstack/react-router";
 import { buttonVariants } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
 import { LoadingRegion, Skeleton, SkeletonText } from "@/components/ui/skeleton.tsx";
-import { threadWorkspace } from "@/features/panels/index.ts";
+import { threadWorkspace, ThreadPartsProvider, useThreadParts } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import { GitButton, OpenButton, RunButton } from "./header/header-actions.tsx";
@@ -22,6 +22,7 @@ const ForkDialog = lazy(() =>
   import("./transitions/fork-dialog.tsx").then((m) => ({ default: m.ForkDialog })),
 );
 import { Transcript } from "./transcript/transcript.tsx";
+import { AgentTranscript } from "./transcript/agent-transcript.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
@@ -38,6 +39,9 @@ export function ThreadView(props: { threadId: string }) {
   const [forking, setForking] = useState<ForkPoint>();
   const id = props.threadId;
   const projectName = useProjectName();
+  // The workspace's agent tabs draw with the transcript's own blocks, beside the route's parts.
+  const outer = useThreadParts();
+  const parts = useMemo(() => ({ ...outer, AgentTranscript }), [outer]);
   // Step details and interaction cards load once the transcript has painted.
   useEffect(() => whenIdle(() => void preloadDeferred()), []);
   const title = meta?.title;
@@ -46,65 +50,69 @@ export function ThreadView(props: { threadId: string }) {
     [id, meta, title],
   );
   return (
-    <Screen
-      title={title ?? "Loading thread…"}
-      subtitle={meta && projectName(meta.workspaceId)}
-      menu={
-        thread && (
-          <Suspense fallback={null}>
-            <DeferredThreadMenu.Component
-              thread={thread}
-              onRename={() => setRenaming(true)}
-              onFork={setForking}
+    <ThreadPartsProvider value={parts}>
+      <Screen
+        title={title ?? "Loading thread…"}
+        subtitle={meta && projectName(meta.workspaceId)}
+        menu={
+          thread && (
+            <Suspense fallback={null}>
+              <DeferredThreadMenu.Component
+                thread={thread}
+                onRename={() => setRenaming(true)}
+                onFork={setForking}
+              />
+            </Suspense>
+          )
+        }
+        actions={
+          thread && (
+            <>
+              <RunButton thread={thread} />
+              <OpenButton thread={thread} />
+              <GitButton thread={thread} />
+            </>
+          )
+        }
+        summary={thread && <SummaryToggle thread={thread} />}
+        workspace={{ scope: id, definition: threadWorkspace }}
+      >
+        {error ? (
+          <div role="alert" className="h-full">
+            <EmptyState
+              icon={WarningCircleIcon}
+              title="This thread couldn't be loaded"
+              description={`The daemon said: ${error.message}. The agents keep working; try again from the list.`}
+              action={
+                <Link to="/" className={buttonVariants({ size: "sm" })}>
+                  Back to Home
+                </Link>
+              }
             />
-          </Suspense>
-        )
-      }
-      actions={
-        thread && (
-          <>
-            <RunButton thread={thread} />
-            <OpenButton thread={thread} />
-            <GitButton thread={thread} />
-          </>
-        )
-      }
-      summary={thread && <SummaryToggle thread={thread} />}
-      workspace={{ scope: id, definition: threadWorkspace }}
-    >
-      {error ? (
-        <div role="alert" className="h-full">
-          <EmptyState
-            icon={WarningCircleIcon}
-            title="This thread couldn't be loaded"
-            description={`The daemon said: ${error.message}. The agents keep working; try again from the list.`}
-            action={
-              <Link to="/" className={buttonVariants({ size: "sm" })}>
-                Back to Home
-              </Link>
-            }
-          />
-        </div>
-      ) : !meta ? (
-        <TranscriptSkeleton />
-      ) : (
-        <ForkOpener value={setForking}>
-          <div className="relative flex h-full min-h-0 flex-col">
-            {thread && <PinnedSummary thread={thread} />}
-            <div className="min-h-0 flex-1">
-              <Transcript threadId={id} />
-            </div>
-            {thread && <ThreadComposer thread={thread} status={meta?.status} />}
           </div>
-        </ForkOpener>
-      )}
-      <Suspense fallback={null}>
-        {renaming && thread && <RenameDialog thread={thread} onClose={() => setRenaming(false)} />}
-        {forking && thread && (
-          <ForkDialog thread={thread} point={forking} onClose={() => setForking(undefined)} />
+        ) : !meta ? (
+          <TranscriptSkeleton />
+        ) : (
+          <ForkOpener value={setForking}>
+            <div className="relative flex h-full min-h-0 flex-col">
+              {thread && <PinnedSummary thread={thread} />}
+              <div className="min-h-0 flex-1">
+                <Transcript threadId={id} />
+              </div>
+              {thread && <ThreadComposer thread={thread} status={meta?.status} />}
+            </div>
+          </ForkOpener>
         )}
-      </Suspense>
-    </Screen>
+        <Suspense fallback={null}>
+          {renaming && thread && (
+            <RenameDialog thread={thread} onClose={() => setRenaming(false)} />
+          )}
+          {forking && thread && (
+            <ForkDialog thread={thread} point={forking} onClose={() => setForking(undefined)} />
+          )}
+        </Suspense>
+      </Screen>
+    </ThreadPartsProvider>
   );
 }
 

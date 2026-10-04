@@ -5,7 +5,10 @@ import {
   WarningIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
-import { lazy, Suspense, useState } from "react";
+import { Suspense, useState } from "react";
+// An agent's question is answered with the thread's own request card; its code loads only when
+// a deck is waiting on one.
+import { DeferredThreadInteraction as ThreadInteraction } from "@/features/thread/index.ts";
 import { Icon } from "@/components/icon.tsx";
 import { Button, buttonVariants } from "@/components/ui/button.tsx";
 import {
@@ -26,14 +29,6 @@ import { useNow } from "@/lib/time.ts";
 import { useDeckSender } from "./deck-source.ts";
 
 type DeckDecisionKind = Exclude<Gate["kind"], "provider">;
-
-/**
- * An agent's question is answered with the thread's own request card, loaded with the thread
- * code only when a deck is waiting on one.
- */
-const ThreadInteraction = lazy(() =>
-  import("@/features/thread/index.ts").then((module) => ({ default: module.ThreadInteraction })),
-);
 
 const approveLabel: Record<DeckDecisionKind, string> = {
   plan: "Approve plan",

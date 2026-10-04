@@ -8,7 +8,7 @@ import {
   isCheckoutPath,
   isText,
   rememberRecent,
-  treeRows,
+  checkoutTreeRows,
 } from "./checkout-files.ts";
 
 test("paths outside the checkout are never accepted", () => {
@@ -34,7 +34,7 @@ test("the tree lists folders before files, by name, with every parent folder", (
     "src/app.tsx",
     "src/index.ts",
   ]);
-  const rows = treeRows(tree, (folder) => folder === "src/");
+  const rows = checkoutTreeRows(tree, (folder) => folder === "src/");
   expect(rows.map((row) => `${row.depth}:${row.node.name}`)).toEqual([
     "0:docs",
     "0:src",

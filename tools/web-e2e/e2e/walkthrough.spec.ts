@@ -97,6 +97,10 @@ test("walkthrough of the core journeys", async ({ page }) => {
     .getByRole("button", { name: /^Devices/ })
     .click();
   await panel.getByRole("button", { name: "Enable devices" }).click();
+  await panel
+    .getByRole("list", { name: "Devices" })
+    .getByRole("button", { name: /iPhone 16 Pro/ })
+    .click();
   const phone = panel.getByRole("region", { name: "iPhone 16 Pro" });
   await phone.getByRole("button", { name: "Start live view" }).click();
   await beat(1500);

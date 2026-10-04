@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-/** The Devices tab against the fake daemon's simulators and emulators. */
+/** The Devices catalog and a device's own tab against the fake daemon's simulators and emulators. */
 test("enabling devices lists them, and a device is approved for the thread and watched live", async ({
   page,
 }) => {
@@ -18,6 +18,9 @@ test("enabling devices lists them, and a device is approved for the thread and w
   await expect(devices.getByRole("button", { name: /iPhone 16 Pro/ })).toBeVisible();
   await expect(devices.getByRole("button", { name: /Pixel 9/ })).toBeVisible();
 
+  // Each device opens as its own tab from the catalog.
+  await devices.getByRole("button", { name: /iPhone 16 Pro/ }).click();
+  await expect(panel.getByRole("tab", { name: "iPhone 16 Pro", selected: true })).toBeVisible();
   const phone = panel.getByRole("region", { name: "iPhone 16 Pro" });
   await expect(phone).toContainText("Agents in this thread can't use it yet");
   await phone.getByRole("button", { name: "Approve" }).click();

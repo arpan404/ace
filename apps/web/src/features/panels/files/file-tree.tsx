@@ -13,7 +13,7 @@ import {
   buildFileTree,
   fuzzyPositions,
   pathParts,
-  treeRows,
+  checkoutTreeRows,
   type FileTreeRow,
 } from "@ace/ui-core";
 import {
@@ -95,7 +95,7 @@ export function FileTree(props: {
   );
   // Folders start open: the known tree is small and search results are worth seeing whole.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const rows = useMemo(() => treeRows(tree, (folder) => !collapsed.has(folder)), [tree, collapsed]);
+  const rows = useMemo(() => checkoutTreeRows(tree, (folder) => !collapsed.has(folder)), [tree, collapsed]);
   const [focusKey, setFocusKey] = useState<string>();
   const [dropTarget, setDropTarget] = useState<string>();
   const list = useRef<HTMLDivElement>(null);
