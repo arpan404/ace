@@ -23,6 +23,7 @@ export * from "./inline-markdown.ts";
 export * from "./models.ts";
 export * from "./lru.ts";
 export * from "./organizer.ts";
+export * from "./permission-review.ts";
 export * from "./profile.ts";
 export * from "./providers.ts";
 export * from "./questions.ts";

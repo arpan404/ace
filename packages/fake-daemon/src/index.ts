@@ -6,6 +6,7 @@ export type { SoakOptions } from "./soak.ts";
 export { ScenarioPlayer } from "./scenario.ts";
 export type { PlayOptions, Scenario, Step, Timer } from "./scenario.ts";
 export { flakyCheckout } from "./scenarios/flaky-checkout.ts";
+export { permissionAudit } from "./scenarios/permission-audit.ts";
 export { failingSubagent } from "./scenarios/failing-subagent.ts";
 export { longHistory } from "./scenarios/long-history.ts";
 export { workbench } from "./scenarios/workbench.ts";

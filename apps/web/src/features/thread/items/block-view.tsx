@@ -1,6 +1,8 @@
 import { useItem } from "@ace/client-react";
 import { ArchiveIcon, InfoIcon, WarningIcon } from "@phosphor-icons/react";
 import { memo } from "react";
+import { reviewOfItem } from "@ace/ui-core";
+import { PermissionReviewNote } from "@/components/permission-review.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import type { Block } from "../transcript/blocks.ts";
 import { BackgroundTaskLine } from "./background-task.tsx";
@@ -43,7 +45,10 @@ function QuietItem(props: { threadId: string; itemId: string }) {
   const item = useItem(props.threadId, props.itemId);
   if (!item) return null;
   switch (item.type) {
-    case "notice":
+    case "notice": {
+      // ace's risk policy decided an approval: the decision, its reason and the exact target.
+      const review = reviewOfItem(item);
+      if (review) return <PermissionReviewNote review={review} />;
       return (
         <p className="flex items-start gap-2 text-ui text-muted-foreground">
           {item.level === "info" ? (
@@ -62,6 +67,7 @@ function QuietItem(props: { threadId: string; itemId: string }) {
           <span className="whitespace-pre-wrap">{item.text}</span>
         </p>
       );
+    }
     case "compaction":
       return (
         <Marker variant="separator" className="text-xs">

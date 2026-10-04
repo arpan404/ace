@@ -2,6 +2,7 @@ import { useAgent, useInteraction, useIntentSender, useItem } from "@ace/client-
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { Dot } from "@/components/ui/dot.tsx";
+import { PermissionReviewSummary } from "@/components/permission-review.tsx";
 import { Prose } from "../markdown/prose.tsx";
 import { agentName } from "@ace/ui-core";
 import { QuestionForm } from "./question-form.tsx";
@@ -80,6 +81,9 @@ export function InteractionCard(props: { threadId: string; interactionId: string
         <>
           {request.description && (
             <p className="mt-2.5 text-ui text-muted-foreground">{request.description}</p>
+          )}
+          {interaction.review && (
+            <PermissionReviewSummary review={interaction.review} className="mt-2.5" />
           )}
           <div className="mt-3.5 flex flex-wrap items-center gap-2">
             {request.options.map((option, index) => {
