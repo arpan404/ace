@@ -13,6 +13,7 @@ export class InteractionLedger {
         interaction_id TEXT NOT NULL, native_key TEXT NOT NULL, native_item TEXT,
         binding TEXT NOT NULL, generation INTEGER, state TEXT NOT NULL,
         PRIMARY KEY(thread_id,interaction_id));
+        CREATE INDEX IF NOT EXISTS engine_requests_generation ON engine_interaction_requests(thread_id,generation);
         CREATE INDEX IF NOT EXISTS engine_requests_native ON engine_interaction_requests(thread_id,binding,native_item,state);
         CREATE INDEX IF NOT EXISTS engine_requests_key ON engine_interaction_requests(thread_id,native_key,state);`);
       // Backfill terminal outcomes written before this ledger existed.
@@ -25,6 +26,9 @@ export class InteractionLedger {
     });
   }
   private store: Store;
+  latestGeneration(id: ThreadId): number {
+    return z.number().int().nonnegative().parse(this.store.statement("SELECT COALESCE(MAX(generation),0) AS generation FROM engine_interaction_requests WHERE thread_id=?").get(id)?.generation);
+  }
   private binding(id: ThreadId): string {
     const row = this.store
       .statement("SELECT native_session_id FROM engine_sessions WHERE thread_id=?")

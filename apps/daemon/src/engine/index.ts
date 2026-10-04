@@ -321,6 +321,7 @@ export class Engine {
         this.batchScheduler,
         this.diagnostic,
       );
+      actor.generation = Math.max(this.repo.pending.latestGeneration(id), this.repo.interactions.latestGeneration(id));
       this.actors.set(id, actor);
     }
     return actor;

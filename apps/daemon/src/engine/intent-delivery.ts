@@ -99,7 +99,8 @@ export class IntentDelivery {
         this.dependencies.repo.mark(intent, "done");
         this.dependencies.transitions.delivered(actor.id);
         this.dependencies.recovery.release(actor.id, holdToken);
-      } else if (send && error instanceof DeliveryDeferred && !acknowledged) {
+      } else if (send && !acknowledged &&
+        (error instanceof DeliveryDeferred || (this.dependencies.repo.pending.submitted(intent.id) === undefined && this.dependencies.repo.queue.get(actor.id).reason === "stopped"))) {
         this.dependencies.repo.queue.clearUncertain(intent.id);
         this.dependencies.repo.pending.defer(intent);
         this.dependencies.repo.beginSend(intent, undefined);

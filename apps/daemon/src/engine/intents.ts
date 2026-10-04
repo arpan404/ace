@@ -78,7 +78,8 @@ export class IntentStore {
       }
       if (!fields.some((field) => field.name === "resolution_generation"))
         db.exec("ALTER TABLE intents ADD COLUMN resolution_generation INTEGER");
-      db.exec(`CREATE INDEX IF NOT EXISTS intents_dispatch ON intents(thread_id,kind,position,id) WHERE status IN ('pending','queued');
+      db.exec(`CREATE INDEX IF NOT EXISTS intents_submission_generation ON intents(thread_id,submitted_generation);
+        CREATE INDEX IF NOT EXISTS intents_dispatch ON intents(thread_id,kind,position,id) WHERE status IN ('pending','queued');
         CREATE INDEX IF NOT EXISTS intents_running ON intents(thread_id) WHERE status='running';`);
     });
   }
@@ -107,6 +108,9 @@ export class IntentStore {
       );
       this.queue.track(Number(row.lastInsertRowid), id, command);
     });
+  }
+  latestGeneration(id: ThreadId): number {
+    return z.number().int().nonnegative().parse(this.sql("SELECT COALESCE(MAX(submitted_generation),0) AS generation FROM intents WHERE thread_id=?").get(id)?.generation);
   }
   commandStatus(commandId: CommandId) {
     const row = this.sql("SELECT status FROM intents WHERE command_id=? LIMIT 1").get(commandId);
