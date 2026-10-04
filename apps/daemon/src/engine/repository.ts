@@ -216,10 +216,7 @@ export class EngineRepository {
             this.recoveryAcknowledgement(id)
           )
             input = { ...input, trigger: queue.trigger };
-          let fact = capFact(
-            (raw) => this.store.capRaw(raw, id),
-            attributeAceAction(state, this.aceInputs.attribute(id, input), this.aceAction),
-          );
+          let fact = attributeAceAction(state, this.aceInputs.attribute(id, input), this.aceAction);
           if (
             ((fact.type === "item.upsert" || fact.type === "item.reconciled") &&
               fact.draft.type === "notice") ||
@@ -227,6 +224,7 @@ export class EngineRepository {
             (fact.type === "process.exited" && fact.message)
           )
             fact = readableProviderFact(state.config.provider, fact, this.session(id).model);
+          fact = capFact((raw) => this.store.capRaw(raw, id), fact);
           if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
             const pending = this.pending.awaiting(id);
             if (
