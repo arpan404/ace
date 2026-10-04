@@ -8,7 +8,8 @@ import type { Block } from "../transcript/blocks.ts";
 import { TurnEnd } from "../transcript/turn-end.tsx";
 import { BackgroundTaskLine } from "./background-task.tsx";
 import { ChangedFiles } from "./changed-files.tsx";
-import { AssistantMessage, UserMessage } from "./messages.tsx";
+import { AssistantMessage } from "./messages.tsx";
+import { UserMessage } from "./user-message.tsx";
 import { Subagents } from "./subagents.tsx";
 import { WorkLog } from "./work-log.tsx";
 
