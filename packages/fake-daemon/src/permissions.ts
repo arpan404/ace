@@ -20,6 +20,9 @@ export const fakePermissionCapabilities: Capabilities = {
   tokenUsage: false,
   imageInput: true,
   rewindFiles: false,
+  // Effort and other launch options change on a live thread through a queued switch.
+  sessionOptions: true,
+  launchOptions: ["effort"],
   permissions: {
     modes: ["read-only", "ask", "auto-review", "full-access"],
     nativeAutoReview: false,
