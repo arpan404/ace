@@ -46,35 +46,33 @@ test("a page on another origin cannot open the loopback socket, while allowed an
   await hello(native);
 });
 
-test("both listeners reject foreign origins and accept desktop, configured and native origins", async () => {
+test("loopback rejects foreign origins while remote paired clients authenticate independently of Origin", async () => {
   const f = await setup({ webOrigins: ["https://ace.example"] });
-  for (const url of [f.server.url, f.server.remoteUrl]) {
+  for (const url of [f.server.url]) {
     expect(await upgrade(url, "https://attacker.example")).toBe(403);
     expect(await upgrade(url, "null")).toBe(403);
     for (const origin of [undefined, "app://ace", "https://ace.example"])
       expect(await upgrade(url, origin)).toBe(101);
   }
+  const paired = await f.pair();
+  const ticket = await f.ticket(paired.token);
+  const remote = new Client(f.server.remoteUrl, {
+    rejectUnauthorized: false,
+    origin: "https://127.0.0.1:4243",
+  });
+  cleanups.push(() => remote.close());
+  await once(remote.socket, "open");
+  remote.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: paired.device.id,
+    ticket: ticket.ticket,
+  });
+  expect(await remote.next()).toMatchObject({ type: "welcome" });
 });
 
 test("device subscriber saturation closes cleanly with a limit error and releases capacity on disconnect", async () => {
-  const devices = new DevicesService({
-    platform: new DevicePlatform({ platform: "linux", home: "/unused", env: {} }),
-    runtime: {
-      now: () => 0,
-      id: () => "device",
-      spawn() {
-        throw new Error("No device process expected");
-      },
-      after() {
-        throw new Error("No device timer expected");
-      },
-    },
-    env: {},
-    recordingDirectory: "/unused",
-    async publishArtifact(artifact) {
-      return artifact;
-    },
-  });
+  const devices = deviceService();
   const f = await fixture({ devices });
   cleanups.push(() => devices.close());
   cleanups.push(() => f.close());
@@ -84,16 +82,21 @@ test("device subscriber saturation closes cleanly with a limit error and release
     await hello(client);
     admitted.push(client);
   }
+  // Dedicated file channels must not use the global device-state budget.
+  const files = await f.open();
+  files.send({
+    type: "hello",
+    protocolVersion: 1,
+    deviceId: DeviceId.parse("device"),
+    token,
+    channel: "files",
+  });
+  expect(await files.next()).toMatchObject({ type: "welcome" });
   const excess = await f.open();
   const closed = once(excess.socket, "close");
   excess.send({ type: "hello", protocolVersion: 1, deviceId: DeviceId.parse("device"), token });
-  expect(await excess.next()).toMatchObject({
-    type: "error",
-    code: "connection_limit",
-    message: expect.stringContaining("64"),
-  });
   const [code, reason] = await closed;
-  expect(code).toBe(1009);
+  expect(code).toBe(4013);
   expect(reason.toString()).toBe("connection_limit");
   await admitted[0]?.close();
   await hello(await f.open());
@@ -139,3 +142,24 @@ test("one remote address cannot take the remote budget or the loopback desktop's
   refused.socket.terminate();
   await hello(await f.open());
 });
+
+function deviceService() {
+  return new DevicesService({
+    platform: new DevicePlatform({ platform: "linux", home: "/unused", env: {} }),
+    runtime: {
+      now: () => 0,
+      id: () => "device",
+      spawn() {
+        throw new Error("No device process expected");
+      },
+      after() {
+        throw new Error("No device timer expected");
+      },
+    },
+    env: {},
+    recordingDirectory: "/unused",
+    async publishArtifact(artifact) {
+      return artifact;
+    },
+  });
+}
