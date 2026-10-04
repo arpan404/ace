@@ -1,5 +1,5 @@
 import type { StatementSync, DatabaseSync } from "node:sqlite";
-import { ThreadId, type EntityCollection, ThreadView, type Thread } from "@ace/protocol";
+import { Event, ThreadId, type EntityCollection, ThreadView, type Thread } from "@ace/protocol";
 
 const active = `CASE
  WHEN collection='agents' THEN json_extract(value,'$.origin')='root' OR json_extract(value,'$.status.state') IN ('starting','working','blocked','unresponsive')
@@ -91,11 +91,14 @@ export class EntityWindow {
       if (entity.agentId) agents.add(entity.agentId);
     // Keep parents of retained agents, even if they settled years ago.
     for (const id of agents) {
-      const row = this.sql(
-        "SELECT value FROM view_entities WHERE thread_id=? AND collection='agents' AND id=?",
-      ).get(view.thread.id, id);
-      if (!row) continue;
-      const agent = importAgent(row.value);
+      const existing = Object.hasOwn(view.agents, id) ? view.agents[id] : undefined;
+      const row = existing
+        ? undefined
+        : this.sql(
+            "SELECT value FROM view_entities WHERE thread_id=? AND collection='agents' AND id=?",
+          ).get(view.thread.id, id);
+      const agent = existing ?? (row ? importAgent(row.value) : undefined);
+      if (!agent) continue;
       Object.defineProperty(view.agents, id, {
         value: agent,
         writable: true,
@@ -104,6 +107,17 @@ export class EntityWindow {
       });
       if (agent.parentId) agents.add(agent.parentId);
     }
+  }
+  record(threadId: string, collection: EntityCollection, id: string) {
+    return this.sql(
+      "SELECT e.value,w.created_seq FROM view_entities e JOIN view_entity_windows w USING(thread_id,collection,id) WHERE e.thread_id=? AND e.collection=? AND e.id=?",
+    ).get(threadId, collection, id);
+  }
+  createdSeq(threadId: string, collection: EntityCollection, id: string): number {
+    const row = this.sql(
+      "SELECT created_seq FROM view_entity_windows WHERE thread_id=? AND collection=? AND id=?",
+    ).get(threadId, collection, id);
+    return row ? Event.shape.seq.parse(Number(row.created_seq)) : 1;
   }
   page(thread: Thread, collection: EntityCollection, before: number, limit: number) {
     const entries: unknown[] = [];

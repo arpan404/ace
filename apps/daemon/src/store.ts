@@ -50,7 +50,7 @@ import {
   WorkspaceId,
   WorkspaceFileChange,
 } from "@ace/protocol";
-import { applyDelivery, updateThread } from "@ace/projection";
+import { updateThread } from "@ace/projection";
 import { McpData } from "./mcp-data.ts";
 import { Devices } from "./devices.ts";
 import { migrate } from "./migrations.ts";
@@ -291,26 +291,11 @@ export class Store {
       let batch: Event[] | undefined;
       while ((batch = this.publications.shift())) {
         for (const { view } of this.caches.values()) {
-          applyDelivery(view, {
-            type: "events",
-            subscriptionId: "cache",
-            afterSeq: view.seq,
-            throughSeq: batch.at(-1)?.seq ?? view.seq,
-            events: batch.filter(
-              (event) =>
-                event.threadId === view.thread.id && !event.payload.type.startsWith("item."),
-            ),
-          });
-          if (
-            batch.some(
-              (event) =>
-                event.threadId === view.thread.id && !event.payload.type.startsWith("item."),
-            )
-          ) {
-            const thread = this.getThread(view.thread.id);
-            if (thread)
-              Object.assign(view, this.status.snapshot(thread, batch.at(-1)?.seq ?? view.seq));
-          }
+          const changes = batch.filter(
+            (event) => event.threadId === view.thread.id && !event.payload.type.startsWith("item."),
+          );
+          if (changes.length) this.status.updateCache(view, changes);
+          view.seq = batch.at(-1)?.seq ?? view.seq;
         }
         const listeners = [...this.listeners];
         for (const listener of listeners) {
@@ -760,7 +745,7 @@ export class Store {
     if (view.seq < head) {
       const thread = this.getThread(id);
       if (!thread) throw new Error("Unknown thread");
-      Object.assign(view, this.status.snapshot(thread, head));
+      this.status.replaceCache(view, this.status.snapshot(thread, head));
     }
   }
   snapshotThread(id: ThreadId): ThreadView {
