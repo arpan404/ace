@@ -28,7 +28,12 @@ test("the delegation scenario exposes a running card before showing settled resu
   });
   if (settled?.kind !== "thread") throw new Error("Missing thread");
   expect(Object.values(settled.items)).toContainEqual(
-    expect.objectContaining({ type: "delegation.started", phase: "settled", complete: true }),
+    expect.objectContaining({
+      type: "delegation.started",
+      phase: "settled",
+      complete: true,
+      outcome: expect.objectContaining({ threadId: delegatedDocsIds.child, outcome: "completed" }),
+    }),
   );
   expect(Object.values(settled.items)).toContainEqual(
     expect.objectContaining({

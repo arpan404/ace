@@ -149,6 +149,15 @@ export function fakeDelegations(
                 generation: Math.max(card.round - 1, 0),
                 updatedAt: run.updatedAt,
                 complete: settled,
+                outcome: settled
+                  ? {
+                      threadId: ThreadId.parse(threadId),
+                      outcome: run.phase === "cancelled" ? "cancelled" : "completed",
+                      result: card.title,
+                      truncated: false,
+                      before: null,
+                    }
+                  : null,
               },
             },
           ]);

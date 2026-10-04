@@ -73,6 +73,16 @@ export function delegatedDocs(): Scenario[] {
       updatedAt: phase === "settled" ? 2000 : 1000,
       generation: 0,
       complete: phase === "settled",
+      outcome:
+        phase === "settled"
+          ? {
+              threadId: ThreadId.parse(delegatedDocsIds.child),
+              outcome: "completed",
+              result: "Wrote docs/protocol/relay.md and documented reconnect behavior.",
+              truncated: false,
+              before: null,
+            }
+          : null,
     },
   });
   const delegate: Fact[] = [
