@@ -2,7 +2,6 @@ import { ChatsCircleIcon } from "@phosphor-icons/react";
 import { useId } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
-import { EmptyState } from "@/components/ui/empty.tsx";
 
 /*
  * Tools the workspace lists but the daemon can't serve yet. Each says exactly what is missing

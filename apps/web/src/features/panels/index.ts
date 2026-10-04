@@ -3,7 +3,6 @@
  * new-tab launcher) and the definition the thread screen hands to `<Screen workspace>`.
  */
 export { threadWorkspace } from "./thread-workspace.ts";
-export { revealRunningTerminal, revealTerminal } from "./services.ts";
 /** Other slices' views the workspace tabs draw with (agent transcripts, deck lanes). */
 export {
   deckLaneTab,
