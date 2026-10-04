@@ -26,9 +26,11 @@ const Row = z.object({
 });
 const Meta = z.object({ seq: z.number(), pending: z.number() });
 const Max = z.object({ ceiling: z.number() });
+const Posting = z.object({ id: z.number().int().positive() });
+const POSTINGS_PER_PAGE = 128;
 const quote = (text: string): string => `"${text.replaceAll('"', '""')}"`;
 
-/** Chronological keyset search stops after a bounded page, without ranking all matches. */
+/** Chronological keyset search bounds candidate work before intersecting item terms. */
 export function queryThreadSearch(
   sql: Statements,
   input: unknown,
@@ -95,33 +97,51 @@ export function queryThreadSearch(
   const boundedTermValues = requiredTerms.flatMap((term) =>
     q.filter ? [ceiling, q.filter, term] : [ceiling, term],
   );
-  const rows = sql
-    .get(`WITH selected AS MATERIALIZED (SELECT c.id
+  // Limit raw scoped postings first. Limiting only complete matches, or even
+  // unique items, can scan history for a disjoint query or a huge single item.
+  const postings = sql
+    .get(`SELECT c.id
     FROM search_full_fts JOIN search_full_chunks c ON c.id=search_full_fts.rowid
     WHERE search_full_fts MATCH ? AND search_full_fts.rowid>? AND search_full_fts.rowid<=?
       AND NOT EXISTS(SELECT 1 FROM search_tombstones t WHERE t.thread=c.thread)
+    ${scopeFilter}
+    ORDER BY search_full_fts.rowid LIMIT ?`)
+    .all(expression, cursor?.id ?? 0, ceiling, ...scopeValues, POSTINGS_PER_PAGE + 1)
+    .map((row) => Posting.parse(row));
+  const candidates = postings.slice(0, POSTINGS_PER_PAGE);
+  const rows = candidates.length
+    ? sql
+        .get(`WITH selected AS MATERIALIZED (SELECT c.id
+    FROM json_each(?) candidate CROSS JOIN search_full_chunks c
+    WHERE c.id=candidate.value
       AND NOT EXISTS(
         SELECT 1 FROM search_full_chunks earlier CROSS JOIN search_full_fts
         WHERE earlier.thread=c.thread AND earlier.item=c.item AND search_full_fts.rowid=earlier.id AND earlier.id<c.id ${q.filter ? "AND earlier.category=c.category" : ""} AND search_full_fts MATCH ?)
-    ${scopeFilter}
     ${termConstraints}
-    ORDER BY search_full_fts.rowid LIMIT ?)
+    ORDER BY c.id LIMIT ?)
     SELECT c.id,c.thread,c.item,c.seq,snippet(search_full_fts,0,char(1),char(2),'…',40) AS marked
     FROM selected s CROSS JOIN search_full_chunks c CROSS JOIN search_full_fts
     WHERE c.id=s.id AND search_full_fts.rowid=s.id AND search_full_fts MATCH ? ORDER BY c.id`)
-    .all(
-      expression,
-      cursor?.id ?? 0,
-      ceiling,
-      `body : (${anchor})`,
-      ...scopeValues,
-      ...boundedTermValues,
-      q.limit + 1,
-      highlightExpression,
-    )
-    .map((row) => Row.parse(row));
+        .all(
+          JSON.stringify(candidates.map((candidate) => candidate.id)),
+          `body : (${anchor})`,
+          ...boundedTermValues,
+          q.limit + 1,
+          highlightExpression,
+        )
+        .map((row) => Row.parse(row))
+    : [];
   const page = rows.slice(0, q.limit);
   const last = page.at(-1);
+  // Filled pages resume after their last returned hit so an unreturned match in
+  // this batch is revisited. Otherwise advance past every examined posting,
+  // including empty pages, until the pinned candidate stream is exhausted.
+  const nextId =
+    rows.length > q.limit
+      ? last?.id
+      : postings.length > POSTINGS_PER_PAGE
+        ? candidates.at(-1)?.id
+        : undefined;
   const meta = Meta.parse(sql.get("SELECT seq,pending FROM search_full_meta WHERE id=1").get());
   return ThreadSearchResponse.parse({
     type: "thread.search",
@@ -135,8 +155,8 @@ export function queryThreadSearch(
       snippet: snippet(row.marked),
     })),
     cursor:
-      rows.length > q.limit && last
-        ? Buffer.from(JSON.stringify({ fingerprint, id: last.id, ceiling, anchor })).toString(
+      nextId !== undefined
+        ? Buffer.from(JSON.stringify({ fingerprint, id: nextId, ceiling, anchor })).toString(
             "base64url",
           )
         : null,

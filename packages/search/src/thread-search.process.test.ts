@@ -66,7 +66,42 @@ test("all query terms can occur in separate chunks of the same item", () => {
   expect(query("firstneedle lastneedle").hits.map((hit) => hit.itemId)).toEqual([item.id]);
 });
 
-test("words split across deltas and chunk boundaries remain searchable without duplicate item hits", () => {
+// Mutations: applying the posting limit after term intersection, dropping an empty
+// page's cursor, skipping unreturned matching candidates, or repeating an item's
+// other matching chunks. Not executed (tests run at merge).
+test("bounded empty search pages continue to later matches without skipping or duplicating items", () => {
+  log.append([
+    ...Array.from({ length: 150 }, () => ({
+      type: "item.created" as const,
+      item: message("alpha"),
+    })),
+    ...Array.from({ length: 150 }, () => ({
+      type: "item.created" as const,
+      item: message("beta"),
+    })),
+  ]);
+  const matches = Array.from({ length: 4 }, () =>
+    message("alpha beta " + "padding ".repeat(2500) + "alpha beta"),
+  );
+  log.append(matches.map((item) => ({ type: "item.created", item })));
+  const first = query("alpha beta", { limit: 2 });
+  expect(first.hits).toEqual([]);
+  expect(first.cursor).not.toBeNull();
+  const found: string[] = [];
+  let cursor = first.cursor;
+  let pages = 0;
+  while (cursor) {
+    if (++pages > 10) throw new Error("Search continuation did not finish");
+    const page = query("alpha beta", { limit: 2, cursor });
+    found.push(...page.hits.map((hit) => hit.itemId));
+    cursor = page.cursor;
+  }
+  expect(found).toEqual(matches.map((item) => item.id));
+});
+
+// Mutation: removing the overlap loses this sole boundary occurrence.
+// Not executed (tests run at merge).
+test("a word split across a delta and sealed chunk remains searchable with its joined highlight", () => {
   const item = message("padding ".repeat(1023) + " bound", false);
   log.append([{ type: "item.created", item }]);
   log.append([
@@ -75,10 +110,15 @@ test("words split across deltas and chunk boundaries remain searchable without d
       itemId: item.id,
       agentId: AgentId.parse(item.agentId),
       field: "text",
-      append: "aryneedle " + "padding ".repeat(2000) + " boundaryneedle",
+      append: "aryneedle " + "padding ".repeat(2000),
     },
   ]);
-  expect(query("boundaryneedle").hits.map((hit) => hit.itemId)).toEqual([item.id]);
+  const hits = query("boundaryneedle").hits;
+  expect(hits.map((hit) => hit.itemId)).toEqual([item.id]);
+  const snippet = hits[0]?.snippet;
+  expect(snippet?.highlights.map((mark) => snippet.text.slice(mark.start, mark.end))).toEqual([
+    "boundaryneedle",
+  ]);
   // A field that the canonical projection rejects must never enter search.
   log.append([
     {
@@ -238,11 +278,21 @@ test("tree search uses only supplied descendants and rejects cursors for another
   const page = query("scopeword", { scope: "tree", limit: 1 }, [thread.id, child.id]);
   expect(page.hits[0]?.itemId).toBe(rootItem.id);
   if (!page.cursor) throw new Error("Expected page cursor");
+  const cursor = page.cursor;
   expect(
     query("scopeword", { scope: "tree", limit: 1, cursor: page.cursor }, [thread.id, child.id])
       .hits[0]?.threadId,
   ).toBe(child.id);
   expect(() => query("scopeword", { cursor: page.cursor ?? undefined })).toThrow(
+    "search_invalid_query",
+  );
+  expect(() => query("anotherword", { scope: "tree", cursor }, [thread.id, child.id])).toThrow(
+    "search_invalid_query",
+  );
+  expect(() =>
+    query("scopeword", { scope: "tree", filter: "messages", cursor }, [thread.id, child.id]),
+  ).toThrow("search_invalid_query");
+  expect(() => query("scopeword", { scope: "tree", cursor }, [thread.id])).toThrow(
     "search_invalid_query",
   );
   log.index.deleteThread(child.id);

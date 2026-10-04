@@ -80,8 +80,12 @@ is indexed in full. Source coverage is reported in every result.
 
 Search pages follow first matching chunk order and emit each item once. Cursors
 bind text, filter and the authorized family, pin an upper chunk-id ceiling, and
-use keyset continuation. New indexed rows appear when the client starts a fresh
-search. Bounded plain snippets reuse the global search highlight decoder.
+use keyset continuation. Each request examines at most 128 scoped anchor
+postings before checking other query terms and deduplicating items. A page can
+contain fewer than the requested results, including zero, while still carrying
+a continuation cursor. Continue until `cursor` is null. New indexed rows appear
+when the client starts a fresh search. Bounded plain snippets reuse the global
+search highlight decoder.
 Multi-term queries intersect terms across all matching chunks of an item. A
 single token exceeding the 512-unit overlap can cross a storage boundary without
 a match. This bound keeps delta work independent of history.
@@ -89,6 +93,7 @@ a match. This bound keeps delta work independent of history.
 Order follows chunk indexing, so delayed output can appear after newer items.
 Append-only tail chunks can gain matches within an existing cursor's ceiling;
 restart the search to refresh its results. Rare-term anchoring caps frequency
-sampling, but adversarial multi-term queries with common, disjoint matches can
-still visit many postings. Latency targets are measurements on the documented
-fixture, not a worst-case guarantee for every query.
+sampling, and the posting budget prevents a disjoint query from scanning all
+candidate history in one page. Per-item checks still depend on that item's
+matching chunks. Updated adversarial latency measurements need run at merge;
+the earlier fixture measurements do not establish a worst-case guarantee.

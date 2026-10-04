@@ -75,6 +75,8 @@ UI code depends on `ClientApi` (with `ThreadSource` and `SidebarSource` stores),
 shared worker. Requests accept a plain string `threadId` and standard request
 options. Turn pages use exclusive `before` or `after` ordinal cursors. Search
 pages use the returned `cursor`; keep the query, filter and scope unchanged.
+Search examines at most 128 scoped anchor postings per page, so a page can be
+empty while carrying a continuation cursor. Continue until `cursor` is null.
 Turn pages are capped at 1 MiB and may contain fewer turns than requested; detail
 arrays may be omitted with `truncated` set while counts stay exact.
 Turn, search and catch-up responses carry `indexedSeq` and `ready`, so a client can show
@@ -92,7 +94,9 @@ Do not accumulate intervening pages. `itemsBefore` and `itemsAfter` are exclusiv
 creation-sequence cursors, so sparse host sequences do not require scanning.
 
 `threadCatchUp({ threadId, sinceSeq })` or a `sinceTime` cutoff reads deterministic
-digests. It never runs a provider. If the user explicitly asks for prose, send an
+digests. Time cutoffs select literal event timestamps strictly after the cutoff,
+including out-of-order events. Pending approvals and whole-tree status are current.
+It never runs a provider. If the user explicitly asks for prose, send an
 ordinary `thread.send` through `command` with their summary request. The UI owns
 that action and its wording.
 
