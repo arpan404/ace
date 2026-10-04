@@ -331,6 +331,14 @@ export class Client implements ClientApi {
     options: RequestOptions = {},
     id = this.options.id(),
   ): Promise<CommandResult> {
+    if (payload.type === "thread.markRead")
+      return this.markThreadRead(
+        {
+          threadId: payload.threadId,
+          lastSeenSeq: payload.lastSeenSeq,
+        },
+        options,
+      );
     if (payload.type === "diagnostics.health")
       return this.request({ type: "diagnostics.health" }, options).then(({ ok, health, error }) =>
         CommandResult.parse({
