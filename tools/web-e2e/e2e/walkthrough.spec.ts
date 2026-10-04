@@ -65,7 +65,7 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await beat(1200);
 
   // The agent tree, then Changes with a line comment.
-  await page.keyboard.press("ControlOrMeta+j");
+  await page.keyboard.press("Control+Shift+a");
   await beat(1000);
   await page.goto("/t/thread-cold-start");
   await transcript.waitFor();
@@ -90,7 +90,12 @@ test("walkthrough of the core journeys", async ({ page }) => {
 
   // The bottom panel stays open on the terminal Run started.
   // Devices: enable them, then watch the simulator live.
-  await panel.getByRole("tab", { name: "Devices" }).click();
+  await panel.getByRole("button", { name: "New tab" }).click();
+  await beat(600);
+  await panel
+    .getByRole("list", { name: "Tools" })
+    .getByRole("button", { name: /^Devices/ })
+    .click();
   await panel.getByRole("button", { name: "Enable devices" }).click();
   const phone = panel.getByRole("region", { name: "iPhone 16 Pro" });
   await phone.getByRole("button", { name: "Start live view" }).click();

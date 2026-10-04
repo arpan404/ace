@@ -62,9 +62,15 @@ test("the Devices tab opens its own authenticated channel to the daemon", async 
   await threads.getByRole("link", { name: new RegExp(seededTitle) }).click();
   await expect(page.getByRole("heading", { level: 1, name: seededTitle })).toBeVisible();
 
-  await page.keyboard.press("ControlOrMeta+j");
+  await page.getByRole("button", { name: "Right panel" }).click();
   const panel = page.getByRole("region", { name: "Thread panel" });
-  await panel.getByRole("tab", { name: "Devices" }).click();
+  // Tools beyond Changes and Agents open from the side panel's + (the new-tab launcher).
+  await panel.getByRole("button", { name: "New tab" }).click();
+  await panel
+    .getByRole("list", { name: "Tools" })
+    .getByRole("button", { name: /^Devices/ })
+    .click();
+  await expect(panel.getByRole("tab", { name: "Devices", selected: true })).toBeVisible();
 
   // Connected: the daemon answered the channel's hello; nothing on this machine is touched yet.
   await expect(panel.getByRole("button", { name: "Enable devices" })).toBeVisible();

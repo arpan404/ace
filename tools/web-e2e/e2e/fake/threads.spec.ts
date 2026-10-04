@@ -46,10 +46,10 @@ test("a new thread starts from ⌘N and its first message streams into the trans
   await expect(transcript.getByText("Reading the project before making changes.")).toBeVisible();
 });
 
-test("⌘J opens the agent tree for the thread", async ({ page }) => {
+test("⌃⇧A opens the agent tree for the thread", async ({ page }) => {
   await page.goto("/t/thread-replay-cursor");
   await page.getByRole("feed", { name: "Transcript" }).waitFor();
-  await page.keyboard.press("ControlOrMeta+j");
+  await page.keyboard.press("Control+Shift+a");
 
   const panel = page.getByRole("region", { name: "Thread panel" });
   await expect(panel.getByRole("tab", { name: "Agents", selected: true })).toBeVisible();

@@ -86,7 +86,12 @@ test("Preview offers a browser, and no port preview when the daemon runs no gate
 
   await page.getByRole("button", { name: "Right panel" }).click();
   const panel = page.getByRole("region", { name: "Thread panel" });
-  await panel.getByRole("tab", { name: "Preview" }).click();
+  // Tools beyond Changes and Agents open from the side panel's + (the new-tab launcher).
+  await panel.getByRole("button", { name: "New tab" }).click();
+  await panel
+    .getByRole("list", { name: "Tools" })
+    .getByRole("button", { name: /^Preview/ })
+    .click();
   await expect(panel.getByRole("button", { name: "Open a browser" })).toBeEnabled();
   // The e2e daemon, like `ace` itself, starts without a preview gateway (ADR 0008).
   await expect(panel.getByRole("form", { name: "Preview a dev server" })).toHaveCount(0);

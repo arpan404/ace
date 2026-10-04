@@ -26,7 +26,14 @@ const rightTab =
     if (navigate) await openThread(path)(page);
     const panel = page.getByRole("region", { name: "Thread panel" });
     if (!(await panel.isVisible())) await page.getByRole("button", { name: "Right panel" }).click();
-    await panel.getByRole("tab", { name: tab }).click();
+    const existing = panel.getByRole("tab", { name: tab });
+    if (await existing.count()) return existing.click();
+    // A tool not open yet comes from the side panel's + (the new-tab launcher).
+    await panel.getByRole("button", { name: "New tab" }).click();
+    await panel
+      .getByRole("list", { name: "Tools" })
+      .getByRole("button", { name: typeof tab === "string" ? new RegExp(`^${tab}`) : tab })
+      .click();
   };
 const bottomTab =
   (path: string, tab: string): Setup =>
@@ -133,6 +140,31 @@ const screens: Record<string, Setup> = {
   "thread-agents": async (page) => {
     await heroWithQueue(page);
     await rightTab("/t/thread-dedupe", "Agents", false)(page);
+  },
+  // The side panel's + : the tool catalog and what the thread suggests opening.
+  "thread-launcher": async (page) => {
+    await rightTab("/t/thread-cold-start", /^Changes/)(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("button", { name: "New tab" }).click();
+    await panel.getByRole("list", { name: "Tools" }).waitFor();
+  },
+  // The side panel hidden: the header counts its tabs and lists them on hover.
+  "thread-open-tabs": async (page) => {
+    await rightTab("/t/thread-cold-start", "Preview")(page);
+    await page.getByRole("button", { name: "Right panel" }).click();
+    await page.getByRole("button", { name: /^\d+ open tabs?$/ }).hover();
+    await page.getByRole("list", { name: "Open tabs" }).waitFor();
+  },
+  // Full view: the side panel fills the work area, with a way back to the conversation.
+  "thread-full-view": async (page) => {
+    await rightTab("/t/thread-cold-start", /^Changes/)(page);
+    await page.getByRole("button", { name: "Full view" }).click();
+    await page.getByRole("button", { name: /Cap cold-start replay/ }).waitFor();
+  },
+  "thread-summary": async (page) => {
+    await openThread("/t/thread-dedupe")(page);
+    await page.getByRole("button", { name: "Thread summary" }).click();
+    await page.getByRole("button", { name: /^Agents/ }).waitFor();
   },
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
   // Nothing to preview yet: open a browser, or preview a dev server by its port.
