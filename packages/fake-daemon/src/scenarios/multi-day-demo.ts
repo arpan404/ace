@@ -3,8 +3,16 @@ import type { Fact } from "@ace/core";
 import type { Scenario, Step } from "../scenario.ts";
 import { endTurn, message, output, rootAgent, subagent, tool, toolDone, turn } from "./facts.ts";
 
-/** A modest fake-mode seed spanning five days, with paged turns and real approvals. */
-export function multiDayDemo(id = "thread-multi-day", turns = 24): Scenario {
+/**
+ * A modest fake-mode seed spanning five days, with paged turns and real approvals. `scans` is
+ * how many progress messages each turn writes before its answer (fewer for quick tests).
+ */
+export function multiDayDemo(
+  id = "thread-multi-day",
+  turns = 24,
+  options: { scans?: number } = {},
+): Scenario {
+  const scans = options.scans ?? 70;
   const steps: Step[] = [];
   const duration = 5 * 24 * 60 * 60 * 1000;
   steps.push({ kind: "facts", agoMs: duration, facts: [rootAgent("codex")] });
@@ -98,8 +106,14 @@ export function multiDayDemo(id = "thread-multi-day", turns = 24): Scenario {
         toolDone("root", spawn),
       );
     }
-    for (let item = 1; item <= 70; item++)
-      facts.push(
+    // The turn's opening lands when it starts; its scan and answer when it ends, minutes later,
+    // so the turn index reports real durations.
+    const startAgo = Math.floor(((turns - ordinal) * duration) / turns) + 40 * 60_000;
+    const worked = (6 + ((ordinal * 7) % 23)) * 60_000;
+    steps.push({ kind: "facts", label: `checkpoint-${ordinal}-start`, agoMs: startAgo, facts });
+    const finish: Fact[] = [];
+    for (let item = 1; item <= scans; item++)
+      finish.push(
         message(
           "root",
           `scan-${ordinal}-${item}`,
@@ -107,7 +121,7 @@ export function multiDayDemo(id = "thread-multi-day", turns = 24): Scenario {
           `Checkpoint ${ordinal}, dependency ${item}: examined migration and retained original permissions.`,
         ),
       );
-    facts.push(
+    finish.push(
       message(
         "root",
         `answer-${ordinal}`,
@@ -126,8 +140,8 @@ export function multiDayDemo(id = "thread-multi-day", turns = 24): Scenario {
     steps.push({
       kind: "facts",
       label: `checkpoint-${ordinal}`,
-      agoMs: Math.floor(((turns - ordinal) * duration) / turns),
-      facts,
+      agoMs: startAgo - worked,
+      facts: finish,
     });
   }
   return {

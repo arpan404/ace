@@ -56,6 +56,9 @@ export function bootFake(): {
     credential: async () => daemon.token,
     storage: memoryStorage(),
   });
+  // This device last read the five-day migration after checkpoint 20, so opening it shows
+  // what happened since (the catch-up card).
+  daemon.markReadThrough("thread-multi-day", "answer-20", "web-fake-device");
   // The hero thread was last read before reconnect-audit's finding arrived.
   const relay = daemon.itemId("thread-dedupe", "relay");
   const seen = relay ? [{ threadId: "thread-dedupe", itemId: relay }] : [];
