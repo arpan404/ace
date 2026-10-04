@@ -15,12 +15,18 @@ import {
 
 test.each(
   (["setup", "send", "stream", "result"] as const).flatMap((stage) =>
-    (["ordinary", "environment collision", "escaped budget", "input budget"] as const).map(
-      (scenario) => ({
-        stage,
-        scenario,
-      }),
-    ),
+    (
+      [
+        "ordinary",
+        "environment collision",
+        "escaped budget",
+        "input budget",
+        "lease boundary",
+      ] as const
+    ).map((scenario) => ({
+      stage,
+      scenario,
+    })),
   ),
 )(
   "Cursor $stage failures retain terminal reporting with $scenario prose",
@@ -32,7 +38,9 @@ test.each(
     const failure = new sdk.ConfigurationError(
       scenario === "escaped budget"
         ? "\0".repeat(65536)
-        : `${reason} Authorization: Bearer ${secret} ${"x".repeat(scenario === "input budget" ? 262144 : 12000)}`,
+        : scenario === "lease boundary"
+          ? `${reason} ${"x".repeat(3980)} ${"d".repeat(64)}`
+          : `${reason} Authorization: Bearer ${secret} ${"x".repeat(scenario === "input budget" ? 262144 : 12000)}`,
     );
     const threadId = ThreadId.parse("error-test");
     const state = createThreadState({ threadId, config: { provider: "cursor", silenceMs: 90000 } });
@@ -101,6 +109,9 @@ test.each(
         cwd: home,
         generation: "host",
         policy: "full-access",
+        ...(scenario === "lease boundary"
+          ? { mcp: { url: "http://127.0.0.1:1/mcp", bearer: "d".repeat(64) } }
+          : {}),
         limits: CursorLimitsSchema.parse({}),
       });
       if (stage === "setup") await expect(opening).rejects.toThrow();
@@ -122,6 +133,7 @@ test.each(
       expect(visible).toContain(scenario === "escaped budget" ? "no printable details" : reason);
       expect(visible).not.toContain("\0");
       expect(visible).not.toContain(secret);
+      expect(visible).not.toContain("d".repeat(8));
       expect(visible.length).toBeLessThan(5000);
       expect(visible).not.toContain("did not establish a run identity");
     } finally {

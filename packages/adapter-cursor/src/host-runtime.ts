@@ -300,7 +300,7 @@ export class HostRuntime {
       try {
         await this.frame("error", {
           code: "setup_failed",
-          message: `${safeCursorErrorMessage(error, this.env)} Preserve the checkpoint and inspect this thread before retrying.`,
+          message: `${this.errorMessage(error)} Preserve the checkpoint and inspect this thread before retrying.`,
         });
       } finally {
         await this.releaseSandbox();
@@ -351,7 +351,7 @@ export class HostRuntime {
       await this.frame("error", {
         ...failure,
         code: failure.code ?? "send_uncertain",
-        message: `${safeCursorErrorMessage(error, this.env)} Delivery may be uncertain; inspect this thread before submitting again.`,
+        message: `${this.errorMessage(error)} Delivery may be uncertain; inspect this thread before submitting again.`,
       });
       throw new Error("SDK send uncertain", { cause: error });
     } finally {
@@ -369,7 +369,7 @@ export class HostRuntime {
               ...result,
               error: {
                 ...result.error,
-                message: safeCursorErrorMessage(result.error.message, this.env),
+                message: this.errorMessage(result.error.message),
               },
             }
           : result,
@@ -388,7 +388,7 @@ export class HostRuntime {
         {
           ...failure,
           code: failure.code ?? "runtime_failed",
-          message: `${safeCursorErrorMessage(error, this.env)} Checkpoint retained; cancellation and child work may be uncertain.`,
+          message: `${this.errorMessage(error)} Checkpoint retained; cancellation and child work may be uncertain.`,
         },
         scope,
         run,
@@ -406,6 +406,12 @@ export class HostRuntime {
   close(): Promise<void> {
     this.closing ??= this.dispose();
     return this.closing;
+  }
+  private errorMessage(error: unknown): string {
+    return safeCursorErrorMessage(error, {
+      ...this.env,
+      ACE_MCP_BEARER: this.options?.mcp?.bearer,
+    });
   }
   private async releaseSandbox(): Promise<void> {
     const release = this.sandboxRelease;
