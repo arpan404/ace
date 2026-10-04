@@ -9,14 +9,15 @@ import {
   TerminalWindowIcon,
   TreeStructureIcon,
 } from "@phosphor-icons/react";
-import { defineTabKind, defineWorkspace, type TabKind } from "@/lib/workspace/index.ts";
+import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
 import { ThreadDiffStat } from "./changes/diff-stat.tsx";
 
 /*
- * A thread's workspace: the tools and resources that open beside its conversation. Each kind's
- * code loads the first time one of its tabs shows (ADR 0056); only the Changes badge renders
- * with the tab strip. To add a tool, define a kind (see apps/web/README.md, "Workspace tabs")
- * and list it in `threadKinds`.
+ * The thread workspace's tab kinds: the tools and resources that open beside a conversation.
+ * This module loads after the thread screen's first paint (`thread-workspace.ts`), and each
+ * kind's view loads the first time one of its tabs shows (ADR 0056). To add a tool, define a
+ * kind here (see apps/web/README.md, "Workspace tabs"), list it in `threadKinds` and, if it has
+ * a shortcut, add it to `thread-workspace.ts`.
  */
 
 const views = () => import("./views.tsx");
@@ -27,7 +28,6 @@ export const changesKind = defineTabKind({
   icon: GitDiffIcon,
   singleton: true,
   pinned: true,
-  shortcut: "changes",
   launcher: 10,
   Badge: (props) => <ThreadDiffStat threadId={props.scope} />,
   load: () => views().then((m) => ({ default: m.ChangesView })),
@@ -42,7 +42,6 @@ export const terminalKind = defineTabKind({
   singleton: true,
   pinned: true,
   docks: ["bottom", "right"],
-  shortcut: "terminal",
   launcher: 20,
   load: () => views().then((m) => ({ default: m.TerminalView, Actions: m.TerminalActions })),
 });
@@ -52,7 +51,6 @@ export const filesKind = defineTabKind({
   label: "Files",
   icon: FilesIcon,
   singleton: true,
-  shortcut: "files",
   launcher: 30,
   load: () => import("./placeholders.tsx").then((m) => ({ default: m.FilesPlaceholder })),
 });
@@ -62,7 +60,6 @@ export const sideChatKind = defineTabKind({
   label: "Side chat",
   icon: ChatsCircleIcon,
   singleton: true,
-  shortcut: "sideChat",
   launcher: 40,
   load: () => import("./placeholders.tsx").then((m) => ({ default: m.SideChatPlaceholder })),
 });
@@ -72,7 +69,6 @@ export const previewKind = defineTabKind({
   label: "Preview",
   icon: BrowserIcon,
   singleton: true,
-  shortcut: "preview",
   launcher: 50,
   load: () => views().then((m) => ({ default: m.PreviewView })),
   fromUrl: (url) => ({ kind: "preview", data: { url } }),
@@ -83,7 +79,6 @@ export const devicesKind = defineTabKind({
   label: "Devices",
   icon: DeviceMobileIcon,
   singleton: true,
-  shortcut: "devices",
   launcher: 60,
   // Its own chunk: the devices channel, frame decoding and screens load only when it shows.
   load: () => import("./devices-view.tsx").then((m) => ({ default: m.DevicesView })),
@@ -95,7 +90,6 @@ export const agentsKind = defineTabKind({
   icon: TreeStructureIcon,
   singleton: true,
   pinned: true,
-  shortcut: "agents",
   launcher: 70,
   load: () => views().then((m) => ({ default: m.AgentsView })),
 });
@@ -107,7 +101,6 @@ export const logsKind = defineTabKind({
   singleton: true,
   pinned: true,
   docks: ["bottom", "right"],
-  shortcut: "logs",
   launcher: 80,
   load: () => views().then((m) => ({ default: m.LogsView, Actions: m.LogsActions })),
 });
@@ -133,15 +126,4 @@ export const threadKinds: readonly TabKind[] = [
   launcherKind,
 ];
 
-/** A thread's docks: Changes and Agents beside it, Terminal and Logs below, all pinned. */
-export const threadWorkspace = defineWorkspace({
-  label: "Thread panel",
-  kinds: threadKinds,
-  launcher: launcherKind.kind,
-  initial: [
-    { kind: "changes", dock: "right", pinned: true },
-    { kind: "agents", dock: "right", pinned: true },
-    { kind: "terminal", dock: "bottom", pinned: true },
-    { kind: "logs", dock: "bottom", pinned: true },
-  ],
-});
+export default threadKinds;

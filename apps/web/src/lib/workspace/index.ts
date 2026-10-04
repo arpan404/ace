@@ -12,13 +12,16 @@ export {
   type WorkspaceTab,
 } from "./model.ts";
 export {
-  defineTabKind,
   defineWorkspace,
+  type WorkspaceDefinition,
+  type WorkspaceDefinitionOptions,
+} from "./definition.ts";
+export {
+  defineTabKind,
   type TabKind,
   type TabKindOptions,
   type TabModule,
   type TabViewProps,
-  type WorkspaceDefinition,
 } from "./registry.ts";
 export {
   useFocusedScope,
@@ -26,6 +29,5 @@ export {
   useScopeWorkspace,
   useWorkspaceActions,
   useWorkspaceStore,
-  WorkspaceProvider,
 } from "./react.tsx";
 export { defaultSizes, WorkspaceStore, type PreferredSizes } from "./store.ts";

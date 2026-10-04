@@ -47,7 +47,7 @@ export function LauncherTab(props: TabViewProps) {
   const navigate = useNavigate();
   const tools = useMemo(
     () =>
-      (definition?.kinds ?? [])
+      (definition?.kinds() ?? [])
         .filter((kind) => kind.launcher !== undefined)
         .toSorted((a, b) => (a.launcher ?? 0) - (b.launcher ?? 0)),
     [definition],
@@ -71,32 +71,35 @@ export function LauncherTab(props: TabViewProps) {
           aria-label="Tools"
           className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 @min-[30rem]:grid-cols-2"
         >
-          {tools.map((kind) => (
-            <li key={kind.kind} className="relative min-w-0">
-              <button
-                type="button"
-                className={cn(card, kind.docks.includes(other) && "pr-11")}
-                onPointerEnter={kind.preload}
-                onFocus={kind.preload}
-                onClick={() => openHere({ kind: kind.kind })}
-              >
-                <Icon icon={kind.icon} size={16} className="text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate">{kind.label}</span>
-                {kind.shortcut && <Kbd keys={keymap[kind.shortcut].keys} />}
-              </button>
-              {kind.docks.includes(other) && (
-                <DockMenu
-                  kind={kind}
-                  dock={other}
-                  onOpen={() => {
-                    const existing = findTab(store.get(props.scope), kind.kind);
-                    if (existing) actions.moveToDock(existing.tab.key, other);
-                    else actions.open({ kind: kind.kind, dock: other });
-                  }}
-                />
-              )}
-            </li>
-          ))}
+          {tools.map((kind) => {
+            const keys = definition?.shortcut(kind.kind);
+            return (
+              <li key={kind.kind} className="relative min-w-0">
+                <button
+                  type="button"
+                  className={cn(card, kind.docks.includes(other) && "pr-11")}
+                  onPointerEnter={kind.preload}
+                  onFocus={kind.preload}
+                  onClick={() => openHere({ kind: kind.kind })}
+                >
+                  <Icon icon={kind.icon} size={16} className="text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">{kind.label}</span>
+                  {keys && <Kbd keys={keymap[keys].keys} />}
+                </button>
+                {kind.docks.includes(other) && (
+                  <DockMenu
+                    kind={kind}
+                    dock={other}
+                    onOpen={() => {
+                      const existing = findTab(store.get(props.scope), kind.kind);
+                      if (existing) actions.moveToDock(existing.tab.key, other);
+                      else actions.open({ kind: kind.kind, dock: other });
+                    }}
+                  />
+                )}
+              </li>
+            );
+          })}
           <li className="min-w-0">
             <button type="button" className={card} onClick={() => void navigate({ to: "/deck" })}>
               <Icon icon={KanbanIcon} size={16} className="text-muted-foreground" />

@@ -10,8 +10,7 @@ import { threadWorkspace } from "@/features/panels/index.ts";
 import { Screen } from "@/features/shell/index.ts";
 import { ThreadComposer } from "./composer/thread-composer.tsx";
 import { GitButton, OpenButton, RunButton } from "./header/header-actions.tsx";
-import { ThreadMenuItems } from "./header/thread-menu.tsx";
-import { ThreadSummary } from "./header/summary.tsx";
+import { PinnedSummary, SummaryToggle } from "./header/summary.tsx";
 import type { ThreadRef } from "./sources/index.ts";
 import { ForkOpener } from "./transitions/fork-opener.ts";
 
@@ -25,7 +24,7 @@ const ForkDialog = lazy(() =>
 import { Transcript } from "./transcript/transcript.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
-import { preloadDeferred } from "./deferred.ts";
+import { DeferredThreadMenu, preloadDeferred } from "./deferred.ts";
 
 /**
  * A thread: the transcript and composer in the main column, Run · Open · Commit in the header,
@@ -51,7 +50,13 @@ export function ThreadView(props: { threadId: string }) {
       subtitle={meta && projectName(meta.workspaceId)}
       menu={
         thread && (
-          <ThreadMenuItems thread={thread} onRename={() => setRenaming(true)} onFork={setForking} />
+          <Suspense fallback={null}>
+            <DeferredThreadMenu.Component
+              thread={thread}
+              onRename={() => setRenaming(true)}
+              onFork={setForking}
+            />
+          </Suspense>
         )
       }
       actions={
@@ -63,7 +68,7 @@ export function ThreadView(props: { threadId: string }) {
           </>
         )
       }
-      summary={thread && <ThreadSummary thread={thread} />}
+      summary={thread && <SummaryToggle thread={thread} />}
       workspace={{ scope: id, definition: threadWorkspace }}
     >
       {error ? (
@@ -83,7 +88,8 @@ export function ThreadView(props: { threadId: string }) {
         <TranscriptSkeleton />
       ) : (
         <ForkOpener value={setForking}>
-          <div className="flex h-full min-h-0 flex-col">
+          <div className="relative flex h-full min-h-0 flex-col">
+            {thread && <PinnedSummary thread={thread} />}
             <div className="min-h-0 flex-1">
               <Transcript threadId={id} />
             </div>

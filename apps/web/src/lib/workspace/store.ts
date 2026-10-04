@@ -1,6 +1,6 @@
 import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
-import type { WorkspaceDefinition } from "./registry.ts";
+import type { WorkspaceDefinition } from "./definition.ts";
 import {
   emptyWorkspace,
   seedWorkspace,

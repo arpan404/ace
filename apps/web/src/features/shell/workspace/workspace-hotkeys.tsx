@@ -44,16 +44,11 @@ export function WorkspaceHotkeys(props: {
     const dock = targetDock(workspace);
     if (dock) actions.cycle(dock, -1);
   });
-  return props.definition.kinds.map(
-    (kind) =>
-      kind.shortcut && (
-        <KindShortcut
-          key={kind.kind}
-          shortcut={kind.shortcut}
-          onPress={() => actions.toggleKind(kind.kind)}
-        />
-      ),
-  );
+  // Bound from first paint: the definition names each tool's shortcut, so they work before the
+  // kinds' code has loaded (the action waits for it).
+  return Object.entries(props.definition.shortcuts ?? {}).map(([kind, shortcut]) => (
+    <KindShortcut key={kind} shortcut={shortcut} onPress={() => actions.toggleKind(kind)} />
+  ));
 }
 
 function KindShortcut(props: { shortcut: KeymapId; onPress(): void }) {

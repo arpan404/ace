@@ -43,6 +43,8 @@ export interface ScopeWorkspace {
   expanded: boolean;
   /** The bottom dock takes all the height it may. */
   bottomMaximized: boolean;
+  /** The summary card stays open over the main column (pinned) for this scope. */
+  summaryPinned: boolean;
 }
 
 export interface OpenRequest {
@@ -64,6 +66,7 @@ export const emptyWorkspace: ScopeWorkspace = {
   bottom: emptyDock,
   expanded: false,
   bottomMaximized: false,
+  summaryPinned: false,
 };
 
 /** A workspace holding these tabs, closed, the first of each dock active. */
@@ -328,6 +331,10 @@ export function setBottomMaximized(workspace: ScopeWorkspace, maximized: boolean
   };
 }
 
+export function setSummaryPinned(workspace: ScopeWorkspace, pinned: boolean): ScopeWorkspace {
+  return pinned === workspace.summaryPinned ? workspace : { ...workspace, summaryPinned: pinned };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Persistence. Storage is outside the process, so it is parsed; a bad entry falls back.
 
@@ -350,6 +357,7 @@ export const ScopeWorkspaceSchema = z.object({
   bottom: DockSchema,
   expanded: z.boolean(),
   bottomMaximized: z.catch(z.boolean(), false),
+  summaryPinned: z.catch(z.boolean(), false),
 });
 
 /** Drop what a hand-edited or older entry could carry that the model never makes. */
@@ -372,5 +380,6 @@ export function sanitize(workspace: z.infer<typeof ScopeWorkspaceSchema>): Scope
     bottom: dock(workspace.bottom),
     expanded: workspace.expanded && right.open,
     bottomMaximized: workspace.bottomMaximized,
+    summaryPinned: workspace.summaryPinned,
   };
 }

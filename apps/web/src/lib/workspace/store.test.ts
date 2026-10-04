@@ -1,8 +1,9 @@
 import { BrowserIcon, GitDiffIcon } from "@phosphor-icons/react";
-import { expect, test } from "vitest";
+import { beforeAll, expect, test } from "vitest";
 import { workspaceActions } from "./actions.ts";
 import { shownTab } from "./model.ts";
-import { defineTabKind, defineWorkspace } from "./registry.ts";
+import { defineWorkspace } from "./definition.ts";
+import { defineTabKind } from "./registry.ts";
 import { WorkspaceStore } from "./store.ts";
 
 /** In-memory storage, so what a reload reads back is observable. */
@@ -16,36 +17,40 @@ function memoryKeyValue() {
 }
 
 const view = async () => ({ default: () => null });
+const kinds = [
+  defineTabKind({
+    kind: "changes",
+    label: "Changes",
+    icon: GitDiffIcon,
+    singleton: true,
+    load: view,
+  }),
+  defineTabKind({
+    kind: "preview",
+    label: "Preview",
+    icon: BrowserIcon,
+    singleton: true,
+    load: view,
+  }),
+  defineTabKind({ kind: "new-tab", label: "New tab", icon: BrowserIcon, load: view }),
+  defineTabKind({
+    kind: "terminal",
+    label: "Terminal",
+    icon: BrowserIcon,
+    singleton: true,
+    docks: ["bottom", "right"],
+    load: view,
+  }),
+];
 const definition = defineWorkspace({
   label: "Thread panel",
-  kinds: [
-    defineTabKind({
-      kind: "changes",
-      label: "Changes",
-      icon: GitDiffIcon,
-      singleton: true,
-      load: view,
-    }),
-    defineTabKind({
-      kind: "preview",
-      label: "Preview",
-      icon: BrowserIcon,
-      singleton: true,
-      load: view,
-    }),
-    defineTabKind({ kind: "new-tab", label: "New tab", icon: BrowserIcon, load: view }),
-    defineTabKind({
-      kind: "terminal",
-      label: "Terminal",
-      icon: BrowserIcon,
-      singleton: true,
-      docks: ["bottom", "right"],
-      load: view,
-    }),
-  ],
+  docks: ["right", "bottom"],
+  kinds: async () => ({ default: kinds }),
   launcher: "new-tab",
   initial: [{ kind: "changes", dock: "right", pinned: true }],
 });
+// The kinds load after a screen's first paint; these tests act once they have.
+beforeAll(() => definition.load());
 
 function open(storage = memoryKeyValue()) {
   const store = new WorkspaceStore({ storage });
@@ -150,4 +155,24 @@ test("a tool moves only to a dock it may sit in", () => {
   expect(store.get("a").right.tabs.map((tab) => tab.key)).toContain("terminal");
   a.moveToDock("changes", "bottom");
   expect(store.get("a").bottom.tabs.map((tab) => tab.key)).not.toContain("changes");
+});
+
+test("a tool asked for before the kinds have loaded opens once they have, in its own dock", async () => {
+  const { promise, resolve: arrive } = Promise.withResolvers<{ default: typeof kinds }>();
+  const late = defineWorkspace({
+    label: "Thread panel",
+    docks: ["right", "bottom"],
+    kinds: () => promise,
+    launcher: "new-tab",
+    initial: [],
+  });
+  const store = new WorkspaceStore({ storage: memoryKeyValue() });
+  store.define("a", late);
+  workspaceActions(store, "a").toggleKind("terminal");
+  expect(store.get("a").bottom.open).toBe(false);
+
+  arrive({ default: kinds });
+  await late.load();
+  expect(store.get("a").bottom.tabs.map((tab) => tab.key)).toEqual(["terminal"]);
+  expect(store.get("a").bottom.open).toBe(true);
 });

@@ -2,12 +2,12 @@ import { createContext, useCallback, useContext, useMemo, useState } from "react
 import type { ReactNode } from "react";
 import * as z from "zod/mini";
 import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
-import { WorkspaceProvider } from "./workspace/react.tsx";
+import type { WorkspaceStore } from "./workspace/store.ts";
 
 /**
  * Shell layout: the second sidebar, the palette, and whether a screen's right dock is showing.
  * Local UI state, persisted to storage. The docks' tabs and sizes are per scope (thread) in the
- * workspace store (`lib/workspace`), provided here too.
+ * workspace store (`lib/workspace`), which reads the same storage.
  */
 export const ShellLayout = z.object({
   sidebarOpen: z.catch(z.boolean(), true),
@@ -32,6 +32,8 @@ interface LayoutValue {
   setRightPanel(hide: (() => void) | undefined): void;
   /** The injected key-value storage, for features that persist their own local UI state. */
   storage: KeyValueStorage | undefined;
+  /** This app's workspace store, made by `create` on first use (`lib/workspace` loads lazily). */
+  workspaceStore(create: () => WorkspaceStore): WorkspaceStore;
 }
 const LayoutContext = createContext<LayoutValue | undefined>(undefined);
 
@@ -45,6 +47,15 @@ export function LayoutProvider(props: {
   );
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [rightPanel, setRightPanelState] = useState<{ hide(): void }>();
+  // Stable, so the dock registering itself doesn't re-run on every layout change.
+  const setRightPanel = useCallback(
+    (hide: (() => void) | undefined) => setRightPanelState(hide ? { hide } : undefined),
+    [],
+  );
+  const [workspaceStore] = useState(() => {
+    let store: WorkspaceStore | undefined;
+    return (create: () => WorkspaceStore) => (store ??= create());
+  });
   const change = useCallback(
     (next: (previous: ShellLayout) => ShellLayout) =>
       setLayout((previous) => {
@@ -61,18 +72,15 @@ export function LayoutProvider(props: {
       setPaletteOpen,
       rightPanelShown: rightPanel !== undefined,
       hideRightPanel: () => rightPanel?.hide(),
-      setRightPanel: (hide) => setRightPanelState(hide ? { hide } : undefined),
+      setRightPanel,
       storage,
+      workspaceStore,
       toggleSidebar: () => change((p) => ({ ...p, sidebarOpen: !p.sidebarOpen })),
       setSidebarOpen: (open) => change((p) => ({ ...p, sidebarOpen: open })),
     }),
-    [layout, paletteOpen, rightPanel, change, storage],
+    [layout, paletteOpen, rightPanel, setRightPanel, change, storage, workspaceStore],
   );
-  return (
-    <LayoutContext.Provider value={value}>
-      <WorkspaceProvider storage={storage}>{props.children}</WorkspaceProvider>
-    </LayoutContext.Provider>
-  );
+  return <LayoutContext.Provider value={value}>{props.children}</LayoutContext.Provider>;
 }
 
 export function useLayout(): LayoutValue {

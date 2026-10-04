@@ -4,18 +4,16 @@ import {
   SquareHalfBottomIcon,
   SquareSplitHorizontalIcon,
 } from "@phosphor-icons/react";
-import { Icon } from "@/components/icon.tsx";
+import { useState, type ComponentType } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
-import { cn } from "@/lib/cn.ts";
 import { withViewTransition } from "@/lib/motion.ts";
-import {
-  shownTab,
-  type ScopeWorkspace,
-  type WorkspaceActions,
-  type WorkspaceDefinition,
+import type {
+  ScopeWorkspace,
+  WorkspaceActions,
+  WorkspaceDefinition,
 } from "@/lib/workspace/index.ts";
+import { countButton, CountMark } from "./count-mark.tsx";
+import type { OpenTabsProps } from "./open-tabs.tsx";
 
 /**
  * The docks' toggles, always at the far right of the window's top row: the bottom panel, full
@@ -54,7 +52,7 @@ export function DockControls(props: {
         />
       )}
       {props.placement === "header" && count > 0 && (
-        <OpenTabs workspace={workspace} definition={props.definition} actions={actions} />
+        <OpenTabsCount workspace={workspace} definition={props.definition} actions={actions} />
       )}
       <IconButton
         icon={SquareSplitHorizontalIcon}
@@ -67,69 +65,42 @@ export function DockControls(props: {
   );
 }
 
-/** "3": the side panel's open tabs; hover or click lists them, each with a full-view action. */
-function OpenTabs(props: {
-  workspace: ScopeWorkspace;
-  definition: WorkspaceDefinition;
-  actions: WorkspaceActions;
-}) {
-  const { workspace, definition, actions } = props;
-  const tabs = workspace.right.tabs;
-  const shown = shownTab(workspace.right)?.key;
-  const label = `${tabs.length} open ${tabs.length === 1 ? "tab" : "tabs"}`;
+/** The list's code: warmed while idle after the screen paints, or fetched on first use. */
+let LoadedOpenTabs: ComponentType<OpenTabsProps> | undefined;
+export const loadOpenTabs = () =>
+  import("./open-tabs.tsx").then((module) => {
+    LoadedOpenTabs = module.OpenTabs;
+  });
+
+/**
+ * "3": the side panel's open tabs; hover or click lists them. Until the list's code has loaded
+ * this is a plain button that fetches it and then opens.
+ */
+function OpenTabsCount(props: Omit<OpenTabsProps, "defaultOpen">) {
+  // Reads module state that changes once, when the code arrives.
+  "use no memo";
+  const [wanted, setWanted] = useState<"hover" | "click">();
+  const [, setLoaded] = useState(false);
+  const Loaded = LoadedOpenTabs;
+  if (Loaded) return <Loaded {...props} defaultOpen={wanted !== undefined} />;
+  const count = props.workspace.right.tabs.length;
+  const want = (why: "hover" | "click") => {
+    setWanted(why);
+    void Promise.all([loadOpenTabs(), props.definition.load()]).then(
+      () => setLoaded(true),
+      () => setWanted(undefined),
+    );
+  };
   return (
-    <Popover>
-      <PopoverTrigger
-        openOnHover
-        delay={250}
-        aria-label={label}
-        className="inline-flex h-[30px] min-w-[30px] items-center justify-center rounded-md px-1.5 text-muted-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent hover:text-foreground focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent aria-expanded:text-foreground"
-      >
-        <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-[5px] px-1 text-[11px] leading-none font-semibold tabular-nums shadow-[inset_0_0_0_1.5px_currentColor]">
-          {tabs.length}
-        </span>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-[280px] p-1.5">
-        <p className="px-2 pt-1 pb-1.5 text-[11px] font-medium tracking-[0.02em] text-subtle-foreground">
-          Open tabs
-        </p>
-        <ul aria-label="Open tabs" className="flex flex-col">
-          {tabs.map((tab) => {
-            const kind = definition.kind(tab.kind);
-            const title = definition.title(tab);
-            return (
-              <li key={tab.key} className="group/row flex h-[30px] items-center gap-0.5">
-                <button
-                  type="button"
-                  onClick={() => actions.activate(tab.key)}
-                  className={cn(
-                    "flex h-full min-w-0 flex-1 items-center gap-[9px] rounded-md px-2 text-left text-ui outline-none hover:bg-accent focus-visible:bg-accent",
-                    tab.key === shown ? "text-foreground" : "text-muted-foreground",
-                  )}
-                >
-                  {kind && <Icon icon={kind.icon} size={14} />}
-                  <span className="min-w-0 truncate">{title}</span>
-                </button>
-                <Tip label={`Open ${title} in full view`} shortcut="fullView">
-                  <button
-                    type="button"
-                    aria-label={`Open ${title} in full view`}
-                    onClick={() =>
-                      withViewTransition(() => {
-                        actions.activate(tab.key);
-                        actions.setExpanded(true);
-                      })
-                    }
-                    className="grid size-[26px] shrink-0 place-items-center rounded-md text-subtle-foreground opacity-0 outline-none group-hover/row:opacity-100 hover:bg-accent hover:text-foreground focus-visible:bg-accent focus-visible:opacity-100"
-                  >
-                    <ArrowsOutSimpleIcon aria-hidden size={14} />
-                  </button>
-                </Tip>
-              </li>
-            );
-          })}
-        </ul>
-      </PopoverContent>
-    </Popover>
+    <button
+      type="button"
+      aria-label={`${count} open ${count === 1 ? "tab" : "tabs"}`}
+      className={countButton}
+      onPointerEnter={() => want("hover")}
+      onPointerLeave={() => setWanted((current) => (current === "hover" ? undefined : current))}
+      onClick={() => want("click")}
+    >
+      <CountMark count={count} />
+    </button>
   );
 }

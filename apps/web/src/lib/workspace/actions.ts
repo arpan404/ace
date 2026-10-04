@@ -9,12 +9,12 @@ import {
   openTab,
   replaceTab,
   setBottomMaximized,
+  setSummaryPinned,
   setDockOpen,
   setDockSize,
   setExpanded,
   setTabPinned,
   shownTab,
-  tabKey,
   updateTab,
   type Dock,
   type OpenRequest,
@@ -27,8 +27,8 @@ export type OpenTab = Omit<OpenRequest, "dock"> & { dock?: Dock | undefined };
 
 /** Everything a feature or the shell does to one scope's workspace. */
 export interface WorkspaceActions {
-  /** Open (or show, if already open) a resource. Returns its tab key. */
-  open(request: OpenTab): string;
+  /** Open (or show, if already open) a resource. */
+  open(request: OpenTab): void;
   /** A tool's shortcut: show it, or hide its dock if it is already showing. */
   toggleKind(kind: string): void;
   /** A new launcher tab in `dock` (default right). */
@@ -47,6 +47,8 @@ export interface WorkspaceActions {
   toggle(dock: Dock): void;
   setExpanded(expanded: boolean): void;
   setBottomMaximized(maximized: boolean): void;
+  /** Keep the summary card open for this scope (it comes back on return and after a reload). */
+  setSummaryPinned(pinned: boolean): void;
   /** Live while dragging; `persist` when the gesture ends. Also becomes the preferred size. */
   setSize(dock: Dock, size: number, persist: boolean): void;
 }
@@ -57,6 +59,16 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
   const definition = () => store.definition(scope);
   const request = (open: OpenTab): OpenRequest =>
     definition()?.request(open) ?? { ...open, dock: open.dock ?? "right" };
+  /**
+   * Run something that needs the kinds (which dock a tool goes to, whether it is a singleton):
+   * now if they have loaded, else as soon as they have. They load right after first paint, so
+   * only a shortcut pressed in that moment waits.
+   */
+  const withKinds = (run: () => void) => {
+    const current = definition();
+    if (!current || current.loaded()) run();
+    else void current.load().then(run, () => undefined);
+  };
   /** A new launcher tab; several can be open at once, like a browser's new tabs. */
   const launcher = (workspace: ScopeWorkspace, dock: Dock): OpenRequest | undefined => {
     const kind = definition()?.launcher;
@@ -76,27 +88,25 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       return fresh ? openTab(workspace, fresh) : workspace;
     });
   return {
-    open: (open) => {
-      const resolved = request(open);
-      change((workspace) => openTab(workspace, resolved));
-      return tabKey(resolved.kind, resolved.id);
-    },
+    open: (open) => withKinds(() => change((workspace) => openTab(workspace, request(open)))),
     toggleKind: (kind) =>
-      change((workspace) => {
-        const resolved = request({ kind });
-        const first = [...workspace.right.tabs, ...workspace.bottom.tabs].find(
-          (tab) => tab.kind === kind,
-        );
-        const existing = first && findTab(workspace, first.key);
-        if (existing) {
-          const state = workspace[existing.dock];
-          const showing = state.open && shownTab(state)?.key === existing.tab.key;
-          return showing
-            ? setDockOpen(workspace, existing.dock, false)
-            : activateTab(workspace, existing.tab.key);
-        }
-        return openTab(workspace, resolved);
-      }),
+      withKinds(() =>
+        change((workspace) => {
+          const resolved = request({ kind });
+          const first = [...workspace.right.tabs, ...workspace.bottom.tabs].find(
+            (tab) => tab.kind === kind,
+          );
+          const existing = first && findTab(workspace, first.key);
+          if (existing) {
+            const state = workspace[existing.dock];
+            const showing = state.open && shownTab(state)?.key === existing.tab.key;
+            return showing
+              ? setDockOpen(workspace, existing.dock, false)
+              : activateTab(workspace, existing.tab.key);
+          }
+          return openTab(workspace, resolved);
+        }),
+      ),
     newTab: (dock = "right") =>
       change((workspace) => {
         const fresh = launcher(workspace, dock);
@@ -118,18 +128,22 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
     },
     move: (key, toIndex) => change((workspace) => moveTab(workspace, key, toIndex)),
     moveToDock: (key, dock, index) =>
-      change((workspace) => {
-        const found = findTab(workspace, key);
-        const allowed = found && definition()?.kind(found.tab.kind)?.docks;
-        if (allowed && !allowed.includes(dock)) return workspace;
-        return moveTabToDock(workspace, key, dock, index);
-      }),
+      withKinds(() =>
+        change((workspace) => {
+          const found = findTab(workspace, key);
+          const allowed = found && definition()?.kind(found.tab.kind)?.docks;
+          if (allowed && !allowed.includes(dock)) return workspace;
+          return moveTabToDock(workspace, key, dock, index);
+        }),
+      ),
     setPinned: (key, pinned) => change((workspace) => setTabPinned(workspace, key, pinned)),
     replace: (key, next) =>
-      change((workspace) => {
-        const resolved = request(next);
-        return replaceTab(workspace, key, { ...next, id: resolved.id, pinned: resolved.pinned });
-      }),
+      withKinds(() =>
+        change((workspace) => {
+          const resolved = request(next);
+          return replaceTab(workspace, key, { ...next, id: resolved.id, pinned: resolved.pinned });
+        }),
+      ),
     update: (key, patch) => change((workspace) => updateTab(workspace, key, patch)),
     cycle: (dock, delta) => change((workspace) => cycleTab(workspace, dock, delta)),
     setOpen: (dock, open) =>
@@ -146,6 +160,7 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       if (maximized && !store.get(scope).bottom.tabs.length) show("bottom");
       change((workspace) => setBottomMaximized(workspace, maximized));
     },
+    setSummaryPinned: (pinned) => change((workspace) => setSummaryPinned(workspace, pinned)),
     setSize: (dock, size, persist) => {
       change((workspace) => setDockSize(workspace, dock, size), persist);
       store.setPreferred(dock, size, persist);

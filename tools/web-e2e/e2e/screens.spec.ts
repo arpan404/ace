@@ -163,8 +163,11 @@ const screens: Record<string, Setup> = {
   },
   "thread-summary": async (page) => {
     await openThread("/t/thread-dedupe")(page);
-    await page.getByRole("button", { name: "Thread summary" }).click();
-    await page.getByRole("button", { name: /^Agents/ }).waitFor();
+    await page.getByRole("button", { name: "Show thread summary" }).click();
+    await page
+      .getByRole("complementary", { name: "Thread summary" })
+      .getByRole("button", { name: /^Agents/ })
+      .waitFor();
   },
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
   // Nothing to preview yet: open a browser, or preview a dev server by its port.

@@ -82,31 +82,83 @@ presentational components that render it (see `home/use-thread-card.ts` and `hom
 
 Each slice owns `src/features/<slice>/` and the route files for its screens:
 
-| Slice                                                              | Folder                                                                       | Routes                                                          |
-| ------------------------------------------------------------------ | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Home (thread list, New thread)                                     | `features/home`                                                              | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx`   |
-| Thread (transcript, composer, header actions)                      | `features/thread`                                                            | `_home.t.$threadId.tsx`                                         |
-| Right and bottom panels (Changes, Preview, Agents, Terminal, Logs) | `features/panels`                                                            | panel tabs of the thread screen (`threadPanels(threadId)`)      |
-| Devices (simulators and emulators, a right-panel tab)              | `features/devices`                                                           | none; loaded with the panel tabs                                |
-| Activity                                                           | `features/activity`                                                          | `activity.tsx`, `activity.index.tsx`                            |
-| Deck (`@ace/conductor`)                                            | `features/deck`                                                              | `deck.tsx`, `deck.index.tsx`, `deck.new.tsx`, `deck.$runId.tsx` |
-| Automations                                                        | `features/automations`                                                       | `automations.tsx`, `automations.index.tsx`                      |
-| Skills                                                             | `features/skills`                                                            | `skills.tsx`, `skills.index.tsx`                                |
-| Thread organization (actions, Undo, the shared thread menu)        | `features/organize`                                                          | none; used by Home, the thread ⋯ menu and the palette           |
-| Model catalog (pickers)                                            | `features/models`                                                            | none; used by thread and Home                                   |
-| More: accounts, files, search                                      | `features/more` (+ `features/accounts`, `features/files`, `features/search`) | `more.*.tsx`                                                    |
-| Settings                                                           | `features/settings`                                                          | `settings.*.tsx`                                                |
-| Palette                                                            | `features/palette`                                                           | none; register commands in `commands.ts`                        |
+| Slice                                                             | Folder                                                                       | Routes                                                          |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Home (thread list, New thread)                                    | `features/home`                                                              | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx`   |
+| Thread (transcript, composer, header actions)                     | `features/thread`                                                            | `_home.t.$threadId.tsx`                                         |
+| Thread workspace tools (Changes, Preview, Agents, Terminal, Logs) | `features/panels`                                                            | tab kinds of the thread screen (`threadWorkspace`)              |
+| Devices (simulators and emulators, a right-panel tab)             | `features/devices`                                                           | none; loaded with the panel tabs                                |
+| Activity                                                          | `features/activity`                                                          | `activity.tsx`, `activity.index.tsx`                            |
+| Deck (`@ace/conductor`)                                           | `features/deck`                                                              | `deck.tsx`, `deck.index.tsx`, `deck.new.tsx`, `deck.$runId.tsx` |
+| Automations                                                       | `features/automations`                                                       | `automations.tsx`, `automations.index.tsx`                      |
+| Skills                                                            | `features/skills`                                                            | `skills.tsx`, `skills.index.tsx`                                |
+| Thread organization (actions, Undo, the shared thread menu)       | `features/organize`                                                          | none; used by Home, the thread ⋯ menu and the palette           |
+| Model catalog (pickers)                                           | `features/models`                                                            | none; used by thread and Home                                   |
+| More: accounts, files, search                                     | `features/more` (+ `features/accounts`, `features/files`, `features/search`) | `more.*.tsx`                                                    |
+| Settings                                                          | `features/settings`                                                          | `settings.*.tsx`                                                |
+| Palette                                                           | `features/palette`                                                           | none; register commands in `commands.ts`                        |
 
 Rules:
 
-- A screen renders `<Screen title subtitle menu actions right bottom>` from `features/shell/screen.tsx`. Don't build another header or panel container. Pass panel tabs as data (`{ id, label, badge, shortcut, content }`); the shell owns open state, sizes, persistence and the panel shortcuts.
+- A screen renders `<Screen title subtitle menu summary actions workspace>` from `features/shell/screen.tsx`. Don't build another header or panel container. Docks and their tabs are declared as tab kinds (see Workspace tabs); the shell owns open state, order, sizes, persistence and the shortcuts.
 - A view's second sidebar is the `sidebar` of its layout route's `<ViewFrame>`. Use `<ViewSidebar title actions toolbar>` or `<SidebarHeader>` for the header.
 - Live state (threads, sidebar, agent tree, interactions, intents) comes only from `@ace/client-react` hooks. TanStack Query is only for one-off reads. Never copy live state into Query or React state.
 - Primitives you need but don't find in `components/ui` belong to the foundation: add them there, styled from the design tokens, not inside your feature folder.
 - Shortcuts are added to `lib/keymap.ts` and bound with `useHotkey(keymap.x.keys, …)`; tooltips take `shortcut="x"`.
 - Colour only for diff +/− and the needs-you and failed dots. Use `text-muted-foreground` / `text-subtle-foreground` for hierarchy, and weights 400/500 (600 for titles only).
 - Keep files under ~400 lines (hard limit 1,500, `bun run check:size`).
+
+## Workspace tabs (side and bottom docks)
+
+A screen with docks passes `workspace={{ scope, definition }}` to `<Screen>`; the thread screen
+passes its id and `threadWorkspace` (`features/panels/thread-workspace.tsx`). A **tab** is one
+opened resource (Changes, a terminal, a browser page, a file); a **dock** (`right` beside the
+column, `bottom` under the column and the right dock) shows one tab at a time. Hiding a dock keeps
+its tabs; closing a tab removes one resource. Each scope (thread) keeps its own tabs, showing tab,
+open docks, sizes and full view (`lib/workspace`, persisted under `ace.workspace`, the 64 most
+recently changed threads); the last resize anywhere is the size new threads start at.
+
+The shell owns the strip (order, drag and keyboard reorder, close, pin, move between docks,
+overflow, the + launcher), sizes, full view, motion, persistence and shortcuts. A tool only
+declares a kind:
+
+```ts
+import { defineTabKind } from "@/lib/workspace/index.ts";
+
+export const fileKind = defineTabKind({
+  kind: "file", // persisted with every tab: never rename one that shipped
+  label: "Files",
+  icon: FilesIcon,
+  docks: ["right"], // allowed docks, preferred first (default: right)
+  singleton: false, // one tab per id; `true` for a per-thread tool like Changes
+  shortcut: "files", // a keymap id: opens it, and pressed again while showing hides the dock
+  launcher: 30, // position on the + launcher; leave out to keep it off
+  title: (tab) => basename(tab.id), // else the title the view last reported, else `label`
+  load: () => import("./file-tab.tsx"), // { default: View, Actions? }, loaded on first show
+  onClose: (scope, tab) => {}, // release what only this tab held
+  fromFile: (path) => ({ kind: "file", id: path }), // lets the launcher's Suggested open files
+});
+```
+
+- Add the kind to `threadKinds` in `features/panels/thread-workspace.tsx`. Nothing in the shell changes.
+- The view gets `TabViewProps` (`scope`, `tab`, `dock`) and reads live state from `@ace/client-react`
+  as any screen does. Tabs not showing stay mounted inside `<Activity mode="hidden">`.
+- `Actions` renders at the end of the dock's strip while one of the kind's tabs shows (New
+  terminal, Clear).
+- Open things from anywhere with `useWorkspaceActions(threadId).open({ kind, id?, data? })`;
+  opening a resource that is already open shows it (applying `data`). `data` is JSON kept with the
+  tab across reloads; validate it in the view, it comes from storage.
+- A view that learns a better title (a page's title, a file name) calls
+  `useWorkspaceActions(scope).update(tab.key, { title })`.
+- Pinned kinds (`pinned: true`) open as tool tabs at the front of the strip without a close
+  button; their context menu still closes or unpins them.
+- A tool the daemon can't serve yet still registers, with a view that says exactly what is
+  missing (see `features/panels/placeholders.tsx`); replace it by registering a kind with the same id.
+
+Shortcuts (`lib/keymap.ts`): ⇧⌘B side panel, ⌘J bottom panel, ⇧⌘F full view, ⌥⌘T new tab,
+⌥⌘W close tab, ⇧⌘] / ⇧⌘[ next and previous tab, and each tool's own (⇧⌘D Changes, ⌃⇧A Agents,
+⌃` Terminal, ⌃⇧P Preview, ⌃⇧M Devices, ⌃⇧L Logs, ⌘P Files, ⌥⌘S Side chat). In a strip: arrows
+move between tabs and show them, Home/End jump, Delete closes, Alt+Shift+arrows reorder.
 
 ## Daemon services and protocol gaps
 

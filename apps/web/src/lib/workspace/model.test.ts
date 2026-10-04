@@ -176,6 +176,7 @@ test("a stored workspace with duplicate tabs or a missing active tab comes back 
     bottom: { tabs: [], open: true },
     expanded: true,
     bottomMaximized: false,
+    summaryPinned: false,
   });
   expect(keys(restored)).toEqual(["changes", "file:a"]);
   expect(shown(restored)).toBe("changes");

@@ -1,32 +1,17 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from "react";
-import type { ReactNode } from "react";
-import type { KeyValueStorage } from "@ace/ui-core";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
+import { useLayout } from "@/lib/layout.tsx";
 import { workspaceActions, type WorkspaceActions } from "./actions.ts";
 import { emptyWorkspace, type ScopeWorkspace } from "./model.ts";
 import { WorkspaceStore, type PreferredSizes } from "./store.ts";
 
-const WorkspaceContext = createContext<WorkspaceStore | undefined>(undefined);
-
-/** One workspace store per app, persisted to the injected storage. */
-export function WorkspaceProvider(props: {
-  storage?: KeyValueStorage | undefined;
-  children: ReactNode;
-}) {
-  const [store] = useState(() => new WorkspaceStore({ storage: props.storage }));
-  return <WorkspaceContext.Provider value={store}>{props.children}</WorkspaceContext.Provider>;
-}
-
+/**
+ * The app's workspace store: created the first time a screen with docks (or a command acting on
+ * one) asks, so the shell's first paint doesn't carry its code (ADR 0056). One per
+ * `<LayoutProvider>`, persisted to that provider's storage.
+ */
 export function useWorkspaceStore(): WorkspaceStore {
-  const store = useContext(WorkspaceContext);
-  if (!store) throw new Error("useWorkspaceStore needs a <WorkspaceProvider>");
-  return store;
+  const { storage, workspaceStore } = useLayout();
+  return workspaceStore(() => new WorkspaceStore({ storage }));
 }
 
 /** A scope's docks and tabs, live. Re-renders only when that scope changes. */
