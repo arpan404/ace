@@ -1,176 +1,23 @@
-import { Worker } from "node:worker_threads";
 import { afterEach, expect, test } from "vitest";
-import { Client, ClientError, type Selection } from "@ace/client";
-import {
-  MachineDirectory,
-  machineThreadKey,
-  type MachineEntry,
-  type PairedMachine,
-} from "@ace/client/machines";
-import { DeviceId, HostId, ThreadId, WorkspaceId } from "@ace/protocol";
+import { Client } from "@ace/client";
+import { MachineDirectory } from "@ace/client/machines";
+import { DeviceId, HostId, ThreadId } from "@ace/protocol";
 import { FakeDaemon, fakeTransport } from "@ace/fake-daemon";
-import { z } from "zod";
-import { MachinePool, type MachineWorker } from "./machines.ts";
+import {
+  cleanup,
+  scheduler,
+  wait,
+  bounded,
+  paired,
+  persistence,
+  poolWorld,
+  ref,
+  key,
+  create,
+} from "./machines-process.fixture.ts";
 
-const cleanup: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).toReversed()) await close();
-});
-const scheduler = {
-  set(ms: number, callback: () => void) {
-    const timer = setTimeout(callback, ms);
-    return () => clearTimeout(timer);
-  },
-};
-function wait<T>(selection: Selection<T>, predicate: (value: T) => boolean, ms = 8000): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      stop();
-      reject(new Error("Observable deadline exceeded"));
-    }, ms);
-    const check = () => {
-      const value = selection.getSnapshot();
-      if (predicate(value)) {
-        clearTimeout(timer);
-        stop();
-        resolve(value);
-      }
-    };
-    const stop = selection.subscribe(check);
-    check();
-  });
-}
-function bounded<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Independent machine stalled")), ms);
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
-function paired(hostId: string, name = hostId, token = "a".repeat(64)): PairedMachine {
-  return {
-    identity: { hostId: HostId.parse(hostId), displayName: name, version: "fake" },
-    target: { kind: "direct", url: `ws://${hostId}.test/` },
-    deviceId: "device",
-    token,
-  };
-}
-function persistence() {
-  let raw: string | null = null;
-  const tokens = new Map<string, string>();
-  const storage = {
-    load: async () => raw,
-    save: async (value: string) => {
-      raw = value;
-    },
-  };
-  const secrets = {
-    get: async (key: string) => tokens.get(key) ?? null,
-    set: async (key: string, value: string) => {
-      tokens.set(key, value);
-    },
-    delete: async (key: string) => {
-      tokens.delete(key);
-    },
-  };
-  return {
-    directory: new MachineDirectory(storage, secrets),
-    storage,
-    secrets,
-    tokens,
-    raw: () => raw,
-  };
-}
-function poolWorld() {
-  const p = persistence();
-  const workers = new Map<string, Worker>();
-  let controlId = 0;
-  const pool = new MachinePool({
-    directory: p.directory,
-    remote: { scheduler },
-    spawn(entry: MachineEntry, token: string): MachineWorker {
-      const worker = new Worker(new URL("./machines-worker.fixture.ts", import.meta.url), {
-        workerData: { hostId: entry.hostId, name: entry.displayName, token },
-        execArgv: [],
-      });
-      workers.set(entry.hostId, worker);
-      cleanup.push(() => worker.terminate());
-      const listeners = new Map<(event: { data: unknown }) => void, (data: unknown) => void>();
-      return {
-        onFailure(listener) {
-          const failed = () => listener(new ClientError("daemon", "Worker stopped"));
-          worker.on("error", failed);
-          worker.on("exit", failed);
-          return () => {
-            worker.off("error", failed);
-            worker.off("exit", failed);
-          };
-        },
-        config: {},
-        terminate() {
-          void worker.terminate();
-        },
-        port: {
-          postMessage(value) {
-            // A Node worker is a dedicated channel and has no target origin.
-            // oxlint-disable-next-line unicorn/require-post-message-target-origin
-            worker.postMessage(value);
-          },
-          addEventListener(_type, listener) {
-            const receive = (data: unknown) => listener({ data });
-            listeners.set(listener, receive);
-            worker.on("message", receive);
-          },
-          removeEventListener(_type, listener) {
-            const receive = listeners.get(listener);
-            if (receive) worker.off("message", receive);
-            listeners.delete(listener);
-          },
-        },
-      };
-    },
-  });
-  cleanup.push(() => pool.close());
-  return {
-    ...p,
-    pool,
-    workers,
-    async control(hostId: string, control: string) {
-      const worker = workers.get(hostId);
-      if (!worker) throw new Error("Missing worker");
-      const id = ++controlId;
-      const ack = new Promise<void>((resolve) => {
-        const listener = (value: unknown) => {
-          const parsed = z.object({ controlAck: z.number() }).safeParse(value);
-          if (parsed.success && parsed.data.controlAck === id) {
-            worker.off("message", listener);
-            resolve();
-          }
-        };
-        worker.on("message", listener);
-      });
-      // oxlint-disable-next-line unicorn/require-post-message-target-origin
-      worker.postMessage({ control, id });
-      await bounded(ack, 2000);
-    },
-  };
-}
-const ref = (hostId: string, threadId = "shared") => ({ hostId, threadId });
-const key = (hostId: string, threadId = "shared") => machineThreadKey(ref(hostId, threadId));
-const create = (id: string) => ({
-  type: "thread.create" as const,
-  threadId: ThreadId.parse(id),
-  workspaceId: WorkspaceId.parse("project"),
-  provider: "codex" as const,
-  input: [{ type: "text" as const, text: "Synthetic" }],
 });
 
 test("three isolated hosts merge colliding thread IDs and route create, send, service reads and subscriptions", async () => {
@@ -185,6 +32,12 @@ test("three isolated hosts merge colliding thread IDs and route create, send, se
   );
   expect(f.pool.threads.ids).toEqual([key("laptop"), key("desktop"), key("server")]);
   expect(f.pool.threads.thread(key("desktop"))?.machine.displayName).toBe("desktop");
+  const memberships: boolean[] = [];
+  const stopMembership = f.pool.threads.observeChanges((change) => {
+    if (change.key === key("desktop", "new"))
+      memberships.push(f.pool.threads.ids.includes(change.key));
+  });
+  cleanup.push(async () => stopMembership());
   const result = await f.pool.create("desktop", create("new"));
   expect(result.ok).toBe(true);
   await wait(
@@ -192,6 +45,7 @@ test("three isolated hosts merge colliding thread IDs and route create, send, se
     (ids) => ids.includes(key("desktop", "new")),
   );
   expect(f.pool.threads.thread(key("laptop", "new"))).toBeUndefined();
+  expect(memberships).toEqual([true]);
   const left = f.pool.thread(ref("laptop"));
   const right = f.pool.thread(ref("desktop"));
   cleanup.push(async () => {

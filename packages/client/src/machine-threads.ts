@@ -171,8 +171,9 @@ export class MachineThreads {
       for (const key of source.keys) {
         const row = this.rows.get(key);
         if (row && !ids.has(row.threadId)) {
-          this.replace(key, undefined, changed);
           source.keys.delete(key);
+          this.order = undefined;
+          this.replace(key, undefined, changed);
         }
       }
     }
@@ -184,7 +185,10 @@ export class MachineThreads {
       const had = source.keys.has(key);
       if (thread) source.keys.add(key);
       else source.keys.delete(key);
-      if (had !== Boolean(thread)) membership = true;
+      if (had !== Boolean(thread)) {
+        membership = true;
+        this.order = undefined;
+      }
       this.replace(
         key,
         thread ? { ...ref, key, machine: source.entry, thread } : undefined,

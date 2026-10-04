@@ -253,7 +253,7 @@ export class MachinePool {
               status: "auth_failed",
               error: new ClientError("auth", "Daemon identity changed"),
             });
-            this.dispose(live);
+            this.stopWorker(live);
             return;
           }
           this.publish(live, {
