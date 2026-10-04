@@ -65,7 +65,7 @@ export function ContextMeter(props: { threadId: string }) {
         aria-valuetext={usage.long}
         tabIndex={0}
         className={cn(
-          "inline-flex h-[30px] items-center gap-1 rounded-[9px] px-1.5 text-xs tabular-nums outline-none focus-visible:shadow-[0_0_0_2px_var(--ring)]",
+          "inline-flex h-(--composer-control) shrink-0 items-center gap-1 rounded-full px-2 text-xs tabular-nums outline-none focus-visible:shadow-[0_0_0_2px_var(--ring)]",
           usage.high ? "text-foreground" : "text-subtle-foreground",
         )}
       >

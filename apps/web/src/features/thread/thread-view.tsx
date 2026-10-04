@@ -25,6 +25,7 @@ import { Transcript } from "./transcript/transcript.tsx";
 import { useProjectName } from "@/lib/projects.ts";
 import { whenIdle } from "@/lib/idle.ts";
 import { preloadDeferred } from "./deferred.ts";
+import { readingColumn } from "./lib/column.ts";
 
 /**
  * A thread: the transcript and composer in the main column, Run · Open · Commit in the header,
@@ -102,10 +103,7 @@ export function ThreadView(props: { threadId: string }) {
 /** The shape of a transcript while its first window arrives: an ask, a work line, an answer. */
 function TranscriptSkeleton() {
   return (
-    <LoadingRegion
-      label="thread"
-      className="mx-auto flex w-full max-w-(--column) flex-col px-8 pt-16"
-    >
+    <LoadingRegion label="thread" className={`${readingColumn} flex flex-col pt-16`}>
       <Skeleton className="ml-auto h-14 w-3/5 rounded-[16px_16px_4px_16px]" />
       <Skeleton className="mt-10 h-3 w-48" />
       <SkeletonText lines={4} className="mt-6" />

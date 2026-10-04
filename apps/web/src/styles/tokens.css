@@ -17,6 +17,10 @@
   --sidebar-w: 296px;
   --header-h: 50px;
   --column: 760px;
+  /* Every composer footer control: plus, permission, model, meter, send and stop. */
+  --composer-control: 32px;
+  /* One edge of the transcript's scrollbar room; 0 with overlay scrollbars. */
+  --transcript-gutter: 0px;
   --transcript-size: 15.5px;
 
   /* Glass intensity (Appearance slider) times the OS transparency preference. */

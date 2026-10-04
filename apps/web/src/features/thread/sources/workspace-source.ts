@@ -8,6 +8,7 @@ import {
   type CommandResult,
   type ForgePrStatus,
   type ForgeRepository,
+  type ProviderKind,
   type ThreadDetails,
   type WorkspaceActionRequest,
   type WorkspaceActionResult,
@@ -20,6 +21,9 @@ export interface ThreadRef {
   title: string;
   /** The New thread composer: nothing exists on the daemon yet. */
   draft?: boolean | undefined;
+  /** A draft's chosen provider and account, which scope its slash commands. */
+  provider?: ProviderKind | undefined;
+  instanceId?: string | undefined;
 }
 
 export type Script = WorkspaceScript;

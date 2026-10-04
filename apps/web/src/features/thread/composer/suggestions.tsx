@@ -1,5 +1,6 @@
-import { FileIcon, CommandIcon } from "@phosphor-icons/react";
+import { CommandIcon, FileIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
+import { Spinner } from "@/components/ui/spinner.tsx";
 import { cn } from "@/lib/cn.ts";
 import { matchCommands } from "../sources/command-source.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
@@ -14,95 +15,133 @@ export interface Suggestion {
   path?: string | undefined;
 }
 
-const empty: readonly Suggestion[] = [];
+/** What the list above the composer shows for the token being typed. */
+export type Suggestions =
+  | { state: "closed" }
+  | { state: "ready"; kind: Trigger["kind"]; items: readonly Suggestion[] }
+  | { state: "loading" | "empty" | "failed"; kind: Trigger["kind"]; query: string };
+
+const closed: Suggestions = { state: "closed" };
 
 /** File paths for `@`, slash commands for a leading `/`. One-off reads, cached briefly. */
-export function useSuggestions(
-  thread: ThreadRef,
-  trigger: Trigger | undefined,
-): readonly Suggestion[] {
+export function useSuggestions(thread: ThreadRef, trigger: Trigger | undefined): Suggestions {
   const sources = useThreadSources();
+  // A draft the daemon hasn't granted a scope yet has nothing to search.
+  const scoped = !thread.draft || !!thread.id;
   const mentions = useQuery({
     queryKey: ["thread", "mention", thread.id, trigger?.kind === "mention" ? trigger.query : ""],
     queryFn: ({ signal }) => sources.context.complete(thread, trigger?.query ?? "", signal),
-    enabled: trigger?.kind === "mention",
+    enabled: scoped && trigger?.kind === "mention",
     staleTime: 10_000,
   });
   const commands = useQuery({
-    queryKey: ["thread", "slash-commands", thread.id],
-    queryFn: () => sources.commands.commands(thread),
-    enabled: trigger?.kind === "command",
+    queryKey: ["thread", "slash-commands", thread.id, thread.provider, thread.instanceId],
+    queryFn: ({ signal }) => sources.commands.commands(thread, signal),
+    enabled: scoped && trigger?.kind === "command",
     staleTime: 60_000,
   });
-  if (!trigger) return empty;
-  if (trigger.kind === "mention")
-    return (mentions.data ?? []).map((path) => ({
-      kind: "mention",
-      insert: `@${path}`,
-      label: path.slice(path.lastIndexOf("/") + 1),
-      detail: path,
-      path,
-    }));
-  return matchCommands(commands.data ?? [], trigger.query).map((command) => ({
-    kind: "command",
-    insert: `/${command.name}`,
-    label: `/${command.name}`,
-    detail: command.description,
-  }));
+  if (!trigger) return closed;
+  const { kind, query } = trigger;
+  const read = kind === "mention" ? mentions : commands;
+  if (!scoped || read.isPending) return { state: "loading", kind, query };
+  if (read.isError) return { state: "failed", kind, query };
+  const items: Suggestion[] =
+    kind === "mention"
+      ? (mentions.data ?? []).map((path) => ({
+          kind,
+          insert: `@${path}`,
+          label: path.slice(path.lastIndexOf("/") + 1),
+          detail: path,
+          path,
+        }))
+      : matchCommands(commands.data ?? [], query).map((command) => ({
+          kind,
+          insert: `/${command.name}`,
+          label: `/${command.name}`,
+          detail: command.description,
+        }));
+  return items.length ? { state: "ready", kind, items } : { state: "empty", kind, query };
 }
 
-/** The list above the composer. The textarea keeps focus and drives it with the arrow keys. */
+const titles = { mention: "Files", command: "Commands" } as const;
+
+function statusLine(suggestions: Exclude<Suggestions, { state: "closed" | "ready" }>): string {
+  const files = suggestions.kind === "mention";
+  if (suggestions.state === "loading") return files ? "Searching files…" : "Loading commands…";
+  if (suggestions.state === "failed")
+    return files ? "Couldn't search the checkout" : "Couldn't load commands";
+  if (!suggestions.query) return files ? "No files in this checkout" : "No commands available";
+  return files
+    ? `No files match “${suggestions.query}”`
+    : `No commands match “/${suggestions.query}”`;
+}
+
+/**
+ * The list above the composer, as wide as the writing area. The textarea keeps focus and drives
+ * it with the arrow keys; while it loads or finds nothing it says so instead of vanishing.
+ */
 export function SuggestionList(props: {
   id: string;
-  items: readonly Suggestion[];
+  suggestions: Suggestions;
   active: number;
   onPick(item: Suggestion): void;
 }) {
-  if (!props.items.length) return null;
-  const kind = props.items[0]?.kind;
+  const { suggestions } = props;
+  if (suggestions.state === "closed") return null;
+  const title = titles[suggestions.kind];
   return (
-    <div className="glass absolute inset-x-0 bottom-full z-20 mb-2 rounded-lg p-1.5">
-      <p className="px-2.5 pt-1 pb-1 text-[11px] font-medium tracking-[0.02em] text-subtle-foreground">
-        {kind === "mention" ? "Files" : "Commands"}
+    <div className="glass absolute inset-x-0 bottom-full z-20 mb-2 rounded-xl p-1.5">
+      <p className="px-2.5 pt-1 pb-1 text-[11px] leading-4 font-medium tracking-[0.02em] text-subtle-foreground">
+        {title}
       </p>
-      <ul id={props.id} role="listbox" aria-label={kind === "mention" ? "Files" : "Commands"}>
-        {props.items.map((item, index) => (
-          <li
-            key={item.insert}
-            id={`${props.id}-${index}`}
-            role="option"
-            aria-selected={index === props.active}
-            // Keep the textarea focused: pick on mousedown, before blur.
-            onMouseDown={(event) => {
-              event.preventDefault();
-              props.onPick(item);
-            }}
-            className={cn(
-              "flex h-[30px] cursor-default items-center gap-[9px] rounded-md px-2.5 text-ui",
-              index === props.active && "bg-accent",
-            )}
-          >
-            {item.kind === "mention" ? (
-              <FileIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
-            ) : (
-              <CommandIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
-            )}
-            <span className={cn("shrink-0", item.kind === "command" && "font-mono text-[12.5px]")}>
-              {item.label}
-            </span>
-            {item.detail && (
-              <span
-                className={cn(
-                  "min-w-0 truncate text-xs text-subtle-foreground",
-                  item.kind === "mention" && "font-mono",
-                )}
-              >
-                {item.detail}
+      {suggestions.state === "ready" ? (
+        <ul id={props.id} role="listbox" aria-label={title}>
+          {suggestions.items.map((item, index) => (
+            <li
+              key={item.insert}
+              id={`${props.id}-${index}`}
+              role="option"
+              aria-selected={index === props.active}
+              // Keep the textarea focused: pick on mousedown, before blur.
+              onMouseDown={(event) => {
+                event.preventDefault();
+                props.onPick(item);
+              }}
+              className={cn(
+                "flex h-8 cursor-default items-center gap-2 rounded-lg px-2.5 text-[13px] leading-4",
+                index === props.active && "bg-accent",
+              )}
+            >
+              {item.kind === "mention" ? (
+                <FileIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
+              ) : (
+                <CommandIcon aria-hidden size={14} className="shrink-0 text-muted-foreground" />
+              )}
+              <span className={cn("shrink-0", item.kind === "command" && "font-mono text-[12px]")}>
+                {item.label}
               </span>
-            )}
-          </li>
-        ))}
-      </ul>
+              {item.detail && (
+                <span
+                  className={cn(
+                    "min-w-0 truncate text-xs text-subtle-foreground",
+                    item.kind === "mention" && "font-mono",
+                  )}
+                >
+                  {item.detail}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p
+          role="status"
+          className="flex h-8 items-center gap-2 px-2.5 text-[13px] leading-4 text-muted-foreground"
+        >
+          {suggestions.state === "loading" && <Spinner />}
+          {statusLine(suggestions)}
+        </p>
+      )}
     </div>
   );
 }

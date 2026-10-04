@@ -96,7 +96,8 @@ test("a leading / lists commands; Escape dismisses the list", async () => {
 test("attached files upload before sending and can be removed", async () => {
   const { feed } = await open("idle");
   const send = screen.getByRole("button", { name: "Send" });
-  expect(send.hasAttribute("disabled")).toBe(true);
+  // Nothing to send yet: the button stays focusable and its tooltip says why.
+  expect(send.getAttribute("aria-disabled")).toBe("true");
 
   const input = screen.getByLabelText("Files to attach");
   await userEvent.upload(input, [
@@ -105,7 +106,7 @@ test("attached files upload before sending and can be removed", async () => {
   ]);
   const chips = screen.getByRole("list", { name: "Attachments" });
   await waitFor(() => expect(within(chips).queryByRole("status")).toBeNull());
-  expect(send.hasAttribute("disabled")).toBe(false);
+  expect(send.getAttribute("aria-disabled")).toBeNull();
 
   await userEvent.click(within(chips).getByRole("button", { name: "Remove trace.txt" }));
   expect(within(chips).queryByText("trace.txt")).toBeNull();

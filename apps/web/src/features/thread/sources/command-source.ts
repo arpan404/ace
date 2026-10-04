@@ -1,7 +1,7 @@
 // Slash commands from the daemon's command library (`commands.list`): the provider CLI's own
 // commands, the project's prompt files and ace's built-ins, for the thread's provider.
 import type { ClientApi } from "@ace/client";
-import { ThreadId, type PaletteCommand } from "@ace/protocol";
+import { ThreadId, WorkspaceId, type PaletteCommand } from "@ace/protocol";
 import type { ThreadRef } from "./workspace-source.ts";
 
 export interface SlashCommand {
@@ -35,11 +35,22 @@ export function matchCommands(list: readonly SlashCommand[], query: string): Sla
 export function daemonCommandSource(client: ClientApi): CommandSource {
   return {
     async commands(thread, signal) {
-      // `commands.list` is scoped to an existing thread (its provider and checkout); the context
-      // draft scope covers mentions and files only, so New thread offers no slash commands.
-      if (thread.draft) return [];
+      // Before the thread exists, the list is scoped to the draft (its project checkout) and the
+      // provider and account chosen for it; a draft the daemon hasn't granted has none yet.
+      if (thread.draft && (!thread.id || !thread.provider)) return [];
       const reply = await client.request(
-        { type: "commands.list", threadId: ThreadId.parse(thread.id), limit: 100 },
+        thread.draft && thread.provider
+          ? {
+              type: "commands.list",
+              draft: {
+                draftId: thread.id,
+                workspaceId: WorkspaceId.parse(thread.workspaceId),
+                provider: thread.provider,
+                ...(thread.instanceId ? { instanceId: thread.instanceId } : {}),
+              },
+              limit: 100,
+            }
+          : { type: "commands.list", threadId: ThreadId.parse(thread.id), limit: 100 },
         signal ? { signal } : {},
       );
       return reply.commands.map((command) => ({

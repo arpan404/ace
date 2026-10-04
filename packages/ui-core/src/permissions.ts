@@ -1,3 +1,4 @@
+import { permissionGuarantee, permissionModes } from "@ace/client";
 import type {
   PermissionCapabilities,
   PermissionGuarantee,
@@ -59,7 +60,7 @@ export function permissionCoverage(
   mode: PermissionMode,
 ): string {
   if (mode === "full-access") return "Nothing is gated";
-  const guarantee = capabilities?.guarantees?.find((entry) => entry.mode === mode);
+  const guarantee = permissionGuarantee(capabilities, mode);
   if (!guarantee) return "Coverage not reported by this provider";
   const open = gateNames.filter(([gate]) => !guarantee.gates[gate]).map(([, name]) => name);
   if (!open.length) return `Gates ${listed(gateNames.map(([, name]) => name))}`;
@@ -79,12 +80,13 @@ export interface PermissionChoice {
 export function permissionChoices(
   capabilities: PermissionCapabilities | undefined,
 ): PermissionChoice[] {
-  const supported = new Set(capabilities?.modes ?? []);
+  const supported = new Set(permissionModes(capabilities));
   return permissionModeOrder
     .filter((mode) => supported.has(mode))
     .map((mode) => ({
       mode,
-      ...names[mode],
+      label: names[mode].label,
+      description: names[mode].description,
       coverage: permissionCoverage(capabilities, mode),
       attention: permissionNeedsAttention(mode),
     }));

@@ -1,4 +1,5 @@
 import { deferredComponent } from "@/lib/deferred-component.tsx";
+import { preloadComposerMenus } from "./composer/deferred-menus.tsx";
 
 /*
  * Parts of the thread screen that only appear on demand: a step's detail (output, diff,
@@ -14,5 +15,9 @@ export const DeferredInteractionCard = deferredComponent(() =>
 );
 
 export function preloadDeferred(): Promise<unknown> {
-  return Promise.all([DeferredStepDetail.preload(), DeferredInteractionCard.preload()]);
+  return Promise.all([
+    DeferredStepDetail.preload(),
+    DeferredInteractionCard.preload(),
+    preloadComposerMenus(),
+  ]);
 }
