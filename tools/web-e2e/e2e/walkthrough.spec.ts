@@ -269,7 +269,7 @@ test("walkthrough of the workspace and composer", async ({ page }) => {
   await bottom.getByRole("tab", { name: "zsh", selected: true }).waitFor();
   await beat(600);
   await bottom.getByRole("button", { name: "New terminal" }).click();
-  await bottom.getByRole("tab", { name: "Terminal", selected: true }).waitFor();
+  await bottom.getByRole("tab", { name: "zsh 2", selected: true }).waitFor();
   await page.keyboard.type("git status", { delay: 40 });
   await page.keyboard.press("Enter");
   await beat(1200);

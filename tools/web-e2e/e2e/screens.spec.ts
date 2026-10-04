@@ -292,7 +292,7 @@ const screens: Record<string, Setup> = {
     await bottomTab("/t/thread-cold-start", "zsh")(page);
     const bottom = page.getByRole("region", { name: "Bottom panel" });
     await bottom.getByRole("button", { name: "New terminal" }).click();
-    await bottom.getByRole("tab", { name: "Terminal", selected: true }).waitFor();
+    await bottom.getByRole("tab", { name: "zsh 2", selected: true }).waitFor();
     await page.keyboard.type("git status");
     await page.keyboard.press("Enter");
   },

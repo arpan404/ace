@@ -47,12 +47,10 @@ test("a new terminal keeps its shell while the bottom panel hides, and closing i
   const before = (await daemonTerminals(page, "thread-cold-start")).length;
 
   await bottomPanel(page).getByRole("button", { name: "New terminal" }).click();
-  await expect(
-    bottomPanel(page).getByRole("tab", { name: "Terminal", selected: true }),
-  ).toBeVisible();
+  await expect(bottomPanel(page).getByRole("tab", { name: "zsh 2", selected: true })).toBeVisible();
   await page.keyboard.type("echo still-here");
   await page.keyboard.press("Enter");
-  const terminal = bottomPanel(page).getByRole("group", { name: "Terminal terminal" });
+  const terminal = bottomPanel(page).getByRole("group", { name: "zsh 2 terminal" });
   await expect(terminal).toContainText("still-here");
   await expect.poll(() => daemonTerminals(page, "thread-cold-start")).toHaveLength(before + 1);
 
@@ -61,17 +59,15 @@ test("a new terminal keeps its shell while the bottom panel hides, and closing i
   await expect(bottomPanel(page)).toHaveCount(0);
   expect(await daemonTerminals(page, "thread-cold-start")).toHaveLength(before + 1);
   await page.keyboard.press("ControlOrMeta+j");
-  await expect(
-    bottomPanel(page).getByRole("tab", { name: "Terminal", selected: true }),
-  ).toBeVisible();
-  await expect(bottomPanel(page).getByRole("group", { name: "Terminal terminal" })).toContainText(
+  await expect(bottomPanel(page).getByRole("tab", { name: "zsh 2", selected: true })).toBeVisible();
+  await expect(bottomPanel(page).getByRole("group", { name: "zsh 2 terminal" })).toContainText(
     "still-here",
   );
 
   // Closing the tab ends that shell, and only that one.
-  await bottomPanel(page).getByRole("button", { name: "Close Terminal" }).click();
-  await expect(bottomPanel(page).getByRole("tab", { name: "Terminal" })).toHaveCount(0);
-  await expect(bottomPanel(page).getByRole("tab", { name: "zsh" })).toBeVisible();
+  await bottomPanel(page).getByRole("button", { name: "Close zsh 2" }).click();
+  await expect(bottomPanel(page).getByRole("tab", { name: "zsh 2" })).toHaveCount(0);
+  await expect(bottomPanel(page).getByRole("tab", { name: "zsh", exact: true })).toBeVisible();
   await expect.poll(() => daemonTerminals(page, "thread-cold-start")).toHaveLength(before);
 });
 

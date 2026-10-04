@@ -38,8 +38,8 @@ test("the bottom panel picks up the thread's shell, opens a new terminal and sho
   await expect(bottom.getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
 
   await bottom.getByRole("button", { name: "New terminal" }).click();
-  await expect(bottom.getByRole("tab", { name: "Terminal", selected: true })).toBeVisible();
-  const terminal = bottom.getByRole("group", { name: "Terminal terminal" });
+  await expect(bottom.getByRole("tab", { name: "zsh 2", selected: true })).toBeVisible();
+  const terminal = bottom.getByRole("group", { name: "zsh 2 terminal" });
   // The new terminal has the keyboard: keys go to the shell as they are typed.
   await page.keyboard.type("pwd");
   await page.keyboard.press("Enter");
@@ -61,8 +61,8 @@ test("inside a terminal, Ctrl keys reach the shell instead of ace's shortcuts, a
   await page.getByRole("button", { name: "Bottom panel" }).click();
   const bottom = page.getByRole("region", { name: "Bottom panel" });
   await bottom.getByRole("button", { name: "New terminal" }).click();
-  const terminal = bottom.getByRole("group", { name: "Terminal terminal" });
-  await expect(bottom.getByRole("tab", { name: "Terminal", selected: true })).toBeVisible();
+  const terminal = bottom.getByRole("group", { name: "zsh 2 terminal" });
+  await expect(bottom.getByRole("tab", { name: "zsh 2", selected: true })).toBeVisible();
   await page.keyboard.type("git status");
   await page.keyboard.press("Enter");
   await expect(terminal).toContainText("apps/server/src/replay.test.ts");

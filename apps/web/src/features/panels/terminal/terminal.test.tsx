@@ -70,7 +70,7 @@ test("a shell that exits says so, takes no more input and can start again in the
   ).toBe(true);
 
   await userEvent.click(within(panel).getByRole("button", { name: "Restart" }));
-  await waitFor(() => expect(names(app)).toEqual(["tests", "Terminal"]));
+  await waitFor(() => expect(names(app)).toEqual(["tests", "zsh 2"]));
   // The new shell keeps the tab's place and name.
   expect(await selectedTab(panel, "zsh")).toBeTruthy();
   await userEvent.type(
@@ -80,23 +80,34 @@ test("a shell that exits says so, takes no more input and can start again in the
   await waitFor(() => expect(output(panel, "zsh output").textContent).toContain("/Users/dev/ace"));
 });
 
-test("New terminal opens another shell in its own tab, and closing the tab ends that shell", async () => {
+test("the bottom panel's + opens another shell named after the first (zsh 2), and closing its tab ends that shell", async () => {
   const { app, panel } = await openTerminal();
   await selectedTab(panel, "zsh");
   await userEvent.click(within(panel).getByRole("button", { name: "New terminal" }));
-  expect(await selectedTab(panel, "Terminal")).toBeTruthy();
+  expect(await selectedTab(panel, "zsh 2")).toBeTruthy();
   await userEvent.type(
-    await within(panel).findByRole("textbox", { name: "Terminal input" }),
+    await within(panel).findByRole("textbox", { name: "zsh 2 input" }),
     "pwd{Enter}",
   );
   await waitFor(() =>
-    expect(output(panel, "Terminal output").textContent).toContain("/Users/dev/ace"),
+    expect(output(panel, "zsh 2 output").textContent).toContain("/Users/dev/ace"),
   );
-  expect(names(app)).toEqual(["tests", "zsh", "Terminal"]);
+  expect(names(app)).toEqual(["tests", "zsh", "zsh 2"]);
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Close Terminal" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Close zsh 2" }));
   await waitFor(() => expect(names(app)).toEqual(["tests", "zsh"]));
-  expect(within(panel).queryByRole("tab", { name: "Terminal" })).toBeNull();
+  expect(within(panel).queryByRole("tab", { name: "zsh 2" })).toBeNull();
+});
+
+test("⌥-click on the bottom panel's + opens a new tab's launcher there instead", async () => {
+  const { panel } = await openTerminal();
+  await selectedTab(panel, "zsh");
+  const user = userEvent.setup();
+  await user.keyboard("{Alt>}");
+  await user.click(within(panel).getByRole("button", { name: "New terminal" }));
+  await user.keyboard("{/Alt}");
+  expect(await selectedTab(panel, "New tab")).toBeTruthy();
+  expect(await within(panel).findByRole("list", { name: "Tools" })).toBeTruthy();
 });
 
 test("hiding the bottom panel keeps every shell, and showing it again returns to the same one", async () => {
@@ -298,24 +309,24 @@ test("terminals you stopped looking at give their streams back, so the next one 
   // The daemon streams at most eight terminals to a connection.
   for (let n = 1; n <= 9; n++) {
     await userEvent.click(within(panel).getByRole("button", { name: "New terminal" }));
-    expect(await selectedTab(panel, n === 1 ? "Terminal" : `Terminal ${n}`)).toBeTruthy();
+    expect(await selectedTab(panel, `zsh ${n + 1}`)).toBeTruthy();
   }
   await userEvent.type(
-    await within(panel).findByRole("textbox", { name: "Terminal 9 input" }),
+    await within(panel).findByRole("textbox", { name: "zsh 10 input" }),
     "pwd{Enter}",
   );
   await waitFor(() =>
-    expect(output(panel, "Terminal 9 output").textContent).toContain("/Users/dev/ace"),
+    expect(output(panel, "zsh 10 output").textContent).toContain("/Users/dev/ace"),
   );
 
   // Going back to the first replays what it printed.
-  await userEvent.click(within(panel).getByRole("tab", { name: "Terminal" }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "zsh 2" }));
   await userEvent.type(
-    await within(panel).findByRole("textbox", { name: "Terminal input" }),
+    await within(panel).findByRole("textbox", { name: "zsh 2 input" }),
     "pwd{Enter}",
   );
   await waitFor(() =>
-    expect(output(panel, "Terminal output").textContent).toContain("/Users/dev/ace"),
+    expect(output(panel, "zsh 2 output").textContent).toContain("/Users/dev/ace"),
   );
 });
 

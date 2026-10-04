@@ -2,6 +2,7 @@ import { CaretDownIcon, CheckIcon, PlusIcon } from "@phosphor-icons/react";
 import { useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
+import { Tip } from "@/components/ui/tooltip.tsx";
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from "@/components/ui/menu.tsx";
 import type {
   Dock,
@@ -9,7 +10,7 @@ import type {
   WorkspaceActions,
   WorkspaceDefinition,
 } from "@/lib/workspace/index.ts";
-import { shownTab } from "@/lib/workspace/index.ts";
+import { shownTab, useWorkspaceStore } from "@/lib/workspace/index.ts";
 import { useReducedMotion } from "@/lib/motion.ts";
 import { tabDragType, TabItem, type DropSide } from "./tab-item.tsx";
 import { useEdgeFade, useRevealShown, useTabFit } from "./use-tab-layout.ts";
@@ -31,6 +32,7 @@ export function TabStrip(props: {
 }) {
   const { state, actions, definition, dock } = props;
   const shown = shownTab(state)?.key;
+  const store = useWorkspaceStore();
   const row = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   /** After a keyboard move or close, the tab focus should land on once the strip re-renders. */
@@ -116,6 +118,7 @@ export function TabStrip(props: {
   };
 
   const launcher = definition.kind(definition.launcher);
+  const plus = definition.plus?.[dock];
   return (
     <div ref={row} className="flex min-w-0 flex-1 items-center gap-1">
       <div
@@ -154,16 +157,41 @@ export function TabStrip(props: {
           />
         ))}
       </div>
-      {launcher && (
-        <IconButton
-          icon={PlusIcon}
-          label="New tab"
-          shortcut="newTab"
-          size="sm"
-          className="size-7 [-webkit-app-region:no-drag]"
-          onPointerEnter={launcher.preload}
-          onClick={() => actions.newTab(dock)}
-        />
+      {plus ? (
+        <Tip
+          label={
+            <span className="flex flex-col">
+              {plus.label}
+              <span className="text-subtle-foreground">⌥-click for a new tab</span>
+            </span>
+          }
+          {...(plus.shortcut ? { shortcut: plus.shortcut } : {})}
+        >
+          <IconButton
+            icon={PlusIcon}
+            label={plus.label}
+            tooltip={false}
+            size="sm"
+            className="size-7 [-webkit-app-region:no-drag]"
+            onPointerEnter={launcher?.preload}
+            onClick={(event) => {
+              if (event.altKey && launcher) actions.newTab(dock);
+              else plus.open(actions, store.get(props.scope), dock);
+            }}
+          />
+        </Tip>
+      ) : (
+        launcher && (
+          <IconButton
+            icon={PlusIcon}
+            label="New tab"
+            shortcut="newTab"
+            size="sm"
+            className="size-7 [-webkit-app-region:no-drag]"
+            onPointerEnter={launcher.preload}
+            onClick={() => actions.newTab(dock)}
+          />
+        )
       )}
       {overflowing && (
         <Menu>

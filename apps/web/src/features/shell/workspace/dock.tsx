@@ -138,13 +138,17 @@ export function WorkspaceDock(props: {
             definition={definition}
             actions={actions}
           />
-          {shown && shownKind && (
-            <Suspense fallback={null}>
-              <div className="flex shrink-0 items-center gap-0.5">
+          {/* The showing tab's own actions, in a zone at least three buttons wide so the
+              dock's controls after it never move as tabs change. */}
+          <div
+            className={cn("flex shrink-0 items-center justify-end gap-0.5", !right && "min-w-22")}
+          >
+            {shown && shownKind && (
+              <Suspense fallback={null}>
                 {createElement(shownKind.actions(), { scope: props.scope, tab: shown, dock: side })}
-              </div>
-            </Suspense>
-          )}
+              </Suspense>
+            )}
+          </div>
           {right ? (
             props.controls && (
               <>
@@ -154,6 +158,7 @@ export function WorkspaceDock(props: {
             )
           ) : (
             <>
+              <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
               <IconButton
                 icon={maximized ? ArrowsInLineVerticalIcon : ArrowsOutLineVerticalIcon}
                 label={maximized ? "Restore bottom panel" : "Maximize bottom panel"}

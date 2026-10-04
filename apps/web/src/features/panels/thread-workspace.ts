@@ -1,4 +1,5 @@
 import { defineWorkspace } from "@/lib/workspace/index.ts";
+import { openNewTerminal } from "./terminal/tabs.ts";
 
 /**
  * A thread's workspace: Changes and Agents pinned beside the conversation, a terminal and Logs
@@ -26,6 +27,14 @@ export const threadWorkspace = defineWorkspace({
     devices: "devices",
     agents: "agents",
     logs: "logs",
+  },
+  // The bottom panel's + is a new terminal, as in a terminal app; ⌥-click opens the launcher.
+  plus: {
+    bottom: {
+      label: "New terminal",
+      shortcut: "newTerminal",
+      open: (actions, workspace, dock) => openNewTerminal(actions, workspace, dock),
+    },
   },
   kinds: () => import("./thread-kinds.tsx"),
 });

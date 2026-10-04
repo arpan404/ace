@@ -3,13 +3,13 @@ import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { useWorkspaceActions, type TabViewProps } from "@/lib/workspace/index.ts";
 import { usePanelServices } from "../services.ts";
 import { WithServices } from "../with-services.tsx";
-import { NewTerminalButton } from "./new-terminal-button.tsx";
+import { useNewTerminalHotkey } from "./new-terminal-button.tsx";
 import { SessionsMenu } from "./sessions-menu.tsx";
 import { setTabUi } from "./tab-ui.ts";
 import { isPendingTerminal } from "./tabs.ts";
 import { MoreMenu, ToolbarButton } from "./toolbar.tsx";
 
-/** The strip's buttons while a terminal shows: New terminal, Find, sessions and more. */
+/** The strip's buttons while a terminal shows: Find, sessions and more (+ is New terminal). */
 export function TerminalActions(props: TabViewProps) {
   return (
     <WithServices quiet>
@@ -20,12 +20,12 @@ export function TerminalActions(props: TabViewProps) {
 
 function TerminalButtons(props: TabViewProps) {
   const { scope, tab, dock } = props;
+  useNewTerminalHotkey(scope, dock);
   const { terminals, terminalUi } = usePanelServices();
   const actions = useWorkspaceActions(scope);
   const pending = isPendingTerminal(tab.id);
   return (
     <>
-      <NewTerminalButton scope={scope} dock={dock} />
       <ToolbarButton
         icon={MagnifyingGlassIcon}
         label="Find"

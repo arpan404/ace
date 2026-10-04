@@ -1,5 +1,6 @@
 import type { KeymapId } from "@/lib/keymap.ts";
-import type { Dock, OpenRequest, WorkspaceTab } from "./model.ts";
+import type { WorkspaceActions } from "./actions.ts";
+import type { Dock, OpenRequest, ScopeWorkspace, WorkspaceTab } from "./model.ts";
 import type { TabKind } from "./registry.ts";
 
 /*
@@ -19,8 +20,20 @@ export interface WorkspaceDefinitionOptions {
   initial: readonly OpenRequest[];
   /** Tools' shortcuts (kind → keymap id): bound from first paint, shown on launcher cards. */
   shortcuts?: Readonly<Record<string, KeymapId>>;
+  /**
+   * What a dock's + opens instead of the launcher (the bottom panel's New terminal); ⌥-click
+   * still opens the launcher there.
+   */
+  plus?: Partial<Record<Dock, DockPlus>>;
   /** The tab kinds, as a lazy module's default export. */
   kinds(): Promise<{ default: readonly TabKind[] }>;
+}
+
+/** A dock's own + action. */
+export interface DockPlus {
+  label: string;
+  shortcut?: KeymapId;
+  open(actions: WorkspaceActions, workspace: ScopeWorkspace, dock: Dock): void;
 }
 
 export interface WorkspaceDefinition extends Omit<WorkspaceDefinitionOptions, "kinds"> {
@@ -60,6 +73,7 @@ export function defineWorkspace(options: WorkspaceDefinitionOptions): WorkspaceD
     launcher: options.launcher,
     initial: options.initial,
     ...(options.shortcuts ? { shortcuts: options.shortcuts } : {}),
+    ...(options.plus ? { plus: options.plus } : {}),
     load,
     loaded: () => ready,
     kinds: () => [...byKind.values()],
