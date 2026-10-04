@@ -85,6 +85,51 @@ describe("window.ace bridge", () => {
     ]);
   });
 
+  it("hands back the folder chosen in the native picker, or null when cancelled", async () => {
+    const chosen = fakeIpc({ [requestChannel("dialog.openFolder")]: "/Users/me/Code/app" });
+    await expect(createBridge(chosen.ipc, info).dialogs.openFolder()).resolves.toBe(
+      "/Users/me/Code/app",
+    );
+    expect(chosen.sent).toEqual([
+      { channel: requestChannel("dialog.openFolder"), payload: undefined },
+    ]);
+    const cancelled = fakeIpc({ [requestChannel("dialog.openFolder")]: null });
+    await expect(createBridge(cancelled.ipc, info).dialogs.openFolder()).resolves.toBeNull();
+  });
+
+  it("refuses a folder answer that isn't an absolute path", async () => {
+    for (const answer of ["Code/app", "", 42, { path: "/x" }]) {
+      const main = fakeIpc({ [requestChannel("dialog.openFolder")]: answer });
+      await expect(createBridge(main.ipc, info).dialogs.openFolder()).rejects.toBeInstanceOf(
+        BridgeError,
+      );
+    }
+  });
+
+  it("gives the page a dropped folder's absolute path and nothing for anything else", () => {
+    const paths = new Map<unknown, string>();
+    const native = {
+      pathForFile(file: File) {
+        const path = paths.get(file);
+        if (path === undefined) throw new Error("not a file");
+        return path;
+      },
+    };
+    const ace = createBridge(fakeIpc().ipc, info, native);
+    const folder = new File([], "app");
+    const image = new File([], "image.png");
+    const stray = new File([], "stray");
+    paths.set(folder, "/Users/me/Code/app");
+    paths.set(image, "");
+    paths.set(stray, "relative/stray");
+    expect(ace.files.pathForFile(folder)).toBe("/Users/me/Code/app");
+    expect(ace.files.pathForFile(image)).toBeNull();
+    expect(ace.files.pathForFile(stray)).toBeNull();
+    expect(ace.files.pathForFile(new File([], "unknown"))).toBeNull();
+    // Without Electron's webUtils (a test page), no path ever reaches the page.
+    expect(createBridge(fakeIpc().ipc, info).files.pathForFile(folder)).toBeNull();
+  });
+
   it("delivers well-formed events and drops malformed ones", () => {
     const main = fakeIpc();
     const ace = createBridge(main.ipc, info);
@@ -121,6 +166,15 @@ describe("page hooks", () => {
     attachPageHooks(createBridge(main.ipc, info), target.window, deepLinkRoute);
     main.emit(eventChannel("deep-link"), { kind: "thread", threadId: "t 1" });
     expect(target.pushed).toEqual(["/t/t%201"]);
+    expect(target.events).toEqual(["popstate"]);
+  });
+
+  it("opens New thread on a folder from an ace://open link", () => {
+    const main = fakeIpc();
+    const target = page("/t/t-1");
+    attachPageHooks(createBridge(main.ipc, info), target.window, deepLinkRoute);
+    main.emit(eventChannel("deep-link"), { kind: "open-folder", path: "/Users/me/My App" });
+    expect(target.pushed).toEqual(["/new?folder=%2FUsers%2Fme%2FMy%20App"]);
     expect(target.events).toEqual(["popstate"]);
   });
 

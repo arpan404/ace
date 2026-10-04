@@ -9,7 +9,7 @@ import { z } from "zod";
 
 const Hex64 = z.string().regex(/^[0-9a-f]{64}$/);
 export const SocketUrl = z.url().refine((value) => /^wss?:$/.test(new URL(value).protocol));
-const AbsolutePath = z
+export const AbsolutePath = z
   .string()
   .min(1)
   .max(4096)

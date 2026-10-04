@@ -1,4 +1,4 @@
-import { nativeTheme, type BrowserWindow } from "electron";
+import { dialog, nativeTheme, type BrowserWindow, type OpenDialogOptions } from "electron";
 import { shell } from "electron";
 import type { AppInfo, DaemonConnection, NativeAppearance } from "../shared/contract.ts";
 import type { Background } from "./background.ts";
@@ -50,6 +50,18 @@ export function createHandlers(options: {
     "shell.openExternal": async (url) => {
       await shell.openExternal(url);
       return true;
+    },
+    "dialog.openFolder": async () => {
+      const window = options.window();
+      const picker: OpenDialogOptions = {
+        title: "Add Project",
+        buttonLabel: "Add Project",
+        properties: ["openDirectory", "createDirectory"],
+      };
+      const chosen = window
+        ? await dialog.showOpenDialog(window, picker)
+        : await dialog.showOpenDialog(picker);
+      return chosen.canceled ? null : (chosen.filePaths[0] ?? null);
     },
     "notify.show": (request) =>
       background.alert({
