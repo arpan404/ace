@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { GitService } from "./index.ts";
@@ -123,4 +125,36 @@ test("SHA-256 repositories retain full hashes through status, checkpoints, diffs
   expect(
     (await service.createCheckpoint({ worktree: repo, threadId: "sha256", label: "after" })).tree,
   ).toBe(saved.tree);
+});
+
+test("checkpoint allocation retries a transient ref lock before its competing writer commits", async () => {
+  const repo = await repository();
+  const lock = join(repo, ".git/refs/ace/checkpoint-sequences/retry.lock");
+  // Seed the parent ref directory through the public operation.
+  await new GitService().createCheckpoint({ worktree: repo, threadId: "retry", label: "seed" });
+  let blocked = false;
+  const service = new GitService({
+    now: () => new Date("2026-10-03T00:00:00.000Z"),
+    processRuntime: {
+      spawn(command, args, options) {
+        const collision = args.includes("update-ref") && args.includes("--stdin") && !blocked;
+        if (collision) {
+          blocked = true;
+          writeFileSync(lock, "competing transaction");
+        }
+        const child = spawn(command, args, options);
+        if (collision) child.once("close", () => unlinkSync(lock));
+        return child;
+      },
+    },
+  });
+  const checkpoint = await service.createCheckpoint({
+    worktree: repo,
+    threadId: "retry",
+    label: "after lock",
+  });
+  expect(checkpoint.sequence).toBe(2);
+  expect(
+    (await service.listCheckpoints({ repo, threadId: "retry" })).map((entry) => entry.label),
+  ).toEqual(["seed", "after lock"]);
 });
