@@ -3,7 +3,6 @@ import {
   agentStatusLabel,
   describeActivity,
   formatSpan,
-  glyphOf,
   isRunning,
   taskState,
   whyNotDone,
@@ -23,24 +22,26 @@ import {
   type AgentTreeNode,
 } from "@ace/client-react";
 import type { Agent, BackgroundTask } from "@ace/protocol";
-import { CheckIcon, ClockIcon, RobotIcon, TerminalIcon } from "@phosphor-icons/react";
+import { ClockIcon, RobotIcon, TerminalIcon } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button.tsx";
-import { Dot } from "@/components/ui/dot.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
-import { Spinner } from "@/components/ui/spinner.tsx";
 import { useNow } from "@/lib/time.ts";
 import { ArrivalScope, useArrival } from "@/lib/arrival.tsx";
 import { useServerQueue } from "@/lib/server-queue.ts";
 import { ProviderMark } from "@/components/ui/provider-glyph.tsx";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
+import { AgentStatusMark } from "./agent-status.tsx";
+import { AgentCounts, ThreadDeck } from "./tree-extras.tsx";
 
 const heading = "px-2.5 pt-3 pb-1 text-xs font-medium text-subtle-foreground";
 
 /**
- * Agents tab (⌘J): the whole agent tree with what each agent is doing and for how long, the
- * thread's background work with Stop, queued input, and a plain answer to "why isn't this
- * done?". Every row subscribes to its own entity.
+ * Agents tab: the whole agent tree with what each agent is doing and for how long (a row opens
+ * that agent as its own tab), the thread's background work with Stop, queued input, the deck
+ * the thread works for with its lanes, and a plain answer to "why isn't this done?". Every row
+ * subscribes to its own entity.
  */
 export function AgentsTab(props: { threadId: string }) {
   const tree = useAgentTree(props.threadId) ?? [];
@@ -50,15 +51,22 @@ export function AgentsTab(props: { threadId: string }) {
   const queueWaiting = thread?.status.state === "waiting" && thread.status.on === "queue";
   if (!tree.length)
     return (
-      <EmptyState
-        icon={RobotIcon}
-        title="No agents yet"
-        description="The thread's agent and any subagents it starts appear here."
-      />
+      <div className="flex h-full flex-col">
+        <EmptyState
+          icon={RobotIcon}
+          title="No agents yet"
+          description="The thread's agent and any subagents it starts appear here."
+          className="h-auto flex-none pt-16 pb-4"
+        />
+        <div className="px-2.5 pb-5">
+          <ThreadDeck threadId={props.threadId} />
+        </div>
+      </div>
     );
   return (
     <ArrivalScope>
       <div className="px-2.5 pt-2 pb-5">
+        <AgentCounts threadId={props.threadId} />
         <ul aria-label="Agent tree">
           <Branch threadId={props.threadId} nodes={tree} depth={0} />
         </ul>
@@ -75,6 +83,7 @@ export function AgentsTab(props: { threadId: string }) {
             </ul>
           </section>
         )}
+        <ThreadDeck threadId={props.threadId} />
         <h3 className={heading}>Status</h3>
         <Why threadId={props.threadId} queued={queuedCount} />
       </div>
@@ -129,6 +138,7 @@ function BranchNode(props: { threadId: string; node: AgentTreeNode; depth: numbe
 function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
   const agent = useAgent(props.threadId, props.agentId);
   const thread = useThreadMeta(props.threadId);
+  const workspace = useWorkspaceActions(props.threadId);
   const status = agent?.status;
   const tool = useItem(
     props.threadId,
@@ -144,16 +154,10 @@ function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
     status,
     tool?.type === "tool_call" ? tool.call.title : undefined,
   );
-  const glyph = glyphOf(status);
   const running = isRunning(agent);
   const end = agent.endedAt ?? (running ? Math.max(now, agent.createdAt) : agent.createdAt);
-  return (
-    <div
-      role="group"
-      aria-label={`${root ? "Main agent" : name}: ${label}`}
-      style={{ paddingLeft: 8 + props.depth * 22 }}
-      className="group/agent relative flex h-8 items-center gap-2 rounded-lg pr-2 text-ui hover:bg-accent"
-    >
+  const body = (
+    <>
       {props.depth > 0 && (
         <span
           aria-hidden
@@ -161,7 +165,7 @@ function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
           className="absolute -top-1.5 bottom-1/2 w-2.5 rounded-bl-md border-b-[1.5px] border-l-[1.5px]"
         />
       )}
-      <StatusGlyph glyph={glyph} label={label} />
+      <AgentStatusMark status={status} />
       <span className="shrink-0 font-medium whitespace-nowrap">{name}</span>
       <span
         className={cn(
@@ -171,11 +175,40 @@ function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
       >
         {activity}
       </span>
+      <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
+        {formatSpan(agent.createdAt, end)}
+      </span>
+      <ProviderMark provider={agent.native.provider} className="shrink-0" />
+    </>
+  );
+  const row =
+    "relative flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg pr-2 text-left text-ui";
+  return (
+    <div
+      role="group"
+      aria-label={`${root ? "Main agent" : name}: ${label}`}
+      className="group/agent flex items-center gap-1 rounded-lg hover:bg-accent"
+    >
+      {root ? (
+        <div style={{ paddingLeft: 8 + props.depth * 22 }} className={row}>
+          {body}
+        </div>
+      ) : (
+        <button
+          type="button"
+          aria-label={`Open ${name}`}
+          onClick={() => workspace.open({ kind: "agent", id: agent.id, title: name })}
+          style={{ paddingLeft: 8 + props.depth * 22 }}
+          className={cn(row, "outline-none focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]")}
+        >
+          {body}
+        </button>
+      )}
       {running && !root && thread && (
         <Button
           size="sm"
           variant="ghost"
-          className="hidden group-hover/agent:inline-flex focus-visible:inline-flex"
+          className="mr-1 hidden group-focus-within/agent:inline-flex group-hover/agent:inline-flex"
           onClick={() =>
             void stop.send({
               type: "thread.interrupt",
@@ -188,29 +221,8 @@ function AgentRow(props: { threadId: string; agentId: string; depth: number }) {
           Stop
         </Button>
       )}
-      <span className="shrink-0 text-xs text-subtle-foreground tabular-nums">
-        {formatSpan(agent.createdAt, end)}
-      </span>
-      <ProviderMark provider={agent.native.provider} className="shrink-0" />
     </div>
   );
-}
-
-function StatusGlyph(props: { glyph: ReturnType<typeof glyphOf>; label: string }) {
-  switch (props.glyph) {
-    case "spinner":
-      return <Spinner className="text-status-working" />;
-    case "waiting":
-      return <Spinner className="text-status-waiting" />;
-    case "needs-you":
-      return <Dot tone="needs-you" className="mx-[2.5px]" />;
-    case "failed":
-      return <Dot tone="failed" className="mx-[2.5px]" />;
-    case "stopped":
-      return <Dot tone="idle" className="mx-[2.5px]" />;
-    case "done":
-      return <CheckIcon aria-hidden size={11} className="text-subtle-foreground" />;
-  }
 }
 
 function TaskRow(props: { threadId: string; taskId: string }) {

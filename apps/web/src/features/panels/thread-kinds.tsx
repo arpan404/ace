@@ -1,15 +1,18 @@
 import {
   BrowserIcon,
+  CardsIcon,
   ChatsCircleIcon,
   DeviceMobileIcon,
   FilesIcon,
   GitDiffIcon,
   PlusIcon,
+  RobotIcon,
   ScrollIcon,
   TerminalWindowIcon,
   TreeStructureIcon,
 } from "@phosphor-icons/react";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
+import { AgentBadge } from "./agents/agent-badge.tsx";
 import { ThreadDiffStat } from "./changes/diff-stat.tsx";
 
 /*
@@ -105,6 +108,23 @@ export const logsKind = defineTabKind({
   load: () => views().then((m) => ({ default: m.LogsView, Actions: m.LogsActions })),
 });
 
+/** One agent of the tree, opened from its row: its delegation, transcript and follow-up. */
+export const agentKind = defineTabKind({
+  kind: "agent",
+  label: "Agent",
+  icon: RobotIcon,
+  Badge: AgentBadge,
+  load: () => import("./agents/agent-tab.tsx").then((m) => ({ default: m.AgentTab })),
+});
+
+/** One lane of the deck a thread works for (id `run/card`); the whole deck stays in Deck. */
+export const deckLaneKind = defineTabKind({
+  kind: "deck-lane",
+  label: "Deck lane",
+  icon: CardsIcon,
+  load: () => import("./deck-lane-view.tsx").then((m) => ({ default: m.DeckLaneView })),
+});
+
 /** The + button's new tab: a catalog of tools and what this thread suggests opening. */
 export const launcherKind = defineTabKind({
   kind: "new-tab",
@@ -123,6 +143,8 @@ export const threadKinds: readonly TabKind[] = [
   devicesKind,
   agentsKind,
   logsKind,
+  agentKind,
+  deckLaneKind,
   launcherKind,
 ];
 

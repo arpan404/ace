@@ -2,6 +2,7 @@ import type { ProviderKind } from "@ace/protocol";
 import type { Scenario } from "../scenario.ts";
 import { teamAtLimit } from "./account-limit.ts";
 import { coldStartReplay } from "./cold-start-replay.ts";
+import { delegatedDocs } from "./delegated-docs.ts";
 import { failingSubagent } from "./failing-subagent.ts";
 import { flakyCheckout } from "./flaky-checkout.ts";
 import { homeList } from "./home-list.ts";
@@ -39,6 +40,8 @@ export function devWorld(): WorldThread[] {
     { scenario: failingSubagent(), agoMs: 12 * minute, live: { speed: 0.5 } },
     // ace's risk policy approving, denying and escalating a release's commands.
     { scenario: permissionAudit(), agoMs: 6 * minute },
+    // A thread that delegated work to Codex through ace: the delegate is a thread of its own.
+    ...delegatedDocs().map((scenario) => ({ scenario, agoMs: minute })),
     // The exhausted Codex Team account's threads, stopped at its limit (Usage & accounts).
     ...teamAtLimit().map((scenario) => ({ scenario, agoMs: 40 * minute })),
   ]);
