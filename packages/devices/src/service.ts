@@ -92,7 +92,8 @@ export class DevicesService {
     return [...this.sessions.values()].map((session) => this.state(session));
   }
   watch(listener: (state: DeviceState) => void): () => void {
-    if (this.listeners.size >= 64) throw new Error("Device state subscriber limit");
+    if (this.listeners.size >= 64)
+      throw new DeviceError("limit", "Device state subscriber limit (64)", "Close another device connection before reconnecting.");
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);

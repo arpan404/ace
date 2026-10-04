@@ -63,7 +63,9 @@ All JSON endpoints return HTTP 200 on success and `{ "error": "..." }` otherwise
 
 `GET /v1/devices`, `POST /v1/pairings` and `DELETE /v1/devices/<id>` accept cross-origin calls from an explicit allowlist: the desktop renderer (`app://ace`, ADR 0054) and the origins in `ACE_WEB_ORIGINS`. `bun run dev` and `dev:web` set it to their Vite origin. An allowed `Origin` is echoed in `Access-Control-Allow-Origin`; any other origin gets no CORS headers and its preflight gets 403. Every response carries `Vary: Origin`, and credentials mode is never allowed, so the token still has to be sent explicitly. Requests without an `Origin` (the CLI, same-origin) are unaffected. Pairing redemption and tickets stay same-origin.
 
-The loopback WebSocket applies the same allowlist: an upgrade that carries any other `Origin` gets 403, so a page the user visits cannot open daemon sockets. Native clients send no `Origin`. Sockets that have not authenticated have their own budget (128 on loopback, 64 on the remote listener with at most 16 per address) and are terminated if they send no valid `hello` within 5 seconds.
+Both WebSocket listeners apply the same allowlist: an upgrade that carries any other `Origin` gets 403. Native clients send no `Origin`. Sockets that have not authenticated have their own budget (128 on loopback, 64 on the remote listener with at most 16 per address) and are terminated if they send no valid `hello` within 5 seconds.
+
+The device service caps state subscribers at 64 across all clients to bound state fan-out. Each authenticated admin socket holds one subscriber. Excess sockets receive `connection_limit` and close with code 1009 and reason `connection_limit`; the client reports a limit error. Closing an admitted socket releases its slot.
 
 | Method and path           | Credential          | Request                                     | Response                                                     |
 | ------------------------- | ------------------- | ------------------------------------------- | ------------------------------------------------------------ |
