@@ -73,7 +73,9 @@ export class Permissions {
     return {
       override: record.override,
       effective: record.effective,
-      pending: record.override !== null && record.override !== record.effective,
+      pending:
+        record.override !== null &&
+        limitPermissionMode(record.override, this.ceiling(id)) !== record.effective,
     };
   }
   /** Host-only relationship. Never accept parent identity from an ordinary wire command. */
