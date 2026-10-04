@@ -15,6 +15,8 @@ import { isAppUrl } from "./csp.ts";
 export type Handlers = {
   [C in RequestChannel]: (
     request: z.output<(typeof requests)[C]["request"]>,
+    /** The app window's renderer that asked; absent when the main process asks (the menu). */
+    sender?: WebContents,
   ) => ResultOf<C> | Promise<ResultOf<C>>;
 };
 
@@ -39,8 +41,8 @@ export function registerHandlers(options: {
     ipcMain.handle(requestChannel(name), async (event, payload: unknown) => {
       if (!trusted(event)) throw new Error("Untrusted sender");
       const request = (spec.request as z.ZodType).parse(payload);
-      const handler = options.handlers[name] as (request: unknown) => unknown;
-      return (spec.result as z.ZodType).parse(await handler(request));
+      const handler = options.handlers[name] as (request: unknown, sender: WebContents) => unknown;
+      return (spec.result as z.ZodType).parse(await handler(request, event.sender));
     });
   }
   return () => {

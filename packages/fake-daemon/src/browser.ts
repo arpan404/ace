@@ -17,6 +17,8 @@ export interface BrowserView {
   owner?: string;
   url: string;
   closed: boolean;
+  /** Where the page runs: the desktop app's embedded view, or the daemon's headless Chromium. */
+  backend?: "embedded" | "headless";
 }
 export interface ScreenFrame {
   sequence: number;
@@ -169,10 +171,19 @@ export class FakeBrowser {
     return parsed.href;
   }
   /** Scripting: an agent opens the browser on a page and starts typing into it. */
-  drive(threadId: string, options: { url: string; typed?: string }): void {
+  drive(
+    threadId: string,
+    options: { url: string; typed?: string; backend?: "embedded" | "headless" },
+  ): void {
     const entry = this.entry(threadId);
     if (!entry.view || entry.view.closed) entry.generation++;
-    entry.view = { threadId, controller: "agent", url: options.url, closed: false };
+    entry.view = {
+      threadId,
+      controller: "agent",
+      url: options.url,
+      closed: false,
+      ...(options.backend ? { backend: options.backend } : {}),
+    };
     entry.page = options.url === "about:blank" ? "site" : "pair";
     this.paint(entry, options.typed ?? "");
   }

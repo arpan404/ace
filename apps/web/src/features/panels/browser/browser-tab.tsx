@@ -1,6 +1,6 @@
 import { ArrowSquareOutIcon, DevicesIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { displayAddress } from "@ace/ui-core";
-import { useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { openExternal } from "@/boot/open-external.ts";
 import { Dot } from "@/components/ui/dot.tsx";
 import { IconButton } from "@/components/ui/icon-button.tsx";
@@ -27,6 +27,7 @@ import { WithServices } from "../with-services.tsx";
 import { AddressBar } from "./address-bar.tsx";
 import { PageNav, PageToolbar } from "./page-toolbar.tsx";
 import { bindPage } from "./loading.ts";
+import { useNativeView } from "./native-view.ts";
 import { LoadFailed, Offline, Opening, Parked, StartPage } from "./page-states.tsx";
 import { PageView } from "./page-view.tsx";
 import { useBrowserTab } from "./use-browser-tab.ts";
@@ -131,6 +132,19 @@ function Browser(props: TabViewProps) {
   const offline = page.online ? undefined : "The daemon is offline";
   const external = shownUrl && /^https?:\/\//i.test(shownUrl) ? shownUrl : undefined;
   useHotkey(keymap.takeControl.keys, control.toggle, { enabled: page.bound });
+  // In the desktop app the page itself is a native view drawn over this tab's page area.
+  const pageArea = useRef<HTMLDivElement>(null);
+  useNativeView(
+    threadId,
+    pageArea,
+    page.bound &&
+      page.live?.backend === "embedded" &&
+      page.live.status !== "paused" &&
+      page.live.status !== "recovering" &&
+      page.online &&
+      page.state.phase !== "failed",
+    viewport.emulation,
+  );
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const mod = event.metaKey || event.ctrlKey;
@@ -273,6 +287,8 @@ function Browser(props: TabViewProps) {
         <ControlStrip view={page.live} busy={control.busy} onToggle={control.toggle} />
       )}
       <div
+        ref={pageArea}
+        data-browser-page=""
         className={cn(
           "relative min-h-0 flex-1 overflow-auto",
           page.bound && page.frame && "overflow-hidden",

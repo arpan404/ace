@@ -141,6 +141,15 @@ function main(): void {
     window.webContents.once("did-finish-load", () => {
       for (const link of pending.splice(0)) emit(contents(), "deep-link", link);
     });
+    // A reloaded or crashed page can no longer hide the browser views it placed.
+    const renderer = window.webContents;
+    const rendererId = renderer.id;
+    const forget = () => background.forgetBrowserHost(rendererId);
+    renderer.on("did-start-navigation", (details) => {
+      if (details.isMainFrame && !details.isSameDocument) forget();
+    });
+    renderer.on("render-process-gone", forget);
+    renderer.on("destroyed", forget);
     window.on("closed", () => {
       window = undefined;
       // Embedded views live in the window: without one the app stops offering the backend,

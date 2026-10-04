@@ -11,8 +11,17 @@ import type { BrowserPlacement } from "../../shared/contract.ts";
 import type { ViewHost, ViewPage } from "./backend.ts";
 import { parseChord } from "./keys.ts";
 import { PartitionPool } from "./partition-pool.ts";
+import { PlacementBook, toWindowBounds, type Rect } from "./placement.ts";
 import { WebSocketGate } from "./socket-gate.ts";
 import { throttleDecision } from "./throttle.ts";
+
+/** The app window whose renderer asked to place a view, and that renderer's page zoom. */
+export interface PlacementHost {
+  /** The renderer's `webContents.id`. */
+  id: number;
+  window: BaseWindow;
+  zoom: number;
+}
 
 export interface ViewHostOptions {
   window(): BaseWindow | undefined;
@@ -47,6 +56,8 @@ export class EmbeddedViews implements ViewHost {
   /** Partitions already given their handlers: the pool's few, plus one per workspace. */
   private configured = new Set<string>();
   private ephemeralPartitions = new PartitionPool("ace-browser-ephemeral-");
+  private placements = new PlacementBook();
+  private hosts = new Map<number, BaseWindow>();
   private options: ViewHostOptions;
 
   constructor(options: ViewHostOptions) {
@@ -103,6 +114,8 @@ export class EmbeddedViews implements ViewHost {
     });
     this.pages.set(threadId, page);
     this.byContents.set(view.webContents.id, page);
+    // The renderer may have placed the thread's view before this one opened (a reopen).
+    this.apply(threadId);
     try {
       await page.prepare(request.viewport);
     } catch (error) {
@@ -112,9 +125,30 @@ export class EmbeddedViews implements ViewHost {
     return page;
   }
 
-  /** Draw (or hide) a thread's view where the renderer's Browser panel is. */
-  place(placement: BrowserPlacement): void {
-    this.pages.get(placement.threadId)?.place(placement);
+  /** Draw (or hide) a thread's view where a renderer's Browser tab shows its page. */
+  place(placement: BrowserPlacement, host: PlacementHost): void {
+    this.hosts.set(host.id, host.window);
+    const bounds = toWindowBounds(placement.bounds, host.zoom);
+    this.placements.set(placement.threadId, host.id, bounds, placement.visible);
+    this.apply(placement.threadId);
+  }
+
+  /** A renderer reloaded or closed: the views it placed no longer belong where it put them. */
+  forgetHost(id: number): void {
+    this.hosts.delete(id);
+    for (const threadId of this.placements.forgetHost(id)) this.apply(threadId);
+  }
+
+  private apply(threadId: string): void {
+    const page = this.pages.get(threadId);
+    if (!page) return;
+    const placement = this.placements.resolve(threadId);
+    const window = placement.host === undefined ? undefined : this.hosts.get(placement.host);
+    page.place({
+      window: window && !window.isDestroyed() ? window : undefined,
+      bounds: placement.bounds,
+      visible: placement.visible,
+    });
   }
 
   private configure(partition: string): Session {
@@ -246,17 +280,18 @@ class EmbeddedPage implements ViewPage {
     return this.gate.allows(url);
   }
 
-  place(placement: BrowserPlacement): void {
-    const { x, y, width, height } = placement.bounds;
+  /** Bounds are in the window's DIPs; a hidden view keeps its last box. */
+  place(target: { window: BaseWindow | undefined; bounds: Rect | undefined; visible: boolean }) {
     const view = this.options.view;
-    view.setBounds({
-      x: Math.round(x),
-      y: Math.round(y),
-      width: Math.round(width),
-      height: Math.round(height),
-    });
-    this.placed = placement.visible && width > 0 && height > 0;
-    // Hidden views stay alive (and attached) but stop painting.
+    const current = this.options.window;
+    if (target.window && target.window !== current) {
+      if (!current.isDestroyed()) current.contentView.removeChildView(view);
+      target.window.contentView.addChildView(view);
+      this.options.window = target.window;
+    }
+    if (target.bounds) view.setBounds(target.bounds);
+    this.placed = target.visible && target.bounds !== undefined;
+    // Hidden views stay alive (and attached) but stop painting, and send no frames.
     view.setVisible(this.placed);
     this.updateThrottle();
   }

@@ -6,7 +6,7 @@ import type { BrowserWindow } from "electron";
 import type { BrowserPlacement, DeepLink, DesktopSettings } from "../shared/contract.ts";
 import type { ControllerState } from "./browser/backend.ts";
 import type { BackendConnection } from "./browser/connection.ts";
-import type { EmbeddedViews } from "./browser/views.ts";
+import type { EmbeddedViews, PlacementHost } from "./browser/views.ts";
 import type { DaemonRuntime } from "./daemon/runtime.ts";
 import type { DesktopLink } from "./link/desktop-link.ts";
 import { LinkKeeper, runtimeLinkSource, type Endpoint } from "./link/link-keeper.ts";
@@ -202,9 +202,14 @@ export class Background {
     this.browser?.connection.setAvailable(this.hasWindow());
   }
 
-  /** Draw (or hide) a thread's embedded view where the renderer's Browser panel is. */
-  placeBrowser(placement: BrowserPlacement): void {
-    this.browser?.views.place(placement);
+  /** Draw (or hide) a thread's embedded view where a renderer's Browser tab is. */
+  placeBrowser(placement: BrowserPlacement, host: PlacementHost): void {
+    this.browser?.views.place(placement, host);
+  }
+
+  /** A window's renderer reloaded or went away: its views stop showing where it put them. */
+  forgetBrowserHost(id: number): void {
+    this.browser?.views.forgetHost(id);
   }
 
   /** The person asked for control of a thread's view (`human`) or gave it back. */

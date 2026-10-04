@@ -1,4 +1,4 @@
-import { nativeTheme, type BrowserWindow } from "electron";
+import { BrowserWindow, nativeTheme } from "electron";
 import { shell } from "electron";
 import type { AppInfo, DaemonConnection, NativeAppearance } from "../shared/contract.ts";
 import type { Background } from "./background.ts";
@@ -86,8 +86,15 @@ export function createHandlers(options: {
     "settings.update": (patch) => settings.update(patch),
     "permissions.status": () => permissions(),
     "permissions.open": (pane) => openPermissionPane(pane),
-    "browser.place": (placement) => {
-      background.placeBrowser(placement);
+    "browser.place": (placement, sender) => {
+      const window = sender && BrowserWindow.fromWebContents(sender);
+      // Bounds are the page's CSS pixels; the view is placed in window DIPs.
+      if (window)
+        background.placeBrowser(placement, {
+          id: sender.id,
+          window,
+          zoom: sender.getZoomFactor(),
+        });
       return undefined;
     },
     "browser.control": (request) => {
