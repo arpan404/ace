@@ -9,7 +9,7 @@ import { cursor } from "./providers/cursor.ts";
 import { opencode } from "./providers/opencode.ts";
 import type { Driver, RunContext } from "./providers/types.ts";
 import { Recording } from "./recording.ts";
-import { createRedactor } from "./redact.ts";
+import { createRecordingRedactor } from "./fragment-redaction.ts";
 import { SCENARIOS, findScenario, type Scenario } from "./scenarios.ts";
 import { settleWatcher } from "./settle.ts";
 import { createWorkspace } from "./workspace.ts";
@@ -23,10 +23,13 @@ const FIXTURE_DIR = join(REPO_ROOT, "fixtures");
 function writeFixture(rawPath: string): string {
   const lines = readFileSync(rawPath, "utf8").split("\n").filter(Boolean);
   const header = z.object({ workspace: z.string() }).parse(JSON.parse(lines[0] ?? "{}"));
-  const redact = createRedactor({ workspace: header.workspace });
+  const redact = createRecordingRedactor({ workspace: header.workspace });
   const fixturePath = join(FIXTURE_DIR, relative(RAW_DIR, rawPath));
   mkdirSync(dirname(fixturePath), { recursive: true });
-  writeFileSync(fixturePath, `${lines.map(redact).join("\n")}\n`);
+  writeFileSync(
+    fixturePath,
+    `${[...lines.flatMap((line) => redact.push(line)), ...redact.finish()].join("\n")}\n`,
+  );
   return fixturePath;
 }
 

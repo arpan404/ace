@@ -1,7 +1,7 @@
 import { createWriteStream } from "node:fs";
 import { once } from "node:events";
 import { boundedJson, RpcWriter } from "@ace/provider-kit/ipc";
-import { createRedactor } from "../redact.ts";
+import { createRecordingRedactor } from "../fragment-redaction.ts";
 import type { Frame } from "@ace/engine-api";
 import { z } from "zod";
 import {
@@ -44,7 +44,7 @@ export function cursorSdkCapture(
   if (header.recordingPolicy === "full-access" && (header.sandbox || header.autoReview))
     throw new Error("A full-access recording must declare sandbox and Auto-review off");
   const output = createWriteStream(path, { flags: "wx", mode: 0o600 });
-  const scrub = createRedactor({ ...context, workspace: header.workspace }, ["text"]);
+  const scrub = createRecordingRedactor({ ...context, workspace: header.workspace }, ["text"]);
   const writer = new RpcWriter(output, 1_048_576);
   let failure: unknown;
   let queued = 0;
@@ -56,7 +56,11 @@ export function cursorSdkCapture(
   const write = (input: unknown) => {
     if (closing) throw new Error("SDK capture is closing");
     if (failure) throw new Error("SDK capture failed; no further frames accepted");
-    const line = scrub(boundedJson(input, 262144)) + "\n";
+    const lines = scrub.push(boundedJson(input, 262144));
+    return Promise.all(lines.map(writeLine)).then(() => {});
+  };
+  const writeLine = (redacted: string) => {
+    const line = redacted + "\n";
     const size = Buffer.byteLength(line);
     if (totalBytes + size > 33554432) throw new Error("SDK capture exceeds recording byte budget");
     if (queued >= 32 || bytes + size > 1_048_576)
@@ -116,6 +120,7 @@ export function cursorSdkCapture(
     close() {
       closing ??= (async () => {
         try {
+          for (const line of scrub.finish()) void writeLine(line);
           await tail;
           const finished = once(output, "finish");
           output.end();

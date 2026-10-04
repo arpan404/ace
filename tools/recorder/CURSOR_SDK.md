@@ -149,3 +149,21 @@ streamed text has been reassembled:
 ```sh
 node tools/recorder/src/scan-cursor-sdk-fixtures.ts
 ```
+
+## Fragmented path redaction
+
+The capture sink and generic fixture writer join text fragments in a window capped
+at 32 records and 256 KiB. Stream identity includes the thread, operation, agent,
+run and text field. Interleaved control records retain their original order.
+An unfinished path at the buffer limit is omitted, along with its continuation,
+until the next text boundary. Home paths, disposable workspaces and macOS
+per-user temp roots are scrubbed before records reach disk. Closing flushes the
+last window and retains source coordinates.
+
+The hardening batch on 2026-10-03 found no raw copy of
+`fixtures/cursor-sdk/1.0.35/composer-2.5/nested-task.jsonl` in `.recordings`,
+the local fixture-instance directory or temporary capture locations. The SDK
+sink previously wrote only the redacted form directly into fixtures. The
+existing capture has not been edited or recorded again. The passive sink
+regression proves that new captures redact split home and temp/workspace paths;
+it does not launch a provider or consume quota.
