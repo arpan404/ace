@@ -408,3 +408,34 @@ test("project receipts and unregister state survive restart and reject new threa
     await f.close();
   }
 });
+
+test("a newly created Git project can immediately start an isolated worktree without a user Git identity", async () => {
+  const f = await projectFixture();
+  const { GitService } = await import("@ace/git");
+  const git = new GitService();
+  try {
+    const result = await f.command({
+      type: "workspace.create",
+      parent: f.root,
+      name: "fresh",
+      git: {},
+    });
+    expect(result.ok).toBe(true);
+    const repo = join(f.root, "fresh");
+    const tree = await git.createWorktree({
+      repo,
+      path: join(f.root, "isolated"),
+      baseRef: "HEAD",
+      branch: "ace/thread",
+    });
+    expect(tree.branch).toBe("ace/thread");
+    expect(await readdir(tree.path)).toEqual([".git"]);
+    expect((await git.repositoryInfo(repo)).head).toBe(
+      await git.resolveCommit({ worktree: tree.path, ref: "HEAD" }),
+    );
+    expect((await f.git(repo, ["ls-tree", "--name-only", "HEAD"])).stdout.trim()).toBe("");
+  } finally {
+    await git.close();
+    await f.close();
+  }
+});
