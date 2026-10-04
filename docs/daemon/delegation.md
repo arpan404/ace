@@ -33,3 +33,13 @@ Provider interfaces are based on the installed Claude SDK `SDKUserMessage` and
 Codex's generated `TurnStartParams`, plus Pi's primary
 [extension API](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md).
 Child text remains untrusted context regardless of the transport channel.
+
+Known provider `notice` items carry readable `text` and optional `details` with
+`code`, `provider`, and optional `model`. Show the message as the notice and expose
+the code in details. Failed agent statuses carry the same optional `error.details`.
+Unknown errors retain their original text. Provider evidence remains in `raw`.
+
+Ace approval targets carry `origin: "ace"`, an exact `description`, and `riskClass`:
+`read-only`, `thread-write`, `agent-execution`, or `external-effect`. Display the
+description as the action; validated reads resolve automatically, including in ask
+mode. Read-only mode denies writes and execution.

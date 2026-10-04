@@ -1,3 +1,4 @@
+export * from "./provider-error-details.ts";
 export * from "./agent.ts";
 export * from "./background.ts";
 export * from "./browser.ts";

@@ -1,3 +1,4 @@
+import { ProviderErrorDetails } from "./provider-error-details.ts";
 import { ThreadStatus } from "./thread-status.ts";
 import { ThreadId } from "./ids.ts";
 import { DelegationOutcome } from "./agent-control.ts";
@@ -78,6 +79,7 @@ export const AgentItem = z.discriminatedUnion("type", [
   ItemBase.extend({
     type: z.literal("notice"),
     level: z.enum(["info", "warning", "error"]),
+    details: ProviderErrorDetails.optional(),
     /** Native history output linked to its canonical call. */
     toolCallId: ItemId.optional(),
     text: z.string(),

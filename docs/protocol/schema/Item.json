@@ -351,6 +351,9 @@
         "createdAt": {
           "$ref": "https://ace.local/protocol/v1/Timestamp.json"
         },
+        "details": {
+          "$ref": "https://ace.local/protocol/v1/ProviderErrorDetails.json"
+        },
         "executionSource": {
           "$ref": "https://ace.local/protocol/v1/ExecutionSource.json"
         },

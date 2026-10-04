@@ -1,3 +1,4 @@
+import { readableProviderFact } from "./provider-errors.ts";
 import { attributeAceAction } from "./ace-approvals.ts";
 import { AceInputs } from "./ace-inputs.ts";
 import { coalesceFacts } from "./delta-batch.ts";
@@ -219,6 +220,13 @@ export class EngineRepository {
             (raw) => this.store.capRaw(raw, id),
             attributeAceAction(state, this.aceInputs.attribute(id, input), this.aceAction),
           );
+          if (
+            ((fact.type === "item.upsert" || fact.type === "item.reconciled") &&
+              fact.draft.type === "notice") ||
+            (fact.type === "turn.ended" && fact.error) ||
+            (fact.type === "process.exited" && fact.message)
+          )
+            fact = readableProviderFact(state.config.provider, fact, this.session(id).model);
           if (fact.type === "turn.started" && fact.agent === (state.rootKey ?? "root")) {
             const pending = this.pending.awaiting(id);
             if (
