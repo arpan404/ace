@@ -130,7 +130,7 @@ export function turnActivityStatus(
     ...candidates.map((status) => (status.state === "needs_you" ? status.interactions : 0)),
   );
   if (interactions > 0) return { state: "needs_you", interactions };
-  if ((counters["live:runs"] ?? 0) > 0 || candidates.some((s) => s.state === "working"))
+  if (candidates.some((s) => s.state === "working"))
     return { state: "working", agents: Math.max(1, counters["live:agents"] ?? 0) };
   const limited = candidates.find((s) => s.state === "limited");
   if (limited) return limited;
@@ -146,8 +146,8 @@ export function turnActivityStatus(
   if (candidates.some((s) => s.state === "unresponsive")) return { state: "unresponsive" };
   const waiting = candidates.find((s) => s.state === "waiting");
   if (waiting) return waiting;
-  if ((counters["live:agents"] ?? 0) > 0)
-    return { state: "working", agents: counters["live:agents"] ?? 1 };
+  if ((counters["live:agents"] ?? 0) > 0 || (counters["live:runs"] ?? 0) > 0)
+    return { state: "working", agents: Math.max(1, counters["live:agents"] ?? 0) };
   return undefined;
 }
 
