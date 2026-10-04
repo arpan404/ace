@@ -136,6 +136,7 @@ export function multiDayDemo(id = "thread-multi-day", turns = 24): Scenario {
       workspaceId: "ace",
       title: "Five-day migration: checkpoints and worker reports",
       provider: "codex",
+      permissionMode: "ask",
     },
     steps,
   };

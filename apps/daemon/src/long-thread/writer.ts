@@ -6,6 +6,7 @@ import {
   itemMessagePreview,
   itemDigestContribution,
   turnIsSettled,
+  approvalAutoReviewed,
 } from "@ace/projection";
 import { counterPolicy, accountSample, Counts } from "@ace/usage";
 import { LongThreadDatabase, decodeCounters, type Counters } from "./database.ts";
@@ -15,6 +16,7 @@ const Head = z.object({ ordinal: z.number(), root: z.string().nullable(), status
 const ApprovalData = Interaction.pick({
   state: true,
   autoReviewed: true,
+  review: true,
   request: true,
   agentId: true,
 });
@@ -265,6 +267,17 @@ export class TurnWriter {
           state: p.state,
           ...(p.autoReviewed === undefined ? {} : { autoReviewed: p.autoReviewed }),
         });
+    } else if (p.type === "permission.reviewed") {
+      const row = this.data
+        .sql(
+          "SELECT ordinal,data FROM long_entities WHERE thread_id=? AND kind='approval' AND id=?",
+        )
+        .get(event.threadId, p.review.interactionId);
+      if (row)
+        this.approval(event, p.review.interactionId, Number(row.ordinal), {
+          ...ApprovalData.parse(JSON.parse(String(row.data))),
+          review: p.review,
+        });
     } else if (p.type === "background_task.started") {
       const task = p.task;
       const ordinal = task.toolCallId
@@ -441,7 +454,7 @@ export class TurnWriter {
       {
         approvalsAsked: Number(isApproval),
         approvalsAnswered: Number(isApproval && approval.state === "resolved"),
-        approvalsAutoReviewed: Number(isApproval && approval.autoReviewed === true),
+        approvalsAutoReviewed: Number(isApproval && approvalAutoReviewed(approval)),
         approvalsPending: Number(isApproval && pending),
         "live:interactions": Number(pending),
       },

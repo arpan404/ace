@@ -1,6 +1,7 @@
 import { accountSample, counterPolicy } from "@ace/usage/accounting";
 import {
   agentThreadStatus,
+  approvalAutoReviewed,
   turnActivityStatus,
   digestContributions,
   digestFromCounters,
@@ -43,6 +44,7 @@ export class FakeTurnIndex {
   private agents = new Map<string, number>();
   private items = new Map<string, number>();
   private interactions = new Map<string, number>();
+  private autoReviewed = new Map<string, boolean>();
   private current = new Map<string, number>();
   private usage = new Map<string, ReturnType<typeof accountSample>["next"]>();
   private agentRuns = new Map<string, string>();
@@ -166,6 +168,9 @@ export class FakeTurnIndex {
         previousCounters = { ...counters };
         counters.approvalsAsked = (counters.approvalsAsked ?? 0) + 1;
         counters.approvalsPending = (counters.approvalsPending ?? 0) + 1;
+        const reviewed = approvalAutoReviewed(payload.interaction);
+        counters.approvalsAutoReviewed = (counters.approvalsAutoReviewed ?? 0) + Number(reviewed);
+        this.autoReviewed.set(payload.interaction.id, reviewed);
       }
     } else if (payload.type === "interaction.closed") {
       ordinal = this.interactions.get(payload.interactionId) ?? ordinal;
@@ -177,8 +182,26 @@ export class FakeTurnIndex {
         counters.approvalsPending = Math.max(0, (counters.approvalsPending ?? 0) - 1);
         if (payload.state === "resolved")
           counters.approvalsAnswered = (counters.approvalsAnswered ?? 0) + 1;
-        if (payload.autoReviewed || interaction.autoReviewed)
-          counters.approvalsAutoReviewed = (counters.approvalsAutoReviewed ?? 0) + 1;
+        const reviewed = approvalAutoReviewed(interaction);
+        counters.approvalsAutoReviewed =
+          (counters.approvalsAutoReviewed ?? 0) +
+          Number(reviewed) -
+          Number(this.autoReviewed.get(payload.interactionId) ?? false);
+        this.autoReviewed.set(payload.interactionId, reviewed);
+      }
+    } else if (payload.type === "permission.reviewed") {
+      ordinal = this.interactions.get(payload.review.interactionId);
+      if (ordinal === undefined) return;
+      const interaction = view.interactions[payload.review.interactionId];
+      if (interaction?.request.kind === "approval") {
+        const counters = this.ensure(event, ordinal).counters;
+        previousCounters = { ...counters };
+        const reviewed = approvalAutoReviewed(interaction);
+        counters.approvalsAutoReviewed =
+          (counters.approvalsAutoReviewed ?? 0) +
+          Number(reviewed) -
+          Number(this.autoReviewed.get(payload.review.interactionId) ?? false);
+        this.autoReviewed.set(payload.review.interactionId, reviewed);
       }
     } else if (payload.type === "usage.updated") {
       ordinal = this.agents.get(payload.agentId) ?? ordinal;
@@ -234,6 +257,7 @@ export class FakeTurnIndex {
       [
         "interaction.opened",
         "interaction.closed",
+        "permission.reviewed",
         "usage.updated",
         "agent.created",
         "agent.status",
@@ -272,13 +296,15 @@ export class FakeTurnIndex {
     const liveTools = [...turn.contributions.values()].some(
       (contribution) => (contribution.counters["live:tools"] ?? 0) > 0,
     );
-    turn.summary.status = turnActivityStatus({
-      "live:interactions": turn.summary.digest.approvalsPending,
-      "live:runs": Number(turn.summary.outcome === "active"),
-      "live:tools": Number(liveTools),
-      "live:agents": liveChildren.length,
-    }, children.map((agent) => agentThreadStatus(agent.status))) ??
-      { state: turn.summary.outcome === "failed" ? "failed" : "done" };
+    turn.summary.status = turnActivityStatus(
+      {
+        "live:interactions": turn.summary.digest.approvalsPending,
+        "live:runs": Number(turn.summary.outcome === "active"),
+        "live:tools": Number(liveTools),
+        "live:agents": liveChildren.length,
+      },
+      children.map((agent) => agentThreadStatus(agent.status)),
+    ) ?? { state: turn.summary.outcome === "failed" ? "failed" : "done" };
     turn.summary.subagents = children.slice(0, 32).map((agent) => {
       const summary: TurnSubagentSummary = {
         agentId: agent.id,

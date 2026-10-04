@@ -228,6 +228,7 @@ test("fake catch-up counts an approval answer after the cursor and preserves bac
     workspaceId: "ace",
     title: "Background migration",
     provider: "codex",
+    permissionMode: "ask",
   });
   daemon.apply("background", [
     {
@@ -446,22 +447,192 @@ test("fake catch-up retains an agent failure after the agent recovers", async ()
 // Not executed (tests run at merge).
 test("fake historical turns preserve a blocked child's rate-limit reason", async () => {
   const daemon = new FakeDaemon({ clock: () => 1000 });
-  daemon.createThread({ id: "limited-child", workspaceId: "ace", title: "Limited migration worker", provider: "codex" });
+  daemon.createThread({
+    id: "limited-child",
+    workspaceId: "ace",
+    title: "Limited migration worker",
+    provider: "codex",
+  });
   daemon.apply("limited-child", [
-    { type: "agent.seen", agent: "root", origin: "root", fidelity: "full", native: { provider: "codex", nativeId: "root" }, cwd: "/fake" },
+    {
+      type: "agent.seen",
+      agent: "root",
+      origin: "root",
+      fidelity: "full",
+      native: { provider: "codex", nativeId: "root" },
+      cwd: "/fake",
+    },
     { type: "turn.started", agent: "root", nativeTurnId: "first", trigger: "user" },
-    { type: "item.upsert", agent: "root", item: "spawn", draft: { type: "tool_call", call: { kind: "agent.spawn", title: "Migration worker", status: "running", detail: { kind: "agent.spawn", childAgent: "worker" } } } },
-    { type: "agent.seen", agent: "worker", parent: "root", spawnedBy: "spawn", origin: "provider_subagent", fidelity: "full", native: { provider: "codex", nativeId: "worker" }, cwd: "/fake", background: true },
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "spawn",
+      draft: {
+        type: "tool_call",
+        call: {
+          kind: "agent.spawn",
+          title: "Migration worker",
+          status: "running",
+          detail: { kind: "agent.spawn", childAgent: "worker" },
+        },
+      },
+    },
+    {
+      type: "agent.seen",
+      agent: "worker",
+      parent: "root",
+      spawnedBy: "spawn",
+      origin: "provider_subagent",
+      fidelity: "full",
+      native: { provider: "codex", nativeId: "worker" },
+      cwd: "/fake",
+      background: true,
+    },
     { type: "turn.started", agent: "worker", nativeTurnId: "worker", trigger: "spawn" },
     { type: "retry", agent: "worker", on: "rate_limit", until: 2000, message: "Resume at 2000" },
     { type: "turn.ended", agent: "root", nativeTurnId: "first", outcome: "completed" },
     { type: "turn.started", agent: "root", nativeTurnId: "second", trigger: "user" },
-    { type: "item.upsert", agent: "root", item: "spawn", draft: { type: "tool_call", call: { title: "Worker still awaiting quota" } } },
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "spawn",
+      draft: { type: "tool_call", call: { title: "Worker still awaiting quota" } },
+    },
   ]);
   const client = await connect(daemon);
   try {
     const page = await client.turnsPage({ threadId: "limited-child", before: 2 });
     expect(page.turns[0]?.status).toEqual({ state: "limited", until: 2000 });
     expect(page.turns[0]?.subagents[0]?.status).toEqual({ state: "limited", until: 2000 });
-  } finally { await client.close(); }
+  } finally {
+    await client.close();
+  }
+});
+
+// Mutation cases: require a synthetic autoReviewed flag; count reviewed and closed twice;
+// attach a late child review to the parent's newer root turn. Not executed (tests run at merge).
+test("fake canonical permission reviews count once on the original turn while a newer turn works", async () => {
+  const daemon = new FakeDaemon({ clock: () => 1000 });
+  daemon.createThread({
+    id: "review-late",
+    workspaceId: "ace",
+    title: "Late worker review",
+    provider: "codex",
+    permissionMode: "auto-review",
+  });
+  daemon.apply("review-late", [
+    {
+      type: "agent.seen",
+      agent: "root",
+      origin: "root",
+      fidelity: "full",
+      native: { provider: "codex", nativeId: "root" },
+      cwd: "/fake/ace",
+    },
+    { type: "turn.started", agent: "root", nativeTurnId: "first", trigger: "user" },
+    {
+      type: "item.upsert",
+      agent: "root",
+      item: "spawn",
+      draft: {
+        type: "tool_call",
+        call: {
+          kind: "agent.spawn",
+          title: "Migration worker",
+          status: "running",
+          detail: { kind: "agent.spawn", childAgent: "worker" },
+        },
+      },
+    },
+    {
+      type: "agent.seen",
+      agent: "worker",
+      parent: "root",
+      spawnedBy: "spawn",
+      origin: "provider_subagent",
+      fidelity: "full",
+      native: { provider: "codex", nativeId: "worker" },
+      cwd: "/fake/ace",
+      background: true,
+    },
+    { type: "turn.started", agent: "worker", nativeTurnId: "worker", trigger: "spawn" },
+    { type: "turn.ended", agent: "root", nativeTurnId: "first", outcome: "completed" },
+    { type: "turn.started", agent: "root", nativeTurnId: "second", trigger: "user" },
+  ]);
+  const sinceSeq = daemon.head;
+  daemon.apply("review-late", [
+    {
+      type: "item.upsert",
+      agent: "worker",
+      item: "shell",
+      draft: {
+        type: "tool_call",
+        call: {
+          kind: "shell",
+          title: "Inspect working directory",
+          status: "running",
+          detail: { kind: "shell", command: "pwd" },
+        },
+      },
+    },
+    {
+      type: "interaction.opened",
+      agent: "worker",
+      item: "shell",
+      interaction: "approval",
+      blocking: true,
+      request: {
+        kind: "approval",
+        title: "Inspect working directory",
+        target: { tool: "shell", command: "pwd", access: "execute" },
+        options: [
+          { id: "allow", label: "Allow once", kind: "allow_once" },
+          { id: "deny", label: "Deny", kind: "deny" },
+        ],
+      },
+    },
+  ]);
+  const events = daemon.replay(
+    { kind: "thread", threadId: ThreadId.parse("review-late") },
+    sinceSeq,
+  );
+  expect(events.filter((event) => event.payload.type === "permission.reviewed")).toHaveLength(1);
+  const closed = events.find((event) => event.payload.type === "interaction.closed");
+  if (closed?.payload.type !== "interaction.closed")
+    throw new Error("Expected reviewed approval closure");
+  expect(closed.payload.autoReviewed).toBeUndefined();
+  const client = await connect(daemon);
+  try {
+    const page = await client.turnsPage({ threadId: "review-late" });
+    expect(page.turns[0]).toMatchObject({
+      ordinal: 1,
+      digest: {
+        approvalsAsked: 1,
+        approvalsAnswered: 1,
+        approvalsAutoReviewed: 1,
+        approvalsPending: 0,
+      },
+    });
+    expect(page.turns[1]).toMatchObject({
+      ordinal: 2,
+      digest: { approvalsAsked: 0, approvalsAutoReviewed: 0 },
+    });
+    expect(
+      (await client.threadCatchUp({ threadId: "review-late", sinceSeq })).digest,
+    ).toMatchObject({ approvalsAsked: 1, approvalsAnswered: 1, approvalsAutoReviewed: 1 });
+    daemon.apply("review-late", [
+      {
+        type: "interaction.closed",
+        interaction: "approval",
+        state: "resolved",
+        resolution: { kind: "approval", optionId: "allow" },
+      },
+    ]);
+    expect(
+      (await client.turnsPage({ threadId: "review-late", before: 2 })).turns[0]?.digest
+        .approvalsAutoReviewed,
+    ).toBe(1);
+  } finally {
+    await client.close();
+  }
 });

@@ -6,6 +6,7 @@ export {
   agentThreadStatus,
   turnIsSettled,
   turnActivityStatus,
+  approvalAutoReviewed,
 } from "./long-thread.ts";
 export type { DigestContribution } from "./long-thread.ts";
 export { usageSnapshotKey } from "./usage.ts";

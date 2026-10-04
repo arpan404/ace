@@ -1,4 +1,4 @@
-import type { Item, FileChange, ThreadStatus, TurnDigest } from "@ace/protocol";
+import type { Item, FileChange, Interaction, ThreadStatus, TurnDigest } from "@ace/protocol";
 
 export interface DigestContribution {
   counters: Record<string, number>;
@@ -153,4 +153,10 @@ export function turnActivityStatus(
 
 export function turnIsSettled(status: ThreadStatus): boolean {
   return status.state === "done" || status.state === "failed" || status.state === "new";
+}
+
+export function approvalAutoReviewed(
+  approval: Pick<Interaction, "autoReviewed" | "review">,
+): boolean {
+  return approval.autoReviewed === true || approval.review?.mode === "auto-review";
 }
