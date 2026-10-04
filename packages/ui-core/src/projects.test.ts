@@ -9,6 +9,7 @@ import {
   projectNameProblem,
   projectProblem,
   repositoryName,
+  startFolder,
 } from "./projects.ts";
 
 const names = [
@@ -93,6 +94,16 @@ test("the breadcrumb starts at the home folder for paths inside it, else at the 
   ]);
   // A sibling whose name starts like home's is not inside it.
   expect(crumbs("/Users/devops", "/Users/dev")[0]?.label).toBe("/");
+});
+
+test("browsing starts at home inside the allowed roots, else at the first root", () => {
+  expect(startFolder("/Users/dev", ["/Users/dev"])).toBe("/Users/dev");
+  expect(startFolder("/Users/dev", ["/Users"])).toBe("/Users/dev");
+  // projects.roots naming only folders outside home: home itself would be refused.
+  expect(startFolder("/Users/dev", ["/private/tmp/work", "/srv"])).toBe("/private/tmp/work");
+  // A root whose name starts like home's doesn't hold it.
+  expect(startFolder("/Users/dev", ["/Users/devops"])).toBe("/Users/devops");
+  expect(startFolder(undefined, ["/srv"])).toBe("/srv");
 });
 
 test("paths read with the home folder as ~, and the root has no parent", () => {

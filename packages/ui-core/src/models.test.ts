@@ -189,6 +189,18 @@ test("a thread's picker shows what it runs on, or the switch waiting for its nex
   });
 });
 
+test("a thread on a provider the catalog doesn't list never shows another provider's model", () => {
+  const choices = modelChoices(
+    [model("codex", "codex-team", "gpt-5", true)],
+    [account("codex-team", "codex", {})],
+  );
+
+  expect(currentModelChoice(choices, { provider: "claude" })).toBeUndefined();
+  expect(currentModelChoice(choices, { provider: "claude", model: "opus" })).toBeUndefined();
+  expect(recordedChoice({ provider: "claude" })?.model).toBe("Claude Code default");
+  expect(currentModelChoice(choices, { provider: "codex" })?.id).toBe("codex-team:gpt-5");
+});
+
 test("a thread's effort can change only where the provider takes it as a session option", () => {
   const [opus] = modelChoices(
     [

@@ -152,11 +152,17 @@ export function currentModelChoice(
       choice.provider === selection.provider &&
       (selection.model === undefined || choice.modelId === selection.model),
   );
+  // Never another provider's model: a thread shows what it runs on, and picking from a wrong
+  // choice (an effort change) would move it to that provider. With no catalog choice for its
+  // provider, the caller shows the recorded selection (`recordedChoice`).
   return (
     sameModel.find((choice) => choice.accountId === selection.instanceId) ??
     (selection.model === undefined ? sameModel.find((choice) => choice.isDefault) : undefined) ??
     sameModel[0] ??
-    defaultModelChoice(choices, selection.provider)
+    defaultModelChoice(
+      choices.filter((choice) => choice.provider === selection.provider),
+      selection.provider,
+    )
   );
 }
 

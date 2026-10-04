@@ -88,3 +88,14 @@ test("pairing shows a one-time QR code, its code and a link that can be copied",
   expect(copied).toContain("scopes=read");
   expect(copied).not.toContain("operate");
 });
+
+test("a CLI with no ace account says how that CLI signs in, outside ace", async () => {
+  const app = harness();
+  app.daemon.services.installed.add("pi");
+  await app.open("/settings/providers");
+  await userEvent.click(await screen.findByRole("button", { name: "Manage Pi" }));
+  const detail = screen.getByRole("region", { name: "Pi details" });
+  // Pi signs in from its own prompt; it has no `pi login` command.
+  expect(detail.textContent).toContain("Run pi in a terminal, then type /login.");
+  expect(detail.textContent).not.toContain("pi login");
+});
