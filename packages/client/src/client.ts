@@ -1,3 +1,4 @@
+import { projectsApi } from "./projects.ts";
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import type { HistoryScanStatus, HistoryListRequest } from "@ace/protocol/history";
 import {
@@ -45,6 +46,7 @@ type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
 export type CursorAuthQuery = WithoutRequestId<CursorAuthRequest>;
 
 export class Client implements ClientApi {
+  readonly projects = projectsApi(this);
   private options: ClientOptions;
   private connection: Connection;
   /** Core frames decode at once; the service schemas load with `start()`. */

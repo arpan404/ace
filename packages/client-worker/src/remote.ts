@@ -1,4 +1,5 @@
 import {
+  projectsApi,
   downloadFile,
   uploadFile,
   type FileDownloadInput,
@@ -91,6 +92,7 @@ const states = new Set<string>(["connecting", "ready", "reconnecting", "offline"
 const isState = (state: string): state is ConnectionState => states.has(state);
 
 export class RemoteClient implements ClientApi {
+  readonly projects = projectsApi(this);
   private port: PortLike;
   private config: unknown;
   private options: RemoteOptions;

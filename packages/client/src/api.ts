@@ -1,3 +1,4 @@
+import type { ProjectsApi } from "./projects.ts";
 import type {
   CommandPayload,
   CommandResult,
@@ -50,6 +51,7 @@ type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
 export type RegistryQuery = WithoutRequestId<RegistryRequest>;
 
 export interface ClientApi {
+  readonly projects: ProjectsApi;
   readonly state: ConnectionState;
   readonly error: ClientError | undefined;
   connectionState(): Selection<ConnectionState>;
