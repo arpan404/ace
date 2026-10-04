@@ -18,6 +18,7 @@ export interface CursorTranslatorOptions {
 }
 /** Synchronous pure fold. SDK generation/segment/order provenance is independent of message text. */
 export class CursorTranslator implements Translator {
+  private diagnostics: import("@ace/protocol").RawPayload[] = [];
   private root: Key;
   private rootSeen = false;
   private generation: string | undefined;
@@ -57,10 +58,16 @@ export class CursorTranslator implements Translator {
     });
     this.transcript = new Transcript("unopened", this.max);
   }
+  takeDiagnostics(): import("@ace/protocol").RawPayload[] {
+    const diagnostics = this.diagnostics;
+    this.diagnostics = [];
+    return diagnostics;
+  }
   tick(_now: number): Fact[] {
     return [];
   }
   translate(frame: Frame, _now: number): Fact[] {
+    this.diagnostics = [];
     if (frame.channel !== "sdk" || this.overflow) return [];
     try {
       // Synthetic/replay callers get the same admission guard as live encoded ingress.
@@ -68,6 +75,7 @@ export class CursorTranslator implements Translator {
         frame.payload && ProviderPayload.is(frame.payload) && frame.payload.data === frame.data
           ? frame.payload
           : new ProviderPayload(boundedJson(frame.data));
+      this.diagnostics = [{ type: "cursor.sdk.v1", data: payload.data }];
       const parsed = Envelope.safeParse(payload.data);
       if (!parsed.success)
         return [this.notice("Malformed SDK boundary envelope", frame.data, "error")];
@@ -97,10 +105,6 @@ export class CursorTranslator implements Translator {
             ...(model ? { model } : {}),
             native: { provider: "cursor", ...(event.agentId ? { nativeId: event.agentId } : {}) },
           },
-          this.notice(
-            "Cursor SDK local runtime; task children are read-only and nested transcripts are incomplete",
-            event,
-          ),
         ];
       }
       if (event.kind === "send") {
@@ -131,18 +135,9 @@ export class CursorTranslator implements Translator {
         this.replacement = false;
         this.interrupted = false;
         this.transcript = new Transcript(namespace, this.max);
-        facts.push(
-          this.notice(
-            `SDK logical operation ${event.operationId}, segment ${event.segment}`,
-            event,
-          ),
-        );
         return facts;
       }
-      if (event.kind === "observe")
-        return [
-          this.notice("SDK durable event retained; callback journal owns canonical content", event),
-        ];
+      if (event.kind === "observe") return [];
       if (event.kind === "recovery")
         return [
           ...this.children.preserve(),
@@ -221,12 +216,7 @@ export class CursorTranslator implements Translator {
       }
       switch (event.kind) {
         case "segment":
-          return [
-            this.notice(
-              `SDK run ${event.runId ?? string(body.nativeRunId) ?? "unknown"} belongs to segment ${event.segment}`,
-              event,
-            ),
-          ];
+          return [];
         case "delta-chunk":
         case "delta":
           return this.delta(body, this.root, namespace, 0);
@@ -247,14 +237,7 @@ export class CursorTranslator implements Translator {
             this.replacement = body.replacement === true;
             this.interrupted = !this.replacement;
           }
-          return [
-            this.notice(
-              this.replacement
-                ? "SDK cancellation requested before replacement segment"
-                : "SDK cancellation boundary",
-              event,
-            ),
-          ];
+          return [];
         }
         case "result": {
           if (!this.active)
@@ -278,10 +261,6 @@ export class CursorTranslator implements Translator {
             ...this.transcript.end(),
             ...this.tools.preserve(),
             ...this.children.preserve(),
-            this.notice(
-              "SDK segment terminal result; cumulative usage is retained without adding it to turn usage",
-              event,
-            ),
           ];
           if (body.status === "error")
             facts.push(
@@ -353,7 +332,7 @@ export class CursorTranslator implements Translator {
           return facts;
         }
         case "close":
-          return [...this.children.preserve(), this.notice("SDK host disposal boundary", event)];
+          return this.children.preserve();
         default:
           return [this.notice("Unknown SDK envelope retained", event)];
       }
