@@ -147,12 +147,20 @@ export function TabItem(props: {
                     "pr-2.5 group-focus-within/tab:pr-7 group-hover/tab:pr-7",
           )}
         >
-          <Icon
-            icon={kind?.icon ?? XIcon}
-            size={14}
-            active={props.active}
-            className="shrink-0 text-current opacity-80"
-          />
+          {kind?.TabIcon ? (
+            <kind.TabIcon
+              scope={props.scope}
+              tab={tab}
+              className="shrink-0 text-current opacity-80"
+            />
+          ) : (
+            <Icon
+              icon={kind?.icon ?? XIcon}
+              size={14}
+              active={props.active}
+              className="shrink-0 text-current opacity-80"
+            />
+          )}
           {/* Folded, the title and badge keep their width to measure but take no room. */}
           <span data-tab-title className={cn("min-w-0 truncate", iconOnly && "w-0")}>
             {title}

@@ -33,6 +33,12 @@ export interface TabKindOptions {
   /** The tool's name: launcher card, default tab title, tooltips. */
   label: string;
   icon: IconGlyph;
+  /**
+   * The icon of one tab, where it differs by resource (an agent's provider mark). Drawn in the
+   * strip and the open-tabs list instead of `icon`, at 14px in the text colour; `icon` stays for
+   * the launcher and while this hasn't loaded.
+   */
+  TabIcon?: ComponentType<{ scope: string; tab: WorkspaceTab; className?: string }>;
   /** One tab per scope (Changes, Agents). Others open one tab per `id`. */
   singleton?: boolean;
   /** Docks it may sit in, preferred first. Default: right only. */

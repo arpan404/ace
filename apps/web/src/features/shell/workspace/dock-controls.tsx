@@ -52,7 +52,12 @@ export function DockControls(props: {
         />
       )}
       {props.placement === "header" && count > 0 && (
-        <OpenTabsCount workspace={workspace} definition={props.definition} actions={actions} />
+        <OpenTabsCount
+          scope={props.scope}
+          workspace={workspace}
+          definition={props.definition}
+          actions={actions}
+        />
       )}
       <IconButton
         icon={SquareSplitHorizontalIcon}

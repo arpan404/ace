@@ -14,7 +14,7 @@ import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
 import { addressHost } from "@ace/ui-core";
 import { LoadingBadge } from "./browser/loading-badge.tsx";
 import { bindPage, nextBrowserId, pageOwners, setLoading } from "./browser/loading.ts";
-import { AgentBadge } from "./agents/agent-badge.tsx";
+import { AgentBadge, AgentTabIcon } from "./agents/agent-badge.tsx";
 import { ThreadDiffStat } from "./changes/diff-stat.tsx";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
@@ -156,6 +156,7 @@ export const agentKind = defineTabKind({
   kind: "agent",
   label: "Agent",
   icon: RobotIcon,
+  TabIcon: AgentTabIcon,
   Badge: AgentBadge,
   load: () => import("./agents/agent-tab.tsx").then((m) => ({ default: m.AgentTab })),
 });

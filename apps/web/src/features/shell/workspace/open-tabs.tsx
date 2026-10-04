@@ -14,6 +14,7 @@ import {
 } from "@/lib/workspace/index.ts";
 
 export interface OpenTabsProps {
+  scope: string;
   workspace: ScopeWorkspace;
   definition: WorkspaceDefinition;
   actions: WorkspaceActions;
@@ -61,7 +62,11 @@ export function OpenTabs(props: OpenTabsProps) {
                     tab.key === shown ? "text-foreground" : "text-muted-foreground",
                   )}
                 >
-                  {kind && <Icon icon={kind.icon} size={14} />}
+                  {kind?.TabIcon ? (
+                    <kind.TabIcon scope={props.scope} tab={tab} className="shrink-0" />
+                  ) : (
+                    kind && <Icon icon={kind.icon} size={14} />
+                  )}
                   <span className="min-w-0 truncate">{title}</span>
                 </button>
                 <Tip label={`Open ${title} in full view`} shortcut="fullView">
