@@ -1,56 +1,71 @@
-import { opendir, stat, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { ProjectDirectoryName, type ProjectsResult } from "@ace/protocol";
 import { ProjectError, type ProjectPaths } from "./project-policy.ts";
+import { ProjectDirectory } from "./project-directory.ts";
 
 type DirectoryPage = Extract<ProjectsResult["result"], { kind: "directories" }>;
-/** Scan at most 10,000 dirents and retain only a page plus one; no unbounded readdir. */
+/** Descriptor-bound scan: at most 10,000 names and only page+1 directory metadata results. */
 export async function browseProjects(
   paths: ProjectPaths,
   input: { path: string; after?: string | undefined; limit: number; showHidden: boolean },
 ): Promise<DirectoryPage> {
-  const path = await paths.directory(input.path);
-  const directory = await opendir(path);
+  const directory = await ProjectDirectory.open(paths, input.path);
   const entries: DirectoryPage["entries"] = [];
-  let scanned = 0;
-  for await (const entry of directory) {
-    if (++scanned > 10_000) throw new ProjectError("directory_too_large");
-    if (
-      (!input.showHidden && entry.name.startsWith(".")) ||
-      entry.name <= (input.after ?? "") ||
-      !ProjectDirectoryName.safeParse(entry.name).success
-    )
-      continue;
-    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-    // Once a page is retained, only candidates sorting before its last entry need I/O.
-    if (entries.length > input.limit && entry.name >= (entries.at(-1)?.name ?? "")) continue;
-    try {
-      const target = await paths.directory(join(path, entry.name));
-      const metadata = await stat(target);
-      let git = false;
+  try {
+    for (const name of directory.handle.names()) {
+      if (
+        (!input.showHidden && name.startsWith(".")) ||
+        name <= (input.after ?? "") ||
+        !ProjectDirectoryName.safeParse(name).success
+      )
+        continue;
+      let kind: number;
       try {
-        const marker = await lstat(join(target, ".git"));
-        git = marker.isDirectory() || marker.isFile();
-      } catch {
-        /* Not a repository root. */
+        kind = directory.handle.metadata(name).mode & 0o170000;
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          ["ENOENT", "ENOTDIR", "EACCES"].includes(String(error.code))
+        )
+          continue;
+        throw error;
       }
-      entries.push({
-        name: entry.name,
-        path: target,
-        git,
-        modifiedAt: Math.max(0, metadata.mtimeMs),
-      });
-      entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-      if (entries.length > input.limit + 1) entries.pop();
-    } catch (error) {
-      if (!(error instanceof ProjectError)) throw error;
-      // Unreadable or escaping entries are absent from the picker.
+      if (kind !== 0o040000 && kind !== 0o120000) continue;
+      try {
+        const child = await ProjectDirectory.open(paths, join(directory.path, name));
+        try {
+          const metadata = child.handle.stat();
+          let git = false;
+          try {
+            const marker = child.handle.metadata(".git").mode & 0o170000;
+            git = marker === 0o040000 || marker === 0o100000;
+          } catch {
+            /* Not a repository root. */
+          }
+          child.verify();
+          entries.push({ name, path: child.path, git, modifiedAt: Math.max(0, metadata.mtimeMs) });
+        } finally {
+          await child.close();
+        }
+      } catch (error) {
+        if (!(error instanceof ProjectError)) throw error;
+        // Unreadable, escaping or replaced entries are absent from the picker.
+      }
+      if (entries.length > input.limit) break;
     }
+    directory.verify();
+    return {
+      kind: "directories",
+      path: directory.path,
+      entries: entries.slice(0, input.limit),
+      ...(entries.length > input.limit ? { next: entries[input.limit - 1]?.name } : {}),
+    };
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "LIMIT_EXCEEDED")
+      throw new ProjectError("directory_too_large");
+    throw error;
+  } finally {
+    await directory.close();
   }
-  return {
-    kind: "directories",
-    path,
-    entries: entries.slice(0, input.limit),
-    ...(entries.length > input.limit ? { next: entries[input.limit - 1]?.name } : {}),
-  };
 }

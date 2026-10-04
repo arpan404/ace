@@ -1,7 +1,7 @@
 import { projectRemotes } from "./project-git.ts";
 import { homedir } from "node:os";
-import { mkdir, opendir, lstat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
+import { ProjectDirectory } from "./project-directory.ts";
 import {
   GitService,
   GitError,
@@ -35,6 +35,7 @@ export interface ProjectsOptions {
   hasOwnedWork?: (id: ThreadId) => boolean;
 }
 type CloneFlight = {
+  committed: boolean;
   device: string;
   controller: AbortController;
   finished: Promise<CommandResult>;
@@ -85,25 +86,37 @@ export class Projects {
     if (!allowed()) throw new ProjectError("forbidden");
   }
   async inspect(input: string) {
-    const path = await this.paths.directory(input);
+    const directory = await ProjectDirectory.open(this.paths, input);
+    try {
+      return await this.inspectDirectory(directory);
+    } finally {
+      await directory.close();
+    }
+  }
+  private async inspectDirectory(directory: ProjectDirectory, signal?: AbortSignal) {
+    const path = directory.path;
     let git = null;
     try {
-      const info = await this.git.repositoryInfo(path);
+      const info = await this.git.projectInfo(path, directory.handle.fd, signal);
       // A repository above the selected allowed root cannot be offered to the client.
       const root = await this.paths.directory(info.root);
       git = {
         root,
         branch: info.branch,
-        defaultBranch: await this.git.defaultBranch(root),
+        defaultBranch: await this.git.defaultBranch(path, directory.handle.fd, signal),
         remotes: projectRemotes(info.remotes),
       };
     } catch (error) {
       if (
-        !(error instanceof ProjectError) &&
+        !(
+          error instanceof ProjectError &&
+          ["outside_project_roots", "system_directory"].includes(error.code)
+        ) &&
         !(error instanceof GitError && error.code === "not_a_repo")
       )
         throw error;
     }
+    directory.verify();
     return ProjectInspection.parse({
       path,
       git,
@@ -122,13 +135,22 @@ export class Projects {
         this.check(allowed);
         const p = ProjectCommand.parse(input.payload);
         if (p.type === "workspace.add") {
-          const inspection = await this.inspect(p.path);
-          const path = await this.paths.directory(inspection.path);
-          this.check(allowed);
-          this.store.workspaceReservations.assertAvailable(path);
-          if (this.destinations.has(path)) throw new ProjectError("project_busy");
-          const workspace = this.catalog.register(path, p.name ?? basename(path).slice(0, 256));
-          return { ok: true, workspace, inspection };
+          const directory = await ProjectDirectory.open(this.paths, p.path);
+          try {
+            const inspection = await this.inspectDirectory(directory);
+            assertProjectPath(directory.path, await this.paths.roots());
+            this.check(allowed);
+            this.store.workspaceReservations.assertAvailable(directory.path);
+            if (this.destinations.has(directory.path)) throw new ProjectError("project_busy");
+            directory.verify();
+            const workspace = this.catalog.register(
+              directory.path,
+              p.name ?? basename(directory.path).slice(0, 256),
+            );
+            return { ok: true, workspace, inspection };
+          } finally {
+            await directory.close();
+          }
         }
         if (p.type === "workspace.rename" || p.type === "workspace.remove") {
           const project = this.catalog.get(p.workspaceId);
@@ -143,28 +165,27 @@ export class Projects {
           );
           return { ok: true };
         }
-        const parent = await this.paths.directory(p.parent);
+        const parentDirectory = await ProjectDirectory.open(this.paths, p.parent);
+        const parent = parentDirectory.path;
         const path = join(parent, p.name);
-        if (this.destinations.has(path)) throw new ProjectError("project_busy");
+        if (this.destinations.has(path)) {
+          await parentDirectory.close();
+          throw new ProjectError("project_busy");
+        }
         this.destinations.add(path);
+        let directory: ProjectDirectory | undefined;
         try {
           this.check(allowed);
           if (p.type === "workspace.clone")
             (this.options.gitPolicy?.validateUrl ?? validateCloneUrl)(p.url);
           this.store.workspaceReservations.assertAvailable(path);
-          await this.emptyDestination(path);
+          directory = await parentDirectory.destination(p.name);
           this.check(allowed);
           if (p.type === "workspace.create") {
-            const canonical = await this.paths.directory(path);
-            this.check(allowed);
-            if (p.git) await this.git.init(canonical, p.git.initialBranch);
+            if (p.git) await this.git.init(path, p.git.initialBranch, directory.handle.fd);
             if (p.gitignore !== undefined) {
-              await this.paths.directory(canonical);
               this.check(allowed);
-              await writeFile(join(canonical, ".gitignore"), p.gitignore, {
-                flag: "wx",
-                mode: 0o600,
-              });
+              await directory.handle.writeExclusive(".gitignore", p.gitignore);
             }
           } else {
             controller.signal.throwIfAborted();
@@ -178,6 +199,7 @@ export class Projects {
                 parent,
                 path,
                 url: p.url,
+                directoryFd: directory.handle.fd,
                 signal: controller.signal,
                 progress: (value) => {
                   if (!allowed()) controller.abort();
@@ -193,22 +215,30 @@ export class Projects {
             );
           }
           controller.signal.throwIfAborted();
-          const inspection = await this.inspect(path);
+          const inspection = await this.inspectDirectory(directory, controller.signal);
           if (p.type === "workspace.clone" && !inspection.git)
             throw new ProjectError("clone_not_repository");
-          await this.paths.directory(path);
+          assertProjectPath(directory.path, await this.paths.roots());
           this.check(allowed);
-          const workspace = this.catalog.register(inspection.path, p.name);
-          if (p.type === "workspace.clone")
+          directory.verify();
+          controller.signal.throwIfAborted();
+          // Commit is synchronous. Cancellation may not contradict pushes emitted by registration.
+          const clone = this.clones.get(input.id);
+          if (clone) clone.committed = true;
+          const workspace = this.catalog.register(directory.path, p.name);
+          if (p.type === "workspace.clone") {
             this.progress(input.deviceId, {
               type: "workspace.clone.progress",
               commandId: input.id,
               phase: "completed",
               percent: 100,
             });
+          }
           return { ok: true, workspace, inspection };
         } finally {
           this.destinations.delete(path);
+          await directory?.close();
+          await parentDirectory.close();
         }
       } catch (error) {
         const cancelled = controller.signal.aborted;
@@ -222,30 +252,18 @@ export class Projects {
       }
     });
     if (input.payload.type === "workspace.clone") {
-      this.clones.set(input.id, { device: input.deviceId, controller, finished: flight });
+      this.clones.set(input.id, {
+        committed: false,
+        device: input.deviceId,
+        controller,
+        finished: flight,
+      });
       const forget = () => {
         this.clones.delete(input.id);
       };
       void flight.then(forget, forget);
     }
     return flight;
-  }
-  private async emptyDestination(path: string): Promise<void> {
-    try {
-      await mkdir(path, { mode: 0o700 });
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
-      const metadata = await lstat(path);
-      if (!metadata.isDirectory() || metadata.isSymbolicLink())
-        throw new ProjectError("destination_not_directory");
-      const directory = await opendir(path);
-      try {
-        if (await directory.read()) throw new ProjectError("destination_not_empty");
-      } finally {
-        await directory.close();
-      }
-    }
-    await this.paths.directory(path);
   }
   async read(
     input: ProjectsRequest,
@@ -266,6 +284,7 @@ export class Projects {
         const clone = this.clones.get(op.commandId);
         if (!clone) throw new ProjectError("clone_not_running");
         if (clone.device !== device) throw new ProjectError("forbidden");
+        if (clone.committed) throw new ProjectError("clone_not_running");
         clone.controller.abort();
         await clone.finished;
         result = { kind: "cancelled", commandId: op.commandId };
@@ -314,8 +333,7 @@ export class Projects {
     this.closed = true;
     this.stopRevocation();
     for (const clone of this.clones.values()) clone.controller.abort();
-    await this.commands.drained();
-    await this.git.close();
+    await Promise.all([this.git.close(), this.commands.drained()]);
   }
 }
 export function projectErrorCode(error: unknown): string {
