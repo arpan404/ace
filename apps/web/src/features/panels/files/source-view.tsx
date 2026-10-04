@@ -92,10 +92,9 @@ export function SourceView(props: {
   const box = useRef<HTMLDivElement>(null);
   const hit = props.find?.hit;
   const hitLine = hit?.line;
-  const hitColumn = hit?.column;
   useEffect(() => {
     if (hitLine !== undefined) reveal(box.current, handle.current, hitLine);
-  }, [hitLine, hitColumn]);
+  }, [hitLine]);
   useEffect(() => {
     if (props.line && props.line > 0) reveal(box.current, handle.current, props.line - 1);
   }, [props.line]);

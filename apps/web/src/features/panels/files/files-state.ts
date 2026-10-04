@@ -1,8 +1,9 @@
 import * as z from "zod/mini";
-import { readJson, rememberRecent, writeJson, type KeyValueStorage } from "@ace/ui-core";
+import { readJson, writeJson, type KeyValueStorage } from "@ace/ui-core";
 import { useCallback, useSyncExternalStore } from "react";
 import { useLayout } from "@/lib/layout.tsx";
 import type { WorkspaceTab } from "@/lib/workspace/index.ts";
+import { useScopedRecent, useScopedRecentStore, type ScopedRecent } from "../recent-store.ts";
 
 /*
  * The Files tool's local state: what a file tab holds (kept with the tab), the files each thread
@@ -33,23 +34,17 @@ const Prefs = z.object({
   wrap: z.catch(z.boolean(), false),
 });
 export type FilePrefs = z.infer<typeof Prefs>;
-const Recent = z.array(z.tuple([z.string(), z.array(z.string())]));
 
 const prefsKey = "ace.files.prefs";
-const recentKey = "ace.files.recent";
-/** Threads whose recent files are kept, the most recently used first. */
-const recentThreads = 64;
 const defaultPrefs: FilePrefs = { treeOpen: true, treeWidth: 240, wrap: false };
 
 export class FilesMemory {
   private storage: KeyValueStorage | undefined;
   private listeners = new Set<() => void>();
-  private recent: ReadonlyMap<string, readonly string[]>;
   prefs: FilePrefs;
   constructor(storage: KeyValueStorage | undefined) {
     this.storage = storage;
     this.prefs = readJson(storage, prefsKey, Prefs, defaultPrefs);
-    this.recent = new Map(readJson(storage, recentKey, Recent, []));
   }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -58,21 +53,6 @@ export class FilesMemory {
   private changed() {
     for (const listener of this.listeners) listener();
   }
-  recentFiles(threadId: string): readonly string[] {
-    return this.recent.get(threadId) ?? none;
-  }
-  remember(threadId: string, path: string) {
-    const current = this.recentFiles(threadId);
-    if (current[0] === path && this.recent.keys().next().value === threadId) return;
-    const files = rememberRecent(current, path);
-    const next = new Map([
-      [threadId, files],
-      ...[...this.recent].filter(([id]) => id !== threadId),
-    ]);
-    this.recent = new Map([...next].slice(0, recentThreads));
-    writeJson(this.storage, recentKey, [...this.recent]);
-    this.changed();
-  }
   setPrefs(patch: Partial<FilePrefs>, persist = true) {
     this.prefs = { ...this.prefs, ...patch };
     if (persist) writeJson(this.storage, prefsKey, this.prefs);
@@ -80,7 +60,6 @@ export class FilesMemory {
   }
 }
 
-const none: readonly string[] = [];
 const memories = new WeakMap<object, FilesMemory>();
 let withoutStorage: FilesMemory | undefined;
 
@@ -102,8 +81,13 @@ export function useFilePrefs(): [FilePrefs, FilesMemory] {
   return [useSyncExternalStore(memory.subscribe, read, read), memory];
 }
 
+/** Files each thread opened recently, kept on this device. */
+const recentFiles = { key: "ace.files.recent", perScope: 20, scopes: 64 };
+
+export function useRecentFilesStore(): ScopedRecent {
+  return useScopedRecentStore(recentFiles);
+}
+
 export function useRecentFiles(threadId: string): readonly string[] {
-  const memory = useFilesMemory();
-  const read = useCallback(() => memory.recentFiles(threadId), [memory, threadId]);
-  return useSyncExternalStore(memory.subscribe, read, read);
+  return useScopedRecent(useRecentFilesStore(), threadId);
 }

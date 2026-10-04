@@ -148,3 +148,77 @@ export function suggestAddresses(
   );
   return [...starts, ...contains].slice(0, limit);
 }
+
+export interface BrowserFailure {
+  /** What happened, as a heading. */
+  title: string;
+  /** What it means and what to do. */
+  detail: string;
+  /** Chromium's own code when there is one (ERR_CONNECTION_REFUSED), for searching. */
+  code?: string;
+  /** Taking control again (or once) would let the person retry. */
+  needsControl?: boolean;
+}
+
+const netErrors: Record<string, (host: string) => Omit<BrowserFailure, "code">> = {
+  ERR_CONNECTION_REFUSED: (host) => ({
+    title: "This site can't be reached",
+    detail: `${host} refused to connect. Is its server running?`,
+  }),
+  ERR_NAME_NOT_RESOLVED: (host) => ({
+    title: "This site can't be reached",
+    detail: `The daemon's machine couldn't find ${host}. Check the address.`,
+  }),
+  ERR_UNSAFE_PORT: (host) => ({
+    title: "This port is blocked",
+    detail: `Chromium won't open ${host}: its port is reserved for other services.`,
+  }),
+  ERR_INTERNET_DISCONNECTED: () => ({
+    title: "No internet connection",
+    detail: "The daemon's machine is offline.",
+  }),
+  ERR_CONNECTION_TIMED_OUT: (host) => ({
+    title: "This site took too long to respond",
+    detail: `${host} didn't answer in time.`,
+  }),
+  ERR_CERT_AUTHORITY_INVALID: (host) => ({
+    title: "This connection isn't private",
+    detail: `${host}'s certificate isn't trusted, so the page wasn't opened.`,
+  }),
+};
+
+/**
+ * A browser command's failure as a person reads it: Chromium's net errors by name, the browser
+ * service's refusals (control held elsewhere, an origin waiting for approval) in plain words, and
+ * anything else as the daemon said it.
+ */
+export function describeBrowserFailure(message: string, url: string): BrowserFailure {
+  const host = addressHost(url) ?? url;
+  const net = /net::(ERR_[A-Z_]+)/.exec(message)?.[1];
+  if (net) {
+    const known = netErrors[net];
+    return known
+      ? { ...known(host), code: net }
+      : { title: "This page couldn't load", detail: `${host} didn't load.`, code: net };
+  }
+  if (/requires approval/i.test(message))
+    return {
+      title: "This site needs approval",
+      detail: `ace's browser opens ${host} only once it's approved for this thread.`,
+    };
+  if (/another connection/i.test(message))
+    return {
+      title: "Another device is using this page",
+      detail: "Someone took control of the thread's page from another device.",
+    };
+  if (/controller mismatch|controlled by/i.test(message))
+    return {
+      title: "The agent has the page",
+      detail: "An agent took the page back. Take control to browse again.",
+      needsControl: true,
+    };
+  if (/browser closed/i.test(message))
+    return { title: "The page was closed", detail: "Open the address again to start a new page." };
+  if (/paused/i.test(message)) return { title: "The browser is paused", detail: message };
+  return { title: "This page couldn't load", detail: message };
+}

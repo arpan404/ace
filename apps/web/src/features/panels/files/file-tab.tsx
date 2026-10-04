@@ -16,7 +16,13 @@ import {
 import { FileToolbar } from "./file-toolbar.tsx";
 import { FileTree } from "./file-tree.tsx";
 import { FileViewer, NoFile } from "./file-viewer.tsx";
-import { fileTabData, useFilePrefs, useFilesMemory, useRecentFiles } from "./files-state.ts";
+import {
+  fileTabData,
+  useFilePrefs,
+  useFilesMemory,
+  useRecentFiles,
+  useRecentFilesStore,
+} from "./files-state.ts";
 import { openFile } from "./open-file.ts";
 import { quickOpen } from "./quick-open-store.ts";
 import { findHits } from "./source-view.tsx";
@@ -163,9 +169,10 @@ export function FileTab(props: TabViewProps) {
   };
   const fileActions = useFileActions(threadId, (uploaded) => open(uploaded, true));
 
+  const recentStore = useRecentFilesStore();
   useEffect(() => {
-    if (path) memory.remember(threadId, path);
-  }, [memory, threadId, path]);
+    if (path) recentStore.remember(threadId, path);
+  }, [recentStore, threadId, path]);
 
   const text = content.data?.kind === "text" ? content.data.text : undefined;
   const readable = text !== undefined && !(path?.match(/\.(md|markdown|mdx)$/i) && !data.source);

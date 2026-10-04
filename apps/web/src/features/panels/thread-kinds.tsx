@@ -1,5 +1,6 @@
 import {
   BrowserIcon,
+  GlobeSimpleIcon,
   ChatsCircleIcon,
   DeviceMobileIcon,
   FilesIcon,
@@ -10,19 +11,19 @@ import {
   TreeStructureIcon,
 } from "@phosphor-icons/react";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
+import { addressHost } from "@ace/ui-core";
+import { LoadingBadge } from "./browser/loading-badge.tsx";
+import { bindPage, nextBrowserId, pageOwners, setLoading } from "./browser/loading.ts";
 import { ThreadDiffStat } from "./changes/diff-stat.tsx";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
 import { fileTabId } from "./files/tab-id.ts";
 
-/** The path a file tab shows, read defensively: tab data comes from storage. */
-function tabPath(data: unknown): string | undefined {
-  return typeof data === "object" &&
-    data !== null &&
-    "path" in data &&
-    typeof data.path === "string"
-    ? data.path
-    : undefined;
+/** A string field of a tab's data, read defensively: tab data comes from storage. */
+function field(data: unknown, name: "path" | "url"): string | undefined {
+  if (typeof data !== "object" || data === null || !(name in data)) return undefined;
+  const value: unknown = Reflect.get(data, name);
+  return typeof value === "string" ? value : undefined;
 }
 
 /*
@@ -67,7 +68,7 @@ export const filesKind = defineTabKind({
   icon: FilesIcon,
   launcher: 30,
   title: (tab) => {
-    const path = tabPath(tab.data);
+    const path = field(tab.data, "path");
     return path ? (path.split("/").at(-1) ?? path) : "Open file";
   },
   load: () => import("./files/file-tab.tsx"),
@@ -85,6 +86,30 @@ export const sideChatKind = defineTabKind({
   load: () => import("./placeholders.tsx").then((m) => ({ default: m.SideChatPlaceholder })),
 });
 
+/**
+ * A page in the thread's browser: one tab per page, each with its own address and history over
+ * the thread's single live page. Addresses from the launcher open here.
+ */
+export const browserKind = defineTabKind({
+  kind: "browser",
+  label: "Browser",
+  icon: GlobeSimpleIcon,
+  launcher: 45,
+  title: (tab) => addressHost(field(tab.data, "url") ?? "") ?? "New page",
+  Badge: LoadingBadge,
+  load: () => import("./browser/browser-tab.tsx"),
+  fromUrl: (url, workspace) => ({
+    kind: "browser",
+    id: nextBrowserId([...workspace.right.tabs, ...workspace.bottom.tabs].map((tab) => tab.key)),
+    data: { url, go: true },
+  }),
+  onClose: (scope, tab) => {
+    setLoading(scope, tab.key, false);
+    // The page stays open for the thread's agents; it just has no tab driving it now.
+    if (pageOwners.get().get(scope) === tab.key) bindPage(scope, undefined);
+  },
+});
+
 export const previewKind = defineTabKind({
   kind: "preview",
   label: "Preview",
@@ -92,7 +117,6 @@ export const previewKind = defineTabKind({
   singleton: true,
   launcher: 50,
   load: () => views().then((m) => ({ default: m.PreviewView })),
-  fromUrl: (url) => ({ kind: "preview", data: { url } }),
 });
 
 export const devicesKind = defineTabKind({
@@ -140,6 +164,7 @@ export const threadKinds: readonly TabKind[] = [
   terminalKind,
   filesKind,
   sideChatKind,
+  browserKind,
   previewKind,
   devicesKind,
   agentsKind,

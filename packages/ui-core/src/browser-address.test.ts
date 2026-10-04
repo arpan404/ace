@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   addressHost,
   canStep,
+  describeBrowserFailure,
   displayAddress,
   emptyHistory,
   parseAddress,
@@ -91,4 +92,27 @@ test("suggestions put addresses that start with the typed text first", () => {
   expect(suggestAddresses("local", known).map((each) => each.label)).toEqual(["web", "storybook"]);
   expect(suggestAddresses("story", known).map((each) => each.label)).toEqual(["storybook"]);
   expect(suggestAddresses("", known, 2)).toHaveLength(2);
+});
+
+test("browser failures read as what happened and what to do", () => {
+  expect(
+    describeBrowserFailure(
+      "net::ERR_CONNECTION_REFUSED at http://localhost:4321/",
+      "http://localhost:4321/",
+    ),
+  ).toEqual({
+    title: "This site can't be reached",
+    detail: "localhost:4321 refused to connect. Is its server running?",
+    code: "ERR_CONNECTION_REFUSED",
+  });
+  expect(describeBrowserFailure("net::ERR_SSL_PROTOCOL_ERROR", "https://x.dev/").code).toBe(
+    "ERR_SSL_PROTOCOL_ERROR",
+  );
+  expect(describeBrowserFailure("Browser controller mismatch", "https://x.dev/").needsControl).toBe(
+    true,
+  );
+  expect(describeBrowserFailure("Browser origin requires approval", "https://x.dev/a").detail).toBe(
+    "ace's browser opens x.dev only once it's approved for this thread.",
+  );
+  expect(describeBrowserFailure("Something odd", "https://x.dev/").detail).toBe("Something odd");
 });
