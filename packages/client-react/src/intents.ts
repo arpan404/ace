@@ -1,4 +1,4 @@
-import type { ConnectionState, Intent } from "@ace/client";
+import type { ConnectionState, Intent, PendingSend } from "@ace/client";
 import type { CommandPayload } from "@ace/protocol";
 import { useCallback, useMemo, useState } from "react";
 import { useClient } from "./context.ts";
@@ -42,4 +42,11 @@ export function useIntentSender(): {
     [client],
   );
   return { send, intent, error };
+}
+
+/** Visible immediately on enqueue, including while the first persistence write is held. */
+export function usePendingSends(threadId?: string): readonly PendingSend[] {
+  const client = useClient();
+  const selection = useMemo(() => client.pendingSends(threadId), [client, threadId]);
+  return useSelection(selection) ?? [];
 }

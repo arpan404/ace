@@ -2,6 +2,7 @@ import {
   ClientError,
   loadServiceWire,
   type Client,
+  type PendingSend,
   type Scheduler,
   type SidebarExport,
   type ThreadExport,
@@ -199,6 +200,8 @@ class Tab {
   private calls = new Map<number, AbortController>();
   private iterators = new Map<number, AsyncGenerator<unknown>>();
   private intents = new Map<string, () => void>();
+  private stopPending: (() => void) | undefined;
+  private pendingSent = new Map<string, PendingSend>();
   private wantsMessages = false;
   private stopMessages: (() => void) | undefined;
   private visible = true;
@@ -291,6 +294,13 @@ class Tab {
         return this.calls.get(message.call)?.abort();
       case "send":
         return this.sendControl(client, message.message);
+      case "watchPendingSends":
+        return this.watchPending(client);
+      case "unwatchPendingSends":
+        this.stopPending?.();
+        this.stopPending = undefined;
+        this.pendingSent.clear();
+        return;
       case "watchIntent":
         return this.watch(client, message.id);
       case "unwatchIntent":
@@ -410,6 +420,21 @@ class Tab {
       } else leases.push({ lease, patches: held.read(dirty) });
     }
     if (leases.length) this.post({ t: "changes", leases });
+  }
+  private watchPending(client: Client): void {
+    if (this.stopPending) return;
+    const selection = client.pendingSends();
+    const send = (reset = false) => {
+      const next = new Map(selection.getSnapshot().map((entry) => [entry.commandId, entry]));
+      const entries = [...next.values()].filter(
+        (entry) => reset || this.pendingSent.get(entry.commandId) !== entry,
+      );
+      const removed = [...this.pendingSent.keys()].filter((id) => !next.has(id));
+      this.pendingSent = next;
+      this.post({ t: "pendingSends", reset, entries, removed });
+    };
+    this.stopPending = selection.subscribe(() => send());
+    send(true);
   }
   private watch(client: Client, id: string): void {
     if (this.intents.has(id)) return;
@@ -531,6 +556,9 @@ class Tab {
     for (const lease of this.leases.keys()) this.release(lease);
     for (const stop of this.intents.values()) stop();
     this.intents.clear();
+    this.stopPending?.();
+    this.stopPending = undefined;
+    this.pendingSent.clear();
     this.stopMessages?.();
     this.stopMessages = undefined;
     for (const controller of this.calls.values()) controller.abort();

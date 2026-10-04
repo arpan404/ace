@@ -173,3 +173,12 @@ when their `input:<commandId>` item is observed. Both count and byte caps evict
 settled in-memory entries before refusing active work. Legacy aggregate storage
 is accepted and trimmed on load, so an old oversized history cannot wedge sends.
 Read marks bypass persistence and coalesce by the greatest sequence per thread.
+
+`pendingSends(threadId?)` is a synchronous selection of send/create entries,
+including `saving` before persistence resolves. Each entry supplies `commandId`,
+`itemId` as `input:<commandId>`, the complete payload, state, error and a five-second
+waiting hint. Create entries can be read under `pending:<commandId>` before and
+after their receipt supplies the real `threadId`. `usePendingSends` exposes it to
+React. Render entries and admission items under the same key, suppressing a local
+entry while its daemon item is loaded. Accepted means admitted; delivered means
+the transcript item has been observed, not that the provider answered.

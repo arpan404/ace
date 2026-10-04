@@ -55,6 +55,8 @@ export const TabMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("abort"), call: id }),
   /** A one-way service control (frame ACK, terminal credit); no reply, never queued. */
   z.object({ t: z.literal("send"), message: z.unknown() }),
+  z.object({ t: z.literal("watchPendingSends") }),
+  z.object({ t: z.literal("unwatchPendingSends") }),
   z.object({ t: z.literal("watchIntent"), id: z.string() }),
   z.object({ t: z.literal("unwatchIntent"), id: z.string() }),
   /** Forward the client's uncorrelated service messages (such as `settings.changed`). */
@@ -86,6 +88,12 @@ export type LeaseChanges = z.infer<typeof LeaseChanges>;
 export const WorkerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("attached"), error: z.optional(ErrorShape) }),
   z.object({ t: z.literal("connection"), state: z.string(), error: z.optional(ErrorShape) }),
+  z.object({
+    t: z.literal("pendingSends"),
+    reset: z.optional(z.boolean()),
+    entries: z.array(z.unknown()),
+    removed: z.array(z.string()),
+  }),
   z.object({ t: z.literal("intent"), id: z.string(), intent: z.optional(z.unknown()) }),
   /** An uncorrelated service message the worker's client already decoded. */
   z.object({ t: z.literal("message"), message: z.unknown() }),

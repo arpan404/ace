@@ -1,3 +1,4 @@
+import type { PendingSend } from "./pending-sends.ts";
 import type { ProjectsApi } from "./projects-types.ts";
 import type {
   TurnsPageInput,
@@ -69,6 +70,7 @@ export interface ClientApi {
   readonly error: ClientError | undefined;
   connectionState(): Selection<ConnectionState>;
   intent(id: string): Selection<Intent | undefined>;
+  pendingSends(threadId?: string): Selection<readonly PendingSend[]>;
   start(): Promise<void>;
   close(): Promise<void>;
   networkOnline(online: boolean): void;

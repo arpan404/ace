@@ -1,3 +1,9 @@
+import {
+  pendingSend,
+  matchesPendingThread,
+  pendingSendsEqual,
+  type PendingSend,
+} from "./pending-sends.ts";
 import { projectCalls } from "./project-calls.ts";
 import { projectEvents } from "./projects.ts";
 import type { ProjectsApi } from "./projects-types.ts";
@@ -77,6 +83,8 @@ export class Client implements ClientApi {
   private readMarkers: ReadMarkers;
   private serviceListeners = new Set<(message: ServerMessage) => void>();
   private hostId: string | undefined;
+  private pendingSendEntries = new Map<string, PendingSend>();
+  private waitingHints = new Map<string, () => void>();
   constructor(options: ClientOptions) {
     this.options = options;
     const limits = { ...defaultLimits, ...options.limits };
@@ -199,7 +207,22 @@ export class Client implements ClientApi {
       limits.intents,
       limits.outboxBytes,
       limits.sendBytes,
-      (id) => this.notifications.emit([`intent:${id}`]),
+      (id) => {
+        const intent = this.intents.get(id);
+        if (intent?.state === "pending" && !this.waitingHints.has(id))
+          this.waitingHints.set(
+            id,
+            options.scheduler.set(5_000, () => this.intents.waiting(id)),
+          );
+        else if (intent?.state !== "pending") {
+          this.waitingHints.get(id)?.();
+          this.waitingHints.delete(id);
+        }
+        const entry = intent && pendingSend(intent);
+        if (entry) this.pendingSendEntries.set(id, entry);
+        else this.pendingSendEntries.delete(id);
+        this.notifications.emit([`intent:${id}`, "pendingSends"]);
+      },
       (command) => {
         if (this.state === "ready") this.connection.send({ type: "command", command });
       },
@@ -237,6 +260,17 @@ export class Client implements ClientApi {
   intent(id: string): Selection<Intent | undefined> {
     return this.notifications.select([`intent:${id}`], () => this.intents.get(id));
   }
+  pendingSends(threadId?: string): Selection<readonly PendingSend[]> {
+    return this.notifications.select(
+      ["pendingSends"],
+      () =>
+        [...this.pendingSendEntries.values()].filter((entry) =>
+          matchesPendingThread(entry, threadId),
+        ),
+      pendingSendsEqual,
+    );
+  }
+
   async start(): Promise<void> {
     // Usually loaded before the socket's welcome; a service frame that beats it waits for it.
     void this.codec.load().catch(() => {});
@@ -252,6 +286,8 @@ export class Client implements ClientApi {
     this.closed = true;
     this.requests.clear(new ClientError("offline"));
     this.readMarkers.close();
+    for (const cancel of this.waitingHints.values()) cancel();
+    this.waitingHints.clear();
     this.serviceListeners.clear();
     this.connection.stop();
     return this.intents.settled();

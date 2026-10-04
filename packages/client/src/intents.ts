@@ -5,16 +5,20 @@ import { ClientError, type Storage } from "./types.ts";
 
 const Intent = z.object({
   command: Command,
-  state: z.enum(["pending", "acked", "failed"]),
+  state: z.enum(["saving", "pending", "acked", "failed"]),
   error: z.string().optional(),
   delivered: z.boolean().optional(),
   threadId: z.string().optional(),
+  sent: z.boolean().optional(),
+  waiting: z.boolean().optional(),
 });
 export type Intent = z.infer<typeof Intent>;
 /** A transient refusal (update drain, rolled-back transaction) is retried this many times. */
 const maxRetries = 10;
 export class Intents {
   private records = new Map<string, Intent>();
+  private optimistic = new Map<string, Intent>();
+  private enqueuing = new Map<string, Promise<void>>();
   private storage: Storage;
   private device: DeviceId;
   private limit: number;
@@ -74,7 +78,7 @@ export class Intents {
     return this.initializing;
   }
   get(id: string): Intent | undefined {
-    return this.records.get(id);
+    return this.optimistic.get(id) ?? this.records.get(id);
   }
   private serialize(run: () => Promise<void>): Promise<void> {
     if (this.operations >= this.limit * 2) return Promise.reject(new ClientError("limit"));
@@ -86,7 +90,21 @@ export class Intents {
     return result;
   }
   enqueue(id: string, payload: CommandPayload): Promise<void> {
-    return this.serialize(async () => {
+    const command = Command.parse({ id, deviceId: this.device, payload });
+    const existing = this.get(id);
+    if (existing && JSON.stringify(existing.command) !== JSON.stringify(command))
+      return Promise.reject(
+        new ClientError("protocol", "Idempotency key reused with different payload"),
+      );
+    const inflight = this.enqueuing.get(id);
+    if (inflight) return inflight;
+    if (!existing || (existing.state === "failed" && this.optimistic.has(id))) {
+      for (const [key, value] of this.optimistic)
+        if (value.state === "failed") this.optimistic.delete(key);
+      this.optimistic.set(id, { command, state: "saving" });
+      this.changed(id);
+    }
+    const operation = this.serialize(async () => {
       if (!this.ready) throw new ClientError("storage");
       const command = Command.parse({ id, deviceId: this.device, payload });
       if (!fitsUtf8(JSON.stringify({ type: "command", command }), this.frameBytes))
@@ -112,9 +130,24 @@ export class Intents {
         throw error instanceof ClientError ? error : new ClientError("storage");
       }
       this.saving.delete(id);
+      this.optimistic.delete(id);
       this.changed(id);
       this.pump();
-    });
+    })
+      .catch((error: unknown) => {
+        if (this.optimistic.has(id)) {
+          this.optimistic.set(id, {
+            command,
+            state: "failed",
+            error: error instanceof ClientError ? error.code : "storage",
+          });
+          this.changed(id);
+        }
+        throw error;
+      })
+      .finally(() => this.enqueuing.delete(id));
+    this.enqueuing.set(id, operation);
+    return operation;
   }
   /** A daemon refusal of one command. Transient ones stay pending and resend with backoff. */
   refuse(commandId: string, code: string, retryable: boolean): Promise<void> {
@@ -168,7 +201,13 @@ export class Intents {
     });
   }
   values(): readonly Intent[] {
-    return [...this.records.values()];
+    return [...new Map([...this.records, ...this.optimistic]).values()];
+  }
+  waiting(id: string): void {
+    const previous = this.records.get(id);
+    if (previous?.state !== "pending" || previous.waiting) return;
+    this.records.set(id, { ...previous, waiting: true });
+    this.changed(id);
   }
   /** The admission item replaced the optimistic bubble. Release its persisted payload. */
   observe(id: string): Promise<void> {
@@ -255,6 +294,8 @@ export class Intents {
       )
         continue;
       this.inFlight.add(id);
+      this.records.set(id, { ...intent, sent: true });
+      this.changed(id);
       this.send(intent.command);
     }
   }

@@ -1,4 +1,8 @@
 import {
+  pendingSend,
+  matchesPendingThread,
+  pendingSendsEqual,
+  type PendingSend,
   deferredProjectsApi,
   downloadFile,
   uploadFile,
@@ -73,6 +77,8 @@ export interface Liveness {
   hold(): Promise<{ name: string; release(): void }>;
 }
 export interface RemoteOptions {
+  /** Command ids are allocated in the tab before sending its first worker message. */
+  id?(): string;
   scheduler: Scheduler;
   /** While the page is hidden the worker sends it nothing (ADR 0056). Always visible if absent. */
   visibility?: Visibility;
@@ -111,6 +117,9 @@ export class RemoteClient implements ClientApi {
   private current: ConnectionState = "connecting";
   private failure: ClientError | undefined;
   private intents = new Map<string, { value: Intent | undefined; watchers: number }>();
+  private sends = new Map<string, PendingSend>();
+  private localSaving = new Set<string>();
+  private pendingWatchers = 0;
   private mirrors = new Map<string, Mirrored>();
   private byLease = new Map<number, Mirrored>();
   private pending = new Map<number, Pending>();
@@ -165,6 +174,41 @@ export class RemoteClient implements ClientApi {
         };
       },
     };
+  }
+  pendingSends(threadId?: string): Selection<readonly PendingSend[]> {
+    const inner = this.notifications.select(
+      ["pendingSends"],
+      () => [...this.sends.values()].filter((entry) => matchesPendingThread(entry, threadId)),
+      pendingSendsEqual,
+    );
+    return {
+      getSnapshot: inner.getSnapshot,
+      subscribe: (listener) => {
+        if (this.pendingWatchers++ === 0) this.post({ t: "watchPendingSends" });
+        const stop = inner.subscribe(listener);
+        let stopped = false;
+        return () => {
+          if (stopped) return;
+          stopped = true;
+          stop();
+          if (--this.pendingWatchers === 0) this.post({ t: "unwatchPendingSends" });
+        };
+      },
+    };
+  }
+  private saving(payload: CommandPayload, id: string): void {
+    if (payload.type !== "thread.send" && payload.type !== "thread.create") return;
+    if (this.sends.has(id)) return;
+    this.localSaving.add(id);
+    this.sends.set(id, {
+      commandId: id,
+      itemId: `input:${id}`,
+      threadId: payload.threadId ?? `pending:${id}`,
+      payload,
+      state: "saving",
+      waiting: false,
+    });
+    this.notifications.emit(["pendingSends"]);
   }
   /** Attach to the worker's client for this target; resolves once its outbox is loaded. */
   start(): Promise<void> {
@@ -227,8 +271,27 @@ export class RemoteClient implements ClientApi {
   threads(): Lease<SidebarSource> {
     return this.hold("threads", { kind: "threads" }, () => new MirrorSidebar(this.listeners));
   }
-  async enqueue(payload: CommandPayload, id?: string): Promise<string> {
-    const result = await this.call("enqueue", id === undefined ? [payload] : [payload, id]);
+  async enqueue(
+    payload: CommandPayload,
+    id = this.options.id?.() ?? crypto.randomUUID(),
+  ): Promise<string> {
+    this.saving(payload, id);
+    let result: unknown;
+    try {
+      result = await this.call("enqueue", [payload, id]);
+    } catch (error) {
+      const previous = this.sends.get(id);
+      if (previous)
+        this.sends.set(id, {
+          ...previous,
+          state: "failed",
+          error: error instanceof Error ? error.message : "storage",
+        });
+      this.notifications.emit(["pendingSends"]);
+      throw error;
+    } finally {
+      this.localSaving.delete(id);
+    }
     const { id: sent, intent } = trusted<{ id: string; intent: Intent | undefined }>(result);
     const record = this.intents.get(sent);
     if (record) record.value = intent;
@@ -236,11 +299,20 @@ export class RemoteClient implements ClientApi {
       this.intents.set(sent, { value: intent, watchers: 0 });
       this.forgetUnwatchedIntents();
     }
-    this.notifications.emit([`intent:${sent}`]);
+    if (intent) {
+      const entry = pendingSend(intent);
+      if (entry) this.sends.set(sent, entry);
+    }
+    this.notifications.emit([`intent:${sent}`, "pendingSends"]);
     return sent;
   }
-  command(payload: CommandPayload, options: RequestOptions = {}, id?: string) {
-    const args = id === undefined ? [payload, timeout(options)] : [payload, timeout(options), id];
+  command(
+    payload: CommandPayload,
+    options: RequestOptions = {},
+    id = this.options.id?.() ?? crypto.randomUUID(),
+  ) {
+    this.saving(payload, id);
+    const args = [payload, timeout(options), id];
     return this.invoke<CommandResult>("command", args, options.signal);
   }
   registry(input: RegistryQuery, options: RequestOptions = {}) {
@@ -465,6 +537,18 @@ export class RemoteClient implements ClientApi {
         this.failure = message.error && toError(message.error);
         this.notifications.emit(["connection"]);
         return;
+      case "pendingSends": {
+        if (message.reset)
+          for (const id of this.sends.keys()) if (!this.localSaving.has(id)) this.sends.delete(id);
+        for (const id of message.removed) this.sends.delete(id);
+        for (const value of message.entries) {
+          const entry = trusted<PendingSend>(value);
+          this.sends.set(entry.commandId, entry);
+          if (entry.state !== "saving") this.localSaving.delete(entry.commandId);
+        }
+        this.notifications.emit(["pendingSends"]);
+        return;
+      }
       case "intent": {
         const record = this.intents.get(message.id);
         if (!record) return;
