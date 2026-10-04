@@ -133,10 +133,13 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
     }
   };
 
-  // Opened with an address (the launcher's bar, Suggested): go there once.
+  // Opened with an address (the launcher's bar, Suggested): go there once, as soon as the page
+  // can be reached: the thread's live page, or its project to open one in (the thread's details
+  // can arrive a moment after the tab mounts).
   const pending = data.go === true && data.url ? data.url : undefined;
+  const reachable = live !== undefined || workspaceId !== undefined;
   useEffect(() => {
-    if (!pending || !online) return;
+    if (!pending || !online || !reachable) return;
     let current = true;
     void Promise.resolve().then(() => {
       if (current) void go(pending);
@@ -146,7 +149,7 @@ export function useBrowserTab(source: PreviewSource, threadId: string, tab: Work
     };
     // `go` closes over this render's page; the address is what matters.
     // oxlint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending, online]);
+  }, [pending, online, reachable]);
 
   const step = (delta: -1 | 1) => {
     const next = stepHistory(history, delta);

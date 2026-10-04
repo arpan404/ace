@@ -156,3 +156,19 @@ test("a two-line message with a file attached starts a thread under the chosen a
   await expect(page.getByText("Also cap the delay at 30 seconds")).toBeVisible();
   await expect(composer).toHaveValue("");
 });
+
+test("an address typed in a new tab opens the browser for a thread that had no page yet", async ({
+  page,
+}) => {
+  await open(page, "/t/thread-settings", /./);
+  await page.getByRole("button", { name: "Right panel" }).click();
+  await sidePanel(page).getByRole("button", { name: "New tab" }).click();
+  const address = sidePanel(page).getByRole("combobox", { name: "Address" });
+  await address.fill("localhost:5173");
+  await address.press("Enter");
+
+  // The browser opened for the thread and went there; nothing listens on 5173, so it says so.
+  const tab = sidePanel(page).getByRole("tabpanel", { name: "localhost:5173" });
+  await expect(tab.getByRole("heading", { name: "This site can't be reached" })).toBeVisible();
+  await expect(tab.getByRole("combobox", { name: "Address" })).toHaveValue("localhost:5173");
+});
