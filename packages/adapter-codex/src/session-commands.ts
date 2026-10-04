@@ -30,9 +30,11 @@ export type Pending = {
 };
 export type SessionCommandsContext = {
   nativeSessionId: string;
-  getLaunchOptions?(): Pick<
-    TurnStartParams,
-    "effort" | "serviceTier" | "approvalPolicy" | "sandboxPolicy" | "approvalsReviewer"
+  getLaunchOptions?(): Promise<
+    Pick<
+      TurnStartParams,
+      "effort" | "serviceTier" | "approvalPolicy" | "sandboxPolicy" | "approvalsReviewer"
+    >
   >;
   active: Map<string, string>;
   parents: Map<string, string>;
@@ -89,7 +91,7 @@ export function createSessionCommands(
         {
           threadId,
           input: input(parts),
-          ...config.getLaunchOptions?.(),
+          ...(await config.getLaunchOptions?.()),
         } satisfies TurnStartParams,
         true,
       );
@@ -252,11 +254,12 @@ export function createSessionCommands(
             plan.thread,
             key,
             resolution.decision === "approve" ? "Implement the plan." : (resolution.feedback ?? ""),
-            () =>
+            async () =>
               request(
                 "turn/start",
                 {
                   threadId: plan.thread,
+                  ...(await config.getLaunchOptions?.()),
                   input: input([
                     {
                       type: "text",

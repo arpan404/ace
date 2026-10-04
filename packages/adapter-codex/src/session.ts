@@ -1,3 +1,4 @@
+import type { PermissionMode } from "@ace/protocol";
 import { codexInjection, redactMcpCredential } from "@ace/mcp-server";
 import { codexThreadPolicy, codexTurnPolicy } from "./permission-policy.ts";
 import { CodexSelectionOptions } from "./selection.ts";
@@ -24,8 +25,8 @@ export type CodexOptions = {
 export async function openCodexSession(
   ctx: CodexSessionContext,
   options: CodexOptions = {},
-): Promise<ProviderSession> {
-  const permissionMode = ctx.permissionMode ?? "auto-review";
+): Promise<ProviderSession & { permissionModePerTurn: true }> {
+  let permissionMode = ctx.permissionMode ?? "auto-review";
   let selectedOptions = CodexSelectionOptions.parse(ctx.options ?? {});
   if (ctx.fork && ctx.resume) throw new Error("Fork and resume are exclusive");
   if (ctx.fork?.point.type === "item")
@@ -58,7 +59,10 @@ export async function openCodexSession(
   let closed = false;
   let closePromise: Promise<void> | undefined;
   const active = new Map<string, string>();
-  const controlRequests = new Map<unknown, { method: string; thread: string }>();
+  const controlRequests = new Map<
+    unknown,
+    { method: string; thread: string; mode: PermissionMode }
+  >();
   const revisions = new Map<string, number>();
   const readRevisions = new Map<string, number>();
   const scopedReads = new Set<unknown>();
@@ -100,7 +104,7 @@ export async function openCodexSession(
         dir === "send" &&
         ["thread/start", "thread/resume", "thread/fork", "turn/start"].includes(method)
       )
-        controlRequests.set(m["id"], { method, thread });
+        controlRequests.set(m["id"], { method, thread, mode: permissionMode });
       if (dir === "recv") {
         const control = controlRequests.get(m["id"]);
         controlRequests.delete(m["id"]);
@@ -110,6 +114,8 @@ export async function openCodexSession(
           if (control.method === "turn/start") {
             const id = str(obj(result["turn"])["id"]);
             if (id) active.set(control.thread, id);
+            if (control.thread === nativeSessionId)
+              emit("note", { event: "permission-mode-applied", mode: control.mode });
           } else {
             nativeSessionId = str(snapshot["id"]);
             if (nativeSessionId) {
@@ -389,6 +395,7 @@ export async function openCodexSession(
     if (closed) throw new Error("Codex session is closed");
   }
   return {
+    permissionModePerTurn: true,
     nativeSessionId,
     async configure(selection) {
       const executionOptions = CodexSelectionOptions.parse(selection.options);
@@ -407,13 +414,16 @@ export async function openCodexSession(
     close,
     ...createSessionCommands({
       nativeSessionId,
-      getLaunchOptions: () => ({
-        ...codexTurnPolicy(permissionMode, ctx.cwd),
-        ...(selectedOptions.effort !== undefined ? { effort: selectedOptions.effort } : {}),
-        ...(selectedOptions.serviceTier !== undefined
-          ? { serviceTier: selectedOptions.serviceTier }
-          : {}),
-      }),
+      getLaunchOptions: async () => {
+        permissionMode = (await ctx.getPermissionMode?.()) ?? permissionMode;
+        return {
+          ...codexTurnPolicy(permissionMode, ctx.cwd),
+          ...(selectedOptions.effort !== undefined ? { effort: selectedOptions.effort } : {}),
+          ...(selectedOptions.serviceTier !== undefined
+            ? { serviceTier: selectedOptions.serviceTier }
+            : {}),
+        };
+      },
       active,
       parents,
       shells,

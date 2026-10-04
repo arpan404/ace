@@ -147,7 +147,7 @@ export class Permissions {
       );
       this.repo.store.appendEvents(
         id,
-        [{ type: "thread.updated", permission: { ...this.state(id), pending: false } }],
+        [{ type: "thread.updated", permission: this.state(id) }],
         at,
       );
     });
@@ -163,7 +163,7 @@ export class Permissions {
       const key = this.repo.nativeEntity(state.threadId, "interactions", interaction.id);
       if (key === undefined || state.interactions[key]?.state !== "pending") continue;
       const mode = this.effective(state.threadId);
-      if (mode === "full-access" || mode === "ask") continue;
+      if (mode === "ask") continue;
       if (this.repo.reserved(interaction.id)) continue;
       const previous = this.repo.store.atomic((db) =>
         db
@@ -204,7 +204,10 @@ export class Permissions {
         draft: {
           type: "notice",
           level: decision.decision === "approve" ? "info" : "warning",
-          text: `Permission review ${decision.decision}: ${decision.reason}`,
+          text:
+            mode === "full-access" && decision.decision === "approve"
+              ? "Approved · Full access"
+              : `Permission review ${decision.decision}: ${decision.reason}`,
           complete: true,
           raw: [{ type: "permission.reviewed", data: review }],
         },

@@ -82,14 +82,15 @@ export function reviewPermission(input: {
   paths: readonly PathRisk[];
 }): RiskDecision {
   const { mode, target, paths } = input;
-  if (!target) return { decision: "escalate", reason: "Provider did not supply an exact action" };
   const text = [
-    target.command ?? "",
-    ...(target.paths ?? []),
-    JSON.stringify(target.input) ?? "",
+    target?.command ?? "",
+    ...(target?.paths ?? []),
+    JSON.stringify(target?.input) ?? "",
   ].join(" ");
   if (paths.includes("secret") || containsSecretReference(text))
     return { decision: "escalate", reason: "Secret or credential access requires a human" };
+  if (mode === "full-access") return { decision: "approve", reason: "Full access" };
+  if (!target) return { decision: "escalate", reason: "Provider did not supply an exact action" };
   if (paths.includes("outside"))
     return { decision: "escalate", reason: "Action reaches outside the thread workspace" };
   if (paths.includes("unknown"))
@@ -97,8 +98,6 @@ export function reviewPermission(input: {
   if (mode === "read-only" && target.access !== "read")
     return { decision: "deny", reason: "Read-only mode does not permit this action" };
   if (mode === "ask") return { decision: "escalate", reason: "Ask mode requires a human decision" };
-  if (mode === "full-access")
-    return { decision: "approve", reason: "User explicitly selected full access" };
   if (target.command !== undefined) {
     if (
       target.access !== "execute" ||

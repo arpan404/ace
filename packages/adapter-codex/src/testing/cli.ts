@@ -35,6 +35,7 @@ const active = new Map<string, string>();
 const terminals = new Map<string, { itemId: string; processId: string }[]>();
 let pendingKind = "";
 let queued = 0;
+let policyTurn = 0;
 let discoveryFailed = false;
 const sourceHistory = [
   { id: "prior-turn", text: "private native earlier context" },
@@ -140,6 +141,38 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
   } else if (method === "turn/start") {
     const text = str(obj(list(p["input"])[0])["text"]);
+    if (process.env["ACE_FAKE_RESUME"] === "policy-boundary") {
+      if (text === "reject-policy") {
+        write({ id, error: { code: -32000, message: "Turn rejected" } });
+        continue;
+      }
+      const turnId = `policy-${++policyTurn}`;
+      respond({ turn: { id: turnId } });
+      active.set("native", turnId);
+      notify("turn/started", { threadId: "native", turn: { id: turnId } });
+      item("native", turnId, {
+        type: "agentMessage",
+        id: `policy-proof-${policyTurn}`,
+        text: JSON.stringify(p),
+      });
+      if (policyTurn === 1) {
+        terminals.set("native", [{ itemId: "policy-shell", processId: "policy-process" }]);
+        item(
+          "native",
+          turnId,
+          {
+            type: "commandExecution",
+            id: "policy-shell",
+            command: "loop",
+            commandActions: [],
+            status: "inProgress",
+          },
+          false,
+        );
+      }
+      end();
+      continue;
+    }
     if (p["threadId"] === "fork-native") {
       respond({ turn: { id: "fork-continuation" } });
       notify("turn/started", { threadId: "fork-native", turn: { id: "fork-continuation" } });
