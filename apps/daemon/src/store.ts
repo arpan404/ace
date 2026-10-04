@@ -34,7 +34,7 @@ import type { ArchiveReader } from "@ace/history-import";
 import { installArchive, readHistoryBlob } from "./history-storage.ts";
 import { systemCredentials, type CredentialRuntime } from "./credential-runtime.ts";
 import { randomUUID } from "node:crypto";
-import { DatabaseSync, type StatementSync, type SQLOutputValue } from "node:sqlite";
+import { DatabaseSync, type StatementSync, type SQLOutputValue } from "@ace/provider-kit/sqlite";
 import {
   McpIntent,
   CommandResult,

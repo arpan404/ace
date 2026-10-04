@@ -1,5 +1,5 @@
 import { clientView, clientSummary } from "./client-view.ts";
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { retainReceipt } from "./receipt-policy.ts";
 import {
   Effect,

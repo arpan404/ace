@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "@ace/workspace": "workspace:*",
     "koffi": "3.3.2",
     "ws": "^8.18.3",

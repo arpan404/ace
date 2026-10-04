@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <stdio.h>
 
 static napi_value fail(napi_env env, int number) {
   napi_value message, error, value;
@@ -117,6 +118,7 @@ static napi_value names(napi_env env, napi_callback_info info) {
   if (duplicate < 0) return fail(env, errno);
   DIR *directory = fdopendir(duplicate);
   if (!directory) { int number = errno; close(duplicate); return fail(env, number); }
+  rewinddir(directory);
   napi_create_array(env, &result);
   unsigned int index = 0;
   int problem = 0;
@@ -148,6 +150,39 @@ static napi_value make_pipe(napi_env env, napi_callback_info info) {
   napi_set_named_property(env, result, "write", value);
   return result;
 }
+// Mutations stay relative to a pinned directory, including lock cleanup and publication.
+static int component(napi_env env, napi_value value, char *name, size_t capacity) {
+  size_t size;
+  if (napi_get_value_string_utf8(env, value, NULL, 0, &size) != napi_ok ||
+      size == 0 || size >= capacity) return 0;
+  if (napi_get_value_string_utf8(env, value, name, capacity, &size) != napi_ok) return 0;
+  return strlen(name) == size && !strchr(name, '/') && strcmp(name, ".") && strcmp(name, "..");
+}
+static napi_value unlink_at(napi_env env, napi_callback_info info) {
+  napi_value args[2], result;
+  size_t count = 2;
+  int32_t parent;
+  char name[4096];
+  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok || count != 2 ||
+      napi_get_value_int32(env, args[0], &parent) != napi_ok ||
+      !component(env, args[1], name, sizeof(name))) return fail(env, EINVAL);
+  if (unlinkat(parent, name, 0) < 0) return fail(env, errno);
+  napi_get_undefined(env, &result);
+  return result;
+}
+static napi_value rename_at(napi_env env, napi_callback_info info) {
+  napi_value args[3], result;
+  size_t count = 3;
+  int32_t parent;
+  char from[4096], to[4096];
+  if (napi_get_cb_info(env, info, &count, args, NULL, NULL) != napi_ok || count != 3 ||
+      napi_get_value_int32(env, args[0], &parent) != napi_ok ||
+      !component(env, args[1], from, sizeof(from)) ||
+      !component(env, args[2], to, sizeof(to))) return fail(env, EINVAL);
+  if (renameat(parent, from, parent, to) < 0) return fail(env, errno);
+  napi_get_undefined(env, &result);
+  return result;
+}
 static napi_value init(napi_env env, napi_value exports) {
   napi_property_descriptor methods[] = {
     {"openAt", NULL, open_at, NULL, NULL, NULL, napi_default, NULL},
@@ -155,9 +190,11 @@ static napi_value init(napi_env env, napi_value exports) {
     {"mkdirAt", NULL, mkdir_at, NULL, NULL, NULL, napi_default, NULL},
     {"names", NULL, names, NULL, NULL, NULL, napi_default, NULL},
     {"statAt", NULL, stat_at, NULL, NULL, NULL, napi_default, NULL},
-    {"pipe", NULL, make_pipe, NULL, NULL, NULL, napi_default, NULL}
+    {"pipe", NULL, make_pipe, NULL, NULL, NULL, napi_default, NULL},
+    {"unlinkAt", NULL, unlink_at, NULL, NULL, NULL, napi_default, NULL},
+    {"renameAt", NULL, rename_at, NULL, NULL, NULL, napi_default, NULL}
   };
-  napi_define_properties(env, exports, 6, methods);
+  napi_define_properties(env, exports, 8, methods);
   return exports;
 }
 NAPI_MODULE(NODE_GYP_MODULE_NAME, init)

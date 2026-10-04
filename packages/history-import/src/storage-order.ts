@@ -1,4 +1,4 @@
-import { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "@ace/provider-kit/sqlite";
 import { mkdtemp, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { object, timestamp, readHeadTail, walkFiles } from "@ace/native-session";

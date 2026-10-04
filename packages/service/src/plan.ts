@@ -34,6 +34,7 @@ export const ServiceConfig = z.object({
 export type ServiceConfig = z.input<typeof ServiceConfig>;
 export interface ServicePlan {
   platform: ServiceConfig["platform"];
+  command: readonly [string, "supervise"];
   file: string;
   content: string;
   domain: string;
@@ -51,6 +52,8 @@ const quote = (s: string) =>
 export function planService(input: ServiceConfig): ServicePlan {
   const c = ServiceConfig.parse(input);
   const logDir = join(c.dataDir, "logs");
+  const label = "dev.ace.next.daemon";
+  const unit = "ace-next.service";
   const variables: [string, string][] = [
     ["ACE_HOME", c.dataDir],
     ["PATH", c.path],
@@ -65,11 +68,12 @@ export function planService(input: ServiceConfig): ServicePlan {
   if (c.platform === "darwin")
     return {
       platform: c.platform,
-      file: join(c.home, "Library/LaunchAgents/dev.ace.daemon.plist"),
-      domain: `gui/${c.uid}/dev.ace.daemon`,
+      command: [c.executable, "supervise"],
+      file: join(c.home, `Library/LaunchAgents/${label}.plist`),
+      domain: `gui/${c.uid}/${label}`,
       logDir,
       content: `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0"><dict>
-<key>Label</key><string>dev.ace.daemon</string>
+<key>Label</key><string>${label}</string>
 <key>ProgramArguments</key><array><string>${xml(c.executable)}</string><string>supervise</string></array>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
 <key>ThrottleInterval</key><integer>15</integer>
@@ -80,8 +84,9 @@ export function planService(input: ServiceConfig): ServicePlan {
     };
   return {
     platform: c.platform,
-    file: join(c.home, ".config/systemd/user/ace.service"),
-    domain: "ace.service",
+    command: [c.executable, "supervise"],
+    file: join(c.home, `.config/systemd/user/${unit}`),
+    domain: unit,
     logDir,
     content: `[Unit]\nDescription=ace local daemon\nStartLimitIntervalSec=0\n[Service]\nType=simple\nExecStart=${quote(c.executable.replaceAll("$", () => "$$"))} supervise\nEnvironment=${unitEnvironment}\nRestart=always\nRestartSec=15s\nTimeoutStopSec=60s\nKillMode=control-group\nStandardOutput=journal\nStandardError=journal\nSyslogIdentifier=ace\n[Install]\nWantedBy=default.target\n`,
   };

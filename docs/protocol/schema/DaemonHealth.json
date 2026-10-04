@@ -1,6 +1,13 @@
 {
   "$id": "https://ace.local/protocol/v1/DaemonHealth.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "examples": [
+    {
+      "ready": true,
+      "running": true,
+      "version": "development"
+    }
+  ],
   "properties": {
     "ready": {
       "const": true,
@@ -11,7 +18,18 @@
       "type": "boolean"
     },
     "version": {
-      "type": "string"
+      "anyOf": [
+        {
+          "const": "development",
+          "type": "string"
+        },
+        {
+          "maxLength": 80,
+          "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[a-z0-9.]+)?$",
+          "type": "string",
+          "x-ace-constraint": "Daemon version must have a nonzero major version; legacy ace 0.x is incompatible."
+        }
+      ]
     }
   },
   "required": [

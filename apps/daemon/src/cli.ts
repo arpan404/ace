@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { z } from "zod";
 import { serviceCommand } from "@ace/service";
-import { PairingResponse } from "@ace/protocol";
+import { PairingResponse, DaemonHealth } from "@ace/protocol";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import createQr from "qrcode-generator";
@@ -74,6 +74,7 @@ async function main(args: string[]): Promise<void> {
     const daemon = await runDaemonProcess(startDaemon, {
       config: config,
       handler: development ? stubHandler({ development }) : undefined,
+      preview: { host: "127.0.0.1", wildcardHost: "preview.localhost", port: 0 },
       toolkits: [],
       modelInstances: readModelInstances(),
       history: { instances: readHistoryInstances() },
@@ -105,6 +106,7 @@ async function main(args: string[]): Promise<void> {
     try {
       const { origin, token } = hostConnection(config.dataDir);
       status = await accessRequest(origin, "/v1/status", { token });
+      DaemonHealth.parse(status);
     } catch (error) {
       if (
         error instanceof Error &&

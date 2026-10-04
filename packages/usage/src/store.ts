@@ -1,5 +1,5 @@
 import { SessionTotals } from "./session-totals.ts";
-import { DatabaseSync, type StatementSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { UsageResult, type UsageResult as Result } from "@ace/protocol";
 import { migrate } from "./database.ts";
 import { dayFormatter, resolvePrices, UsageSettings } from "./settings.ts";

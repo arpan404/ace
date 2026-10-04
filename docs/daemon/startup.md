@@ -123,8 +123,9 @@ launching provider discovery. Context opens storage without a full aggregate:
 existing accounting is reused, and legacy accounting recovery yields every 128
 rows with uploads gated behind recovery. Notification worker opening uses an
 explicit readiness acknowledgement; saved-event replay and transport delivery
-run in the background. Replay yields between bounded windows and shutdown aborts
-pending worker RPCs.
+run in the background. Replay yields between bounded windows. Shutdown stops new
+replay ticks, drains pending ingestion and replay, then closes the worker after
+socket presence cleanup. Only startup cancellation aborts unopened worker RPCs.
 
 Doctor resolves git from PATH first, then `/usr/bin/git` and `/bin/git` when PATH
 has no installation. It accepts distribution suffixes such as
@@ -139,3 +140,17 @@ fallback releases the browser service without failing daemon shutdown. Both
 cleanup deadlines and the Chromium process-kill boundary are injectable.
 
 Chromium ownership begins immediately after launch. Process identity discovery has a separate two-second bound and observes cancellation; failed discovery closes the owned context. Windows tree termination is asynchronous and an already-exited process is successful cleanup.
+
+`ace start` also opens an authenticated preview gateway on loopback at an ephemeral
+port, with `*.preview.localhost` origins. Ports require explicit trusted forwarding;
+signed sessions require paired operate authority. Remote daemon access does not
+change this listener's binding.
+
+When `~/.ace` contains legacy 0.x or unrecognized data, default CLI startup uses
+`~/.ace-next` and records the reason in `legacy-home.json`. An explicit legacy
+`ACE_HOME` is refused. The old binary, service and databases are left untouched.
+See ADR 0041 for version checks and the desktop home-selection limitation.
+
+SQLite's exact uncoded experimental warning from Node 24.13.0 is filtered at the
+shared SQLite boundary in each isolate. Other warnings retain Node's formatter
+and consumer warning listeners. This does not disable `ExperimentalWarning`.

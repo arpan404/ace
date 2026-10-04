@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
+import { resolveDaemonHome } from "@ace/service";
 import { WebOrigins } from "./web-origins.ts";
 
 const LogLevelSchema = z.enum(["debug", "info", "warn", "error", "silent"]);
@@ -35,7 +36,7 @@ export interface Config {
   /** The helper manifest when it does not sit beside the app (the desktop bundle). */
   screenHelperManifest?: string;
 }
-export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
+export function readConfig(env: NodeJS.ProcessEnv = process.env, home = homedir()): Config {
   const settings = Environment.parse(env);
   const port = settings.ACE_PORT;
   const remotePort = settings.ACE_REMOTE_PORT ?? (port === 0 || port === 65535 ? 0 : port + 1);
@@ -44,7 +45,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(settings.ACE_SCREEN_HELPER_MANIFEST
       ? { screenHelperManifest: resolve(settings.ACE_SCREEN_HELPER_MANIFEST) }
       : {}),
-    dataDir: resolve(settings.ACE_HOME ?? resolve(homedir(), ".ace")),
+    dataDir: resolveDaemonHome(home, settings.ACE_HOME),
     ...(settings.ACE_WORKSPACE_ROOT ? { workspaceRoot: resolve(settings.ACE_WORKSPACE_ROOT) } : {}),
     ...(settings.ACE_RELAY_URL ? { relayUrl: settings.ACE_RELAY_URL } : {}),
     host: "127.0.0.1",

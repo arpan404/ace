@@ -1,4 +1,4 @@
-import { DatabaseSync, type StatementSync } from "node:sqlite";
+import { DatabaseSync, type StatementSync } from "@ace/provider-kit/sqlite";
 import { z } from "zod";
 import { Automation, AutomationRun, AutomationInbox, type AutomationEvent } from "@ace/protocol";
 import { canAdmit } from "./decisions.ts";
