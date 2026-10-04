@@ -32,7 +32,19 @@ function adapt(
   return View;
 }
 
-export const ChangesView = adapt(ChangesTab);
+/** Changes, scrolled to the file the tab was opened on (`data.path`), if any. */
+export function ChangesView(props: TabViewProps) {
+  const data = props.tab.data;
+  const path =
+    typeof data === "object" && data !== null && "path" in data && typeof data.path === "string"
+      ? data.path
+      : undefined;
+  return (
+    <WithServices>
+      <ChangesTab threadId={props.scope} path={path} />
+    </WithServices>
+  );
+}
 export const PreviewView = adapt(PreviewTab);
 export const AgentsView = adapt(AgentsTab, false);
 export const TerminalView = adapt(TerminalTab);

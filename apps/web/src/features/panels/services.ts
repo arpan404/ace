@@ -8,9 +8,15 @@ import { LocalStore } from "./store.ts";
 import type { TerminalSessions } from "./terminal/sessions.ts";
 
 export interface DiffPrefs {
-  mode: "unified" | "split";
+  /** `auto` is unified in a narrow dock and split where both sides fit. */
+  mode: "auto" | "unified" | "split";
   wrap: boolean;
+  /** The changed-files tree beside the diff. */
+  tree: boolean;
 }
+
+/** Per thread, the files marked viewed, each with the version of its diff that was viewed. */
+export type ViewedFiles = ReadonlyMap<string, ReadonlyMap<string, string>>;
 
 /** Everything the panels need beyond the live thread store, one instance per daemon client. */
 export interface PanelServices {
@@ -18,6 +24,7 @@ export interface PanelServices {
   preview: PreviewSource;
   drafts: LocalStore<readonly ReviewDraft[]>;
   diffPrefs: LocalStore<DiffPrefs>;
+  viewed: LocalStore<ViewedFiles>;
   /**
    * Per thread: the log lines Clear hid, by key. Keys rather than a time, because backdated or
    * replayed events can arrive stamped earlier than lines already shown.
@@ -40,7 +47,8 @@ export function panelServices(client: ClientApi): Promise<PanelServices> {
       const value: PanelServices = {
         ...sources,
         drafts: new LocalStore<readonly ReviewDraft[]>([]),
-        diffPrefs: new LocalStore<DiffPrefs>({ mode: "unified", wrap: false }),
+        diffPrefs: new LocalStore<DiffPrefs>({ mode: "auto", wrap: false, tree: true }),
+        viewed: new LocalStore<ViewedFiles>(new Map()),
         logCleared: new LocalStore<ClearedLines>(new Map()),
       };
       ready.set(client, value);

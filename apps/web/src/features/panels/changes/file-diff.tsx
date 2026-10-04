@@ -42,7 +42,7 @@ export const freshView: FileView = { open: true, expanded: new Set(), asText: fa
 
 /** Typical height of a file block before it is measured: its header and, if open, its rows. */
 export const fileHeight = (file: FileDiff, view: FileView) =>
-  34 + (view.open ? file.rows.length * rowHeight : 0);
+  32 + (view.open ? file.rows.length * rowHeight : 0);
 
 /**
  * One changed file: a sticky header that collapses it, then its lines in unified or split
@@ -59,6 +59,10 @@ export function FileDiffBlock(props: {
   highlighted(target: LineTarget): boolean;
   renderAnnotation(target: LineTarget): ReactNode;
   onComment(target: LineTarget): void;
+  /** Marked viewed at this version of the diff: the path dims. */
+  viewed?: boolean;
+  /** The header's trailing controls (Viewed, file actions). */
+  actions?: ReactNode;
 }) {
   const { file, view, onView } = props;
   const { open, expanded, asText } = view;
@@ -74,35 +78,38 @@ export function FileDiffBlock(props: {
   };
   return (
     <section id={props.id} aria-label={file.path} className="min-w-0">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => onView({ ...view, open: !open })}
-        className="sticky top-9 z-[1] flex h-[34px] w-full items-center gap-2 bg-panel px-3.5 text-left font-mono text-[12px] text-muted-foreground hover:text-foreground"
-      >
-        <CaretDownIcon
-          aria-hidden
-          size={14}
-          className={cn(
-            "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
-            !open && "-rotate-90",
+      <div className="sticky top-0 z-[1] flex h-8 items-center gap-1 bg-panel pr-2 shadow-[0_1px_0_var(--border)]">
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => onView({ ...view, open: !open })}
+          className="flex h-8 min-w-0 flex-1 items-center gap-2 pl-3.5 text-left font-mono text-[12px] text-muted-foreground outline-none hover:text-foreground focus-visible:shadow-[inset_0_0_0_2px_var(--ring)]"
+        >
+          <CaretDownIcon
+            aria-hidden
+            size={14}
+            className={cn(
+              "shrink-0 text-subtle-foreground transition-transform duration-(--dur-2) ease-spring",
+              !open && "-rotate-90",
+            )}
+          />
+          <CodeIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
+          <span className={cn("min-w-0 truncate", props.viewed && "opacity-70")}>
+            {file.movedFrom && <span>{file.movedFrom} → </span>}
+            {file.path.slice(0, slash + 1)}
+            <b className="font-medium text-foreground">{file.path.slice(slash + 1)}</b>
+          </span>
+          {file.status !== "modified" && (
+            <span className="shrink-0 font-sans text-xs text-subtle-foreground">{file.status}</span>
           )}
-        />
-        <CodeIcon aria-hidden size={14} className="shrink-0 text-subtle-foreground" />
-        <span className="min-w-0 truncate">
-          {file.movedFrom && <span>{file.movedFrom} → </span>}
-          {file.path.slice(0, slash + 1)}
-          <b className="font-medium text-foreground">{file.path.slice(slash + 1)}</b>
-        </span>
-        {file.status !== "modified" && (
-          <span className="shrink-0 font-sans text-xs text-subtle-foreground">{file.status}</span>
-        )}
-        <DiffStat
-          additions={file.additions}
-          deletions={file.deletions}
-          className="ml-auto text-[12px]"
-        />
-      </button>
+          <DiffStat
+            additions={file.additions}
+            deletions={file.deletions}
+            className="ml-auto shrink-0 text-[12px]"
+          />
+        </button>
+        {props.actions}
+      </div>
       {open && renderer !== "dom" && !asText && (
         <Suspense fallback={<Spinner label="Loading the diff renderer" className="m-3.5" />}>
           <GpuDiff

@@ -19,6 +19,7 @@ export * from "./deck-start.ts";
 export * from "./diff.ts";
 export * from "./motion.ts";
 export * from "./file-changes.ts";
+export * from "./file-tree.ts";
 export * from "./inline-markdown.ts";
 export * from "./models.ts";
 export * from "./lru.ts";

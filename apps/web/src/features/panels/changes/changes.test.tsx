@@ -1,11 +1,11 @@
 import { coldStartReplay, facts } from "@ace/fake-daemon";
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
-import { harness } from "@/test/harness.tsx";
+import { harness, memoryKeyValue } from "@/test/harness.tsx";
 
-async function openChanges(through = "turn-2") {
-  const app = harness();
+async function openChanges(through = "turn-2", storage = memoryKeyValue()) {
+  const app = harness({ storage });
   const script = app.play(coldStartReplay());
   script.runThrough(through);
   await app.open("/t/thread-cold-start");
@@ -16,6 +16,14 @@ async function openChanges(through = "turn-2") {
 }
 const file = (panel: HTMLElement, path: string) =>
   within(panel).getByRole("region", { name: path });
+async function pickScope(panel: HTMLElement, name: string) {
+  await userEvent.click(within(panel).getByRole("button", { name: /^Scope:/ }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: new RegExp(`^${name}`) }));
+}
+async function pickLayout(panel: HTMLElement, name: "Auto" | "Unified" | "Split") {
+  await userEvent.click(within(panel).getByRole("button", { name: /^Diff layout/ }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: new RegExp(`^${name}`) }));
+}
 
 test("Changes shows the latest turn's edits by default and the whole thread under All turns", async () => {
   const { panel } = await openChanges();
@@ -29,16 +37,14 @@ test("Changes shows the latest turn's edits by default and the whole thread unde
   const outbox = file(panel, "apps/web/src/relay/outbox.ts");
   expect(within(outbox).getByText(/await socket.waitFor\("resume.ack"\)/)).toBeTruthy();
 
-  await userEvent.click(within(panel).getByRole("combobox", { name: "Turn" }));
-  await userEvent.click(await screen.findByRole("option", { name: "All turns" }));
+  await pickScope(panel, "All turns");
   await waitFor(() =>
     expect(
       within(file(panel, "apps/server/src/replay.ts")).getByText(/COLD_START_WINDOW = 200/),
     ).toBeTruthy(),
   );
 
-  await userEvent.click(within(panel).getByRole("combobox", { name: "Turn" }));
-  await userEvent.click(await screen.findByRole("option", { name: "Turn 1" }));
+  await pickScope(panel, "Turn 1");
   await waitFor(() =>
     expect(
       within(panel).queryByRole("region", { name: "apps/web/src/relay/outbox.ts" }),
@@ -66,7 +72,7 @@ test("folded unchanged lines expand, and a file collapses from its header", asyn
 test("split layout puts the removed line beside its replacement, and the choice is remembered", async () => {
   const { panel } = await openChanges();
   const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
-  await userEvent.click(within(panel).getByRole("button", { name: "Split" }));
+  await pickLayout(panel, "Split");
   const removed = within(replay).getByText(/client.send\(\{ type: "resume.ack" \}\);/);
   const row = removed.closest(".grid-cols-2");
   expect(
@@ -75,9 +81,7 @@ test("split layout puts the removed line beside its replacement, and the choice 
 
   await userEvent.click(within(panel).getByRole("tab", { name: "Agents" }));
   await userEvent.click(within(panel).getByRole("tab", { name: /Changes/ }));
-  expect(
-    (await within(panel).findByRole("button", { name: "Split" })).getAttribute("aria-pressed"),
-  ).toBe("true");
+  expect(await within(panel).findByRole("button", { name: "Diff layout: Split" })).toBeTruthy();
 });
 
 test("a line comment goes to the agent through review mode and lands in the thread", async () => {
@@ -146,7 +150,7 @@ test("a collapsed file stays collapsed after looking at another tab and coming b
   const again = within(panel).getByRole("region", { name: "apps/server/src/replay.ts" });
   expect(
     within(again)
-      .getByRole("button", { name: /replay\.ts/ })
+      .getByRole("button", { name: /^apps\/server\/src\/replay\.ts/ })
       .getAttribute("aria-expanded"),
   ).toBe("false");
 });
@@ -160,12 +164,12 @@ test("a line comment stays on its line when the diff switches between Unified an
   await userEvent.click(within(replay).getByRole("button", { name: "Comment" }));
   const name = within(replay).getByRole("article").getAttribute("aria-label");
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Split" }));
+  await pickLayout(panel, "Split");
   const split = within(panel).getByRole("region", { name: "apps/server/src/replay.ts" });
   const card = within(split).getByRole("article", { name: name ?? "" });
   expect(within(card).getByText("Carry coldStartWindow too?")).toBeTruthy();
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Unified" }));
+  await pickLayout(panel, "Unified");
   expect(within(panel).getByText("Carry coldStartWindow too?")).toBeTruthy();
 });
 
@@ -187,9 +191,9 @@ test("Changes says what is uncommitted in the checkout, and follows a commit", a
 
 test("a turn that changed many files mounts only the files near the view, and lists every one", async () => {
   const { app, panel } = await openChanges("test-done");
-  // jsdom applies no stylesheet: give the tab's scrolling panel the overflow its class sets.
-  const scroller = within(panel).getByRole("tabpanel");
-  scroller.style.overflowY = "auto";
+  // jsdom applies no stylesheet: give the diff's scroller the overflow its class sets.
+  const scroller = panel.querySelector<HTMLElement>("[data-diff-scroller]");
+  if (scroller) scroller.style.overflowY = "auto";
   const paths = Array.from({ length: 60 }, (_, n) => `packages/fixtures/src/case-${n}.ts`);
   const [first = "", last = ""] = [paths[0], paths[59]];
   act(() =>
@@ -216,10 +220,153 @@ test("a turn that changed many files mounts only the files near the view, and li
       facts.endTurn("root"),
     ]),
   );
-  const list = await within(panel).findByRole("navigation", { name: "Changed files" });
-  await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(60));
+  const tree = await within(panel).findByRole("tree", { name: "Changed files" });
+  await waitFor(() =>
+    expect(
+      within(tree)
+        .getAllByRole("treeitem")
+        .filter((row) => row.getAttribute("aria-expanded") === null),
+    ).toHaveLength(60),
+  );
   expect(within(panel).getByRole("region", { name: first })).toBeTruthy();
   // 3,000 rows across 60 files: only the first few files are mounted.
   expect(within(panel).queryByRole("region", { name: last })).toBeNull();
   expect(within(panel).getAllByRole("region").length).toBeLessThan(20);
+});
+
+async function comment(panel: HTMLElement, path: string, line: RegExp, text: string) {
+  const block = await within(panel).findByRole("region", { name: path });
+  const row = within(block).getByText(line);
+  await userEvent.click(within(row).getByRole("button", { name: /^Comment on line \d+$/ }));
+  await userEvent.type(within(block).getByRole("textbox", { name: /Comment on line/ }), text);
+  await userEvent.click(within(block).getByRole("button", { name: "Comment" }));
+  return block;
+}
+
+test("unsent comments are summed up, sent together, then resolved and reopened", async () => {
+  const { app, panel } = await openChanges();
+  await comment(
+    panel,
+    "apps/server/src/replay.ts",
+    /client.send\(\{ type: "resume.ack", headSeq/,
+    "Carry coldStartWindow too?",
+  );
+  await comment(
+    panel,
+    "apps/web/src/relay/outbox.ts",
+    /await socket.waitFor\("resume.ack"\)/,
+    "Time this out after 5 s.",
+  );
+
+  const review = within(panel).getByRole("region", { name: "Review" });
+  expect(within(review).getByRole("status").textContent).toBe("2 comments to send");
+  await userEvent.click(within(review).getByRole("button", { name: "Send 2 comments to agent" }));
+
+  await waitFor(() =>
+    expect(within(review).getByRole("status").textContent).toBe("2 waiting for the agent"),
+  );
+  expect(app.daemon.review.comments().map((held) => [held.text, held.sent])).toEqual([
+    ["Carry coldStartWindow too?", true],
+    ["Time this out after 5 s.", true],
+  ]);
+
+  const outbox = file(panel, "apps/web/src/relay/outbox.ts");
+  const card = within(outbox).getByRole("article", { name: /Comment on line/ });
+  expect(within(card).getByText("Sent to agent")).toBeTruthy();
+  await userEvent.click(within(card).getByRole("button", { name: "Resolve" }));
+  await within(outbox).findByText("Resolved");
+  await waitFor(() =>
+    expect(
+      app.daemon.review.comments().find((held) => held.text.startsWith("Time"))?.resolved,
+    ).toBe(true),
+  );
+  expect(within(review).getByRole("status").textContent).toBe(
+    "1 waiting for the agent · 1 resolved",
+  );
+
+  await userEvent.click(within(outbox).getByRole("button", { name: "Reopen" }));
+  await within(outbox).findByRole("button", { name: "Resolve" });
+  expect(app.daemon.review.comments().every((held) => !held.resolved)).toBe(true);
+});
+
+test("the review's comments list jumps to a comment's file", async () => {
+  const { panel } = await openChanges();
+  await comment(
+    panel,
+    "apps/web/src/relay/outbox.ts",
+    /await socket.waitFor\("resume.ack"\)/,
+    "Time this out after 5 s.",
+  );
+  const review = within(panel).getByRole("region", { name: "Review" });
+  await userEvent.click(within(review).getByRole("button", { name: "Comments" }));
+  const toSend = await screen.findByRole("region", { name: "To send" });
+  await userEvent.click(within(toSend).getByRole("button", { name: /outbox\.ts:\d+/ }));
+  const tree = within(panel).getByRole("tree", { name: "Changed files" });
+  expect(within(tree).getByRole("treeitem", { selected: true }).getAttribute("aria-label")).toMatch(
+    /^apps\/web\/src\/relay\/outbox\.ts, 1 comment$/,
+  );
+});
+
+test("comments and the diff layout come back after the page reloads", async () => {
+  const storage = memoryKeyValue();
+  const first = await openChanges("turn-2", storage);
+  await comment(
+    first.panel,
+    "apps/server/src/replay.ts",
+    /client.send\(\{ type: "resume.ack", headSeq/,
+    "Carry coldStartWindow too?",
+  );
+  await pickLayout(first.panel, "Split");
+  cleanup();
+
+  // The workspace remembered too: the thread opens with Changes showing.
+  const app = harness({ storage });
+  app.play(coldStartReplay()).runThrough("turn-2");
+  await app.open("/t/thread-cold-start");
+  const panel = await screen.findByRole("region", { name: "Thread panel" });
+  const replay = await within(panel).findByRole("region", { name: "apps/server/src/replay.ts" });
+  const card = within(replay).getByRole("article", { name: /Comment on line/ });
+  expect(within(card).getByText("Carry coldStartWindow too?")).toBeTruthy();
+  expect(within(card).getByRole("button", { name: "Send to agent" })).toBeTruthy();
+  expect(within(panel).getByRole("button", { name: "Diff layout: Split" })).toBeTruthy();
+});
+
+test("the files tree filters, jumps to a file, and shows which files were viewed", async () => {
+  const { panel } = await openChanges();
+  const tree = await within(panel).findByRole("tree", { name: "Changed files" });
+  await userEvent.type(
+    within(panel).getByRole("searchbox", { name: "Filter changed files" }),
+    "outbox",
+  );
+  const files = within(tree)
+    .getAllByRole("treeitem")
+    .filter((row) => row.getAttribute("aria-expanded") === null);
+  expect(files.map((row) => row.getAttribute("aria-label"))).toEqual([
+    "apps/web/src/relay/outbox.ts",
+  ]);
+  await userEvent.click(within(panel).getByRole("button", { name: "Clear filter" }));
+
+  const replay = file(panel, "apps/server/src/replay.ts");
+  await userEvent.click(within(replay).getByRole("button", { name: "Viewed" }));
+  expect(
+    within(replay)
+      .getByRole("button", { name: /^apps\/server\/src\/replay\.ts/ })
+      .getAttribute("aria-expanded"),
+  ).toBe("false");
+  expect(
+    within(tree).getByRole("treeitem", { name: "apps/server/src/replay.ts, viewed" }),
+  ).toBeTruthy();
+
+  const outbox = within(tree).getByRole("treeitem", { name: "apps/web/src/relay/outbox.ts" });
+  outbox.focus();
+  await userEvent.keyboard("{Enter}");
+  expect(outbox.getAttribute("aria-selected")).toBe("true");
+});
+
+test("checkout scopes the daemon can't diff yet say why instead of opening", async () => {
+  const { panel } = await openChanges();
+  await userEvent.click(within(panel).getByRole("button", { name: /^Scope:/ }));
+  const staged = await screen.findByRole("menuitem", { name: /^Staged/ });
+  expect(staged.getAttribute("aria-disabled")).toBe("true");
+  expect(staged.textContent).toContain("The daemon doesn't report the git index yet");
 });
