@@ -170,14 +170,6 @@ for await (const line of createInterface({ input: process.stdin })) {
           false,
         );
       }
-      if (text === "provider-title") {
-        notify("thread/name/updated", { threadId: "other", threadName: "Unrelated title" });
-        notify("thread/name/updated", { threadId: "native", threadName: null });
-        notify("thread/name/updated", {
-          threadId: "native",
-          threadName: "Readable provider title",
-        });
-      }
       end();
       continue;
     }

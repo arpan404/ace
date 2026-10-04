@@ -67,6 +67,27 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       draft: { type: "notice", level: "info", text, complete: true, raw: raw(type, data) },
     };
   };
+  function title(value: unknown, data: unknown): Fact[] {
+    const text = str(value).trim();
+    return text
+      ? [
+          {
+            type: "item.upsert",
+            agent: init.rootKey,
+            item: "codex:thread-title",
+            draft: {
+              type: "notice",
+              code: "thread_title",
+              title: text,
+              level: "info",
+              text,
+              complete: true,
+              raw: raw("thread/name/updated", data),
+            },
+          },
+        ]
+      : [];
+  }
   function handle(frame: Frame, now: number): Fact[] {
     const facts: Fact[] = [];
     const message = obj(frame.data),
@@ -161,6 +182,7 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           root = str(thread["id"]);
           cwd = str(thread["cwd"], str(pending.params["cwd"], cwd));
           const agent = discover(root, thread, facts, now);
+          facts.push(...title(thread["name"], frame.data));
           confirmModel(agent, result["model"], facts);
         }
       } else if (
@@ -195,11 +217,17 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       if (!native) return root ? [note(init.rootKey, method, frame.data)] : [];
       if (!root) root = native;
       discover(native, thread, facts, now, str(thread["parentThreadId"]) || undefined);
+      if (native === root) facts.push(...title(thread["name"], frame.data));
       return facts;
     }
     const native = str(p["threadId"], root);
     if (!native) {
       return [note(init.rootKey, method || "unknown", frame.data)];
+    }
+    if (method === "thread/name/updated") {
+      // Codex broadcasts names for unloaded threads too. A title is not evidence of a child.
+      if (native === root) facts.push(...title(p["threadName"], frame.data));
+      return facts;
     }
     if (native !== root && !agents.get(native)?.known) {
       facts.push(note(init.rootKey, method || "unknown", frame.data));
