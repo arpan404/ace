@@ -412,6 +412,7 @@ export class DelegationService {
             input: [{ type: "text", text: childResultPrompt(results) }],
             delivery: "queue",
             trigger: "subagent_result",
+            origin: { kind: "subagent_result", threadIds: pending.map((edge) => edge.childId) },
           });
           if (!result.ok) throw new Error(result.error);
           this.journal.consume(next.parent_id);
