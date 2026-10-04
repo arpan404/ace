@@ -1,16 +1,24 @@
-import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { resolveDaemonHome } from "@ace/service/home";
-import { resolveTarget } from "./target.ts";
+import { resolveTarget, type HomeResolver } from "./target.ts";
 
-const options = (platform: NodeJS.Platform) => ({
-  packaged: true,
+/** A stand-in for the shared resolver: platform rules don't depend on what's on disk. */
+const homes: HomeResolver = (home, requested) => requested ?? `${home}/.ace`;
+const options = (platform: NodeJS.Platform, resolveHome = homes, packaged = true) => ({
+  packaged,
   daemonEntry: "/app/daemon/ace.mjs",
   readToken: () => "",
   platform,
-  homedir: tmpdir(),
-  resolveHome: resolveDaemonHome,
+  homedir: "/Users/me",
+  resolveHome,
 });
+const legacyRefusal: HomeResolver = () => {
+  throw new Error("Legacy ace data at /Users/me/.ace. Choose a separate ACE_HOME");
+};
+const addonMissing: HomeResolver = () => {
+  throw Object.assign(new Error("Cannot find module '../dist/descriptor.node'"), {
+    code: "MODULE_NOT_FOUND",
+  });
+};
 
 describe("which daemon the packaged app uses", () => {
   it("manages a local daemon on macOS and Linux", () => {
@@ -29,5 +37,30 @@ describe("which daemon the packaged app uses", () => {
         options("win32"),
       ),
     ).toMatchObject({ kind: "remote", url: "wss://box.example:4242/" });
+  });
+});
+
+describe("development's attach mode", () => {
+  const attach = { ACE_DESKTOP_DAEMON: "attach", ACE_HOME: "/Users/me/.ace" } as const;
+
+  it("refuses an explicit home holding legacy data, as the managed app does", () => {
+    expect(resolveTarget(attach, options("darwin", legacyRefusal, false))).toMatchObject({
+      kind: "refused",
+      reason: expect.stringMatching(/Legacy ace data/),
+    });
+  });
+
+  it("takes the dev daemon's home as given when an unpackaged run can't load the shared checks", () => {
+    expect(resolveTarget(attach, options("darwin", addonMissing, false))).toEqual({
+      kind: "attach",
+      home: "/Users/me/.ace",
+      isolated: false,
+    });
+  });
+
+  it("never skips the checks in a packaged app", () => {
+    expect(resolveTarget(attach, options("darwin", addonMissing, true))).toMatchObject({
+      kind: "refused",
+    });
   });
 });

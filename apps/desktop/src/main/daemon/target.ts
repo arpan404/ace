@@ -42,6 +42,16 @@ const Environment = z.object({
     .optional(),
 });
 
+/** The descriptor addon `@ace/service/home` loads isn't where this run can find it. */
+function addonMissing(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "MODULE_NOT_FOUND" &&
+    error.message.includes("descriptor.node")
+  );
+}
+
 export function resolveTarget(
   env: NodeJS.ProcessEnv,
   options: {
@@ -71,14 +81,16 @@ export function resolveTarget(
       kind: "remote-only",
       reason: "ace runs its daemon on macOS and Linux; connect to a daemon on another machine",
     };
-  // Development names its dev daemon's home and never spawns or starts a service there.
-  if (mode === "attach" && settings.ACE_HOME)
-    return { kind: "attach", home: resolve(settings.ACE_HOME), isolated: false };
   let home: string;
   try {
     home = options.resolveHome(options.homedir, settings.ACE_HOME);
   } catch (error) {
-    return { kind: "refused", reason: error instanceof Error ? error.message : String(error) };
+    // An unpackaged app doesn't ship the shared checks' native addon. Development's attach
+    // mode never spawns or starts a service, so it then takes the dev daemon's home as given;
+    // any other failure (legacy data in an explicit home) is a refusal.
+    if (mode === "attach" && settings.ACE_HOME && !options.packaged && addonMissing(error))
+      home = resolve(settings.ACE_HOME);
+    else return { kind: "refused", reason: error instanceof Error ? error.message : String(error) };
   }
   const isolated =
     settings.ACE_HOME === undefined && home !== join(resolve(options.homedir), ".ace");

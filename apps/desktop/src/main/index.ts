@@ -1,8 +1,10 @@
 import { statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import {
   app,
   BrowserWindow,
+  dialog,
   globalShortcut,
   Menu,
   nativeTheme,
@@ -12,6 +14,7 @@ import {
 import type { AppInfo, DeepLink, DesktopSettings } from "../shared/contract.ts";
 import { Background } from "./background.ts";
 import { DaemonRuntime, desktopTarget } from "./daemon/runtime.ts";
+import type { DaemonTarget } from "./daemon/target.ts";
 import { linksFromArgv, parseDeepLink, protocolScheme } from "./deep-link.ts";
 import { appearance, createHandlers } from "./handlers.ts";
 import { emit, registerHandlers } from "./ipc.ts";
@@ -21,7 +24,7 @@ import { backgroundArgument, startHidden } from "./os/login.ts";
 import { appPaths } from "./paths.ts";
 import { applyDevCsp, registerAppScheme, serveRenderer } from "./renderer.ts";
 import { SettingsStore } from "./settings-store.ts";
-import { desktopUserData } from "./user-data.ts";
+import { checkUserData, desktopUserData, legacyFolders } from "./user-data.ts";
 import { createMainWindow } from "./window/main-window.ts";
 
 /** Set at build time; unpackaged runs have no app package.json for `app.getVersion()`. */
@@ -33,29 +36,37 @@ const paths = appPaths({
   resourcesPath: process.resourcesPath,
   platform: process.platform,
 });
-// The daemon home, chosen once by the shared resolver (a legacy 0.x `~/.ace` selects
-// `~/.ace-next`), and the app's own data folder with it. Development keeps window state,
-// sessions and settings in `.ace-dev/electron` (ACE_DESKTOP_USER_DATA).
-const target = desktopTarget({
-  env: process.env,
-  packaged: app.isPackaged,
-  daemonEntry: paths.daemonEntry,
-  platform: process.platform,
-});
+// The app's own data folder, checked before Electron puts anything in it: never the older
+// ace 0.x app's folders. Development keeps window state, sessions and settings in
+// `.ace-dev/electron` (ACE_DESKTOP_USER_DATA).
 const userData = desktopUserData({
   explicit: process.env.ACE_DESKTOP_USER_DATA,
-  target,
   appData: app.getPath("appData"),
 });
-if (userData) app.setPath("userData", userData);
-// Before anything starts Chromium's network service: never the older ace app's keychain item.
-claimKeychainName(app, process.platform);
-registerAppScheme();
-
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
+const unsafe = checkUserData(
+  userData,
+  legacyFolders({ appData: app.getPath("appData"), homedir: homedir() }),
+);
+if (unsafe) {
+  dialog.showErrorBox("ace can't start", unsafe);
+  app.exit(1);
 } else {
-  main();
+  app.setPath("userData", userData);
+  // Before anything starts Chromium's network service: never the older ace app's keychain item.
+  claimKeychainName(app, process.platform);
+  registerAppScheme();
+  if (!app.requestSingleInstanceLock()) app.quit();
+  else
+    main(
+      // The daemon home, chosen once by the shared resolver (a legacy 0.x `~/.ace` selects
+      // `~/.ace-next`).
+      desktopTarget({
+        env: process.env,
+        packaged: app.isPackaged,
+        daemonEntry: paths.daemonEntry,
+        platform: process.platform,
+      }),
+    );
 }
 
 function log(level: "info" | "warn" | "error", message: string): void {
@@ -70,7 +81,7 @@ function isDirectory(path: string): boolean {
   }
 }
 
-function main(): void {
+function main(target: DaemonTarget): void {
   const info: AppInfo = {
     version: app.isPackaged ? app.getVersion() : ACE_APP_VERSION,
     platform:

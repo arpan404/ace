@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveDaemonHome } from "@ace/service/home";
-import { desktopUserData } from "../user-data.ts";
+import { checkUserData, desktopUserData, legacyFolders } from "../user-data.ts";
 import { DaemonRuntime } from "./runtime.ts";
 import { loginService } from "./service.ts";
 import { resolveTarget, type DaemonTarget } from "./target.ts";
@@ -71,7 +71,7 @@ describe("the desktop's daemon home and data folder", () => {
       home: join(user, ".ace-next"),
       isolated: true,
     });
-    expect(desktopUserData({ explicit: undefined, target: chosen, appData: appData() })).toBe(
+    expect(desktopUserData({ explicit: undefined, appData: appData() })).toBe(
       join(appData(), "ace-next"),
     );
   });
@@ -87,12 +87,12 @@ describe("the desktop's daemon home and data folder", () => {
     expect(chosen.kind === "managed" && loginService(chosen.home)).toBeUndefined();
   });
 
-  it("keeps ~/.ace and the app's default data folder on a fresh machine", () => {
-    const chosen = target({});
-    expect(chosen).toMatchObject({ kind: "managed", home: join(user, ".ace"), isolated: false });
-    expect(desktopUserData({ explicit: undefined, target: chosen, appData: appData() })).toBe(
-      undefined,
-    );
+  it("keeps ~/.ace for the daemon on a fresh machine", () => {
+    expect(target({})).toMatchObject({
+      kind: "managed",
+      home: join(user, ".ace"),
+      isolated: false,
+    });
   });
 
   it("uses an explicit ACE_HOME and ACE_DESKTOP_USER_DATA over the defaults", async () => {
@@ -101,7 +101,7 @@ describe("the desktop's daemon home and data folder", () => {
     const chosen = target({ ACE_HOME: explicit });
     expect(chosen).toMatchObject({ kind: "managed", home: explicit, isolated: false });
     const data = join(user, "work", "electron");
-    expect(desktopUserData({ explicit: data, target: target({}), appData: appData() })).toBe(data);
+    expect(desktopUserData({ explicit: data, appData: appData() })).toBe(data);
   });
 
   it("refuses an explicit ACE_HOME holding legacy data: nothing starts, and the app says why", async () => {
@@ -127,5 +127,11 @@ describe("the desktop's daemon home and data folder", () => {
     await expect(runtime.connection()).rejects.toThrow(/Legacy ace data/);
     expect(spawned).toEqual([]);
     expect(await snapshot(legacy)).toEqual(before);
+    // The app's own data still stays out of the 0.x app's folders though no daemon starts.
+    const data = desktopUserData({ explicit: undefined, appData: appData() });
+    expect(data).toBe(join(appData(), "ace-next"));
+    expect(checkUserData(data, legacyFolders({ appData: appData(), homedir: user }))).toBe(
+      undefined,
+    );
   });
 });
