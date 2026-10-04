@@ -40,6 +40,8 @@ export function FolderBrowser(props: {
   /** The host's home and allowed roots: the breadcrumb starts at home, Up stops at a root. */
   home: string | undefined;
   roots: readonly string[];
+  /** Where browsing starts (`useHostHome().start`); a refused folder offers to go there. */
+  start: string | undefined;
 }) {
   const [showHidden, setShowHidden] = useState(false);
   const listing = useFolderListing(props.path, showHidden);
@@ -78,6 +80,7 @@ export function FolderBrowser(props: {
   };
 
   const failure = listing.error ? projectFailure(listing.error) : undefined;
+  const start = props.start;
   return (
     <div className="flex min-h-0 flex-col gap-2">
       <div className="flex items-center gap-1">
@@ -126,9 +129,9 @@ export function FolderBrowser(props: {
             icon={failure.denied ? LockSimpleIcon : FolderSimpleIcon}
             text={failure.message}
             action={
-              failure.denied && props.home ? (
-                <Button size="sm" onClick={() => props.home && open(props.home)}>
-                  Go to the home folder
+              failure.denied && start && start !== props.path ? (
+                <Button size="sm" onClick={() => open(start)}>
+                  {start === props.home ? "Go to the home folder" : `Go to ${folderName(start)}`}
                 </Button>
               ) : (
                 <Button size="sm" onClick={listing.retry}>

@@ -1,4 +1,5 @@
 import { useClient, useConnectionState } from "@ace/client-react";
+import { startFolder } from "@ace/ui-core";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { projectReads } from "./project-commands.ts";
@@ -6,15 +7,32 @@ import { projectReads } from "./project-commands.ts";
 const folderKey = ["projects", "folders"] as const;
 
 /**
- * The daemon host's home folder, its allowed roots and Git's initial branch there. Waits for a
- * ready connection, since folder reads never queue while offline.
+ * The daemon host's home folder, its allowed roots, `start` (where browsing opens) and Git's
+ * initial branch there. Waits for a ready connection, since folder reads never queue while
+ * offline.
+ *
+ * Browsing starts at home when an allowed root holds it, else at the first root
+ * (`startFolder`). The daemon reports home as written and roots canonical, so a home reached
+ * through a symlink can look outside roots that do hold it: then home is read once, and opened
+ * if the daemon allows it.
  */
 export function useHostHome() {
   const client = useClient();
   const ready = useConnectionState() === "ready";
   return useQuery({
     queryKey: [...folderKey, "home"],
-    queryFn: ({ signal }) => projectReads(client).home(signal),
+    queryFn: async ({ signal }) => {
+      const reads = projectReads(client);
+      const home = await reads.home(signal);
+      const start = startFolder(home.path, home.roots) ?? home.path;
+      if (start === home.path) return { ...home, start };
+      const readable = await reads.browse({ path: home.path, showHidden: false }, signal).then(
+        () => true,
+        () => false,
+      );
+      signal.throwIfAborted();
+      return { ...home, start: readable ? home.path : start };
+    },
     enabled: ready,
     staleTime: 60_000,
     retry: false,

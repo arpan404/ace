@@ -31,6 +31,22 @@ test("the transcript records each decision ace's risk policy took, and why", asy
   expect(within(denied).getByText("ace risk policy · Auto-review")).toBeTruthy();
 });
 
+test("a request sent to the person shows the needs-you dot only until it is answered", async () => {
+  await openAudit("/t/thread-release-audit");
+  const feed = await screen.findByRole("feed", { name: "Transcript" });
+  const sent = await within(feed).findByRole("article", {
+    name: "Permission review: Sent to you",
+  });
+  expect(within(sent).getByRole("img", { name: "Waiting for you" })).toBeTruthy();
+
+  const card = await screen.findByRole("article", { name: "Run npm publish --dry-run?" });
+  await userEvent.click(within(card).getByRole("button", { name: "Allow once" }));
+  await waitFor(() =>
+    expect(within(sent).queryByRole("img", { name: "Waiting for you" })).toBeNull(),
+  );
+  expect(sent.textContent).toContain("Sent to you");
+});
+
 test("a request ace sent on says why, in the thread and in Activity", async () => {
   const app = await openAudit("/t/thread-release-audit");
   const card = await screen.findByRole("article", { name: "Run npm publish --dry-run?" });

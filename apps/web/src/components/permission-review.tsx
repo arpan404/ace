@@ -52,9 +52,10 @@ function ReviewFacts(props: { view: ReviewView; className?: string }) {
 
 /**
  * One permission review in the transcript: what ace's risk policy decided and why, on one quiet
- * line; the reviewer and the exact command, directory and paths it judged open beneath it.
+ * line; the reviewer and the exact command, directory and paths it judged open beneath it. A
+ * request sent to the person carries the needs-you dot only while it still `waiting` for them.
  */
-export function PermissionReviewNote(props: { review: PermissionReview }) {
+export function PermissionReviewNote(props: { review: PermissionReview; waiting: boolean }) {
   const view = describeReview(props.review);
   const [open, setOpen] = useState(false);
   const details = useId();
@@ -69,7 +70,10 @@ export function PermissionReviewNote(props: { review: PermissionReview }) {
       >
         <Icon icon={glyphs[view.tone]} size={16} className="text-subtle-foreground" />
         <span className="shrink-0 font-medium text-foreground">{view.verdict}</span>
-        {view.tone !== "approved" && <Dot tone={view.tone === "denied" ? "failed" : "needs-you"} />}
+        {view.tone === "denied" && <Dot tone="failed" />}
+        {view.tone === "escalated" && props.waiting && (
+          <Dot tone="needs-you" label="Waiting for you" />
+        )}
         <span className="shrink-0 text-subtle-foreground">{view.tool}</span>
         <span className="min-w-0 flex-1 truncate">{view.reason}</span>
         <CaretRightIcon
