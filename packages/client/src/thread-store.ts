@@ -163,11 +163,8 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       usage: view.usage,
       contextMeters: view.contextMeters ?? {},
       usageSnapshots: view.usageSnapshots,
-    })) {
-      const size = Object.keys(record).length;
-
-      counts.set(name, size);
-    }
+    }))
+      counts.set(name, Object.keys(record).length);
     this.view = view;
     this.failure = undefined;
     this.journal.reset(view.seq);
@@ -205,7 +202,6 @@ export class ThreadStore implements ThreadSource, Mirrorable<ThreadExport> {
       else if (name === "interactions") count -= closedInteractions(this.view, batch, keys);
       else if (name === "tasks") count -= endedTasks(this.view, batch, keys);
     }
-
     this.counts.set(name, count);
   }
   delivery(message: EventBatch | Progress): "applied" | "ignored" | "gap" {
