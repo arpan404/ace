@@ -236,7 +236,24 @@ export function createEngineSession(context: SocketContext): SocketService {
           });
           return;
         }
-        await options.engine?.prepareCommand(command);
+        const receipt = options.store.commandReceipt(command.id, device);
+        if (receipt) {
+          send({ type: "commandResult", ...receipt });
+          return;
+        }
+        let preparedWorkspace;
+        try {
+          await options.engine?.prepareCommand(command);
+          preparedWorkspace = await options.workspaceActions?.prepareCreation(command);
+        } catch {
+          send({
+            type: "commandResult",
+            commandId: command.id,
+            ok: false,
+            error: "workspace_unavailable",
+          });
+          return;
+        }
         if (!context.connected() || !context.authorize("operate")) return;
         if (
           payload.type === "thread.create" &&
@@ -252,7 +269,10 @@ export function createEngineSession(context: SocketContext): SocketService {
           return;
         }
         const result = options.store.recordCommand(command.id, device, () =>
-          options.handler.handle(command, commandContext(options.store)),
+          options.handler.handle(command, {
+            ...commandContext(options.store),
+            ...(preparedWorkspace ? { preparedWorkspace } : {}),
+          }),
         );
         send({ type: "commandResult", ...result });
       },

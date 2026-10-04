@@ -35,7 +35,7 @@ export function engineHandler(
   machine?: { host: string; name: string },
 ): CommandHandler {
   return {
-    handle(command: Command): CommandResult {
+    handle(command: Command, context): CommandResult {
       const payload = command.payload;
       if ("threadId" in payload && payload.threadId) {
         const id = ThreadId.parse(payload.threadId);
@@ -178,7 +178,13 @@ export function engineHandler(
               )
           )
             return fail("launch_options_unsupported");
-          threadId = ThreadId.parse(p.threadId ?? nextId());
+          const prepared = context.preparedWorkspace;
+          threadId = ThreadId.parse(prepared?.id ?? p.threadId ?? nextId());
+          if (prepared) {
+            cwd = prepared.path;
+            if (repo.store.workspaceReservations.reserved(cwd))
+              return fail("workspace_change_in_progress");
+          }
           if (!repo.reserve(threadId)) return fail("engine_capacity_exceeded");
           createEngineThread(repo, {
             id: threadId,
@@ -204,6 +210,7 @@ export function engineHandler(
               ...(p.model === undefined ? {} : { model: p.model }),
             },
             cwd,
+            workspaceReady: Boolean(prepared),
             at,
             silenceMs,
             client: {
@@ -216,6 +223,7 @@ export function engineHandler(
                 },
                 mode: ("mode" in p ? p.mode : undefined) ?? "local",
                 worktree: cwd,
+                ...(prepared ? { branch: prepared.branch } : {}),
                 ...("baseBranch" in p && p.baseBranch ? { baseBranch: p.baseBranch } : {}),
                 ...(machine ? { machine } : {}),
               },

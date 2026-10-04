@@ -13,7 +13,7 @@ import type { Store } from "./store.ts";
 export type CommandContext = Pick<
   Store,
   "appendEvents" | "getThread" | "readEvents" | "getInteraction"
->;
+> & { preparedWorkspace?: { id: ThreadId; path: string; branch: string } };
 export function commandContext(store: Store): CommandContext {
   return {
     appendEvents: store.appendEvents.bind(store),
