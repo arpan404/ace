@@ -8,7 +8,9 @@ export interface SearchTextSegment {
 }
 /** Only canonical typed text is indexed. Unknown/raw provider fields are excluded. */
 export function* threadItemText(item: Item): Generator<SearchTextSegment> {
-  if (item.type === "delegation.settled") {
+  if (item.type === "delegation.started") {
+    yield { name: "delegation", category: "notices", text: `${item.title} ${item.role}` };
+  } else if (item.type === "delegation.settled") {
     for (const [index, result] of item.results.entries())
       yield { name: `result:${index}`, category: "notices", text: result.result };
   } else if (item.type === "message") {

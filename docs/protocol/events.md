@@ -399,23 +399,12 @@ Example:
 {
   "item": {
     "agentId": "example",
-    "call": {
-      "agentId": "example",
-      "detail": {
-        "kind": "file.read",
-        "path": "example"
-      },
-      "id": "example",
-      "kind": "todo",
-      "raw": [],
-      "startedAt": 5,
-      "status": "pending",
-      "title": "example"
-    },
     "complete": true,
     "createdAt": 1,
     "id": "example",
-    "type": "tool_call"
+    "summary": true,
+    "text": "example",
+    "type": "reasoning"
   },
   "type": "item.created"
 }
@@ -437,7 +426,7 @@ Example:
 {
   "agentId": "example",
   "append": "example",
-  "field": "reasoning",
+  "field": "output",
   "itemId": "example",
   "type": "item.delta"
 }
@@ -457,20 +446,22 @@ Example:
   "item": {
     "agentId": "example",
     "complete": true,
-    "createdAt": 2,
+    "createdAt": 3,
     "executionSource": {
       "nativeSessionId": "example",
       "selection": {
         "instanceId": "example",
-        "provider": "claude"
+        "model": "example",
+        "options": {},
+        "provider": "cursor"
       }
     },
     "id": "example",
-    "nativeId": "example",
-    "parts": [],
+    "level": "warning",
     "raw": [],
-    "role": "assistant",
-    "type": "message"
+    "text": "example",
+    "toolCallId": "example",
+    "type": "notice"
   },
   "type": "item.updated"
 }
@@ -505,23 +496,17 @@ Example:
 {
   "interaction": {
     "agentId": "example",
-    "autoReviewed": true,
     "blocking": false,
-    "createdAt": 9,
+    "createdAt": 0,
     "id": "example",
     "raw": [],
     "request": {
-      "kind": "approval",
-      "options": [],
-      "permissionUpdates": [],
-      "title": "example"
+      "kind": "plan_review",
+      "markdown": "example",
+      "title": "example",
+      "todos": []
     },
-    "resolution": {
-      "decision": "approve",
-      "feedback": "example",
-      "kind": "plan_review"
-    },
-    "state": "pending",
+    "state": "expired",
     "threadId": "example"
   },
   "type": "interaction.opened"
@@ -544,14 +529,11 @@ Example:
 
 ```json
 {
-  "closedAt": 6,
+  "autoReviewed": false,
+  "closedAt": 2,
   "interactionId": "example",
-  "resolution": {
-    "decision": "cancel",
-    "feedback": "example",
-    "kind": "plan_review"
-  },
-  "state": "expired",
+  "resolvedBy": "example",
+  "state": "resolved",
   "type": "interaction.closed"
 }
 ```
@@ -569,11 +551,13 @@ Example:
 {
   "task": {
     "agentId": "example",
+    "childAgentId": "example",
     "endedAt": 8,
     "id": "example",
-    "kind": "other",
-    "startedAt": 4,
-    "status": "completed",
+    "kind": "monitor",
+    "outputPath": "example",
+    "startedAt": 8,
+    "status": "unknown",
     "stoppable": false,
     "title": "example"
   },
@@ -594,7 +578,7 @@ Example:
 
 ```json
 {
-  "status": "running",
+  "status": "stopped",
   "taskId": "example",
   "type": "background_task.updated"
 }
@@ -614,10 +598,10 @@ Example:
 
 ```json
 {
-  "paused": false,
-  "reason": "limit",
-  "resumeAt": null,
-  "revision": 6,
+  "paused": true,
+  "reason": null,
+  "resumeAt": 7,
+  "revision": 2,
   "type": "queue.updated"
 }
 ```
@@ -635,9 +619,9 @@ Example:
 {
   "meter": {
     "agentId": "example",
-    "epoch": 8,
-    "source": "unknown",
-    "usedTokens": null,
+    "epoch": 9,
+    "source": "provider",
+    "usedTokens": 2,
     "windowTokens": null
   },
   "type": "context_meter.updated"
@@ -660,9 +644,8 @@ Example:
 ```json
 {
   "agentId": "example",
-  "model": "example",
   "type": "context.sampled",
-  "usedTokens": 2
+  "usedTokens": 6
 }
 ```
 
@@ -696,11 +679,11 @@ Example:
 ```json
 {
   "agentId": "example",
-  "billingMode": "subscription",
-  "cacheWriteTokens": 8,
-  "cachedInputTokens": 4,
-  "inputTokens": 7,
-  "outputTokens": 7,
+  "costUsd": 8,
+  "counterMode": "incremental",
+  "inputTokens": 3,
+  "model": "example",
+  "outputTokens": 8,
   "type": "usage.updated"
 }
 ```
@@ -721,7 +704,7 @@ Example:
     "id": "example",
     "op": "example",
     "path": "example",
-    "version": "example"
+    "version": null
   },
   "type": "workspace.files_changed",
   "workspaceId": "example"

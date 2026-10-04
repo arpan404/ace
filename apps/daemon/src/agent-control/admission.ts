@@ -221,6 +221,7 @@ export class DelegationAdmission {
         r.request.role,
         !r.request.wait,
       );
+      this.deps.engine.delegationStarted(r, child);
       return r;
     });
   }

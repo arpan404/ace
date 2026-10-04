@@ -131,6 +131,51 @@ export function fakeDelegations(
               status: child.status,
             },
           ]);
+        if (host && child) {
+          host.apply?.(rootId, [
+            {
+              type: "item.upsert",
+              agent: "root",
+              item: `delegation:${threadId}`,
+              draft: {
+                type: "delegation.started",
+                origin: "ace",
+                childThreadId: ThreadId.parse(threadId),
+                provider,
+                title: child.title,
+                role,
+                phase: settled ? "settled" : "running",
+                status: child.status,
+                generation: Math.max(card.round - 1, 0),
+                updatedAt: run.updatedAt,
+                complete: settled,
+              },
+            },
+          ]);
+          if (settled)
+            host.apply?.(rootId, [
+              {
+                type: "item.upsert",
+                agent: "root",
+                item: `delegation-result:${threadId}`,
+                draft: {
+                  type: "delegation.settled",
+                  origin: "ace",
+                  delivery: "tool",
+                  complete: true,
+                  results: [
+                    {
+                      threadId: ThreadId.parse(threadId),
+                      outcome: run.phase === "cancelled" ? "cancelled" : "completed",
+                      result: card.title,
+                      truncated: false,
+                      before: null,
+                    },
+                  ],
+                },
+              },
+            ]);
+        }
         return {
           laneId: `${card.id}.${role}`,
           workstream: card.id,

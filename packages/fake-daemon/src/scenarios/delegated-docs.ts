@@ -56,7 +56,27 @@ export function delegatedDocs(): Scenario[] {
       },
     ],
   };
+  const card = (phase: "running" | "settled"): Fact => ({
+    type: "item.upsert",
+    agent: "root",
+    item: "delegation-docs",
+    draft: {
+      type: "delegation.started",
+      origin: "ace",
+      childThreadId: ThreadId.parse(delegatedDocsIds.child),
+      provider: "codex",
+      model: "gpt-5.5-codex",
+      title: "Relay protocol reference",
+      role: "protocol-docs",
+      phase,
+      status: phase === "settled" ? { state: "done" } : { state: "working", agents: 1 },
+      updatedAt: phase === "settled" ? 2000 : 1000,
+      generation: 0,
+      complete: phase === "settled",
+    },
+  });
   const delegate: Fact[] = [
+    card("running"),
     tool("root", "delegate-docs", {
       kind: "agent.spawn",
       title: "Delegate the relay protocol reference to Codex",
@@ -84,7 +104,7 @@ export function delegatedDocs(): Scenario[] {
       type: "agent.external",
       agent: "docs",
       threadId: ThreadId.parse(delegatedDocsIds.child),
-      status: { state: "done" },
+      status: { state: "working", agents: 1 },
     },
   ];
   const parent: Scenario = {
@@ -98,6 +118,7 @@ export function delegatedDocs(): Scenario[] {
       {
         kind: "facts",
         agoMs: 5 * 60_000,
+        label: "delegation-running",
         facts: [
           rootAgent("claude", cwd),
           turn("root"),
@@ -108,6 +129,40 @@ export function delegatedDocs(): Scenario[] {
             "The 0.9 release needs a protocol reference for the relay. Have Codex write it while you update the changelog.",
           ),
           ...delegate,
+        ],
+      },
+      {
+        kind: "facts",
+        delayMs: 1000,
+        label: "delegation-settled",
+        facts: [
+          {
+            type: "agent.external",
+            agent: "docs",
+            threadId: ThreadId.parse(delegatedDocsIds.child),
+            status: { state: "done" },
+          },
+          card("settled"),
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: "docs-results",
+            draft: {
+              type: "delegation.settled",
+              origin: "ace",
+              delivery: "ace-input",
+              complete: true,
+              results: [
+                {
+                  threadId: ThreadId.parse(delegatedDocsIds.child),
+                  outcome: "completed",
+                  result: "Wrote docs/protocol/relay.md and documented reconnect behavior.",
+                  truncated: false,
+                  before: null,
+                },
+              ],
+            },
+          },
           message(
             "root",
             "handoff",

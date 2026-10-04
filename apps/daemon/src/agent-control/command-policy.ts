@@ -67,11 +67,13 @@ export function delegationCommandPolicy(deps: {
       deps.journal.save(edge);
     }
     const child = deps.store.getThread(p.threadId);
-    if (child)
+    if (child) {
+      deps.engine.delegationStarted(edge, { ...child, status: { state: "waiting", on: "queue" } });
       deps.engine.updateChild(edge.parentId, {
         ...child,
         status: { state: "waiting", on: "queue" },
       });
+    }
     deps.changed();
     return accepted;
   };

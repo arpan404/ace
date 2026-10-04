@@ -40,6 +40,8 @@ function excerpt(item: Item): string {
       return `Tool ${item.call.title.slice(0, 8000)}: ${item.call.status}. Full input/result available through history.`;
     case "artifact":
       return `Artifact: ${item.path.slice(0, 8000)} (${item.mimeType.slice(0, 128)})`;
+    case "delegation.started":
+      return `Delegated to ${item.provider}: ${item.title}, thread ${item.childThreadId}, ${item.status.state}`;
     case "delegation.settled":
       return `Delegation results: ${JSON.stringify(item.results).slice(0, 8000)}`;
     case "compaction":

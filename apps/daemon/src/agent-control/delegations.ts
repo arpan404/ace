@@ -265,6 +265,8 @@ export class DelegationService {
       if (own && own.phase !== "settled") {
         own.phase = "cancelling";
         this.journal.save(own);
+        const child = this.deps.store.getThread(own.childId);
+        if (child) this.deps.engine.delegationStarted(own, child);
       }
       const children = this.journal
         .family(tree.root)
@@ -278,6 +280,8 @@ export class DelegationService {
           this.deps.engine.discardRecovery(child.childId);
         child.phase = "cancelling";
         this.journal.save(child);
+        const thread = this.deps.store.getThread(child.childId);
+        if (thread) this.deps.engine.delegationStarted(child, thread);
         const result = this.command(
           controlCommandId(child.childId, `${request}:${child.generation}`, "cascade.interrupt"),
           {
@@ -330,9 +334,13 @@ export class DelegationService {
     if (!thread) return;
     this.deps.store.atomic(() => {
       this.deps.engine.updateChild(edge.parentId, thread);
-      if (edge.phase === "settled" || !["done", "failed"].includes(thread.status.state)) return;
+      if (edge.phase === "settled" || !["done", "failed"].includes(thread.status.state)) {
+        this.deps.engine.delegationStarted(edge, thread);
+        return;
+      }
       const outcome = threadOutcome(this.deps.store, thread, edge.phase === "cancelling");
       this.journal.settle(edge, outcome, this.deps.clock.now() + this.policy.coalesceMs);
+      this.deps.engine.delegationStarted(edge, thread);
       this.waiters.deliver(thread.id, outcome);
     });
   }

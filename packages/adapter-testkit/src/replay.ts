@@ -104,6 +104,7 @@ export function replayFixture(options: ReplayOptions): ReplayResult {
     });
   }
   const items: ReplayFinal["items"] = {
+    "delegation.started": 0,
     "delegation.settled": 0,
     message: 0,
     reasoning: 0,

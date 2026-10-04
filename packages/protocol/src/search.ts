@@ -9,6 +9,7 @@ export const SearchKind = z.enum([
   "tool_call",
   "notice",
   "compaction",
+  "delegation.started",
   "delegation.settled",
   "artifact",
 ]);
