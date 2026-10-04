@@ -1,3 +1,4 @@
+import { startProjects } from "./projects.ts";
 import { startCursorAuth } from "./cursor-auth.ts";
 import { startPreviewClient } from "./preview-client.ts";
 import { startConductor } from "./conductor.ts";
@@ -44,6 +45,13 @@ export const serviceFactories: readonly ServiceDefinition[] = [
     requires: [],
     after: ["files"],
     start: startWorkspaceActions,
+  },
+  {
+    name: "projects",
+    phase: "core",
+    requires: ["settings"],
+    after: ["workspaceActions"],
+    start: startProjects,
   },
   { name: "models", phase: "core", requires: [], after: [], start: startModels },
   {

@@ -1,3 +1,4 @@
+import { createProjectsSession } from "./projects.ts";
 import { createPreviewClientSession } from "./preview-client.ts";
 import { createConductorSession } from "./conductor.ts";
 import { createAutomationsSession } from "./automations.ts";
@@ -39,6 +40,7 @@ export const socketServiceFactories = [
   createAutomationsSession,
   createThreadOrganizationSession,
   createWorkspaceActionsSession,
+  createProjectsSession,
   createTerminalSession,
   createRecoverySession,
   createDevicesSession,

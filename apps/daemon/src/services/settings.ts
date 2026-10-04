@@ -17,7 +17,10 @@ export function createSettingsSession(context: SocketContext): SocketService {
     store: options.store,
     subscriptions,
     send,
-    authorize: (request) => authorize(request.type === "settings.set" ? "operate" : "read"),
+    authorize: (request) =>
+      request.type === "settings.set" && request.key === "projects.roots"
+        ? request.layer.kind === "global" && authorize("projects") && authorize("admin")
+        : authorize(request.type === "settings.set" ? "operate" : "read"),
   });
   return {
     close() {

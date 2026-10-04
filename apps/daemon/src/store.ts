@@ -1,3 +1,4 @@
+import { migrateProjects } from "./project-storage.ts";
 import {
   migrateDeckWorkspaces,
   saveWorkspaceDeck,
@@ -102,6 +103,7 @@ export class Store {
       );
       migrate(this.db);
       migrateDeckWorkspaces(this.db);
+      migrateProjects(this.db);
       this.workspaceReservations = new WorkspaceReservations(this.db, (sql) => this.statement(sql));
       this.atomic(migrateThreadClient);
       this.usageReplay = new UsageReplay(this.db);
@@ -480,6 +482,12 @@ export class Store {
         let thread: Thread;
         if (event.payload.type === "thread.created") {
           thread = event.payload.thread;
+          if (
+            this.statement("SELECT 1 FROM workspace_unregistered WHERE workspace_id=?").get(
+              thread.workspaceId,
+            )
+          )
+            throw new Error("workspace_unregistered");
           if (thread.id !== threadId || this.getThread(threadId))
             throw new Error("Invalid thread creation");
           this.statement(
