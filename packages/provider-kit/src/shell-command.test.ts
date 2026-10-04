@@ -23,6 +23,7 @@ test.each([
   "/bin/zsh -c 'echo 'bad''",
   "/bin/zsh -c 'unterminated",
   "/bin/sh -xc 'pwd'",
+  "/bin/sh -c 'pwd'\n",
 ])("leaves unsupported or ambiguous input unchanged: %s", (command) => {
   expect(unwrapShellCommand(command)).toBeUndefined();
 });

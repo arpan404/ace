@@ -6,6 +6,6 @@ export function unwrapShellCommand(command: string): { inner: string; shell?: st
     );
   const shell = match?.[1];
   const script = match?.[2];
-  if (shell === undefined || script === undefined) return undefined;
+  if (shell === undefined || script === undefined || match?.[0] !== command) return undefined;
   return { inner: script.replaceAll("'\\''", "'"), shell };
 }
