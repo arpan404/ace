@@ -1,4 +1,5 @@
-import { useItemOrder, type HistoryPager } from "@ace/client-react";
+import type { ThreadReader } from "@ace/client";
+import { arrayEqual, useItemOrder, useThread, type HistoryPager } from "@ace/client-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Suspense,
@@ -34,7 +35,7 @@ import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
 import { blockItems, type Block } from "./blocks.ts";
 import { LiveFooter } from "./live-footer.tsx";
-import { newestOrdinal, recentTurns, rowOf, transcriptRows, type Row } from "./rows.ts";
+import { newestOrdinal, recentFrom, rowOf, transcriptRows, turnCount, type Row } from "./rows.ts";
 import { useGutter, useKeepPlace, useStayPinned, type Anchor } from "./scroll.ts";
 import { useRunOrdinals } from "./run-ordinals.ts";
 import { useBlocks } from "./use-blocks.ts";
@@ -42,6 +43,25 @@ import { useTurnActivity } from "./use-turn-activity.ts";
 import { useNewActivity } from "./use-new-activity.ts";
 
 const none: readonly string[] = [];
+const unsettledKeys = ["order", "interactions"] as const;
+const inFlight = new Set(["pending", "running", "awaiting_approval"]);
+/**
+ * Steps still in flight and the steps that asked open requests. Re-read as items arrive, so a
+ * step that settles lets its turn fold at the next change; that only ever keeps a turn open.
+ */
+function readUnsettled(reader: ThreadReader): readonly string[] {
+  const ids: string[] = [];
+  for (const id of reader.interactionIds()) {
+    const interaction = reader.interaction(id);
+    if (interaction?.state === "pending" && interaction.toolCallId)
+      ids.push(interaction.toolCallId);
+  }
+  for (const id of reader.order) {
+    const item = reader.item(id);
+    if (item?.type === "tool_call" && inFlight.has(item.call.status)) ids.push(id);
+  }
+  return ids;
+}
 const nearEdge = 64;
 /** Room above a row brought into view, for the bars that float over the transcript's top. */
 const topRoom = 56;
@@ -138,16 +158,23 @@ export function Feed(props: FeedProps) {
   const handled = useRef(0);
   const focus = jump.focus;
   const focusOrdinal = focus ? ordinalOf(focus.itemId) : undefined;
+  // Turns with a step still running or a request still open never fold.
+  const unsettled = useThread(threadId, unsettledKeys, readUnsettled, arrayEqual) ?? none;
   const open = useMemo(() => {
     const set = new Set(opened);
     if (focus && handled.current !== focus.nonce && focusOrdinal !== undefined)
       set.add(focusOrdinal);
+    for (const id of unsettled) {
+      const ordinal = ordinalOf(id);
+      if (ordinal !== undefined) set.add(ordinal);
+    }
     return set;
-  }, [opened, focus, focusOrdinal]);
-  // Live, the newest turns show whole. In a jumped window the reader reads on from the turn
-  // they jumped to: it and every later turn show whole, the turns before it fold.
+  }, [opened, focus, focusOrdinal, unsettled, ordinalOf]);
+  // Live, every turn shows whole until the window is long; then the newest ones do. In a jumped
+  // window the reader reads on from the turn they jumped to: it and every later turn show
+  // whole, the turns before it fold.
   const latest = newestOrdinal(blocks, ordinalOf);
-  const recent = latest === undefined ? Infinity : latest - recentTurns + 1;
+  const recent = recentFrom(latest, turnCount(blocks, ordinalOf), order.length);
   // A window not joined to the tail holds no recent turns: only its own from the jump on.
   const openFrom = detached
     ? (jump.turn ?? Infinity)
