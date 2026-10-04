@@ -1,4 +1,12 @@
-import { Agent, Interaction, Item, type AgentStatus, type Run, type ToolCall } from "@ace/protocol";
+import {
+  Agent,
+  BackgroundTask,
+  Interaction,
+  Item,
+  type AgentStatus,
+  type Run,
+  type ToolCall,
+} from "@ace/protocol";
 import { expect, test } from "vitest";
 import {
   activityText,
@@ -57,7 +65,27 @@ function approval(id: string, at: number, closedAt?: number): Interaction {
   });
 }
 
-function world(status: AgentStatus, items: Item[], interactions: Interaction[] = []) {
+function world(
+  status: AgentStatus,
+  items: Item[],
+  interactions: Interaction[] = [],
+  background: string[] = [],
+) {
+  const tasks = new Map(
+    background.map((toolCallId) => [
+      `task-${toolCallId}`,
+      BackgroundTask.parse({
+        id: `task-${toolCallId}`,
+        agentId: "root",
+        toolCallId,
+        kind: "shell",
+        title: toolCallId,
+        status: "running",
+        stoppable: true,
+        startedAt: 0,
+      }),
+    ]),
+  );
   const root = Agent.parse({
     id: "root",
     threadId: "thread-1",
@@ -87,7 +115,8 @@ function world(status: AgentStatus, items: Item[], interactions: Interaction[] =
     thread: undefined,
     interactionIds: () => [...asked.keys()],
     interaction: (id) => asked.get(id),
-    task: () => undefined,
+    taskIds: () => [...tasks.keys()],
+    task: (id) => tasks.get(id),
     queue: undefined,
   };
   return reader;
@@ -162,4 +191,18 @@ test("a finished turn has no live line unless a question still waits on the pers
 
 test("Stop on its way reads Stopping", () => {
   expect(turnActivity(world(working, []), "root", { stopping: true })?.label).toBe("Stopping…");
+});
+
+test("a dev server left running in the background is not the step in flight", () => {
+  const reader = world(
+    { state: "working", activity: "thinking" },
+    [
+      said("ask", "user", 0),
+      said("note", "assistant", 5),
+      shell("dev", "bun run dev", "running", 9),
+    ],
+    [],
+    ["dev"],
+  );
+  expect(turnActivity(reader, "root")).toMatchObject({ label: "Thinking", current: undefined });
 });

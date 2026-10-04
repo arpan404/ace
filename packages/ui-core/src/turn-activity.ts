@@ -41,6 +41,7 @@ export type ActivityReader = Pick<
   | "thread"
   | "interactionIds"
   | "interaction"
+  | "taskIds"
   | "task"
   | "queue"
 >;
@@ -124,6 +125,12 @@ const unsettled = new Set(["pending", "running"]);
 function currentStretch(reader: ActivityReader): { start?: number; current?: Item } {
   let start: number | undefined;
   let current: Item | undefined;
+  // Calls that outlived their turn as background tasks (a dev server) are not the turn's work.
+  const background = new Set<string>();
+  for (const id of reader.taskIds()) {
+    const task = reader.task(id);
+    if (task?.toolCallId) background.add(task.toolCallId);
+  }
   for (let index = reader.order.length - 1; index >= 0; index--) {
     const item = reader.item(reader.order[index] ?? "");
     if (!item) continue;
@@ -132,6 +139,7 @@ function currentStretch(reader: ActivityReader): { start?: number; current?: Ite
     if (run && run.state !== "active" && run.agentId === reader.thread?.rootAgentId) break;
     if (item.type === "message" || item.type === "compaction" || item.type === "artifact") continue;
     if (item.type === "tool_call" && item.call.detail.kind === "agent.spawn") continue;
+    if (background.has(item.id)) continue;
     const at =
       item.type === "tool_call" ? Math.min(item.createdAt, item.call.startedAt) : item.createdAt;
     start = start === undefined ? at : Math.min(start, at);
