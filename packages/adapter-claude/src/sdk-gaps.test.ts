@@ -191,15 +191,13 @@ test("an allowed rate window clears only its own block and leaves later network 
   expect(h.state.agents["root"]?.agent.status).toEqual({ state: "idle" });
   expect(
     h
-      .items()
+      .rawPayloads()
       .some(
-        (item) =>
-          item.type === "notice" &&
-          item.raw.some(
-            (r) => "data" in r && JSON.stringify(r.data).includes('"future":"retained"'),
-          ),
+        (payload) =>
+          "data" in payload && JSON.stringify(payload.data).includes('"future":"retained"'),
       ),
   ).toBe(true);
+  expect(h.items().filter((item) => item.type === "notice")).toEqual([]);
 });
 
 test("interrupt survivors hold a finished thread until their correlated result is observed", () => {

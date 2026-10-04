@@ -22,6 +22,43 @@ function setup() {
   event("session.created", { projectID: "p", location: { directory: "/one" } });
   return { ...h, event, frame };
 }
+it("OpenCode step usage replaces occupied context while session billing stays cumulative", () => {
+  const h = setup();
+  h.frame("snapshot.info", {
+    root: true,
+    info: {
+      id: "s-root",
+      projectID: "p",
+      location: { directory: "/one" },
+      model: { providerID: "local", id: "model" },
+    },
+  });
+  h.event("session.execution.started");
+  const step = {
+    assistantMessageID: "m1",
+    tokens: { input: 100, output: 10, reasoning: 5, cache: { read: 50, write: 20 } },
+    cost: 0.001,
+  };
+  h.event("session.step.ended", step);
+  h.event("session.usage.updated", { ...step, cost: 0.0017 });
+  h.event("session.step.ended", {
+    ...step,
+    assistantMessageID: "m2",
+    tokens: { input: 20, output: 5, cache: { read: 10, write: 0 } },
+  });
+  h.event("session.usage.updated", {
+    tokens: { input: 120, output: 15, reasoning: 5, cache: { read: 60, write: 20 } },
+    cost: 0.0027,
+  });
+  h.event("session.execution.succeeded");
+  expect(
+    h.events.filter((event) => event.type === "context.sampled").map((sample) => sample.usedTokens),
+  ).toEqual([185, 35]);
+  expect(Object.values(h.view.usage)).toMatchObject([{ model: "local/model", costUsd: 0.0027 }]);
+  expect(
+    Object.values(h.view.agents).find((agent) => agent.native.nativeId === "s-root")?.model,
+  ).toBe("local/model");
+});
 it("step completion and HTTP admission leave work unsettled until execution terminal evidence", () => {
   const h = setup();
   h.frame(

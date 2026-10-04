@@ -90,6 +90,9 @@ export class ThreadActor {
   private idleMs: number;
   private wake: () => void;
   private report: (error: unknown) => void;
+  private diagnostic:
+    | ((thread: ThreadId, raw: import("@ace/protocol").RawPayload[]) => void)
+    | undefined;
   constructor(
     id: ThreadId,
     repo: EngineRepository,
@@ -100,6 +103,7 @@ export class ThreadActor {
     limits: EngineLimits,
     privateDrain: () => boolean = () => false,
     batchScheduler: Pick<EngineClock, "setTimer"> = systemClock,
+    diagnostic?: (thread: ThreadId, raw: import("@ace/protocol").RawPayload[]) => void,
   ) {
     this.draining = privateDrain;
     this.batchScheduler = batchScheduler;
@@ -110,6 +114,7 @@ export class ThreadActor {
     this.idleMs = idleMs;
     this.wake = wake;
     this.report = report;
+    this.diagnostic = diagnostic;
   }
   retainInput(id: number, release: () => void, runId: string | undefined): void {
     if (this.inputLeases.size >= 256) {
@@ -357,6 +362,8 @@ export class ThreadActor {
     const cursorSdk = decoded.channel === "sdk" && cursorBackend;
     if (cursorSdk && this.repo.recovery.committed(this.id, decoded)) return [];
     const facts = this.translator?.translate(decoded, this.clock.now()) ?? [];
+    const raw = this.translator?.takeDiagnostics?.() ?? [];
+    if (raw.length) this.diagnostic?.(this.id, raw);
     if (cursorSdk) {
       const body = sdkBody.safeParse(decoded.data);
       if (body.success && body.data.kind === "blob")

@@ -58,13 +58,9 @@ test("overflowed unknown streams retain raw frames and hold completion until aut
   h.item({ id: "spawn", type: "subAgentActivity", kind: "started", agentThreadId: "child" }, true);
   h.end();
   expect(h.state.status.state).not.toBe("done");
-  expect(
-    Object.values(h.state.items).some(
-      (i) =>
-        i.type === "notice" &&
-        i.raw.some((r) => "data" in r && JSON.stringify(r.data).includes("chunk-0")),
-    ),
-  ).toBe(true);
+  expect(h.diagnostics.some((r) => "data" in r && JSON.stringify(r.data).includes("chunk-0"))).toBe(
+    true,
+  );
   h.feed({
     seq: 999,
     t: 1000,

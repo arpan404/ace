@@ -15,6 +15,7 @@ const modelTotals = z
         cacheReadInputTokens: counts,
         cacheCreationInputTokens: counts,
         costUSD: z.number().nonnegative(),
+        contextWindow: z.number().int().positive().optional(),
       })
       .passthrough(),
   )
@@ -48,6 +49,9 @@ export class ResultUsage {
     const usage = tokenCounts(data["usage"]);
     const uuid = string(data["uuid"], state.key("result", String(state.turn)));
     const facts: Fact[] = [];
+    const models = modelTotals.safeParse(data["modelUsage"]);
+    const contextWindow =
+      models.success && state.model ? models.data[state.model]?.contextWindow : undefined;
     if (usage)
       facts.push({
         type: "usage",
@@ -56,10 +60,11 @@ export class ResultUsage {
         counterMode: "incremental",
         counterKey: `claude:result:${uuid}`,
         usageScope: "agent",
+        ...(state.model ? { model: state.model } : {}),
+        ...(contextWindow ? { contextWindow } : {}),
       });
     // These are inclusive snapshots, never increments assigned to the root or summed with children.
     const counterKey = `claude:${state.session}:${this.epoch}`;
-    const models = modelTotals.safeParse(data["modelUsage"]);
     let inputTokens = 0;
     let outputTokens = 0;
     let cachedInputTokens = 0;

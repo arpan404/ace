@@ -75,10 +75,7 @@ export async function fakeCli(path: string): Promise<string> {
 import { createInterface } from 'node:readline';
 const mode = process.env.FAKE_PROVIDER;
 const payload = JSON.parse(process.env.FAKE_PAYLOAD ?? '{}');
-if (mode === 'opencode') {
-  if (!process.argv.includes('models') || !process.argv.includes('--verbose')) process.exit(7);
-  for (const model of payload) console.log(model.providerID + '/' + model.id + '\\n' + JSON.stringify(model, null, 2));
-} else if (mode === 'flood') {
+if (mode === 'flood') {
   process.stdout.write('x'.repeat(5 * 1024 * 1024));
 } else {
   if (mode === 'hang') console.log('ready');

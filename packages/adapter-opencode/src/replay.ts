@@ -1,6 +1,6 @@
 import { apply, createThreadState, type Fact } from "@ace/core";
 import { applyEvent, createThreadView } from "@ace/projection";
-import { Event, Thread } from "@ace/protocol";
+import { Event, Thread, type EventPayload } from "@ace/protocol";
 import type { Frame } from "@ace/engine-api";
 import { OpenCodeTranslator } from "./translator.ts";
 export function harness() {
@@ -21,12 +21,14 @@ export function harness() {
   const view = createThreadView(thread);
   let sequence = 0;
   let eventSequence = 0;
+  const events: EventPayload[] = [];
   const accept = (facts: Fact[], now: number) => {
     for (const fact of facts)
       for (const payload of apply(state, fact, {
         now,
         ids: { next: (kind) => `${kind}_${++sequence}` },
-      }))
+      })) {
+        events.push(payload);
         applyEvent(
           view,
           Event.parse({
@@ -37,9 +39,11 @@ export function harness() {
             payload,
           }),
         );
+      }
   };
   return {
     view,
+    events,
     translator,
     queueCount: () => state.queueCount,
     feed(frame: Frame) {

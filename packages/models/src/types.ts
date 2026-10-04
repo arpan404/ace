@@ -59,6 +59,7 @@ export interface CatalogStorage {
 export interface ModelCatalogApi {
   list(options?: ModelListOptions): ModelListResult;
   resolve(spec: ModelRoleSpec): ModelResolution;
+  invalidate(filter?: ModelFilter): Promise<void>;
   refresh(filter?: ModelFilter): Promise<ModelInstanceStatus[]>;
 }
 export type Deadline = (expire: () => void, milliseconds: number) => () => void;

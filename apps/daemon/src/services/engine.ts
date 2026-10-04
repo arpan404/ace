@@ -1,3 +1,4 @@
+import { logFields, logMetadata } from "@ace/diagnostics";
 import { cursorHosts } from "./cursor-hosts.ts";
 import { daemonMcpCapabilities } from "./mcp-capabilities.ts";
 import { AgentId } from "@ace/protocol";
@@ -14,7 +15,7 @@ import { Engine } from "../engine/index.ts";
 import { discoverAdapters } from "../engine/adapters.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startEngine(context: ServiceContext): Promise<void> {
-  const { options, store, resources, services, log } = context;
+  const { config, options, store, resources, services, log } = context;
 
   if (options.handler) {
     services.handler = options.handler;
@@ -181,6 +182,19 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     ...((engineOptions.transitions ?? services.transitions)
       ? { transitions: engineOptions.transitions ?? services.transitions }
       : {}),
+    onProviderDiagnostic:
+      engineOptions.onProviderDiagnostic ??
+      ((thread, raw) => {
+        if (config.logLevel !== "debug") return;
+        log.log(
+          "debug",
+          "Provider diagnostic",
+          logFields([
+            ["thread", thread],
+            ["raw", raw.slice(0, 8).map((payload) => logMetadata(payload))],
+          ]),
+        );
+      }),
     onError: engineOptions.onError ?? ((error) => log.log("error", "Engine failure", error)),
   });
   resources.own(() => engine.close());

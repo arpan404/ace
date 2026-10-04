@@ -55,6 +55,7 @@ export interface EngineOptions {
   idleMs?: number;
   silenceMs?: number;
   onError?: (error: unknown) => void;
+  onProviderDiagnostic?: (thread: ThreadId, raw: import("@ace/protocol").RawPayload[]) => void;
   mcp?: (
     threadId: ThreadId,
     agentId: string,
@@ -71,6 +72,7 @@ export class Engine {
   private batchScheduler: Pick<EngineClock, "setTimer">;
   private idleMs: number;
   private report: (error: unknown) => void;
+  private diagnostic: EngineOptions["onProviderDiagnostic"];
   private actors = new Map<ThreadId, ThreadActor>();
   private workspaceChanges = new Map<ThreadId, Promise<void>>();
   private sends: IntentWorkers;
@@ -109,6 +111,7 @@ export class Engine {
     if (!Number.isSafeInteger(this.idleMs) || this.idleMs < 0) throw new Error("Invalid idleMs");
     if (!Number.isSafeInteger(silenceMs) || silenceMs < 0) throw new Error("Invalid silenceMs");
     this.report = options.onError ?? console.error;
+    this.diagnostic = options.onProviderDiagnostic;
     this.sends = new IntentWorkers((id) => this.work(this.actor(id)), this.report);
     this.steering = new IntentWorkers((id) => this.steer(this.actor(id)), this.report);
     this.controls = new IntentWorkers((id) => this.control(this.actor(id)), this.report);
@@ -275,6 +278,7 @@ export class Engine {
         this.limits,
         () => this.flushDepth > 0,
         this.batchScheduler,
+        this.diagnostic,
       );
       this.actors.set(id, actor);
     }

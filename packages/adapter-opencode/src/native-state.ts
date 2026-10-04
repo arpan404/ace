@@ -3,6 +3,7 @@ import type { Fact, Key } from "@ace/core";
 import type { Data } from "./data.ts";
 import { object, raw, string, number } from "./data.ts";
 import { RecentMap, RecentSet } from "./cache.ts";
+import { qualifiedModel } from "./usage.ts";
 export type Tool = {
   session: string;
   message: string;
@@ -15,7 +16,7 @@ export class NativeState {
   readonly rootKey: Key;
   rootNative = "";
   disconnected = false;
-  agents = new Map<string, { parent: string; directory: string }>();
+  agents = new Map<string, { parent: string; directory: string; model?: string }>();
   active = new Map<string, string>();
   idle = new Map<string, number>();
   executionBaseline = new Map<string, number>();
@@ -99,7 +100,8 @@ export class NativeState {
     const claim = this.childClaims.get(id);
     this.childClaims.delete(id);
     const previousDirectory = this.agents.get(id)?.directory;
-    this.agents.set(id, { parent, directory });
+    const model = qualifiedModel(p.model) ?? this.agents.get(id)?.model;
+    this.agents.set(id, { parent, directory, ...(model ? { model } : {}) });
     if (previousDirectory !== directory) {
       if (previousDirectory !== undefined) {
         const count = (this.locations.get(previousDirectory) ?? 1) - 1;
@@ -123,6 +125,7 @@ export class NativeState {
         native: { provider: "opencode", nativeId: id },
         name: string(p.title),
         role: string(p.agent),
+        ...(model ? { model } : {}),
       },
       ...(this.disconnected ? [{ type: "agent.disconnected" as const, agent: this.key(id) }] : []),
       ...(claim && claim.session === parent

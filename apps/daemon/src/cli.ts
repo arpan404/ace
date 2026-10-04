@@ -76,7 +76,9 @@ async function main(args: string[]): Promise<void> {
       handler: development ? stubHandler({ development }) : undefined,
       preview: { host: "127.0.0.1", wildcardHost: "preview.localhost", port: 0 },
       toolkits: [],
-      modelInstances: readModelInstances(),
+      ...(process.env.ACE_MODEL_INSTANCES !== undefined
+        ? { modelInstances: readModelInstances() ?? [] }
+        : {}),
       history: { instances: readHistoryInstances() },
     });
     if (!daemon) return;

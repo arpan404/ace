@@ -16,6 +16,7 @@ export interface NativeTask {
 export class ClaudeState {
   readonly root: Key;
   session = "initial";
+  model: string | undefined;
   cwd = "";
   processId = "";
   sessionState: string | undefined;
@@ -44,6 +45,7 @@ export class ClaudeState {
     { agent: Key; item: Key; toolId: string; request: InteractionRequest }
   >();
   facts: Fact[] = [];
+  diagnostics: RawPayload[] = [];
   sent = false;
   wake: RunTrigger | undefined;
   wakeDuringTurn = false;
@@ -150,8 +152,12 @@ export class ClaudeState {
     id: string,
     agent = this.root,
     level: "info" | "warning" | "error" = "info",
-    message = "Claude frame",
+    message?: string,
   ): void {
+    if (message === undefined) {
+      this.diagnostics.push(raw(data));
+      return;
+    }
     this.emit({
       type: "item.upsert",
       agent,
@@ -169,7 +175,7 @@ export class ClaudeState {
       items.add(item);
       return { raw: [raw(data, name)] };
     }
-    // The translator's single raw fallback preserves subsequent payloads once.
+    // The translator's diagnostic fallback preserves subsequent payloads once.
     return {};
   }
   keepToolRaw(id: string, data: unknown, name?: string): { raw?: RawPayload[] } {

@@ -98,3 +98,9 @@ export function bounded(value: unknown): unknown {
 export function boundedMetadata(value: unknown): unknown {
   return normalize(value, metadataFields);
 }
+
+/** Bounded evidence for nested external metadata; redaction precedes serialization. */
+export function logMetadata(value: unknown): string {
+  const json = JSON.stringify(boundedMetadata(value)) ?? "null";
+  return json.length > 2000 ? json.slice(0, 1980) + "<TRUNCATED>" : json;
+}

@@ -16,6 +16,8 @@ import type { DaemonReviewOptions } from "../review.ts";
 import type { DaemonHistoryOptions } from "../history.ts";
 import type { DaemonClaudeOptions } from "./claude.ts";
 export type DaemonOptions = {
+  /** Local metadata process boundary, never accepted from socket clients. */
+  modelDiscovery?: import("@ace/models").DiscoveryOptions;
   conductor?: import("../conductor-runtime.ts").ConductorRuntimeOptions;
   projects?: import("../projects.ts").ProjectsOptions;
   workspaceActions?: import("../workspace-runtime.ts").WorkspaceRuntimeOptions;

@@ -1,3 +1,4 @@
+import { confirmModel } from "./model.ts";
 import { unknownBuffers, RecentSet } from "./retention.ts";
 import type { Fact, Key } from "@ace/core";
 import type { ThreadId, RunTrigger } from "@ace/protocol";
@@ -48,14 +49,22 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     discover,
     note: (...args) => note(...args),
   };
+  let diagnostics: import("@ace/protocol").RawPayload[] = [];
+  let diagnosticFrame: unknown;
   let synthetic = 0;
   let deliberate = false;
-  const note = (agent: Key, type: string, data: unknown, text = type): Fact => ({
-    type: "item.upsert",
-    agent,
-    item: `codex:raw:${++synthetic}`,
-    draft: { type: "notice", level: "info", text, complete: true, raw: raw(type, data) },
-  });
+  const note = (agent: Key, type: string, data: unknown, text?: string): Fact => {
+    if (text === undefined) {
+      if (data !== diagnosticFrame) diagnostics.push(...raw(type, data));
+      return { type: "signal", agent };
+    }
+    return {
+      type: "item.upsert",
+      agent,
+      item: `codex:raw:${++synthetic}`,
+      draft: { type: "notice", level: "info", text, complete: true, raw: raw(type, data) },
+    };
+  };
   function handle(frame: Frame, now: number): Fact[] {
     const facts: Fact[] = [];
     const message = obj(frame.data),
@@ -128,7 +137,6 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
         if (agent && p["collaborationMode"])
           agent.mode = str(obj(p["collaborationMode"])["mode"], agent.mode);
       }
-      facts.push(note(init.rootKey, method || "rpc.response.sent", frame.data));
       return facts;
     }
     if (frame.dir === "stderr") {
@@ -149,7 +157,8 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
         if (str(thread["id"])) {
           root = str(thread["id"]);
           cwd = str(thread["cwd"], str(pending.params["cwd"], cwd));
-          discover(root, thread, facts, now);
+          const agent = discover(root, thread, facts, now);
+          confirmModel(agent, result["model"], facts);
         }
       } else if (
         pending?.method === "thread/read" &&
@@ -175,7 +184,6 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
         });
         closeAsync(pending.interaction);
       }
-      facts.push(note(init.rootKey, "rpc.response", frame.data));
       return facts;
     }
     if (method === "thread/started") {
@@ -184,7 +192,6 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
       if (!native) return root ? [note(init.rootKey, method, frame.data)] : [];
       if (!root) root = native;
       discover(native, thread, facts, now, str(thread["parentThreadId"]) || undefined);
-      facts.push(note(init.rootKey, method, frame.data));
       return facts;
     }
     const native = str(p["threadId"], root);
@@ -209,19 +216,6 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     }
     const agent = ensure(native, true, facts);
     facts.push({ type: "signal", agent: agent.key });
-    if (
-      [
-        "turn/started",
-        "turn/completed",
-        "thread/status/changed",
-        "thread/settings/updated",
-        "thread/tokenUsage/updated",
-        "thread/queue/changed",
-        "thread/goal/updated",
-        "thread/goal/cleared",
-      ].includes(method)
-    )
-      facts.push(note(agent.key, method, frame.data));
     if (isInteractiveRequest(method) && id !== undefined) {
       const key = requestKey(id);
       const item = str(p["itemId"]);
@@ -358,9 +352,10 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
           outcome: "failed",
           error: { kind: "provider", message: "Codex thread reported systemError" },
         });
-    } else if (method === "thread/settings/updated")
+    } else if (method === "thread/settings/updated") {
       agent.mode = str(obj(p["collaborationMode"])["mode"], agent.mode);
-    else if (method.startsWith("thread/goal/")) agent.pendingTrigger = "goal";
+      confirmModel(agent, p["model"], facts);
+    } else if (method.startsWith("thread/goal/")) agent.pendingTrigger = "goal";
     else if (method === "thread/queue/changed") agent.pendingTrigger = "queue";
     else if (method === "thread/tokenUsage/updated") {
       const tokenUsage = obj(p["tokenUsage"]);
@@ -380,11 +375,13 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
             ? { windowTokens: tokenUsage["modelContextWindow"] }
             : {}),
           sessionId: native,
+          ...(agent.model ? { model: agent.model } : {}),
         });
       if (typeof usage["inputTokens"] === "number" && typeof usage["outputTokens"] === "number")
         facts.push({
           type: "usage",
           agent: agent.key,
+          ...(agent.model ? { model: agent.model } : {}),
           inputTokens: usage["inputTokens"],
           outputTokens: usage["outputTokens"],
           ...(typeof usage["cachedInputTokens"] === "number"
@@ -395,7 +392,15 @@ export function createCodexTranslator(init: { threadId: ThreadId; rootKey: Key }
     return facts;
   }
   return {
+    takeDiagnostics() {
+      const result = diagnostics;
+      diagnostics = [];
+      diagnosticFrame = undefined;
+      return result;
+    },
     translate(frame, now) {
+      diagnosticFrame = frame.data;
+      diagnostics = raw(str(obj(frame.data)["method"], "codex.frame"), frame.data);
       try {
         return handle(frame, now);
       } catch {
