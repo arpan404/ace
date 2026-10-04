@@ -13,14 +13,14 @@ Each query measurement contains 100 samples. Turn pages contain up to 50 entries
 
 | API and workload           | First call, ms | Median, ms | p95, ms | Maximum, ms |
 | -------------------------- | -------------: | ---------: | ------: | ----------: |
-| `turns.page`               |          17.61 |       9.69 |   14.03 |       18.23 |
-| `thread.search.common`     |          24.51 |       8.53 |   12.11 |       24.51 |
-| `thread.search.blob`       |          67.25 |      21.36 |   22.18 |       67.25 |
-| `thread.search.toolOutput` | 9.07 | 3.25 | 3.49 | 9.07 |
-| `thread.search.tree`       |          32.56 |       7.26 |    7.72 |       32.56 |
-| `thread.catchUp.recent`    |          20.59 |       1.12 |    1.44 |       20.59 |
-| `thread.catchUp.all`       |          11.54 |       1.19 |    1.48 |       11.54 |
-| `items.window`             |          20.94 |       7.69 |    9.55 |       20.94 |
+| `turns.page`               |          17.47 |       9.67 |   11.84 |       18.23 |
+| `thread.search.common`     |          23.97 |       8.01 |    9.49 |       23.97 |
+| `thread.search.blob`       |          64.23 |      21.30 |   22.12 |       64.23 |
+| `thread.search.toolOutput` |           9.92 |       3.42 |    3.85 |        9.92 |
+| `thread.search.tree`       |          34.33 |       7.48 |    8.10 |       34.33 |
+| `thread.catchUp.recent`    |          21.08 |       1.10 |    1.45 |       21.08 |
+| `thread.catchUp.all`       |          11.50 |       1.17 |    1.49 |       11.50 |
+| `items.window`             |          22.07 |       7.44 |    9.39 |       22.07 |
 
 All measured pages met the requested targets of 50 ms for turns and catch-up, and 150 ms for search. Catch-up workloads cover the latest 25 turns and all 2,000 root turns.
 
@@ -28,7 +28,7 @@ The coverage read reported `ready: true`, zero pending documents and an indexed 
 
 Seed memory stayed near 193 to 200 MiB RSS from 100,000 through 1,000,000 items, with temporary garbage-collection spikes. Seed peak RSS was 283.48 MiB and final heap was 35.69 MiB. Batches retained at most 128 records or approximately 512 KiB plus the current record. The iterator retained no transcript array.
 
-The query process reopened at 129.02 MiB RSS and 25.12 MiB heap. After all 800 query samples and coverage reads, forced GC left 29.28 MiB heap. RSS was 322.89 MiB, including native SQLite and runtime allocations; query peak RSS was 323.00 MiB. This measurement documents retained memory at one million items rather than inferring an unlimited-history bound from latency alone.
+The query process reopened at 128.48 MiB RSS and 25.31 MiB heap. After all 800 query samples and coverage reads, forced GC left 29.48 MiB heap. RSS was 324.41 MiB, including native SQLite and runtime allocations; query peak RSS was 324.86 MiB. This measurement documents retained memory at one million items rather than inferring an unlimited-history bound from latency alone.
 
 Search results follow chronological chunk-indexing order. Late appends may update an item's existing tail below the cursor ceiling. Disjoint common multi-term queries can scan many postings even though response and candidate buffers remain bounded. The measured fixture meets the targets; these measurements do not establish a latency guarantee for arbitrary queries or thread families.
 
