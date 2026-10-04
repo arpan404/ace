@@ -134,8 +134,59 @@ Their behavior and work-budget assertions need run at merge.
 
 ## Validation record
 
-The owner now requires tests to run only at merge. No tests, benchmarks,
-mutation runs, runtime probes or `bun run check` are permitted during this work.
+### Home isolation
+
+The root `unit`, `process`, `web` and `client-react` projects share `test-home-global-setup.ts` and
+`test-home-setup.ts`. Global setup captures the original home and owns a temporary
+root outside it. Before each test file loads, its worker receives a fresh `HOME`,
+`USERPROFILE`, `ACE_HOME`, XDG directories, Windows application-data directories
+and temporary directories. Teardown removes the root after test cleanup finishes.
+Fixture-building children also receive this environment. The bundled CLI and
+shared TLS/Git fixtures now live outside the checkout, with a dependency link
+back to the daemon's node_modules for code resolution.
+
+`ACE_TEST_REAL_HOME` activates the guard exported by `@ace/provider-kit/test-isolation`
+and `@ace/service`. It rejects lexical descendants and canonical aliases of the
+original home, including missing destinations, before resolver inspection or
+storage access. Worker and fixture-child environments discard ambient application,
+provider and shell path selectors; destination guards also reject restored overrides.
+This covers `readConfig`, `resolveDaemonHome`, custom `startDaemon` configs,
+`localService`, account databases, history, model configuration, signing keys and
+terminal startup files. Without the variable, the guard returns before parsing,
+path work or filesystem I/O.
+
+The home audit found two marker-writing paths: the valid allowlist case in
+`access-cors.server.process.test.ts` and the default-listener case in
+`remote.server.process.test.ts` called `readConfig` without an explicit home.
+Both now pass a temporary `ACE_HOME`. `projects-test-support.ts`, the outside-root
+fixtures in `projects-races.process.test.ts`, and the client project integration
+test created directories under `homedir()`; they now use temporary directories.
+Other daemon launches already supply temporary data directories but inherited
+the ambient user home, so the shared setup isolates their discovery and service
+paths too. Lifecycle CLI children also receive an explicit temporary HOME and
+USERPROFILE. Legacy-home selection tests explicitly supply synthetic homes. The
+remaining HOME observations are synthetic provider processes or environment
+restoration assertions; the opt-in device suite receives the isolated worker home.
+
+`test-home.process.test.ts` checks default configuration and child inheritance,
+then models a real legacy home inside a temporary fixture. It exercises refused
+default resolution, normalized descendant paths, explicit data directories,
+custom daemon configs, local-service homes and a child with HOME restored to the
+protected fixture. It verifies the legacy bytes remain intact and no isolation
+marker or selection lock appears. No regression attempts I/O in the owner's home.
+
+The owner's latest rule permits only static checks; no tests, probes, mutations,
+benchmarks, full `bun run check` or CI run is permitted for this follow-up.
+Before that rule, six changed process suites passed with 38 tests, including the real bundled
+CLI restart/crash paths, after moving the macOS test root to `/tmp`;
+`/private/var/folders` is forbidden by project-path policy. Formatting, lint,
+typecheck, size, dependency and protocol-reference checks passed. Dependency-cruiser
+still reports its existing TypeScript 7 transpiler warning. Those results predate
+the review fixes and do not verify this revision. See [the hermetic-home follow-up](hermetic-home-review.md)
+for the new behaviour tests, mutation cases and pending merge-time measurements.
+
+The earlier process-reliability task required tests to run only at merge. No tests,
+benchmarks, mutation runs, runtime probes or `bun run check` were permitted during that work.
 The earlier request for three loaded runs and the full local gate is superseded.
 Runtime reliability of the final branch needs run at merge.
 

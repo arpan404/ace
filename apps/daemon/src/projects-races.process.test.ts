@@ -1,7 +1,7 @@
 import { type ChildProcessWithoutNullStreams } from "node:child_process";
 import { spawnGitProcess as spawn } from "@ace/git";
 import { mkdtemp, mkdir, rename, symlink, rm, stat, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
 import { CommandId, type WorkspaceCloneProgress } from "@ace/protocol";
@@ -162,7 +162,7 @@ test.skipIf(process.platform === "win32")(
   async () => {
     const gate = metadataGate((args) => args.includes("check-ref-format"));
     const f = await projectFixture({ git: { processRuntime: { spawn: gate.spawn } } });
-    const outside = await mkdtemp(join(homedir(), ".ace-project-outside-"));
+    const outside = await mkdtemp(join(tmpdir(), "ace-project-outside-"));
     try {
       const path = join(f.root, "new");
       const held = join(f.root, "held");
@@ -232,7 +232,7 @@ test("folder browsing refuses a directory replaced while roots are being resolve
     },
   });
   root = f.root;
-  const outside = await mkdtemp(join(homedir(), ".ace-browse-outside-"));
+  const outside = await mkdtemp(join(tmpdir(), "ace-browse-outside-"));
   try {
     await mkdir(join(outside, "private-name"));
     const path = join(f.root, "browse");

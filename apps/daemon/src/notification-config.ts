@@ -1,4 +1,5 @@
 import { open } from "node:fs/promises";
+import { assertTestHomeIsolation } from "@ace/provider-kit/test-isolation";
 import {
   createApnsTransport,
   createWebPushTransport,
@@ -8,6 +9,7 @@ import {
 /** Startup-only key reads. Provider CLI credentials are never involved. */
 const noop = () => {};
 async function signingKey(path: string): Promise<string> {
+  assertTestHomeIsolation(path);
   const file = await open(path, "r");
   try {
     const bytes = Buffer.alloc(4097);

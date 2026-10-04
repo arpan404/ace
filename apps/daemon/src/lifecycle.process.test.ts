@@ -23,7 +23,15 @@ function tempHome(): string {
 }
 function launch(home: string) {
   const launched = launchDaemon(
-    { ...process.env, ACE_HOME: home, ACE_PORT: "0", ACE_LOG_LEVEL: "silent", ACE_DEV: "1" },
+    {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      ACE_HOME: home,
+      ACE_PORT: "0",
+      ACE_LOG_LEVEL: "silent",
+      ACE_DEV: "1",
+    },
     /ace daemon: ws:\/\/127\.0\.0\.1:\d+\n/,
     cleanups,
   );

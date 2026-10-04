@@ -18,7 +18,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "vitest";
-import { resolveDaemonHome, createDaemonHomeResolver } from "./index.ts";
+import { resolveDaemonHome, createDaemonHomeResolver, assertTestHomeIsolation } from "./index.ts";
 
 async function layout(cleanup: (close: () => Promise<void>) => void) {
   const home = await mkdtemp(join(tmpdir(), "ace-home-selection-"));
@@ -67,9 +67,9 @@ test("a launch waits for an in-progress selection before inspecting its incomple
       "--input-type=module",
       "-e",
       `
-    import {createDaemonHomeResolver} from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
+    import {createDaemonHomeResolver,assertTestHomeIsolation} from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
     import {PinnedDirectory} from ${JSON.stringify(new URL("../../workspace/src/pinned-directory.ts", import.meta.url).href)};
-    const select = createDaemonHomeResolver({open(path) {
+    const select = createDaemonHomeResolver({assertSafePath:assertTestHomeIsolation,open(path) {
       const parent = PinnedDirectory.atBoundary(path), create = parent.createExclusive.bind(parent);
       parent.createExclusive = (name) => {
         try { return create(name); }
@@ -118,7 +118,7 @@ test("a contender retries when the holder releases the lock after the contender 
       `
     import fs from "node:fs";
     import {syncBuiltinESMExports} from "node:module";
-    import {createDaemonHomeResolver} from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
+    import {createDaemonHomeResolver,assertTestHomeIsolation} from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
     import {PinnedDirectory} from "@ace/workspace/pinned-directory";
     let readingLock = false, paused = false;
     const stat = fs.fstatSync;
@@ -131,7 +131,7 @@ test("a contender retries when the holder releases the lock after the contender 
       return stat(fd, ...args);
     };
     syncBuiltinESMExports();
-    const select = createDaemonHomeResolver({open(path) {
+    const select = createDaemonHomeResolver({assertSafePath:assertTestHomeIsolation,open(path) {
       const parent = PinnedDirectory.atBoundary(path), read = parent.readText.bind(parent);
       parent.readText = (name, ...args) => {
         readingLock = name === ".ace-home-selection.lock";
@@ -256,6 +256,7 @@ test("replacing the isolated directory during publication cannot write a marker 
   const home = await layout(onTestFinished);
   const next = join(home, ".ace-next");
   const resolver = createDaemonHomeResolver({
+    assertSafePath: assertTestHomeIsolation,
     open(path) {
       const parent = PinnedDirectory.atBoundary(path),
         makeDirectory = parent.mkdir.bind(parent);

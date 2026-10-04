@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { z } from "zod";
+import { assertTestHomeIsolation } from "@ace/provider-kit/test-isolation";
 import {
   openHistory,
   ProviderHomeSchema,
@@ -30,7 +31,7 @@ export function readHistoryInstances(
   env: NodeJS.ProcessEnv = process.env,
   home = homedir(),
 ): HistoryOptions["instances"] {
-  return z
+  const instances = z
     .array(ProviderHomeSchema)
     .max(256)
     .parse(
@@ -55,6 +56,8 @@ export function readHistoryInstances(
           ]),
       ),
     );
+  for (const instance of instances) assertTestHomeIsolation(instance.homeDir);
+  return instances;
 }
 export async function openDaemonHistory(
   dataDir: string,
@@ -62,6 +65,8 @@ export async function openDaemonHistory(
   options: DaemonHistoryOptions = { instances: [] },
 ): Promise<DaemonHistory> {
   options.signal?.throwIfAborted();
+  assertTestHomeIsolation(dataDir);
+  for (const instance of options.instances) assertTestHomeIsolation(instance.homeDir);
   const indexPath = join(dataDir, "history/index.sqlite");
   const service = await openHistory(
     { indexPath, instances: options.instances },

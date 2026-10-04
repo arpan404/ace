@@ -31,3 +31,4 @@ export {
 } from "./home.ts";
 
 export { renderLauncher } from "./launcher.ts";
+export { assertTestHomeIsolation } from "./test-home-guard.ts";

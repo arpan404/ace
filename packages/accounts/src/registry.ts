@@ -1,4 +1,5 @@
 import { DatabaseSync } from "@ace/provider-kit/sqlite";
+import { assertTestHomeIsolation } from "@ace/provider-kit/test-isolation";
 import { mkdir, open, chmod, lstat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
@@ -278,6 +279,7 @@ export async function openRegistryIndex(
   path: string,
   signal?: AbortSignal,
 ): Promise<AccountRegistry> {
+  assertTestHomeIsolation(path);
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   try {
     const file = await open(path, "wx", 0o600);
