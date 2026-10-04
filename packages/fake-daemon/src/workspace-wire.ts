@@ -5,6 +5,7 @@ import {
   type CommandResult,
   type ThreadId,
 } from "@ace/protocol";
+import { scriptOutput } from "./catalog/scripts.ts";
 import { FakeForgeWire } from "./forge-wire.ts";
 import { FakeTerminals } from "./terminals.ts";
 import type { FakeServiceContext } from "./service-context.ts";
@@ -163,6 +164,9 @@ export class FakeWorkspaceWire {
         rows: 24,
       });
       this.terminals.output(terminal.id, `${script.command}\r\n`);
+      const printed = scriptOutput(script.name);
+      if (printed.text) this.terminals.output(terminal.id, printed.text);
+      if (printed.done) this.terminals.prompt(terminal.id);
       return { ok: true, terminalId: terminal.id };
     }
     if (payload.type === "git.commit") {

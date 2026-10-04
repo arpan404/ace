@@ -6,6 +6,7 @@ import type { ClearedLines } from "./logs/cleared.ts";
 import type { PreviewSource } from "./sources.ts";
 import { LocalStore } from "./store.ts";
 import type { TerminalSessions } from "./terminal/sessions.ts";
+import type { TabUiState } from "./terminal/tab-ui.ts";
 
 export interface DiffPrefs {
   /** `auto` is unified in a narrow dock and split where both sides fit. */
@@ -30,6 +31,8 @@ export interface PanelServices {
    * replayed events can arrive stamped earlier than lines already shown.
    */
   logCleared: LocalStore<ClearedLines>;
+  /** Find and rename state of terminal and shell tabs, shared by their views and strip actions. */
+  terminalUi: LocalStore<TabUiState>;
 }
 
 async function load(client: ClientApi): Promise<Pick<PanelServices, "terminals" | "preview">> {
@@ -50,6 +53,7 @@ export function panelServices(client: ClientApi): Promise<PanelServices> {
         diffPrefs: new LocalStore<DiffPrefs>({ mode: "auto", wrap: false, tree: true }),
         viewed: new LocalStore<ViewedFiles>(new Map()),
         logCleared: new LocalStore<ClearedLines>(new Map()),
+        terminalUi: new LocalStore<TabUiState>(new Map()),
       };
       ready.set(client, value);
       return value;
@@ -87,22 +91,15 @@ export function usePanelServices(): PanelServices {
   return services;
 }
 
-/** Shows a terminal the daemon started for the thread (a script run) in the Terminal tab. */
-export async function revealTerminal(
-  client: ClientApi,
-  threadId: string,
-  terminalId: string,
-): Promise<void> {
-  const services = await panelServices(client);
-  await services.terminals.reveal(threadId, terminalId);
-}
-
-/** Shows the thread's running terminal called `name`; false when none is running. */
-export async function revealRunningTerminal(
+/**
+ * The thread's terminal called `name` if it is still running (a script started again goes back
+ * to its terminal rather than a second copy).
+ */
+export async function findRunningTerminal(
   client: ClientApi,
   threadId: string,
   name: string,
-): Promise<boolean> {
+): Promise<{ id: string; name: string } | undefined> {
   const services = await panelServices(client);
-  return services.terminals.revealRunning(threadId, name);
+  return services.terminals.findRunning(threadId, name);
 }

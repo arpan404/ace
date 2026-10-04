@@ -1,13 +1,32 @@
 import { expect, test } from "@playwright/test";
 
 /** Run, Commit and Create PR in the thread header, against the fake daemon's checkouts. */
-test("Run starts the project's script in a terminal of the bottom panel", async ({ page }) => {
+test("Run on a script an agent already runs shows the agent's shell, not a second empty copy", async ({
+  page,
+}) => {
   await page.goto("/t/thread-replay-cursor");
+  await expect(
+    page.getByRole("group", { name: "Background task bun run dev:relay" }),
+  ).toContainText("Running in background");
   await page.getByRole("button", { name: "Run bun run dev:relay" }).click();
   const bottom = page.getByRole("region", { name: "Bottom panel" });
-  await expect(
-    bottom.getByRole("tablist", { name: "Terminals" }).getByRole("tab", { name: "dev:relay" }),
-  ).toBeVisible();
+  await expect(bottom.getByRole("tab", { name: "dev:relay", selected: true })).toBeVisible();
+  await expect(bottom.getByText("Agent shell")).toBeVisible();
+  await expect(bottom.getByRole("log", { name: "dev:relay output" })).toContainText(
+    "relay listening on ws://127.0.0.1:8787",
+  );
+  await expect(bottom.getByRole("tab", { name: /dev:relay/ })).toHaveCount(1);
+});
+
+test("Run starts another script in a terminal tab of its own, printing as it runs", async ({
+  page,
+}) => {
+  await page.goto("/t/thread-replay-cursor");
+  await page.getByRole("button", { name: "Choose a script" }).click();
+  await page.getByRole("menuitem", { name: /bun run test/ }).click();
+  const bottom = page.getByRole("region", { name: "Bottom panel" });
+  await expect(bottom.getByRole("tab", { name: "test", selected: true })).toBeVisible();
+  await expect(bottom.getByRole("group", { name: "test terminal" })).toContainText("8 pass");
 });
 
 test("Commit, then Create PR, opens a pull request for the branch", async ({ page }) => {

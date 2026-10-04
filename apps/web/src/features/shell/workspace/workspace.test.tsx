@@ -162,11 +162,12 @@ test("full view gives the panel the work area; the way back restores the convers
   expect(within(panel).getByRole("button", { name: "Full view" })).toBeTruthy();
 });
 
-test("⌘J shows the bottom panel on Terminal, and its size is kept across a reload", async () => {
+test("⌘J shows the bottom panel on a terminal, and its size is kept across a reload", async () => {
   const { view, storage } = await openColdStart();
   await userEvent.keyboard("{Meta>}j{/Meta}");
   const bottom = await screen.findByRole("region", { name: "Bottom panel" });
-  expect(within(bottom).getByRole("tab", { name: "Terminal", selected: true })).toBeTruthy();
+  // Its terminal picks up the thread's running zsh.
+  expect(await within(bottom).findByRole("tab", { name: "zsh", selected: true })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Bottom panel" }).getAttribute("aria-pressed")).toBe(
     "true",
   );

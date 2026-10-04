@@ -7,7 +7,8 @@ import {
   PlayIcon,
   UploadSimpleIcon,
 } from "@phosphor-icons/react";
-import { useClient } from "@ace/client-react";
+import type { ThreadReader } from "@ace/client";
+import { useClient, useThread } from "@ace/client-react";
 import { nextGitStep, prBlocker, type GitStep } from "@ace/ui-core";
 import { useMutation } from "@tanstack/react-query";
 import { lazy, Suspense, useState } from "react";
@@ -16,12 +17,13 @@ import { EditorIcon } from "@/components/editor-icon.tsx";
 import { MenuItem, MenuSeparator } from "@/components/ui/menu.tsx";
 import { SplitButton } from "@/components/ui/split-button.tsx";
 import { useToast } from "@/components/ui/toast.tsx";
-import { revealRunningTerminal, revealTerminal } from "@/features/panels/index.ts";
+import { findRunningTerminal } from "@/features/panels/index.ts";
 import { useDaemonQuery } from "@/lib/daemon-query.ts";
 import { useEditors } from "@/lib/editors.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useCheckoutState, useGitActions, type GitChange } from "../lib/use-git.ts";
+import { useTaskKeys } from "../lib/use-task-keys.ts";
 import { useThreadSources, type ThreadRef } from "../sources/index.ts";
 import type { Script } from "../sources/workspace-source.ts";
 import type { GitDialogKind } from "./git-dialog.tsx";
@@ -32,16 +34,35 @@ const GitDialog = lazy(() => import("./git-dialog.tsx").then((m) => ({ default: 
 const failure = (error: unknown) =>
   error instanceof Error ? error.message : "The daemon couldn't do that.";
 
+interface Shell {
+  id: string;
+  command: string;
+}
+/** The agents' background shells still running, by the command they run. */
+const runningShells = (reader: ThreadReader): Shell[] =>
+  reader.taskIds().flatMap((id) => {
+    const task = reader.task(id);
+    return task?.kind === "shell" && task.status === "running"
+      ? [{ id, command: task.title.trim() }]
+      : [];
+  });
+const sameShells = (a: readonly Shell[], b: readonly Shell[]) =>
+  a.length === b.length && a.every((shell, i) => shell.id === b[i]?.id);
+const noShells: readonly Shell[] = [];
+
 /**
  * Run ▶: the project's first script, or another from the picker, in a bottom terminal. A script
- * still running goes back to its terminal instead of starting a second copy. While the scripts
- * load, fail to load or don't exist, the caret's menu says so.
+ * still running goes back to its terminal (or the agent's background shell running the same
+ * command) instead of starting a second copy. While the scripts load, fail to load or don't
+ * exist, the caret's menu says so.
  */
 export function RunButton(props: { thread: ThreadRef }) {
   const sources = useThreadSources();
   const client = useClient();
   const toast = useToast();
   const workspace = useWorkspaceActions(props.thread.id);
+  const shells =
+    useThread(props.thread.id, useTaskKeys(props.thread.id), runningShells, sameShells) ?? noShells;
   const query = useDaemonQuery({
     queryKey: ["thread", "scripts", props.thread.id],
     staleTime: 60_000,
@@ -50,15 +71,17 @@ export function RunButton(props: { thread: ThreadRef }) {
   });
   const scripts = query.data;
   const first = scripts?.[0];
-  const show = (terminalId?: string) => {
-    workspace.open({ kind: "terminal" });
-    // The bottom panel opening on the running tab is the confirmation.
-    if (terminalId) void revealTerminal(client, props.thread.id, terminalId);
-  };
+  // The bottom panel opening on the script's terminal is the confirmation.
   const run = async (script: Script) => {
     try {
-      if (await revealRunningTerminal(client, props.thread.id, script.name)) return show();
-      show(await sources.workspace.runScript(props.thread, script));
+      // An agent already runs it in the background: show that shell rather than a second copy
+      // fighting it for the same port.
+      const agentShell = shells.find((shell) => shell.command === script.command.trim());
+      // The workspace's agent-shell and terminal tabs (features/panels/terminal/tabs.ts).
+      if (agentShell) return workspace.open({ kind: "shell", id: agentShell.id });
+      const running = await findRunningTerminal(client, props.thread.id, script.name);
+      const terminalId = running?.id ?? (await sources.workspace.runScript(props.thread, script));
+      workspace.open({ kind: "terminal", id: terminalId, title: script.name });
     } catch (error) {
       toast.add({ title: `Couldn't run ${script.command}`, description: failure(error) });
     }

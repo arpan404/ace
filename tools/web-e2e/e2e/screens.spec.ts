@@ -260,7 +260,19 @@ const screens: Record<string, Setup> = {
     await page.getByRole("button", { name: "More actions" }).click();
     await page.getByRole("menu", { name: "More actions" }).waitFor();
   },
-  "thread-terminal": bottomTab("/t/thread-cold-start", "Terminal"),
+  // The bottom panel's terminal picks up the thread's running zsh.
+  "thread-terminal": bottomTab("/t/thread-cold-start", "zsh"),
+  "thread-terminal-sessions": async (page) => {
+    await bottomTab("/t/thread-cold-start", "zsh")(page);
+    await page.getByRole("button", { name: /^Terminal sessions/ }).click();
+    await page.getByRole("menu").waitFor();
+  },
+  "thread-agent-shell": async (page) => {
+    await bottomTab("/t/thread-cold-start", "zsh")(page);
+    await page.getByRole("button", { name: /^Terminal sessions/ }).click();
+    await page.getByRole("menuitem", { name: /relay:soak/ }).click();
+    await page.getByText("Agent shell").waitFor();
+  },
   // A script started from Run, in its own terminal tab.
   "thread-terminal-run": async (page) => {
     await openThread("/t/thread-replay-cursor")(page);
@@ -271,6 +283,12 @@ const screens: Record<string, Setup> = {
       .waitFor();
   },
   "thread-logs": bottomTab("/t/thread-cold-start", "Logs"),
+  "thread-logs-daemon": async (page) => {
+    await bottomTab("/t/thread-cold-start", "Logs")(page);
+    await page.getByRole("button", { name: /^Log source/ }).click();
+    await page.getByRole("menuitemradio", { name: "Daemon" }).click();
+    await page.getByText("Event loop").waitFor();
+  },
   activity: visit("/activity", "Activity"),
   // Automations opens on the first automation.
   automations: async (page) => {

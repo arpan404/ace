@@ -45,6 +45,8 @@ export function terminalName(taken: readonly TerminalInfo[], base = "Terminal"):
 export function daemonTerminals(client: ClientApi): TerminalSource {
   const listeners = new Set<() => void>();
   const lists = new Map<string, readonly TerminalInfo[]>();
+  /** Threads whose list has been read since it was last forgotten. */
+  const read = new Set<string>();
   const threadOf = new Map<string, string>();
   const streams = new Map<string, Stream>();
   let version = 0;
@@ -78,6 +80,7 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
     for (const [oldest, gone] of lists) {
       if (lists.size <= keptLists) break;
       lists.delete(oldest);
+      read.delete(oldest);
       forget(gone);
     }
   };
@@ -85,6 +88,7 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
     forget(lists.get(threadId) ?? [], terminals);
     for (const terminal of terminals) threadOf.set(terminal.id, threadId);
     touch(threadId, terminals);
+    read.add(threadId);
     changed();
   };
   /** The shell ended: its tab stops showing it running without another list read. */
@@ -183,6 +187,7 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
       if (link === "connected") void refresh(threadId).catch(() => {});
       return [];
     },
+    listed: (threadId) => read.has(threadId),
     refresh,
     async open(threadId, cols, rows) {
       const reply = await request({
@@ -231,9 +236,9 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
         rows: Math.min(500, Math.max(1, rows)),
       }).catch(() => {});
     },
-    async close(id) {
-      const threadId = threadOf.get(id);
-      if (!threadId) return;
+    async close(id, known) {
+      const threadId = known ?? threadOf.get(id);
+      if (!threadId || link !== "connected") throw new Error("terminal_offline");
       await request({ op: "close", threadId: ThreadId.parse(threadId), terminalId: id });
       threadOf.delete(id);
       remember(

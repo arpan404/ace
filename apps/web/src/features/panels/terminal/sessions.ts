@@ -37,14 +37,12 @@ const nextFrame = (flush: () => void) => {
   if (typeof requestAnimationFrame === "function") requestAnimationFrame(flush);
   else queueMicrotask(flush);
 };
-/** Threads whose chosen terminal tab is remembered. */
-const keptSelections = 256;
 
 /**
  * The client side of the daemon's terminals: one screen per PTY that outlives the tab that
  * shows it, attach-from-offset so a reconnect replays only what was missed, and overlap
- * dropping so a replay that repeats drawn output never draws it twice. Also remembers which
- * terminal tab each thread shows.
+ * dropping so a replay that repeats drawn output never draws it twice. Which terminals a
+ * thread shows, and in which tabs, is the workspace's (`lib/workspace`).
  *
  * A terminal nobody shows is parked: it keeps streaming, so showing it again replays what it
  * printed meanwhile, until it exits, has been unwatched for `idleMs`, or more than `maxParked`
@@ -59,9 +57,10 @@ export class TerminalSessions {
   private parked = new Map<string, Attached>();
   private dirty = new Set<Attached>();
   private scheduled = false;
-  private selected = new Map<string, string>();
-  private showing = new Map<string, string>();
-  private selectionListeners = new Set<() => void>();
+  private opening = new Map<string, Promise<TerminalInfo>>();
+  /** Terminals whose tab closed while the daemon couldn't be told, by id → thread. */
+  private ending = new Map<string, string>();
+  private focusWanted = new Set<string>();
   private link: TerminalSource["link"];
   private frame: (flush: () => void) => void;
   private schedule: Schedule;
@@ -126,61 +125,70 @@ export class TerminalSessions {
     this.reset(entry);
     this.redraw(entry);
   }
-  /** Opens a terminal in the thread's checkout and shows it. */
-  async open(threadId: string): Promise<TerminalInfo> {
-    const info = await this.source.open(threadId, 100, 24);
-    this.select(threadId, info.id);
-    return info;
-  }
-  /** Shows a terminal started elsewhere (a script run), once the thread's list has it. */
-  async reveal(threadId: string, id: string): Promise<void> {
-    await this.source.refresh(threadId);
-    this.select(threadId, id);
+  /**
+   * Opens a terminal in the thread's checkout for `slot` (a tab waiting for its shell). Asking
+   * again for the same slot while it opens, as a remounted view does, gets the same terminal
+   * rather than a second shell.
+   */
+  openFor(slot: string, threadId: string): Promise<TerminalInfo> {
+    const key = `${threadId}\u0000${slot}`;
+    let opening = this.opening.get(key);
+    if (!opening) {
+      opening = this.source.open(threadId, 100, 24);
+      this.opening.set(key, opening);
+      // Shared only while in flight: once settled, the tab has become the terminal (or shows
+      // the failure with Try again), and the same slot asking again wants a new shell.
+      const settled = () => {
+        if (this.opening.get(key) === opening) this.opening.delete(key);
+      };
+      opening.then(settled, settled);
+    }
+    return opening;
   }
   /**
-   * Shows the thread's terminal called `name` if it is still running (a script started again
-   * goes back to its terminal rather than a second copy). False when there is none.
+   * The thread's terminal called `name` if it is still running (a script started again goes
+   * back to its terminal rather than a second copy), read fresh from the daemon.
    */
-  async revealRunning(threadId: string, name: string): Promise<boolean> {
+  async findRunning(threadId: string, name: string): Promise<TerminalInfo | undefined> {
     await this.source.refresh(threadId);
-    const running = this.source
+    return this.source
       .list(threadId)
       .find(
         (terminal) =>
           terminal.name === name && !terminal.exited && this.exitCode(terminal.id) === null,
       );
-    if (running) this.select(threadId, running.id);
-    return running !== undefined;
   }
-  close(id: string): Promise<void> {
+  /** Focus a terminal when its view first mounts (a person just opened it). */
+  requestFocus(id: string): void {
+    this.focusWanted.add(id);
+  }
+  /** Whether a view mounting now should take focus; answers yes once per request. */
+  takeFocusRequest(id: string): boolean {
+    return this.focusWanted.delete(id);
+  }
+  /** End a terminal's shell (End session). Fails while offline. */
+  close(id: string, threadId?: string): Promise<void> {
     const entry = this.attached.get(id);
     if (entry) this.release(entry);
-    return this.source.close(id);
+    this.ending.delete(id);
+    return this.source.close(id, threadId);
   }
-  /** The terminal tab a thread is showing right now, chosen or by default. */
-  shown(threadId: string): string | undefined {
-    return this.showing.get(threadId);
+  /**
+   * End a terminal's shell once the daemon can be told: now if connected, else after the next
+   * reconnect. For a closed tab, whose shell must not outlive it just because the socket was
+   * down at that moment.
+   */
+  end(threadId: string, id: string): void {
+    this.ending.set(id, threadId);
+    if (this.source.link === "connected") this.flushEnding();
   }
-  show(threadId: string, tab: string | undefined): void {
-    if (tab) this.showing.set(threadId, tab);
-    else this.showing.delete(threadId);
+  private flushEnding(): void {
+    for (const [id, threadId] of this.ending)
+      this.close(id, threadId).catch(() => {
+        // Still offline: keep it for the next reconnect. Gone already: nothing to end.
+        if (this.source.link !== "connected") this.ending.set(id, threadId);
+      });
   }
-  selection(threadId: string): string | undefined {
-    return this.selected.get(threadId);
-  }
-  select(threadId: string, tab: string): void {
-    this.selected.delete(threadId);
-    this.selected.set(threadId, tab);
-    for (const [oldest] of this.selected) {
-      if (this.selected.size <= keptSelections) break;
-      this.selected.delete(oldest);
-    }
-    for (const listener of this.selectionListeners) listener();
-  }
-  watchSelection = (listener: () => void): (() => void) => {
-    this.selectionListeners.add(listener);
-    return () => this.selectionListeners.delete(listener);
-  };
   private ensure(id: string): Attached {
     let entry = this.attached.get(id);
     if (!entry) {
@@ -287,5 +295,6 @@ export class TerminalSessions {
       entry.detach = undefined;
       if (link === "connected") this.attach(id, entry);
     }
+    if (link === "connected") this.flushEnding();
   }
 }

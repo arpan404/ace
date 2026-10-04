@@ -8,7 +8,12 @@ export interface LogLine {
   source: "daemon" | "session" | "agent" | "turn" | "shell" | "task" | "input" | "notice";
   level: "info" | "warn" | "error";
   text: string;
+  /** The agent the line is about, for an agent's log; absent for the thread's own lines. */
+  agentId?: string | undefined;
 }
+
+export type LogSource = LogLine["source"];
+export type LogLevel = LogLine["level"];
 
 const name = (agent: Agent | undefined, root: string | undefined) =>
   !agent ? "agent" : agent.id === root ? "main agent" : (agent.name ?? agent.role ?? "subagent");
@@ -56,6 +61,7 @@ export function threadLog(
       at: agent.createdAt,
       source: agent.id === root ? "session" : "agent",
       level: "info",
+      agentId: id,
       text:
         agent.id === root
           ? `${provider(agent.native.provider)} session started in ${agent.cwd}`
@@ -67,6 +73,7 @@ export function threadLog(
         at: agent.endedAt ?? agent.createdAt,
         source: "agent",
         level: "error",
+        agentId: id,
         text: `${who} failed: ${agent.status.error.message}`,
       });
     else if (agent.endedAt !== undefined)
@@ -75,6 +82,7 @@ export function threadLog(
         at: agent.endedAt,
         source: "agent",
         level: "info",
+        agentId: id,
         text: `${who} finished`,
       });
   }
@@ -91,6 +99,7 @@ export function threadLog(
           at: run.startedAt,
           source: "turn",
           level: "info",
+          agentId: run.agentId,
           text: `turn started (${run.trigger.replace("_", " ")})`,
         });
         if (run.endedAt !== undefined)
@@ -99,6 +108,7 @@ export function threadLog(
             at: run.endedAt,
             source: "turn",
             level: run.state === "failed" ? "error" : "info",
+            agentId: run.agentId,
             text: `turn ${run.state}`,
           });
       }
@@ -116,6 +126,7 @@ export function threadLog(
       at: task.startedAt,
       source,
       level: "info",
+      agentId: task.agentId,
       text: `started ${task.title} in background`,
     });
     if (task.status !== "running")
@@ -124,6 +135,7 @@ export function threadLog(
         at: task.endedAt ?? task.startedAt,
         source,
         level: task.status === "failed" ? "error" : task.status === "unknown" ? "warn" : "info",
+        agentId: task.agentId,
         text: `${task.title} ${task.status === "unknown" ? "lost track (may still be running)" : task.status}`,
       });
   }
@@ -137,6 +149,7 @@ export function threadLog(
       at: interaction.createdAt,
       source: "input",
       level: "warn",
+      agentId: interaction.agentId,
       text: `${title} · waiting for you`,
     });
     if (interaction.state !== "pending")
@@ -145,6 +158,7 @@ export function threadLog(
         at: interaction.closedAt ?? interaction.createdAt,
         source: "input",
         level: "info",
+        agentId: interaction.agentId,
         text: `${title} · ${interaction.state}`,
       });
   }
@@ -170,6 +184,7 @@ function shellLines(
       at: call.startedAt,
       source: "shell",
       level: "info",
+      agentId: call.agentId,
       text: `$ ${command}${who}`,
     },
   ];
@@ -179,6 +194,7 @@ function shellLines(
       at: call.endedAt ?? call.startedAt,
       source: "shell",
       level: call.status === "failed" ? "error" : "info",
+      agentId: call.agentId,
       text: `${command} · ${exit !== undefined && exit !== null ? `exit ${exit}` : call.status}`,
     });
   return lines;
@@ -191,6 +207,7 @@ function noticeOf(item: Item): LogLine | undefined {
       at: item.createdAt,
       source: "notice",
       level: item.level === "error" ? "error" : item.level === "warning" ? "warn" : "info",
+      agentId: item.agentId,
       text: item.text,
     };
   if (item.type === "compaction")
@@ -199,6 +216,7 @@ function noticeOf(item: Item): LogLine | undefined {
       at: item.createdAt,
       source: "notice",
       level: "info",
+      agentId: item.agentId,
       text: "context compacted",
     };
   return undefined;

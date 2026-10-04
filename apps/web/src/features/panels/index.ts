@@ -11,3 +11,12 @@ export {
   useThreadParts,
   type ThreadParts,
 } from "./agents/thread-parts.ts";
+export { findRunningTerminal } from "./services.ts";
+export {
+  newTerminal,
+  openNewTerminal,
+  shellLabel,
+  shellTab,
+  terminalTab,
+} from "./terminal/tabs.ts";
+export { useBackgroundShells } from "./terminal/use-terminals.ts";

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { distinctLabels } from "./terminal-tab.tsx";
+import { distinctLabels } from "./use-terminals.ts";
 
 test("terminal tabs with the same name read apart", () => {
   const labels = distinctLabels([

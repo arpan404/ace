@@ -1,9 +1,16 @@
 import { coldStartReplay, facts, seedPanels } from "@ace/fake-daemon";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { beforeEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
+beforeEach(() => localStorage.clear());
+
+/**
+ * The cold-start thread with two shells of yours already running in the daemon (`tests`, which
+ * ran the test suite, and `zsh`, which ran git status) and the agent's background soak relay.
+ * ⌃` shows the bottom panel's terminal.
+ */
 async function openTerminal(through = "turn-2") {
   const app = harness();
   const script = app.play(coldStartReplay());
@@ -15,44 +22,33 @@ async function openTerminal(through = "turn-2") {
   const panel = await screen.findByRole("region", { name: "Bottom panel" });
   return { app, script, panel, terminals: app.daemon.terminals };
 }
-const tab = (panel: HTMLElement, name: string | RegExp) =>
-  within(within(panel).getByRole("tablist", { name: "Terminals" })).getByRole("tab", { name });
+const names = (app: ReturnType<typeof harness>) =>
+  app.daemon.terminals.list("thread-cold-start").map((info) => info.name);
+const output = (panel: HTMLElement, name: string) => within(panel).getByRole("log", { name });
+const selectedTab = (panel: HTMLElement, name: string) =>
+  within(panel).findByRole("tab", { name, selected: true });
 /** About 20 KB of build output, so a few of them overflow the daemon's 64 KiB ring. */
 const block = (n: number) => `${`chunk ${n} `.padEnd(20_000, ".")}\r\n`;
-const output = (panel: HTMLElement, name: string) => within(panel).getByRole("log", { name });
 
-test("the agent's background dev server streams into its own tab", async () => {
-  const { panel, script } = await openTerminal();
-  const relay = await within(panel).findByRole("tab", {
-    name: "relay:soak, running",
-    selected: true,
-  });
-  expect(relay).toBeTruthy();
-  expect(output(panel, "relay:soak output").textContent).toContain(
-    "soak relay listening on ws://127.0.0.1:8790",
-  );
-  expect(output(panel, "relay:soak output").textContent).not.toContain("cold start");
+async function openSession(panel: HTMLElement, name: RegExp) {
+  await userEvent.click(within(panel).getByRole("button", { name: /^Terminal sessions/ }));
+  await userEvent.click(await screen.findByRole("menuitem", { name }));
+}
 
-  await act(async () => script.runThrough("relay-output"));
+test("⌃` picks up a running shell of the thread that no tab shows, rather than starting another", async () => {
+  const { app, panel } = await openTerminal();
+  expect(await selectedTab(panel, "zsh")).toBeTruthy();
   await waitFor(() =>
-    expect(output(panel, "relay:soak output").textContent).toContain(
-      "client ios-2 connected · resume seq 0 · cold start",
-    ),
+    expect(output(panel, "zsh output").textContent).toContain("M apps/server/src/replay.ts"),
   );
-  // A background shell is the agent's: there is nothing to type into.
-  expect(within(panel).queryByRole("textbox")).toBeNull();
+  expect(names(app)).toEqual(["tests", "zsh"]);
 });
 
 test("typing into a terminal runs the command in the thread's worktree", async () => {
   const { panel, terminals } = await openTerminal();
-  await userEvent.click(await within(panel).findByRole("tab", { name: "zsh, running" }));
-  // Output reaches the screen on the next animation frame.
-  await waitFor(() =>
-    expect(output(panel, "zsh output").textContent).toContain("M apps/server/src/replay.ts"),
-  );
-
+  await selectedTab(panel, "zsh");
   await userEvent.type(
-    within(panel).getByRole("textbox", { name: "zsh input" }),
+    await within(panel).findByRole("textbox", { name: "zsh input" }),
     "git branch{Enter}",
   );
   await waitFor(() =>
@@ -61,20 +57,34 @@ test("typing into a terminal runs the command in the thread's worktree", async (
   expect(terminals.received.map((entry) => entry.data).join("")).toBe("git branch\r");
 });
 
-test("a terminal is marked running until its shell exits", async () => {
-  const { panel } = await openTerminal();
-  await userEvent.click(await within(panel).findByRole("tab", { name: "zsh, running" }));
-  await userEvent.type(within(panel).getByRole("textbox", { name: "zsh input" }), "exit{Enter}");
-  expect(await within(panel).findByRole("tab", { name: "zsh" })).toBeTruthy();
+test("a shell that exits says so, takes no more input and can start again in the same tab", async () => {
+  const { app, panel } = await openTerminal();
+  await selectedTab(panel, "zsh");
+  await userEvent.type(
+    await within(panel).findByRole("textbox", { name: "zsh input" }),
+    "exit{Enter}",
+  );
+  expect(await within(panel).findByText("The shell exited with code 0.")).toBeTruthy();
+  expect(
+    (within(panel).getByRole("textbox", { name: "zsh input" }) as HTMLTextAreaElement).disabled,
+  ).toBe(true);
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Restart" }));
+  await waitFor(() => expect(names(app)).toEqual(["tests", "Terminal"]));
+  // The new shell keeps the tab's place and name.
+  expect(await selectedTab(panel, "zsh")).toBeTruthy();
+  await userEvent.type(
+    await within(panel).findByRole("textbox", { name: "zsh input" }),
+    "pwd{Enter}",
+  );
+  await waitFor(() => expect(output(panel, "zsh output").textContent).toContain("/Users/dev/ace"));
 });
 
-test("New terminal opens another shell in the thread's checkout and Close ends it", async () => {
-  const { panel, terminals } = await openTerminal();
-  await userEvent.click(await within(panel).findByRole("button", { name: "New terminal" }));
-  await waitFor(() =>
-    expect(tab(panel, "Terminal, running").getAttribute("aria-selected")).toBe("true"),
-  );
-  const opened = tab(panel, "Terminal, running");
+test("New terminal opens another shell in its own tab, and closing the tab ends that shell", async () => {
+  const { app, panel } = await openTerminal();
+  await selectedTab(panel, "zsh");
+  await userEvent.click(within(panel).getByRole("button", { name: "New terminal" }));
+  expect(await selectedTab(panel, "Terminal")).toBeTruthy();
   await userEvent.type(
     await within(panel).findByRole("textbox", { name: "Terminal input" }),
     "pwd{Enter}",
@@ -82,15 +92,88 @@ test("New terminal opens another shell in the thread's checkout and Close ends i
   await waitFor(() =>
     expect(output(panel, "Terminal output").textContent).toContain("/Users/dev/ace"),
   );
+  expect(names(app)).toEqual(["tests", "zsh", "Terminal"]);
 
   await userEvent.click(within(panel).getByRole("button", { name: "Close Terminal" }));
-  await waitFor(() => expect(opened.isConnected).toBe(false));
-  expect(terminals.list("thread-cold-start").map((info) => info.name)).toEqual(["tests", "zsh"]);
+  await waitFor(() => expect(names(app)).toEqual(["tests", "zsh"]));
+  expect(within(panel).queryByRole("tab", { name: "Terminal" })).toBeNull();
+});
+
+test("hiding the bottom panel keeps every shell, and showing it again returns to the same one", async () => {
+  const { app, panel } = await openTerminal();
+  await selectedTab(panel, "zsh");
+  await userEvent.click(within(panel).getByRole("button", { name: "Hide bottom panel" }));
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Bottom panel" })).toBeNull());
+  expect(names(app)).toEqual(["tests", "zsh"]);
+
+  await userEvent.keyboard("{Meta>}j{/Meta}");
+  const shown = await screen.findByRole("region", { name: "Bottom panel" });
+  expect(await selectedTab(shown, "zsh")).toBeTruthy();
+  await waitFor(() =>
+    expect(output(shown, "zsh output").textContent).toContain("M apps/server/src/replay.ts"),
+  );
+});
+
+test("the sessions menu lists your shells and the agents', and opens one as a tab", async () => {
+  const { panel } = await openTerminal();
+  await selectedTab(panel, "zsh");
+  // `tests` and the agent's soak relay run without a tab.
+  expect(
+    within(panel).getByRole("button", { name: "Terminal sessions, 2 not shown" }),
+  ).toBeTruthy();
+  await openSession(panel, /^tests/);
+  expect(await selectedTab(panel, "tests")).toBeTruthy();
+  await waitFor(() => expect(output(panel, "tests output").textContent).toContain("3 pass"));
+  expect(
+    within(panel).getByRole("button", { name: "Terminal sessions, 1 not shown" }),
+  ).toBeTruthy();
+});
+
+test("an agent's background shell opens read-only, streams its output and keeps running when its tab closes", async () => {
+  const { panel, script } = await openTerminal();
+  await selectedTab(panel, "zsh");
+  await openSession(panel, /^relay:soak/);
+  expect(await selectedTab(panel, "relay:soak")).toBeTruthy();
+  expect(await within(panel).findByText("Agent shell")).toBeTruthy();
+  expect(output(panel, "relay:soak output").textContent).toContain(
+    "soak relay listening on ws://127.0.0.1:8790",
+  );
+  // The agent owns it: nothing to type into, and no take-over the daemon could honour.
+  expect(within(panel).queryByRole("textbox", { name: /relay:soak/ })).toBeNull();
+  expect(
+    within(panel).getByRole("button", { name: "Take over (unavailable)" }).hasAttribute("disabled"),
+  ).toBe(true);
+
+  await act(async () => script.runThrough("relay-output"));
+  await waitFor(() =>
+    expect(output(panel, "relay:soak output").textContent).toContain(
+      "client ios-2 connected · resume seq 0 · cold start",
+    ),
+  );
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Close relay:soak" }));
+  await waitFor(() => expect(within(panel).queryByRole("tab", { name: "relay:soak" })).toBeNull());
+  expect(screen.getByRole("group", { name: /Background task bun run relay:soak/ })).toHaveProperty(
+    "textContent",
+    expect.stringContaining("Running in background"),
+  );
+});
+
+test("the transcript's background command opens its shell's output", async () => {
+  const app = harness();
+  app.play(coldStartReplay()).runThrough("turn-2");
+  await app.open("/t/thread-cold-start");
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Show output of bun run relay:soak --clients 2" }),
+  );
+  const panel = await screen.findByRole("region", { name: "Bottom panel" });
+  expect(await selectedTab(panel, "relay:soak")).toBeTruthy();
 });
 
 test("after a dropped connection the terminal replays only the output it missed", async () => {
   const { app, panel, terminals } = await openTerminal();
-  await userEvent.click(await within(panel).findByRole("tab", { name: "tests, running" }));
+  await selectedTab(panel, "zsh");
+  await openSession(panel, /^tests/);
   await waitFor(() => expect(output(panel, "tests output").textContent).toContain("3 pass"));
   const tests = terminals.list("thread-cold-start").find((info) => info.name === "tests");
   if (!tests) throw new Error("expected the tests terminal");
@@ -108,29 +191,76 @@ test("after a dropped connection the terminal replays only the output it missed"
   const after = output(panel, "tests output").textContent ?? "";
   expect(after.split("3 pass").length - 1).toBe(1);
   expect(after.split("watching for changes").length - 1).toBe(1);
-  await waitFor(() => expect(within(panel).queryByRole("status")).toBeNull());
+  await waitFor(() => expect(within(panel).queryByText(/Reconnecting/)).toBeNull());
 });
 
-test("Clear empties the terminal that is showing", async () => {
-  const { panel } = await openTerminal();
-  await userEvent.click(await within(panel).findByRole("tab", { name: "tests, running" }));
+test("Clear empties the terminal that is showing and leaves the shell running", async () => {
+  const { app, panel } = await openTerminal();
+  await openSession(panel, /^tests/);
   await waitFor(() => expect(output(panel, "tests output").textContent).toContain("3 pass"));
-  await userEvent.click(within(panel).getByRole("button", { name: "Clear terminal" }));
+  await userEvent.click(within(panel).getByRole("button", { name: "Terminal actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Clear terminal" }));
   await waitFor(() => expect(output(panel, "tests output").textContent).toBe(""));
-  expect(tab(panel, "tests, running").getAttribute("aria-selected")).toBe("true");
+  expect(await selectedTab(panel, "tests")).toBeTruthy();
+  expect(names(app)).toEqual(["tests", "zsh"]);
+});
+
+test("a terminal renamed from its menu keeps the name on its tab", async () => {
+  const { panel } = await openTerminal();
+  await selectedTab(panel, "zsh");
+  await userEvent.click(within(panel).getByRole("button", { name: "Terminal actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+  const field = await screen.findByRole("textbox", { name: "Name" });
+  await userEvent.clear(field);
+  await userEvent.type(field, "api server{Enter}");
+  expect(await selectedTab(panel, "api server")).toBeTruthy();
+
+  // Cleared, it goes back to the shell's own name.
+  await userEvent.click(within(panel).getByRole("button", { name: "Terminal actions" }));
+  await userEvent.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+  await userEvent.clear(await screen.findByRole("textbox", { name: "Name" }));
+  await userEvent.keyboard("{Enter}");
+  expect(await selectedTab(panel, "zsh")).toBeTruthy();
+});
+
+test("Find steps through matches in the scrollback, newest first, and Escape closes it", async () => {
+  const { panel, terminals } = await openTerminal();
+  await selectedTab(panel, "zsh");
+  const zsh = terminals.list("thread-cold-start").find((info) => info.name === "zsh");
+  if (!zsh) throw new Error("expected the zsh terminal");
+  act(() => terminals.output(zsh.id, "replay ok\r\nreplay failed: seq 0\r\n"));
+  await waitFor(() => expect(output(panel, "zsh output").textContent).toContain("replay failed"));
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Find" }));
+  await userEvent.type(await within(panel).findByRole("searchbox", { name: "Find" }), "replay");
+  // git status printed two paths with "replay" in them, then the two lines above.
+  await waitFor(() => expect(within(panel).getByRole("status").textContent).toBe("4 of 4"));
+  expect(
+    within(panel).getByRole("log", { name: "zsh output" }).querySelector("mark")?.textContent,
+  ).toBe("replay");
+  await userEvent.keyboard("{Enter}");
+  expect(within(panel).getByRole("status").textContent).toBe("1 of 4");
+  await userEvent.keyboard("{Shift>}{Enter}{/Shift}");
+  expect(within(panel).getByRole("status").textContent).toBe("4 of 4");
+
+  await userEvent.keyboard("{Escape}");
+  expect(within(panel).queryByRole("search")).toBeNull();
+  expect(within(panel).getByRole("log", { name: "zsh output" }).querySelector("mark")).toBeNull();
 });
 
 test("a long background shell shows its latest output, and the whole of it on request", async () => {
   const { app, panel } = await openTerminal();
+  await openSession(panel, /^relay:soak/);
   const lines = Array.from(
     { length: 120 },
     (_, n) => `client ios-${n} connected · resume seq ${n}\n`,
   );
   act(() => app.daemon.apply("thread-cold-start", [facts.output("root", "relay", lines.join(""))]));
   await within(panel).findByText("Showing the latest output.", { exact: false });
-  const shell = output(panel, "relay:soak output");
-  await waitFor(() => expect(shell.textContent).toContain("client ios-119 connected"));
-  expect(shell.textContent).not.toContain("soak relay listening");
+  await waitFor(() =>
+    expect(output(panel, "relay:soak output").textContent).toContain("client ios-119 connected"),
+  );
+  expect(output(panel, "relay:soak output").textContent).not.toContain("soak relay listening");
 
   await userEvent.click(within(panel).getByRole("button", { name: "Show full output" }));
   await waitFor(() =>
@@ -143,7 +273,7 @@ test("a long background shell shows its latest output, and the whole of it on re
 
 test("a terminal that fell further behind than the daemon keeps starts again from what it holds", async () => {
   const { app, panel, terminals } = await openTerminal();
-  await userEvent.click(await within(panel).findByRole("tab", { name: "tests, running" }));
+  await openSession(panel, /^tests/);
   await waitFor(() => expect(output(panel, "tests output").textContent).toContain("3 pass"));
   const tests = terminals.list("thread-cold-start").find((info) => info.name === "tests");
   if (!tests) throw new Error("expected the tests terminal");
@@ -164,13 +294,11 @@ test("a terminal that fell further behind than the daemon keeps starts again fro
 
 test("terminals you stopped looking at give their streams back, so the next one still shows output", async () => {
   const { panel } = await openTerminal();
+  await selectedTab(panel, "zsh");
   // The daemon streams at most eight terminals to a connection.
   for (let n = 1; n <= 9; n++) {
-    const name = n === 1 ? "Terminal" : `Terminal ${n}`;
     await userEvent.click(within(panel).getByRole("button", { name: "New terminal" }));
-    await waitFor(() =>
-      expect(tab(panel, `${name}, running`).getAttribute("aria-selected")).toBe("true"),
-    );
+    expect(await selectedTab(panel, n === 1 ? "Terminal" : `Terminal ${n}`)).toBeTruthy();
   }
   await userEvent.type(
     await within(panel).findByRole("textbox", { name: "Terminal 9 input" }),
@@ -181,7 +309,7 @@ test("terminals you stopped looking at give their streams back, so the next one 
   );
 
   // Going back to the first replays what it printed.
-  await userEvent.click(tab(panel, "Terminal, running"));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Terminal" }));
   await userEvent.type(
     await within(panel).findByRole("textbox", { name: "Terminal input" }),
     "pwd{Enter}",
@@ -189,4 +317,21 @@ test("terminals you stopped looking at give their streams back, so the next one 
   await waitFor(() =>
     expect(output(panel, "Terminal output").textContent).toContain("/Users/dev/ace"),
   );
+});
+
+test("a tab whose shell the daemon no longer runs says it has ended and starts a new one in place", async () => {
+  const { app, panel, terminals } = await openTerminal();
+  await selectedTab(panel, "zsh");
+  const zsh = terminals.list("thread-cold-start").find((info) => info.name === "zsh");
+  if (!zsh) throw new Error("expected the zsh terminal");
+  // The daemon restarted without it while the page was away.
+  act(() => {
+    app.daemon.disconnectAll();
+    terminals.close(zsh.id);
+  });
+  expect(await within(panel).findByText("This terminal has ended")).toBeTruthy();
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Start a new terminal" }));
+  expect(await selectedTab(panel, "Terminal")).toBeTruthy();
+  await waitFor(() => expect(names(app)).toEqual(["tests", "Terminal"]));
 });

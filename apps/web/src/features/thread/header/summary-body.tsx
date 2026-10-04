@@ -15,6 +15,7 @@ import { Spinner } from "@/components/ui/spinner.tsx";
 import { keymap, type KeymapId } from "@/lib/keymap.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useCheckoutState } from "../lib/use-git.ts";
+import { useTaskKeys } from "../lib/use-task-keys.ts";
 import type { ThreadRef } from "../sources/index.ts";
 
 interface AgentCounts {
@@ -49,6 +50,11 @@ const sameCounts = (a: AgentCounts, b: AgentCounts) =>
   a.done === b.done;
 const runningTasks = (reader: ThreadReader) =>
   reader.taskIds().filter((id) => reader.task(id)?.status === "running").length;
+const latestShell = (reader: ThreadReader) =>
+  reader.taskIds().findLast((id) => {
+    const task = reader.task(id);
+    return task?.kind === "shell" && task.status === "running";
+  });
 
 /** The summary's rows: checkout, agents and background work, each opening its tool. */
 export function SummaryBody(props: { thread: ThreadRef }) {
@@ -56,7 +62,9 @@ export function SummaryBody(props: { thread: ThreadRef }) {
   const workspace = useWorkspaceActions(id);
   const { checkout, state } = useCheckoutState(props.thread);
   const agents = useThread(id, ["agents"], countAgents, sameCounts);
-  const tasks = useThread(id, ["tasks"], runningTasks) ?? 0;
+  const taskKeys = useTaskKeys(id);
+  const tasks = useThread(id, taskKeys, runningTasks) ?? 0;
+  const shell = useThread(id, taskKeys, latestShell);
   const open = (kind: string) => workspace.open({ kind });
   const agentParts = agents
     ? [
@@ -122,7 +130,10 @@ export function SummaryBody(props: { thread: ThreadRef }) {
         icon={TerminalWindowIcon}
         label="Background"
         shortcut="terminal"
-        onClick={() => open("terminal")}
+        onClick={() => {
+          // The newest running agent shell's tab, else a terminal of your own.
+          workspace.open(shell ? { kind: "shell", id: shell } : { kind: "terminal" });
+        }}
         detail={tasks ? `${tasks} running` : "Nothing running"}
       />
     </div>

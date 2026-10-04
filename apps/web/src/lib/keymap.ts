@@ -23,6 +23,8 @@ export const keymap = {
   terminal: { keys: "ctrl+`", label: "Terminal" },
   files: { keys: "mod+p", label: "Open a file" },
   browser: { keys: "ctrl+shift+b", label: "Browser" },
+  newTerminal: { keys: "ctrl+shift+`", label: "New terminal" },
+  findInTerminal: { keys: "mod+f", label: "Find in a terminal or log" },
   sideChat: { keys: "alt+mod+s", label: "Side chat" },
   preview: { keys: "ctrl+shift+p", label: "Preview" },
   devices: { keys: "ctrl+shift+m", label: "Devices" },
@@ -40,6 +42,8 @@ export const keymap = {
 export type KeymapId = keyof typeof keymap;
 
 const apple = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent ?? "Mac");
+/** ⌘ is the command key here (Apple platforms); elsewhere "mod" is Ctrl. */
+export const applePlatform = apple;
 
 const glyphs: Record<string, [apple: string, other: string]> = {
   mod: ["⌘", "Ctrl+"],

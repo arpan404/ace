@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
+import { openNewTerminal } from "@/features/panels/index.ts";
 import { railViews, type RailView } from "@/features/shell/index.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useFocusedScope, useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
@@ -121,6 +122,20 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
                   run: run(() => docks.shortcut("browser")),
                 } satisfies PaletteCommand,
                 {
+                  id: "new-terminal",
+                  label: "New terminal",
+                  keys: keymap.newTerminal.keys,
+                  icon: "action",
+                  run: run(() => openNewTerminal(docks, workspace)),
+                } satisfies PaletteCommand,
+                {
+                  id: "open-logs",
+                  label: "Show logs",
+                  keys: keymap.logs.keys,
+                  icon: "action",
+                  run: run(() => docks.toggleKind("logs")),
+                } satisfies PaletteCommand,
+                {
                   id: "toggle-right",
                   label: `${workspace.right.open ? "Hide" : "Show"} side panel`,
                   keys: keymap.rightPanel.keys,
@@ -183,18 +198,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
       },
     ];
     return groups;
-  }, [
-    close,
-    navigate,
-    themes,
-    theme.scheme,
-    update,
-    scope,
-    docks,
-    workspace.right.open,
-    workspace.bottom.open,
-    workspace.expanded,
-  ]);
+  }, [close, navigate, themes, theme.scheme, update, scope, docks, workspace]);
   return useMemo(
     () => [...threadGroups, ...staticGroups].filter((group) => group.items.length > 0),
     [threadGroups, staticGroups],

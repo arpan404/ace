@@ -8,8 +8,6 @@ import {
   GlobeSimpleIcon,
   PlusIcon,
   RobotIcon,
-  ScrollIcon,
-  TerminalWindowIcon,
   TreeStructureIcon,
 } from "@phosphor-icons/react";
 import { defineTabKind, type TabKind } from "@/lib/workspace/index.ts";
@@ -21,6 +19,10 @@ import { ThreadDiffStat } from "./changes/diff-stat.tsx";
 import { QuickOpenOverlay } from "./files/quick-open-overlay.tsx";
 import { quickOpen } from "./files/quick-open-store.ts";
 import { fileTabId } from "./files/tab-id.ts";
+import { logsKind } from "./logs/logs-kind.tsx";
+import { shellKind, terminalKind } from "./terminal/terminal-kinds.tsx";
+
+export { logsKind, shellKind, terminalKind };
 
 /** A string field of a tab's data, read defensively: tab data comes from storage. */
 function field(data: unknown, name: "path" | "url"): string | undefined {
@@ -48,17 +50,6 @@ export const changesKind = defineTabKind({
   launcher: 10,
   Badge: (props) => <ThreadDiffStat threadId={props.scope} />,
   load: () => views().then((m) => ({ default: m.ChangesView })),
-});
-
-export const terminalKind = defineTabKind({
-  kind: "terminal",
-  label: "Terminal",
-  icon: TerminalWindowIcon,
-  singleton: true,
-  pinned: true,
-  docks: ["bottom", "right"],
-  launcher: 20,
-  load: () => views().then((m) => ({ default: m.TerminalView, Actions: m.TerminalActions })),
 });
 
 /**
@@ -158,17 +149,6 @@ export const agentsKind = defineTabKind({
   load: () => views().then((m) => ({ default: m.AgentsView })),
 });
 
-export const logsKind = defineTabKind({
-  kind: "logs",
-  label: "Logs",
-  icon: ScrollIcon,
-  singleton: true,
-  pinned: true,
-  docks: ["bottom", "right"],
-  launcher: 80,
-  load: () => views().then((m) => ({ default: m.LogsView, Actions: m.LogsActions })),
-});
-
 /** One agent of the tree, opened from its row: its delegation, transcript and follow-up. */
 export const agentKind = defineTabKind({
   kind: "agent",
@@ -209,6 +189,7 @@ export const threadKinds: readonly TabKind[] = [
   logsKind,
   agentKind,
   deckLaneKind,
+  shellKind,
   launcherKind,
 ];
 

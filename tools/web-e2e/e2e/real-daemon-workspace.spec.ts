@@ -27,18 +27,26 @@ test("Run, a terminal and Commit work on a real daemon's checkout", async ({ pag
   // Run: the project's only script, in a new terminal in the bottom panel.
   await page.getByRole("button", { name: "Run npm run 'greet'" }).click();
   const bottom = page.getByRole("region", { name: "Bottom panel" });
-  const terminals = bottom.getByRole("tablist", { name: "Terminals" });
-  await expect(terminals.getByRole("tab", { name: "greet", selected: true })).toBeVisible();
+  await expect(bottom.getByRole("tab", { name: "greet", selected: true })).toBeVisible();
   await expect(bottom.getByRole("group", { name: "greet terminal" })).toContainText(scriptOutput);
 
   // A terminal of your own, in the thread's checkout.
   await bottom.getByRole("button", { name: "New terminal" }).click();
-  await expect(terminals.getByRole("tab", { name: "Terminal", selected: true })).toBeVisible();
+  await expect(bottom.getByRole("tab", { name: "Terminal", selected: true })).toBeVisible();
   const shell = bottom.getByRole("group", { name: "Terminal terminal" });
   await shell.getByRole("textbox").focus();
   await page.keyboard.type("echo $((6*7))");
   await page.keyboard.press("Enter");
   await expect(shell).toContainText("42");
+
+  // Closing its tab ends that shell in the daemon; the script's terminal is still listed.
+  await bottom.getByRole("button", { name: "Close Terminal" }).click();
+  await bottom.getByRole("tab", { name: "greet" }).click();
+  await bottom.getByRole("button", { name: /^Terminal sessions/ }).click();
+  const sessions = page.getByRole("menu");
+  await expect(sessions.getByRole("menuitem", { name: /^greet/ })).toBeVisible();
+  await expect(sessions.getByRole("menuitem", { name: /^Terminal/ })).toHaveCount(0);
+  await page.keyboard.press("Escape");
 
   // Commit the uncommitted README edit with a message of our own.
   await page.getByRole("button", { name: "Commit", exact: true }).click();
