@@ -149,6 +149,10 @@
                 "maxLength": 256,
                 "type": "string"
               },
+              "notAnswered": {
+                "const": "stopped",
+                "type": "string"
+              },
               "origin": {
                 "additionalProperties": false,
                 "properties": {
@@ -1295,6 +1299,10 @@
                 "type": "string"
               },
               "code": {
+                "type": "string"
+              },
+              "commandId": {
+                "minLength": 1,
                 "type": "string"
               },
               "complete": {

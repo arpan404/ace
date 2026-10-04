@@ -1,0 +1,34 @@
+{
+  "$id": "https://ace.local/protocol/v1/AgentError.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "code": {
+      "type": "string"
+    },
+    "detail": {
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "provider",
+        "auth",
+        "quota",
+        "network",
+        "process_exit",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "message"
+  ],
+  "type": "object"
+}

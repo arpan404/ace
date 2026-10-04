@@ -26,6 +26,10 @@
           "maxLength": 256,
           "type": "string"
         },
+        "notAnswered": {
+          "const": "stopped",
+          "type": "string"
+        },
         "origin": {
           "$ref": "https://ace.local/protocol/v1/MessageOrigin.json"
         },
@@ -177,6 +181,9 @@
         },
         "code": {
           "type": "string"
+        },
+        "commandId": {
+          "$ref": "https://ace.local/protocol/v1/CommandId.json"
         },
         "complete": {
           "type": "boolean"

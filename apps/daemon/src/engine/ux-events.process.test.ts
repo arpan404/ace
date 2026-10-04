@@ -22,7 +22,7 @@ test("a provider handoff is a separate synthetic item before the person's next m
   });
   await h.engine.flush();
   const view = h.store.snapshotThread(id);
-  const items = view.itemOrder.map((id) => view.items[id]);
+  const items = view.itemOrder.map((itemId) => view.items[itemId]);
   const handoff = items.find((item) => item?.type === "message" && item.origin?.kind === "handoff");
   const person = items.find((item) => item?.id === `input:${receipt.commandId}`);
   expect(handoff).toMatchObject({

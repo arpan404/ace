@@ -468,6 +468,7 @@ Example:
 | --- | --- | --- | --- |
 | type | yes | `"run.ended"` |  |
 | runId | yes | [RunId.json](schema/RunId.json) |  |
+| error | no | [AgentError.json](schema/AgentError.json) |  |
 | state | yes | ["completed","interrupted","failed"] |  |
 | trigger | no | [RunTrigger.json](schema/RunTrigger.json) |  |
 | endedAt | yes | [Timestamp.json](schema/Timestamp.json) |  |
@@ -476,10 +477,14 @@ Example:
 
 ```json
 {
-  "endedAt": 8,
+  "endedAt": 0,
+  "error": {
+    "detail": "example",
+    "kind": "network",
+    "message": "example"
+  },
   "runId": "example",
-  "state": "failed",
-  "trigger": "subagent_result",
+  "state": "interrupted",
   "type": "run.ended"
 }
 ```
@@ -496,20 +501,14 @@ Example:
 ```json
 {
   "item": {
-    "agentId": "example",
-    "complete": false,
-    "createdAt": 5,
-    "executionSource": {
-      "nativeSessionId": "example",
-      "selection": {
-        "options": {},
-        "provider": "pi"
-      }
-    },
+    "bytes": 5,
+    "complete": true,
+    "createdAt": 0,
     "id": "example",
-    "runId": "example",
-    "tokensAfter": 5,
-    "type": "compaction"
+    "mimeType": "example",
+    "path": "example",
+    "source": "browser",
+    "type": "artifact"
   },
   "type": "item.created"
 }
@@ -692,7 +691,7 @@ Example:
 | --- | --- | --- | --- |
 | revision | yes | integer | {"minimum":0,"maximum":9007199254740991} |
 | paused | yes | boolean |  |
-| reason | yes | union | {"anyOf":[{"type":"string","enum":["manual","restart","limit","snooze","uncertain"]},{"type":"null"}]} |
+| reason | yes | union | {"anyOf":[{"type":"string","enum":["manual","restart","limit","snooze","uncertain","stopped"]},{"type":"null"}]} |
 | resumeAt | yes | union | {"anyOf":[{"type":"integer","minimum":0,"maximum":9007199254740991},{"type":"null"}]} |
 | type | yes | `"queue.updated"` |  |
 
