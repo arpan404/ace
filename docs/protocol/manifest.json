@@ -469,8 +469,8 @@
       "sha256": "69f233f863568c3aa101348d41253e010aea4e9c47d586156fd1900890eaf099"
     },
     "schema/DaemonHealth.json": {
-      "bytes": 399,
-      "sha256": "beab9c8434f689c59c609153f1309d36479e6132e41fef7afab0d6180756af8f"
+      "bytes": 841,
+      "sha256": "8d158c83167e826f0a563f4fff74619b8ead46f840aedea1bc8c66a1de0d1676"
     },
     "schema/DeckOwnership.json": {
       "bytes": 821,
@@ -2341,10 +2341,10 @@
       "sha256": "d5dc9d7b64230e8ae117702e2619bb08b67226e553e0b31898c1ce58b22bb9b4"
     },
     "types.md": {
-      "bytes": 434330,
-      "sha256": "b41103c02ce86f525c13a1ecb455206f943d51050fe9053f2780337f287dbed9"
+      "bytes": 434569,
+      "sha256": "5cd3ec7c12315318a67b3b21f2d7efb702037a88a79d9524619f20c1d9707cd4"
     }
   },
-  "input": "8236a90c40b30f04a6b2005260e58174c40898f34adc2edb624fa7b2043b4d4b",
+  "input": "a5d1ec22ad6e429c807ee18f6bd4ef3348aed745f97b095e6b00875981c71a2f",
   "version": 1
 }

@@ -6,9 +6,11 @@ export type ServiceAction = "install" | "uninstall" | "start" | "stop" | "status
 export class UserService {
   private readonly plan: ServicePlan;
   private readonly run: Runner;
-  constructor(plan: ServicePlan, run: Runner) {
+  private readonly preflight: () => Promise<void>;
+  constructor(plan: ServicePlan, run: Runner, preflight: () => Promise<void> = async () => {}) {
     this.plan = plan;
     this.run = run;
+    this.preflight = preflight;
   }
   private async call(args: string[]) {
     return checked(
@@ -18,16 +20,18 @@ export class UserService {
     );
   }
   async active(): Promise<boolean> {
+    await this.preflight();
     const mac = this.plan.platform === "darwin";
     const r = await this.run(
       mac ? "launchctl" : "systemctl",
-      mac ? ["print", this.plan.domain] : ["--user", "is-active", "ace.service"],
+      mac ? ["print", this.plan.domain] : ["--user", "is-active", this.plan.domain],
     );
     if (r.code === 0) return true;
     if (mac ? r.code === 113 : r.code === 3 || r.code === 4) return false;
     throw new Error(`Cannot query user service: ${r.stderr}`);
   }
   async perform(action: ServiceAction): Promise<{ active: boolean }> {
+    await this.preflight();
     const p = this.plan,
       mac = p.platform === "darwin";
     if (action === "status") return { active: await this.active() };
@@ -47,7 +51,7 @@ export class UserService {
         await rename(p.file + ".tmp", p.file);
         if (!mac) await this.call(["daemon-reload"]);
       }
-      if (!mac) await this.call(["enable", "ace.service"]);
+      if (!mac) await this.call(["enable", p.domain]);
       return this.perform("start");
     }
     if (action === "start") {
@@ -55,11 +59,10 @@ export class UserService {
         await this.call(
           mac
             ? ["bootstrap", p.domain.slice(0, p.domain.lastIndexOf("/")), p.file]
-            : ["start", "ace.service"],
+            : ["start", p.domain],
         );
     } else {
-      if (await this.active())
-        await this.call(mac ? ["bootout", p.domain] : ["stop", "ace.service"]);
+      if (await this.active()) await this.call(mac ? ["bootout", p.domain] : ["stop", p.domain]);
       if (action === "uninstall") {
         // Disable only when the managed unit still exists; a second removal is a no-op.
         let exists = true;
@@ -69,7 +72,7 @@ export class UserService {
           if (!missing(e)) throw e;
           exists = false;
         }
-        if (exists && !mac) await this.call(["disable", "ace.service"]);
+        if (exists && !mac) await this.call(["disable", p.domain]);
         await rm(p.file, { force: true });
         if (exists && !mac) await this.call(["daemon-reload"]);
       }

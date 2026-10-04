@@ -21,3 +21,5 @@ export { releaseFetch } from "./feed.ts";
 export { BoundedLog } from "./log.ts";
 export { localService, serviceCommand } from "./local.ts";
 export { runSupervisor, recoveryDelay, type SupervisorPorts } from "./supervisor.ts";
+
+export { resolveDaemonHome, assertCompatibleHome, installedVersion } from "./home.ts";
