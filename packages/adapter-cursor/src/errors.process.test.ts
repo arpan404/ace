@@ -15,10 +15,12 @@ import {
 
 test.each(
   (["setup", "send", "stream", "result"] as const).flatMap((stage) =>
-    (["ordinary", "environment collision", "escaped budget"] as const).map((scenario) => ({
-      stage,
-      scenario,
-    })),
+    (["ordinary", "environment collision", "escaped budget", "input budget"] as const).map(
+      (scenario) => ({
+        stage,
+        scenario,
+      }),
+    ),
   ),
 )(
   "Cursor $stage failures retain terminal reporting with $scenario prose",
@@ -30,7 +32,7 @@ test.each(
     const failure = new sdk.ConfigurationError(
       scenario === "escaped budget"
         ? "\0".repeat(65536)
-        : `${reason} Authorization: Bearer ${secret} ${"x".repeat(12000)}`,
+        : `${reason} Authorization: Bearer ${secret} ${"x".repeat(scenario === "input budget" ? 262144 : 12000)}`,
     );
     const threadId = ThreadId.parse("error-test");
     const state = createThreadState({ threadId, config: { provider: "cursor", silenceMs: 90000 } });

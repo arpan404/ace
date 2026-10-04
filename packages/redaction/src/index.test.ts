@@ -13,6 +13,18 @@ it("literal redaction survives environment key collisions and JSON escaping with
   );
 });
 
+it("literal redaction returns omission prose when its context cannot be read", () => {
+  const env = Object.defineProperty({}, "CURSOR_API_KEY", {
+    enumerable: true,
+    get() {
+      throw new Error("synthetic context failure");
+    },
+  });
+  expect(createTextRedactor({ env })("opaque-private-details")).toBe(
+    "<REDACTION FAILED: TEXT OMITTED>",
+  );
+});
+
 it("file URL home roots stay private while nested operational paths survive", () => {
   const redactUrls = createRedactor({});
   const result = JSON.parse(

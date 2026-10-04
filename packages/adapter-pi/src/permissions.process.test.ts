@@ -1,5 +1,5 @@
 import { deriveThreadStatus } from "@ace/core";
-import { readFile } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { expect, test } from "vitest";
 import { PermissionMode } from "@ace/protocol";
 import { sessionHarness } from "./testing/harness.ts";
@@ -66,6 +66,25 @@ test.each(["ask", "auto-review"] as const)(
         (f) => f.dir === "recv" && JSON.stringify(f.data).includes("gated write completed"),
       );
       expect(await readFile(`${h.home}/approved.txt`, "utf8")).toBe("approved");
+      await expect(
+        h.session.resolve("tool-approval-1", { kind: "approval", optionId: "allow" }),
+      ).rejects.toThrow("no longer pending");
+      await rm(`${h.home}/approved.txt`);
+      await h.session.send([{ type: "text", text: "gated-write" }], "queue");
+      await h.wait(
+        (f) => f.dir === "recv" && JSON.stringify(f.data).includes('"id":"tool-approval-2"'),
+      );
+      expect(deriveThreadStatus(h.h.state).state).toBe("needs_you");
+      expect(await readFile(`${h.home}/approved.txt`, "utf8").catch(() => "missing")).toBe(
+        "missing",
+      );
+      await h.session.resolve("tool-approval-2", { kind: "approval", optionId: "deny" });
+      await h.wait(
+        (f) => f.dir === "recv" && JSON.stringify(f.data).includes("gated write denied"),
+      );
+      expect(await readFile(`${h.home}/approved.txt`, "utf8").catch(() => "missing")).toBe(
+        "missing",
+      );
     } finally {
       await h.dispose();
     }
@@ -83,3 +102,45 @@ test("Pi denial completes a blocked tool without creating a file", async () => {
     await h.dispose();
   }
 });
+
+test("concurrent Pi approval resolutions admit exactly one decision and a retry cannot change it", async () => {
+  const h = await sessionHarness({}, false, {}, undefined, "ask");
+  try {
+    await h.session.send([{ type: "text", text: "gated-write" }], "queue");
+    const responses = await Promise.allSettled([
+      h.session.resolve("tool-approval-1", { kind: "approval", optionId: "deny" }),
+      h.session.resolve("tool-approval-1", { kind: "approval", optionId: "allow" }),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual(["fulfilled", "rejected"]);
+    await h.wait((f) => f.dir === "recv" && JSON.stringify(f.data).includes("gated write denied"));
+    expect(await readFile(`${h.home}/approved.txt`, "utf8").catch(() => "missing")).toBe("missing");
+    await expect(
+      h.session.resolve("tool-approval-1", { kind: "approval", optionId: "allow" }),
+    ).rejects.toThrow("no longer pending");
+  } finally {
+    await h.dispose();
+  }
+});
+
+test.each(["FAKE_PI_NO_UI", "FAKE_PI_MALFORMED_TOOL", "FAKE_PI_APPROVAL_FAILURE"])(
+  "Pi blocks writes when %s prevents a trustworthy approval",
+  async (trigger) => {
+    const h = await sessionHarness({}, false, { [trigger]: "1" }, undefined, "auto-review");
+    try {
+      await h.session.send([{ type: "text", text: "gated-write" }], "queue");
+      await h.wait(
+        (f) => f.dir === "recv" && JSON.stringify(f.data).includes("gated write denied"),
+      );
+      expect(await readFile(`${h.home}/approved.txt`, "utf8").catch(() => "missing")).toBe(
+        "missing",
+      );
+      expect(
+        Object.values(h.h.state.interactions).filter(
+          (interaction) => interaction.state === "pending",
+        ),
+      ).toEqual([]);
+    } finally {
+      await h.dispose();
+    }
+  },
+);

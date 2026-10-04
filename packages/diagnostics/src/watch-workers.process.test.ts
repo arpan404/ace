@@ -60,7 +60,7 @@ test.each(["watch:import", "watch:require"])(
   async (kind) => {
     const home = await temporary();
     const delivered = Promise.withResolvers<void>();
-    let owned:Worker|undefined;
+    let owned: Worker | undefined;
     let expire: (() => void) | undefined;
     const sink = createFileSink(
       { directory: home, fileBytes: 65536, totalBytes: 131072, context: {} },
@@ -84,13 +84,15 @@ test.each(["watch:import", "watch:require"])(
       },
     );
     const rejected = expect(sink).rejects.toThrow("Log worker timed out");
-    void rejected.catch(()=>{});
+    void rejected.catch(() => {});
     try {
       await delivered.promise;
       if (!expire) throw new Error("Watch notification cancelled the readiness deadline");
       expire();
       await rejected;
-    } finally { await owned?.terminate(); }
+    } finally {
+      await owned?.terminate();
+    }
   },
 );
 

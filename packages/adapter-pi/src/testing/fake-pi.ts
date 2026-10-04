@@ -219,15 +219,17 @@ async function handle(line: string) {
           typeof hook === "function"
             ? Reflect.apply(hook, undefined, [
                 {
-                  toolName: "write",
+                  toolName: process.env.FAKE_PI_MALFORMED_TOOL ? "x".repeat(1025) : "write",
                   toolCallId: "write-call",
                   input: { path, content: "approved" },
                 },
                 {
                   cwd: process.env.FAKE_PI_HOME,
-                  hasUI: true,
+                  hasUI: !process.env.FAKE_PI_NO_UI,
                   ui: {
                     confirm(title: string, approvalMessage: string) {
+                      if (process.env.FAKE_PI_APPROVAL_FAILURE)
+                        throw new Error("synthetic confirmation failure");
                       const id = `tool-approval-${++approvalId}`;
                       emit({
                         type: "extension_ui_request",
