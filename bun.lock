@@ -70,6 +70,7 @@
       },
       "devDependencies": {
         "@ace/adapter-testkit": "workspace:*",
+        "@ace/client": "workspace:*",
         "@modelcontextprotocol/sdk": "1.31.0",
         "@types/ws": "^8.18.1",
         "jsqr": "1.4.0",
@@ -475,10 +476,10 @@
     "packages/history-import": {
       "name": "@ace/history-import",
       "dependencies": {
-        "@ace/provider-kit": "workspace:*",
         "@ace/native-session": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
       },
     },
@@ -582,9 +583,9 @@
     "packages/review": {
       "name": "@ace/review",
       "dependencies": {
-        "@ace/provider-kit": "workspace:*",
         "@ace/git": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
       },
     },
@@ -600,9 +601,9 @@
     "packages/search": {
       "name": "@ace/search",
       "dependencies": {
-        "@ace/provider-kit": "workspace:*",
         "@ace/projection": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "zod": "^4.6.5",
       },
     },
@@ -652,8 +653,8 @@
     "packages/usage": {
       "name": "@ace/usage",
       "dependencies": {
-        "@ace/provider-kit": "workspace:*",
         "@ace/protocol": "workspace:*",
+        "@ace/provider-kit": "workspace:*",
         "zod": "^4.1.12",
       },
       "devDependencies": {

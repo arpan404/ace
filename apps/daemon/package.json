@@ -19,7 +19,8 @@
     "bench:remote": "node --expose-gc src/remote.bench.ts",
     "bench:context": "node bench/context.ts",
     "bench:notifications": "node bench/notifications.ts",
-    "bench:files": "node bench/files.ts"
+    "bench:files": "node bench/files.ts",
+    "bench:long-thread": "node --expose-gc bench/long-thread.ts"
   },
   "dependencies": {
     "@ace/accounts": "workspace:*",
@@ -70,6 +71,7 @@
   },
   "devDependencies": {
     "@ace/adapter-testkit": "workspace:*",
+    "@ace/client": "workspace:*",
     "@modelcontextprotocol/sdk": "1.31.0",
     "@types/ws": "^8.18.1",
     "jsqr": "1.4.0"
