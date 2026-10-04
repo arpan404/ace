@@ -31,6 +31,8 @@ export class Connection {
   private codec: WireCodec;
   /** Frames waiting, in order, for the service schemas a frame among them needs. */
   private held: string[] | undefined;
+  private heldBytes = 0;
+  private snapshots = new Map<string, { seq: number; index: number; parts: string[] }>();
   constructor(
     options: ClientOptions,
     codec: WireCodec,
@@ -74,6 +76,8 @@ export class Connection {
   private cleanup(): void {
     this.epoch++;
     this.held = undefined;
+    this.heldBytes = 0;
+    this.snapshots.clear();
     this.cancel?.();
     this.cancel = undefined;
     this.heartbeat?.();
@@ -158,8 +162,11 @@ export class Connection {
         },
         message: (text) => {
           if (epoch !== this.epoch) return;
-          if (this.held) this.held.push(text);
-          else this.receive(text, epoch);
+          if (this.held) {
+            this.heldBytes += text.length * 2;
+            if (this.heldBytes > this.limits.frameBytes * 4) this.lost(4009);
+            else this.held.push(text);
+          } else this.receive(text, epoch);
         },
       });
     } catch {
@@ -170,6 +177,7 @@ export class Connection {
   private hold(text: string, epoch: number): void {
     const held = [text];
     this.held = held;
+    this.heldBytes = text.length * 2;
     this.codec.load().then(
       () => {
         if (epoch !== this.epoch || this.held !== held) return;
@@ -212,6 +220,29 @@ export class Connection {
         this.changed();
         return;
       } else if (message.type === "welcome") throw new ClientError("protocol");
+      if (message.type === "snapshot.part") {
+        let snapshot = this.snapshots.get(message.subscriptionId);
+        if (message.index === 0) {
+          snapshot = { seq: message.seq, index: 0, parts: [] };
+          this.snapshots.set(message.subscriptionId, snapshot);
+        }
+        if (!snapshot || snapshot.seq !== message.seq || snapshot.index++ !== message.index)
+          throw new ClientError("protocol");
+        snapshot.parts.push(message.data);
+        if (message.done) {
+          this.snapshots.delete(message.subscriptionId);
+          const complete = this.codec.decode(JSON.parse(snapshot.parts.join("")));
+          if (
+            !complete ||
+            complete.type !== "snapshot" ||
+            complete.subscriptionId !== message.subscriptionId ||
+            complete.seq !== message.seq
+          )
+            throw new ClientError("protocol");
+          this.received(complete);
+        }
+        return;
+      }
       if (message.type === "pong") this.awaitingPong = false;
       this.received(message);
     } catch (error) {

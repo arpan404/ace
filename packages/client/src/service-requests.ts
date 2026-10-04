@@ -14,11 +14,13 @@ type Replies<T extends ServerMessage["type"]> = Extract<ServerMessage, { type: T
 
 // #72 adds queue schemas to the canonical union. Keep only correlation here;
 // queue storage, removal, context leases and recovery remain with that owner.
-export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "queue.get"
-  ? Extract<Reply, { type: "queue.result" }>
-  : Q["type"] extends "permissions.capabilities"
-    ? Replies<"permissions.capabilities.result">
-    : ExistingServiceResponse<Q>;
+export type ServiceResponse<Q extends ServiceRequest> = Q["type"] extends "entities.page"
+  ? Replies<"entities.page">
+  : Q["type"] extends "queue.get"
+    ? Extract<Reply, { type: "queue.result" }>
+    : Q["type"] extends "permissions.capabilities"
+      ? Replies<"permissions.capabilities.result">
+      : ExistingServiceResponse<Q>;
 
 type ExistingServiceResponse<Q extends ServiceRequest> = Q["type"] extends "machines.request"
   ? Replies<"machines.result">
@@ -125,6 +127,7 @@ const replyTypes: Partial<Record<ServiceRequest["type"], readonly ServerMessage[
   "diagnostics.health": ["diagnostics.health.result"],
   "screen.request": ["screen.result"],
   "items.page": ["items.page"],
+  "entities.page": ["entities.page"],
   "output.read": ["output.data"],
 };
 function isServiceResponse<Q extends ServiceRequest>(

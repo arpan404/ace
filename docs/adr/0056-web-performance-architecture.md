@@ -51,7 +51,7 @@ Nothing grows with history. Every cache is an `LruCache` (`@ace/ui-core`, bounde
 | Thread window (client, and each mirror)  | 200 items; older history pages in on demand and the window stays at 200                                                               |
 | Cached thread stores                     | 32, least recently used released first                                                                                                |
 | Item text                                | 64 Ki UTF-16 units per item; overflow keeps the tail and marks truncation                                                             |
-| Agents, runs, interactions, tasks, usage | 4,096 each; the oldest ended runs, closed interactions and ended tasks no loaded item refers to are evicted                           |
+| Agents, runs, interactions, tasks, usage | Soft target of 4,096 retained entities; settled entries are evicted, while active entries and required ancestors remain               |
 | Thread list order                        | Deleted threads leave it                                                                                                              |
 | A hidden tab's backlog in the worker     | 1,024 changed keys, then one copy of the store when shown                                                                             |
 | Sent commands nobody watches (tab)       | The newest 64                                                                                                                         |
@@ -118,3 +118,5 @@ CI runs the bundle and soak budgets in the `check` job and the browser and memor
 - The GPU diff view is read-only and not readable by screen readers; it announces itself and offers "Show as text". It stays behind a flag until it supports line comments.
 - Evicted runs mean history paged in long after its turn ended may not group under that turn in the Changes tab; an evicted closed interaction or ended task is no longer shown for such history either.
 - Browser budgets depend on the runner; a budget failure on a loaded machine is re-run before it is believed.
+
+Long-thread follow-up (2026-10-03): daemon snapshots window settled entity history independently of items and expose `entities.page`. Historical count no longer causes client failure. Item deletion also removes creation/hydration metadata, notifies item/order readers, and journals a tombstone so an in-flight older page cannot resurrect it.

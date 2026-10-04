@@ -150,6 +150,7 @@ export class Client implements ClientApi {
       () => {
         this.requests.clear(new ClientError("offline"));
         this.subscriptions.disconnect();
+        this.intents.disconnect();
         this.sidebar.disconnect();
       },
     );

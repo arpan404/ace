@@ -26,7 +26,8 @@ export function readJsonLines(
   }
   function accept(text: string) {
     let start = 0;
-    while (start < text.length && !failed && !detached) {
+    while (start < text.length && !failed) {
+      if (detached) return;
       if (flow?.paused()) {
         input.pause();
         const pending = text.slice(start);

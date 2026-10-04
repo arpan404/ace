@@ -6,6 +6,8 @@ interface Cached {
   store: ThreadStore;
   threadId: string;
   snapshotAllowed: boolean;
+  fresh: boolean;
+  rejected: boolean;
   refs: number;
   subscriptionId: string | undefined;
 }
@@ -15,6 +17,7 @@ export interface ThreadSubscription {
 }
 export class Subscriptions {
   private cache = new Map<string, Cached>();
+  private starting = new Set<string>();
   private wires = new Map<string, Cached>();
   private limits: Limits;
   private send: (message: ClientMessage) => boolean;
@@ -44,13 +47,18 @@ export class Subscriptions {
         store: new ThreadStore(this.limits),
         threadId,
         snapshotAllowed: true,
+        fresh: false,
+        rejected: false,
         refs: 0,
         subscriptionId: undefined,
       };
     }
     this.cache.delete(threadId);
     this.cache.set(threadId, entry);
-    if (entry.refs++ === 0 && this.ready()) this.subscribe(threadId, entry);
+    if (entry.refs++ === 0) {
+      entry.rejected = false;
+      if (this.ready()) this.pump();
+    }
     const owned = entry;
     let released = false;
     return {
@@ -62,10 +70,12 @@ export class Subscriptions {
           if (owned.subscriptionId) {
             this.send({ type: "unsubscribe", subscriptionId: owned.subscriptionId });
             this.wires.delete(owned.subscriptionId);
+            this.starting.delete(owned.subscriptionId);
           }
           owned.subscriptionId = undefined;
           this.cache.delete(threadId);
           this.cache.set(threadId, owned);
+          this.pump();
         }
       },
     };
@@ -75,33 +85,54 @@ export class Subscriptions {
     const entry = this.cache.get(threadId);
     return entry?.refs ? entry.store : undefined;
   }
+  private pump(): void {
+    if (!this.ready()) return;
+    for (const [threadId, entry] of this.cache) {
+      if (!this.ready() || this.starting.size >= 4) break;
+      if (entry.refs && !entry.rejected && !entry.subscriptionId) this.subscribe(threadId, entry);
+    }
+  }
   private subscribe(threadId: string, entry: Cached): void {
     const id = this.id();
     entry.snapshotAllowed = true;
     entry.subscriptionId = id;
     this.wires.set(id, entry);
+    this.starting.add(id);
     this.send({
       type: "subscribe",
+      paced: true,
       subscriptionId: id,
       scope: { kind: "thread", threadId: ThreadId.parse(threadId) },
-      ...(entry.store.cursor === undefined ? {} : { afterSeq: entry.store.cursor }),
+      ...(entry.fresh || entry.store.cursor === undefined ? {} : { afterSeq: entry.store.cursor }),
     });
   }
   reconnect(): void {
-    for (const [threadId, entry] of this.cache) if (entry.refs) this.subscribe(threadId, entry);
+    this.pump();
   }
   disconnect(): void {
     this.wires.clear();
-    for (const entry of this.cache.values()) entry.subscriptionId = undefined;
+    this.starting.clear();
+    for (const entry of this.cache.values()) {
+      entry.subscriptionId = undefined;
+      entry.rejected = false;
+    }
   }
   reject(id: string, error: ClientError): void {
     const entry = this.wires.get(id);
     if (!entry) return;
     this.wires.delete(id);
+    this.starting.delete(id);
     entry.subscriptionId = undefined;
+    entry.rejected = true;
     entry.store.fail(error);
+    this.pump();
   }
   receive(message: ServerMessage): void {
+    if (message.type === "subscription.ready") {
+      this.starting.delete(message.subscriptionId);
+      this.pump();
+      return;
+    }
     if (message.type !== "snapshot" && message.type !== "events" && message.type !== "progress")
       return;
     const entry = this.wires.get(message.subscriptionId);
@@ -114,6 +145,7 @@ export class Subscriptions {
       )
         return;
       entry.snapshotAllowed = false;
+      entry.fresh = false;
       if (message.view.thread.id !== entry.threadId) throw new ClientError("protocol");
       try {
         entry.store.snapshot(message.view);
@@ -137,11 +169,10 @@ export class Subscriptions {
     this.wires.delete(message.subscriptionId);
     const threadId = entry.store.thread?.id;
     if (!threadId) throw new ClientError("protocol");
-    // A fresh id discards frames from the old replay. Omit cursor to force snapshot.
-    const id = this.id();
-    entry.snapshotAllowed = true;
-    entry.subscriptionId = id;
-    this.wires.set(id, entry);
-    this.send({ type: "subscribe", subscriptionId: id, scope: { kind: "thread", threadId } });
+    // Release this in-flight slot before queueing a cursor-free replacement.
+    this.starting.delete(message.subscriptionId);
+    entry.subscriptionId = undefined;
+    entry.fresh = true;
+    this.pump();
   }
 }
