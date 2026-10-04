@@ -1,13 +1,13 @@
 /** Real isolated worker fixture. Every provider effect is served by the in-memory fake. */
 import { parentPort, workerData } from "node:worker_threads";
-import { Client, type Scheduler } from "@ace/client";
+import { Client, type Scheduler, type Transport } from "@ace/client";
 import { FakeDaemon, fakeTransport, facts } from "@ace/fake-daemon";
-import { DeviceId, HostId } from "@ace/protocol";
+import { DeviceId, HostId, ServerMessage } from "@ace/protocol";
 import { z } from "zod";
 import { ClientHost } from "./host.ts";
 
 const config = z
-  .object({ hostId: z.string(), name: z.string(), token: z.string() })
+  .object({ hostId: z.string(), name: z.string(), token: z.string(), sidebarFault: z.enum(["hold", "fail"]).optional() })
   .parse(workerData);
 const daemon = new FakeDaemon({
   clock: () => 1000,
@@ -40,6 +40,26 @@ const scheduler: Scheduler = {
   },
 };
 let sequence = 0;
+let sidebarFault = config.sidebarFault;
+let releaseSidebar: (() => void) | undefined;
+/** Faults at the transport boundary, including uncorrelated subscription snapshots. */
+function transport(): Transport {
+  const base = fakeTransport(daemon);
+  return {
+    ...base,
+    open(events) {
+      base.open({ ...events, message(text) {
+        const message = ServerMessage.parse(JSON.parse(text));
+        if (message.type === "snapshot" && message.view.kind === "threads" && sidebarFault) {
+          if (sidebarFault === "hold") releaseSidebar = () => events.message(text);
+          else events.message(JSON.stringify({ type: "error", code: "unavailable", message: "Snapshot unavailable", subscriptionId: message.subscriptionId }));
+          return;
+        }
+        events.message(text);
+      } });
+    },
+  };
+}
 const host = new ClientHost({
   target() {
     return {
@@ -49,7 +69,7 @@ const host = new ClientHost({
           deviceId: DeviceId.parse("device"),
           expectedHostId: HostId.parse(config.hostId),
           credential: async () => config.token,
-          transport: () => fakeTransport(daemon),
+          transport,
           storage: { load: async () => null, save: async () => {} },
           scheduler,
           random: () => 0,
@@ -66,7 +86,7 @@ const host = new ClientHost({
 const port = parentPort;
 if (!port) throw new Error("Missing parent port");
 const control = z.object({
-  control: z.enum(["offline", "online", "block", "hold", "release"]),
+  control: z.enum(["offline", "online", "block", "hold", "release", "release-sidebar"]),
   id: z.number(),
 });
 port.on("message", (data: unknown) => {
@@ -77,6 +97,11 @@ port.on("message", (data: unknown) => {
   if (message.control === "online") daemon.refuseConnections(false);
   if (message.control === "hold") daemon.holdRequests("host.identity");
   if (message.control === "release") daemon.restoreRequests();
+  if (message.control === "release-sidebar") {
+    sidebarFault = undefined;
+    releaseSidebar?.();
+    releaseSidebar = undefined;
+  }
   port.postMessage({ controlAck: message.id });
   if (message.control === "block")
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);

@@ -92,13 +92,14 @@ export function persistence() {
 export function poolWorld() {
   const p = persistence();
   const workers = new Map<string, Worker>();
+  const sidebarFaults = new Map<string, "hold" | "fail">();
   let controlId = 0;
   const pool = new MachinePool({
     directory: p.directory,
     remote: { scheduler },
     spawn(entry: MachineEntry, token: string): MachineWorker {
       const worker = new Worker(new URL("./machines-worker.fixture.ts", import.meta.url), {
-        workerData: { hostId: entry.hostId, name: entry.displayName, token },
+        workerData: { hostId: entry.hostId, name: entry.displayName, token, sidebarFault: sidebarFaults.get(entry.hostId) },
         execArgv: [],
       });
       workers.set(entry.hostId, worker);
@@ -143,6 +144,7 @@ export function poolWorld() {
     ...p,
     pool,
     workers,
+    sidebarFaults,
     async control(hostId: string, control: string) {
       const worker = workers.get(hostId);
       if (!worker) throw new Error("Missing worker");
