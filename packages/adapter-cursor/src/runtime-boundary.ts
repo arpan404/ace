@@ -10,7 +10,9 @@ export type RuntimeSdkBoundary = Pick<
   "JsonlLocalAgentStore" | "AuthenticationError" | "RateLimitError" | "NetworkError"
 > & {
   /** Host-only SDK prewarm probe, without a provider turn. */
-  sandboxSupport?(options: import("@cursor/sdk").AgentOptions): Promise<boolean>;
+  sandboxSupport?(
+    options: import("@cursor/sdk").AgentOptions,
+  ): Promise<import("./sandbox-support.ts").SandboxAdmission>;
   Cursor: { auth: Pick<SdkModule["Cursor"]["auth"], "status"> };
   Agent: Pick<SdkModule["Agent"], "cancelRun"> & {
     create(...args: Parameters<SdkModule["Agent"]["create"]>): Promise<SdkAgentBoundary>;

@@ -14,12 +14,13 @@ import {
 } from "./index.ts";
 
 test.each([
-  { policy: "restricted", sandboxSupported: true },
-  { policy: "restricted", sandboxSupported: false },
-  { policy: "full-access", sandboxSupported: false },
+  { policy: "restricted", sandboxSupported: true, readOnly: false },
+  { policy: "restricted", sandboxSupported: false, readOnly: false },
+  { policy: "full-access", sandboxSupported: false, readOnly: false },
+  { policy: "restricted", sandboxSupported: true, readOnly: true },
 ] as const)(
-  "Cursor $policy launches and resumes with sandbox support=$sandboxSupported",
-  async ({ policy, sandboxSupported }) => {
+  "Cursor $policy launches and resumes with sandbox support=$sandboxSupported, read-only=$readOnly",
+  async ({ policy, sandboxSupported, readOnly }) => {
     const home = await realpath(await mkdtemp(join(tmpdir(), "cursor-permission-")));
     const boundary: RuntimeSdkBoundary = {
       ...sdk,
@@ -64,6 +65,12 @@ test.each([
           if (policy === "restricted" && !sandboxSupported && !fallback)
             throw new Error("Unsupported sandbox requested or tools unrestricted");
           if (!guarded && !unrestricted) throw new Error("Native policy was omitted");
+          if (
+            readOnly &&
+            (JSON.stringify(options.tools) !== JSON.stringify(["read", "grep", "glob", "ls"]) ||
+              options.mcpServers !== undefined)
+          )
+            throw new Error("Read-only admitted shell, writes, Task or MCP tools");
           const agentId = policy === "restricted" ? "restricted-native-agent" : "full-native-agent";
           const store = options.local?.store;
           if (!store) throw new Error("Missing local checkpoint store");
@@ -90,10 +97,11 @@ test.each([
         async resume(nativeId, options) {
           const local = options?.local;
           if (
+            (readOnly && options?.mcpServers !== undefined) ||
             local?.sandboxOptions?.enabled !== sandboxSupported ||
             local?.autoReview !== sandboxSupported ||
             local?.subagentInherit === undefined ||
-            (!sandboxSupported &&
+            ((!sandboxSupported || readOnly) &&
               JSON.stringify(options?.tools) !== JSON.stringify(["read", "grep", "glob", "ls"]))
           )
             throw new Error("Resumed native agent lost its restricted policy");
@@ -124,6 +132,8 @@ test.each([
           policy,
           autoReviewAvailable: false,
           limits: CursorLimitsSchema.parse({}),
+          readOnly,
+          ...(readOnly ? { mcp: { url: "http://127.0.0.1:1/mcp", bearer: "a".repeat(64) } } : {}),
         }),
       ).toEqual({
         agentId: policy === "restricted" ? "restricted-native-agent" : "full-native-agent",
@@ -145,6 +155,8 @@ test.each([
             policy: "restricted",
             autoReviewAvailable: false,
             limits: CursorLimitsSchema.parse({}),
+            readOnly,
+            ...(readOnly ? { mcp: { url: "http://127.0.0.1:1/mcp", bearer: "a".repeat(64) } } : {}),
           }),
         ).toEqual({
           agentId: policy === "restricted" ? "restricted-native-agent" : "full-native-agent",

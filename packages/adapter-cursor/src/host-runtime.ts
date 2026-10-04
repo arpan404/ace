@@ -4,7 +4,6 @@ import type { LocalAgentStore } from "@cursor/sdk";
 import { homedir } from "node:os";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { createRedactor } from "@ace/redaction";
-import { cursorSdkInjection } from "@ace/mcp-server";
 import { checkpointDirectory, checkCheckpointBudget } from "./checkpoints.ts";
 import {
   Open,
@@ -18,17 +17,19 @@ import { CheckpointQuota } from "./checkpoint-quota.ts";
 import { boundedCheckpointStore } from "./checkpoint-store.ts";
 import { CursorJournal } from "./journal.ts";
 import { recoverCursorCheckpoint } from "./recovery.ts";
-import { localPolicy, cursorRestrictedTools } from "./policy.ts";
+import { sandboxCursorOptions, limitedCursorOptions, fullCursorOptions } from "./agent-options.ts";
 import { sdkFailure, safeCursorErrorMessage } from "./sdk-failure.ts";
 import { sdkInput } from "./sdk-input.ts";
 
 export type { SdkModule } from "./runtime-boundary.ts";
 import type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";
 export class HostRuntime {
+  private sandboxRelease: (() => Promise<void>) | undefined;
   private agent: SdkAgentBoundary | undefined;
   private run: SdkRunBoundary | undefined;
   private completion: Promise<void> | undefined;
   private opening = false;
+  private openingDone: Promise<void> | undefined;
   private closing: Promise<void> | undefined;
   private sending = false;
   private options: OpenOptions | undefined;
@@ -143,6 +144,8 @@ export class HostRuntime {
   async open(value: unknown): Promise<{ agentId: string }> {
     if (this.opening || this.agent || this.closing) throw new Error("Host already open or closing");
     this.opening = true;
+    const opened = Promise.withResolvers<void>();
+    this.openingDone = opened.promise;
     try {
       const options = Open.parse(value);
       this.options = options;
@@ -245,30 +248,29 @@ export class HostRuntime {
         },
         (runId) => journal.afterObserve(runId),
       );
-      const sandboxSupported =
-        options.policy === "restricted" &&
-        (this.sdk.sandboxSupport
-          ? await this.sdk.sandboxSupport({
-              local: { cwd: options.cwd, store: this.store, ...localPolicy("restricted", true) },
-              model: { id: options.model ?? "composer-2.5" },
-            })
-          : options.autoReviewAvailable);
-      const policy = localPolicy(options.policy, sandboxSupported);
-      const injection =
-        options.mcp && (options.policy === "full-access" || (sandboxSupported && !options.readOnly))
-          ? cursorSdkInjection(options.mcp)
-          : undefined;
-      const agentOptions = {
-        local: { cwd: options.cwd, store: this.store, ...policy },
-        model: { id: options.model ?? "composer-2.5" },
-        ...cursorRestrictedTools(options.policy, sandboxSupported && !options.readOnly),
-        ...(injection ? { mcpServers: injection.mcpServers } : {}),
-      };
+      const requestedOptions =
+        options.policy === "full-access"
+          ? fullCursorOptions(options, this.store)
+          : sandboxCursorOptions(options, this.store);
+      let sandboxSupported = false;
+      if (options.policy === "restricted") {
+        if (this.sdk.sandboxSupport) {
+          const admission = await this.sdk.sandboxSupport(requestedOptions);
+          sandboxSupported = admission.supported;
+          if (admission.supported) this.sandboxRelease = admission.release;
+        } else sandboxSupported = options.autoReviewAvailable;
+      }
+      const agentOptions =
+        options.policy === "full-access" || sandboxSupported
+          ? requestedOptions
+          : limitedCursorOptions(options, this.store);
       if (nativeId?.startsWith("bc-")) throw new Error("Cloud continuation is forbidden");
       if (nativeId) await checkpointRevision(this.store, nativeId);
+      if (this.closing) throw new Error("Host closed during SDK admission");
       this.agent = nativeId
         ? await this.sdk.Agent.resume(nativeId, agentOptions)
         : await this.sdk.Agent.create(agentOptions);
+      if (this.closing) throw new Error("Host closed during SDK admission");
       await this.frame("open", {
         policy: options.policy,
         sandboxSupported,
@@ -295,13 +297,19 @@ export class HostRuntime {
       }
       return { agentId: this.agent.agentId };
     } catch (error) {
-      await this.frame("error", {
-        code: "setup_failed",
-        message: `${safeCursorErrorMessage(error, this.env)} Preserve the checkpoint and inspect this thread before retrying.`,
-      });
+      try {
+        await this.frame("error", {
+          code: "setup_failed",
+          message: `${safeCursorErrorMessage(error, this.env)} Preserve the checkpoint and inspect this thread before retrying.`,
+        });
+      } finally {
+        await this.releaseSandbox();
+      }
       throw new Error("SDK setup failed", { cause: error });
     } finally {
       this.opening = false;
+      this.openingDone = undefined;
+      opened.resolve();
     }
   }
   async send(value: unknown): Promise<{ runId: string }> {
@@ -399,7 +407,13 @@ export class HostRuntime {
     this.closing ??= this.dispose();
     return this.closing;
   }
+  private async releaseSandbox(): Promise<void> {
+    const release = this.sandboxRelease;
+    this.sandboxRelease = undefined;
+    await release?.();
+  }
   private async dispose(): Promise<void> {
+    await this.openingDone;
     try {
       try {
         if (this.run) await this.cancel();
@@ -409,9 +423,13 @@ export class HostRuntime {
       await this.frame("close", { disposed: true });
     } finally {
       try {
-        await this.journal?.close();
+        await this.releaseSandbox();
       } finally {
-        await this.storeOwner?.close();
+        try {
+          await this.journal?.close();
+        } finally {
+          await this.storeOwner?.close();
+        }
       }
       this.storeOwner = undefined;
       this.agent = undefined;

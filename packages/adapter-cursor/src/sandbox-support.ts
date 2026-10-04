@@ -1,5 +1,9 @@
 import type { AgentOptions } from "@cursor/sdk";
 
+export type SandboxAdmission =
+  | { supported: false }
+  | { supported: true; release: () => Promise<void> };
+
 /** Public SDK executor admission checks the installed helper and host support without a turn. */
 export async function probeCursorSandbox(
   sdk: {
@@ -9,14 +13,13 @@ export async function probeCursorSandbox(
     ): Promise<Pick<import("@cursor/sdk").CursorAgentPlatform, "prewarmLocalWorkspace">>;
   },
   options: AgentOptions,
-): Promise<boolean> {
+): Promise<SandboxAdmission> {
   const store = options.local?.store;
   if (!store) throw new Error("Sandbox admission requires the owned checkpoint store");
   const platform = await sdk.createAgentPlatform({ localStore: store });
   try {
     const release = await platform.prewarmLocalWorkspace(options);
-    await release();
-    return true;
+    return { supported: true, release };
   } catch (error) {
     if (
       error instanceof sdk.ConfigurationError &&
@@ -24,7 +27,7 @@ export async function probeCursorSandbox(
         error.message,
       )
     )
-      return false;
+      return { supported: false };
     throw error;
   }
 }
