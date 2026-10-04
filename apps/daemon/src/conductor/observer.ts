@@ -155,6 +155,7 @@ export class DeckObserver {
     return undefined;
   }
   private async reconcile(run: string, publish: boolean) {
+    await this.context.store.writable();
     let state = this.runtime.state(run);
     if (!state) return;
     if (["done", "cancelled"].includes(state.phase)) {
@@ -268,8 +269,13 @@ export class DeckObserver {
     const clock = this.context.options.engine?.clock ?? { ...systemClock, now: this.context.now };
     this.cancelTimer = clock.setTimer(() => {
       this.cancelTimer = undefined;
-      for (const run of this.runtime.active()) this.changed(run, false);
-      this.arm();
+      try {
+        for (const run of this.runtime.active()) this.changed(run, false);
+      } catch (error) {
+        this.context.options.engine?.onError?.(error);
+      } finally {
+        this.arm();
+      }
     }, 1000);
   }
   stopAdmission() {

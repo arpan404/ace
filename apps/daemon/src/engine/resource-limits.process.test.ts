@@ -46,6 +46,13 @@ test("a full mailbox drains accepted frames before reporting overload and closin
   ).toBe(true);
   expect(h.store.getThread(id)?.status.state).toBe("failed");
   expect(ctx.signal.aborted).toBe(true);
+  expect(h.command({ type: "thread.send", threadId: id, input, delivery: "queue" }).ok).toBe(true);
+  await h.engine.flush();
+  const resumed = h.contexts[1];
+  if (!resumed) throw new Error("Thread did not reopen after overload");
+  resumed.onFrame(frames.frame(start, end));
+  await h.engine.flush();
+  expect(h.store.getThread(id)?.status.state).toBe("done");
 });
 
 test("one stdout read worth of streamed deltas is folded without failing the thread", async () => {

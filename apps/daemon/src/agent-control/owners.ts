@@ -57,6 +57,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
     onError: (error) => log.log("error", "Agent automation failed", error),
     executor: {
       async execute(input, signal) {
+        await store.writable();
         const caller = attribution(input.automationId);
         if (input.worktree || input.prompt.length > 16384)
           throw new Error(
@@ -80,6 +81,7 @@ export function createAgentOwners(context: ServiceContext, delegations: Delegati
       },
       async recover(key, signal) {
         // The durable automation run selects the owner, not any agent-supplied attribution.
+        await store.writable();
         const active = automationStore.active().find((entry) => entry.input.idempotencyKey === key);
         if (!active) return undefined;
         const caller = attribution(active.input.automationId);

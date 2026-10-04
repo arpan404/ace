@@ -75,6 +75,13 @@ export class DelegationJournal {
       );
     `),
     );
+    store.atomic((db) => {
+      const columns = db.prepare("PRAGMA table_info(delegation_trees)").all();
+      if (!columns.some((column) => column.name === "retry_at"))
+        db.exec(
+          "ALTER TABLE delegation_trees ADD COLUMN retry_at INTEGER NOT NULL DEFAULT 0; ALTER TABLE delegation_trees ADD COLUMN failures INTEGER NOT NULL DEFAULT 0",
+        );
+    });
   }
   private sql(query: string) {
     let statement = this.statements.get(query);
@@ -279,11 +286,26 @@ export class DelegationJournal {
     ).get();
     return row ? z.object({ parent_id: ThreadId, due: z.number() }).parse(row) : undefined;
   }
-  nextExpiry() {
+  nextExpiry(durationMs = 0) {
     const row = this.sql(
-      "SELECT root_id,started_at FROM delegation_trees WHERE cancelled=0 AND active>0 ORDER BY started_at LIMIT 1",
-    ).get();
-    return row ? z.object({ root_id: ThreadId, started_at: z.number() }).parse(row) : undefined;
+      "SELECT root_id,started_at,retry_at,failures,MAX(started_at+?,retry_at) AS due FROM delegation_trees WHERE cancelled=0 AND active>0 ORDER BY due,root_id LIMIT 1",
+    ).get(durationMs);
+    return row
+      ? z
+          .object({
+            root_id: ThreadId,
+            started_at: z.number(),
+            retry_at: z.number(),
+            failures: z.number(),
+            due: z.number(),
+          })
+          .parse(row)
+      : undefined;
+  }
+  deferExpiry(root: ThreadId, due: number) {
+    this.sql(
+      "UPDATE delegation_trees SET retry_at=?,failures=MIN(failures+1,30) WHERE root_id=?",
+    ).run(due, root);
   }
   deferWake(parent: ThreadId, due: number) {
     this.sql("UPDATE delegation_wakes SET due=? WHERE parent_id=?").run(due, parent);

@@ -247,6 +247,7 @@ export class Engine {
   bindCommandPolicy(policy: NonNullable<Engine["commandPolicy"]>): void {
     this.commandPolicy = policy;
   }
+  private flushDepth = 0;
   private actor(id: ThreadId): ThreadActor {
     let actor = this.actors.get(id);
     if (!actor) {
@@ -268,6 +269,7 @@ export class Engine {
         () => this.wake(id),
         this.report,
         this.limits,
+        () => this.flushDepth > 0,
       );
       this.actors.set(id, actor);
     }
@@ -543,8 +545,22 @@ export class Engine {
       this.wakeQueued();
     }
   }
+  private deferredWakes = new Set<ThreadId>();
   private wake(id: ThreadId): void {
     if (this.closing) return;
+    if (this.repo.store.isHistoryWriting()) {
+      if (!this.deferredWakes.has(id)) {
+        this.deferredWakes.add(id);
+        void this.repo.store
+          .writable()
+          .then(() => {
+            this.deferredWakes.delete(id);
+            this.wake(id);
+          })
+          .catch(this.report);
+      }
+      return;
+    }
     this.releaseDormant(id);
     if (!this.repo.reservedSlot(id)) return;
     this.sends.wake(id);
@@ -689,17 +705,24 @@ export class Engine {
   }
   /** Drain accepted commands and frames. Does not wait for queued work to become runnable. */
   async flush(): Promise<void> {
-    await this.readyPromise;
-    await Promise.resolve();
-    do {
-      await Promise.all([this.sends.flush(), this.controls.flush(), this.steering.flush()]);
-      await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
-      await this.recovery.flush();
-    } while (this.sends.active || this.controls.active || this.steering.active);
+    this.flushDepth++;
+    try {
+      await this.readyPromise;
+      await Promise.resolve();
+      do {
+        await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
+        await Promise.all([this.sends.flush(), this.controls.flush(), this.steering.flush()]);
+        await Promise.all([...this.actors.values()].map((actor) => actor.flush()));
+        await this.recovery.flush();
+      } while (this.sends.active || this.controls.active || this.steering.active);
+    } finally {
+      this.flushDepth--;
+    }
   }
   close(): Promise<void> {
     this.closePromise ??= (async () => {
       this.closing = true;
+      this.flushDepth++;
       await Promise.allSettled(this.workspaceChanges.values());
       await this.readyPromise;
       this.recovery.close();

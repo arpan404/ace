@@ -133,6 +133,7 @@ export class ThreadOrganizer {
       policy = settlePolicy(data.entries);
     }
     if (this.stopped) return;
+    await this.store.writable();
     this.store.atomic((db) => {
       const current = this.store.getThread(id);
       if (!current) return;
@@ -161,6 +162,7 @@ export class ThreadOrganizer {
     if (this.pending) return this.pending;
     this.cancel?.();
     this.pending = (async () => {
+      await this.store.writable();
       const ids = this.store.atomic((db) => {
         db.prepare(
           "INSERT OR IGNORE INTO thread_organizer_dirty SELECT thread_id FROM thread_settle_due WHERE due<=? ORDER BY due LIMIT 64",
@@ -171,6 +173,7 @@ export class ThreadOrganizer {
           .map((row) => ThreadId.parse(row.thread_id));
       });
       for (const id of ids) {
+        await this.store.writable();
         if (this.stopped) return;
         // Remove before reading. An event arriving during the asynchronous read requeues it.
         this.store.atomic((db) =>
@@ -186,7 +189,9 @@ export class ThreadOrganizer {
           throw error;
         }
       }
-    })().finally(() => {
+    })().finally(async () => {
+      try {
+      await this.store.writable();
       this.pending = undefined;
       if (!this.stopped) {
         const dirty = this.store.atomic((db) =>
@@ -199,6 +204,11 @@ export class ThreadOrganizer {
           typeof due === "number" ? Math.min(60_000, Math.max(0, due - this.now())) : 60_000;
         this.arm(this.retry ? 60_000 : dirty ? 0 : delay);
         this.retry = false;
+      }
+      } catch {
+        this.pending = undefined;
+        this.retry = false;
+        this.arm(1000);
       }
     });
     return this.pending;

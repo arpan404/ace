@@ -65,6 +65,7 @@ export class Recovery {
   }
   async prepare(id?: ThreadId): Promise<void> {
     const value = RecoveryPreferences.parse((await this.ports.preferences?.(id)) ?? this.defaults);
+    await this.repo.store.writable();
     if (id)
       this.repo.store.atomic((db) =>
         db
@@ -253,7 +254,8 @@ export class Recovery {
           );
         this.schedule();
       })
-      .catch((error: unknown) => {
+      .catch(async (error: unknown) => {
+        await this.repo.store.writable();
         if (!this.closed)
           this.repo.apply(
             id,
@@ -318,6 +320,7 @@ export class Recovery {
   /** Timer callbacks must never throw: that would take the whole daemon down. */
   private fire(): void {
     try {
+      if (this.repo.store.isHistoryWriting()) throw new Error("History publication in progress");
       this.repo.store.atomic(() => {
         for (const id of this.repo.queue.due(this.clock.now())) {
           const queue = this.repo.queue.get(id);
@@ -334,20 +337,25 @@ export class Recovery {
           }
         }
       });
+      this.schedule();
     } catch (error) {
       // The pass rolled back, so its deadlines are still due; try them again shortly.
-      (this.ports.onError ?? console.error)(error);
+      try {
+        (this.ports.onError ?? console.error)(error);
+      } catch {
+        /* Reporting cannot disable retries. */
+      }
       this.cancel?.();
       this.cancel = this.closed
         ? undefined
         : this.clock.setTimer(() => this.fire(), deadlineRetryMs);
       return;
     }
-    this.schedule();
   }
   async migrate(id: ThreadId, target?: string): Promise<void> {
     if (!this.ports.migrate) throw new Error("Account migration is unavailable");
     const result = await this.ports.migrate(id, target);
+    await this.repo.store.writable();
     this.repo.nativeSession(id, result.nativeSessionId, this.repo.backend(id), result.instanceId);
     const metadata = this.repo.transitions.get(id);
     if (metadata.selection) {

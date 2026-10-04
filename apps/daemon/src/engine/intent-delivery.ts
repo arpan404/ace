@@ -30,6 +30,7 @@ export class IntentDelivery {
     this.dependencies = dependencies;
   }
   async run(actor: ThreadActor, candidate: IntentHeader): Promise<void> {
+    await this.dependencies.repo.store.writable();
     const send = ["thread.create", "thread.send", "thread.fork"].includes(candidate.kind);
     const editableSend = ["thread.create", "thread.send"].includes(candidate.kind);
     const continuation = ["thread.resume", "queue.resume", "thread.limit"].includes(candidate.kind);
