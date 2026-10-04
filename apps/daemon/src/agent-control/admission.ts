@@ -1,3 +1,4 @@
+import { delegationModel } from "./models.ts";
 import { callerThread } from "./authorization.ts";
 import { admitDelegation, delegationBudget } from "@ace/orchestrator";
 import { pickInstance } from "@ace/accounts";
@@ -58,6 +59,7 @@ export class DelegationAdmission {
     caller: McpAttribution,
     value: DelegationRequest,
     resultDelivery?: "owner",
+    configuredModel?: string,
   ): DelegationReservation {
     const input = DelegationRequest.parse(value);
     return this.deps.store.atomic(() => {
@@ -100,6 +102,15 @@ export class DelegationAdmission {
         : undefined;
       if (provider.success && (input.accountId || candidates.length > 0) && !selected)
         throw new Error("Account unavailable or quota exhausted");
+      const resolvedModel = this.deps.models
+        ? delegationModel(
+            this.deps.models,
+            input,
+            callerThread(this.deps.store, caller),
+            selected?.id ?? input.instanceId,
+            configuredModel,
+          )
+        : undefined;
       const reservation: DelegationReservation = {
         record: {
           childId: ThreadId.parse(this.deps.id()),
@@ -108,6 +119,7 @@ export class DelegationAdmission {
           rootId: tree.root,
           requestId: input.requestId,
           request: input,
+          ...(resolvedModel ? { resolvedModel } : {}),
           depth: tree.depth + 1,
           createdAt: now,
           phase: "created",
@@ -186,7 +198,9 @@ export class DelegationAdmission {
             provider: r.request.provider,
             ...identity,
             title: r.request.role.slice(0, 256),
-            ...(r.request.model ? { model: r.request.model } : {}),
+            ...((r.resolvedModel ?? r.request.model)
+              ? { model: r.resolvedModel ?? r.request.model }
+              : {}),
             ...(r.request.options ? { options: r.request.options } : {}),
             ...(current.accountId ? { accountId: current.accountId } : {}),
           },

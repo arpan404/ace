@@ -17,6 +17,26 @@ export function startAgentControl(context: ServiceContext): void {
     engine,
     clock: options.engine?.clock ?? { ...systemClock, now },
     id,
+    ...(services.models ? { models: services.models } : {}),
+    async configuredModel(caller, request) {
+      const settings = services.settings;
+      if (!settings) return undefined;
+      const role = /review/i.test(request.role)
+        ? "reviewer"
+        : /plan/i.test(request.role)
+          ? "planner"
+          : "coder";
+      const thread = store.getThread(caller.threadId);
+      const workspace = thread ? store.getWorkspace(thread.workspaceId) : undefined;
+      const scope = {
+        thread: caller.threadId,
+        ...(workspace ? { workspace: workspace.path } : {}),
+      };
+      const provider = await settings.get(`providers.${role}.provider`, scope);
+      if (provider.value !== request.provider) return undefined;
+      const model = await settings.get(`providers.${role}.model`, scope);
+      return model.value === "default" ? undefined : model.value;
+    },
     ...(services.accountRegistry ? { accounts: services.accountRegistry } : {}),
     ...(options.agentControl?.policy ? { policy: options.agentControl.policy } : {}),
     admitsWork: () => maintenance?.admit() ?? false,

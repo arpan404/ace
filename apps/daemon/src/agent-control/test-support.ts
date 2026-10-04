@@ -30,6 +30,7 @@ export function setup(
   _followup = false,
   accounts?: import("@ace/accounts").AccountRegistry,
   capacity?: number,
+  models?: import("@ace/models").ModelCatalogApi,
 ) {
   const home = path ? join(path, "..") : mkdtempSync(join(tmpdir(), "ace-control-"));
   if (!path) homes.push(home);
@@ -153,6 +154,7 @@ export function setup(
     policy,
     ...(capacity === undefined ? {} : { journalCapacity: capacity }),
     ...(accounts ? { accounts } : {}),
+    ...(models ? { models } : {}),
     admitsWork: () => admitting,
     onError: (error) => errors.push(error),
   });
@@ -257,6 +259,7 @@ export function setup(
         policy,
         ...(capacity === undefined ? {} : { journalCapacity: capacity }),
         ...(accounts ? { accounts } : {}),
+        ...(models ? { models } : {}),
         admitsWork: () => admitting,
         onError: (error) => errors.push(error),
       });

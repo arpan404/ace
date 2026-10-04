@@ -33,6 +33,8 @@ export interface DelegationDependencies {
   clock: EngineClock;
   id(): string;
   accounts?: AccountRegistry;
+  models?: import("@ace/models").ModelCatalogApi;
+  configuredModel?(caller: McpAttribution, request: DelegationRequest): Promise<string | undefined>;
   /** Host may lower the durable receipt cap, never raise its 10,000 hard limit. */
   journalCapacity?: number;
   policy?: Partial<DelegationPolicy>;
@@ -136,11 +138,31 @@ export class DelegationService {
     this.arm();
     return result;
   }
-  prepare(caller: McpAttribution, value: DelegationRequest): DelegationRecord {
+  async prepareModels(caller: McpAttribution, request: DelegationRequest) {
+    const catalog = this.deps.models;
+    if (
+      catalog &&
+      !catalog.list({
+        provider: request.provider,
+        ...(request.accountId ? { instance: request.accountId } : {}),
+      }).models.length
+    )
+      await catalog.refresh({
+        provider: request.provider,
+        ...(request.accountId ? { instance: request.accountId } : {}),
+      });
+    return this.deps.configuredModel?.(caller, request);
+  }
+  prepare(
+    caller: McpAttribution,
+    value: DelegationRequest,
+    configuredModel?: string,
+  ): DelegationRecord {
     return this.prepareInWorkspace(
       caller,
       value,
       callerThread(this.deps.store, caller).workspaceId,
+      configuredModel,
     );
   }
   /** Host-only workspace selection for Deck/worktree owners; never exposed as tool input. */
@@ -148,6 +170,7 @@ export class DelegationService {
     caller: McpAttribution,
     value: DelegationRequest,
     workspace: WorkspaceId,
+    configuredModel?: string,
   ): DelegationRecord {
     const input = DelegationRequest.parse(value);
     return this.deps.store.atomic(() => {
@@ -157,14 +180,19 @@ export class DelegationService {
         this.admission.match(caller, input, receipt);
         return receipt;
       }
-      const reservation = this.reserve(caller, input);
+      const reservation = this.reserve(caller, input, undefined, configuredModel);
       const record = this.prepareReserved(caller, reservation, workspace);
       this.arm();
       return record;
     });
   }
-  reserve(caller: McpAttribution, value: DelegationRequest, resultDelivery?: "owner") {
-    const reservation = this.admission.reserve(caller, value, resultDelivery);
+  reserve(
+    caller: McpAttribution,
+    value: DelegationRequest,
+    resultDelivery?: "owner",
+    configuredModel?: string,
+  ) {
+    const reservation = this.admission.reserve(caller, value, resultDelivery, configuredModel);
     this.arm();
     return reservation;
   }
@@ -187,9 +215,13 @@ export class DelegationService {
     this.deps.store.atomic(() => this.journal.release(reservation));
     this.arm();
   }
-  delegate(caller: McpAttribution, value: DelegationRequest): DelegationRecord {
+  delegate(
+    caller: McpAttribution,
+    value: DelegationRequest,
+    configuredModel?: string,
+  ): DelegationRecord {
     return this.deps.store.atomic(() => {
-      const record = this.prepare(caller, value);
+      const record = this.prepare(caller, value, configuredModel);
       this.launch(record, `Role: ${record.request.role}\n\nTask:\n${record.request.task}`);
       return record;
     });
