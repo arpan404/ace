@@ -10,9 +10,29 @@ export const keymap = {
   back: { keys: "mod+[", label: "Back" },
   forward: { keys: "mod+]", label: "Forward" },
   toggleSidebar: { keys: "mod+\\", label: "Hide or show the sidebar" },
-  agents: { keys: "mod+j", label: "Agents" },
+  // The workspace docks (features/shell/workspace). One map for tooltips, launcher and palette.
+  rightPanel: { keys: "shift+mod+b", label: "Show or hide the side panel" },
+  bottomPanel: { keys: "mod+j", label: "Show or hide the bottom panel" },
+  fullView: { keys: "shift+mod+f", label: "Full view" },
+  summary: { keys: "alt+mod+o", label: "Pin or unpin the thread summary" },
+  newTab: { keys: "alt+mod+t", label: "New tab" },
+  closeTab: { keys: "alt+mod+w", label: "Close tab" },
+  nextTab: { keys: "shift+mod+]", label: "Next tab" },
+  previousTab: { keys: "shift+mod+[", label: "Previous tab" },
   changes: { keys: "shift+mod+d", label: "Changes" },
-  bottomPanel: { keys: "ctrl+`", label: "Terminal" },
+  agents: { keys: "ctrl+shift+a", label: "Agents" },
+  terminal: { keys: "ctrl+`", label: "Terminal" },
+  files: { keys: "mod+p", label: "Open a file" },
+  browser: { keys: "ctrl+shift+b", label: "Browser" },
+  newTerminal: { keys: "ctrl+shift+`", label: "New terminal" },
+  findInTerminal: { keys: "mod+f", label: "Find in a terminal or log" },
+  sideChat: { keys: "alt+mod+s", label: "Side chat" },
+  renameThread: { keys: "alt+mod+r", label: "Rename the thread" },
+  pinThread: { keys: "alt+mod+p", label: "Pin or unpin the thread" },
+  archiveThread: { keys: "shift+mod+a", label: "Archive the thread" },
+  preview: { keys: "ctrl+shift+p", label: "Preview" },
+  devices: { keys: "ctrl+shift+m", label: "Devices" },
+  logs: { keys: "ctrl+shift+l", label: "Logs" },
   takeControl: { keys: "ctrl+shift+c", label: "Take or hand back control of a browser or device" },
   settings: { keys: "mod+,", label: "Settings" },
   send: { keys: "mod+enter", label: "Send" },
@@ -26,6 +46,8 @@ export const keymap = {
 export type KeymapId = keyof typeof keymap;
 
 const apple = /Mac|iPhone|iPad/.test(globalThis.navigator?.userAgent ?? "Mac");
+/** ⌘ is the command key here (Apple platforms); elsewhere "mod" is Ctrl. */
+export const applePlatform = apple;
 
 const glyphs: Record<string, [apple: string, other: string]> = {
   mod: ["⌘", "Ctrl+"],

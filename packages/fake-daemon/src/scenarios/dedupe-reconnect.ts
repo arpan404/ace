@@ -160,12 +160,25 @@ export function dedupeReconnect(id = "thread-dedupe"): Scenario {
         facts: [
           rootAgent("claude", "/Users/dev/ace"),
           turn("root"),
-          message(
-            "root",
-            "ask",
-            "user",
-            "After a daemon restart the web client shows the last 40 or so events twice. Repro: start a thread, kill the daemon, restart it, reconnect. Fix it with a regression test, and use subagents to audit the other reconnect paths.",
-          ),
+          // Sent from the phone with the client's outbox and the repo README attached.
+          {
+            type: "item.upsert",
+            agent: "root",
+            item: "ask",
+            draft: {
+              type: "message",
+              role: "user",
+              complete: true,
+              parts: [
+                {
+                  type: "text",
+                  text: "After a daemon restart the web client shows the last 40 or so events twice. Repro: start a thread, kill the daemon, restart it, reconnect. Fix it with a regression test, and use subagents to audit the other reconnect paths.",
+                },
+                { type: "file", path: "apps/web/src/relay/outbox.ts", mimeType: "text/typescript" },
+                { type: "file", path: "README.md", mimeType: "text/markdown" },
+              ],
+            },
+          },
         ],
       },
       {

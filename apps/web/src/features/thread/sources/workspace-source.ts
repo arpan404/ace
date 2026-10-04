@@ -8,6 +8,7 @@ import {
   type CommandResult,
   type ForgePrStatus,
   type ForgeRepository,
+  type ProviderKind,
   type ThreadDetails,
   type WorkspaceActionRequest,
   type WorkspaceActionResult,
@@ -20,6 +21,9 @@ export interface ThreadRef {
   title: string;
   /** The New thread composer: nothing exists on the daemon yet. */
   draft?: boolean | undefined;
+  /** A draft's chosen provider and account, which scope its slash commands. */
+  provider?: ProviderKind | undefined;
+  instanceId?: string | undefined;
 }
 
 export type Script = WorkspaceScript;
@@ -46,6 +50,11 @@ const messages: Record<string, string> = {
   head_changed: "The branch moved since you looked. Review the changes and try again.",
   repository_mismatch: "The checkout's remote changed. Refresh and try again.",
   terminal_limit: "Too many terminals are open. Close one and try again.",
+  thread_tree_is_live: "Wait for the agents to stop: the checkout can't move under live work.",
+  terminal_owned: "Close the thread's terminals first: the checkout can't move under them.",
+  git_dirty_worktree: "Commit or discard the uncommitted changes first.",
+  git_invalid_ref: "That branch doesn't exist in the project.",
+  engine_unavailable: "This daemon can't move a thread's checkout.",
 };
 
 export class WorkspaceError extends Error {
@@ -75,6 +84,16 @@ export interface WorkspaceSource {
   push(thread: ThreadRef): Promise<void>;
   /** Opens a pull request for the branch; returns its number. */
   createPr(thread: ThreadRef, input: PrInput): Promise<number>;
+  /**
+   * Moves the thread's checkout: into a worktree of its own, or onto another branch. The daemon
+   * refuses while agents or terminals work in it, or while it has uncommitted changes.
+   */
+  setCheckout(thread: ThreadRef, change: CheckoutChange): Promise<void>;
+}
+
+export interface CheckoutChange {
+  mode: "local" | "worktree";
+  branch?: string | undefined;
 }
 
 const is = <K extends Result["kind"]>(
@@ -149,6 +168,15 @@ export function daemonWorkspaceSource(client: ClientApi): WorkspaceSource {
       });
       if (!result.pr) throw new WorkspaceError("unexpected");
       return result.pr.number;
+    },
+    async setCheckout(thread, change) {
+      await run({
+        type: "thread.workspace.set",
+        threadId: id(thread),
+        mode: change.mode,
+        ...(change.branch ? { branch: change.branch } : {}),
+        allowUncommitted: false,
+      });
     },
   };
 }

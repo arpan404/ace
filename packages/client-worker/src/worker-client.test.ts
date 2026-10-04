@@ -670,6 +670,8 @@ test("one tab leaving preview or closing keeps the other tab's browser subscript
   await first.request({ type: "browser.subscribe", threadId });
   await second.request({ type: "browser.subscribe", threadId });
   await first.request({ type: "browser.unsubscribe", threadId });
+  // A client navigates as a person, holding the control lease.
+  await second.request({ type: "browser.takeover", threadId });
   await second.request({
     type: "browser.execute",
     threadId,
@@ -979,6 +981,7 @@ test("Preview transitions wait for the previous receipt and preserve newer detac
   await a.close();
   await a.left;
   await b.request({ type: "diagnostics.health" });
+  await b.request({ type: "browser.takeover", threadId });
   await b.request({
     type: "browser.execute",
     threadId,

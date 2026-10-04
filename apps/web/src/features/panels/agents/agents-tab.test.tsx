@@ -1,4 +1,9 @@
-import { coldStartReplay, failingSubagent } from "@ace/fake-daemon";
+import {
+  coldStartReplay,
+  delegatedDocs,
+  delegatedDocsIds,
+  failingSubagent,
+} from "@ace/fake-daemon";
 import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
@@ -11,7 +16,7 @@ test("the agent tree shows subagents as they spawn and marks the one that fails"
   await app.open("/t/thread-settings");
   await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
 
-  await userEvent.keyboard("{Meta>}j{/Meta}");
+  await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   expect(within(panel).getByRole("tab", { name: "Agents", selected: true })).toBeTruthy();
   await within(panel).findByRole("group", { name: "Main agent: Working" });
@@ -32,7 +37,7 @@ test("the Agents tab shows what each agent is doing, the background shell, and w
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
-  await userEvent.keyboard("{Meta>}j{/Meta}");
+  await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
 
   const root = await within(panel).findByRole("group", {
@@ -60,7 +65,7 @@ test("Stop ends a background shell, and the thread settles once nothing else is 
   script.runThrough("root-replied");
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
-  await userEvent.keyboard("{Meta>}j{/Meta}");
+  await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   const why = await within(panel).findByRole("region", { name: "Why isn't this done?" });
   expect(why.textContent).toContain(
@@ -82,7 +87,7 @@ test("Stop on a subagent interrupts only that subagent", async () => {
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
-  await userEvent.keyboard("{Meta>}j{/Meta}");
+  await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   const audit = await within(panel).findByRole("group", { name: "resume-sweep: Working" });
   await userEvent.hover(audit);
@@ -99,7 +104,7 @@ test("a message queued in the composer shows in the Agents tab and in why the th
   app.play(coldStartReplay()).runThrough("turn-2");
   await app.open("/t/thread-cold-start");
   await screen.findByRole("heading", { level: 1, name: "Cap cold-start replay at 200 events" });
-  await userEvent.keyboard("{Meta>}j{/Meta}");
+  await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
   await within(panel).findByRole("group", { name: "Main agent: Waiting on subagents" });
   // Each agent row carries its provider.
@@ -120,4 +125,63 @@ test("a message queued in the composer shows in the Agents tab and in why the th
   expect(within(panel).getByRole("region", { name: "Why isn't this done?" }).textContent).toContain(
     "a queued message has not been sent yet",
   );
+});
+
+async function openAgents(app: ReturnType<typeof harness>, path: string) {
+  await app.open(path);
+  await userEvent.keyboard("{Control>}{Shift>}a{/Shift}{/Control}");
+  return screen.findByRole("region", { name: "Thread panel" });
+}
+
+test("a subagent opens as its own tab: who started it, what it was asked, and only its own work", async () => {
+  const app = harness();
+  app.play(coldStartReplay()).runThrough("audit-done");
+  const panel = await openAgents(app, "/t/thread-cold-start");
+  expect(within(panel).getByRole("status").textContent).toBe("1 active · 1 done");
+
+  await userEvent.click(await within(panel).findByRole("button", { name: "Open resume-sweep" }));
+  expect(within(panel).getByRole("tab", { name: "resume-sweep", selected: true })).toBeTruthy();
+  const delegation = await within(panel).findByRole("region", { name: "Delegation" });
+  expect(delegation.textContent).toContain(
+    "Claude Code started it with Claude Code's own subagent tool.",
+  );
+  expect(delegation.textContent).toContain("Sweep the web and mobile resume callers");
+
+  const transcript = within(panel).getByRole("feed", { name: "Agent transcript" });
+  expect(within(transcript).getByText(/Three callers resume from seq 0/)).toBeTruthy();
+  // The parent's own answer stays in the conversation.
+  expect(within(transcript).queryByText(/replayFrom now treats seq 0/)).toBeNull();
+
+  // A provider's own subagent can't be messaged directly; the composer says where to ask.
+  const box = within(panel).getByRole("combobox", { name: "Message resume-sweep" });
+  expect(box.hasAttribute("disabled")).toBe(true);
+  expect(document.getElementById(box.getAttribute("aria-describedby") ?? "")?.textContent).toMatch(
+    /take instructions only from the agent that started them/,
+  );
+
+  await userEvent.click(within(panel).getByRole("button", { name: /Back to agents/ }));
+  expect(within(panel).getByRole("tab", { name: "Agents", selected: true })).toBeTruthy();
+  // The agent's tab stays open beside the tree.
+  expect(within(panel).getByRole("tab", { name: "resume-sweep" })).toBeTruthy();
+});
+
+test("an agent ace delegated shows its own thread and takes a follow-up there", async () => {
+  const app = harness();
+  for (const scenario of delegatedDocs()) app.play(scenario).runUntilBlocked();
+  const panel = await openAgents(app, `/t/${delegatedDocsIds.parent}`);
+  await userEvent.click(await within(panel).findByRole("button", { name: "Open protocol-docs" }));
+
+  const delegation = await within(panel).findByRole("region", { name: "Delegation" });
+  expect(delegation.textContent).toContain("delegated it through ace, as a thread of its own");
+  expect(delegation.textContent).toContain("Write docs/protocol/relay.md from the wire schemas");
+  const transcript = await within(panel).findByRole("feed", { name: "Agent transcript" });
+  expect(within(transcript).getByText(/Drafted the frame table/)).toBeTruthy();
+
+  // The thread composer's own shape: Enter sends.
+  await userEvent.type(
+    within(panel).getByRole("combobox", { name: "Message protocol-docs" }),
+    "Add a table of close codes too.{Enter}",
+  );
+  // The child thread was settled, so the follow-up starts its next turn there.
+  expect(await within(transcript).findByText("Add a table of close codes too.")).toBeTruthy();
 });

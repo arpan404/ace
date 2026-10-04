@@ -17,15 +17,19 @@ async function openLogs(
 }
 async function showLogs(title: string) {
   await screen.findByRole("heading", { level: 1, name: title });
-  await userEvent.keyboard("{Control>}`{/Control}");
+  await userEvent.keyboard("{Control>}{Shift>}L{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Bottom panel" });
-  await userEvent.click(within(panel).getByRole("tab", { name: "Logs" }));
+  await within(panel).findByRole("tab", { name: "Logs", selected: true });
   return panel;
 }
-const lines = (panel: HTMLElement) =>
-  within(within(panel).getByRole("list", { name: "Thread log" }))
+const lines = (panel: HTMLElement, name = "Thread log") =>
+  within(within(panel).getByRole("list", { name }))
     .getAllByRole("listitem")
     .map((item) => item.textContent ?? "");
+async function pickSource(panel: HTMLElement, source: string | RegExp) {
+  await userEvent.click(await within(panel).findByRole("button", { name: /^Log source/ }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: source }));
+}
 
 test("the log records sessions, subagents, background work and turns as they happen", async () => {
   const { script } = await openLogs("turn-1");
@@ -99,4 +103,75 @@ test("Clear hides what is logged so far; new lines still appear and Show brings 
 
   await userEvent.click(within(panel).getByRole("button", { name: "Show" }));
   expect(lines(panel).some((line) => line.includes("session started"))).toBe(true);
+});
+
+test("an agent's log holds that agent and its subagents, not the rest of the thread", async () => {
+  await openLogs("turn-2");
+  const panel = await showLogs("Cap cold-start replay at 200 events");
+  await pickSource(panel, "resume-sweep");
+  expect(
+    await within(panel).findByRole("tab", { name: "resume-sweep log", selected: true }),
+  ).toBeTruthy();
+  await waitFor(() =>
+    expect(
+      lines(panel, "resume-sweep log").some((line) => line.includes("resume-sweep spawned")),
+    ).toBe(true),
+  );
+  expect(lines(panel, "resume-sweep log").some((line) => line.includes("session started"))).toBe(
+    false,
+  );
+  expect(lines(panel, "resume-sweep log").some((line) => line.includes("ack-buffer-test"))).toBe(
+    false,
+  );
+
+  // Back to the whole thread, in the same tab.
+  await pickSource(panel, "Thread");
+  expect(await within(panel).findByRole("tab", { name: "Logs", selected: true })).toBeTruthy();
+  expect(lines(panel).some((line) => line.includes("session started"))).toBe(true);
+});
+
+test("Filter lines narrows the log to what matches and says how many of how many", async () => {
+  await openLogs("relay-output");
+  const panel = await showLogs("Cap cold-start replay at 200 events");
+  await waitFor(() => expect(lines(panel).length).toBeGreaterThan(3));
+  const total = lines(panel).length;
+  await userEvent.type(within(panel).getByRole("searchbox", { name: "Filter lines" }), "outbox");
+  await waitFor(() =>
+    expect(lines(panel).every((line) => line.toLowerCase().includes("outbox"))).toBe(true),
+  );
+  const shown = lines(panel).length;
+  expect(shown).toBeGreaterThan(0);
+  expect(within(panel).getByText(`${shown} of ${total} lines`)).toBeTruthy();
+
+  await userEvent.type(within(panel).getByRole("searchbox", { name: "Filter lines" }), "zzz");
+  expect(await within(panel).findByText("No lines match")).toBeTruthy();
+});
+
+test("a level filter keeps to warnings and errors, and the thread's Logs come back filtered", async () => {
+  const { app } = await openLogs("relay-output");
+  const panel = await showLogs("Cap cold-start replay at 200 events");
+  await waitFor(() => expect(lines(panel).length).toBeGreaterThan(3));
+  await userEvent.click(within(panel).getByRole("button", { name: "Levels and sources" }));
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "Warnings and errors" }));
+  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(lines(panel).every((line) => /warn|error/.test(line))).toBe(true));
+  expect(lines(panel).some((line) => line.includes("82% of its 5-hour window"))).toBe(true);
+
+  // Away to another thread and back: the filter was kept with the tab.
+  await app.open("/t/thread-settings");
+  await app.open("/t/thread-cold-start");
+  const again = await screen.findByRole("region", { name: "Bottom panel" });
+  expect(within(again).getByRole("button", { name: "Levels and sources (filtered)" })).toBeTruthy();
+  await waitFor(() => expect(lines(again).every((line) => /warn|error/.test(line))).toBe(true));
+});
+
+test("the daemon's log scope shows its health and says where its log is kept", async () => {
+  await openLogs("turn-1");
+  const panel = await showLogs("Cap cold-start replay at 200 events");
+  await pickSource(panel, "Daemon");
+  expect(
+    await within(panel).findByRole("tab", { name: "Daemon log", selected: true }),
+  ).toBeTruthy();
+  expect(await within(panel).findByText("Event loop")).toBeTruthy();
+  expect(within(panel).getByText(/doesn't yet/)).toBeTruthy();
 });

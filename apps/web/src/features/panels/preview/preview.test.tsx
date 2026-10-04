@@ -1,122 +1,26 @@
-import { coldStartReplay, failingSubagent, seedPanels } from "@ace/fake-daemon";
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { failingSubagent } from "@ace/fake-daemon";
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
-async function openPreview(
-  scenario = coldStartReplay(),
-  path = "/t/thread-cold-start",
-  through?: string,
-) {
+async function openPreview() {
   const app = harness();
-  const script = app.play(scenario);
-  if (through) script.runThrough(through);
-  else script.step();
-  seedPanels(app.daemon);
-  await app.open(path);
-  await screen.findByRole("heading", { level: 1, name: scenario.thread.title });
-  await userEvent.keyboard("{Meta>}{Shift>}d{/Shift}{/Meta}");
+  app.play(failingSubagent()).step();
+  await app.open("/t/thread-settings");
+  await screen.findByRole("heading", { level: 1, name: "Migrate settings schema" });
+  // ⌃⇧P opens the Preview tool in the side panel.
+  await userEvent.keyboard("{Control>}{Shift>}p{/Shift}{/Control}");
   const panel = await screen.findByRole("region", { name: "Thread panel" });
-  await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
-  return { app, panel, browser: app.daemon.browser, script };
+  expect(within(panel).getByRole("tab", { name: "Preview", selected: true })).toBeTruthy();
+  return { app, panel, browser: app.daemon.browser };
 }
 
-test("the preview names the agent of this thread whose browser call is running", async () => {
-  const { panel, script } = await openPreview(coldStartReplay(), "/t/thread-cold-start", "turn-2");
-  const status = async (name: string) =>
-    (await within(panel).findByText(name, { exact: false })).closest("span")?.textContent;
-  expect(await status("resume-sweep")).toContain("is controlling the browser");
-
-  // Once resume-sweep's browser call ends, the thread's own agent holds the page.
-  await act(async () => script.runThrough("audit-done"));
-  expect(await status("Claude Code")).toContain("is controlling the browser");
-});
-
-test("the preview shows the page an agent is driving and follows its frames", async () => {
+test("a thread without a dev server says so, and previews one once it is found", async () => {
   const { panel, browser } = await openPreview();
-  await within(panel).findByText("is controlling the browser", { exact: false });
-  const frame = within(panel).getByRole("img", {
-    name: "Live view of localhost:5173/settings/devices",
-  });
-  const first = frame.getAttribute("src");
-  expect(decodeURIComponent(first ?? "")).toContain("iPhone 16 Pro");
-
-  act(() => browser.type("thread-cold-start", "iPhone 16 Pro Max"));
-  await waitFor(() => expect(frame.getAttribute("src")).not.toBe(first));
-  expect(decodeURIComponent(frame.getAttribute("src") ?? "")).toContain("iPhone 16 Pro Max");
-});
-
-test("the agent's browser is sized to the pane, so the page shows at full size", async () => {
-  const { panel, browser } = await openPreview();
-  await within(panel).findByText("is controlling the browser", { exact: false });
-  // jsdom lays every element out 800px wide; the browser starts at 760.
-  await waitFor(() => expect(browser.frame("thread-cold-start")?.width).toBe(800));
-  const page = within(panel).getByRole("img", {
-    name: "Live view of localhost:5173/settings/devices",
-  });
-  expect(decodeURIComponent(page.getAttribute("src") ?? "")).toContain('width="800"');
-});
-
-test("taking control pauses the agent, forwards clicks and keys, and hands back", async () => {
-  const { panel, browser } = await openPreview();
-  // Before you take control, the page is a picture: nothing is forwarded.
-  expect(within(panel).queryByRole("application")).toBeNull();
-
-  await userEvent.click(await within(panel).findByRole("button", { name: /Take control/ }));
-  await within(panel).findByText("have control · the agent is paused", { exact: false });
-  expect(browser.view("thread-cold-start")?.controller).toBe("human");
-
-  const page = within(panel).getByRole("application", {
-    name: "Control localhost:5173/settings/devices",
-  });
-  fireEvent.mouseDown(page, { clientX: 10, clientY: 20 });
-  fireEvent.mouseUp(page, { clientX: 10, clientY: 20 });
-  page.focus();
-  await userEvent.keyboard("a");
-  await waitFor(() =>
-    expect(browser.inputs.map(({ input }) => input.kind + ":" + input.event)).toEqual([
-      "mouse:mousePressed",
-      "mouse:mouseReleased",
-      "key:keyDown",
-    ]),
-  );
-
-  // Typing by the agent is ignored while you hold control.
-  const held = within(panel).getByRole("img").getAttribute("src");
-  act(() => browser.type("thread-cold-start", "something else"));
-  expect(within(panel).getByRole("img").getAttribute("src")).toBe(held);
-
-  await userEvent.click(within(panel).getByRole("button", { name: /Hand back/ }));
-  await within(panel).findByText("is controlling the browser", { exact: false });
-  expect(browser.view("thread-cold-start")?.controller).toBe("agent");
-});
-
-test("⌃⇧C takes and hands back control from the keyboard", async () => {
-  const { panel, browser } = await openPreview();
-  await within(panel).findByRole("button", { name: /Take control/ });
-  await userEvent.keyboard("{Control>}{Shift>}c{/Shift}{/Control}");
-  await within(panel).findByRole("button", { name: /Hand back/ });
-  expect(browser.view("thread-cold-start")?.controller).toBe("human");
-  await userEvent.keyboard("{Control>}{Shift>}c{/Shift}{/Control}");
-  await within(panel).findByRole("button", { name: /Take control/ });
-});
-
-test("Open full view shows the live page large, with the same control", async () => {
-  const { panel, browser } = await openPreview();
-  await userEvent.click(await within(panel).findByRole("button", { name: "Open full view" }));
-  const dialog = await screen.findByRole("dialog", {
-    name: "Live view of localhost:5173/settings/devices",
-  });
-  await userEvent.click(within(dialog).getByRole("button", { name: /Take control/ }));
-  await within(dialog).findByRole("button", { name: /Hand back/ });
-  expect(browser.view("thread-cold-start")?.controller).toBe("human");
-});
-
-test("a thread with neither a browser nor a dev server says so, and previews a server once found", async () => {
-  const { panel, browser } = await openPreview(failingSubagent(), "/t/thread-settings");
-  expect(await within(panel).findByText("Nothing to preview")).toBeTruthy();
-
+  expect(await within(panel).findByRole("heading", { name: "No dev server yet" })).toBeTruthy();
   browser.serve("thread-settings", {
     port: 3000,
     origin: "http://localhost:3000",
@@ -128,38 +32,14 @@ test("a thread with neither a browser nor a dev server says so, and previews a s
   await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
   const frame = await within(panel).findByTitle("Preview of http://localhost:3000");
   expect(frame.getAttribute("src")).toBe("http://localhost:3000");
-  expect(within(panel).getByRole("link", { name: "Open in browser" }).getAttribute("href")).toBe(
-    "http://localhost:3000",
+  expect((within(panel).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe(
+    "localhost:3000",
   );
+  expect(within(panel).getByRole("button", { name: "Open in your browser" })).toBeTruthy();
 });
 
-test("Open a browser starts one for the thread and shows its page live", async () => {
-  const { panel, browser } = await openPreview(failingSubagent(), "/t/thread-settings");
-  await userEvent.click(await within(panel).findByRole("button", { name: "Open a browser" }));
-  expect(await within(panel).findByRole("img", { name: "Live view of about:blank" })).toBeTruthy();
-  expect(browser.view("thread-settings")?.closed).toBe(false);
-});
-
-test("the first browser shows the daemon's Chromium download until it is ready", async () => {
-  const { panel, browser } = await openPreview(failingSubagent(), "/t/thread-settings");
-  browser.requireDownload(150_000_000);
-  await userEvent.click(await within(panel).findByRole("button", { name: "Open a browser" }));
-
-  expect(
-    await within(panel).findByRole("heading", { name: "Getting the browser ready" }),
-  ).toBeTruthy();
-  const bar = within(panel).getByRole("progressbar", { name: "Downloading the browser" });
-  expect(bar.getAttribute("aria-valuenow")).toBe("40");
-  expect(bar.getAttribute("aria-valuetext")).toBe("Downloading the browser · 40%");
-  // Nothing else to do meanwhile: the port form waits until the browser is ready.
-  expect(within(panel).queryByRole("form", { name: "Preview a dev server" })).toBeNull();
-  act(() => browser.finishDownload());
-  expect(await within(panel).findByRole("img", { name: "Live view of about:blank" })).toBeTruthy();
-  expect(within(panel).queryByText(/Downloading the browser/)).toBeNull();
-});
-
-test("a dev server already running is previewed by its port until Stop preview", async () => {
-  const { panel, browser } = await openPreview(failingSubagent(), "/t/thread-settings");
+test("a dev server already running is previewed by its port until previewing stops", async () => {
+  const { panel, browser } = await openPreview();
   const port = await within(panel).findByRole("textbox", { name: "Dev server port" });
   await userEvent.type(port, "4173");
   await userEvent.click(within(panel).getByRole("button", { name: "Preview" }));
@@ -167,47 +47,114 @@ test("a dev server already running is previewed by its port until Stop preview",
   expect(await within(panel).findByTitle("Preview of http://127.0.0.1:4173")).toBeTruthy();
   expect(browser.servers("thread-settings").map((server) => server.port)).toEqual([4173]);
 
-  await userEvent.click(within(panel).getByRole("button", { name: "Stop preview" }));
-  expect(await within(panel).findByRole("heading", { name: "Nothing to preview" })).toBeTruthy();
+  await userEvent.click(
+    within(panel).getByRole("button", { name: "Stop previewing · the server keeps running" }),
+  );
+  expect(await within(panel).findByRole("heading", { name: "No dev server yet" })).toBeTruthy();
   expect(browser.servers("thread-settings")).toEqual([]);
 });
 
-test("leaving the preview while holding control hands the browser back to the agent", async () => {
-  const { panel, browser } = await openPreview();
-  await userEvent.click(await within(panel).findByRole("button", { name: /Take control/ }));
-  await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("human"));
-  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
-  await waitFor(() => expect(browser.view("thread-cold-start")?.controller).toBe("agent"));
+test("Open the Browser from an empty preview opens the Browser tool", async () => {
+  const { panel } = await openPreview();
+  await userEvent.click(await within(panel).findByRole("button", { name: "Open the Browser" }));
+  expect(await within(panel).findByRole("tab", { name: "New page", selected: true })).toBeTruthy();
+  expect(await within(panel).findByRole("heading", { name: "Open a page" })).toBeTruthy();
 });
 
-/** Hide or show the page, as switching tabs or minimising the window does. */
-function visibility(state: DocumentVisibilityState) {
-  Object.defineProperty(document, "visibilityState", { configurable: true, value: state });
-  document.dispatchEvent(new Event("visibilitychange"));
+test("a dev server opens in a tab of its own, which keeps its address while the server is gone", async () => {
+  const { panel, browser } = await openPreview();
+  act(() =>
+    browser.serve("thread-settings", {
+      port: 3000,
+      origin: "http://localhost:3000",
+      name: "api",
+      source: "listener",
+    }),
+  );
+  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
+  await userEvent.click(await within(panel).findByRole("button", { name: "Open in its own tab" }));
+
+  expect(within(panel).getByRole("tab", { name: "api · :3000", selected: true })).toBeTruthy();
+  const tabPanel = within(panel).getByRole("tabpanel");
+  const address = await within(tabPanel).findByRole("textbox", { name: "Address" });
+  expect((address as HTMLInputElement).value).toBe("localhost:3000");
+  const tab = within(panel).getByRole("tabpanel");
+  expect(within(tab).getByTitle("Preview of http://localhost:3000").getAttribute("src")).toBe(
+    "http://localhost:3000",
+  );
+
+  await userEvent.click(within(panel).getByRole("button", { name: "Stop previewing this port" }));
+  expect(
+    await within(panel).findByRole("heading", { name: "Nothing is previewed on port 3000" }),
+  ).toBeTruthy();
+  expect(
+    (within(tabPanel).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value,
+  ).toBe("localhost:3000");
+  await userEvent.click(within(panel).getByRole("button", { name: "Preview port 3000 again" }));
+  expect(await within(tab).findByTitle(/^Preview of http:\/\/127\.0\.0\.1:3000/)).toBeTruthy();
+  expect(browser.servers("thread-settings").map((server) => server.port)).toEqual([3000]);
+});
+
+const servers: Server[] = [];
+afterEach(() => {
+  for (const server of servers.splice(0)) server.close();
+});
+
+/** A real dev server that answers only once `release` is called. */
+async function slowServer() {
+  const { promise: answered, resolve: release } = Promise.withResolvers<void>();
+  const server = createServer((_request, response) => {
+    void answered.then(() => response.end("<h1>web</h1>"));
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  return { port: (server.address() as AddressInfo).port, release };
 }
 
-test("while the window is hidden the preview stops pulling frames, and shows the latest once shown", async () => {
+test("while a dev server's page loads, the frame waits behind a spinner and its tab spins too", async () => {
   const { panel, browser } = await openPreview();
-  await within(panel).findByText("is controlling the browser", { exact: false });
-  const page = () =>
-    within(panel).getByRole("img", { name: "Live view of localhost:5173/settings/devices" });
+  const { port, release } = await slowServer();
+  act(() =>
+    browser.serve("thread-settings", {
+      port,
+      origin: `http://127.0.0.1:${port}`,
+      name: "web",
+      source: "listener",
+    }),
+  );
+  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
+  expect(
+    await within(panel).findByRole("progressbar", { name: `Loading http://127.0.0.1:${port}` }),
+  ).toBeTruthy();
+  expect(
+    within(within(panel).getByRole("tabpanel")).getByText(`Loading 127.0.0.1:${port}…`),
+  ).toBeTruthy();
+  const tab = within(panel).getByRole("tab", { name: /^Preview/ });
+  expect(within(tab).getByRole("status", { name: "Loading" })).toBeTruthy();
+  release();
+});
 
-  try {
-    act(() => visibility("hidden"));
-    act(() => browser.type("thread-cold-start", "Pixel 9"));
-    await waitFor(() =>
-      expect(decodeURIComponent(page().getAttribute("src") ?? "")).toContain("Pixel 9"),
-    );
-    // That frame is not acknowledged while hidden, so the browser sends no more.
-    act(() => browser.type("thread-cold-start", "Galaxy S25"));
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(decodeURIComponent(page().getAttribute("src") ?? "")).not.toContain("Galaxy S25");
-
-    act(() => visibility("visible"));
-    await waitFor(() =>
-      expect(decodeURIComponent(page().getAttribute("src") ?? "")).toContain("Galaxy S25"),
-    );
-  } finally {
-    visibility("visible");
-  }
+test("a dev server that doesn't answer keeps its address, says so and offers Reload", async () => {
+  const { panel, browser } = await openPreview();
+  act(() =>
+    browser.serve("thread-settings", {
+      port: 1,
+      origin: "http://127.0.0.1:1",
+      name: "api",
+      source: "listener",
+    }),
+  );
+  await userEvent.click(within(panel).getByRole("tab", { name: /^Changes/ }));
+  await userEvent.click(within(panel).getByRole("tab", { name: "Preview" }));
+  const failure = await within(panel).findByRole("alert");
+  expect(within(failure).getByRole("heading", { name: "Couldn't reach 127.0.0.1:1" })).toBeTruthy();
+  expect((within(panel).getByRole("textbox", { name: "Address" }) as HTMLInputElement).value).toBe(
+    "127.0.0.1:1",
+  );
+  await userEvent.click(within(failure).getByRole("button", { name: "Reload" }));
+  expect(
+    await within(panel).findByRole("heading", { name: "Couldn't reach 127.0.0.1:1" }),
+  ).toBeTruthy();
 });

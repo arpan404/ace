@@ -17,6 +17,7 @@ import {
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { Icon } from "@/components/icon.tsx";
+import { keymap } from "@/lib/keymap.ts";
 import {
   MenuContent,
   MenuItem,
@@ -40,6 +41,8 @@ export function ThreadActionItems(props: {
   onRename(): void;
   fork: { point: ForkPoint | undefined; onFork(point: ForkPoint): void };
   hints?: boolean;
+  /** The open thread's own shortcuts (⌥⌘R, ⌥⌘P, ⇧⌘A), shown where they act: its ⋯ menu. */
+  shortcuts?: boolean;
   extra?: ReactNode;
   onLeave?(): void;
 }) {
@@ -56,7 +59,11 @@ export function ThreadActionItems(props: {
       </MenuItem>
       <MenuItem
         icon={<Icon icon={PencilSimpleIcon} />}
-        {...(props.hints ? { keys: "r" } : {})}
+        {...(props.hints
+          ? { keys: "r" }
+          : props.shortcuts
+            ? { keys: keymap.renameThread.keys }
+            : {})}
         onClick={props.onRename}
       >
         Rename
@@ -82,6 +89,7 @@ export function ThreadActionItems(props: {
       </MenuItem>
       <MenuItem
         icon={<Icon icon={flags.pinned ? PushPinSlashIcon : PushPinIcon} />}
+        {...(props.shortcuts ? { keys: keymap.pinThread.keys } : {})}
         onClick={() => actions.setPinned(entry, !flags.pinned)}
       >
         {flags.pinned ? "Unpin" : "Pin"}
@@ -111,6 +119,7 @@ export function ThreadActionItems(props: {
       <MenuSeparator />
       <MenuItem
         icon={<Icon icon={ArchiveIcon} />}
+        {...(props.shortcuts ? { keys: keymap.archiveThread.keys } : {})}
         onClick={() => {
           actions.archive(entry);
           props.onLeave?.();

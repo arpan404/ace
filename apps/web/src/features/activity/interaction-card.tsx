@@ -3,6 +3,7 @@ import type { Interaction } from "@ace/protocol";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Checkbox } from "@/components/ui/checkbox.tsx";
+import { PermissionReviewSummary } from "@/components/permission-review.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
 import { useHotkey } from "@/lib/hotkeys.ts";
 import { interactionKey } from "./activity-state.tsx";
@@ -113,6 +114,9 @@ function ApprovalBody(props: { interaction: Interaction; cardKey: string }) {
           )}
           {description}
         </p>
+      )}
+      {interaction.review && (
+        <PermissionReviewSummary review={interaction.review} className="mt-2.5" />
       )}
       <CardActions
         lead={

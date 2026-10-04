@@ -10,12 +10,18 @@ import { panelMotion, usePresence } from "@/lib/motion.ts";
 import { cn } from "@/lib/cn.ts";
 
 interface FrameValue {
-  /** The second sidebar is on screen (so the header hides its own toggle). */
+  /** This view has a second sidebar (the header shows its toggle). */
+  hasSidebar: boolean;
+  /** The sidebar is a sheet over the content (narrow windows), not beside it. */
+  sheet: boolean;
+  /** The second sidebar is on screen. */
   sidebarShown: boolean;
   showSidebar(): void;
   hideSidebar(): void;
 }
 const FrameContext = createContext<FrameValue>({
+  hasSidebar: false,
+  sheet: false,
   sidebarShown: false,
   showSidebar: () => {},
   hideSidebar: () => {},
@@ -28,7 +34,7 @@ export const useViewFrame = () => useContext(FrameContext);
  * while the screen's right panel is open and comes back when the panel closes.
  */
 export function ViewFrame(props: { label: string; sidebar: ReactNode; children: ReactNode }) {
-  const { layout, setSidebarOpen, setPanelOpen, rightPanelShown } = useLayout();
+  const { layout, setSidebarOpen, hideRightPanel, rightPanelShown } = useLayout();
   const wide = useSidebarInline();
   const crowded = useMediaQuery(crowdedQuery, false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -41,16 +47,18 @@ export function ViewFrame(props: { label: string; sidebar: ReactNode; children: 
   const presence = usePresence(inline);
   const value = useMemo<FrameValue>(
     () => ({
+      hasSidebar: true,
+      sheet: !wide,
       sidebarShown: shown,
       showSidebar: () => {
         if (!wide) return setSheetOpen(true);
         // Asking for the sidebar back on a crowded window puts the right panel away.
-        if (yielded) setPanelOpen("right", false);
+        if (yielded) hideRightPanel();
         setSidebarOpen(true);
       },
       hideSidebar: () => (wide ? setSidebarOpen(false) : setSheetOpen(false)),
     }),
-    [shown, wide, yielded, setSidebarOpen, setPanelOpen],
+    [shown, wide, yielded, setSidebarOpen, hideRightPanel],
   );
   return (
     <FrameContext.Provider value={value}>
@@ -88,7 +96,11 @@ export function ViewFrame(props: { label: string; sidebar: ReactNode; children: 
   );
 }
 
-/** The second sidebar's header: view title, optional filter or actions, and the hide toggle. */
+/**
+ * The second sidebar's header: view title and optional filter or actions. The toggle lives in
+ * the screen header, in one place whether the sidebar shows or not; only the narrow-window
+ * sheet carries its own close.
+ */
 export function SidebarHeader(props: { title: string; actions?: ReactNode }) {
   const frame = useViewFrame();
   return (
@@ -97,12 +109,14 @@ export function SidebarHeader(props: { title: string; actions?: ReactNode }) {
         {props.title}
       </h2>
       {props.actions}
-      <IconButton
-        icon={SidebarSimpleIcon}
-        label="Hide sidebar"
-        shortcut="toggleSidebar"
-        onClick={frame.hideSidebar}
-      />
+      {frame.sheet && (
+        <IconButton
+          icon={SidebarSimpleIcon}
+          label="Hide sidebar"
+          shortcut="toggleSidebar"
+          onClick={frame.hideSidebar}
+        />
+      )}
     </div>
   );
 }

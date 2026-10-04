@@ -5,7 +5,7 @@ import {
   type DeviceClientSnapshot,
   type DeviceTransport,
 } from "@ace/client/devices";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import type { DaemonEndpoint } from "@/boot/connection.tsx";
 
 type PortableSocket = ReturnType<AuthenticatedChannelOptions["socket"]>;
@@ -108,21 +108,57 @@ const offline: DeviceSessionSnapshot = {
 const none = () => () => {};
 
 /**
- * One devices channel while the panel is open; `reconnect` opens a fresh one. Nothing is
- * replayed: control and approval are asked for again after a reconnect.
+ * One devices channel per daemon endpoint, shared by every view that shows devices (the
+ * Devices catalog and each device's tab) and closed when the last of them unmounts. A
+ * reconnect replaces it for all of them.
+ */
+interface Shared {
+  session: DeviceSession;
+  users: number;
+  listeners: Set<() => void>;
+}
+const shared = new WeakMap<DaemonEndpoint, Shared>();
+
+function acquire(endpoint: DaemonEndpoint): Shared {
+  let entry = shared.get(endpoint);
+  if (!entry) {
+    entry = { session: openSession(endpoint), users: 0, listeners: new Set() };
+    shared.set(endpoint, entry);
+  }
+  entry.users++;
+  return entry;
+}
+
+function release(endpoint: DaemonEndpoint, entry: Shared) {
+  entry.users--;
+  if (entry.users > 0) return;
+  entry.session.close();
+  if (shared.get(endpoint) === entry) shared.delete(endpoint);
+}
+
+function reopen(endpoint: DaemonEndpoint) {
+  const entry = shared.get(endpoint);
+  if (!entry) return;
+  entry.session.close();
+  entry.session = openSession(endpoint);
+  for (const listener of entry.listeners) listener();
+}
+
+/**
+ * The devices channel while a devices view is open; `reconnect` opens a fresh one for every
+ * view. Nothing is replayed: control and approval are asked for again after a reconnect.
  */
 export function useDeviceSession(endpoint: DaemonEndpoint | undefined) {
   const [session, setSession] = useState<DeviceSession | undefined>();
-  const current = useRef<DeviceSession | undefined>(undefined);
   useEffect(() => {
     if (!endpoint) return;
-    const opened = openSession(endpoint);
-    current.current = opened;
-    // oxlint-disable-next-line react-compiler/set-state-in-effect
-    setSession(opened);
+    const entry = acquire(endpoint);
+    const follow = () => setSession(entry.session);
+    entry.listeners.add(follow);
+    follow();
     return () => {
-      current.current?.close();
-      current.current = undefined;
+      entry.listeners.delete(follow);
+      release(endpoint, entry);
       setSession(undefined);
     };
   }, [endpoint]);
@@ -132,11 +168,7 @@ export function useDeviceSession(endpoint: DaemonEndpoint | undefined) {
     session?.get ?? (() => offline),
   );
   const reconnect = () => {
-    if (!endpoint) return;
-    current.current?.close();
-    const opened = openSession(endpoint);
-    current.current = opened;
-    setSession(opened);
+    if (endpoint) reopen(endpoint);
   };
   return { session, snapshot, reconnect };
 }

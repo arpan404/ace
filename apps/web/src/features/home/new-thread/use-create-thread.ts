@@ -4,6 +4,7 @@ import {
   WorkspaceId,
   type CommandPayload,
   type MessageContext,
+  type PermissionMode,
 } from "@ace/protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
@@ -19,6 +20,8 @@ export interface CreateRequest {
   /** Where a worktree starts; ignored for the local checkout. */
   baseBranch: string | undefined;
   effort: string | undefined;
+  /** An explicit approval mode for this thread; the daemon's default when omitted. */
+  permission?: PermissionMode | undefined;
   text: string;
   context?: MessageContext | undefined;
 }
@@ -39,6 +42,7 @@ export function createPayload(request: CreateRequest): CreatePayload {
       ? { baseBranch: request.baseBranch }
       : {}),
     ...(effort.success && effort.data ? { options: { effort: effort.data } } : {}),
+    ...(request.permission ? { permissionMode: request.permission } : {}),
     input: [{ type: "text", text: request.text }],
     ...(request.context ? { context: request.context } : {}),
   };

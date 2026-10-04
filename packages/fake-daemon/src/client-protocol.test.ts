@@ -251,23 +251,24 @@ test("fake browser control and preview forwards use real correlated messages and
         state: expect.objectContaining({ controller: "human" }),
       }),
     );
-    await expect(
-      f.client.request({
-        type: "browser.execute",
-        threadId,
-        command: { action: "navigate", url: "https://example.com" },
-      }),
-    ).rejects.toMatchObject({ code: "daemon" });
-    await f.client.request({ type: "browser.handback", threadId });
+    // A client acts as a person: it navigates while it holds control, and is refused after.
     await f.client.request({
       type: "browser.execute",
       threadId,
       command: { action: "navigate", url: "https://example.com" },
     });
+    await f.client.request({ type: "browser.handback", threadId });
+    expect(
+      await f.client.request({
+        type: "browser.execute",
+        threadId,
+        command: { action: "navigate", url: "https://example.com/later" },
+      }),
+    ).toMatchObject({ ok: false, error: "Browser controller mismatch" });
     expect(received).toContainEqual(
       expect.objectContaining({
         type: "browser.state",
-        state: expect.objectContaining({ url: "https://example.com" }),
+        state: expect.objectContaining({ url: "https://example.com/" }),
       }),
     );
     const frames = received.filter((message) => message.type === "browser.frame");

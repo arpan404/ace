@@ -1,3 +1,10 @@
+import {
+  CodeIcon,
+  CursorIcon,
+  FileCodeIcon,
+  LightningIcon,
+  type Icon as PhosphorIcon,
+} from "@phosphor-icons/react";
 import type { InstalledEditor } from "@ace/protocol";
 import { readJson, writeJson } from "@ace/ui-core";
 import { useState } from "react";
@@ -43,4 +50,15 @@ export function useEditors(): {
     },
     error: query.error,
   };
+}
+
+const editorIcons: Record<string, PhosphorIcon> = {
+  code: CodeIcon,
+  cursor: CursorIcon,
+  zed: LightningIcon,
+};
+
+/** An editor's glyph: its own where the design has one, a code file otherwise. */
+export function editorIcon(id: string | undefined): PhosphorIcon {
+  return editorIcons[id ?? ""] ?? FileCodeIcon;
 }

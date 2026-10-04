@@ -187,6 +187,11 @@ export class FakeTerminals {
     };
     for (const listener of session.listeners) listener(event);
   }
+  /** The shell's prompt again, after a script it ran has finished. */
+  prompt(id: string): void {
+    const session = this.sessions.get(id);
+    if (session) this.output(id, prompt(session.info.cwd));
+  }
   /** Drop every attachment, as a socket loss would. Sessions keep running and buffering. */
   disconnect(): void {
     this.state = "disconnected";

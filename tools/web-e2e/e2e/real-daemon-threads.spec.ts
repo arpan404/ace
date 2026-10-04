@@ -46,14 +46,14 @@ test("a new thread opens from the daemon's receipt and its organization survives
 
   const title = `Journey ${Date.now()}`;
   await page.getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: "Rename" }).click();
+  await page.getByRole("menuitem", { name: /^Rename/ }).click();
   const field = page.getByRole("textbox", { name: "Thread title" });
   await field.fill(title);
   await field.press("Enter");
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
 
   await page.getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: "Pin" }).click();
+  await page.getByRole("menuitem", { name: /^Pin/ }).click();
   await expect(
     page
       .getByRole("navigation", { name: "Threads" })

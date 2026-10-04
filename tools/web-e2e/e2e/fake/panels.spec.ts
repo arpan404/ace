@@ -28,21 +28,77 @@ test("a line comment in Changes is sent to the agent", async ({ page }) => {
   await expect(page.getByText(/Review comments to address:/)).toBeVisible();
 });
 
-test("the bottom panel's terminal shows the background shell and runs a new terminal", async ({
+test("the bottom panel picks up the thread's shell, opens a new terminal and shows an agent's shell read-only", async ({
   page,
 }) => {
   await openColdStart(page);
   await page.getByRole("button", { name: "Bottom panel" }).click();
   const bottom = page.getByRole("region", { name: "Bottom panel" });
-  await expect(bottom.getByRole("tab", { name: "Terminal", selected: true })).toBeVisible();
-  const terminals = bottom.getByRole("tablist", { name: "Terminals" });
-  await expect(terminals.getByRole("tab", { name: /relay:soak/ })).toBeVisible();
+  // The thread's running zsh had no tab: the bottom panel's terminal picks it up.
+  await expect(bottom.getByRole("tab", { name: "zsh", selected: true })).toBeVisible();
 
   await bottom.getByRole("button", { name: "New terminal" }).click();
-  const terminal = bottom.getByRole("group", { name: /^Terminal( \d+)? terminal$/ });
-  // Keys go to the shell as they are typed, like a real terminal.
-  const input = terminal.getByRole("textbox", { name: "Terminal input" });
-  await input.pressSequentially("pwd");
-  await input.press("Enter");
+  await expect(bottom.getByRole("tab", { name: "zsh 2", selected: true })).toBeVisible();
+  const terminal = bottom.getByRole("group", { name: "zsh 2 terminal" });
+  // The new terminal has the keyboard: keys go to the shell as they are typed.
+  await page.keyboard.type("pwd");
+  await page.keyboard.press("Enter");
   await expect(terminal).toContainText("/Users/dev/ace");
+
+  await bottom.getByRole("button", { name: /^Terminal sessions/ }).click();
+  await page.getByRole("menuitem", { name: /relay:soak/ }).click();
+  await expect(bottom.getByRole("tab", { name: "relay:soak", selected: true })).toBeVisible();
+  await expect(bottom.getByText("Agent shell")).toBeVisible();
+  await expect(bottom.getByRole("log", { name: "relay:soak output" })).toContainText(
+    "soak relay listening on ws://127.0.0.1:8790",
+  );
+});
+
+test("inside a terminal, Ctrl keys reach the shell instead of ace's shortcuts, and Find searches it", async ({
+  page,
+}) => {
+  await openColdStart(page);
+  await page.getByRole("button", { name: "Bottom panel" }).click();
+  const bottom = page.getByRole("region", { name: "Bottom panel" });
+  await bottom.getByRole("button", { name: "New terminal" }).click();
+  const terminal = bottom.getByRole("group", { name: "zsh 2 terminal" });
+  await expect(bottom.getByRole("tab", { name: "zsh 2", selected: true })).toBeVisible();
+  await page.keyboard.type("git status");
+  await page.keyboard.press("Enter");
+  await expect(terminal).toContainText("apps/server/src/replay.test.ts");
+
+  // Ctrl+K is the shell's kill-line, not the command palette; Ctrl+P is history, not Files.
+  await page.keyboard.press("Control+k");
+  await page.keyboard.press("Control+p");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  await page.keyboard.press("ControlOrMeta+f");
+  const find = bottom.getByRole("search", { name: "Find in output" });
+  await find.getByRole("searchbox", { name: "Find" }).fill("replay");
+  await expect(find.getByRole("status")).toHaveText("2 of 2");
+  await page.keyboard.press("Escape");
+  await expect(find).toHaveCount(0);
+});
+
+test("Logs filter to an agent and to warnings, and copy what they show", async ({ page }) => {
+  await openColdStart(page);
+  await page.keyboard.press("Control+Shift+l");
+  const bottom = page.getByRole("region", { name: "Bottom panel" });
+  await expect(bottom.getByRole("tab", { name: "Logs", selected: true })).toBeVisible();
+  await bottom.getByRole("button", { name: /^Log source/ }).click();
+  await page.getByRole("menuitemradio", { name: "resume-sweep" }).click();
+  await expect(bottom.getByRole("tab", { name: "resume-sweep log", selected: true })).toBeVisible();
+  const log = bottom.getByRole("list", { name: "resume-sweep log" });
+  await expect(log).toContainText("subagent resume-sweep spawned");
+  await expect(log).not.toContainText("session started");
+
+  await bottom.getByRole("button", { name: /^Log source/ }).click();
+  await page.getByRole("menuitemradio", { name: "Thread" }).click();
+  await bottom.getByRole("button", { name: "Levels and sources" }).click();
+  await page.getByRole("menuitemradio", { name: "Warnings and errors" }).click();
+  await page.keyboard.press("Escape");
+  await expect(bottom.getByRole("list", { name: "Thread log" })).toContainText(
+    "82% of its 5-hour window",
+  );
+  await expect(bottom.getByRole("list", { name: "Thread log" })).not.toContainText("turn started");
 });

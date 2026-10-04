@@ -24,13 +24,16 @@ export interface TerminalSource {
   subscribe(listener: () => void): () => void;
   /** The thread's terminals as last read; reading a thread for the first time fetches them. */
   list(threadId: string): readonly TerminalInfo[];
+  /** The thread's terminals have been read from the daemon (until then `list` is empty). */
+  listed(threadId: string): boolean;
   /** Read the thread's terminals again (one started elsewhere, such as a script run). */
   refresh(threadId: string): Promise<void>;
   open(threadId: string, cols: number, rows: number): Promise<TerminalInfo>;
   attach(id: string, fromOffset: number, listener: (event: TerminalEvent) => void): () => void;
   write(id: string, data: string): void;
   resize(id: string, cols: number, rows: number): void;
-  close(id: string): Promise<void>;
+  /** End the shell. `threadId` is needed for a terminal this client hasn't listed yet. */
+  close(id: string, threadId?: string): Promise<void>;
 }
 
 export interface BrowserView {
@@ -42,6 +45,18 @@ export interface BrowserView {
   /** Set while the browser backend is recovering or paused, with the daemon's reason. */
   status?: "ready" | "paused" | "recovering" | undefined;
   reason?: string | undefined;
+  /** Where the page runs: the desktop app's own browser, or the daemon's headless Chromium. */
+  backend?: "embedded" | "headless" | undefined;
+  /** The page was reopened after its backend was lost; cookies and page state are gone. */
+  pageStateLost?: boolean | undefined;
+}
+/** A device the page can pretend to be (BrowserCommand `emulate`). */
+export interface Emulation {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+  mobile: boolean;
+  touch: boolean;
 }
 export interface ScreenFrame {
   sequence: number;
@@ -57,7 +72,8 @@ export interface PreviewServer {
 }
 export type ForwardedInput =
   | { kind: "mouse"; event: "mousePressed" | "mouseReleased"; x: number; y: number }
-  | { kind: "key"; event: "keyDown"; key: string; text?: string };
+  | { kind: "key"; event: "keyDown"; key: string; text?: string }
+  | { kind: "scroll"; x: number; y: number; deltaX: number; deltaY: number };
 
 /** The agent-driven browser (live view, take-over) and detected dev servers of a thread. */
 /** How far the daemon's Chromium download has got (`browser.download.progress`). */
@@ -97,6 +113,16 @@ export interface PreviewSource {
   forward(threadId: string, port: number): Promise<void>;
   /** Stop previewing it; the server itself keeps running. */
   unforward(threadId: string, port: number): Promise<void>;
+  /**
+   * Navigate the page, as the person holding control (BrowserCommand `navigate`). Resolves
+   * with the address the page reached; rejects with the daemon's reason (a Chromium net error,
+   * an origin awaiting approval, control held elsewhere).
+   */
+  navigate(threadId: string, url: string): Promise<string>;
+  /** Make the page a device's size and kind (`emulate`); needs control like navigation. */
+  emulate(threadId: string, emulation: Emulation): Promise<void>;
+  /** Close the thread's page (agents can open it again). */
+  close(threadId: string): Promise<void>;
   takeover(threadId: string): Promise<void>;
   handback(threadId: string): Promise<void>;
   input(threadId: string, input: ForwardedInput): void;

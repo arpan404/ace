@@ -26,9 +26,30 @@ const info = (descriptor: TerminalDescriptor): TerminalInfo => ({
   exited: descriptor.exited,
 });
 
-/** The next free name: "Terminal", then "Terminal 2", "Terminal 3", ... */
-export function terminalName(taken: readonly TerminalInfo[], base = "Terminal"): string {
+/** Interactive shells a daemon names its terminals after ("zsh", "zsh 2"). */
+const shells = new Set([
+  "zsh",
+  "bash",
+  "fish",
+  "sh",
+  "dash",
+  "ksh",
+  "tcsh",
+  "nu",
+  "pwsh",
+  "elvish",
+]);
+
+/**
+ * The next free name, after the shell the thread's terminals already run when one is named
+ * for it ("zsh" → "zsh 2", "zsh 3"), else "Terminal", "Terminal 2", ... Script runs ("dev:relay")
+ * keep their own names and don't count.
+ */
+export function terminalName(taken: readonly TerminalInfo[]): string {
   const names = new Set(taken.map((terminal) => terminal.name));
+  const base =
+    taken.map((terminal) => terminal.name.replace(/ \d+$/, "")).find((name) => shells.has(name)) ??
+    "Terminal";
   let name = base;
   for (let n = 2; names.has(name); n++) name = `${base} ${n}`;
   return name;
@@ -45,6 +66,8 @@ export function terminalName(taken: readonly TerminalInfo[], base = "Terminal"):
 export function daemonTerminals(client: ClientApi): TerminalSource {
   const listeners = new Set<() => void>();
   const lists = new Map<string, readonly TerminalInfo[]>();
+  /** Threads whose list has been read since it was last forgotten. */
+  const read = new Set<string>();
   const threadOf = new Map<string, string>();
   const streams = new Map<string, Stream>();
   let version = 0;
@@ -78,6 +101,7 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
     for (const [oldest, gone] of lists) {
       if (lists.size <= keptLists) break;
       lists.delete(oldest);
+      read.delete(oldest);
       forget(gone);
     }
   };
@@ -85,6 +109,7 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
     forget(lists.get(threadId) ?? [], terminals);
     for (const terminal of terminals) threadOf.set(terminal.id, threadId);
     touch(threadId, terminals);
+    read.add(threadId);
     changed();
   };
   /** The shell ended: its tab stops showing it running without another list read. */
@@ -183,6 +208,7 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
       if (link === "connected") void refresh(threadId).catch(() => {});
       return [];
     },
+    listed: (threadId) => read.has(threadId),
     refresh,
     async open(threadId, cols, rows) {
       const reply = await request({
@@ -231,9 +257,9 @@ export function daemonTerminals(client: ClientApi): TerminalSource {
         rows: Math.min(500, Math.max(1, rows)),
       }).catch(() => {});
     },
-    async close(id) {
-      const threadId = threadOf.get(id);
-      if (!threadId) return;
+    async close(id, known) {
+      const threadId = known ?? threadOf.get(id);
+      if (!threadId || link !== "connected") throw new Error("terminal_offline");
       await request({ op: "close", threadId: ThreadId.parse(threadId), terminalId: id });
       threadOf.delete(id);
       remember(

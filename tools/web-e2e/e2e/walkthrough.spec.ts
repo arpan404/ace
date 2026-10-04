@@ -65,7 +65,7 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await beat(1200);
 
   // The agent tree, then Changes with a line comment.
-  await page.keyboard.press("ControlOrMeta+j");
+  await page.keyboard.press("Control+Shift+a");
   await beat(1000);
   await page.goto("/t/thread-cold-start");
   await transcript.waitFor();
@@ -90,8 +90,17 @@ test("walkthrough of the core journeys", async ({ page }) => {
 
   // The bottom panel stays open on the terminal Run started.
   // Devices: enable them, then watch the simulator live.
-  await panel.getByRole("tab", { name: "Devices" }).click();
+  await panel.getByRole("button", { name: "New tab" }).click();
+  await beat(600);
+  await panel
+    .getByRole("list", { name: "Tools" })
+    .getByRole("button", { name: /^Devices/ })
+    .click();
   await panel.getByRole("button", { name: "Enable devices" }).click();
+  await panel
+    .getByRole("list", { name: "Devices" })
+    .getByRole("button", { name: /iPhone 16 Pro/ })
+    .click();
   const phone = panel.getByRole("region", { name: "iPhone 16 Pro" });
   await phone.getByRole("button", { name: "Start live view" }).click();
   await beat(1500);
@@ -155,6 +164,165 @@ test("walkthrough of the core journeys", async ({ page }) => {
   await page.close();
   if (video) {
     const target = `${out}/walkthrough.webm`;
+    rmSync(target, { force: true });
+    await video.saveAs(target);
+    await video.delete();
+  }
+});
+
+/**
+ * The workspace and composer: the summary, the launcher, Files with ⌘P, the Browser, reordering,
+ * a subagent's tab, a review comment, a device, the bottom terminal, the composer's controls and
+ * a thread switch, recorded to /tmp/aceshots-web/walkthrough-workspace.webm.
+ */
+test("walkthrough of the workspace and composer", async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("ace.appearance"))
+      localStorage.setItem("ace.appearance", JSON.stringify({ theme: "dark" }));
+  });
+  const panel = page.getByRole("region", { name: "Thread panel" });
+  const bottom = page.getByRole("region", { name: "Bottom panel" });
+  const launch = async (tool: string) => {
+    await panel.getByRole("button", { name: "New tab" }).click();
+    await beat(600);
+    await panel
+      .getByRole("list", { name: "Tools" })
+      .getByRole("button", { name: new RegExp(`^${tool}`) })
+      .click();
+    await beat();
+  };
+
+  await page.goto("/t/thread-cold-start");
+  await page.getByRole("feed", { name: "Transcript" }).waitFor();
+  await beat(1000);
+
+  // The pinned summary: changes, subagents and sources at a glance.
+  await page.getByRole("button", { name: "Pin thread summary" }).click();
+  await beat(1200);
+  await page.getByRole("button", { name: "Unpin thread summary" }).first().click();
+  await beat(500);
+
+  // The side panel and its launcher.
+  await page.getByRole("button", { name: "Right panel" }).click();
+  await beat();
+  await launch("Preview");
+
+  // ⌘P quick open, then the checkout tree beside the file.
+  await page.keyboard.press("ControlOrMeta+p");
+  await beat(500);
+  await page.getByRole("combobox", { name: "Search files" }).pressSequentially("replay.ts", {
+    delay: 40,
+  });
+  await page.getByRole("option", { name: /replay\.ts/ }).waitFor();
+  await beat(500);
+  await page.keyboard.press("Enter");
+  await panel.getByRole("region", { name: "Source of apps/server/src/replay.ts" }).waitFor();
+  await beat();
+  await panel.getByRole("button", { name: "Show the file tree" }).click();
+  await beat(1000);
+  await panel.getByRole("treeitem", { name: "outbox.ts" }).click();
+  await beat(1000);
+
+  // A page from the new tab's address bar.
+  await panel.getByRole("button", { name: "New tab" }).click();
+  const address = panel.getByRole("combobox", { name: "Address" });
+  await address.pressSequentially("docs.example.com/guide", { delay: 30 });
+  await address.press("Enter");
+  await panel.getByRole("img", { name: "Live view of https://docs.example.com/guide" }).waitFor();
+  await beat(1200);
+
+  // Reorder: Preview moves before Agents.
+  await panel
+    .getByRole("tab", { name: "Preview" })
+    .dragTo(panel.getByRole("tab", { name: "Agents" }), { targetPosition: { x: 4, y: 8 } });
+  await beat();
+
+  // A subagent as its own tab, and back to the tree.
+  await panel.getByRole("tab", { name: "Agents" }).click();
+  await beat(600);
+  await panel.getByRole("button", { name: "Open resume-sweep" }).click();
+  await panel.getByRole("region", { name: "Delegation" }).waitFor();
+  await beat(1200);
+  await panel.getByRole("button", { name: /Back to agents/ }).click();
+  await beat(600);
+
+  // A review comment on the diff goes to the agent.
+  await panel.getByRole("tab", { name: /^Changes/ }).click();
+  const file = panel.getByRole("region", { name: "apps/server/src/replay.ts" });
+  const line = file.getByText(/client.send\(\{ type: "resume.ack", headSeq/);
+  await line.hover();
+  await line.getByRole("button", { name: /^Comment on line \d+$/ }).click();
+  await file
+    .getByRole("textbox", { name: /Comment on line/ })
+    .pressSequentially("Carry coldStartWindow too?", { delay: 25 });
+  await file.getByRole("button", { name: "Comment", exact: true }).click();
+  await beat(600);
+  await panel
+    .getByRole("region", { name: "Review" })
+    .getByRole("button", { name: "Send comment to agent" })
+    .click();
+  await beat(1200);
+
+  // The bottom terminal: a new shell, hidden and shown again with ⌘J.
+  await page.keyboard.press("ControlOrMeta+j");
+  await bottom.getByRole("tab", { name: "zsh", selected: true }).waitFor();
+  await beat(600);
+  await bottom.getByRole("button", { name: "New terminal" }).click();
+  await bottom.getByRole("tab", { name: "zsh 2", selected: true }).waitFor();
+  await page.keyboard.type("git status", { delay: 40 });
+  await page.keyboard.press("Enter");
+  await beat(1200);
+  await bottom.getByRole("button", { name: "Hide bottom panel" }).click();
+  await beat(700);
+  await page.keyboard.press("ControlOrMeta+j");
+  await beat(1000);
+  await bottom.getByRole("button", { name: "Hide bottom panel" }).click();
+  await beat(500);
+
+  // The composer: two lines, an attachment, approvals and the model menu.
+  const message = page.getByRole("combobox", { name: "Message" });
+  await message.click();
+  await page.keyboard.type("Rerun the relay soak", { delay: 25 });
+  await page.keyboard.press("Shift+Enter");
+  await page.keyboard.type("and post the numbers here", { delay: 25 });
+  await beat(500);
+  await page.getByLabel("Files to attach").setInputFiles({
+    name: "soak.log",
+    mimeType: "text/plain",
+    buffer: Buffer.from("relay soak: 0 drops in 10,000 events"),
+  });
+  await beat(800);
+  await page.getByRole("button", { name: /^Approvals:/ }).click();
+  await beat(1000);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /^Model:/ }).click();
+  await beat(1200);
+  await page.keyboard.press("Escape");
+  await beat(500);
+
+  // Another thread has its own tabs; coming back restores this one's.
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.getByRole("dialog", { name: "Command palette" }).waitFor();
+  await page.keyboard.type("Replay cursor resets", { delay: 30 });
+  await beat(500);
+  await page.keyboard.press("Enter");
+  await page.getByRole("heading", { level: 1, name: /Replay cursor resets/ }).waitFor();
+  await beat(1200);
+  await page.goBack();
+  await page.getByRole("heading", { level: 1, name: /Cap cold-start replay/ }).waitFor();
+  await beat(1500);
+
+  // Full view and back to the split.
+  await panel.getByRole("button", { name: "Full view" }).click();
+  await beat(1200);
+  await panel.getByRole("button", { name: /Cap cold-start replay/ }).click();
+  await beat(1200);
+
+  const video = page.video();
+  await page.close();
+  if (video) {
+    const target = `${out}/walkthrough-workspace.webm`;
     rmSync(target, { force: true });
     await video.saveAs(target);
     await video.delete();

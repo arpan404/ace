@@ -3,10 +3,11 @@ import { ArrowDownIcon } from "@phosphor-icons/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { cn } from "@/lib/cn.ts";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { RefObject } from "react";
+import type { CSSProperties, RefObject } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
+import { useTopFade } from "@/lib/edge-fade.ts";
 import { scrollToEnd as glideToEnd, useListMotion } from "@/lib/motion.ts";
 import { BlockView } from "../items/block-view.tsx";
 import { openWorkIndex, type Block } from "./blocks.ts";
@@ -14,6 +15,7 @@ import { LiveFooter, useRootWorking } from "./live-footer.tsx";
 import { useBlocks } from "./use-blocks.ts";
 import { useNewActivity } from "./use-new-activity.ts";
 import { useForgetGoneRows } from "@/lib/virtual-cache.ts";
+import { readingColumn } from "../lib/column.ts";
 
 const none: readonly string[] = [];
 const blockKey = (block: Block) => block.key;
@@ -35,6 +37,8 @@ const gap: Record<Block["kind"], string> = {
  * Blocks that arrive while the thread is open rise in; streaming text grows in place and the
  * follow is instant, so the column never jitters.
  */
+const viewportStyle = { paddingRight: "var(--summary-inset, 0px)" } as CSSProperties;
+
 export function Transcript(props: { threadId: string }) {
   const blocks = useBlocks(props.threadId);
   const order = useItemOrder(props.threadId) ?? none;
@@ -74,6 +78,7 @@ export function Transcript(props: { threadId: string }) {
   };
   useKeepPlace(blocks, virtualizer.scrollToIndex);
   useStayPinned(viewport, pinnedRef, glidingUntil);
+  useGutter(viewport);
   // Follow streaming output and new blocks while the reader is at the bottom.
   useLayoutEffect(() => {
     if (pinnedRef.current) scrollToEnd();
@@ -86,13 +91,23 @@ export function Transcript(props: { threadId: string }) {
     if (firstVisible === 0 && hasOlder && !loading && !pinnedRef.current) void loadOlder();
   }, [firstVisible, hasOlder, loading, loadOlder]);
   const margin = virtualizer.options.scrollMargin;
+  const fadeTop = useTopFade(viewport);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       <div
         ref={viewport}
         data-virtual-viewport=""
-        className="scroll-fade-t min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-fade-t-6 [overflow-anchor:none]"
+        // A classic scrollbar reserves the same room on both edges, so the column stays centred
+        // on the composer's axis; `useGutter` gives the composer the same inset.
+        // Once scrolled, the top 16px fade, so nothing reads as cut under the header; a pinned
+        // summary beside the text keeps it clear (`--summary-inset`).
+        style={
+          fadeTop
+            ? { ...viewportStyle, maskImage: fadeTop, WebkitMaskImage: fadeTop }
+            : viewportStyle
+        }
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
         onScroll={(event) => {
           const el = event.currentTarget;
           const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;
@@ -101,7 +116,7 @@ export function Transcript(props: { threadId: string }) {
           setPinned(atEnd);
         }}
       >
-        <div className="mx-auto w-full max-w-(--column) px-5 pt-6 pb-16 sm:px-8">
+        <div className={`${readingColumn} pt-6 pb-16`}>
           <div className="flex justify-center pb-4">
             {hasOlder ? (
               <Button variant="ghost" size="sm" disabled={loading} onClick={() => void loadOlder()}>
@@ -215,6 +230,31 @@ function useStayPinned(
     observer.observe(el);
     return () => observer.disconnect();
   }, [viewport, pinned, glidingUntil]);
+}
+
+/**
+ * Where scrollbars take room (not overlay ones), the transcript reserves it on both edges and
+ * publishes one edge's width as `--transcript-gutter`, which the composer adds to its own sides,
+ * so the composer's shell and the transcript's text share both edges at every width.
+ */
+function useGutter(viewport: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const el = viewport.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const root = document.documentElement;
+    const measure = () =>
+      root.style.setProperty(
+        "--transcript-gutter",
+        `${Math.max(0, Math.round((el.offsetWidth - el.clientWidth) / 2))}px`,
+      );
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty("--transcript-gutter");
+    };
+  }, [viewport]);
 }
 
 /** After older history is prepended, keep the block the reader was looking at in place. */

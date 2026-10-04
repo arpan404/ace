@@ -35,18 +35,31 @@ const view = (state: BrowserState): BrowserView => ({
   closed: state.closed,
   status: state.status,
   reason: state.reason,
+  backend: state.backend,
+  pageStateLost: state.pageStateLost,
 });
 
-const wireInput = (input: ForwardedInput): BrowserInput =>
-  input.kind === "mouse"
-    ? { ...input, button: "left", clickCount: 1 }
-    : {
-        kind: "key",
-        event: "keyDown",
-        key: input.key,
-        modifiers: 0,
-        ...(input.text ? { text: input.text } : {}),
-      };
+const wireInput = (input: ForwardedInput): BrowserInput => {
+  if (input.kind === "mouse") return { ...input, button: "left", clickCount: 1 };
+  if (input.kind === "scroll") return input;
+  return {
+    kind: "key",
+    event: "keyDown",
+    key: input.key,
+    modifiers: 0,
+    ...(input.text ? { text: input.text } : {}),
+  };
+};
+
+/** The address a navigation reached, from its `browser.result` (the page's state). */
+function reached(result: unknown, fallback: string): string {
+  return typeof result === "object" &&
+    result !== null &&
+    "url" in result &&
+    typeof result.url === "string"
+    ? result.url
+    : fallback;
+}
 
 interface Watch {
   count: number;
@@ -107,7 +120,12 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
   };
   const requestId = () => `browser-${++requests}`;
   const call = async (
-    type: "browser.subscribe" | "browser.unsubscribe" | "browser.takeover" | "browser.handback",
+    type:
+      | "browser.subscribe"
+      | "browser.unsubscribe"
+      | "browser.takeover"
+      | "browser.handback"
+      | "browser.close",
     threadId: string,
   ) => {
     const reply = await client.request({ type, threadId: ThreadId.parse(threadId) });
@@ -142,7 +160,10 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
     if (!watch.subscribed)
       call("browser.subscribe", threadId).then(
         () => {
-          if (watches.get(threadId) === watch) watch.subscribed = true;
+          // A view that left and came back meanwhile (a tab replaced by another, a remount)
+          // is served by this same subscription; only nobody watching gives it up.
+          const current = watches.get(threadId);
+          if (current) current.subscribed = true;
           else void call("browser.unsubscribe", threadId).catch(() => {});
         },
         () => {},
@@ -305,6 +326,39 @@ export function daemonPreview(client: ClientApi, options: PreviewOptions = {}): 
         watch.cancel?.();
         poll(threadId);
       }
+    },
+    async navigate(threadId, url) {
+      const reply = await client.request(
+        {
+          type: "browser.execute",
+          threadId: ThreadId.parse(threadId),
+          command: { action: "navigate", url, timeout: 30_000 },
+        },
+        // The daemon waits up to the command's timeout for the page; wait a little longer.
+        { timeoutMs: 35_000 },
+      );
+      if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+      return reached(reply.result, url);
+    },
+    async emulate(threadId, emulation) {
+      const reply = await client.request({
+        type: "browser.execute",
+        threadId: ThreadId.parse(threadId),
+        command: {
+          action: "emulate",
+          width: clamp(emulation.width),
+          height: clamp(emulation.height),
+          deviceScaleFactor: emulation.deviceScaleFactor,
+          mobile: emulation.mobile,
+          touch: emulation.touch,
+          colorScheme: "no-preference",
+        },
+      });
+      if (!reply.ok) throw new Error(reply.error ?? "browser_failed");
+    },
+    async close(threadId) {
+      held.delete(threadId);
+      await call("browser.close", threadId);
     },
     async takeover(threadId) {
       await call("browser.takeover", threadId);

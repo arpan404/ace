@@ -2,6 +2,7 @@ import { ArrowsClockwiseIcon, ChartBarIcon } from "@phosphor-icons/react";
 import { Icon } from "@/components/icon.tsx";
 import { Button } from "@/components/ui/button.tsx";
 import { EmptyState } from "@/components/ui/empty.tsx";
+import { ProviderIcon } from "@/components/ui/provider-icons.tsx";
 import { LoadingRegion, Skeleton } from "@/components/ui/skeleton.tsx";
 import { daemonErrorCode, describeDaemonError } from "@/lib/daemon-command.ts";
 import { PageTitle, Screen } from "@/features/shell/index.ts";
@@ -104,7 +105,13 @@ export function AccountsPage() {
               if (!first) return null;
               return (
                 <section key={first.providerLabel} aria-label={first.providerLabel}>
-                  <div className="mt-[30px] flex items-baseline gap-2">
+                  <div className="mt-[30px] flex items-center gap-2">
+                    <ProviderIcon
+                      provider={first.provider}
+                      acpAgentId={first.acpAgentId}
+                      size={16}
+                      decorative
+                    />
                     <h2 className="text-md font-medium">{first.providerLabel}</h2>
                     {first.version && (
                       <small className="text-sm text-subtle-foreground">{first.version}</small>

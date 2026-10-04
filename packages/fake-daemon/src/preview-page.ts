@@ -41,3 +41,46 @@ ${intro.map((line, index) => `<text x="${x}" y="${92 + index * 20}" fill="#55555
 </svg>`;
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
+
+/**
+ * Any other page the fake browser shows: the address's host as the page heading over a few
+ * content blocks, so navigating visibly changes the screencast without fetching anything.
+ */
+export function sitePage(url: string, width = 760, height = 900): string {
+  if (url === "about:blank")
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" fill="#FFFFFF"/></svg>`,
+    )}`;
+  let host = url;
+  let path = "/";
+  try {
+    const parsed = new URL(url);
+    host = parsed.host;
+    path = parsed.pathname;
+  } catch {
+    // Keep the address as given.
+  }
+  const column = Math.min(640, width - 64);
+  const x = Math.max(32, Math.round((width - column) / 2));
+  const lines = [0.92, 0.84, 0.88, 0.6]
+    .map(
+      (fraction, index) =>
+        `<rect x="${x}" y="${196 + index * 26}" width="${Math.round(column * fraction)}" height="10" rx="5" fill="#E4E4E9"/>`,
+    )
+    .join("");
+  const cards = [0, 1]
+    .map((index) => {
+      const cardWidth = Math.round((column - 16) / 2);
+      return `<rect x="${x + index * (cardWidth + 16)}" y="330" width="${cardWidth}" height="140" rx="12" fill="#F4F4F7"/>`;
+    })
+    .join("");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" font-family="-apple-system, system-ui, sans-serif" font-size="14">
+<rect width="${width}" height="${height}" fill="#FFFFFF"/>
+<rect width="${width}" height="56" fill="#FAFAFB"/><rect y="56" width="${width}" height="1" fill="#EBEBEF"/>
+<text x="${x}" y="34" font-weight="600" fill="#1C1C22">${escape(host)}</text>
+<text x="${x}" y="128" font-size="26" font-weight="600" fill="#1C1C22">${escape(path === "/" ? host : path)}</text>
+<text x="${x}" y="160" fill="#6B6B75">${escape(url)}</text>
+${lines}${cards}
+</svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}

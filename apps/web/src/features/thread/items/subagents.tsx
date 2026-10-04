@@ -6,7 +6,7 @@ import { useCallback, useId, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import { Kbd } from "@/components/ui/kbd.tsx";
 import { keymap } from "@/lib/keymap.ts";
-import { useLayout } from "@/lib/layout.tsx";
+import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { AgentBranch, AgentRow } from "./agent-row.tsx";
 
 /** [parent agent, ...children] for a run of spawn calls. */
@@ -40,7 +40,7 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
   );
   const [parent, ...children] = useThread(props.threadId, keys, read, arrayEqual) ?? [];
   const [open, setOpen] = useState(false);
-  const { setPanelOpen, setTab } = useLayout();
+  const workspace = useWorkspaceActions(props.threadId);
   const tree = useId();
   const count = Math.max(children.length, props.itemIds.length);
   return (
@@ -74,10 +74,7 @@ export function Subagents(props: { threadId: string; itemIds: readonly string[] 
             variant="ghost"
             size="sm"
             className="mt-1"
-            onClick={() => {
-              setTab("right", "agents");
-              setPanelOpen("right", true);
-            }}
+            onClick={() => workspace.open({ kind: "agents" })}
           >
             <TreeStructureIcon aria-hidden size={14} />
             Open agent tree

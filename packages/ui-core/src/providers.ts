@@ -11,9 +11,18 @@ export const providerNames: Record<ProviderKind, string> = {
   pi: "Pi",
 };
 
+/**
+ * The product name for a provider; an ACP agent's id without its source prefix ("gemini" for
+ * "official:gemini"). `acpAgentName` in `@ace/ui-core/provider-icons` knows registry names.
+ */
+export function providerDisplayName(provider: ProviderKind, acpAgentId?: string): string {
+  return provider === "acp" && acpAgentId
+    ? acpAgentId.replace(/^(official|local|registry):/, "")
+    : providerNames[provider];
+}
+
 /** "Codex", or "Claude Code · 2 subagents running" while subagents work. */
-export function providerLabel(provider: ProviderKind, subagents: number): string {
-  const name = providerNames[provider];
+export function providerLabel(name: string, subagents: number): string {
   return subagents > 0
     ? `${name} · ${subagents} subagent${subagents === 1 ? "" : "s"} running`
     : name;
