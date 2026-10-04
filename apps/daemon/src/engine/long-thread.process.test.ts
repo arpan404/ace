@@ -157,7 +157,15 @@ test("resolving one thread's approval does not decode unrelated thread snapshots
   let saved: { state: string; seq: number } | undefined;
   try {
     const owner = await h.create();
-    unrelated = await h.create();
+    const created = h.command({
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "codex",
+      input: [{ type: "text", text: "unrelated" }],
+    });
+    if (!created.threadId) throw new Error("Missing unrelated thread");
+    unrelated = created.threadId;
+    await h.engine.flush();
     const row = h.store
       .statement("SELECT state,seq FROM thread_state WHERE thread_id=?")
       .get(unrelated);
@@ -166,7 +174,9 @@ test("resolving one thread's approval does not decode unrelated thread snapshots
     h.store
       .statement("UPDATE thread_state SET state='unavailable',seq=seq+1 WHERE thread_id=?")
       .run(unrelated);
-    const interaction = Object.values(h.store.snapshotThread(owner).interactions)[0];
+    const interaction = Object.values(h.store.snapshotThread(owner).interactions).find(
+      (interaction) => interaction.threadId === owner,
+    );
     if (!interaction) throw new Error("Missing approval");
     expect(
       h.command({

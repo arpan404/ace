@@ -277,7 +277,7 @@ export class ThreadActor {
       this.pendingFrames.push({ frame: decoded, generation, bytes, resolve, reject });
       this.pendingBytes += bytes;
       this.updatePressure();
-      this.cancelBatch ??= this.clock.setTimer(() => this.sealFrames(), 20);
+      this.cancelBatch ??= this.clock.setTimer(() => this.sealFrames(), 1);
       if (
         this.draining() ||
         this.backlog().frames >= this.limits.maxQueuedFrames ||
