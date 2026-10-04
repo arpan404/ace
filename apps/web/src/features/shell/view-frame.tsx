@@ -1,134 +1,44 @@
-import { SidebarSimpleIcon } from "@phosphor-icons/react";
-import { createContext, Suspense, useContext, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
-import { IconButton } from "@/components/ui/icon-button.tsx";
-import { useLayout } from "@/lib/layout.tsx";
-import { crowdedQuery, useSidebarInline } from "@/lib/breakpoints.ts";
-import { useMediaQuery } from "@/lib/media.ts";
-import { panelMotion, usePresence } from "@/lib/motion.ts";
-import { cn } from "@/lib/cn.ts";
-import { deferredComponent } from "@/lib/deferred-component.tsx";
-
-interface FrameValue {
-  /** This view has a second sidebar (the header shows its toggle). */
-  hasSidebar: boolean;
-  /** The sidebar is a sheet over the content (narrow windows), not beside it. */
-  sheet: boolean;
-  /** The second sidebar is on screen. */
-  sidebarShown: boolean;
-  showSidebar(): void;
-  hideSidebar(): void;
-}
-const FrameContext = createContext<FrameValue>({
-  hasSidebar: false,
-  sheet: false,
-  sidebarShown: false,
-  showSidebar: () => {},
-  hideSidebar: () => {},
-});
-export const useViewFrame = () => useContext(FrameContext);
-
-/** The sidebar as a sheet: only narrow windows use it, so its code loads when one does. */
-const DeferredSidebarSheet = deferredComponent(() =>
-  import("./sidebar-sheet.tsx").then((module) => module.SidebarSheet),
-);
+import { useViewFrame } from "./sidebar-frame.tsx";
 
 /**
- * A view: its second sidebar (296px, translucent, collapsible with ⌘\) and its main column.
- * Below 768px the sidebar becomes a sheet opened from the header. Below 1100px it steps aside
- * while the screen's right panel is open and comes back when the panel closes.
+ * A view: its own list, drawn into the body of the one sidebar (the thread list for Home, the
+ * feed for Activity, …), and its main column beside it.
  */
 export function ViewFrame(props: { label: string; sidebar: ReactNode; children: ReactNode }) {
-  const { layout, setSidebarOpen, hideRightPanel, rightPanelShown } = useLayout();
-  const wide = useSidebarInline();
-  const crowded = useMediaQuery(crowdedQuery, false);
-  const [sheetOpen, setSheetOpen] = useState(false);
-  // Yielding is not remembered: the person's own choice (sidebarOpen) is what comes back.
-  const yielded = crowded && rightPanelShown;
-  const inline = layout.sidebarOpen && !yielded;
-  const shown = wide ? inline : sheetOpen;
-  // The sidebar stays mounted while hidden (it keeps its scroll and state); it slides in from
-  // the left when shown and fades before the column takes its space back when hidden.
-  const presence = usePresence(inline);
-  const value = useMemo<FrameValue>(
-    () => ({
-      hasSidebar: true,
-      sheet: !wide,
-      sidebarShown: shown,
-      showSidebar: () => {
-        if (!wide) return setSheetOpen(true);
-        // Asking for the sidebar back on a crowded window puts the right panel away.
-        if (yielded) hideRightPanel();
-        setSidebarOpen(true);
-      },
-      hideSidebar: () => (wide ? setSidebarOpen(false) : setSheetOpen(false)),
-    }),
-    [shown, wide, yielded, setSidebarOpen, hideRightPanel],
-  );
+  const { body } = useViewFrame();
   return (
-    <FrameContext.Provider value={value}>
-      <div className="flex min-h-0 min-w-0 flex-1">
-        {wide ? (
-          <aside
-            aria-label={props.label}
-            hidden={!presence.mounted}
-            inert={presence.phase === "exit"}
-            data-edge="left"
-            className={cn(
-              "vibrancy flex w-(--sidebar-w) min-w-0 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground",
-              panelMotion(presence),
-            )}
-          >
+    <>
+      {body &&
+        createPortal(
+          <aside aria-label={props.label} className="flex min-h-0 flex-1 flex-col">
             {props.sidebar}
-          </aside>
-        ) : (
-          // Closed until asked for, so it renders nothing while its code arrives.
-          <Suspense fallback={null}>
-            <DeferredSidebarSheet.Component
-              label={props.label}
-              open={sheetOpen}
-              onOpenChange={setSheetOpen}
-            >
-              {props.sidebar}
-            </DeferredSidebarSheet.Component>
-          </Suspense>
+          </aside>,
+          body,
         )}
-        <div className="relative flex min-w-0 flex-1 flex-col bg-reading">{props.children}</div>
-      </div>
-    </FrameContext.Provider>
+      <div className="relative flex min-w-0 flex-1 flex-col bg-reading">{props.children}</div>
+    </>
   );
 }
 
-/**
- * The second sidebar's header: view title and optional filter or actions. The toggle lives in
- * the screen header, in one place whether the sidebar shows or not; only the narrow-window
- * sheet carries its own close.
- */
+/** The heading of a view's list in the sidebar, with an optional filter or actions. */
 export function SidebarHeader(props: { title: string; actions?: ReactNode }) {
-  const frame = useViewFrame();
   return (
-    <div className="flex h-[52px] shrink-0 items-center gap-1.5 pr-2.5 pl-4">
-      <h2 className="min-w-0 flex-1 truncate text-md font-medium tracking-[-0.01em] text-foreground">
+    <div className="flex h-10 shrink-0 items-center gap-1.5 pt-1 pr-2.5 pl-4">
+      <h2 className="min-w-0 flex-1 truncate text-[11.5px] font-medium tracking-[0.01em] text-subtle-foreground">
         {props.title}
       </h2>
       {props.actions}
-      {frame.sheet && (
-        <IconButton
-          icon={SidebarSimpleIcon}
-          label="Hide sidebar"
-          shortcut="toggleSidebar"
-          onClick={frame.hideSidebar}
-        />
-      )}
     </div>
   );
 }
 
-/** Header plus a scrolling body: the common second-sidebar layout. */
+/** Heading plus a scrolling body: the common layout of a view's list. */
 export function ViewSidebar(props: {
   title: string;
   actions?: ReactNode;
-  /** Fixed rows under the header (tabs, search). */
+  /** Fixed rows under the heading (tabs, search). */
   toolbar?: ReactNode;
   children: ReactNode;
 }) {

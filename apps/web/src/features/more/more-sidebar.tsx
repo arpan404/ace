@@ -30,7 +30,7 @@ const pages: readonly {
   },
 ];
 
-/** More's second sidebar: the less frequent places. */
+/** More's list in the sidebar: the less frequent places. */
 export function MoreSidebar() {
   return (
     <ViewSidebar title="More">

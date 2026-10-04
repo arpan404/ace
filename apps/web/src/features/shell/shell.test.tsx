@@ -5,6 +5,7 @@ import { expect, test } from "vitest";
 import { harness } from "@/test/harness.tsx";
 
 const title = (name: string) => screen.findByRole("heading", { level: 1, name });
+const threadList = () => screen.queryByRole("complementary", { name: "Threads" });
 const button = (name: string) => screen.getByRole<HTMLButtonElement>("button", { name });
 
 test("every view and settings page opens in the shell under its own title", async () => {
@@ -45,17 +46,17 @@ test("every view and settings page opens in the shell under its own title", asyn
   await screen.findByRole("heading", { level: 2, name: "Theme editor" });
 });
 
-test("the rail marks the current view and the header's back and forward follow history", async () => {
+test("the sidebar marks the current view and the header's back and forward follow history", async () => {
   await harness().open("/");
   await title("Home");
-  const rail = screen.getByRole("navigation", { name: "Views" });
+  const views = screen.getByRole("navigation", { name: "Views" });
   expect(button("Back").disabled).toBe(true);
   expect(button("Forward").disabled).toBe(true);
 
-  await userEvent.click(within(rail).getByRole("link", { name: /^Activity/ }));
+  await userEvent.click(within(views).getByRole("link", { name: /^Activity/ }));
   await title("Activity");
   expect(
-    within(rail)
+    within(views)
       .getByRole("link", { name: /^Activity/ })
       .getAttribute("aria-current"),
   ).toBe("page");
@@ -75,13 +76,13 @@ test("⌘\\ hides the sidebar and the header offers to bring it back", async () 
   const app = harness();
   app.play(longHistory(2)).runUntilBlocked();
   await app.open("/");
-  const list = await screen.findByRole("complementary", { name: "Threads" });
+  await screen.findByRole("complementary", { name: "Threads" });
   expect(screen.queryByRole("button", { name: "Show sidebar" })).toBeNull();
 
   await userEvent.keyboard("{Meta>}\\{/Meta}");
-  await waitFor(() => expect(list.hidden).toBe(true));
+  await waitFor(() => expect(threadList()).toBeNull());
   await userEvent.click(button("Show sidebar"));
-  expect(list.hidden).toBe(false);
+  expect(threadList()).toBeTruthy();
 });
 
 test("G then A jumps to Activity, but not while typing", async () => {

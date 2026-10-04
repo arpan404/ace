@@ -68,14 +68,17 @@ export function resolve(
   return { model, account, mode: choices.mode ?? "worktree", effort };
 }
 
-/** Explicit request, then the remembered project, then the Home filter, then the first one. */
+/**
+ * Explicit request, then the project Home is narrowed to, then the remembered project, then the
+ * first one. ⌘N and the sidebar's New thread row both come here without a request.
+ */
 export function pickProject(
   projects: readonly string[],
   requested: string | undefined,
   remembered: string | undefined,
   filter: string | null,
 ): string | undefined {
-  for (const candidate of [requested, remembered, filter ?? undefined])
+  for (const candidate of [requested, filter ?? undefined, remembered])
     if (candidate && projects.includes(candidate)) return candidate;
   return requested ?? projects[0];
 }

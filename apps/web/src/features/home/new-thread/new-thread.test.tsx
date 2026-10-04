@@ -74,6 +74,28 @@ test("the last model, account and work mode are remembered for the next thread",
   expect(screen.getByRole("button", { name: "Where the work happens: Local" })).toBeTruthy();
 });
 
+test("⌘N and the sidebar's New thread start in the project Home is narrowed to, before the last one used", async () => {
+  const storage = memoryKeyValue();
+  // The last thread was started in ace.
+  storage.setItem("ace.home.newThread", JSON.stringify({ project: "ace" }));
+  await app({ storage }).open("/new");
+  await screen.findByRole("heading", { name: "What should we work on in ace?" });
+
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Project filter: All projects" }),
+  );
+  await userEvent.click(await screen.findByRole("menuitemradio", { name: "relay" }));
+  await userEvent.click(screen.getByRole("link", { name: /^Activity/ }));
+  await screen.findByRole("heading", { level: 1, name: "Activity" });
+  await userEvent.keyboard("{Meta>}n{/Meta}");
+  await screen.findByRole("heading", { name: "What should we work on in relay?" });
+
+  await userEvent.click(screen.getByRole("link", { name: /^Activity/ }));
+  await screen.findByRole("heading", { level: 1, name: "Activity" });
+  await userEvent.click(screen.getByRole("link", { name: /^New thread/ }));
+  await screen.findByRole("heading", { name: "What should we work on in relay?" });
+});
+
 test("a worktree thread starts from the chosen branch, on the chosen account and effort", async () => {
   const made = app();
   await made.open("/new?project=relay");

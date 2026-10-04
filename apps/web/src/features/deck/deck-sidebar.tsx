@@ -24,7 +24,7 @@ const groups: readonly { id: DeckGroup; label: string }[] = [
   { id: "finished", label: "Finished" },
 ];
 
-/** Deck's second sidebar: New deck, then every deck grouped by what it needs. */
+/** Deck's list in the sidebar: New deck, then every deck grouped by what it needs. */
 export function DeckSidebar() {
   const { ready, error, runs } = useDeckRuns();
   const retry = useDeckRetry();

@@ -57,7 +57,7 @@ export function AppearanceSettings() {
       <SettingSection label="Material">
         <SettingRow
           title="Glass intensity"
-          description="How much of your desktop shows through the rail, sidebar and floating panels. Follows Reduce transparency in your OS."
+          description="How much of your desktop shows through the sidebar and floating panels. Follows Reduce transparency in your OS."
         >
           <span className="text-[12px] text-subtle-foreground">Solid</span>
           <Slider

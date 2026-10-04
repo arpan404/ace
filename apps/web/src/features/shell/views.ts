@@ -1,34 +1,33 @@
-import {
-  BellIcon,
-  CardsIcon,
-  ClockIcon,
-  CubeIcon,
-  DotsThreeIcon,
-  HouseIcon,
-} from "@phosphor-icons/react";
+import { BellIcon, CardsIcon, ClockIcon, CubeIcon } from "@phosphor-icons/react";
 import type { IconGlyph } from "@/components/icon.tsx";
 import type { KeymapId } from "@/lib/keymap.ts";
 
-/** The rail's views (DESIGN-fable.md, Principle 4). Projects and machines are never views. */
-export interface RailView {
+/** The app's views (DESIGN-fable.md, Principle 4). Projects and machines are never views. */
+export interface View {
   id: "home" | "activity" | "deck" | "automations" | "skills" | "more";
   label: string;
-  icon: IconGlyph;
   to: "/" | "/activity" | "/deck" | "/automations" | "/skills" | "/more";
   /** Path prefixes that belong to this view. */
   matches: readonly string[];
   shortcut?: KeymapId;
 }
 
-export const railViews: readonly RailView[] = [
-  {
-    id: "home",
-    label: "Home",
-    icon: HouseIcon,
-    to: "/",
-    matches: ["/t/", "/new"],
-    shortcut: "goHome",
-  },
+/** A view with a row of its own in the sidebar. */
+export interface SidebarView extends View {
+  icon: IconGlyph;
+}
+
+/** Home is the thread list itself, reached by New thread, the wordmark and the list. */
+const home: View = {
+  id: "home",
+  label: "Home",
+  to: "/",
+  matches: ["/t/", "/new"],
+  shortcut: "goHome",
+};
+
+/** The sidebar's rows under New thread and Search. */
+export const sidebarViews: readonly SidebarView[] = [
   {
     id: "activity",
     label: "Activity",
@@ -61,11 +60,15 @@ export const railViews: readonly RailView[] = [
     matches: ["/skills"],
     shortcut: "goSkills",
   },
-  { id: "more", label: "More", icon: DotsThreeIcon, to: "/more", matches: ["/more"] },
 ];
 
-export function activeView(pathname: string): RailView["id"] | "settings" | undefined {
+/** The less used places, a menu in the sidebar. */
+const more: View = { id: "more", label: "More", to: "/more", matches: ["/more"] };
+
+export const views: readonly View[] = [home, ...sidebarViews, more];
+
+export function activeView(pathname: string): View["id"] | "settings" | undefined {
   if (pathname.startsWith("/settings")) return "settings";
   if (pathname === "/") return "home";
-  return railViews.find((view) => view.matches.some((prefix) => pathname.startsWith(prefix)))?.id;
+  return views.find((view) => view.matches.some((prefix) => pathname.startsWith(prefix)))?.id;
 }

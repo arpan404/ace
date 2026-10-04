@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { openNewTerminal } from "@/features/panels/index.ts";
 import { useProjectDialogs } from "@/features/projects/index.ts";
-import { railViews, type RailView } from "@/features/shell/index.ts";
+import { views, type View } from "@/features/shell/index.ts";
 import { keymap } from "@/lib/keymap.ts";
 import { useFocusedScope, useScopeWorkspace, useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTheme } from "@/theme/theme-provider.tsx";
@@ -12,7 +12,7 @@ import type { PaletteCommand, PaletteGroup } from "./types.ts";
 export type { PaletteCommand, PaletteGroup, PaletteIcon } from "./types.ts";
 
 type Destination =
-  | RailView["to"]
+  | View["to"]
   | "/new"
   | "/deck/new"
   | "/more/accounts"
@@ -75,7 +75,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
       {
         value: "Go to",
         items: [
-          ...railViews.map((view): PaletteCommand => {
+          ...views.map((view): PaletteCommand => {
             const command: PaletteCommand = {
               id: `go-${view.id}`,
               label: view.label,

@@ -1,20 +1,18 @@
 import { Link, useLocation } from "@tanstack/react-router";
 import { cn } from "@/lib/cn.ts";
 import { Icon } from "@/components/icon.tsx";
+import { ViewSidebar } from "@/features/shell/index.ts";
 import { settingsPages, type SettingsPath } from "./settings-pages.ts";
 
 /** Pages that live under another page in the nav (the Theme editor sits under Advanced). */
 const parents: Record<string, SettingsPath> = { "/settings/theme-editor": "/settings/advanced" };
 
-/** Settings' second sidebar: the page list. */
+/** Settings' list in the sidebar: its pages. */
 export function SettingsNav() {
   const pathname = useLocation({ select: (location) => location.pathname });
   const current = parents[pathname] ?? pathname;
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-5">
-      <h2 className="px-2.5 pt-1.5 pb-4 text-lg font-semibold tracking-title text-foreground">
-        Settings
-      </h2>
+    <ViewSidebar title="Settings">
       <nav aria-label="Settings pages">
         <ul className="flex flex-col gap-px">
           {settingsPages.map((page) => {
@@ -38,6 +36,6 @@ export function SettingsNav() {
           })}
         </ul>
       </nav>
-    </div>
+    </ViewSidebar>
   );
 }
