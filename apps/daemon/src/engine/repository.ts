@@ -310,6 +310,10 @@ export class EngineRepository {
                 : {}),
             });
             this.interactions.opened(state, fact, generation);
+            for (const event of [...emitted])
+              if (event.type === "interaction.closed")
+                for (const settled of this.interactions.closed(state, event))
+                  emitted.push(...batch.apply(settled, { now, ids: this.ids }));
             if (fact.type === "turn.ended" && fact.error)
               for (const event of emitted)
                 if (event.type === "run.ended") {

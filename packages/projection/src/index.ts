@@ -274,6 +274,7 @@ function foldEvent(view: ThreadView, event: DeliveryEvent): void {
       if (interaction) {
         interaction.state = p.state;
         interaction.closedAt = p.closedAt;
+        if (p.expirationReason !== undefined) interaction.expirationReason = p.expirationReason;
         if (p.resolution !== undefined) interaction.resolution = structuredCopy(p.resolution);
         if (p.resolvedBy !== undefined) interaction.resolvedBy = p.resolvedBy;
         if (p.autoReviewed !== undefined) interaction.autoReviewed = p.autoReviewed;

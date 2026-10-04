@@ -107,7 +107,7 @@ export class IntentDelivery {
         if (uncertain) this.dependencies.repo.queue.uncertain(intent.id);
         const message = error instanceof Error ? error.message : String(error);
         if (undelivered) this.retainInput(intent, message);
-        else this.fail(intent, message, error instanceof InteractionUnavailable ? error.code : undefined);
+        else this.fail(intent, message, error instanceof InteractionUnavailable ? error.code : uncertain ? "delivery_uncertain" : undefined);
         if (uncertain)
           this.dependencies.repo.queue.set(
             actor.id,
@@ -220,12 +220,12 @@ export class IntentDelivery {
       draft: {
         type: "notice",
         level: "error",
-        text: code.startsWith("interaction_") ? message : ["thread.send", "thread.create"].includes(intent.kind) ? "Message not sent" : "Action failed",
+        text: code === "delivery_uncertain" ? "This message may have run" : code.startsWith("interaction_") ? message : ["thread.send", "thread.create"].includes(intent.kind) ? "Message not sent" : "Action failed",
         commandId: intent.commandId,
         ...(intent.resolutionId ? { interactionId: intent.resolutionId } : {}),
         code,
         title:
-          code.startsWith("interaction_") ? "This question is no longer active" : intent.kind === "thread.send" || intent.kind === "thread.create"
+          code === "delivery_uncertain" ? "This message may have run" : code.startsWith("interaction_") ? "This question is no longer active" : intent.kind === "thread.send" || intent.kind === "thread.create"
             ? "Not sent"
             : "Action failed",
         detail: `${intent.kind}: ${message}`.slice(0, 4096),
@@ -254,7 +254,7 @@ export class IntentDelivery {
       if (intent.awaiting && intent.submittedGeneration === generation && !intent.acknowledged) {
         if (intent.kind === "thread.send" || intent.kind === "thread.create")
           this.dependencies.repo.queue.uncertain(intent.id);
-        this.fail(intent, "Provider exited before turn acknowledgement; execution is uncertain");
+        this.fail(intent, "Provider disconnected before confirming this message. It may have run.", "delivery_uncertain");
         this.dependencies.repo.queue.set(
           actor.id,
           { paused: true, reason: "uncertain" },

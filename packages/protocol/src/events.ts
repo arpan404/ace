@@ -116,6 +116,7 @@ export const EventPayload = z.discriminatedUnion("type", [
     type: z.literal("interaction.closed"),
     interactionId: InteractionId,
     state: InteractionState.exclude(["pending"]),
+    expirationReason: Interaction.shape.expirationReason,
     resolution: InteractionResolution.optional(),
     resolvedBy: DeviceId.optional(),
     /** Explicit canonical automatic review fact; absence means unknown. */

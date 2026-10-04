@@ -53,6 +53,21 @@ export class InteractionLedger {
       if (event.type === "interaction.closed")
         this.store.statement("UPDATE engine_interaction_requests SET state=? WHERE thread_id=? AND interaction_id=?").run(event.state, id, event.interactionId);
   }
+  closed(state: ThreadState, event: Extract<EventPayload, { type: "interaction.closed" }>): Fact[] {
+    const row = this.store.statement("SELECT native_key,native_item FROM engine_interaction_requests WHERE thread_id=? AND interaction_id=?").get(state.threadId, event.interactionId);
+    if (!row) return [];
+    const key = z.string().parse(row.native_key);
+    if (event.state === "expired") {
+      event.expirationReason = "provider_disconnected";
+      const interaction = state.interactions[key];
+      if (interaction?.id === event.interactionId) interaction.expirationReason = event.expirationReason;
+    }
+    if (typeof row.native_item !== "string") return [];
+    const item = state.items[row.native_item];
+    if (item?.type !== "tool_call" || !["pending", "running", "awaiting_approval"].includes(item.call.status)) return [];
+    return [{ type: "item.upsert", agent: state.indexes.agentKeysById[item.agentId] ?? state.rootKey ?? "root", item: row.native_item,
+      draft: { type: "tool_call", complete: true, call: { status: event.state === "resolved" ? "succeeded" : "cancelled", endedAt: event.closedAt } } }];
+  }
   owner(id: ThreadId, interaction: string): number | undefined {
     const value = this.store.statement("SELECT generation FROM engine_interaction_requests WHERE thread_id=? AND interaction_id=? AND state='pending'").get(id, interaction)?.generation;
     return value == null ? undefined : z.number().int().nonnegative().parse(value);
