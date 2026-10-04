@@ -4,7 +4,8 @@ import { cn } from "@/lib/cn.ts";
 import { useMemo, useState } from "react";
 import { highlight, type CodeToken, type TokenKind } from "./highlight.ts";
 
-const tone: Record<TokenKind, string> = {
+/** Tonal classes per token kind: the design is near-monochrome, so no hues. */
+export const tokenTone: Record<TokenKind, string> = {
   plain: "",
   keyword: "font-medium text-foreground",
   string: "text-muted-foreground",
@@ -60,7 +61,7 @@ export function CodeBlock(props: {
       <pre className="overflow-x-auto px-3 pt-0.5 pb-3 font-mono text-[12.5px] leading-[1.55] text-foreground">
         <code>
           {tokens.map((token, index) => (
-            <span key={index} className={cn(tone[token.kind])}>
+            <span key={index} className={cn(tokenTone[token.kind])}>
               {token.text}
             </span>
           ))}

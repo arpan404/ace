@@ -1,6 +1,6 @@
 import { contentHash, LruCache } from "@ace/ui-core";
-import { offThread } from "@/lib/off-thread.ts";
 import { markdownDoc, type MarkdownBlock, type MarkdownDoc } from "./blocks.ts";
+import { markdownWorker as worker } from "./worker.ts";
 
 /*
  * Rendered-markdown documents by content hash, computed in the markdown worker. Each mounted
@@ -27,17 +27,6 @@ const blocks = new LruCache<string, MarkdownBlock>({
   maxEntries: 4_000,
   maxWeight: 16 * 1024 * 1024,
   weigh: (block) => block.token.raw.length * 3 + 64,
-});
-
-const worker = offThread<{ text: string; hash: string }, MarkdownDoc>({
-  spawn: () =>
-    new Worker(new URL("./markdown.worker.ts", import.meta.url), {
-      type: "module",
-      name: "ace-markdown",
-    }),
-  local: ({ text, hash }) => markdownDoc(text, hash),
-  // Same-origin worker built from blocks.ts; its documents are not decoded twice.
-  decode: (output) => output as MarkdownDoc,
 });
 
 /**
@@ -84,7 +73,9 @@ function pump(slot: Slot): void {
   if (cached) return show(slot, cached);
   slot.busy = true;
   void worker.run({ text, hash }).then(
-    (doc) => {
+    (output) => {
+      // A markdown job answers with a document.
+      const doc = output as MarkdownDoc;
       slot.busy = false;
       show(slot, intern(doc, slot.wanted === undefined));
       pump(slot);
