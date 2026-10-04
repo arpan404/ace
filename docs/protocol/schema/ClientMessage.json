@@ -3,6 +3,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
+      "$ref": "https://ace.local/protocol/v1/TurnsPageRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ItemsWindowRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ThreadSearchRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ThreadCatchUpRequest.json"
+    },
+    {
+      "$ref": "https://ace.local/protocol/v1/ThreadReadStateRequest.json"
+    },
+    {
       "$ref": "https://ace.local/protocol/v1/MachinesRequest.json"
     },
     {

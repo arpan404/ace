@@ -46,6 +46,7 @@ import { ThreadHost } from "./thread-host.ts";
 import { historyPage, windowSnapshot } from "./window.ts";
 import { FakeServices } from "./services/index.ts";
 import { FakeServicesWire, type FakeWireSession, type ServicesSeed } from "./services-wire.ts";
+import { FakeLongThreadWire } from "./long-thread-wire.ts";
 import { FakeOutputStore } from "./output-store.ts";
 import type { FakeBrowser } from "./browser.ts";
 import type { FakeTerminals } from "./terminals.ts";
@@ -102,6 +103,7 @@ export class FakeDaemon implements Host {
   private receipts = new Map<string, { deviceId: Command["deviceId"]; result: CommandResult }>();
   private resolvedListeners = new Set<ResolvedListener>();
   private outputs = new FakeOutputStore();
+  private longThreads: FakeLongThreadWire;
   private faults = new Map<string, "fail" | "hold">();
   private refusing = false;
   /** Review mode sessions and comments; sent comments arrive in the thread as a user message. */
@@ -114,6 +116,15 @@ export class FakeDaemon implements Host {
   readonly appDevices: FakeAppDevices;
   constructor(options: FakeDaemonOptions) {
     this.options = options;
+    this.longThreads = new FakeLongThreadWire({
+      head: () => this.seq,
+      thread: (id) => this.threads.get(id),
+      now: options.clock,
+      output: (id) => {
+        const output = this.outputs.read(id, 0, 1024 * 1024);
+        return output ? new TextDecoder().decode(output.bytes) : "";
+      },
+    });
     this.access = new FakeAccess(options.clock);
     this.appDevices = new FakeAppDevices(options.clock);
     this.services = new FakeServices({
@@ -390,6 +401,7 @@ export class FakeDaemon implements Host {
       }
       this.log.push(event);
       host.record(event);
+      this.longThreads.index.record(event, host.view);
 
       applyThreadListEvent(this.list, event);
       events.push(event);
@@ -455,6 +467,7 @@ export class FakeDaemon implements Host {
     this.servicesWire.workspace.setScripts(workspaceId, names);
   }
   service(message: ClientMessage, connection: Connection): boolean {
+    if (this.longThreads.handle(message, connection.deviceId, connection.push)) return true;
     if (message.type === "queue.get") {
       const host = this.threads.get(message.threadId);
       const page =
@@ -665,6 +678,8 @@ export class FakeDaemon implements Host {
       return result;
     }
     switch (payload.type) {
+      case "thread.markRead":
+        return this.longThreads.markRead(commandId, payload, command.deviceId);
       case "thread.fork": {
         const source = this.threads.get(payload.threadId);
         if (!source || source.view.thread.deletedAt !== undefined)

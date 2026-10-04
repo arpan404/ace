@@ -68,3 +68,11 @@ export { downloadFile, uploadFile } from "./files.ts";
 export type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 
 export { projectsApi, type ProjectsApi } from "./projects.ts";
+export type {
+  TurnsPageInput,
+  ItemsWindowInput,
+  ThreadSearchInput,
+  ThreadCatchUpInput,
+  ThreadReadStateInput,
+  ThreadMarkReadInput,
+} from "./long-thread.ts";

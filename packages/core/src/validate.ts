@@ -54,7 +54,7 @@ const allowed: Record<Fact["type"], string[]> = {
   "subagents.waiting": ["agent", "item", "targets"],
   "item.delta": ["agent", "item", "field", "append"],
   "interaction.opened": ["agent", "interaction", "blocking", "request", "item", "raw"],
-  "interaction.closed": ["interaction", "state", "resolution", "resolvedBy"],
+  "interaction.closed": ["interaction", "state", "resolution", "resolvedBy", "autoReviewed"],
   "background.started": [
     "agent",
     "task",
@@ -283,7 +283,8 @@ function shapeValid(state: ThreadState, fact: Fields, type: Fact["type"], now: n
       return (
         oneOf(fact.state, ["resolved", "cancelled", "expired"]) &&
         (fact.resolution === undefined || validData(InteractionResolution, fact.resolution)) &&
-        (fact.resolvedBy === undefined || DeviceId.safeParse(fact.resolvedBy).success)
+        (fact.resolvedBy === undefined || DeviceId.safeParse(fact.resolvedBy).success) &&
+        (fact.autoReviewed === undefined || typeof fact.autoReviewed === "boolean")
       );
     case "background.started":
       return (

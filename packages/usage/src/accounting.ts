@@ -2,6 +2,10 @@ import type { UsageUpdated } from "@ace/protocol";
 import { normalizeUsage, zeroCounts, type Counts } from "./counters.ts";
 
 type Sample = Omit<UsageUpdated, "agentId" | "model"> & { model?: string | null | undefined };
+/** Inclusive session snapshots must never be added to their per-agent samples. */
+export function countsTowardTurnUsage(sample: Pick<UsageUpdated, "usageScope">): boolean {
+  return sample.usageScope === undefined || sample.usageScope === "agent";
+}
 /** Pure provider policy; explicit adapter metadata always takes precedence. */
 export function counterPolicy(sample: Sample, provider: string, run: string) {
   const mode =

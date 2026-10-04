@@ -41,15 +41,16 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "deprecated": false,
+  "deprecated": true,
   "displayName": "example",
   "hidden": true,
   "id": "example",
   "inputModalities": [],
   "instance": "example",
-  "isDefault": false,
+  "instanceId": "example",
+  "isDefault": true,
   "nativeModelId": "example",
+  "nativeProviderId": "example",
   "provider": "antigravity",
   "raw": {
     "json": "example",
@@ -77,9 +78,7 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "installationId": "example",
-  "instanceId": "example"
+  "instance": "example"
 }
 ```
 
@@ -103,13 +102,10 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "error": "timeout",
-  "installationId": "example",
   "instance": "example",
   "instanceId": "example",
-  "provider": "cursor",
-  "refreshing": false,
+  "provider": "codex",
+  "refreshing": true,
   "stale": false
 }
 ```
@@ -132,8 +128,8 @@ Example:
 
 ```json
 {
-  "acpAgentId": "example",
-  "offset": 2
+  "installationId": "example",
+  "offset": 9
 }
 ```
 
@@ -176,8 +172,7 @@ Example:
 ```json
 {
   "model": {
-    "acpAgentId": "example",
-    "contextWindow": 10,
+    "contextWindow": 7,
     "defaultEffort": "example",
     "defaultTier": "example",
     "deprecated": true,
@@ -188,24 +183,17 @@ Example:
     "instance": "example",
     "isDefault": true,
     "nativeModelId": "example",
-    "nativeProviderId": "example",
-    "provider": "cursor",
+    "provider": "antigravity",
     "raw": {
       "json": "example",
-      "truncated": false
+      "truncated": true
     },
     "reasoningEfforts": [],
-    "selectorMethod": "session/set_model",
     "serviceTiers": []
   },
   "ok": true,
   "reason": "example",
-  "stale": false,
-  "tier": {
-    "id": "example",
-    "name": "example",
-    "speed": "fast"
-  }
+  "stale": true
 }
 ```
 
@@ -248,11 +236,14 @@ Example:
 
 ```json
 {
+  "acpAgentId": "example",
   "effort": "example",
-  "imageInput": false,
+  "imageInput": true,
   "installationId": "example",
+  "model": "example",
   "role": "example",
-  "selection": "strongest"
+  "selection": "strongest",
+  "tier": "example"
 }
 ```
 
@@ -271,7 +262,8 @@ Example:
 ```json
 {
   "options": {
-    "offset": 2
+    "acpAgentId": "example",
+    "offset": 7
   },
   "requestId": "example",
   "type": "models.list"
@@ -292,6 +284,12 @@ Example:
 
 ```json
 {
+  "filter": {
+    "installationId": "example",
+    "instance": "example",
+    "instanceId": "example",
+    "provider": "codex"
+  },
   "requestId": "example",
   "type": "models.refresh"
 }
@@ -313,10 +311,10 @@ Example:
 {
   "requestId": "example",
   "roleSpec": {
-    "acpAgentId": "example",
-    "instanceId": "example",
-    "role": "example",
-    "selection": "default"
+    "effort": "example",
+    "installationId": "example",
+    "provider": "opencode",
+    "role": "example"
   },
   "type": "models.resolve"
 }
@@ -339,26 +337,22 @@ Example:
   "requestId": "example",
   "result": {
     "model": {
-      "acpAgentId": "example",
-      "contextWindow": 9,
-      "defaultEffort": "example",
-      "deprecated": false,
+      "deprecated": true,
       "displayName": "example",
-      "hidden": true,
+      "hidden": false,
       "id": "example",
       "inputModalities": [],
+      "installationId": "example",
       "instance": "example",
-      "instanceId": "example",
       "isDefault": true,
       "nativeModelId": "example",
       "nativeProviderId": "example",
-      "provider": "acp",
+      "provider": "pi",
       "raw": {
         "json": "example",
-        "truncated": true
+        "truncated": false
       },
       "reasoningEfforts": [],
-      "selectorMethod": "session/set_model",
       "serviceTiers": []
     },
     "ok": true,
@@ -366,8 +360,7 @@ Example:
     "stale": false,
     "tier": {
       "id": "example",
-      "name": "example",
-      "parameters": {}
+      "name": "example"
     }
   },
   "type": "models.result"
@@ -391,6 +384,6 @@ Example:
 {
   "id": "example",
   "name": "example",
-  "parameters": {}
+  "speed": "standard"
 }
 ```

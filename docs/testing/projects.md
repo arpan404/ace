@@ -1,8 +1,8 @@
 # Project management behavior coverage
 
-All tests and mutation cases below are **not executed (tests run at merge)**.
-Runtime behavior, including real Git progress, process cleanup and socket delivery, needs run at merge.
-Static verification does not establish those outcomes.
+Mutation cases below are **not executed (tests run at merge)**. The merge-conflict exception
+allowed the targeted tests recorded below; remaining tests, including real Git clone progress,
+cancellation and process cleanup, need run at merge.
 
 | Test behavior                        | Mutation cases designed to kill                                                                                                                                  |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -35,12 +35,31 @@ Static verification does not establish those outcomes.
 | Browse directory replacement         | Enumerate through a replaced pathname and expose outside-root folder names.                                                                                      |
 | Lightweight inspection               | Reintroduce status/untracked enumeration as a prerequisite for project metadata.                                                                                 |
 | Fake destination emptiness           | Reject an existing empty directory; overwrite a Git/template/child-containing directory.                                                                         |
+| Project and long-thread coexistence  | Drop either family's protocol union, client methods, worker forwarding or fake command dispatch; stop project pushes after a long-thread request.                |
+
+## Main integration verification
+
+Merged `origin/main` at `98502d93` (#90), retaining both API families and regenerating the protocol
+reference. `bun install` rebuilt the native workspace descriptor bridge. Under the explicit
+merge-conflict exception, these eight files passed together: **84 tests passed**.
+
+- `packages/client/src/projects.process.test.ts`
+- `packages/client/src/long-thread.process.test.ts`
+- `packages/client-worker/src/worker-client.test.ts`
+- `packages/fake-daemon/src/long-thread.test.ts`
+- `packages/protocol/src/wire.test.ts`
+- `apps/daemon/src/store.test.ts`
+- `apps/daemon/src/projects.process.test.ts`
+- `apps/daemon/src/long-thread.process.test.ts`
+
+The client and worker tests exercise project commands and long-thread reads on the same
+connection. No full suite, benchmark, mutation run, flakiness run or CI was executed.
 
 The new process-gated regressions are in `apps/daemon/src/projects-races.process.test.ts`.
 The cancellation, shutdown, creation and stale-registration regressions were written before
 their corresponding fixes. Red/green reproduction and confirmation **need run at merge**.
 The native workspace descriptor bridge now supports `mkdirat` and exclusive `openat` writes.
-It must be rebuilt by the normal dependency-install step before merge-time execution.
+It was rebuilt by the dependency-install step during conflict resolution.
 
 ## Performance measurement
 

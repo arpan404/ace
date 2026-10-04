@@ -1,4 +1,5 @@
 import { createProjectsSession } from "./projects.ts";
+import { createLongThreadSession } from "./long-thread.ts";
 import { createPreviewClientSession } from "./preview-client.ts";
 import { createConductorSession } from "./conductor.ts";
 import { createAutomationsSession } from "./automations.ts";
@@ -35,6 +36,7 @@ import { createEngineSession } from "./engine.ts";
 import { createDiagnosticsSession } from "./diagnostics.ts";
 import type { SocketContext, SocketMessage } from "./socket.ts";
 export const socketServiceFactories = [
+  createLongThreadSession,
   createPreviewClientSession,
   createConductorSession,
   createAutomationsSession,

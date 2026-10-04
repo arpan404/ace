@@ -1,0 +1,35 @@
+{
+  "$id": "https://ace.local/protocol/v1/TurnSubagentSummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "agentId": {
+      "$ref": "https://ace.local/protocol/v1/AgentId.json"
+    },
+    "digest": {
+      "$ref": "https://ace.local/protocol/v1/TurnDigest.json"
+    },
+    "endedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "name": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "startedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "agentId",
+    "status",
+    "startedAt",
+    "digest"
+  ],
+  "type": "object"
+}

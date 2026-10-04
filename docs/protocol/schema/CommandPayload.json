@@ -6,6 +6,9 @@
       "$ref": "https://ace.local/protocol/v1/ThreadPrepareCommand.json"
     },
     {
+      "$ref": "https://ace.local/protocol/v1/ThreadMarkReadCommand.json"
+    },
+    {
       "properties": {
         "permissionMode": {
           "anyOf": [

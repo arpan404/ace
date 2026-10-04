@@ -121,6 +121,9 @@ export class Connection {
     }
     this.handle(message);
   }
+  get deviceId(): string {
+    return this.device;
+  }
   private handle(message: ClientMessage): void {
     switch (message.type) {
       case "ping":
@@ -139,6 +142,18 @@ export class Connection {
         return;
       }
       case "command": {
+        if (
+          message.command.payload.type === "thread.markRead" &&
+          message.command.deviceId !== this.device
+        ) {
+          this.send({
+            type: "commandResult",
+            commandId: message.command.id,
+            ok: false,
+            error: "forbidden",
+          });
+          return;
+        }
         if (message.command.payload.type === "workspace.clone" && this.host.commandAsync) {
           void this.host
             .commandAsync(message.command)

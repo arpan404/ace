@@ -5,11 +5,11 @@ import { expect, test } from "vitest";
 import { Project, type WorkspaceChanged } from "@ace/protocol";
 import { setup, ready } from "./test-support.ts";
 
-test("client projects registers a deep-link folder returns its selection id and updates another client live", async () => {
+test("client projects and long-thread requests coexist while updating another client live", async () => {
   const root = await mkdtemp(join(homedir(), ".ace-client-projects-"));
   const f = await setup(undefined, undefined, undefined, { home: root, roots: async () => [root] });
   try {
-    const { client } = f.make();
+    const { client, scheduler } = f.make();
     const { client: other } = f.make();
     await ready(client);
     await ready(other);
@@ -41,6 +41,17 @@ test("client projects registers a deep-link folder returns its selection id and 
     expect(await client.projects.home()).toMatchObject({ result: { kind: "home", path: root } });
     expect(await client.projects.recentFolders()).toMatchObject({
       result: { kind: "recentFolders", folders: [{ id: project.id }] },
+    });
+    expect(await client.turnsPage({ threadId: f.thread.id })).toMatchObject({
+      threadId: f.thread.id,
+      turns: [],
+    });
+    const head = f.daemon.store.headSeq();
+    const mark = client.markThreadRead({ threadId: f.thread.id, lastSeenSeq: head });
+    scheduler.advance(100);
+    expect(await mark).toMatchObject({ ok: true });
+    expect(await client.threadReadState({ threadId: f.thread.id })).toMatchObject({
+      lastSeenSeq: head,
     });
     expect(await client.projects.remove({ workspaceId: project.id })).toMatchObject({ ok: true });
     await other.projects.recentFolders();

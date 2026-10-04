@@ -4,6 +4,18 @@ import {
   WorkspaceChanged,
   WorkspaceCloneProgress,
 } from "./projects.ts";
+import {
+  TurnsPageRequest,
+  TurnsPageResponse,
+  ItemsWindowRequest,
+  ItemsWindowResponse,
+  ThreadSearchRequest,
+  ThreadSearchResponse,
+  ThreadCatchUpRequest,
+  ThreadCatchUpResponse,
+  ThreadReadStateRequest,
+  ThreadReadStateResponse,
+} from "./long-thread.ts";
 import { MachinesRequest, MachinesResult } from "./machines.ts";
 import { PreviewRequest, PreviewResult } from "./preview-client.ts";
 import { ConductorRequest, ConductorResult, ConductorChanged } from "./conductor-client.ts";
@@ -108,6 +120,11 @@ import {
 } from "./search.ts";
 
 export const ClientMessage = z.discriminatedUnion("type", [
+  TurnsPageRequest,
+  ItemsWindowRequest,
+  ThreadSearchRequest,
+  ThreadCatchUpRequest,
+  ThreadReadStateRequest,
   MachinesRequest,
   PreviewRequest,
   ConductorRequest,
@@ -158,6 +175,11 @@ export const ClientMessage = z.discriminatedUnion("type", [
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 export const ServerMessage = z.discriminatedUnion("type", [
+  TurnsPageResponse,
+  ItemsWindowResponse,
+  ThreadSearchResponse,
+  ThreadCatchUpResponse,
+  ThreadReadStateResponse,
   MachinesResult,
   PreviewResult,
   ConductorResult,
