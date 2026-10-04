@@ -75,3 +75,33 @@ test("a Stop for an ended run refuses to interrupt a later run", async () => {
   expect(h.store.getThread(id)?.status.state).toBe("working");
   expect(h.engine.queue(id).paused).toBe(false);
 });
+
+test("Stop before provider startup pauses the admitted input without opening a provider", async () => {
+  const frames = scriptFrames();
+  const h = await harness([], frames);
+  cleanups.push(h.close);
+  const receipt = h.command(
+    {
+      type: "thread.create",
+      workspaceId: h.workspace,
+      provider: "codex",
+      input: [{ type: "text", text: "first request" }],
+    },
+    "device",
+    "early-create",
+  );
+  if (!receipt.threadId) throw new Error("Missing thread");
+  expect(
+    h.command({ type: "thread.interrupt", threadId: receipt.threadId, cascade: true }),
+  ).toMatchObject({ ok: true });
+  await h.engine.flush();
+  expect(h.contexts).toHaveLength(0);
+  expect(h.engine.queue(receipt.threadId)).toMatchObject({
+    paused: true,
+    reason: "stopped",
+    messages: [{ id: "early-create" }],
+  });
+  expect(h.store.snapshotThread(receipt.threadId).items["input:early-create"]).toMatchObject({
+    parts: [{ type: "text", text: "first request" }],
+  });
+});

@@ -352,7 +352,11 @@ export class EngineRepository {
         const root = state.agents[state.rootKey ?? ""]?.agent.id;
         const inputUpdates: EventPayload[] = [];
         for (const event of events) {
-          const pending = this.pending.awaiting(id);
+          const pending =
+            event.type === "input.admitted" ||
+            (event.type === "run.started" && event.run.agentId === root)
+              ? this.pending.awaiting(id)
+              : undefined;
           const commandId =
             event.type === "input.admitted"
               ? (event.commandId ?? pending?.commandId)

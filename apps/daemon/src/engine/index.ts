@@ -609,12 +609,12 @@ export class Engine {
     await actor.flush();
     if (actor.poisoned) return;
     if (actor.idleDue && actor.session) await this.sessions.close(actor, "idle");
-    if (
+    const pendingControls = this.repo.pending.controls(actor.id);
+    const controls =
       !actor.session &&
       (this.repo.pending.message(actor.id) || this.repo.pending.recovery(actor.id))
-    )
-      return;
-    const controls = this.repo.pending.controls(actor.id);
+        ? pendingControls.filter((intent) => intent.kind === "thread.interrupt")
+        : pendingControls;
     for (const intent of controls) {
       if (this.closing) return;
       const guard = this.repo.transitions.guardOwner(actor.id);
