@@ -1,4 +1,4 @@
-import { watch, watchFile, unwatchFile } from "node:fs";
+import { watch } from "node:fs";
 import { stat } from "node:fs/promises";
 import { dirname, relative, sep } from "node:path";
 import { SettingsError } from "./validation.ts";
@@ -14,10 +14,21 @@ const watchDirectory: DirectoryWatch = (path, changed, failed) => {
   watcher.on("error", failed);
   return () => watcher.close();
 };
+type MissingFilePoll = (path: string, changed: () => void) => () => void;
+const pollMissingFile: MissingFilePoll = (_path, changed) => {
+  // Reconcile on every tick. watchFile can establish its initial stat after a
+  // missing directory has been created and never report that first creation.
+  const timer = setInterval(changed, 500);
+  timer.unref();
+  return () => clearInterval(timer);
+};
 
 /** Ancestor notifications can miss directory creation; stat polling bridges
  * that gap only until the destination's own parent can be watched. */
-export function createFileWatcher(directory: DirectoryWatch = watchDirectory) {
+export function createFileWatcher(
+  directory: DirectoryWatch = watchDirectory,
+  poll: MissingFilePoll = pollMissingFile,
+) {
   // Missing thread scopes share the same ancestor. Opening one native watch per
   // file repeatedly rebuilds the macOS FSEvents stream as the file LRU turns over.
   const parents = new Map<
@@ -93,16 +104,16 @@ export function createFileWatcher(directory: DirectoryWatch = watchDirectory) {
       },
       failed,
     );
-    const polling = parent !== dirname(path);
+    let stopPolling: (() => void) | undefined;
     try {
-      if (polling) watchFile(path, { persistent: false, interval: 500 }, changed);
+      if (parent !== dirname(path)) stopPolling = poll(path, changed);
     } catch (error) {
       stopDirectory();
       throw error;
     }
     return () => {
       stopDirectory();
-      if (polling) unwatchFile(path, changed);
+      stopPolling?.();
     };
   };
 }
