@@ -50,7 +50,7 @@ test.each([
     });
   },
 );
-test("several read actions retain their paths and classify by the first action", () => {
+test("every read and search action has structured detail and the aggregate retains raw command", () => {
   const h = setup();
   const actions = [
     { type: "read", path: "/repo/a", command: "cat a" },
@@ -67,10 +67,39 @@ test("several read actions retain their paths and classify by the first action",
   );
   expect(h.state.items["read"]).toMatchObject({
     call: {
-      kind: "file.read",
+      kind: "shell",
       title: "Run cat a && rg x",
-      detail: { path: "/repo/a" },
+      detail: { command: "cat a && rg x", rawCommand: "/bin/sh -c 'cat a && rg x'" },
       raw: [{ data: { commandActions: actions } }],
     },
+  });
+});
+
+test("all read/search paths survive started and completed command updates", () => {
+  const h = setup();
+  h.start();
+  const item = {
+    id: "many",
+    type: "commandExecution",
+    command: "/bin/sh -c 'cat a && cat b && rg x src'",
+    commandActions: [
+      { type: "read", path: "a", command: "cat a" },
+      { type: "read", path: "b", command: "cat b" },
+      { type: "search", path: "src", query: "x", command: "rg x src" },
+    ],
+  };
+  h.item(item);
+  h.item(item, true);
+  expect(h.state.items["many:action:0"]).toMatchObject({
+    complete: true,
+    call: { detail: { kind: "file.read", path: "a" } },
+  });
+  expect(h.state.items["many:action:1"]).toMatchObject({
+    complete: true,
+    call: { detail: { kind: "file.read", path: "b" } },
+  });
+  expect(h.state.items["many:action:2"]).toMatchObject({
+    complete: true,
+    call: { detail: { kind: "search", path: "src", query: "x" } },
   });
 });

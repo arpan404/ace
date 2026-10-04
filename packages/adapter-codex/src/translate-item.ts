@@ -1,3 +1,4 @@
+import { commandActionItems } from "./command-items.ts";
 import { isAsyncQuestion } from "./interaction-lifecycle.ts";
 import type { Fact } from "@ace/core";
 import type { Frame } from "@ace/engine-api";
@@ -148,6 +149,14 @@ export function translateItem(
         draft.call.detail.output = item["aggregatedOutput"];
       facts.push({ type: "item.reconciled", agent: agent.key, item: itemId, draft });
     } else facts.push({ type: "item.upsert", agent: agent.key, item: itemId, draft });
+    if (type === "commandExecution")
+      for (const action of commandActionItems(item, complete))
+        facts.push({
+          type: "item.upsert",
+          agent: agent.key,
+          item: action.key,
+          draft: action.draft,
+        });
     if (!complete && type === "collabAgentToolCall" && item["tool"] === "wait")
       facts.push({
         type: "subagents.waiting",
