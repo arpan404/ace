@@ -1,4 +1,5 @@
 import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -122,8 +123,13 @@ test.each(["default", "registered"])(
       expect(JSON.stringify(status)).not.toMatch(/Bearer [a-f0-9]{64}/);
       if (mode === "registered") {
         expect(status).toEqual([
-          expect.objectContaining({ configDir: await realpath(account.homeDir) }),
+          expect.objectContaining({
+            configDirDigest: createHash("sha256")
+              .update(await realpath(account.homeDir))
+              .digest("hex"),
+          }),
         ]);
+        expect(JSON.stringify(status)).not.toMatch(/\/(?:private\/)?var\/folders\//);
         expect(
           await daemon.accounts?.handle({
             type: "accounts.status",
