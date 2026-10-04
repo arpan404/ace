@@ -354,3 +354,39 @@ test("concurrent preview closes share one owner cleanup and release the registra
     await f.daemon.close();
   }
 });
+
+test("title regeneration uses the oldest person message beyond the recent item window", async () => {
+  const f = await daemonFixture();
+  try {
+    for (let i = 0; i < 30; i++)
+      f.controls.delegations.command(`later-${i}`, {
+        type: "thread.send",
+        threadId: f.caller.threadId,
+        input: [{ type: "text", text: `Later request ${i}` }],
+        delivery: "queue",
+      });
+    f.controls.delegations.command("synthetic-result", {
+      type: "thread.send",
+      threadId: f.caller.threadId,
+      trigger: "subagent_result",
+      input: [{ type: "text", text: "Raw delegated JSON is not a title" }],
+    });
+    expect(
+      await f.call({ op: "thread.regenerate_title", threadId: f.caller.threadId }),
+    ).toMatchObject({ ok: true });
+    expect(f.daemon.store.getThread(f.caller.threadId)).toMatchObject({
+      title: "plan",
+      titleSource: "agent",
+    });
+    expect(
+      await f.call({
+        op: "thread.rename",
+        threadId: f.caller.threadId,
+        title: "Agent chosen title",
+      }),
+    ).toMatchObject({ ok: true });
+    expect(f.daemon.store.getThread(f.caller.threadId)?.titleSource).toBe("agent");
+  } finally {
+    await f.daemon.close();
+  }
+});

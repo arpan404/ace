@@ -4,6 +4,20 @@ const closes: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of closes.splice(0)) await close();
 });
+const title = (text: string) =>
+  ({
+    type: "item.upsert",
+    agent: "root",
+    item: "provider:title",
+    draft: {
+      type: "notice",
+      code: "thread_title",
+      title: text,
+      text,
+      level: "info",
+      complete: true,
+    },
+  }) as const;
 test("creation titles use the first prose line without markdown, mentions or file chips", async () => {
   const frames = scriptFrames();
   const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames);
@@ -29,20 +43,6 @@ test("creation titles use the first prose line without markdown, mentions or fil
 });
 test("provider titles replace provisional titles but preserve person and agent titles", async () => {
   const frames = scriptFrames();
-  const title = (text: string) =>
-    ({
-      type: "item.upsert",
-      agent: "root",
-      item: "provider:title",
-      draft: {
-        type: "notice",
-        code: "thread_title",
-        title: text,
-        text,
-        level: "info",
-        complete: true,
-      },
-    }) as const;
   const h = await harness(
     [
       { on: "send", frames: [frames.frame(start, title("Provider title"), end)] },

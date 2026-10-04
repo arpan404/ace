@@ -7,7 +7,7 @@ export function provisionalTitle(parts: readonly ContentPart[]): string {
       .map((p) => p.text)
       .join("\n")
       .split(/\r?\n/)
-      .find((line) => line.trim()) ?? "";
+      .find((candidate) => candidate.trim()) ?? "";
   const text = line
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[(?:file|image|attachment):[^\]]*\]/gi, "")

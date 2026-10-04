@@ -91,7 +91,11 @@ export function createAgentControlPort(
       if (owned && extensions.thread) {
         const result = await extensions.thread(caller, owned, signal);
         signal.throwIfAborted();
-        if (result.code !== "unsupported") return result;
+        if (result.code !== "unsupported") {
+          if (result.ok && (owned.op === "thread.rename" || owned.op === "thread.regenerate_title"))
+            store.appendEvents(owned.threadId, [{ type: "thread.updated", titleSource: "agent" }]);
+          return result;
+        }
       }
       switch (operation.op) {
         case "delegate_task": {
@@ -203,7 +207,7 @@ export function createAgentControlPort(
           let oldest: import("@ace/protocol").ContentPart[] | undefined;
           for (;;) {
             const page = store.readItemPage(operation.threadId, before, 100, 256 * 1024);
-            for (const item of [...page.items].reverse())
+            for (const item of page.items.toReversed())
               if (
                 item.type === "message" &&
                 item.role === "user" &&
