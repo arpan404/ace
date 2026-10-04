@@ -4,10 +4,14 @@ import { killTree, processRuntime } from "./process-runtime.ts";
 import { StringDecoder } from "node:string_decoder";
 import { stat } from "node:fs/promises";
 import { GitDiagnostics } from "./diagnostics.ts";
+import { spawnPinned } from "./pinned-process.ts";
 import { count, decode } from "./decode.ts";
 import { GitError, toGitError, type GitOptions, type GitProcessRuntime } from "./types.ts";
 
 interface CallOptions {
+  directoryFd?: number | undefined;
+  signal?: AbortSignal | undefined;
+  stderr?: (chunk: Buffer) => void;
   write?: boolean;
   env?: Record<string, string>;
   input?: Buffer | string | Readable;
@@ -75,20 +79,37 @@ export class GitCli {
     );
     return result;
   }
+  /** Cancellable I/O-bound retry pause, using the same injected clock as calls. */
+  pause(milliseconds: number): Promise<void> {
+    if (this.closed) return Promise.reject(new GitError("git_closed", "Git service closed"));
+    return new Promise((resolve, reject) => {
+      const cancelled = () => {
+        stop();
+        this.cancellations.delete(cancelled);
+        reject(new GitError("git_closed", "Git service closed"));
+      };
+      const stop = this.runtime.scheduleTimeout(() => {
+        this.cancellations.delete(cancelled);
+        resolve();
+      }, milliseconds);
+      this.cancellations.add(cancelled);
+    });
+  }
   private async runCall(cwd: string, args: string[], options: CallOptions): Promise<Output> {
     if (args.some((arg) => arg.includes("\0"))) {
       throw new GitError("invalid_argument", "Git arguments cannot contain NUL bytes");
     }
-    this.ready ??= this.verify(cwd).catch((error: unknown) => {
+    this.ready ??= this.verify(cwd, options.directoryFd, options.signal).catch((error: unknown) => {
       this.ready = undefined;
       throw error;
     });
     await this.ready;
+    options.signal?.throwIfAborted();
     return this.execute(cwd, args, options);
   }
 
-  private async verify(cwd: string): Promise<void> {
-    const result = await this.execute(cwd, ["--version"], {});
+  private async verify(cwd: string, directoryFd?: number, signal?: AbortSignal): Promise<void> {
+    const result = await this.execute(cwd, ["--version"], { directoryFd, signal });
     const version = /^git version (\d+)\.(\d+)\.(\d+)/.exec(textOutput(result));
     const [major, minor] = version
       ? decode(z.tuple([z.string(), z.string(), z.string()]), version.slice(1), "version").map(
@@ -122,13 +143,23 @@ export class GitCli {
       ...options.env,
     });
     return new Promise((resolve, reject) => {
-      const child = this.runtime.spawn(this.binary, ["--no-pager", ...args], {
+      const spawnOptions: Parameters<GitProcessRuntime["spawn"]>[2] = {
         cwd,
         env,
         shell: false,
         detached: this.runtime.platform !== "win32",
         stdio: ["pipe", "pipe", "pipe"],
-      });
+      };
+      const child =
+        options.directoryFd === undefined
+          ? this.runtime.spawn(this.binary, ["--no-pager", ...args], spawnOptions)
+          : spawnPinned(
+              this.runtime,
+              this.binary,
+              ["--no-pager", ...args],
+              spawnOptions,
+              options.directoryFd,
+            );
       const chunks: Buffer[] = [];
       const errors: Buffer[] = [];
       const limit = options.captureBytes ?? 64 * 1024 * 1024;
@@ -147,6 +178,12 @@ export class GitCli {
         kill();
       };
       this.cancellations.add(cancel);
+      const abort = () => {
+        failure ??= new GitError("git_cancelled", "Git operation cancelled");
+        kill();
+      };
+      options.signal?.addEventListener("abort", abort, { once: true });
+      if (options.signal?.aborted) abort();
       const fail = (error: unknown) => {
         if (failure) return;
         failure = toGitError(error);
@@ -183,6 +220,11 @@ export class GitCli {
         }
       };
       const stderrData = (chunk: Buffer) => {
+        try {
+          options.stderr?.(chunk);
+        } catch (error) {
+          fail(error);
+        }
         diagnostics.accept(chunk);
         const keep = Math.min(chunk.length, Math.max(0, 65_536 - errorBytes));
         if (keep) errors.push(Buffer.from(chunk.subarray(0, keep)));
@@ -197,6 +239,7 @@ export class GitCli {
       child.once("close", async (code) => {
         cancelDeadline();
         this.cancellations.delete(cancel);
+        options.signal?.removeEventListener("abort", abort);
         if (stopping) await stopping;
         if (options.input instanceof Readable) {
           options.input.unpipe(child.stdin);

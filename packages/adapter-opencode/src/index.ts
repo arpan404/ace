@@ -43,11 +43,9 @@ export function createOpenCodeAdapter(
           resolve: (interaction, resolution) => session.resolve(interaction, resolution),
           stopTask: (task) => session.stopTask(task),
           async close(reason) {
-            try {
-              await session.close(reason);
-            } finally {
-              await lease.release();
-            }
+            // A refused idle close still owns live work and its process lease.
+            await session.close(reason);
+            await lease.release();
           },
         };
       } catch (error) {

@@ -1,0 +1,133 @@
+{
+  "limits": {
+    "idleRss": 268435456,
+    "startupMs": 5000,
+    "idleThreads": 18,
+    "idleWorkers": 1,
+    "activeThreads": 20,
+    "eventsPerSecond": 500,
+    "p99Ms": 50,
+    "retainedHeapGrowth": 8388608,
+    "retainedRssGrowth": 67108864,
+    "shutdownMs": 1500
+  },
+  "measurement": {
+    "startupMs": 812.6534999999999,
+    "idle10": {
+      "memory": {
+        "rss": 229343232,
+        "heapUsed": 46808408
+      },
+      "threads": 14,
+      "workers": [
+        {
+          "threadId": 3,
+          "entry": "/private/var/folders/5s/qdmf2wmx7rs0qz1l16dnk16c0000gn/T/ace-perf-gate-UggfA4/notification-worker.mjs",
+          "memory": {
+            "rss": 229343232,
+            "heapUsed": 9091048,
+            "heapTotal": 21118976,
+            "external": 3457457,
+            "arrayBuffers": 71914
+          },
+          "collection": ""
+        }
+      ]
+    },
+    "active": {
+      "memory": {
+        "rss": 263340032,
+        "heapUsed": 45762216
+      },
+      "threads": 15,
+      "workers": [
+        {
+          "threadId": 3,
+          "entry": "/private/var/folders/5s/qdmf2wmx7rs0qz1l16dnk16c0000gn/T/ace-perf-gate-UggfA4/notification-worker.mjs",
+          "memory": {
+            "rss": 263340032,
+            "heapUsed": 11452376,
+            "heapTotal": 21118976,
+            "external": 3457457,
+            "arrayBuffers": 71914
+          },
+          "collection": ""
+        },
+        {
+          "threadId": 4,
+          "entry": "/private/var/folders/5s/qdmf2wmx7rs0qz1l16dnk16c0000gn/T/ace-perf-gate-UggfA4/usage-worker.mjs",
+          "memory": {
+            "rss": 263340032,
+            "heapUsed": 9881048,
+            "heapTotal": 21381120,
+            "external": 3457457,
+            "arrayBuffers": 71914
+          },
+          "collection": ""
+        }
+      ]
+    },
+    "eventsPerSecond": 994.2493443151759,
+    "p99Ms": 2.41845703125,
+    "shutdownMs": 113.42462499999965,
+    "retainedStart": {
+      "rss": 235044864,
+      "heapUsed": 43712632
+    },
+    "retainedEnd": {
+      "rss": 239435776,
+      "heapUsed": 41275416
+    },
+    "soak": [
+      {
+        "elapsedMs": 428.5801670000001,
+        "rss": 235061248
+      },
+      {
+        "elapsedMs": 846.0833750000002,
+        "rss": 254705664
+      },
+      {
+        "elapsedMs": 1263.9942499999997,
+        "rss": 275283968
+      },
+      {
+        "elapsedMs": 1694.0384999999987,
+        "rss": 275382272
+      },
+      {
+        "elapsedMs": 2083.8944999999985,
+        "rss": 275382272
+      },
+      {
+        "elapsedMs": 2553.1797499999993,
+        "rss": 304693248
+      },
+      {
+        "elapsedMs": 3002.2027499999986,
+        "rss": 317603840
+      },
+      {
+        "elapsedMs": 3387.2712089999986,
+        "rss": 320208896
+      },
+      {
+        "elapsedMs": 3804.144458999999,
+        "rss": 320208896
+      },
+      {
+        "elapsedMs": 4216.833999999999,
+        "rss": 321077248
+      },
+      {
+        "elapsedMs": 4647.102209000001,
+        "rss": 325795840
+      },
+      {
+        "elapsedMs": 5129.336334,
+        "rss": 325959680
+      }
+    ]
+  },
+  "violations": []
+}

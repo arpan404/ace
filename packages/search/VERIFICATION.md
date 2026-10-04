@@ -26,3 +26,45 @@ ADR 0035 and `bench/results.json` retain historical 1M-item measurements from be
 ## Static checks
 
 `bun run fmt`, `bun run lint`, `bun run typecheck` and `bun run check:size` passed. All 543 source files are within 1,500 lines. `bun run check` and GitHub CI were not run. The comments on PR 47 were also inspected for `Integration rehearsal: findings for this PR`; no such comment was present during this review-fix run.
+
+## Long-thread search
+
+`thread-search.process.test.ts` adds behavior guards for full message interiors,
+chunk and delta boundaries, unique item paging, creation-sequence/turn metadata,
+plain UTF-16 highlight offsets, output-byte restart cursors, all five filters,
+authorized descendant scopes, tombstones, replacements, rollback and upgrading an
+already-current global index. These tests are **not executed (tests run at merge)**.
+
+Mutation cases each guard is designed to kill, also **not executed (tests run at merge)**:
+
+- Retain only head/tail, or return update sequence instead of creation sequence.
+- Drop chunk overlap, drop streamed suffixes, accept an incompatible delta field,
+  or return one hit per matching chunk instead of one per item.
+- Read all output into one string, discard the durable byte cursor, advance the
+  byte cursor before the chunk write, or report ready with output bytes pending.
+- Treat every typed field as tool output, omit command/file/error categorization,
+  or index raw provider data.
+- Expand the family implicitly, forget scope fingerprinting, ignore tombstones,
+  or let newly appended rows cross an active page ceiling.
+- Skip index deletion on replacement/deletion, write outside the canonical
+  transaction, or reuse the old global cursor for the additive full-text index.
+
+Static typechecking passes for `packages/search`. SQLite query behavior, indexing
+throughput and long-thread latency require execution by the merge gate or the
+explicitly authorized feature benchmark. No test suite or probe was run here.
+
+Additional long-thread guards cover multi-term matches across separate chunks,
+exact scope isolation for IDs sharing FTS tokens, UTF-16 source read boundaries,
+whitespace-heavy snippets, output-source fairness and missing-source recovery.
+Their mutation cases are **not executed (tests run at merge)**: require all terms
+in one chunk; authorize via tokenized ID phrases; split UTF-16 surrogate pairs;
+clip highlights after a long prefix; drain only the oldest source; report missing
+bytes as ready; busy-loop startup backfill; or drop the pending job on recovery.
+
+Live-retention guards verify that `acknowledgeDeletion(seq)` advances each cursor
+only when it owns the preceding sequence, so subsequent live events are indexed
+without restarting and queued backfill is never skipped. Selective multi-term
+paging pins its bounded posting-count anchor across changing token frequencies.
+Mutation cases are **not executed (tests run at merge)**: omit eventless gap
+acknowledgement; advance over unindexed history; fan out from broad OR matches;
+scan full common-term frequencies; or recompute the anchor on continuation.

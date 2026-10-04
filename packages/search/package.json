@@ -4,7 +4,8 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./thread-text": "./src/thread-text.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -13,6 +14,7 @@
   "dependencies": {
     "@ace/projection": "workspace:*",
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "zod": "^4.6.5"
   }
 }

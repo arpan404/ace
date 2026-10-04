@@ -27,11 +27,18 @@ const Row = z.object({
   titleSnippet: z.string(),
   bodySnippet: z.string(),
 });
-function snippet(marked: string): z.infer<typeof SearchSnippet> {
+export function snippet(marked: string): z.infer<typeof SearchSnippet> {
+  // Token-bounded FTS snippets can still contain thousands of spaces before a hit.
+  // Keep the first highlight inside the character budget as well.
+  const firstHighlight = marked.indexOf("\u0001");
+  let offset = marked.length > 4096 && firstHighlight > 256 ? firstHighlight - 256 : 0;
+  const boundary = marked.charCodeAt(offset);
+  if (boundary >= 0xdc00 && boundary <= 0xdfff) offset++;
+  const source = offset ? "…" + marked.slice(offset) : marked;
   let text = "";
   let start: number | undefined;
   const highlights: { start: number; end: number }[] = [];
-  for (const char of marked) {
+  for (const char of source) {
     if (char === "\u0001") start = text.length;
     else if (char === "\u0002") {
       if (start !== undefined && highlights.length < 256)

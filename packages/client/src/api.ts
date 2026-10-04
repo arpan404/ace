@@ -1,4 +1,18 @@
+import type { ProjectsApi } from "./projects-types.ts";
 import type {
+  TurnsPageInput,
+  ItemsWindowInput,
+  ThreadSearchInput,
+  ThreadCatchUpInput,
+  ThreadReadStateInput,
+  ThreadMarkReadInput,
+} from "./long-thread.ts";
+import type {
+  TurnsPageResponse,
+  ItemsWindowResponse,
+  ThreadSearchResponse,
+  ThreadCatchUpResponse,
+  ThreadReadStateResponse,
   CommandPayload,
   CommandResult,
   RegistryRequest,
@@ -50,6 +64,7 @@ type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
 export type RegistryQuery = WithoutRequestId<RegistryRequest>;
 
 export interface ClientApi {
+  readonly projects: ProjectsApi;
   readonly state: ConnectionState;
   readonly error: ClientError | undefined;
   connectionState(): Selection<ConnectionState>;
@@ -80,6 +95,20 @@ export interface ClientApi {
     source: AsyncIterable<Uint8Array>,
     options?: RequestOptions,
   ): Promise<unknown>;
+  turnsPage(input: TurnsPageInput, options?: RequestOptions): Promise<TurnsPageResponse>;
+  /** A bounded jumped window. Never changes the leased live tail. */
+  itemsWindow(input: ItemsWindowInput, options?: RequestOptions): Promise<ItemsWindowResponse>;
+  threadSearch(input: ThreadSearchInput, options?: RequestOptions): Promise<ThreadSearchResponse>;
+  threadCatchUp(
+    input: ThreadCatchUpInput,
+    options?: RequestOptions,
+  ): Promise<ThreadCatchUpResponse>;
+  threadReadState(
+    input: ThreadReadStateInput,
+    options?: RequestOptions,
+  ): Promise<ThreadReadStateResponse>;
+  /** Coalesce pending monotonic read updates per thread into durable commands. */
+  markThreadRead(input: ThreadMarkReadInput, options?: RequestOptions): Promise<CommandResult>;
   itemsPage(
     payload: { threadId: string; before?: number | undefined; limit: number },
     options?: RequestOptions,

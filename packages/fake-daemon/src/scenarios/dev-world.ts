@@ -6,6 +6,7 @@ import { delegatedDocs } from "./delegated-docs.ts";
 import { failingSubagent } from "./failing-subagent.ts";
 import { flakyCheckout } from "./flaky-checkout.ts";
 import { homeList } from "./home-list.ts";
+import { multiDayDemo } from "./multi-day-demo.ts";
 import { longHistory } from "./long-history.ts";
 import { permissionAudit } from "./permission-audit.ts";
 import { replayCursor } from "./replay-cursor.ts";
@@ -31,6 +32,7 @@ const minute = 60_000;
 export function devWorld(): WorldThread[] {
   return withAccounts([
     { scenario: longHistory(120), agoMs: 2 * 24 * 60 * minute },
+    { scenario: multiDayDemo(), agoMs: 0 },
     ...homeList().map((aged) => ({ scenario: aged.scenario, agoMs: aged.agoMs })),
     { scenario: flakyCheckout(), agoMs: 3 * minute, live: { speed: 1 } },
     { scenario: replayCursor(), agoMs: 4 * minute, live: { speed: 1 } },

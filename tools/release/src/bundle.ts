@@ -9,9 +9,11 @@ export async function bundleDaemon(
   root: string,
   publicKey: string,
   target = `${process.platform}-${process.arch}`,
+  daemonEntry = join(repo, "tools/release/src/entry.ts"),
 ) {
   const options = {
     bundle: true,
+    minify: true,
     metafile: true,
     platform: "node" as const,
     target: "node24",
@@ -29,7 +31,7 @@ export async function bundleDaemon(
           ctx.onLoad(
             {
               filter:
-                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection)\.ts$/,
+                /(?:blob-export|exclusive-rename|host|worker-runtime|worker|worker-client|index|recording|runtime|storage|worker-sink|threads|sqlite|diagnostics-cli|descriptor|node-search|injection|history-publisher|fork)\.ts$/,
             },
             async (args) => {
               let contents = await readFile(args.path, "utf8");
@@ -47,6 +49,13 @@ export async function bundleDaemon(
               }
               if (args.path.endsWith("/mcp-server/src/injection.ts"))
                 contents = contents.replace('"./stdio-entry.ts"', '"./acp-mcp-bridge.mjs"');
+              if (args.path.endsWith("/daemon/src/history-publisher.ts"))
+                contents = contents.replace(
+                  '"./history-publish-worker.ts"',
+                  '"./history-publish-worker.mjs"',
+                );
+              if (args.path.endsWith("/adapter-claude/src/fork.ts"))
+                contents = contents.replace('"./fork-worker.ts"', '"./claude-fork-worker.mjs"');
               if (args.path.endsWith("/adapter-cursor/src/host.ts"))
                 contents = contents.replace('"./host-entry.ts"', '"./cursor-sdk-host.mjs"');
               if (args.path.endsWith("/workspace/src/descriptor.ts"))
@@ -102,7 +111,7 @@ export async function bundleDaemon(
   };
   const daemon = await build({
     ...options,
-    entryPoints: [join(repo, "tools/release/src/entry.ts")],
+    entryPoints: [daemonEntry],
     outfile: join(root, "ace.mjs"),
   });
   if (!daemon.metafile) throw new Error("Bundle metadata is required");
@@ -116,6 +125,8 @@ export async function bundleDaemon(
   if (workspaceIncluded)
     await cp(join(repo, "packages/workspace/dist/descriptor.node"), join(root, "descriptor.node"));
   const helpers = [
+    ["packages/adapter-claude/src/fork-worker.ts", "claude-fork-worker.mjs"],
+    ["apps/daemon/src/history-publish-worker.ts", "history-publish-worker.mjs"],
     ["packages/adapter-cursor/src/host-entry.ts", "cursor-sdk-host.mjs"],
     ["packages/mcp-server/src/stdio-entry.ts", "acp-mcp-bridge.mjs"],
     ["packages/files/src/blob-worker.ts", "files-blob-worker.mjs"],

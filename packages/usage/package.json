@@ -4,7 +4,8 @@
   "license": "Apache-2.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./accounting": "./src/accounting.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -12,6 +13,7 @@
   },
   "dependencies": {
     "@ace/protocol": "workspace:*",
+    "@ace/provider-kit": "workspace:*",
     "zod": "^4.1.12"
   },
   "devDependencies": {

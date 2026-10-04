@@ -4,7 +4,9 @@ export interface GitProcessRuntime {
   spawn: (
     command: string,
     args: string[],
-    options: SpawnOptionsWithoutStdio & { stdio: ["pipe", "pipe", "pipe"] },
+    options: Omit<SpawnOptionsWithoutStdio, "stdio"> & {
+      stdio: ["pipe", "pipe", "pipe", ...number[]];
+    },
   ) => ChildProcessWithoutNullStreams;
   scheduleTimeout: (callback: () => void, milliseconds: number) => () => void;
   platform: NodeJS.Platform;
@@ -29,6 +31,7 @@ export type GitErrorCode =
   | "hook_failed"
   | "auth_failed"
   | "git_timeout"
+  | "git_cancelled"
   | "git_closed"
   | "git_busy"
   | "malformed_output"

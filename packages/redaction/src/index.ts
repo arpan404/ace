@@ -116,6 +116,7 @@ export function createRedactor(
       if (pattern.source !== "(?:)") out = out.replace(pattern, replacement);
     }
     out = out.replace(/\/(?:Users|home)\/[^/\s"'<>]+/g, "<HOME>");
+    out = out.replace(/\/(?:private\/)?var\/folders\/[^/\s"'<>]+\/[^/\s"'<>]+\/[TC]\//g, "<TEMP>/");
     if (environment) out = out.replace(environment, "<ENV>");
     out = out.replace(/([#&](?:code|ticket|token)=)[^&#\s]+/gi, "$1<SECRET>");
     for (const pattern of SECRETS) out = out.replace(pattern, "<SECRET>");

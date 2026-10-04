@@ -1,0 +1,78 @@
+{
+  "$id": "https://ace.local/protocol/v1/TurnSummary.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "digest": {
+      "$ref": "https://ace.local/protocol/v1/TurnDigest.json"
+    },
+    "endSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "endedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "initiatingMessagePreview": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "latestAgentMessagePreview": {
+      "maxLength": 1024,
+      "type": "string"
+    },
+    "ordinal": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "type": "integer"
+    },
+    "outcome": {
+      "enum": [
+        "active",
+        "completed",
+        "interrupted",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "startSeq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "startedAt": {
+      "$ref": "https://ace.local/protocol/v1/Timestamp.json"
+    },
+    "status": {
+      "$ref": "https://ace.local/protocol/v1/ThreadStatus.json"
+    },
+    "subagents": {
+      "items": {
+        "$ref": "https://ace.local/protocol/v1/TurnSubagentSummary.json"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "subagentsTruncated": {
+      "type": "boolean"
+    },
+    "threadId": {
+      "$ref": "https://ace.local/protocol/v1/ThreadId.json"
+    }
+  },
+  "required": [
+    "threadId",
+    "ordinal",
+    "startSeq",
+    "endSeq",
+    "startedAt",
+    "status",
+    "outcome",
+    "initiatingMessagePreview",
+    "latestAgentMessagePreview",
+    "digest",
+    "subagents",
+    "subagentsTruncated"
+  ],
+  "type": "object"
+}

@@ -211,19 +211,26 @@ test("closing a paused SQLite import removes every private transcript copy", asy
   const entered = Promise.withResolvers<void>(),
     release = Promise.withResolvers<void>();
   const sink = memorySink();
-  const importing = service
-    .importSession(init(source.id), {
-      ...sink,
-      appendItem: async () => {
-        entered.resolve();
-        await release.promise;
-      },
-    })
-    .catch(() => undefined);
-  await entered.promise;
-  await service.close();
-  release.resolve();
-  await importing;
+  const importing = service.importSession(init(source.id), {
+    ...sink,
+    appendItem: async () => {
+      entered.resolve();
+      await release.promise;
+    },
+  });
+  // Surface worker/import failures instead of waiting forever for a sink it never reached.
+  await Promise.race([
+    entered.promise,
+    importing.then(() => {
+      throw new Error("Import finished before reaching the paused sink");
+    }),
+  ]);
+  try {
+    await service.close();
+  } finally {
+    release.resolve();
+  }
+  await expect(importing).rejects.toThrow("closed");
   expect(
     (await readdir(join(env.root, "ace"))).filter((p) => p.startsWith("sqlite-read-")),
   ).toEqual([]);

@@ -9,7 +9,7 @@ import {
   MAX_DOCUMENT_BYTES,
   type Notification,
 } from "./index.ts";
-import { fixture } from "./test-support.ts";
+import { fixture, ManualEdges } from "./test-support.ts";
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -121,9 +121,22 @@ test("real watchers follow atomic replacements and a newly created workspace dir
 });
 
 test("a missing workspace directory is reconciled when native ancestor notifications are lost", async () => {
+  const edges = new ManualEdges();
+  const polls = new Set<() => void>();
   const f = await fixture({
-    io: { ...fileIO, watch: createFileWatcher(() => () => {}) },
-    scheduler,
+    io: {
+      ...fileIO,
+      watch: createFileWatcher(
+        () => () => {},
+        (_path, changed) => {
+          polls.add(changed);
+          return () => {
+            polls.delete(changed);
+          };
+        },
+      ),
+    },
+    scheduler: edges.scheduler,
   });
   cleanups.push(() => f.close());
   const notice = Promise.withResolvers<Notification>();
@@ -135,6 +148,8 @@ test("a missing workspace directory is reconciled when native ancestor notificat
     join(f.workspace, ".ace", "settings.json"),
     '{"version":2,"settings":{"notifications.sound":true}}',
   );
+  for (const poll of polls) poll();
+  edges.flush();
   expect(await notice.promise).toMatchObject({
     type: "changed",
     entries: [{ value: true, provenance: "workspace" }],
@@ -254,5 +269,52 @@ test("malformed UTF-8 edits produce a diagnostic without substituting replacemen
   expect(result.diagnostics[0]).toMatchObject({
     code: "parse",
     message: "Settings file is not valid UTF-8",
+  });
+});
+
+test("missing settings parents cost only stat polls while idle and reconcile their first creation", async () => {
+  const ticks = new Set<() => Promise<void>>();
+  const reads: string[] = [];
+  const edges = new ManualEdges();
+  const f = await fixture({
+    io: {
+      ...fileIO,
+      read: async (path) => {
+        reads.push(path);
+        return fileIO.read(path);
+      },
+      watch: createFileWatcher(
+        () => () => {},
+        undefined,
+        (tick) => {
+          ticks.add(tick);
+          return () => {
+            ticks.delete(tick);
+          };
+        },
+      ),
+    },
+    scheduler: edges.scheduler,
+  });
+  cleanups.push(() => f.close());
+  const notice = Promise.withResolvers<Notification>();
+  await f.service.subscribe(
+    { keys: ["notifications.sound"], scope: { workspace: f.workspace, thread: "idle" } },
+    notice.resolve,
+  );
+  const initialReads = reads.slice();
+  for (let i = 0; i < 6; i++) {
+    await Promise.all([...ticks].map((tick) => tick()));
+    edges.flush();
+  }
+  expect(reads).toEqual(initialReads);
+  await atomicWrite(
+    join(f.workspace, ".ace", "settings.json"),
+    '{"version":2,"settings":{"notifications.sound":true}}',
+  );
+  await Promise.all([...ticks].map((tick) => tick()));
+  edges.flush();
+  expect(await notice.promise).toMatchObject({
+    entries: [{ value: true, provenance: "workspace" }],
   });
 });

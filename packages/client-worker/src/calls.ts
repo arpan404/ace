@@ -1,10 +1,19 @@
-import { ClientError, type Client, type RegistryQuery, type ServiceRequest } from "@ace/client";
-import { CommandPayload, TextSource } from "@ace/protocol";
+import {
+  ClientError,
+  loadServiceWire,
+  type Client,
+  type RegistryQuery,
+  type ServiceRequest,
+  type ServiceWire,
+} from "@ace/client";
+import { CommandPayload, TextSource, ThreadMarkReadCommand } from "@ace/protocol";
 import { z } from "zod";
 
 /*
  * Requests a tab makes of the worker's client, decoded at the port. The client validates each
- * request again on its way to the daemon, as it does for an in-process caller.
+ * request again on its way to the daemon, as it does for an in-process caller. The long-thread
+ * reads are service requests: their schemas come with the client's service wire, which the
+ * worker starts without (ADR 0056).
  */
 
 const Options = z
@@ -36,7 +45,31 @@ const ServiceInput = z.custom<ServiceRequest>(
     typeof value.type === "string",
 );
 
+const longThreadSchemas = (wire: ServiceWire) => ({
+  turnsPage: z.tuple([
+    z.object(wire.TurnsPageRequest.shape).omit({ type: true, requestId: true }),
+    Options,
+  ]),
+  itemsWindow: z.tuple([
+    z.object(wire.ItemsWindowRequest.shape).omit({ type: true, requestId: true }),
+    Options,
+  ]),
+  threadSearch: z.tuple([wire.ThreadSearchRequest.omit({ type: true, requestId: true }), Options]),
+  threadCatchUp: z.tuple([
+    z.object(wire.ThreadCatchUpRequest.shape).omit({ type: true, requestId: true }),
+    Options,
+  ]),
+  threadReadState: z.tuple([
+    wire.ThreadReadStateRequest.omit({ type: true, requestId: true }),
+    Options,
+  ]),
+});
+let longThread: ReturnType<typeof longThreadSchemas> | undefined;
+/** The long-thread argument schemas, built once the service wire has loaded. */
+const longThreadArgs = async () => (longThread ??= longThreadSchemas(await loadServiceWire()));
+
 const schemas = {
+  markThreadRead: z.tuple([ThreadMarkReadCommand.omit({ type: true }), Options]),
   enqueue: z.tuple([CommandPayload, z.string().optional()]),
   command: z.tuple([CommandPayload, Options, z.string().optional()]),
   registry: z.tuple([RegistryInput, Options]),
@@ -89,6 +122,30 @@ export async function callArgs(
     case "registry": {
       const [input, parsed] = decode(schemas.registry, args);
       return client.registry(input, options(parsed, signal));
+    }
+    case "turnsPage": {
+      const [input, parsed] = decode((await longThreadArgs()).turnsPage, args);
+      return client.turnsPage(input, options(parsed, signal));
+    }
+    case "itemsWindow": {
+      const [input, parsed] = decode((await longThreadArgs()).itemsWindow, args);
+      return client.itemsWindow(input, options(parsed, signal));
+    }
+    case "threadSearch": {
+      const [input, parsed] = decode((await longThreadArgs()).threadSearch, args);
+      return client.threadSearch(input, options(parsed, signal));
+    }
+    case "threadCatchUp": {
+      const [input, parsed] = decode((await longThreadArgs()).threadCatchUp, args);
+      return client.threadCatchUp(input, options(parsed, signal));
+    }
+    case "threadReadState": {
+      const [input, parsed] = decode((await longThreadArgs()).threadReadState, args);
+      return client.threadReadState(input, options(parsed, signal));
+    }
+    case "markThreadRead": {
+      const [input, parsed] = decode(schemas.markThreadRead, args);
+      return client.markThreadRead(input, options(parsed, signal));
     }
     case "itemsPage": {
       const [page, parsed] = decode(schemas.itemsPage, args);

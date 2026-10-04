@@ -80,5 +80,6 @@ export type { WorkspaceFileSystem, WorkspaceRuntime, WorkspaceClock } from "./ru
 
 // Shared root-bound filesystem owner for transfer and mutation services.
 export { SafeRoot, transferTemporary as isWorkspaceTransferTemporary } from "./safety.ts";
+export { PinnedDirectory } from "./pinned-directory.ts";
 export { GitIgnore } from "./ignore.ts";
 export { tree as walkWorkspace } from "./tree.ts";
