@@ -12,11 +12,14 @@ export interface ResolvedPlacement {
   /** In window DIPs; undefined until a renderer has placed the view. */
   bounds: Rect | undefined;
   visible: boolean;
+  /** The renderer showing the view says its person holds the page's control. */
+  input: boolean;
 }
 
 interface Claim {
   bounds: Rect;
   visible: boolean;
+  input: boolean;
   order: number;
 }
 
@@ -46,10 +49,19 @@ export class PlacementBook {
   private order = 0;
 
   /** Record a renderer's request; returns the view's placement now. */
-  set(threadId: string, host: number, bounds: Rect, visible: boolean): ResolvedPlacement {
+  set(
+    threadId: string,
+    host: number,
+    claim: { bounds: Rect; visible: boolean; input?: boolean | undefined },
+  ): ResolvedPlacement {
     let hosts = this.claims.get(threadId);
     if (!hosts) this.claims.set(threadId, (hosts = new Map()));
-    hosts.set(host, { bounds, visible, order: ++this.order });
+    hosts.set(host, {
+      bounds: claim.bounds,
+      visible: claim.visible,
+      input: claim.input ?? false,
+      order: ++this.order,
+    });
     return this.resolve(threadId);
   }
 
@@ -73,7 +85,8 @@ export class PlacementBook {
       if (claim.visible && !empty(claim.bounds) && (!shown || claim.order > shown[1].order))
         shown = entry;
     }
-    if (shown) return { host: shown[0], bounds: shown[1].bounds, visible: true };
-    return { host: latest?.[0], bounds: latest?.[1].bounds, visible: false };
+    if (shown)
+      return { host: shown[0], bounds: shown[1].bounds, visible: true, input: shown[1].input };
+    return { host: latest?.[0], bounds: latest?.[1].bounds, visible: false, input: false };
   }
 }

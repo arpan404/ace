@@ -1,4 +1,4 @@
-import { useLayoutEffect, type RefObject } from "react";
+import { useEffectEvent, useLayoutEffect, useRef, type RefObject } from "react";
 import { desktopBrowserViews, type PageBox } from "@/boot/desktop-browser.ts";
 import { observeRect } from "@/lib/element-rect.ts";
 import { observeOverlays, overlayBoxes } from "@/lib/overlays.ts";
@@ -65,10 +65,25 @@ export function useNativeView(
   threadId: string,
   area: RefObject<HTMLElement | null>,
   active: boolean,
-  device: Size | undefined,
+  options: {
+    device: Size | undefined;
+    /** The person holds the page's control here: their input on the view reaches the page. */
+    input: boolean;
+    /** They clicked or typed on the view without control. */
+    onWantsControl(): void;
+  },
 ): void {
-  const deviceWidth = device?.width;
-  const deviceHeight = device?.height;
+  const deviceWidth = options.device?.width;
+  const deviceHeight = options.device?.height;
+  const { input } = options;
+  const wantsControl = useEffectEvent(options.onWantsControl);
+  // Control changes update the placement in place, without hiding the view in between.
+  const inputRef = useRef(input);
+  const replace = useRef<(() => void) | undefined>(undefined);
+  useLayoutEffect(() => {
+    inputRef.current = input;
+    replace.current?.();
+  }, [input]);
   useLayoutEffect(() => {
     const views = desktopBrowserViews();
     const element = area.current;
@@ -88,21 +103,28 @@ export function useNativeView(
         device: size,
         overlays: overlayBoxes(element),
       });
-      const key = JSON.stringify(placement);
+      const next = { threadId, ...placement, input: inputRef.current };
+      const key = JSON.stringify(next);
       if (key === sent) return;
       sent = key;
       bounds = placement.bounds;
-      void views.place({ threadId, ...placement }).catch(() => {});
+      void views.place(next).catch(() => {});
     };
+    replace.current = place;
     const stopRect = observeRect(element, (next) => {
       rect = { x: next.x, y: next.y, width: next.width, height: next.height };
       place();
     });
     const stopOverlays = observeOverlays(element, place);
+    const stopWants = views.onWantsControl((id) => {
+      if (id === threadId) wantsControl();
+    });
     return () => {
+      replace.current = undefined;
       stopRect();
       stopOverlays();
-      void views.place({ threadId, bounds, visible: false }).catch(() => {});
+      stopWants();
+      void views.place({ threadId, bounds, visible: false, input: false }).catch(() => {});
     };
   }, [threadId, area, active, deviceWidth, deviceHeight]);
 }

@@ -129,8 +129,18 @@ export class EmbeddedViews implements ViewHost {
   place(placement: BrowserPlacement, host: PlacementHost): void {
     this.hosts.set(host.id, host.window);
     const bounds = toWindowBounds(placement.bounds, host.zoom);
-    this.placements.set(placement.threadId, host.id, bounds, placement.visible);
+    this.placements.set(placement.threadId, host.id, {
+      bounds,
+      visible: placement.visible,
+      input: placement.input,
+    });
     this.apply(placement.threadId);
+  }
+
+  /** The renderer (`webContents.id`) showing a thread's view now, if any shows it. */
+  shownIn(threadId: string): number | undefined {
+    const placement = this.placements.resolve(threadId);
+    return placement.visible ? placement.host : undefined;
   }
 
   /** A renderer reloaded or closed: the views it placed no longer belong where it put them. */
@@ -148,6 +158,7 @@ export class EmbeddedViews implements ViewHost {
       window: window && !window.isDestroyed() ? window : undefined,
       bounds: placement.bounds,
       visible: placement.visible,
+      input: placement.input,
     });
   }
 
@@ -218,6 +229,8 @@ class EmbeddedPage implements ViewPage {
   private blocked = new Set<() => void>();
   private gate = new WebSocketGate();
   private nativeInput = false;
+  /** The renderer showing the view holds control on the person's behalf. */
+  private placedInput = false;
   /** Agent input in flight (CDP `Input.*` or a key press), which must not be blocked. */
   private agentInput = 0;
   private lastBlocked = 0;
@@ -281,7 +294,12 @@ class EmbeddedPage implements ViewPage {
   }
 
   /** Bounds are in the window's DIPs; a hidden view keeps its last box. */
-  place(target: { window: BaseWindow | undefined; bounds: Rect | undefined; visible: boolean }) {
+  place(target: {
+    window: BaseWindow | undefined;
+    bounds: Rect | undefined;
+    visible: boolean;
+    input: boolean;
+  }) {
     const view = this.options.view;
     const current = this.options.window;
     if (target.window && target.window !== current) {
@@ -291,6 +309,7 @@ class EmbeddedPage implements ViewPage {
     }
     if (target.bounds) view.setBounds(target.bounds);
     this.placed = target.visible && target.bounds !== undefined;
+    this.placedInput = this.placed && target.input;
     // Hidden views stay alive (and attached) but stop painting, and send no frames.
     view.setVisible(this.placed);
     this.updateThrottle();
@@ -436,7 +455,7 @@ class EmbeddedPage implements ViewPage {
     const decision = throttleDecision(
       {
         visible: this.placed,
-        nativeInput: this.nativeInput,
+        nativeInput: this.nativeInput || this.placedInput,
         screencasting: this.screencasting,
         lastDrivenAt: this.lastDrivenAt,
       },
@@ -457,7 +476,7 @@ class EmbeddedPage implements ViewPage {
   }
 
   private allowInput(): boolean {
-    return this.nativeInput || this.agentInput > 0;
+    return this.nativeInput || this.placedInput || this.agentInput > 0;
   }
 
   /** At most one take-control request a second, however fast the person clicks. */

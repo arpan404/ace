@@ -11,10 +11,17 @@ export interface NativeViewPlacement {
   threadId: string;
   bounds: PageBox;
   visible: boolean;
+  /** The person holds the page's control here, so their clicks and keys on it reach the page. */
+  input: boolean;
 }
 
 export interface DesktopBrowserViews {
   place(placement: NativeViewPlacement): Promise<void>;
+  /**
+   * The person clicked or typed on a page they don't control; take control for them. Returns
+   * an unsubscribe.
+   */
+  onWantsControl(listener: (threadId: string) => void): () => void;
 }
 
 /**
@@ -33,9 +40,30 @@ export function desktopBrowserViews(scope: object = globalThis): DesktopBrowserV
       ? browser.place
       : undefined;
   if (typeof place !== "function") return undefined;
+  const onWants =
+    typeof browser === "object" && browser !== null && "onWantsControl" in browser
+      ? browser.onWantsControl
+      : undefined;
   return {
     place: async (placement) => {
       await Promise.resolve(Reflect.apply(place, browser, [placement]));
+    },
+    onWantsControl: (listener) => {
+      if (typeof onWants !== "function") return () => {};
+      const stop: unknown = Reflect.apply(onWants, browser, [
+        (event: unknown) => {
+          if (
+            typeof event === "object" &&
+            event !== null &&
+            "threadId" in event &&
+            typeof event.threadId === "string"
+          )
+            listener(event.threadId);
+        },
+      ]);
+      return () => {
+        if (typeof stop === "function") stop();
+      };
     },
   };
 }

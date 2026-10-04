@@ -7,7 +7,12 @@ const other = { x: 400, y: 80, width: 600, height: 500 };
 describe("embedded view placement", () => {
   it("shows a thread's view where its renderer places it", () => {
     const book = new PlacementBook();
-    expect(book.set("t1", 1, panel, true)).toEqual({ host: 1, bounds: panel, visible: true });
+    expect(book.set("t1", 1, { bounds: panel, visible: true })).toEqual({
+      host: 1,
+      bounds: panel,
+      visible: true,
+      input: false,
+    });
   });
 
   it("stays hidden until a renderer has placed it", () => {
@@ -15,47 +20,75 @@ describe("embedded view placement", () => {
       host: undefined,
       bounds: undefined,
       visible: false,
+      input: false,
     });
   });
 
   it("hides the view when its tab stops showing, keeping its window and box", () => {
     const book = new PlacementBook();
-    book.set("t1", 1, panel, true);
-    expect(book.set("t1", 1, panel, false)).toEqual({ host: 1, bounds: panel, visible: false });
+    book.set("t1", 1, { bounds: panel, visible: true });
+    expect(book.set("t1", 1, { bounds: panel, visible: false })).toEqual({
+      host: 1,
+      bounds: panel,
+      visible: false,
+      input: false,
+    });
   });
 
   it("never shows a view in an empty box (a collapsed panel)", () => {
     const book = new PlacementBook();
-    expect(book.set("t1", 1, { ...panel, width: 0 }, true).visible).toBe(false);
+    expect(book.set("t1", 1, { bounds: { ...panel, width: 0 }, visible: true }).visible).toBe(
+      false,
+    );
   });
 
   it("moves the view to the window that showed it most recently", () => {
     const book = new PlacementBook();
-    book.set("t1", 1, panel, true);
-    expect(book.set("t1", 2, other, true)).toEqual({ host: 2, bounds: other, visible: true });
+    book.set("t1", 1, { bounds: panel, visible: true });
+    expect(book.set("t1", 2, { bounds: other, visible: true })).toEqual({
+      host: 2,
+      bounds: other,
+      visible: true,
+      input: false,
+    });
   });
 
   it("keeps the view showing in one window when another window hides its tab", () => {
     const book = new PlacementBook();
-    book.set("t1", 1, panel, true);
-    book.set("t1", 2, other, true);
-    expect(book.set("t1", 2, other, false)).toEqual({ host: 1, bounds: panel, visible: true });
+    book.set("t1", 1, { bounds: panel, visible: true });
+    book.set("t1", 2, { bounds: other, visible: true });
+    expect(book.set("t1", 2, { bounds: other, visible: false })).toEqual({
+      host: 1,
+      bounds: panel,
+      visible: true,
+      input: false,
+    });
   });
 
   it("forgets a reloaded renderer's placements, so its old box never shows again", () => {
     const book = new PlacementBook();
-    book.set("t1", 1, panel, true);
-    book.set("t2", 1, other, true);
-    book.set("t2", 2, panel, false);
+    book.set("t1", 1, { bounds: panel, visible: true });
+    book.set("t2", 1, { bounds: other, visible: true });
+    book.set("t2", 2, { bounds: panel, visible: false });
     expect(book.forgetHost(1).toSorted()).toEqual(["t1", "t2"]);
     expect(book.resolve("t1").visible).toBe(false);
-    expect(book.resolve("t2")).toEqual({ host: 2, bounds: panel, visible: false });
+    expect(book.resolve("t2")).toEqual({ host: 2, bounds: panel, visible: false, input: false });
+  });
+
+  it("lets the person's input through only where a renderer holding control shows the view", () => {
+    const book = new PlacementBook();
+    expect(book.set("t1", 1, { bounds: panel, visible: true, input: true }).input).toBe(true);
+    // Hidden, the view takes no input, whoever holds control.
+    expect(book.set("t1", 1, { bounds: panel, visible: false, input: true }).input).toBe(false);
+    // Another window shows it without control: its clicks ask for control instead.
+    book.set("t1", 1, { bounds: panel, visible: true, input: true });
+    expect(book.set("t1", 2, { bounds: other, visible: true, input: false }).input).toBe(false);
   });
 
   it("keeps thread views apart", () => {
     const book = new PlacementBook();
-    book.set("t1", 1, panel, true);
-    book.set("t2", 1, other, false);
+    book.set("t1", 1, { bounds: panel, visible: true });
+    book.set("t2", 1, { bounds: other, visible: false });
     expect(book.resolve("t1").visible).toBe(true);
     expect(book.resolve("t2").visible).toBe(false);
   });

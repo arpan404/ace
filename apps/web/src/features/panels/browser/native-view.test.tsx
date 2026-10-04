@@ -57,6 +57,8 @@ describe("where the embedded view goes", () => {
 
 /** The desktop bridge's `browser.place`, recording what the page asked for. */
 let placed: NativeViewPlacement[] = [];
+/** The desktop's "the person clicked a page they don't control" event. */
+let wantsControl: ((event: { threadId: string }) => void) | undefined;
 const box = (x: number, y: number, width: number, height: number) =>
   ({ x, y, width, height, top: y, left: x, right: x + width, bottom: y + height }) as DOMRect;
 const original = HTMLElement.prototype.getBoundingClientRect;
@@ -67,6 +69,12 @@ beforeEach(() => {
     browser: {
       place: async (placement: NativeViewPlacement) => {
         placed.push(placement);
+      },
+      onWantsControl: (listener: (event: { threadId: string }) => void) => {
+        wantsControl = listener;
+        return () => {
+          if (wantsControl === listener) wantsControl = undefined;
+        };
       },
     },
   });
@@ -110,6 +118,8 @@ test("in the desktop app the browser tab draws the embedded page over its page a
       threadId: "thread-cold-start",
       bounds: { x: 500, y: 100, width: 400, height: 600 },
       visible: true,
+      // The agent drives the page: the person's clicks on it don't reach it.
+      input: false,
     }),
   );
 });
@@ -145,4 +155,15 @@ test("a page from the daemon's own headless browser is never placed natively", a
   await within(panel).findByText("is using this page", { exact: false });
   await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
   expect(placed.filter((placement) => placement.visible)).toEqual([]);
+});
+
+test("a click on the agent's page takes control, and then the person's input reaches it", async () => {
+  const panel = await openEmbeddedBrowser();
+  await waitFor(() => expect(last()?.visible).toBe(true));
+  const count = placed.length;
+  act(() => wantsControl?.({ threadId: "thread-cold-start" }));
+  await within(panel).findByText("have control", { exact: false });
+  await waitFor(() => expect(last()?.input).toBe(true));
+  // Taking control changes the placement in place: the page is never hidden meanwhile.
+  expect(placed.slice(count).every((placement) => placement.visible)).toBe(true);
 });

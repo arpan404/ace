@@ -184,8 +184,16 @@ export const BrowserPlacement = z.object({
     height: z.number().min(0).max(16384),
   }),
   visible: z.boolean(),
+  /**
+   * The person in this renderer holds the page's control lease (through its own daemon
+   * connection), so their clicks and keys on the view reach the page.
+   */
+  input: z.boolean().optional(),
 });
 export type BrowserPlacement = z.infer<typeof BrowserPlacement>;
+/** The person clicked or typed on a view they don't control: the renderer should take control. */
+export const BrowserWantsControl = z.object({ threadId: z.string().min(1).max(256) });
+export type BrowserWantsControl = z.infer<typeof BrowserWantsControl>;
 /** Ask the daemon for control of a thread's embedded view (`human`) or give it back. */
 export const BrowserControlRequest = z.object({
   threadId: z.string().min(1).max(256),

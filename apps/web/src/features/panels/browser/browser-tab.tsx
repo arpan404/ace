@@ -143,7 +143,14 @@ function Browser(props: TabViewProps) {
       page.live.status !== "recovering" &&
       page.online &&
       page.state.phase !== "failed",
-    viewport.emulation,
+    {
+      device: viewport.emulation,
+      input: page.live?.controller === "human",
+      // A click on the page while an agent drives it asks for control, as the button does.
+      onWantsControl: () => {
+        if (page.live?.controller !== "human") control.toggle();
+      },
+    },
   );
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
