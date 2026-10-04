@@ -49,9 +49,25 @@ interface Live {
   stopFailure?: () => void;
   verification: number;
   attached: boolean;
+  enabled: boolean;
+  removing: boolean;
 }
 type ThreadCommand = Exclude<CommandPayload, { type: "thread.create" | "thread.prepare" }>;
 type CreateCommand = Extract<CommandPayload, { type: "thread.create" | "thread.prepare" }>;
+/** Keep all routed controls on the reference's thread before they reach any worker. */
+function assertThread(
+  ref: MachineThreadRef,
+  input: ThreadCommand | ServiceRequest | OneWayMessage,
+): void {
+  const threadId =
+    input.type === "browser.open"
+      ? input.options.threadId
+      : "threadId" in input
+        ? input.threadId
+        : undefined;
+  if (threadId !== undefined && threadId !== ref.threadId)
+    throw new ClientError("protocol", "Thread routing mismatch");
+}
 
 /** Client-owned directory and isolated worker connections. Import only for multi-machine boot. */
 export class MachinePool {
@@ -115,9 +131,26 @@ export class MachinePool {
   async remove(hostId: string): Promise<void> {
     await this.start();
     this.assertOpen();
-    await this.options.directory.remove(hostId);
     const live = this.live.get(hostId);
-    if (!live) return;
+    if (live?.removing) throw new ClientError("storage", "Machine removal pending");
+    if (live) {
+      // Disable every async continuation and retained client handle before secret-store I/O.
+      live.enabled = false;
+      live.removing = true;
+      this.stopWorker(live);
+      this.publish(live, { entry: live.state.entry, status: "offline" });
+    }
+    try {
+      await this.options.directory.remove(hostId);
+    } catch {
+      const error = new ClientError("storage", "Machine directory removal failed");
+      if (live && !this.closed)
+        this.publish(live, { entry: live.state.entry, status: "offline", error });
+      throw error;
+    } finally {
+      if (live) live.removing = false;
+    }
+    if (!live || this.closed) return;
     this.live.delete(hostId);
     this.order = this.order.filter((id) => id !== hostId);
     this.dispose(live);
@@ -128,6 +161,7 @@ export class MachinePool {
     this.assertOpen();
     const previous = this.live.get(hostId);
     if (!previous) throw new ClientError("offline", "Unknown machine");
+    if (previous.removing) throw new ClientError("storage", "Machine removal pending");
     if (previous.state.status === "connecting" || previous.state.status === "online") return;
     this.stopWorker(previous);
     this.connect(previous.state.entry);
@@ -147,29 +181,19 @@ export class MachinePool {
     return this.clientForThread(ref).thread(ref.threadId);
   }
   command(ref: MachineThreadRef, payload: ThreadCommand, options?: RequestOptions, id?: string) {
-    if (
-      "threadId" in payload &&
-      payload.threadId !== undefined &&
-      payload.threadId !== ref.threadId
-    )
-      throw new ClientError("protocol", "Thread routing mismatch");
+    assertThread(ref, payload);
     return this.clientForThread(ref).command(payload, options, id);
   }
   enqueue(ref: MachineThreadRef, payload: ThreadCommand, id?: string) {
-    if (
-      "threadId" in payload &&
-      payload.threadId !== undefined &&
-      payload.threadId !== ref.threadId
-    )
-      throw new ClientError("protocol", "Thread routing mismatch");
+    assertThread(ref, payload);
     return this.clientForThread(ref).enqueue(payload, id);
   }
   request<Q extends ServiceRequest>(ref: MachineThreadRef, input: Q, options?: RequestOptions) {
-    if ("threadId" in input && input.threadId !== undefined && input.threadId !== ref.threadId)
-      throw new ClientError("protocol", "Thread routing mismatch");
+    assertThread(ref, input);
     return this.clientForThread(ref).request(input, options);
   }
   send(ref: MachineThreadRef, message: OneWayMessage): void {
+    assertThread(ref, message);
     this.clientForThread(ref).send(message);
   }
   /** The caller must choose a machine before creating a thread. */
@@ -198,7 +222,13 @@ export class MachinePool {
     this.notifications.emit([`machine:${state.entry.hostId}`]);
   }
   private connect(entry: MachineEntry): void {
-    const live: Live = { state: { entry, status: "connecting" }, verification: 0, attached: false };
+    const live: Live = {
+      state: { entry, status: "connecting" },
+      verification: 0,
+      attached: false,
+      enabled: true,
+      removing: false,
+    };
     this.live.set(entry.hostId, live);
     this.threads.register(entry);
     if (!this.order.includes(entry.hostId)) this.order = [...this.order, entry.hostId];
@@ -214,7 +244,7 @@ export class MachinePool {
     });
   }
   private current(live: Live): boolean {
-    return !this.closed && this.live.get(live.state.entry.hostId) === live;
+    return !this.closed && live.enabled && this.live.get(live.state.entry.hostId) === live;
   }
   private async open(live: Live): Promise<void> {
     const token = await this.options.directory.token(live.state.entry);
@@ -290,5 +320,9 @@ export class MachinePool {
     live.stopFailure?.();
     if (live.client) void live.client.close().catch(() => {});
     live.worker?.terminate();
+    delete live.stop;
+    delete live.stopFailure;
+    delete live.client;
+    delete live.worker;
   }
 }

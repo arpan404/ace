@@ -109,6 +109,7 @@ test("a blocked worker and offline host cannot stall another machine; reconnect 
   );
   await f.control("slow", "block");
   expect((await bounded(f.pool.create("fast", create("while-blocked")), 1000)).ok).toBe(true);
+  f.unblock("slow");
   await f.control("slow", "offline");
   await wait(f.pool.status("slow"), (state) => state?.status === "connecting");
   expect((await bounded(f.pool.create("fast", create("while-offline")), 1000)).ok).toBe(true);
@@ -221,6 +222,23 @@ test("a single pool machine exposes the existing client behaviour and incrementa
     lease.store.select(["thread"], (store) => store.thread?.id),
     (id) => id === "legacy",
   );
+  expect((await client.request({ type: "host.identity" })).identity.hostId).toBe(daemon.hostId);
+  await client.enqueue(
+    { type: "thread.archive", threadId: ThreadId.parse("legacy") },
+    "single-archive",
+  );
+  await wait(client.intent("single-archive"), (intent) => intent?.state === "acked");
+  await wait(
+    lease.store.select(["thread"], (store) => store.thread?.archivedAt),
+    (at) => at !== undefined,
+  );
+  const legacySidebar = client.threads();
+  cleanup.push(async () => legacySidebar.release());
+  await wait(
+    legacySidebar.store.select(["ids"], (store) => store.ids),
+    (threadIds) => threadIds.includes("legacy"),
+  );
+  expect(legacySidebar.store.thread("legacy")?.archivedAt).toBe(1000);
 });
 
 test("pool startup restores the directory without waiting on an unavailable secret store", async () => {

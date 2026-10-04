@@ -7,7 +7,14 @@ import { z } from "zod";
 import { ClientHost } from "./host.ts";
 
 const config = z
-  .object({ hostId: z.string(), name: z.string(), token: z.string(), sidebarFault: z.enum(["hold", "fail"]).optional() })
+  .object({
+    hostId: z.string(),
+    name: z.string(),
+    token: z.string(),
+    sidebarFault: z.enum(["hold", "fail"]).optional(),
+    gate: z.instanceof(SharedArrayBuffer),
+    threadCount: z.number().int().min(1).max(10000).optional(),
+  })
   .parse(workerData);
 const daemon = new FakeDaemon({
   clock: () => 1000,
@@ -33,6 +40,13 @@ daemon.createThread({
   provider: "codex",
 });
 daemon.apply("shared", [facts.rootAgent("codex")]);
+for (let i = 1; i < (config.threadCount ?? 1); i++)
+  daemon.createThread({
+    id: `seed-${i}`,
+    workspaceId: "project",
+    title: `Seed ${i}`,
+    provider: "codex",
+  });
 const scheduler: Scheduler = {
   set(ms, callback) {
     const timer = setTimeout(callback, ms);
@@ -48,15 +62,26 @@ function transport(): Transport {
   return {
     ...base,
     open(events) {
-      base.open({ ...events, message(text) {
-        const message = ServerMessage.parse(JSON.parse(text));
-        if (message.type === "snapshot" && message.view.kind === "threads" && sidebarFault) {
-          if (sidebarFault === "hold") releaseSidebar = () => events.message(text);
-          else events.message(JSON.stringify({ type: "error", code: "unavailable", message: "Snapshot unavailable", subscriptionId: message.subscriptionId }));
-          return;
-        }
-        events.message(text);
-      } });
+      base.open({
+        ...events,
+        message(text) {
+          const message = ServerMessage.parse(JSON.parse(text));
+          if (message.type === "snapshot" && message.view.kind === "threads" && sidebarFault) {
+            if (sidebarFault === "hold") releaseSidebar = () => events.message(text);
+            else
+              events.message(
+                JSON.stringify({
+                  type: "error",
+                  code: "unavailable",
+                  message: "Snapshot unavailable",
+                  subscriptionId: message.subscriptionId,
+                }),
+              );
+            return;
+          }
+          events.message(text);
+        },
+      });
     },
   };
 }
@@ -74,7 +99,12 @@ const host = new ClientHost({
           scheduler,
           random: () => 0,
           id: () => `${config.hostId}-${++sequence}`,
-          limits: { retryBaseMs: 10, retryCapMs: 20, heartbeatMs: 10000 },
+          limits: {
+            retryBaseMs: 10,
+            retryCapMs: 20,
+            heartbeatMs: 10000,
+            entities: Math.max(4096, config.threadCount ?? 1),
+          },
         }),
     };
   },
@@ -103,8 +133,7 @@ port.on("message", (data: unknown) => {
     releaseSidebar = undefined;
   }
   port.postMessage({ controlAck: message.id });
-  if (message.control === "block")
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2000);
+  if (message.control === "block") Atomics.wait(new Int32Array(config.gate), 0, 0);
 });
 host.attach({
   postMessage(value) {

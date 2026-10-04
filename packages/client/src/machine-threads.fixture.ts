@@ -8,10 +8,18 @@ export function sidebarBoundary() {
   let error: ClientError | undefined;
   const notifications = new Notifications(4096);
   const source: SidebarSource = {
-    get error() { return error; },
-    get loaded() { return view !== undefined; },
-    get ids() { return Object.keys(view?.threads ?? {}); },
-    thread(id) { return view?.threads[id]; },
+    get error() {
+      return error;
+    },
+    get loaded() {
+      return view !== undefined;
+    },
+    get ids() {
+      return Object.keys(view?.threads ?? {});
+    },
+    thread(id) {
+      return view?.threads[id];
+    },
     observe: (listener) => notifications.tap(listener),
     select: (keys, read, equal) => notifications.select(keys, () => read(source), equal),
   };
@@ -34,9 +42,13 @@ export function sidebarBoundary() {
     },
   };
 }
-export const entry = (hostId = "laptop") => MachineEntry.parse({
-  hostId, displayName: hostId, deviceId: "device", target: { kind: "direct", url: `ws://${hostId}.test/` },
-});
+export const entry = (hostId = "laptop") =>
+  MachineEntry.parse({
+    hostId,
+    displayName: hostId,
+    deviceId: "device",
+    target: { kind: "direct", url: `ws://${hostId}.test/` },
+  });
 export function mergedBoundary() {
   const store = new MachineThreads();
   const sidebar = sidebarBoundary();

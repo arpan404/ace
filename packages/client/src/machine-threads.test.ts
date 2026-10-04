@@ -1,15 +1,27 @@
 import { expect, test } from "vitest";
-import { FakeDaemon, facts } from "@ace/fake-daemon";
+import { ThreadListView } from "@ace/protocol";
 import { MachineThreads, machineThreadKey } from "./machines.ts";
 import { entry, sidebarBoundary, mergedBoundary } from "./machine-threads.fixture.ts";
 
 function snapshot(ids: string[]) {
-  const daemon = new FakeDaemon({ clock: () => 1000 });
-  for (const id of ids) {
-    daemon.createThread({ id, workspaceId: "project", title: id, provider: "codex" });
-    daemon.apply(id, [facts.rootAgent("codex")]);
-  }
-  return daemon.snapshot({ kind: "threads" });
+  return ThreadListView.parse({
+    kind: "threads",
+    seq: 1,
+    threads: Object.fromEntries(
+      ids.map((id) => [
+        id,
+        {
+          id,
+          workspaceId: "project",
+          title: id,
+          provider: "codex",
+          status: { state: "working", agents: 1 },
+          createdAt: 1000,
+          updatedAt: 1000,
+        },
+      ]),
+    ),
+  });
 }
 const key = (threadId: string, hostId = "laptop") => machineThreadKey({ hostId, threadId });
 
@@ -43,14 +55,21 @@ test("replacement sidebars retain cached facts and counts through delayed and fa
 
 test("throwing change and count observers cannot interrupt rows, later observers or keyed selections", () => {
   const f = mergedBoundary();
-  const stopThrow = f.store.observeChanges(() => { throw new Error("Consumer failure"); });
+  const stopThrow = f.store.observeChanges(() => {
+    throw new Error("Consumer failure");
+  });
   const observed: string[] = [];
-  const stopObserve = f.store.observeChanges(({ key }) => observed.push(key));
+  const stopObserve = f.store.observeChanges((change) => observed.push(change.key));
   const count = f.store.count(() => true);
-  const stopCountThrow = count.subscribe(() => { throw new Error("Count consumer failure"); });
+  const stopCountThrow = count.subscribe(() => {
+    throw new Error("Count consumer failure");
+  });
   const counts: number[] = [];
   const stopCount = count.subscribe(() => counts.push(count.getSnapshot()));
-  const selection = f.store.select([`thread:${key("b")}`], (store) => store.thread(key("b"))?.thread.title);
+  const selection = f.store.select(
+    [`thread:${key("b")}`],
+    (store) => store.thread(key("b"))?.thread.title,
+  );
   const titles: (string | undefined)[] = [];
   const stopSelection = selection.subscribe(() => titles.push(selection.getSnapshot()));
   f.sidebar.snapshot(snapshot(["a", "b"]));
@@ -79,28 +98,33 @@ test("loaded snapshots restore the daemon's current order while preserving direc
   stop();
 });
 
-test.each(["changes", "counts", "mixed"])("%s subscriptions share a bounded admission budget that is released idempotently", (kind) => {
-  const store = new MachineThreads();
-  const count = store.count(() => true);
-  const selected = store.select(["ids"], (merged) => merged.ids);
-  const stops: (() => void)[] = [];
-  for (let i = 0; i < 4096; i++) {
-    const subscribe = kind === "changes" || (kind === "mixed" && i % 3 === 0)
-      ? () => store.observeChanges(() => {})
-      : kind === "counts" || i % 3 === 1
-        ? () => count.subscribe(() => {})
-        : () => selected.subscribe(() => {});
-    stops.push(subscribe());
-  }
-  expect(() => store.observeChanges(() => {})).toThrow("limit");
-  expect(() => count.subscribe(() => {})).toThrow("limit");
-  expect(() => selected.subscribe(() => {})).toThrow("limit");
-  const first = stops.shift();
-  first?.(); first?.();
-  const replacement = count.subscribe(() => {});
-  expect(() => count.subscribe(() => {})).toThrow("limit");
-  replacement();
-  for (const stop of stops) stop();
-  const again = store.observeChanges(() => {});
-  again();
-});
+test.each(["changes", "counts", "mixed"])(
+  "%s subscriptions share a bounded admission budget that is released idempotently",
+  (kind) => {
+    const store = new MachineThreads();
+    const count = store.count(() => true);
+    const selected = store.select(["ids"], (merged) => merged.ids);
+    const stops: (() => void)[] = [];
+    for (let i = 0; i < 4096; i++) {
+      const subscribe =
+        kind === "changes" || (kind === "mixed" && i % 3 === 0)
+          ? () => store.observeChanges(() => {})
+          : kind === "counts" || i % 3 === 1
+            ? () => count.subscribe(() => {})
+            : () => selected.subscribe(() => {});
+      stops.push(subscribe());
+    }
+    expect(() => store.observeChanges(() => {})).toThrow("limit");
+    expect(() => count.subscribe(() => {})).toThrow("limit");
+    expect(() => selected.subscribe(() => {})).toThrow("limit");
+    const first = stops.shift();
+    first?.();
+    first?.();
+    const replacement = count.subscribe(() => {});
+    expect(() => count.subscribe(() => {})).toThrow("limit");
+    replacement();
+    for (const stop of stops) stop();
+    const again = store.observeChanges(() => {});
+    again();
+  },
+);

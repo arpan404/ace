@@ -89,17 +89,27 @@ export function persistence() {
     raw: () => raw,
   };
 }
-export function poolWorld() {
+export function poolWorld(options: { threadCount?: number } = {}) {
   const p = persistence();
   const workers = new Map<string, Worker>();
   const sidebarFaults = new Map<string, "hold" | "fail">();
+  const gates = new Map<string, Int32Array>();
   let controlId = 0;
   const pool = new MachinePool({
     directory: p.directory,
     remote: { scheduler },
     spawn(entry: MachineEntry, token: string): MachineWorker {
+      const gate = new SharedArrayBuffer(4);
+      gates.set(entry.hostId, new Int32Array(gate));
       const worker = new Worker(new URL("./machines-worker.fixture.ts", import.meta.url), {
-        workerData: { hostId: entry.hostId, name: entry.displayName, token, sidebarFault: sidebarFaults.get(entry.hostId) },
+        workerData: {
+          hostId: entry.hostId,
+          name: entry.displayName,
+          token,
+          sidebarFault: sidebarFaults.get(entry.hostId),
+          gate,
+          threadCount: options.threadCount,
+        },
         execArgv: [],
       });
       workers.set(entry.hostId, worker);
@@ -145,6 +155,12 @@ export function poolWorld() {
     pool,
     workers,
     sidebarFaults,
+    unblock(hostId: string) {
+      const gate = gates.get(hostId);
+      if (!gate) throw new Error("Missing worker gate");
+      Atomics.store(gate, 0, 1);
+      Atomics.notify(gate, 0);
+    },
     async control(hostId: string, control: string) {
       const worker = workers.get(hostId);
       if (!worker) throw new Error("Missing worker");

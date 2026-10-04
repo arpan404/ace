@@ -1,6 +1,7 @@
 import type { ThreadListEntry } from "@ace/protocol";
 import type { SidebarSource, Lease } from "./api.ts";
-import { Notifications, type Selection } from "./observable.ts";
+import { Notifications, notifyObservers, type Selection } from "./observable.ts";
+import { ClientError } from "./errors.ts";
 import type { MachineEntry } from "./machine-directory.ts";
 
 export interface MachineThreadRef {
@@ -36,6 +37,18 @@ export class MachineThreads {
   private notifications = new Notifications(4096);
   private revision = 0;
   private changes = new Set<(change: MachineThreadChange) => void>();
+  private listenerSlots = 0;
+  /** Count/change listeners and keyed selections share the same 4,096-slot budget. */
+  private admit(slots: number): () => void {
+    if (this.listenerSlots + slots > 4096) throw new ClientError("limit");
+    this.listenerSlots += slots;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.listenerSlots -= slots;
+    };
+  }
   get ids(): readonly string[] {
     if (this.order) return this.order;
     const ids: string[] = [];
@@ -56,13 +69,32 @@ export class MachineThreads {
     read: (store: MachineThreads) => T,
     equal?: (a: T, b: T) => boolean,
   ): Selection<T> {
-    return this.notifications.select(keys, () => read(this), equal);
+    const selection = this.notifications.select(keys, () => read(this), equal);
+    return {
+      getSnapshot: selection.getSnapshot,
+      subscribe: (listener) => {
+        const release = this.admit(keys.length);
+        try {
+          const stop = selection.subscribe(listener);
+          return () => {
+            stop();
+            release();
+          };
+        } catch (error) {
+          release();
+          throw error;
+        }
+      },
+    };
   }
   /** Count consumers subtract previous and add current, touching only changed rows. */
   observeChanges(listener: (change: MachineThreadChange) => void): () => void {
-    this.changes.add(listener);
+    const release = this.admit(1);
+    const observer = (change: MachineThreadChange) => listener(change);
+    this.changes.add(observer);
     return () => {
-      this.changes.delete(listener);
+      this.changes.delete(observer);
+      release();
     };
   }
   /** Initialize once, then adjust counts from changed rows using the caller's existing rule. */
@@ -82,9 +114,15 @@ export class MachineThreads {
     return {
       getSnapshot: read,
       subscribe: (listener) => {
-        read();
-        if (!listeners.size)
-          stop = this.observeChanges(({ previous, current }) => {
+        const release = this.admit(1);
+        try {
+          read();
+        } catch (error) {
+          release();
+          throw error;
+        }
+        if (!listeners.size) {
+          const update = ({ previous, current }: MachineThreadChange) => {
             const next =
               value +
               Number(Boolean(current && predicate(current))) -
@@ -92,14 +130,21 @@ export class MachineThreads {
             seen = this.revision;
             if (next === value) return;
             value = next;
-            for (const notify of listeners) notify();
-          });
-        listeners.add(listener);
+            notifyObservers(listeners, undefined);
+          };
+          this.changes.add(update);
+          stop = () => {
+            this.changes.delete(update);
+          };
+        }
+        const observer = () => listener();
+        listeners.add(observer);
         let released = false;
         return () => {
           if (released) return;
           released = true;
-          listeners.delete(listener);
+          listeners.delete(observer);
+          release();
           if (!listeners.size) {
             stop?.();
             stop = undefined;
@@ -158,24 +203,32 @@ export class MachineThreads {
     this.revision++;
     changed.add(`thread:${key}`);
     changed.add("threads");
-    for (const listener of this.changes) listener({ key, previous, current: row });
+    notifyObservers(this.changes, { key, previous, current: row });
   }
   private update(source: Source, keys: ReadonlySet<string> | "all"): void {
     const store = source.lease.store;
+    // An unloaded/error-only mirror is not an authoritative empty directory. Keep cached facts
+    // across worker replacement until the first decoded snapshot arrives, including empty ones.
+    if (!store.loaded) {
+      if (keys === "all") this.notifications.emit([`loaded:${source.entry.hostId}`]);
+      return;
+    }
     const changed = new Set<string>();
     const reset = keys === "all";
     const ids = reset
       ? new Set(store.ids)
       : new Set([...keys].filter((key) => key.startsWith("thread:")).map((key) => key.slice(7)));
     if (reset) {
-      for (const key of source.keys) {
-        const row = this.rows.get(key);
-        if (row && !ids.has(row.threadId)) {
-          source.keys.delete(key);
-          this.order = undefined;
-          this.replace(key, undefined, changed);
-        }
-      }
+      const previousKeys = source.keys;
+      source.keys = new Set(
+        [...ids]
+          .filter((id) => store.thread(id) !== undefined)
+          .map((threadId) => machineThreadKey({ hostId: source.entry.hostId, threadId })),
+      );
+      // Replace order before notifying row observers so membership reads are coherent.
+      this.order = undefined;
+      for (const key of previousKeys)
+        if (!source.keys.has(key)) this.replace(key, undefined, changed);
     }
     let membership = reset;
     for (const threadId of ids) {
