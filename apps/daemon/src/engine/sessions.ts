@@ -1,3 +1,4 @@
+import { NativeSessionId } from "@ace/protocol";
 import { supportsPermissionMode } from "@ace/core";
 import { AcpIdentity } from "@ace/protocol";
 import type { SessionContext } from "@ace/engine-api";
@@ -10,7 +11,7 @@ import { z } from "zod";
 const SessionIdentity = z.strictObject({
   backend: z.enum(["acp", "cursor-sdk"]),
   instanceId: z.string().min(1).max(256),
-  nativeSessionId: z.string().min(1).max(512).optional(),
+  nativeSessionId: NativeSessionId.optional(),
 });
 
 interface SessionDependencies {

@@ -46,8 +46,7 @@
           "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
         "nativeSessionId": {
-          "maxLength": 128,
-          "type": "string"
+          "$ref": "https://ace.local/protocol/v1/NativeSessionId.json"
         },
         "provider": {
           "$ref": "https://ace.local/protocol/v1/AccountProvider.json"

@@ -7,8 +7,7 @@ import { acpEngineOptions } from "../acp-engine.ts";
 import { daemonClaudeAdapter } from "./claude.ts";
 import { registerPi } from "./pi.ts";
 import { AccountProvider } from "@ace/protocol/accounts";
-import { defaultCursorInstance } from "@ace/adapter-cursor";
-import { homedir } from "node:os";
+import { daemonCursorInstance } from "./cursor-instance.ts";
 import { bindCursorSdk, createInstance } from "@ace/accounts";
 import type { ProviderAdapter } from "@ace/engine-api";
 import { recoveryPorts, prepareQueuedInput } from "./recovery.ts";
@@ -23,8 +22,10 @@ export async function startEngine(context: ServiceContext): Promise<void> {
     return;
   }
   const engineOptions = options.engine ?? {};
+  const defaultInstance = daemonCursorInstance(context);
   const cursorOptions = {
     ...engineOptions.cursor,
+    instance: defaultInstance,
     slots: cursorHosts(context),
     mcp:
       engineOptions.cursor?.mcp ??
@@ -76,7 +77,6 @@ export async function startEngine(context: ServiceContext): Promise<void> {
       : {};
   const accounts = services.accounts;
   const accountRegistry = services.accountRegistry;
-  const defaultInstance = cursorOptions.instance ?? defaultCursorInstance(homedir());
   if (
     accounts &&
     accountRegistry &&

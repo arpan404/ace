@@ -1,4 +1,5 @@
 import { ProjectCloneUrl } from "@ace/protocol";
+import { hash } from "./decode.ts";
 import { GitCli, textOutput } from "./cli.ts";
 import { GitError } from "./types.ts";
 import { parseRemotes, parseWorktrees } from "./parse.ts";
@@ -114,8 +115,9 @@ export async function defaultBranch(
 export async function initRepository(
   cli: GitCli,
   cwd: string,
-  branch?: string,
-  directoryFd?: number,
+  branch: string | undefined,
+  directoryFd: number | undefined,
+  now: () => Date | Promise<Date>,
 ): Promise<void> {
   const selected = branch ?? (await initialBranch(cli, cwd, directoryFd));
   const checked = await cli.call(cwd, ["check-ref-format", "--branch", selected], {
@@ -128,6 +130,47 @@ export async function initRepository(
     write: true,
     directoryFd,
   });
+  const head = await cli.call(cwd, ["rev-parse", "--verify", "HEAD"], {
+    allowFailure: true,
+    directoryFd,
+  });
+  if (head.exitCode !== 0) {
+    // Use an empty tree, independent of staged templates or the user's Git identity.
+    const tree = hash(
+      textOutput(
+        await cli.call(cwd, ["hash-object", "-t", "tree", "-w", "--stdin"], {
+          input: "",
+          write: true,
+          directoryFd,
+        }),
+      ),
+    );
+    const timestamp = (await now()).toISOString();
+    const commit = hash(
+      textOutput(
+        await cli.call(
+          cwd,
+          ["-c", "commit.gpgsign=false", "commit-tree", tree, "-m", "Initialize ace project"],
+          {
+            write: true,
+            directoryFd,
+            env: {
+              GIT_AUTHOR_DATE: timestamp,
+              GIT_COMMITTER_DATE: timestamp,
+              GIT_AUTHOR_NAME: "ace",
+              GIT_AUTHOR_EMAIL: "ace@localhost",
+              GIT_COMMITTER_NAME: "ace",
+              GIT_COMMITTER_EMAIL: "ace@localhost",
+            },
+          },
+        ),
+      ),
+    );
+    await cli.call(cwd, ["update-ref", "HEAD", commit, "0".repeat(commit.length)], {
+      write: true,
+      directoryFd,
+    });
+  }
 }
 
 /** Branch and remotes without status, index refresh, untracked traversal or ahead/behind walks. */

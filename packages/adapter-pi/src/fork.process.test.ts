@@ -18,6 +18,7 @@ test.each([1, 3])(
     const source = sessionFixture(cwd, "native", version === 1 ? undefined : version);
     await writeFile(path, source);
     const adapterOptions: PiOptions = {
+      sessionReferenceDir: join(cwd, "references"),
       cli: {
         installed: true,
         path: "synthetic-pi",
@@ -121,6 +122,7 @@ test("unbounded or invalid native session headers fail before any cold process s
   const cwd = await mkdtemp(join(tmpdir(), "ace-pi-header-"));
   const path = join(cwd, "source.jsonl");
   const adapter = createPiAdapter({
+    sessionReferenceDir: join(cwd, "references"),
     runtime: {
       spawn() {
         throw new Error("must not launch");
@@ -144,7 +146,7 @@ test("cold forks reject excess concurrent work and release admission after failu
   const cwd = await mkdtemp(join(tmpdir(), "ace-pi-fork-cap-"));
   const path = join(cwd, "source.jsonl");
   await writeFile(path, "invalid header\n");
-  const adapter = createPiAdapter();
+  const adapter = createPiAdapter({ sessionReferenceDir: join(cwd, "references") });
   const input = { nativeSessionId: path, signal: new AbortController().signal };
   try {
     // Header I/O cannot resolve before these synchronous public admissions finish.

@@ -1,5 +1,8 @@
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { sessionFixture } from "./testing/native-history.ts";
 import { expect, test } from "vitest";
-import { unlink, writeFile, readFile } from "node:fs/promises";
+import { unlink, writeFile, readFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { sessionHarness } from "./testing/harness.ts";
 import { obj, str, list } from "./native.ts";
 const text = (value: string) => [{ type: "text" as const, text: value }];
@@ -195,3 +198,43 @@ test.each(["cycle", "oversized"])(
     }
   },
 );
+
+test("Pi identity stays short across long session paths and reopens after adapter restart", async () => {
+  const { ExecutionSource } = await import("@ace/protocol");
+  const root = await mkdtemp(join(tmpdir(), "ace-pi-long-path-"));
+  const home = join(root, "nested-session-path-".repeat(10));
+  await mkdir(home);
+  await writeFile(join(home, "source.jsonl"), sessionFixture(home, "native", 3));
+  const h = await sessionHarness({}, false, {}, home);
+  let reopened: Awaited<ReturnType<typeof sessionHarness>> | undefined;
+  try {
+    const saved = h.session.nativeSessionId;
+    expect(saved.length).toBeLessThanOrEqual(128);
+    expect(
+      ExecutionSource.parse({ nativeSessionId: saved, selection: { provider: "pi" } })
+        .nativeSessionId,
+    ).toBe(saved);
+    await h.session.close("idle");
+    reopened = await sessionHarness({}, saved, {}, h.home);
+    expect(reopened.session.nativeSessionId).toBe(saved);
+    expect(await context(reopened)).toBe(
+      "first question|first answer|second question|abandoned answer",
+    );
+  } finally {
+    await reopened?.dispose();
+    await h.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a fresh Pi session can acknowledge input before its first session file is flushed", async () => {
+  const h = await sessionHarness({}, false, { FAKE_PI_UNSAVED: "1" });
+  try {
+    expect(h.session.nativeSessionId.length).toBeLessThanOrEqual(128);
+    await expect(readFile(h.session.nativeSessionFile)).rejects.toMatchObject({ code: "ENOENT" });
+    await h.session.send(text("context-proof"), "queue");
+    await h.wait((frame) => frame.dir === "recv" && obj(frame.data).type === "message_end");
+  } finally {
+    await h.dispose();
+  }
+});

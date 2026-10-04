@@ -51,7 +51,7 @@ export class GitService {
     return cloneRepository(this.repository.cli, input, policy);
   }
   init(path: string, branch?: string, directoryFd?: number): Promise<void> {
-    return initRepository(this.repository.cli, path, branch, directoryFd);
+    return initRepository(this.repository.cli, path, branch, directoryFd, this.repository.now);
   }
   initialBranch(path: string): Promise<string> {
     return initialBranch(this.repository.cli, path);
