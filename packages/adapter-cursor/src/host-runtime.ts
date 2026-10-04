@@ -19,7 +19,7 @@ import { boundedCheckpointStore } from "./checkpoint-store.ts";
 import { CursorJournal } from "./journal.ts";
 import { recoverCursorCheckpoint } from "./recovery.ts";
 import { localPolicy, cursorRestrictedTools } from "./policy.ts";
-import { sdkFailure } from "./sdk-failure.ts";
+import { sdkFailure, safeCursorErrorMessage } from "./sdk-failure.ts";
 import { sdkInput } from "./sdk-input.ts";
 
 export type { SdkModule } from "./runtime-boundary.ts";
@@ -291,13 +291,12 @@ export class HostRuntime {
         );
       }
       return { agentId: this.agent.agentId };
-    } catch {
+    } catch (error) {
       await this.frame("error", {
         code: "setup_failed",
-        message:
-          "Cursor SDK setup failed. Check separate SDK sign-in, checkpoint identity/budget, sandbox helpers and Auto-review availability. Preserve unclaimed checkpoints and use explicit context handoff. Execution was not downgraded.",
+        message: `${safeCursorErrorMessage(error, process.env)} Preserve the checkpoint and inspect this thread before retrying.`,
       });
-      throw new Error("SDK setup failed");
+      throw new Error("SDK setup failed", { cause: error });
     } finally {
       this.opening = false;
     }
@@ -341,8 +340,7 @@ export class HostRuntime {
       await this.frame("error", {
         ...failure,
         code: failure.code ?? "send_uncertain",
-        message:
-          "SDK send did not establish a run identity. Delivery is uncertain; inspect this thread before submitting again.",
+        message: `${safeCursorErrorMessage(error, process.env)} Delivery may be uncertain; inspect this thread before submitting again.`,
       });
       throw new Error("SDK send uncertain", { cause: error });
     } finally {
@@ -353,7 +351,20 @@ export class HostRuntime {
     try {
       for await (const message of run.stream()) await this.frame("message", message, scope, run);
       const result = await run.wait();
-      await this.frame("result", result, scope, run);
+      await this.frame(
+        "result",
+        result.error
+          ? {
+              ...result,
+              error: {
+                ...result.error,
+                message: safeCursorErrorMessage(result.error.message, process.env),
+              },
+            }
+          : result,
+        scope,
+        run,
+      );
     } catch (error) {
       const failure = sdkFailure(this.sdk, error);
       try {
@@ -366,8 +377,7 @@ export class HostRuntime {
         {
           ...failure,
           code: failure.code ?? "runtime_failed",
-          message:
-            "Cursor SDK run failed or exceeded its transport budget; checkpoint retained. Cancellation and child work may be uncertain.",
+          message: `${safeCursorErrorMessage(error, process.env)} Checkpoint retained; cancellation and child work may be uncertain.`,
         },
         scope,
         run,

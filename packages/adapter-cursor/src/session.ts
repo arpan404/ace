@@ -119,8 +119,7 @@ export async function openCursorSession(
       ...(deliberate
         ? {}
         : {
-            message:
-              "Cursor SDK host exited; unresolved child/background work and pending delivery remain uncertain",
+            message: `${host.failureMessage ? host.failureMessage + " " : ""}Cursor SDK host exited; unresolved child/background work and pending delivery remain uncertain`,
           }),
     });
   });

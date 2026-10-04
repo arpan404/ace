@@ -19,6 +19,7 @@ export interface CursorTranslatorOptions {
 /** Synchronous pure fold. SDK generation/segment/order provenance is independent of message text. */
 export class CursorTranslator implements Translator {
   private root: Key;
+  private rootSeen = false;
   private generation: string | undefined;
   private operation: string | undefined;
   private segment = 0;
@@ -83,6 +84,7 @@ export class CursorTranslator implements Translator {
       const body = object(event.body);
       const namespace = `${event.generation}:${event.operationId}:${event.segment}`;
       if (event.kind === "open") {
+        this.rootSeen = true;
         this.cwd = string(body.cwd) ?? "";
         const model = string(body.model);
         return [
@@ -201,7 +203,7 @@ export class CursorTranslator implements Translator {
             "warning",
           ),
         ];
-      if (stale) {
+      if (stale && !(event.kind === "error" && event.operationId === "open" && !this.rootSeen)) {
         // Surviving child facts belong to their original call namespace, never the replacement root.
         if (event.kind === "delta" && body.type === "tool-call-completed") {
           const call = `${namespace}:call:${nativeIdentity(body.callId) ?? ""}`;
@@ -281,6 +283,14 @@ export class CursorTranslator implements Translator {
               event,
             ),
           ];
+          if (body.status === "error")
+            facts.push(
+              this.notice(
+                string(object(body.error).message) ?? "Cursor SDK run failed",
+                event,
+                "error",
+              ),
+            );
           if (this.replacement) return facts;
           this.active = false;
           const outcome =
@@ -306,7 +316,19 @@ export class CursorTranslator implements Translator {
           return facts;
         }
         case "error": {
-          const facts: Fact[] = [
+          const facts: Fact[] = [];
+          if (!this.rootSeen) {
+            this.rootSeen = true;
+            facts.push({
+              type: "agent.seen",
+              agent: this.root,
+              origin: "root",
+              fidelity: "full",
+              native: { provider: "cursor" },
+              cwd: this.cwd,
+            });
+          }
+          facts.push(
             ...this.tools.preserve(),
             ...this.children.preserve(),
             this.notice(
@@ -314,7 +336,7 @@ export class CursorTranslator implements Translator {
               event,
               "error",
             ),
-          ];
+          );
           if (this.active && !this.replacement) {
             this.active = false;
             facts.push({
