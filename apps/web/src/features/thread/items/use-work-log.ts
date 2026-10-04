@@ -1,15 +1,7 @@
-import { useItem } from "@ace/client-react";
-import {
-  describeStep,
-  summarizeWork,
-  workLogHeadline,
-  type StepText,
-  type WorkLogHeadline,
-} from "@ace/ui-core";
-import type { Item } from "@ace/protocol";
-import { useChangesStat } from "@/lib/diffs/use-file-diffs.ts";
+import { summarizeWork, workLogHeadline, type WorkLogHeadline } from "@ace/ui-core";
 import { useTicker } from "../lib/clock.ts";
 import { flatEqual, useItemsSelect } from "../lib/use-items.ts";
+import { useStepDisplay } from "./use-step-display.ts";
 
 /**
  * A work log's headline, live: re-renders when one of its items changes the summary, and every
@@ -27,17 +19,8 @@ export function useWorkLog(
   return summary ? workLogHeadline(summary, now) : undefined;
 }
 
-/** One work-log step: the item for its detail and how its row reads. */
-export function useToolStep(
-  threadId: string,
-  itemId: string,
-): { item: Item; step: StepText; awaiting: boolean } | undefined {
-  const item = useItem(threadId, itemId);
-  const described = item && describeStep(item);
-  // A full-text edit's stat is a text diff, counted in the diff worker rather than here.
-  const counted = useChangesStat(described?.diffFor);
-  if (!item || !described) return undefined;
-  const awaiting = item.type === "tool_call" && item.call.status === "awaiting_approval";
-  const step = counted ? { ...described, ...counted } : described;
-  return { item, step, awaiting };
-}
+/**
+ * One work-log step: the item for its detail and how its row reads. The row's wording (paths,
+ * commands, approvals, failures) is WP2's step display.
+ */
+export const useToolStep = useStepDisplay;

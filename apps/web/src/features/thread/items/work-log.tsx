@@ -51,7 +51,7 @@ export function ToolStep(props: { threadId: string; itemId: string }) {
       {open && (
         <div id={panel} className="mt-1 mb-2 pl-6">
           <Suspense fallback={null}>
-            <StepDetail item={data.item} />
+            <StepDetail item={data.item} threadId={props.threadId} />
           </Suspense>
         </div>
       )}
