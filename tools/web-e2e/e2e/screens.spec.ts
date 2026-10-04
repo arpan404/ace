@@ -133,7 +133,8 @@ const screens: Record<string, Setup> = {
   // The same line comment, after switching the diff to Split.
   "thread-changes-split": async (page) => {
     await screens["thread-changes"]?.(page);
-    await page.getByRole("button", { name: "Split" }).click();
+    await page.getByRole("button", { name: /^Diff layout/ }).click();
+    await page.getByRole("menuitemradio", { name: /^Split/ }).click();
     await page.getByRole("article", { name: /Comment on line/ }).waitFor();
   },
   // The same hero state as `thread`, queued message included, with the Agents tab open.
@@ -191,6 +192,10 @@ const screens: Record<string, Setup> = {
     await rightTab("/t/thread-install-page", "Devices")(page);
     const panel = page.getByRole("region", { name: "Thread panel" });
     await panel.getByRole("button", { name: "Enable devices" }).click();
+    await panel
+      .getByRole("list", { name: "Devices" })
+      .getByRole("button", { name: /iPhone 16 Pro/ })
+      .click();
     const phone = panel.getByRole("region", { name: "iPhone 16 Pro" });
     await phone.getByRole("button", { name: "Start live view" }).click();
     await phone.getByRole("img", { name: "iPhone 16 Pro screen" }).waitFor();

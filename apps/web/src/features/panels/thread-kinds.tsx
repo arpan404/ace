@@ -87,6 +87,14 @@ export const devicesKind = defineTabKind({
   load: () => import("./devices-view.tsx").then((m) => ({ default: m.DevicesView })),
 });
 
+/** One simulator or emulator (id: the device's), opened from the Devices catalog. */
+export const deviceKind = defineTabKind({
+  kind: "device",
+  label: "Device",
+  icon: DeviceMobileIcon,
+  load: () => import("./devices-view.tsx").then((m) => ({ default: m.DeviceView })),
+});
+
 export const agentsKind = defineTabKind({
   kind: "agents",
   label: "Agents",
@@ -141,6 +149,7 @@ export const threadKinds: readonly TabKind[] = [
   sideChatKind,
   previewKind,
   devicesKind,
+  deviceKind,
   agentsKind,
   logsKind,
   agentKind,

@@ -49,13 +49,13 @@ export interface DevicesView {
 }
 
 /**
- * The Devices panel for one thread: the channel, the device list, the selected device and what
- * can be done with it. Every action is one request; a refusal shows its message and hint.
+ * Devices for one thread: the channel, the device list and, with `deviceId`, that one device
+ * and what can be done with it (a device's own tab). Every action is one request; a refusal
+ * shows its message and hint.
  */
-export function useDevices(threadId: string) {
+export function useDevices(threadId: string, deviceId?: string) {
   const { endpoint } = useDaemonConnection();
   const { session, snapshot, reconnect } = useDeviceSession(endpoint);
-  const [chosen, choose] = useState<string | undefined>();
   const [enabledLocally, setEnabled] = useState<boolean | undefined>();
   const [pending, setPending] = useState(0);
   const [failed, setFailed] = useState<DeviceProblem | undefined>();
@@ -71,7 +71,7 @@ export function useDevices(threadId: string) {
   }, [session, connected]);
 
   const rows = deviceRows(snapshot.devices, snapshot.states);
-  const selected = rows.find((row) => row.id === chosen) ?? rows[0];
+  const selected = deviceId === undefined ? undefined : rows.find((row) => row.id === deviceId);
   const state = snapshot.states.find((entry) => entry.device.id === selected?.id);
   const device = state?.device ?? snapshot.devices.find((entry) => entry.id === selected?.id);
   const enabled = snapshot.states.length
@@ -135,7 +135,6 @@ export function useDevices(threadId: string) {
   return {
     view,
     reconnect,
-    choose,
     enable: (on: boolean) =>
       act(async () => {
         setEnabled(enabledResult(await run({ op: "enable", enabled: on })));
