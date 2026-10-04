@@ -99,6 +99,14 @@ test("a blocked worker and offline host cannot stall another machine; reconnect 
   await f.pool.add(paired("fast"));
   for (const host of f.pool.ids)
     await wait(f.pool.status(host), (state) => state?.status === "online");
+  expect((await f.pool.create("slow", create("still-running"))).ok).toBe(true);
+  await wait(
+    f.pool.threads.select(
+      [`thread:${key("slow", "still-running")}`],
+      (store) => store.thread(key("slow", "still-running"))?.thread.status.state,
+    ),
+    (state) => state === "working",
+  );
   await f.control("slow", "block");
   expect((await bounded(f.pool.create("fast", create("while-blocked")), 1000)).ok).toBe(true);
   await f.control("slow", "offline");
@@ -106,7 +114,9 @@ test("a blocked worker and offline host cannot stall another machine; reconnect 
   expect((await bounded(f.pool.create("fast", create("while-offline")), 1000)).ok).toBe(true);
   f.pool.networkOnline("slow", false);
   await wait(f.pool.status("slow"), (state) => state?.status === "offline");
-  expect(f.pool.threads.thread(key("slow"))?.thread.status).toBeDefined();
+  expect(f.pool.threads.thread(key("slow", "still-running"))?.thread.status).toMatchObject({
+    state: "working",
+  });
   await f.control("slow", "online");
   f.pool.networkOnline("slow", true);
   await wait(f.pool.status("slow"), (state) => state?.status === "online");
