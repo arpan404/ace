@@ -34,6 +34,8 @@ export const CatalogModel = z
     isDefault: z.boolean(),
     hidden: z.boolean(),
     deprecated: z.boolean(),
+    /** The provider marks the model as newly released; pickers badge it. */
+    isNew: z.boolean().optional(),
     raw: z.object({
       json: z
         .string()

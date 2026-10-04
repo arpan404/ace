@@ -38,7 +38,7 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
     <div role="group" aria-label={`Background task ${command}`} className="@container">
       {/* One line: the command gives way with an ellipsis. Phone-narrow, the label and Stop keep
           the first line and the command takes the second. */}
-      <div className="-mx-1.5 flex min-h-7 items-center gap-x-2 gap-y-0.5 rounded-[7px] px-1.5 text-[13.5px] text-muted-foreground @max-[360px]:flex-wrap">
+      <div className="-mx-1.5 flex min-h-7 items-center gap-x-2 gap-y-0.5 rounded-sm px-1.5 text-[13.5px] text-muted-foreground @max-[360px]:flex-wrap">
         <span className="flex shrink-0 items-center gap-2">
           <TerminalIcon aria-hidden size={16} className="shrink-0 text-subtle-foreground" />
           {ended[task.status]}

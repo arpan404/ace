@@ -1,6 +1,15 @@
 import { EventEmitter } from "node:events";
 import { Worker, type WorkerOptions, type Transferable } from "node:worker_threads";
 
+/** Node watch-mode infrastructure shares the worker message channel with application RPC. */
+export function isWorkerRuntimeMessage(input: unknown): boolean {
+  return (
+    typeof input === "object" &&
+    input !== null &&
+    ("watch:import" in input || "watch:require" in input)
+  );
+}
+
 export interface IdleWorkerRuntime {
   spawn(entry: URL, options: WorkerOptions): WorkerPort;
   delay(callback: () => void, milliseconds: number): () => void;
@@ -52,7 +61,7 @@ export class IdleWorker extends EventEmitter {
     const worker = this.runtime.spawn(this.entry, this.options);
     this.worker = worker;
     worker.on("message", (input: unknown) => {
-      if (this.worker === worker) this.emit("message", input);
+      if (this.worker === worker && !isWorkerRuntimeMessage(input)) this.emit("message", input);
     });
     worker.on("error", (error: Error) => {
       if (this.worker === worker) this.emit("error", error);

@@ -1,3 +1,4 @@
+import { ProvidersRequest, ProvidersResult } from "./provider-status.ts";
 import {
   ProjectsRequest,
   ProjectsResult,
@@ -128,6 +129,7 @@ export const ClientMessage = z.discriminatedUnion("type", [
   ThreadCatchUpRequest,
   ThreadReadStateRequest,
   MachinesRequest,
+  ProvidersRequest,
   PreviewRequest,
   ConductorRequest,
   ...AutomationRequest.options,
@@ -183,6 +185,7 @@ export const ServerMessage = z.discriminatedUnion("type", [
   ThreadCatchUpResponse,
   ThreadReadStateResponse,
   MachinesResult,
+  ProvidersResult,
   PreviewResult,
   ConductorResult,
   ConductorChanged,

@@ -30,6 +30,7 @@ import type { CommandHandler } from "./commands.ts";
 import type { PressureOptions } from "./outbox.ts";
 import type { Store } from "./store.ts";
 export interface ServerOptions {
+  providerStatuses?: import("./provider-status.ts").ProviderStatuses;
   previewClient?: import("./preview-client.ts").PreviewClient;
   conductor?: import("./conductor-runtime.ts").ConductorRuntime;
   automations?: Pick<import("@ace/automations").AutomationService, "handle">;

@@ -1,3 +1,4 @@
+import { startProviderStatuses } from "./provider-status.ts";
 import { startProjects } from "./projects.ts";
 import { startCursorAuth } from "./cursor-auth.ts";
 import { startPreviewClient } from "./preview-client.ts";
@@ -32,6 +33,13 @@ import type { ServiceDefinition } from "./startup.ts";
 export const serviceFactories: readonly ServiceDefinition[] = [
   { name: "screen", phase: "core", requires: [], after: [], start: startScreen },
   { name: "accounts", phase: "core", requires: [], after: [], start: startAccounts },
+  {
+    name: "providerStatuses",
+    phase: "core",
+    requires: [],
+    after: ["accounts"],
+    start: startProviderStatuses,
+  },
   { name: "commands", phase: "core", requires: ["accounts"], after: [], start: startCommands },
   { name: "files", phase: "core", requires: [], after: [], start: startFiles },
   { name: "devices", phase: "core", requires: [], after: ["screen", "files"], start: startDevices },

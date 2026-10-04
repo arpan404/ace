@@ -103,7 +103,6 @@ export function Composer({
   const placeCaret = useRef<number | undefined>(undefined);
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
-  const shell = useRef<HTMLDivElement>(null);
   const listId = useId();
   const addMenu = useRef<{ open(): void }>(null);
   useImperativeHandle(ref, () => ({ openAdd: () => addMenu.current?.open() }));
@@ -113,7 +112,9 @@ export function Composer({
   );
   const found = triggerAt(text, caret);
   const trigger: Trigger | undefined = found && found.start !== dismissed ? found : undefined;
-  const suggestions = useSuggestions(props.thread, trigger);
+  const suggestions = useSuggestions(props.thread, trigger, () =>
+    recentFiles(storage, props.thread.workspaceId),
+  );
   const items = suggestions.state === "ready" ? suggestions.items : [];
   // The highlight resets whenever the token being completed changes.
   const listKey = trigger ? `${trigger.kind}:${trigger.start}:${trigger.query}` : "";
@@ -251,7 +252,6 @@ export function Composer({
         </Suspense>
       )}
       <div
-        ref={shell}
         data-slot="composer"
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
@@ -305,7 +305,7 @@ export function Composer({
             event.preventDefault();
             input.current?.focus();
           }}
-          className="mb-1 flex h-10 items-center gap-2 px-2"
+          className="mb-1 flex h-10 items-center gap-1 px-2"
         >
           <AddButton
             handle={addMenu}
@@ -316,22 +316,15 @@ export function Composer({
               command:
                 off ?? (text.trim() ? "Commands go at the start of an empty message" : undefined),
             }}
-            recent={() => recentFiles(storage, props.thread.workspaceId)}
             focusTarget={input}
             onFiles={attachments.add}
             onMention={() => edit(insertAt(text, caret, "@"))}
             onCommand={() => edit({ text: "/", caret: 1 })}
-            onRecent={(path) => {
-              mention(path);
-              edit(insertAt(text, caret, `@${path} `));
-            }}
             onInsert={(inserted) => edit(insertAt(text, caret, inserted))}
             thread={props.thread.draft ? undefined : props.thread}
-            anchor={shell}
-            width={width}
             unavailable={props.unavailable}
           />
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-1">
             <ComposerCompact value={compact}>{props.controls}</ComposerCompact>
           </div>
           {props.status}

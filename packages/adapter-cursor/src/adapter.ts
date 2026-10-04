@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ProviderAdapter, SessionContext, ProviderSession } from "@ace/engine-api";
 import type { AceMcpConnection } from "@ace/mcp-server";
-import { cursorCapabilities } from "./policy.ts";
+import { cursorCapabilitiesForSandbox } from "./policy.ts";
 import { cursorSdkEnvironment, CursorInstance, defaultCursorInstance } from "./instance.ts";
 import { openCursorSession } from "./session.ts";
 import { discoverCursorSdk, type HostOptions } from "./host.ts";
@@ -40,7 +40,7 @@ export function createCursorAdapter(
   return {
     provider: "cursor",
     backend: "cursor-sdk",
-    capabilities: () => cursorCapabilities,
+    capabilities: () => cursorCapabilitiesForSandbox(options.autoReviewAvailable ?? false),
     createTranslator: (init) =>
       new CursorTranslator({
         ...init,

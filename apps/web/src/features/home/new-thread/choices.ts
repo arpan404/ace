@@ -14,10 +14,13 @@ export type WorkMode = z.infer<typeof WorkMode>;
 /** What the next thread starts with. The last choices are remembered on this device. */
 export const Choices = z.object({
   project: z.string().min(1).optional().catch(undefined),
+  /** The picked model option's `key`. */
   model: z.string().min(1).optional().catch(undefined),
   account: z.string().min(1).optional().catch(undefined),
   mode: WorkMode.optional().catch(undefined),
   effort: z.string().min(1).optional().catch(undefined),
+  /** Run on the model's faster tier, where it has one. */
+  fast: z.boolean().optional().catch(undefined),
 });
 export type Choices = z.infer<typeof Choices>;
 
@@ -29,10 +32,14 @@ export const saveChoices = (storage: KeyValueStorage | undefined, choices: Choic
 
 export interface Resolved {
   model: ModelOption | undefined;
+  /** The option key to save in place of a legacy bare model id the choice matched. */
+  upgradedModel?: string | undefined;
   account: AccountOption | undefined;
   mode: WorkMode;
   /** One of the model's efforts: the chosen one, else the model's default. */
   effort: string | undefined;
+  /** On the model's faster tier: as chosen, else as the catalog runs it by default. */
+  fast: boolean;
 }
 
 /**
@@ -47,8 +54,16 @@ export function resolve(
 ): Resolved {
   const models = options?.models ?? [];
   const own = provider === undefined ? models : models.filter((m) => m.provider === provider);
+  const saved = own.find((m) => m.key === choices.model);
+  // Choices saved before option keys hold a bare native id. Providers share ids, so only the
+  // selected provider's options may claim one.
+  const legacy =
+    saved || provider === undefined || choices.model === undefined
+      ? undefined
+      : own.find((m) => m.id === choices.model);
   const model =
-    own.find((m) => m.id === choices.model) ??
+    saved ??
+    legacy ??
     own.find((m) => m.isDefault) ??
     own[0] ??
     models.find((m) => m.isDefault) ??
@@ -65,7 +80,14 @@ export function resolve(
       : model?.defaultEffort && efforts.includes(model.defaultEffort)
         ? model.defaultEffort
         : undefined;
-  return { model, account, mode: choices.mode ?? "worktree", effort };
+  return {
+    model,
+    account,
+    mode: choices.mode ?? "worktree",
+    effort,
+    fast: model?.fastTier !== undefined && (choices.fast ?? model.fastDefault),
+    ...(legacy ? { upgradedModel: legacy.key } : {}),
+  };
 }
 
 /**

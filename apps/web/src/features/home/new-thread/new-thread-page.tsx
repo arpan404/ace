@@ -18,6 +18,7 @@ import { useStartingProvider } from "@/lib/provider-statuses.ts";
 import { ProjectsEmptyState } from "@/features/projects/index.ts";
 import { useOrganizerState } from "@/features/organize/index.ts";
 import { WorkspaceId } from "@ace/protocol";
+import { speedOffTier } from "@ace/ui-core";
 import { loadChoices, pickProject, resolve, saveChoices, type Choices } from "./choices.ts";
 import { ContextBar } from "./context-bar.tsx";
 import { ModelPicker } from "./model-picker.tsx";
@@ -68,6 +69,12 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     setChoices(next);
     saveChoices(storage, next);
   };
+  // A model remembered as a bare id (before option keys) is saved under its option key, again
+  // after any later choice saves the bare id it still holds.
+  const upgraded = resolved.upgradedModel;
+  useEffect(() => {
+    if (upgraded !== undefined) saveChoices(storage, { ...choices, model: upgraded });
+  }, [upgraded, choices, storage]);
   // Mentions, uploads and slash commands go to a draft scope on the daemon before the thread
   // exists; the new thread adopts it. A draft ref's id is that scope.
   const scope = useDraftScope(project);
@@ -95,6 +102,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
       mode: resolved.mode,
       baseBranch: base,
       effort: resolved.effort,
+      serviceTier: resolved.fast ? resolved.model.fastTier : speedOffTier(resolved.model),
       permission: chosen,
       text: draft.text.trim() || "See the attached files.",
       context: {
@@ -130,6 +138,18 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
             placeholder="Describe the change, a bug, or a question. @ to mention a file"
             controls={
               <>
+                <ModelPicker
+                  options={options}
+                  resolved={resolved}
+                  onModel={(model) => {
+                    setPicked(options?.models.find((m) => m.key === model)?.provider);
+                    choose({ model, account: undefined, effort: undefined, fast: undefined });
+                  }}
+                  onAccount={(account) => choose({ account })}
+                  onEffort={(effort) => choose({ effort })}
+                  onFast={(fast) => choose({ fast })}
+                  onReset={() => choose({ effort: undefined, fast: undefined })}
+                />
                 <PermissionPicker
                   mode={chosen ?? defaultMode}
                   capabilities={permissions.capabilities}
@@ -142,16 +162,6 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                   }
                   inherited={!chosen}
                   onChange={(mode) => setPermission(mode ?? undefined)}
-                />
-                <ModelPicker
-                  options={options}
-                  resolved={resolved}
-                  onModel={(model) => {
-                    setPicked(options?.models.find((m) => m.id === model)?.provider);
-                    choose({ model, account: undefined, effort: undefined });
-                  }}
-                  onAccount={(account) => choose({ account })}
-                  onEffort={(effort) => choose({ effort })}
                 />
               </>
             }

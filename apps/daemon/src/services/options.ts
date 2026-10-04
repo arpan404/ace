@@ -20,6 +20,7 @@ export type DaemonOptions = {
     import("../account-management.ts").AccountManagementOptions,
     "env" | "discovery" | "terminal"
   >;
+  providerStatus?: import("../provider-status.ts").ProviderStatusOptions;
   /** Local metadata process boundary, never accepted from socket clients. */
   modelDiscovery?: import("@ace/models").DiscoveryOptions;
   conductor?: import("../conductor-runtime.ts").ConductorRuntimeOptions;

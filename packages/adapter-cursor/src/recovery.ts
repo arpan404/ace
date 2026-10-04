@@ -21,7 +21,7 @@ const DurableEvent = z.object({
 export async function recoverCursorCheckpoint(
   sdk: { Agent: Pick<SdkModule["Agent"], "cancelRun"> },
   store: LocalAgentStore,
-  options: OpenOptions,
+  options: Omit<OpenOptions, "readOnly"> & { readOnly?: boolean },
   emit: (kind: string, body: unknown, runId?: string, observeOffset?: string) => Promise<void>,
   afterObserve: (runId: string) => string | undefined = () => undefined,
 ): Promise<string | undefined> {

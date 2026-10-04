@@ -108,6 +108,7 @@ export class FakeDaemon implements Host {
   private outputs = new FakeOutputStore();
   private longThreads: FakeLongThreadWire;
   private faults = new Map<string, "fail" | "hold">();
+  private refusals = new Map<string, string>();
   private refusing = false;
   /** Review mode sessions and comments; sent comments arrive in the thread as a user message. */
   readonly review: FakeReviewDesk;
@@ -475,9 +476,14 @@ export class FakeDaemon implements Host {
   failDeck(runId: string, code: string): void {
     this.servicesWire.failDeck(runId, code);
   }
-  /** Serve every request again. */
+  /** Refuse every command of these types with `error`, as a daemon that won't run them would. */
+  refuseCommands(error: string, ...types: Command["payload"]["type"][]): void {
+    for (const type of types) this.refusals.set(type, error);
+  }
+  /** Serve every request and accept every command again. */
   restoreRequests(): void {
     this.faults.clear();
+    this.refusals.clear();
   }
   fault(type: ClientMessage["type"]): "fail" | "hold" | undefined {
     return this.faults.get(type);
@@ -656,6 +662,8 @@ export class FakeDaemon implements Host {
       return previous.deviceId === command.deviceId
         ? previous.result
         : { commandId: command.id, ok: false, error: "forbidden" };
+    const refusal = this.refusals.get(command.payload.type);
+    if (refusal) return { commandId: command.id, ok: false, error: refusal };
     let result: CommandResult;
     try {
       result = this.execute(command);

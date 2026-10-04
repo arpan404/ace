@@ -1,118 +1,102 @@
-import { accountTag, providerNames } from "@ace/ui-core";
 import {
-  Menu,
-  MenuContent,
-  MenuGroup,
-  MenuLabel,
-  MenuRadioGroup,
-  MenuRadioItem,
-  MenuSeparator,
-  MenuTrigger,
-} from "@/components/ui/menu.tsx";
-import { Tip } from "@/components/ui/tooltip.tsx";
-import { EffortSection, ModelChipLabel, ProviderLabel } from "@/features/models/index.ts";
+  accountTag,
+  modelControlName,
+  pickerProviders,
+  providerNames,
+  speedControl,
+  speedOffTier,
+  type PickerModel,
+} from "@ace/ui-core";
+import { ModelControl, type ModelControlView } from "@/features/models/index.ts";
 import { composerChip, useComposerCompact } from "@/features/thread/index.ts";
-import { cn } from "@/lib/cn.ts";
+import { useProviderStatuses } from "@/lib/provider-statuses.ts";
 import type { NewThreadOptions, Resolved } from "./choices.ts";
 
 /**
- * Model, account and effort in one footer chip ("◆ Opus 4.6 personal high ▾"), the same chip
- * the thread's composer shows. Models are grouped by provider; the account list follows the
- * chosen model's provider, each with how much quota it has left, and the efforts are the
- * chosen model's.
+ * New thread's model chip, the same one the thread's composer shows: model and effort on the
+ * chip; effort, speed, the account and the model picker in its popover.
  */
 export function ModelPicker(props: {
   options: NewThreadOptions | undefined;
   resolved: Resolved;
-  onModel(id: string): void;
+  /** Called with the option's `key`, which tells apart providers that share a model id. */
+  onModel(key: string): void;
   onAccount(id: string): void;
-  onEffort(effort: string): void;
+  onEffort(effort: string | undefined): void;
+  onFast(on: boolean): void;
+  onReset(): void;
 }) {
-  const { model, account, effort } = props.resolved;
-  const efforts = model?.efforts ?? [];
-  const providers = [...new Set(props.options?.models.map((m) => m.provider) ?? [])];
-  const accounts = props.options?.accounts.filter((a) => a.provider === model?.provider) ?? [];
-  const tag = account ? accountTag(account.label) : undefined;
+  const { model, account, effort, fast } = props.resolved;
   const compact = useComposerCompact();
+  const statuses = useProviderStatuses();
   // Discovery found no provider CLI: say so rather than waiting for models that won't come.
   const none = props.options !== undefined && props.options.models.length === 0;
   const empty = none ? "No provider CLI installed" : "Loading models…";
+  const tag = account ? accountTag(account.label) : undefined;
+  const efforts = model?.efforts ?? [];
+  const speed = speedControl({
+    model: model && {
+      label: model.label,
+      provider: model.provider,
+      fastTier: model.fastTier,
+      fastDefault: model.fastDefault,
+    },
+    current: fast ? model?.fastTier : speedOffTier(model),
+  });
+  const name = model
+    ? modelControlName({
+        model: model.label,
+        account: tag,
+        effort,
+        hasEfforts: efforts.length > 0,
+        fast: speed.on,
+      })
+    : undefined;
+  const models: PickerModel[] = (props.options?.models ?? []).map((option) => ({
+    key: option.key,
+    provider: option.provider,
+    label: option.label,
+    isNew: option.isNew,
+    legacy: option.legacy,
+  }));
+  const view: ModelControlView = {
+    provider: model?.provider,
+    label: model?.label,
+    placeholder: empty,
+    ariaLabel: `Model: ${name ?? (none ? "no provider installed" : "loading")}`,
+    tip: model ? [providerNames[model.provider], name].join(" · ") : empty,
+    disabled: !model,
+    modelKey: model?.key,
+    efforts,
+    defaultStop: model?.defaultEffort === undefined,
+    effort,
+    effortDefault: false,
+    effortReason: model && !efforts.length ? `${model.label} has no effort levels` : undefined,
+    fast: speed.on,
+    fastReason: speed.reason,
+    canReset: effort !== model?.defaultEffort || speed.on !== !!model?.fastDefault,
+    accounts: (props.options?.accounts ?? [])
+      .filter((option) => option.provider === model?.provider)
+      .map((option) => ({ id: option.id, label: accountTag(option.label), detail: option.usage })),
+    account: account?.id,
+    models,
+    providers: pickerProviders(models, statuses.data ?? []),
+  };
   return (
-    <Menu>
-      <Tip
-        label={
-          model
-            ? [providerNames[model.provider], model.label, tag, effort].filter(Boolean).join(" · ")
-            : empty
-        }
-        side="top"
-      >
-        <MenuTrigger
-          disabled={!model}
-          aria-label={`Model: ${model?.label ?? (none ? "no provider installed" : "loading")}${tag ? `, account ${tag}` : ""}${effort ? `, ${effort} effort` : ""}`}
-          className={cn(composerChip, "max-w-64")}
-        >
-          {model ? (
-            <ModelChipLabel
-              provider={model.provider}
-              model={model.label}
-              account={tag}
-              effort={effort}
-              compact={compact}
-            />
-          ) : (
-            <span className="truncate">{empty}</span>
-          )}
-        </MenuTrigger>
-      </Tip>
-      <MenuContent align="start" side="top" className="max-h-[60vh] w-[320px] overflow-y-auto">
-        <MenuRadioGroup value={model?.id ?? ""} onValueChange={(id) => props.onModel(String(id))}>
-          {providers.map((provider, index) => (
-            <MenuGroup key={provider}>
-              {index > 0 && <MenuSeparator />}
-              <ProviderLabel provider={provider} />
-              {props.options?.models
-                .filter((m) => m.provider === provider)
-                .map((m) => (
-                  <MenuRadioItem key={m.id} value={m.id}>
-                    {m.label}
-                  </MenuRadioItem>
-                ))}
-            </MenuGroup>
-          ))}
-        </MenuRadioGroup>
-        {accounts.length > 0 && (
-          <>
-            <MenuSeparator />
-            <MenuGroup>
-              <MenuLabel>Account</MenuLabel>
-              <MenuRadioGroup
-                value={account?.id ?? ""}
-                onValueChange={(id) => props.onAccount(String(id))}
-              >
-                {accounts.map((a) => (
-                  <MenuRadioItem
-                    key={a.id}
-                    value={a.id}
-                    aria-label={`Account ${accountTag(a.label)}`}
-                  >
-                    <span className="flex items-center gap-3">
-                      {accountTag(a.label)}
-                      <span className="ml-auto text-xs text-subtle-foreground">{a.usage}</span>
-                    </span>
-                  </MenuRadioItem>
-                ))}
-              </MenuRadioGroup>
-            </MenuGroup>
-          </>
-        )}
-        <EffortSection
-          efforts={efforts}
-          value={effort}
-          reason={undefined}
-          onChange={props.onEffort}
-        />
-      </MenuContent>
-    </Menu>
+    <ModelControl
+      view={view}
+      className={composerChip}
+      compact={compact}
+      actions={{
+        onEffort: props.onEffort,
+        onFast: props.onFast,
+        onReset: props.onReset,
+        onModel: (key) => {
+          props.onModel(key);
+          return true;
+        },
+        onAccount: props.onAccount,
+      }}
+    />
   );
 }

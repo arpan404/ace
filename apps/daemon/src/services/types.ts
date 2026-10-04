@@ -28,6 +28,7 @@ import type { startServer } from "../server.ts";
 import type { DaemonOptions } from "./options.ts";
 import type { Resources } from "./resources.ts";
 export interface Services {
+  providerStatuses?: import("../provider-status.ts").ProviderStatuses;
   previewClient?: import("../preview-client.ts").PreviewClient;
   conductor?: import("../conductor-runtime.ts").ConductorRuntime;
   automations?: import("@ace/automations").AutomationService;

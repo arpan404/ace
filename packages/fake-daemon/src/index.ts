@@ -49,7 +49,7 @@ export type { ServicesSeed } from "./services-wire.ts";
 export type { FakePlugin, FakePluginComponent, PluginSeed } from "./plugins-wire.ts";
 export { accountList } from "./catalog/accounts.ts";
 export type { FakeAccount, FakeQuotaWindow } from "./catalog/accounts.ts";
-export { usageReport } from "./catalog/usage.ts";
+export { FakeUsage, type UsageSessionTotal, type UsageSource } from "./catalog/usage.ts";
 export { searchThreads } from "./catalog/search.ts";
 export type { FakeSearchHit, FakeSearchKind } from "./catalog/search.ts";
 export { settingsFixture } from "./scenarios/settings.ts";

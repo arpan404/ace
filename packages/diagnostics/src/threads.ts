@@ -1,3 +1,4 @@
+import { isWorkerRuntimeMessage } from "@ace/provider-kit/idle-worker";
 const noop = () => {};
 import { Worker } from "node:worker_threads";
 import type { LogWorkerRuntime } from "./worker-sink.ts";
@@ -26,6 +27,7 @@ export async function* recentThreadEvents(
     pending?.reject(failure);
   });
   worker.on("message", (input: unknown) => {
+    if (isWorkerRuntimeMessage(input)) return;
     pending?.resolve(input);
     pending = undefined;
   });
