@@ -9,7 +9,7 @@ export function testHomeEnvironment(
   ambient: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
   assertTestHomeIsolation(home, realHome);
-  const env = isolatedTestEnvironment(parseTestEnvironment(ambient), home, realHome);
+  const env = isolatedTestEnvironment(parseTestEnvironment({ ...ambient }), home, realHome);
   for (const name of [
     "HOME",
     "ACE_HOME",
