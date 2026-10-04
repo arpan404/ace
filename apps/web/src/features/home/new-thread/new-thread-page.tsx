@@ -68,6 +68,12 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
     setChoices(next);
     saveChoices(storage, next);
   };
+  // A model remembered as a bare id (before option keys) is saved under its option key, again
+  // after any later choice saves the bare id it still holds.
+  const upgraded = resolved.upgradedModel;
+  useEffect(() => {
+    if (upgraded !== undefined) saveChoices(storage, { ...choices, model: upgraded });
+  }, [upgraded, choices, storage]);
   // Mentions, uploads and slash commands go to a draft scope on the daemon before the thread
   // exists; the new thread adopts it. A draft ref's id is that scope.
   const scope = useDraftScope(project);
@@ -147,7 +153,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                   options={options}
                   resolved={resolved}
                   onModel={(model) => {
-                    setPicked(options?.models.find((m) => m.id === model)?.provider);
+                    setPicked(options?.models.find((m) => m.key === model)?.provider);
                     choose({ model, account: undefined, effort: undefined });
                   }}
                   onAccount={(account) => choose({ account })}
