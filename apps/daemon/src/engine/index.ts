@@ -1,3 +1,4 @@
+import { nameWorktreeBranch } from "./worktree-title.ts";
 import { CreationAdmissions, type CreationAdmission } from "./creation-admissions.ts";
 import { validateCreation } from "./creation-validation.ts";
 import { workspaceDirectory } from "./workspace-directory.ts";
@@ -173,7 +174,10 @@ export class Engine {
       sessions: this.sessions,
       recovery: this.recovery,
       prepareInput: options.prepareInput,
-      beforeSend: options.beforeSend,
+      beforeSend: async (threadId, commandId) => {
+        await nameWorktreeBranch(this.repo.store, threadId, this.clock.now());
+        await options.beforeSend?.(threadId, commandId);
+      },
       transitions: this.transitions,
       invalidateContext: (id) => this.meters.invalidate(id, this.clock.now()),
       releaseGuards: (intent) => {
