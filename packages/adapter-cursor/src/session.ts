@@ -6,6 +6,7 @@ import { ProviderPayload } from "@ace/provider-kit/payload";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import type { AceMcpConnection } from "@ace/mcp-server";
 import { CursorHost, type HostOptions } from "./host.ts";
+import { cursorCapabilitiesForSandbox } from "./policy.ts";
 import { Limits, type CursorLimits } from "./contracts.ts";
 
 export interface CursorSessionOptions extends HostOptions {
@@ -62,6 +63,12 @@ export async function openCursorSession(
     { ...options, ...(context.outputFlow ? { outputFlow: context.outputFlow } : {}) },
     async (data, payload) => {
       if (data.boundaryOffset) seq = data.boundaryOffset * 1024 - 1;
+      if (data.kind === "open") {
+        const support = z.object({ sandboxSupported: z.boolean() }).safeParse(data.body);
+        context.onCapabilities?.(
+          cursorCapabilitiesForSandbox(support.success && support.data.sandboxSupported),
+        );
+      }
       if (data.kind === "open" && data.agentId)
         context.onSessionIdentity?.({
           backend: "cursor-sdk",
@@ -149,6 +156,7 @@ export async function openCursorSession(
               ? "restricted"
               : (context.runtimePolicy ?? options.policy ?? "restricted"),
         autoReviewAvailable: options.autoReviewAvailable ?? false,
+        readOnly: context.permissionMode === "read-only" || context.permissionMode === "ask",
         limits,
         ...(options.mcp ? { mcp: options.mcp } : {}),
       }),

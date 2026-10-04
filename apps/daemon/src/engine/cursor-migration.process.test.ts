@@ -31,7 +31,7 @@ it("selects SDK for CLI-free new threads and retains ACP for pinned old threads"
       version: "1.0.35",
     }),
   );
-  expect(registry.get("cursor").capabilities.approvals).toBe("sandbox-only");
+  expect(registry.get("cursor").capabilities.approvals).toBe("none");
   expect(() => registry.get("cursor", "acp")).toThrow("original runtime");
   const cli = { ...absent, installed: true };
   const fallback = await discoverAdapters(
@@ -55,7 +55,7 @@ it("selects SDK for CLI-free new threads and retains ACP for pinned old threads"
       error: "unsupported SDK",
     }),
   );
-  expect(unsupported.get("cursor").capabilities.approvals).toBe("sandbox-only");
+  expect(unsupported.get("cursor").capabilities.approvals).toBe("none");
   await Promise.all([registry.close(), fallback.close(), unsupported.close()]);
 });
 it("preserves pre-SDK session identity during the additive metadata migration", async () => {

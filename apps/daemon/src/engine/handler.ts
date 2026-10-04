@@ -1,5 +1,5 @@
 import { portableContext } from "@ace/context";
-import { permissionResolutionError } from "@ace/core";
+import { permissionResolutionError, supportsPermissionMode } from "@ace/core";
 import { boundedJson } from "@ace/provider-kit/ipc";
 import { isSend, maxMessageBytes } from "./queue-store.ts";
 import type { Recovery } from "./recovery.ts";
@@ -119,7 +119,10 @@ export function engineHandler(
           if (repo.store.workspaceReservations.reserved(cwd))
             return fail("workspace_change_in_progress");
           const entry = registry.get(p.provider);
-          if (p.permissionMode && !entry.capabilities.permissions?.modes.includes(p.permissionMode))
+          if (
+            p.permissionMode &&
+            !supportsPermissionMode(entry.capabilities.permissions, p.permissionMode)
+          )
             return fail("permission_mode_unsupported");
           const accountId = p.accountId ?? ("account" in p ? p.account : undefined);
           if (p.type === "thread.create" && p.instanceId && accountId && p.instanceId !== accountId)

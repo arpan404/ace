@@ -33,3 +33,5 @@ export { CheckpointQuota } from "./checkpoint-quota.ts";
 
 export { HostRuntime } from "./host-runtime.ts";
 export type { RuntimeSdkBoundary, SdkAgentBoundary, SdkRunBoundary } from "./runtime-boundary.ts";
+
+export { probeCursorSandbox } from "./sandbox-support.ts";

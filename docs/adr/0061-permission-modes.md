@@ -54,3 +54,17 @@ An optional provider-session reviewer may be injected at the host boundary in a 
 Auto-review never grants full access. Restricted provider options and ambient permission grants cannot override the resolved mode. Children cannot exceed their parent. Mode changes occur at turn boundaries. Uncertain approvals remain human work. Full access is an explicit opt-in and intentionally disables tool risk review.
 
 The Claude web agent will add mode pickers, scoped defaults and audit rendering through @ace/client. Deck's executor will persist its run override and pass it into the generic engine spawn API for each lane/card thread. Behavior tests are written but not executed locally, per the owner's merge-only test rule. Runtime claims need run at merge.
+
+## Runtime corrections from the Pi and Cursor re-test
+
+Cursor SDK 1.0.35 sandbox support depends on the host, beyond package/helper installation.
+The isolated SDK host uses the public `createAgentPlatform` and
+`prewarmLocalWorkspace` executor admission before a turn. An unsupported-sandbox
+`ConfigurationError` selects `read,grep,glob,ls` with sandboxing disabled,
+settings isolated and child-header inheritance enabled. Shell, writes, network,
+MCP and Task children are excluded. The preview reports tool-selection and
+Limited coverage until support is verified; a supported host publishes its
+sandbox guarantee at open. Auto-review remains the ace default. An unsupported
+host launches with this disclosed read-only fallback, never full access.
+Source: [Cursor SDK options and executor prewarming](https://cursor.com/docs/sdk/typescript)
+and the pinned 1.0.35 public declarations.

@@ -18,7 +18,7 @@ import { CheckpointQuota } from "./checkpoint-quota.ts";
 import { boundedCheckpointStore } from "./checkpoint-store.ts";
 import { CursorJournal } from "./journal.ts";
 import { recoverCursorCheckpoint } from "./recovery.ts";
-import { localPolicy } from "./policy.ts";
+import { localPolicy, cursorRestrictedTools } from "./policy.ts";
 import { sdkFailure } from "./sdk-failure.ts";
 import { sdkInput } from "./sdk-input.ts";
 
@@ -144,7 +144,7 @@ export class HostRuntime {
       const options = Open.parse(value);
       this.options = options;
       this.shellStreams = new ShellStreams(options.limits.maxIdentities);
-      const policy = localPolicy(options.policy, options.autoReviewAvailable);
+
       if (process.env.CURSOR_API_KEY === "")
         throw new Error("Empty Cursor SDK environment authentication override");
       const status = await this.sdk.Cursor.auth.status();
@@ -242,10 +242,23 @@ export class HostRuntime {
         },
         (runId) => journal.afterObserve(runId),
       );
-      const injection = options.mcp ? cursorSdkInjection(options.mcp) : undefined;
+      const sandboxSupported =
+        options.policy === "restricted" &&
+        (this.sdk.sandboxSupport
+          ? await this.sdk.sandboxSupport({
+              local: { cwd: options.cwd, store: this.store, ...localPolicy("restricted", true) },
+              model: { id: options.model ?? "composer-2.5" },
+            })
+          : options.autoReviewAvailable);
+      const policy = localPolicy(options.policy, sandboxSupported);
+      const injection =
+        options.mcp && (options.policy === "full-access" || (sandboxSupported && !options.readOnly))
+          ? cursorSdkInjection(options.mcp)
+          : undefined;
       const agentOptions = {
         local: { cwd: options.cwd, store: this.store, ...policy },
         model: { id: options.model ?? "composer-2.5" },
+        ...cursorRestrictedTools(options.policy, sandboxSupported && !options.readOnly),
         ...(injection ? { mcpServers: injection.mcpServers } : {}),
       };
       if (nativeId?.startsWith("bc-")) throw new Error("Cloud continuation is forbidden");
@@ -255,6 +268,7 @@ export class HostRuntime {
         : await this.sdk.Agent.create(agentOptions);
       await this.frame("open", {
         policy: options.policy,
+        sandboxSupported,
         sdkVersion: "1.0.35",
         resumed: !!nativeId,
         cwd: options.cwd,
