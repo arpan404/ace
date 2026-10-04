@@ -1,9 +1,12 @@
 import { expect, test } from "@playwright/test";
+import { scrollToRow } from "./thread-list.ts";
 
 test("a thread opens from Home and shows its transcript", async ({ page }) => {
   await page.goto("/");
   const threads = page.getByRole("navigation", { name: "Threads" });
-  await threads.getByRole("link", { name: /Replay cursor resets on every resume/ }).click();
+  const row = threads.getByRole("link", { name: /Replay cursor resets on every resume/ });
+  await scrollToRow(page, row);
+  await row.click();
 
   await expect(page).toHaveURL(/\/t\/thread-replay-cursor$/);
   await expect(

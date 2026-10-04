@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { scrollToRow } from "./thread-list.ts";
 
 /** Thread organization in fake mode: the fake daemon answers the same commands as apps/daemon. */
 test("renaming and pinning from the ⋯ menu show in the header and the list", async ({ page }) => {
@@ -31,7 +32,8 @@ test("an archived thread leaves the list, and Undo brings it back", async ({ pag
 
   await expect(threads.getByRole("link", { name: /Rewrite the install page/ })).toHaveCount(0);
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(threads.getByRole("link", { name: /Rewrite the install page/ })).toBeVisible();
+  // Archiving left the thread for the top of the list; the restored row is back in its place.
+  await scrollToRow(page, threads.getByRole("link", { name: /Rewrite the install page/ }));
 });
 
 test("snoozing from a row shows when the thread wakes", async ({ page }) => {
