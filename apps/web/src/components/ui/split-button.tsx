@@ -52,7 +52,8 @@ function SplitButton(props: {
           )}
         >
           {props.icon}
-          {props.label}
+          {/* In a narrow header (container `header`) only the icon shows; the name stays. */}
+          {props.label && <span className="@max-[45rem]/header:sr-only">{props.label}</span>}
         </ButtonPrimitive>
       </Tip>
       <Menu>

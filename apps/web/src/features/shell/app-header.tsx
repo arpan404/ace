@@ -5,14 +5,13 @@ import {
   SidebarSimpleIcon,
 } from "@phosphor-icons/react";
 import { cn } from "@/lib/cn.ts";
-import { useRef, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { IconButton } from "@/components/ui/icon-button.tsx";
 import { Menu, MenuContent, MenuTrigger } from "@/components/ui/menu.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { usePhone, useSidebarInline } from "@/lib/breakpoints.ts";
 import { useHistoryNav } from "@/lib/history-nav.ts";
 import { useViewFrame } from "./view-frame.tsx";
-import { useElementSize } from "./workspace/use-size.ts";
 
 export interface HeaderProps {
   /** 14px semibold. Rendered as the view's h1. */
@@ -82,19 +81,16 @@ export function AppHeader(
     trailing?: ReactNode;
   },
 ) {
-  const header = useRef<HTMLElement>(null);
-  // Beside an open side panel the column can be narrow: below 720px the actions fold into one ⋯
-  // so the title keeps its room.
-  const roomy = useElementSize(header).width >= 720;
-  const wide = useSidebarInline() && roomy;
+  const wide = useSidebarInline();
   // A phone keeps one ⋯ for the title menu and the actions.
   const phone = usePhone();
   return (
+    // A container: beside an open side panel the column can be narrow, and below 720px the
+    // actions drop their labels (they stay their accessible names) so the title keeps its room.
     <header
-      ref={header}
       className={cn(
         // The hairline is an inset shadow, not a border, so the 50px row keeps its exact centre.
-        "relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 shadow-[inset_0_-1px_0_transparent] transition-shadow duration-(--dur-2) [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
+        "@container/header relative z-[7] flex h-(--header-h) shrink-0 items-center gap-1 pr-2.5 pl-3 shadow-[inset_0_-1px_0_transparent] transition-shadow duration-(--dur-2) [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
         props.scrolled && "shadow-[inset_0_-1px_0_var(--border)]",
       )}
     >
@@ -105,7 +101,7 @@ export function AppHeader(
         </h1>
         {props.subtitle && (
           // The title keeps the room: a long subtitle (a Deck lane's branch) truncates first.
-          <span className="hidden min-w-0 shrink-[3] truncate text-base font-normal text-muted-foreground md:inline">
+          <span className="hidden min-w-0 shrink-[3] truncate text-base font-normal text-muted-foreground md:inline @max-[45rem]/header:hidden">
             {props.subtitle}
           </span>
         )}
