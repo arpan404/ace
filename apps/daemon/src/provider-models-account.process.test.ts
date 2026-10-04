@@ -3,9 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ModelCatalog, openModelStorage, normalizeCodex, ModelInstance } from "@ace/models";
-import { handleModelRequest } from "./models.ts";
 
-test("explicit model refresh discards the previous account choices even if the new account is offline", async () => {
+test("account-change invalidation discards previous choices even if the new account is offline", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-model-account-"));
   const instance = ModelInstance.parse({
     id: "codex",
@@ -46,13 +45,10 @@ test("explicit model refresh discards the previous account choices even if the n
     await catalog.refresh();
     expect(catalog.list().models.map((m) => m.id)).toEqual(["old-account"]);
     offline = true;
-    const refresh = handleModelRequest(catalog, {
-      type: "models.refresh",
-      requestId: "refresh",
-      filter: { instance: "codex" },
-    });
+    const invalidation = catalog.invalidate({ instance: "codex" });
     expect(catalog.list().models).toEqual([]);
-    await refresh;
+    await invalidation;
+    await catalog.refresh({ instance: "codex" });
     expect(catalog.list().models).toEqual([]);
     await catalog.close();
     catalog = make();
@@ -63,8 +59,8 @@ test("explicit model refresh discards the previous account choices even if the n
   }
 });
 
-// Late old-account writes and repeated refresh races. Not executed (tests run at merge).
-test("concurrent account refreshes revoke even an old metadata write already pending on disk", async () => {
+// Account-change invalidation must drain obsolete writes before durable deletion.
+test("concurrent account invalidations revoke even an old metadata write already pending on disk", async () => {
   const home = await mkdtemp(join(tmpdir(), "ace-model-account-race-"));
   const instance = ModelInstance.parse({
     id: "codex",
@@ -118,16 +114,12 @@ test("concurrent account refreshes revoke even an old metadata write already pen
     const old = catalog.refresh();
     await writing.promise;
     offline = true;
-    const one = handleModelRequest(catalog, {
-      type: "models.refresh",
-      requestId: "one",
-      filter: { instance: "codex" },
-    });
-    const two = handleModelRequest(catalog, {
-      type: "models.refresh",
-      requestId: "two",
-      filter: { instance: "codex" },
-    });
+    const refreshAccount = async () => {
+      await catalog.invalidate({ instance: "codex" });
+      await catalog.refresh({ instance: "codex" });
+    };
+    const one = refreshAccount();
+    const two = refreshAccount();
     expect(catalog.list().models).toEqual([]);
     release.resolve();
     await Promise.all([old, one, two]);

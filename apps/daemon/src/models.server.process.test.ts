@@ -8,9 +8,6 @@ import {
 } from "@ace/models";
 import { setup as remoteSetup } from "./remote-test-support.ts";
 import { fixture } from "./socket-test-support.ts";
-function noRelease(): never {
-  throw new Error("Provider not started");
-}
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const close of cleanups.splice(0).toReversed()) await close();
@@ -118,31 +115,32 @@ test("malformed catalog filters fail at the socket boundary", async () => {
   expect(await client.next()).toMatchObject({ type: "error", code: "invalid_message" });
 });
 test("slow refreshes leave ping and cached model queries responsive", async () => {
-  let release: (rows: CatalogModel[]) => void = noRelease;
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<CatalogModel[]>();
   const rows = model().rows;
   let calls = 0;
   const slow = new ModelCatalog({
     storage: openModelStorage(":memory:"),
     instances: [model().instance],
-    discover: () =>
-      ++calls === 1
-        ? Promise.resolve(rows)
-        : new Promise((resolve) => {
-            release = resolve;
-          }),
-    now: () => 1000,
-    deadline(expire, ms) {
-      const timer = setTimeout(expire, ms);
-      return () => clearTimeout(timer);
+    discover: () => {
+      if (++calls === 1) return Promise.resolve(rows);
+      started.resolve();
+      return release.promise;
     },
+    now: () => 1000,
+    deadline: () => () => {},
   });
   cleanups.push(() => slow.close());
   await slow.refresh();
   const f = await fixture({ models: slow });
-  cleanups.push(f.close);
+  cleanups.push(async () => {
+    release.resolve(rows);
+    await f.close();
+  });
   const connected = await f.connect();
   await connected.next();
   connected.send({ type: "models.refresh", requestId: "slow", filter: {} });
+  await started.promise;
   connected.send({ type: "ping" });
   expect(await connected.next()).toEqual({ type: "pong" });
   connected.send({ type: "models.list", requestId: "cached", options: { offset: 0, limit: 100 } });
@@ -161,7 +159,7 @@ test("slow refreshes leave ping and cached model queries responsive", async () =
     requestId: "cached-role",
     result: { ok: true, model: { id: "coder" } },
   });
-  release(rows);
+  release.resolve(rows);
   expect(await connected.next()).toMatchObject({
     type: "models.result",
     requestId: "slow",

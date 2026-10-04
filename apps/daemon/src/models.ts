@@ -54,7 +54,7 @@ export async function registerDefaultModelInstances(
       provider: candidate.provider,
       executable: candidate.path,
       cwd,
-      // Installation identity is stable; explicit models.refresh revokes account-bound cache.
+      // Installation identity is stable; account owners invalidate when login identity changes.
       loginRevision: createHash("sha256").update(candidate.path).digest("hex"),
     });
   }
@@ -103,7 +103,6 @@ export async function handleModelRequest(
         result: catalog.resolve(request.roleSpec),
       };
     case "models.refresh":
-      await catalog.invalidate(request.filter);
       await catalog.refresh(request.filter);
       return {
         type: "models.result",
