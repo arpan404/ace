@@ -59,18 +59,14 @@ test("unknown thread noise stays raw until ancestry is confirmed and holds compl
   expect(h.state.status.state).not.toBe("done");
   expect(Object.values(h.state.agents)).toHaveLength(1);
   const rawIds = new Set(
-    Object.values(h.state.items).flatMap((i) =>
-      i.type === "notice"
-        ? i.raw.flatMap((r) => {
-            const value = "data" in r ? r.data : undefined;
-            if (typeof value !== "object" || value === null || !("params" in value)) return [];
-            const params = value.params;
-            return typeof params === "object" && params !== null && "threadId" in params
-              ? [params.threadId]
-              : [];
-          })
-        : [],
-    ),
+    h.diagnostics.flatMap((r) => {
+      const value = "data" in r ? r.data : undefined;
+      if (typeof value !== "object" || value === null || !("params" in value)) return [];
+      const params = value.params;
+      return typeof params === "object" && params !== null && "threadId" in params
+        ? [params.threadId]
+        : [];
+    }),
   );
   for (let i = 0; i < 300; i++) expect(rawIds.has(`unknown-${i}`)).toBe(true);
   h.feed({

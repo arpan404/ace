@@ -13,8 +13,10 @@ export function replayHarness() {
   });
   let sequence = 0;
   const events: Payload[] = [];
+  const diagnostics: import("@ace/protocol").RawPayload[] = [];
   function feed(frame: Frame) {
     for (const fact of translator.translate(frame, frame.t)) feedFact(fact, frame.t);
+    diagnostics.push(...(translator.takeDiagnostics?.() ?? []));
   }
   function feedFact(fact: Fact, now: number) {
     for (const event of apply(state, fact, {
@@ -31,5 +33,5 @@ export function replayHarness() {
         throw new Error(event.item.text);
     }
   }
-  return { translator, state, events, feed, feedFact };
+  return { translator, state, events, diagnostics, feed, feedFact };
 }

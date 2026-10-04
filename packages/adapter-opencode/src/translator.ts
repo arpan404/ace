@@ -7,6 +7,7 @@ import { object, array, string, number, retryReason } from "./data.ts";
 import { NativeState } from "./native-state.ts";
 import { tool, text, projected } from "./native-content.ts";
 import { interaction } from "./interactions.ts";
+import { sessionUsage, stepContext } from "./usage.ts";
 export class OpenCodeTranslator implements Translator {
   private state: NativeState;
   constructor(init: { threadId: ThreadId; rootKey: Key }) {
@@ -141,6 +142,7 @@ export class OpenCodeTranslator implements Translator {
       if (data.root === true && !state.rootNative) state.rootNative = string(object(data.info).id);
       return [
         ...state.seen(object(data.info)),
+        ...sessionUsage(state, string(object(data.info).id), object(data.info)),
         ...(data.recovering === true ? [] : state.reconcileOutcome(object(data.info))),
       ];
     }
@@ -342,27 +344,8 @@ export class OpenCodeTranslator implements Translator {
           message: string(object(p.error).message),
         },
       ];
-    if (type === "session.usage.updated") {
-      const tokens = object(p.tokens);
-      if (!Object.keys(tokens).length) return [];
-      return [
-        {
-          type: "usage",
-          agent,
-          inputTokens:
-            number(tokens.input) +
-            number(object(tokens.cache).read) +
-            number(object(tokens.cache).write),
-          outputTokens: number(tokens.output) + number(tokens.reasoning),
-          cachedInputTokens: number(object(tokens.cache).read),
-          reasoningTokens: number(tokens.reasoning),
-          cacheWriteTokens: number(object(tokens.cache).write),
-          counterMode: "cumulative",
-          counterKey: `session:${id}`,
-          costUsd: number(p.cost),
-        },
-      ];
-    }
+    if (type === "session.usage.updated") return sessionUsage(state, id, p);
+    if (type === "session.step.ended") return stepContext(state, id, p);
     if (type.startsWith("session.step.")) return [];
     return state.note(e, type);
   }

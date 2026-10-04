@@ -56,6 +56,8 @@ export interface ProviderAdapter {
 }
 
 export interface Translator {
+  /** Native debug evidence kept outside the transcript. Drain after each translation. */
+  takeDiagnostics?(): import("@ace/protocol").RawPayload[];
   /** Combine with core.nextDeadline(state, translator.nextDeadline?.()). */
   nextDeadline?(): number | undefined;
   /** Pure and synchronous. Never throws on provider data. */

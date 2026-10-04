@@ -72,12 +72,8 @@ test.each([
   h.start();
   h.item(item, true);
   expect(
-    Object.values(h.state.items).some(
-      (i) =>
-        i.type === "notice" &&
-        i.raw.some(
-          (r) => ("data" in r ? JSON.stringify(r.data) : undefined) === JSON.stringify(item),
-        ),
+    h.diagnostics.some(
+      (r) => ("data" in r ? JSON.stringify(r.data) : undefined) === JSON.stringify(item),
     ),
   ).toBe(true);
 });
@@ -85,12 +81,8 @@ test.each([null, [], "bad", 42])("malformed primitive retains its raw value: %j"
   const h = setup();
   h.feed({ seq: 99, t: 100, dir: "recv", channel: "stdio", data });
   expect(
-    Object.values(h.state.items).some(
-      (i) =>
-        i.type === "notice" &&
-        i.raw.some(
-          (r) => ("data" in r ? JSON.stringify(r.data) : undefined) === JSON.stringify(data),
-        ),
+    h.diagnostics.some(
+      (r) => ("data" in r ? JSON.stringify(r.data) : undefined) === JSON.stringify(data),
     ),
   ).toBe(true);
 });

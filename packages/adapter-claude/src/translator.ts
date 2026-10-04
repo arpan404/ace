@@ -10,7 +10,7 @@ import { MessageIndex } from "./blocks.ts";
 import { ClaudeState } from "./state.ts";
 import { message, stream, finishStream, type StreamState } from "./content.ts";
 import { taskFrame, taskTick } from "./tasks.ts";
-import { number, object, string, type Data } from "./native.ts";
+import { number, object, string, raw, type Data } from "./native.ts";
 
 export function createTranslator(init: { rootKey: Key }): Translator {
   let state = new ClaudeState(init.rootKey);
@@ -19,12 +19,17 @@ export function createTranslator(init: { rootKey: Key }): Translator {
   const streams = new Map<string, StreamState>();
   const messages = new MessageIndex(init.rootKey);
   const pending = new PendingTranscripts();
+  let diagnostics: import("@ace/protocol").RawPayload[] = [];
   function sdk(data: Data, frame: Frame, now: number): boolean {
     const type = string(data["type"]);
     if (type === "system") {
       if (taskFrame(state, data, now)) return true;
       const subtype = string(data["subtype"]);
       if (subtype === "init") {
+        if (typeof data["model"] === "string" && data["model"]) {
+          state.model = data["model"];
+          state.emit({ type: "agent.linked", agent: state.root, model: state.model });
+        }
         state.start(state.root, state.sent ? "user" : (state.wake ?? "unknown"));
         state.errors.delete(state.root);
         state.sent = false;
@@ -158,11 +163,19 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         });
       return true;
     }
-    return type === "keep_alive";
+    return type === "keep_alive" || type === "control_response";
   }
   return {
+    takeDiagnostics() {
+      const result = [...diagnostics, ...state.diagnostics];
+      diagnostics = [];
+      state.diagnostics = [];
+      return result;
+    },
     translate(frame, now) {
+      diagnostics = [];
       state.facts = [];
+      state.diagnostics = [];
       // Frames are JSON data. Lenient readers never decode through a strict SDK union.
       const data = object(frame.data);
       if (frame.channel === "lifecycle" && data["type"] === "process.started") {
@@ -182,13 +195,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
         data["type"] === "result" &&
         !accounting.accept(data)
       ) {
-        state.notice(
-          frame.data,
-          `native:${frame.seq}`,
-          state.root,
-          "info",
-          "Claude duplicate result",
-        );
+        diagnostics.push(raw(frame.data));
         return state.facts;
       }
       queue.observe(state, frame, data);
@@ -212,7 +219,7 @@ export function createTranslator(init: { rootKey: Key }): Translator {
           `${frame.seq}`,
           state.root,
           frame.dir === "stderr" ? "warning" : "info",
-          typeof frame.data === "string" ? frame.data : "Claude frame",
+          typeof frame.data === "string" && frame.dir === "stderr" ? frame.data : undefined,
         );
       }
       const bindings = state.bindings;
@@ -229,20 +236,13 @@ export function createTranslator(init: { rootKey: Key }): Translator {
       for (const fact of state.facts)
         if (fact.type === "turn.ended" && fact.agent !== state.root)
           finishStream(state, streams, fact.agent);
-      const carriesRaw = state.facts.some((fact) => {
-        const payloads = factRaw(fact);
-        return payloads.some(
+      const carriesRaw = state.facts.some((fact) =>
+        factRaw(fact).some(
           (payload) => "data" in payload && (payload.data === frame.data || payload.data === data),
-        );
-      });
-      if (!carriesRaw && frame.channel !== "lifecycle")
-        state.notice(
-          frame.data,
-          `native:${frame.seq}`,
-          state.agentFor(data),
-          "info",
-          "Claude event",
-        );
+        ),
+      );
+      if (!carriesRaw && !state.diagnostics.length && frame.channel !== "lifecycle")
+        diagnostics.push(raw(frame.data));
       return state.facts;
     },
     nextDeadline() {

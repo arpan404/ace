@@ -8,7 +8,7 @@ import {
 import { JsonRpcPeer } from "@ace/provider-kit/jsonrpc";
 import { z } from "zod";
 import { cursorSessionOptions, isMissingMethod } from "./cursor.ts";
-import { discoverOpenCodeModels } from "@ace/adapter-opencode";
+import { discoverListedModels } from "./list-discovery.ts";
 import { normalizeOpenCodeV2 } from "./open-code.ts";
 import { CodexPage } from "./native-schemas.ts";
 import { normalizeAcp, normalizeClaude, normalizeCodex, normalizeCursorSdk } from "./normalize.ts";
@@ -61,26 +61,10 @@ export function createModelDiscovery(options: DiscoveryOptions = {}): DiscoverMo
         }),
         instance,
       );
-    if (instance.provider === "opencode") {
-      const payload = await (
-        options.opencode ??
-        ((entry, abort) =>
-          discoverOpenCodeModels(
-            {
-              discovery: { overrides: { opencode: entry.executable }, env: entry.env },
-              runtime: {
-                spawn: (launch) =>
-                  spawn({
-                    ...launch,
-                    args: [...entry.args, ...(launch.args ?? [])],
-                    cwd: entry.cwd,
-                  }),
-              },
-            },
-            entry.cwd,
-            abort,
-          ))
-      )(instance, signal);
+    if (instance.provider === "pi" || (instance.provider === "opencode" && !options.opencode))
+      return discoverListedModels(instance, signal, spawn);
+    if (instance.provider === "opencode" && options.opencode) {
+      const payload = await options.opencode(instance, signal);
       signal.throwIfAborted();
       return normalizeOpenCodeV2(payload, instance);
     }

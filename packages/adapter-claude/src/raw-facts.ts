@@ -10,7 +10,7 @@ export function factRaw(fact: Fact): RawPayload[] {
   return [];
 }
 
-// The receipt notice owns raw data; canonical enrichment must preserve prior raw.
+// Receipt diagnostics own raw data; canonical enrichment must preserve prior raw.
 export function canonicalOnly(fact: Fact): Fact {
   if (fact.type === "item.upsert") {
     if (fact.draft.type === "tool_call") {

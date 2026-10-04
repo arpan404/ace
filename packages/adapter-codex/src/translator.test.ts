@@ -292,11 +292,7 @@ test("unknown items, frames and malformed data survive as raw payloads", () => {
         ),
     ),
   ).toBe(true);
-  expect(
-    Object.values(h.state.items).some(
-      (i) => i.type === "notice" && i.raw.some((r) => r.type === "future/event"),
-    ),
-  ).toBe(true);
+  expect(h.diagnostics.some((r) => r.type === "future/event")).toBe(true);
 });
 test("an unknown approval flag remains blocked even without a recognized request", () => {
   const h = setup();

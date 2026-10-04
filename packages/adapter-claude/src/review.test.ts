@@ -231,6 +231,9 @@ test("subsequent raw additions survive once without replaying earlier payloads",
         (fact.draft.type === "notice" || fact.draft.type === "message")
       )
         payloads.push(...(fact.draft.raw ?? []).flatMap((r) => ("data" in r ? [r.data] : [])));
+    payloads.push(
+      ...(translator.takeDiagnostics?.() ?? []).flatMap((raw) => ("data" in raw ? [raw.data] : [])),
+    );
   }
   expect(payloads).toHaveLength(100);
   for (let seq = 0; seq < 100; seq++) expect(payloads[seq]).toMatchObject({ extra: seq });

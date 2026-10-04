@@ -43,6 +43,26 @@ can serve its persisted data while reporting `starting` during warmup. Backgroun
 failures report `degraded` with the service name. A startup deadline covers opening
 and activation, not the size-dependent lifetime of indexing or backfill.
 
+## Model discovery
+
+Without `ACE_MODEL_INSTANCES`, the model service admits installed Codex, Claude,
+OpenCode, Pi and Cursor CLIs using background executable-path checks. A selected
+Cursor SDK account supplies its own catalog instead of a second Cursor CLI
+catalog. Setting `ACE_MODEL_INSTANCES` explicitly overrides CLI defaults;
+`[]` disables them.
+
+Catalog reads return cached data immediately. Missing or expired data starts one
+bounded metadata refresh per instance, with a 15-minute TTL, concurrency limits
+and failure cooldown. `models.refresh` requests a refresh explicitly. No metadata
+probe is awaited during daemon startup, and none sends a provider prompt.
+Codex uses app-server `model/list`, Claude uses SDK control initialization,
+OpenCode uses `models --verbose`, and Pi uses `get_available_models` with
+extensions and session persistence disabled. Cursor retains its existing SDK or
+ACP metadata path. OpenCode and Pi model IDs retain their native provider prefix.
+
+Raw Claude and Codex protocol traffic goes to provider diagnostics at debug log
+level. Transcript notices are reserved for user-relevant information and errors.
+
 ## History indexing
 
 `openDaemonHistory` opens the index and starts a worker scan without awaiting it.

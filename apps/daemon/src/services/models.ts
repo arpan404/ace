@@ -1,6 +1,6 @@
 import { createInstance, instanceEnv } from "@ace/accounts";
 import { cursorHosts } from "./cursor-hosts.ts";
-import { openDaemonModels } from "../models.ts";
+import { openDaemonModels, registerDefaultModelInstances } from "../models.ts";
 import type { ServiceContext } from "./types.ts";
 export async function startModels(context: ServiceContext): Promise<void> {
   const { config, options, resources, services } = context;
@@ -40,8 +40,21 @@ export async function startModels(context: ServiceContext): Promise<void> {
       backend: "cursor-sdk",
       homeDir: account.instance.homeDir,
       cwd: account.instance.homeDir,
-      loginRevision: context.id(),
+      loginRevision: "cursor-sdk-default-v1",
     });
+  if (options.modelInstances === undefined) {
+    const admission = registerDefaultModelInstances(
+      models,
+      config.dataDir,
+      process.env,
+      context.signal,
+      new Set(account ? ["cursor"] : []),
+    );
+    resources.own(() => admission);
+    void admission.catch((error: unknown) =>
+      context.log.log("warn", "Default model admission failed", error),
+    );
+  }
 }
 
 import { handleModelRequest } from "../models.ts";
