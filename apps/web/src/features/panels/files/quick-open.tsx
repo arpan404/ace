@@ -92,6 +92,10 @@ export function QuickOpenDialog(props: { threadId: string; onClose(): void }) {
   const [waiting, setWaiting] = useState(false);
   const settled = query === search.settledQuery && !search.pending;
   const first = rows[0];
+  // Keep the highlighted file in view as the arrows move through a long list.
+  useEffect(() => {
+    document.getElementById(optionId(current))?.scrollIntoView?.({ block: "nearest" });
+  });
   useEffect(() => {
     if (waiting && settled && first) choose(first);
   });

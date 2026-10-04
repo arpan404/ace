@@ -25,7 +25,7 @@ export function QuickOpenOverlay(props: { scope: string }) {
     return () => {
       mounted.set(scope, (mounted.get(scope) ?? 1) - 1);
       queueMicrotask(() => {
-        if (!mounted.get(scope)) quickOpen.set((open) => (open === scope ? undefined : open));
+        if (!mounted.get(scope)) quickOpen.set((shown) => (shown === scope ? undefined : shown));
       });
     };
   }, [props.scope]);

@@ -82,21 +82,21 @@ presentational components that render it (see `home/use-thread-card.ts` and `hom
 
 Each slice owns `src/features/<slice>/` and the route files for its screens:
 
-| Slice                                                             | Folder                                                                       | Routes                                                          |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Home (thread list, New thread)                                    | `features/home`                                                              | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx`   |
-| Thread (transcript, composer, header actions)                     | `features/thread`                                                            | `_home.t.$threadId.tsx`                                         |
-| Thread workspace tools (Changes, Preview, Agents, Terminal, Logs) | `features/panels`                                                            | tab kinds of the thread screen (`threadWorkspace`)              |
-| Devices (simulators and emulators, a right-panel tab)             | `features/devices`                                                           | none; loaded with the panel tabs                                |
-| Activity                                                          | `features/activity`                                                          | `activity.tsx`, `activity.index.tsx`                            |
-| Deck (`@ace/conductor`)                                           | `features/deck`                                                              | `deck.tsx`, `deck.index.tsx`, `deck.new.tsx`, `deck.$runId.tsx` |
-| Automations                                                       | `features/automations`                                                       | `automations.tsx`, `automations.index.tsx`                      |
-| Skills                                                            | `features/skills`                                                            | `skills.tsx`, `skills.index.tsx`                                |
-| Thread organization (actions, Undo, the shared thread menu)       | `features/organize`                                                          | none; used by Home, the thread ⋯ menu and the palette           |
-| Model catalog (pickers)                                           | `features/models`                                                            | none; used by thread and Home                                   |
-| More: accounts, files, search                                     | `features/more` (+ `features/accounts`, `features/files`, `features/search`) | `more.*.tsx`                                                    |
-| Settings                                                          | `features/settings`                                                          | `settings.*.tsx`                                                |
-| Palette                                                           | `features/palette`                                                           | none; register commands in `commands.ts`                        |
+| Slice                                                                             | Folder                                                                       | Routes                                                          |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Home (thread list, New thread)                                                    | `features/home`                                                              | `_home.tsx` (its sidebar), `_home.index.tsx`, `_home.new.tsx`   |
+| Thread (transcript, composer, header actions)                                     | `features/thread`                                                            | `_home.t.$threadId.tsx`                                         |
+| Thread workspace tools (Changes, Files, Browser, Preview, Agents, Terminal, Logs) | `features/panels`                                                            | tab kinds of the thread screen (`threadWorkspace`)              |
+| Devices (simulators and emulators, a right-panel tab)                             | `features/devices`                                                           | none; loaded with the panel tabs                                |
+| Activity                                                                          | `features/activity`                                                          | `activity.tsx`, `activity.index.tsx`                            |
+| Deck (`@ace/conductor`)                                                           | `features/deck`                                                              | `deck.tsx`, `deck.index.tsx`, `deck.new.tsx`, `deck.$runId.tsx` |
+| Automations                                                                       | `features/automations`                                                       | `automations.tsx`, `automations.index.tsx`                      |
+| Skills                                                                            | `features/skills`                                                            | `skills.tsx`, `skills.index.tsx`                                |
+| Thread organization (actions, Undo, the shared thread menu)                       | `features/organize`                                                          | none; used by Home, the thread ⋯ menu and the palette           |
+| Model catalog (pickers)                                                           | `features/models`                                                            | none; used by thread and Home                                   |
+| More: accounts, files, search                                                     | `features/more` (+ `features/accounts`, `features/files`, `features/search`) | `more.*.tsx`                                                    |
+| Settings                                                                          | `features/settings`                                                          | `settings.*.tsx`                                                |
+| Palette                                                                           | `features/palette`                                                           | none; register commands in `commands.ts`                        |
 
 Rules:
 
@@ -139,6 +139,9 @@ export const fileKind = defineTabKind({
   load: () => import("./file-tab.tsx"), // { default: View, Actions? }, loaded on first show
   onClose: (scope, tab) => {}, // release what only this tab held
   fromFile: (path) => ({ kind: "file", id: path }), // lets the launcher's Suggested open files
+  fromUrl: (url, workspace) => ({ kind: "browser", id: "2", data: { url } }), // the launcher's address bar
+  onShortcut: (scope) => {}, // the tool's shortcut does this instead of showing its tab (⌘P)
+  Overlay: QuickOpen, // drawn once per screen outside the docks (a palette the shortcut opens)
 });
 ```
 
@@ -159,9 +162,24 @@ export const fileKind = defineTabKind({
 - A tool the daemon can't serve yet still registers, with a view that says exactly what is
   missing (`features/panels/placeholders.tsx`); replace it by registering a kind with the same id.
 
+Files (`features/panels/files`): one tab per checkout file (`files:file:<path>`; the empty tab is
+"Open file"), the checkout tree beside it (over it in a narrow panel) and ⌘P quick open. Search
+is the daemon's path index (`context.request` `mention.complete`); bytes go through the files
+channel (`ClientApi.downloadFile` / `uploadFile`, thread-scoped `files.request`). The wire has no
+directory listing, so the unfiltered tree shows the files the thread touched and says so. A click
+in the tree previews a file in the tab it came from; Enter, double-click or quick open keeps it.
+
+Browser (`features/panels/browser`): one tab per page over the thread's single live page (the
+browser service keeps one session per thread). Each tab keeps its address and history in its
+data; the tab that last navigated shows the page live (`loading.ts` `pageOwners`), others offer to
+load their own address there. Navigating takes the control lease (the daemon refuses a person's
+commands without it). Back and Forward re-open the tab's earlier addresses: the relay has no
+history or stop commands. Preview is only a thread's dev servers through the preview gateway.
+
 Shortcuts (`lib/keymap.ts`): ⇧⌘B side panel, ⌘J bottom panel, ⇧⌘F full view, ⌥⌘T new tab,
 ⌥⌘W close tab, ⇧⌘] and ⇧⌘[ next and previous tab, and each tool's own (⇧⌘D Changes, ⌃⇧A Agents,
-⌃` Terminal, ⌃⇧P Preview, ⌃⇧M Devices, ⌃⇧L Logs, ⌘P Files, ⌥⌘S Side chat). In a strip: arrows
+⌃` Terminal, ⌃⇧B Browser, ⌃⇧P Preview, ⌃⇧M Devices, ⌃⇧L Logs, ⌘P quick open, ⌥⌘S Side chat).
+In a browser tab: ⌘L the address, ⌘R reload, ⌘[ and ⌘] back and forward; in a file, ⌘F find. In a strip: arrows
 move between tabs and show them, Home and End jump, Delete closes, Alt+Shift+arrows reorder;
 right-click (or the context-menu key) for pin, move, full view and close.
 
@@ -200,7 +218,8 @@ What `main` cannot carry yet sits behind one adapter per feature marked
 `// TODO(client-gaps): feat/client-protocol-gaps`. In fake mode it serves the fake daemon's
 stand-in; against a real daemon it reports the feature empty or unavailable, never fixture data.
 Today: a list of machines and adding an ACP agent by command
-(`features/settings/data/access-gaps.ts`), and file uploads (`features/files/files-source.ts`).
+(`features/settings/data/access-gaps.ts`), and More › Files uploads (`features/files/files-source.ts`;
+the side panel's Files tool already uploads into the thread's checkout over the files channel).
 When the backend lands, wiring a feature changes only its adapter.
 
 ## Fake-daemon scenarios

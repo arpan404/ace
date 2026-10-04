@@ -206,6 +206,7 @@ export function FileTab(props: TabViewProps) {
         readable={readable}
         online={online}
         actions={fileActions}
+        line={find?.query && hits[hitIndex] ? (hits[hitIndex]?.line ?? 0) + 1 : data.line}
         onFolder={(folder) => {
           setQuery(folder);
           if (narrow) setOverlayTree(true);
@@ -253,12 +254,13 @@ export function FileTab(props: TabViewProps) {
         {treeShown && (
           <aside
             role="complementary"
+            data-edge="right"
             aria-label="Checkout files"
             style={{ width: narrow ? Math.min(treeWidth, 320) : treeWidth }}
             className={cn(
               "relative flex min-h-0 shrink-0 flex-col border-l bg-background",
               narrow &&
-                "fx-pop absolute inset-y-0 right-0 z-[3] max-w-[85%] shadow-[-12px_0_32px_rgb(0_0_0/0.22)]",
+                "fx-panel-in absolute inset-y-0 right-0 z-[3] max-w-[85%] shadow-[-12px_0_32px_rgb(0_0_0/0.22)]",
             )}
             onKeyDown={(event) => {
               if (narrow && event.key === "Escape") setOverlayTree(false);

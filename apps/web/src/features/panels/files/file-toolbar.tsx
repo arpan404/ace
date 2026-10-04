@@ -115,6 +115,8 @@ export function FileToolbar(props: {
   readable: boolean;
   online: boolean;
   actions: ReturnType<typeof useFileActions>;
+  /** The line in view (a find hit, a quick-open `:line`), for opening the editor there. */
+  line?: number | undefined;
   onFolder(folder: string): void;
   onKeep(): void;
   onSource(source: boolean): void;
@@ -192,13 +194,13 @@ export function FileToolbar(props: {
             }
             menuLabel="Open in another editor"
             disabled={!props.online || !actions.editors?.length}
-            onAction={() => void actions.openInEditor(path)}
+            onAction={() => void actions.openInEditor(path, props.line)}
             menu={actions.editors?.map((each) => {
               return (
                 <MenuItem
                   key={each.id}
                   icon={<EditorIcon id={each.id} />}
-                  onClick={() => void actions.openInEditor(path, undefined, each.id)}
+                  onClick={() => void actions.openInEditor(path, props.line, each.id)}
                 >
                   {each.name}
                   {each.id === editor?.id && (
