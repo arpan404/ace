@@ -11,6 +11,7 @@ const Intent = z.object({
   threadId: z.string().optional(),
   sent: z.boolean().optional(),
   waiting: z.boolean().optional(),
+  localFailure: z.boolean().optional(),
 });
 export type Intent = z.infer<typeof Intent>;
 /** A transient refusal (update drain, rolled-back transaction) is retried this many times. */
@@ -68,7 +69,11 @@ export class Intents {
           this.records.set(intent.command.id, intent);
         }
         const evicted = this.evict();
-        await this.persist(undefined, evicted);
+        if (values.length)
+          await this.persist(undefined, [
+            ...evicted,
+            ...values.filter((entry) => !this.retained(entry)).map((entry) => entry.command.id),
+          ]);
         for (const id of this.records.keys()) this.changed(id);
         this.ready = true;
       } catch {
@@ -98,9 +103,8 @@ export class Intents {
       );
     const inflight = this.enqueuing.get(id);
     if (inflight) return inflight;
-    if (!existing || (existing.state === "failed" && this.optimistic.has(id))) {
-      for (const [key, value] of this.optimistic)
-        if (value.state === "failed") this.optimistic.delete(key);
+    if (!existing || existing.localFailure) {
+      if (existing?.localFailure) this.records.delete(id);
       this.optimistic.set(id, { command, state: "saving" });
       this.changed(id);
     }

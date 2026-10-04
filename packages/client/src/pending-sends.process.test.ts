@@ -133,3 +133,38 @@ test("a storage refusal keeps the pending bubble and same-id retry preserves its
     { state: "sent", commandId: "retry-me", payload },
   ]);
 });
+
+test("a queued follow-up is visible before a held queue read returns", async () => {
+  const h = await setup({ handle: (command) => ({ commandId: command.id, ok: true }) });
+  cleanup = h.cleanup;
+  const { client, faults } = h.make();
+  await ready(client);
+  let release: (() => void) | undefined;
+  faults.incoming = (message, frame, deliver) => {
+    if (message.type === "queue.result") release = () => deliver(frame);
+    else deliver(frame);
+  };
+  const queue = client.queue(h.thread.id);
+  await faults.wait((message) => message.type === "queue.result");
+  const sent = client.enqueue(
+    {
+      type: "thread.send",
+      threadId: h.thread.id,
+      delivery: "queue",
+      input: [{ type: "text", text: "Visible before queue.get" }],
+    },
+    "queued-pill",
+  );
+  expect(client.pendingSends(h.thread.id).getSnapshot()).toMatchObject([
+    {
+      commandId: "queued-pill",
+      itemId: "input:queued-pill",
+      state: "saving",
+      payload: { delivery: "queue" },
+    },
+  ]);
+  await sent;
+  await when(client.pendingSends(h.thread.id), (entries) => entries[0]?.state === "accepted");
+  release?.();
+  await queue;
+});
