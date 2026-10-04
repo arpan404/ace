@@ -296,8 +296,7 @@ export class OpenCodeServer {
           signal,
           onActivity: activity,
         })) {
-          for (const consumer of this.consumers)
-            await waitForOutput(consumer.outputFlow, signal);
+          for (const consumer of this.consumers) await waitForOutput(consumer.outputFlow, signal);
           const data = sanitize(native, this.secrets),
             event = NativeEvent.parse(data),
             watermark = ++this.sequence;

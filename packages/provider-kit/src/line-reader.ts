@@ -14,10 +14,16 @@ async function* framed(input: Readable, flow?: OutputFlow): AsyncGenerator<strin
   for await (const chunk of input) {
     const text = decoder.write(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     for (let segment of lineSegments(text)) {
-      if (skipLf && segment.startsWith("\n")) { skipLf = false; continue; }
+      if (skipLf && segment.startsWith("\n")) {
+        skipLf = false;
+        continue;
+      }
       skipLf = false;
       const ending = segment.at(-1);
-      if (ending !== "\r" && ending !== "\n") { parts.push(segment); continue; }
+      if (ending !== "\r" && ending !== "\n") {
+        parts.push(segment);
+        continue;
+      }
       if (flow?.paused()) await flow.wait();
       skipLf = ending === "\r";
       segment = segment.slice(0, -1) + "\n";

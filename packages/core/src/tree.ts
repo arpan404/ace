@@ -13,12 +13,14 @@ export function announceAgentBranch(state: ThreadState, key: Key, events: EventP
   let next: Key | undefined = key;
   while (next !== undefined && !seen.has(next)) {
     seen.add(next);
-    const record = get(state.agents, next);
+    const record: AgentRecord | undefined = get(state.agents, next);
     if (!record) break;
     branch.push(record.agent);
     next = record.parentKey;
   }
-  const announced = new Set(events.flatMap((event) => event.type === "agent.created" ? [event.agent.id] : []));
+  const announced = new Set(
+    events.flatMap((event) => (event.type === "agent.created" ? [event.agent.id] : [])),
+  );
   for (const agent of branch.toReversed())
     if (!announced.has(agent.id)) emit(events, { type: "agent.created", agent });
 }

@@ -8,7 +8,10 @@ function when<T>(selection: Selection<T>, matches: (value: T) => boolean): Promi
   return new Promise((resolve) => {
     const stop = selection.subscribe(() => {
       const value = selection.getSnapshot();
-      if (matches(value)) { stop(); resolve(value); }
+      if (matches(value)) {
+        stop();
+        resolve(value);
+      }
     });
   });
 }
@@ -18,20 +21,37 @@ test("an omitted historical branch becomes visible on reactivation without recon
   const frames = scriptFrames();
   const h = await harness([{ on: "send", frames: [frames.frame(start)] }], frames);
   const token = "a".repeat(64);
-  const server = await startServer({ port: 0, token, hostId: "reactivation", store: h.store, engine: h.engine, handler: h.engine.handler });
+  const server = await startServer({
+    port: 0,
+    token,
+    hostId: "reactivation",
+    store: h.store,
+    engine: h.engine,
+    handler: h.engine.handler,
+  });
   let next = 0;
   let snapshots = 0;
   const client = new Client({
-    deviceId: DeviceId.parse("reactivation"), credential: async () => token,
-    id: () => `client-${++next}`, random: () => 0,
+    deviceId: DeviceId.parse("reactivation"),
+    credential: async () => token,
+    id: () => `client-${++next}`,
+    random: () => 0,
     scheduler: { set: (delay, callback) => h.clock.setTimer(callback, delay) },
     storage: { load: async () => null, save: async () => {} },
     transport: () => {
       const transport = webSocketTransport(() => new WebSocket(server.url));
-      return { ...transport, open(events) { transport.open({ ...events, message(text) {
-        if (ServerMessage.parse(JSON.parse(text)).type === "snapshot") snapshots++;
-        events.message(text);
-      } }); } };
+      return {
+        ...transport,
+        open(events) {
+          transport.open({
+            ...events,
+            message(text) {
+              if (ServerMessage.parse(JSON.parse(text)).type === "snapshot") snapshots++;
+              events.message(text);
+            },
+          });
+        },
+      };
     },
   });
   try {
@@ -40,12 +60,23 @@ test("an omitted historical branch becomes visible on reactivation without recon
     if (!context) throw new Error("Missing provider");
     for (let index = 0; index < 230; index++) {
       const key = index === 0 ? "old-parent" : index === 1 ? "old-child" : `new-${index}`;
-      const ack = context.onFrame(frames.frame(
-        { type: "agent.seen", agent: key, parent: index === 1 ? "old-parent" : "root", fidelity: "full", native: { provider: "codex", nativeId: key }, cwd: "/repo" },
-        { type: "turn.started", agent: key, trigger: "spawn" },
-        { type: "turn.ended", agent: key, outcome: "completed" },
-      ));
-      await h.engine.flush(); await ack;
+      const ack = context.onFrame(
+        frames.frame(
+          {
+            type: "agent.seen",
+            agent: key,
+            origin: "provider_subagent",
+            parent: index === 1 ? "old-parent" : "root",
+            fidelity: "full",
+            native: { provider: "codex", nativeId: key },
+            cwd: "/repo",
+          },
+          { type: "turn.started", agent: key, trigger: "spawn" },
+          { type: "turn.ended", agent: key, outcome: "completed" },
+        ),
+      );
+      await h.engine.flush();
+      await ack;
     }
     const canonical = h.store.readEntityPage(id, "agents", Number.MAX_SAFE_INTEGER, 200);
     const older = canonical.entitiesBefore;
@@ -58,17 +89,33 @@ test("an omitted historical branch becomes visible on reactivation without recon
     await client.start();
     await when(client.connectionState(), (state) => state === "ready");
     const lease = client.thread(id);
-    await when(lease.store.select(["thread"], (reader) => reader.thread?.id), (value) => value === id);
+    await when(
+      lease.store.select(["thread"], (reader) => reader.thread?.id),
+      (value) => value === id,
+    );
     expect(lease.store.agent(child.id)).toBeUndefined();
     expect(lease.store.agent(parent.id)).toBeUndefined();
     const initialSnapshots = snapshots;
-    const ack = context.onFrame(frames.frame({ type: "turn.started", agent: "old-child", trigger: "background_completion" }));
-    await h.engine.flush(); await ack;
-    await when(lease.store.select(["cursor"], (reader) => reader.cursor), (cursor) => cursor === h.store.headSeq());
-    expect(lease.store.agent(child.id)).toMatchObject({ parentId: parent.id, status: { state: "working" } });
+    const ack = context.onFrame(
+      frames.frame({ type: "turn.started", agent: "old-child", trigger: "background_completion" }),
+    );
+    await h.engine.flush();
+    await ack;
+    await when(
+      lease.store.select(["cursor"], (reader) => reader.cursor),
+      (cursor) => cursor === h.store.headSeq(),
+    );
+    expect(lease.store.agent(child.id)).toMatchObject({
+      parentId: parent.id,
+      status: { state: "working" },
+    });
     expect(lease.store.agent(parent.id)).toBeDefined();
     expect(lease.store.children(parent.id)).toContain(child.id);
     expect(snapshots).toBe(initialSnapshots);
     lease.release();
-  } finally { await client.close(); await server.close(); await h.close(); }
+  } finally {
+    await client.close();
+    await server.close();
+    await h.close();
+  }
 });

@@ -349,15 +349,27 @@ it("closing an attached adapter interrupts a held event gate without stopping th
   const adapter = createOpenCodeAdapter({ attach: h.transport() });
   try {
     const session = await adapter.openSession({
-      cwd: "/one", threadId: ThreadId.parse("pressured-external"),
+      cwd: "/one",
+      threadId: ThreadId.parse("pressured-external"),
       signal: new AbortController().signal,
-      outputFlow: { paused: () => paused, wait: () => { blocked.resolve(); return gate.promise; } },
-      onFrame() {}, onExit() {},
+      outputFlow: {
+        paused: () => paused,
+        wait: () => {
+          blocked.resolve();
+          return gate.promise;
+        },
+      },
+      onFrame() {},
+      onExit() {},
     });
     paused = true;
-    await h.control("/test/events", [{
-      type: "session.execution.started", directory: "/one", data: { sessionID: session.nativeSessionId },
-    }]);
+    await h.control("/test/events", [
+      {
+        type: "session.execution.started",
+        directory: "/one",
+        data: { sessionID: session.nativeSessionId },
+      },
+    ]);
     await blocked.promise;
     await adapter.close();
     expect(await h.control("/test/instance")).toEqual({ instance: "default" });
