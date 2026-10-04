@@ -62,6 +62,9 @@ export class UserService {
       mac = p.platform === "darwin";
     if (action === "status") return { active: await this.active() };
     if (action === "install") {
+      // A matching file does not prove the manager loaded that program. Validate
+      // before enable or any registration/filesystem mutation, including reinstalls.
+      await this.active();
       await mkdir(dirname(p.file), { recursive: true });
       await mkdir(p.logDir, { recursive: true, mode: 0o700 });
       const existing = readRegistration(p);
