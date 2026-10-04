@@ -20,7 +20,7 @@ export const agentControlToolCatalog = AgentControlOperation.options.map((schema
     name: op === "delegate_task" ? "delegate_task" : `ace_${op.replaceAll(".", "_")}`,
     description:
       op === "delegate_task"
-        ? "Delegate to an independent child thread under the parent permission ceiling and delegation budget, on a chosen local provider, model and account. Set wait to observe its result or continue working. Completion results wake the parent in a batched turn. Request IDs make retries safe."
+        ? "Delegate to an independent child thread under the parent permission ceiling and delegation budget, on a chosen local provider, model and account. Set wait to receive its outcome in this tool result; otherwise completion results wake the parent as ace context in a batched turn. Request IDs make retries safe."
         : op === "thread.read_output"
           ? "Read a bounded byte range from a transcript/output source returned by ace_thread_read. Offsets and limits are bytes; the result contains base64 bytes and nextOffset. Decode using the source encoding. The stream must belong to the requested authorized thread."
           : op === "thread.read"

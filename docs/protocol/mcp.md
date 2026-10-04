@@ -238,7 +238,7 @@ Example:
 
 ## delegate_task
 
-Delegate to an independent child thread under the parent permission ceiling and delegation budget, on a chosen local provider, model and account. Set wait to observe its result or continue working. Completion results wake the parent in a batched turn. Request IDs make retries safe.
+Delegate to an independent child thread under the parent permission ceiling and delegation budget, on a chosen local provider, model and account. Set wait to receive its outcome in this tool result; otherwise completion results wake the parent as ace context in a batched turn. Request IDs make retries safe.
 
 Required capability: agents. Timeout: 300000 ms.
 
