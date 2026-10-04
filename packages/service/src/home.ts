@@ -135,6 +135,8 @@ function selectionLock(parent: PinnedDirectory): number {
   const wait = new Int32Array(new SharedArrayBuffer(4));
   for (let attempt = 0; attempt < 500; attempt++) {
     try {
+      // This empty lock needs no later write/chmod: openat publishes its final
+      // private mode atomically with O_EXCL. Only its existence grants ownership.
       return parent.createExclusive(LOCK);
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
@@ -142,9 +144,10 @@ function selectionLock(parent: PinnedDirectory): number {
       try {
         parent.readText(LOCK, 128, parent.stat().uid);
       } catch (cause) {
-        if (missing(cause)) continue;
-        throw cause;
+        if (!missing(cause)) throw cause;
       }
+      // A holder can release the name before or after our no-follow open.
+      // Absence is contention too, and uses the same bounded backoff.
       Atomics.wait(wait, 0, 0, 10);
     }
   }

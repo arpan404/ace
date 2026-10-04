@@ -112,12 +112,15 @@ export class PinnedDirectory {
       if (
         !info.isFile() ||
         info.size > limit ||
-        (owner !== undefined &&
-          (info.uid !== owner || info.nlink !== 1 || (info.mode & 0o077) !== 0))
+        (owner !== undefined && (info.uid !== owner || info.nlink > 1 || (info.mode & 0o077) !== 0))
       )
         throw new Error(
           `Refusing ${name}: expected a bounded regular file owned by the home owner`,
         );
+      // The name can be unlinked after openat but before fstat. Never return
+      // removed private-file contents; report absence so lock contenders retry.
+      if (owner !== undefined && info.nlink === 0)
+        throw Object.assign(new Error(`${name} was removed during read`), { code: "ENOENT" });
       const bytes = Buffer.alloc(limit + 1);
       let length = 0;
       while (length < bytes.length) {

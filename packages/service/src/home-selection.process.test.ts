@@ -45,9 +45,9 @@ test("concurrent default launches all select the same isolated home without touc
   onTestFinished,
 }) => {
   const home = await layout(onTestFinished);
-  const selections = await Promise.all(Array.from({ length: 12 }, () => select(home)));
+  const selections = await Promise.all(Array.from({ length: 24 }, () => select(home)));
   expect(selections.map((result) => result.stdout.trim())).toEqual(
-    Array(12).fill(join(home, ".ace-next")),
+    Array(24).fill(join(home, ".ace-next")),
   );
   expect(await readFile(join(home, ".ace/ace.db"), "utf8")).toBe("untouched legacy data");
   expect(await readdir(join(home, ".ace"))).toEqual(["ace.db"]);
@@ -103,6 +103,102 @@ test("a launch waits for an in-progress selection before inspecting its incomple
   expect(output.trim()).toBe(join(home, ".ace-next"));
   expect(await readdir(join(home, ".ace"))).toEqual(["ace.db"]);
 });
+
+test("a contender retries when the holder releases the lock after the contender opens it", async ({
+  onTestFinished,
+}) => {
+  const home = await layout(onTestFinished);
+  const lock = join(home, ".ace-home-selection.lock");
+  await writeFile(lock, "", { flag: "wx", mode: 0o600 });
+  const selected = spawn(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      `
+    import fs from "node:fs";
+    import {syncBuiltinESMExports} from "node:module";
+    import {createDaemonHomeResolver} from ${JSON.stringify(new URL("./index.ts", import.meta.url).href)};
+    import {PinnedDirectory} from "@ace/workspace/pinned-directory";
+    let readingLock = false, paused = false;
+    const stat = fs.fstatSync;
+    fs.fstatSync = (fd, ...args) => {
+      if (readingLock && !paused) {
+        paused = true;
+        fs.writeSync(1, "lock-opened\\n");
+        if (fs.readSync(0, Buffer.alloc(1), 0, 1, null) !== 1) throw new Error("Missing release barrier");
+      }
+      return stat(fd, ...args);
+    };
+    syncBuiltinESMExports();
+    const select = createDaemonHomeResolver({open(path) {
+      const parent = PinnedDirectory.atBoundary(path), read = parent.readText.bind(parent);
+      parent.readText = (name, ...args) => {
+        readingLock = name === ".ace-home-selection.lock";
+        try { return read(name, ...args); }
+        finally { readingLock = false; }
+      };
+      return parent;
+    }});
+    console.log(select(${JSON.stringify(home)}));
+  `,
+    ],
+    { cwd: new URL("../", import.meta.url), stdio: ["pipe", "pipe", "pipe"] },
+  );
+  const exited = once(selected, "close");
+  onTestFinished(async () => {
+    if (selected.exitCode === null && selected.signalCode === null) selected.kill("SIGKILL");
+    await exited;
+  });
+  let output = "",
+    errors = "";
+  const opened = Promise.withResolvers<void>();
+  selected.stdout.on("data", (bytes: Buffer) => {
+    output += bytes.toString();
+    if (output.includes("lock-opened\n")) opened.resolve();
+  });
+  selected.stderr.on("data", (bytes: Buffer) => {
+    errors += bytes.toString();
+  });
+  await Promise.race([
+    opened.promise,
+    exited.then(() => {
+      throw new Error(`Contender exited before opening lock: ${errors}`);
+    }),
+  ]);
+  // The contender owns a real descriptor to this inode before the holder unlinks it.
+  await unlink(lock);
+  selected.stdin.end("continue");
+  expect((await exited)[0], errors).toBe(0);
+  expect(output.trim().split("\n").at(-1)).toBe(join(home, ".ace-next"));
+  expect(await readFile(join(home, ".ace/ace.db"), "utf8")).toBe("untouched legacy data");
+  expect(await readdir(join(home, ".ace"))).toEqual(["ace.db"]);
+});
+
+for (const unsafe of [
+  "symlink",
+  "directory",
+  "oversized",
+  "public permissions",
+  "multiple hard links",
+])
+  test(`a selection lock with ${unsafe} is refused without touching legacy data`, async ({
+    onTestFinished,
+  }) => {
+    const home = await layout(onTestFinished);
+    const lock = join(home, ".ace-home-selection.lock");
+    if (unsafe === "symlink") await symlink(join(home, ".ace/ace.db"), lock);
+    else if (unsafe === "directory") await mkdir(lock);
+    else {
+      await writeFile(lock, unsafe === "oversized" ? " ".repeat(129) : "", { mode: 0o600 });
+      if (unsafe === "public permissions") await chmod(lock, 0o644);
+      if (unsafe === "multiple hard links") await link(lock, join(home, "lock-copy"));
+    }
+    expect(() => resolveDaemonHome(home)).toThrow(/regular|symbolic|symlink|ELOOP/i);
+    await expect(readdir(join(home, ".ace-next"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await readFile(join(home, ".ace/ace.db"), "utf8")).toBe("untouched legacy data");
+    expect(await readdir(join(home, ".ace"))).toEqual(["ace.db"]);
+  });
 
 for (const invalid of [
   "empty",
