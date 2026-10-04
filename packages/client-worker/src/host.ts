@@ -10,7 +10,7 @@ import {
 import type { Item, ServerMessage } from "@ace/protocol";
 import { sidebarPatches, threadPatches, type Patch } from "./patches.ts";
 import { callArgs, iterateArgs, objectInput, sendArgs } from "./calls.ts";
-import type { TabChannels } from "./tab-channels.ts";
+import { TabChannels } from "./tab-channels.ts";
 import { TabMessage, type LeaseChanges, type PortLike, type Scope } from "./wire.ts";
 
 /*
@@ -190,7 +190,7 @@ class Tab {
   lastSeen: number;
   private host: ClientHost;
   private subscriber: string;
-  /** File channels and Preview subscriptions, loaded with the tab's first such request. */
+  /** File channels and Preview subscriptions, initialized with the first such request. */
   private channels: TabChannels | undefined;
   private loadingChannels: Promise<TabChannels> | undefined;
   private port: PortLike;
@@ -492,8 +492,8 @@ class Tab {
     });
   }
   private loadChannels(): Promise<TabChannels> {
-    this.loadingChannels ??= Promise.all([import("./tab-channels.ts"), loadServiceWire()]).then(
-      ([{ TabChannels }, wire]) => (this.channels = new TabChannels(this.subscriber, wire)),
+    this.loadingChannels ??= loadServiceWire().then(
+      (wire) => (this.channels = new TabChannels(this.subscriber, wire)),
       (error: unknown) => {
         // A failed load is retried by the next request rather than remembered.
         this.loadingChannels = undefined;

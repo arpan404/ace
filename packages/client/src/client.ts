@@ -18,11 +18,7 @@ import type {
 import { ReadMarkers } from "./read-markers.ts";
 import type { FileDownloadInput, FileUploadInput } from "./files-types.ts";
 import type { HistoryScanStatus, HistoryListRequest } from "@ace/protocol/history";
-import {
-  decodeServiceResponse,
-  type ServiceRequest,
-  type ServiceResponse,
-} from "./service-requests.ts";
+import type { ServiceRequest, ServiceResponse } from "./service-requests.ts";
 import { decodeUtf16 } from "./utf16.ts";
 import { decodeBase64 } from "./base64.ts";
 import {
@@ -202,13 +198,13 @@ export class Client implements ClientApi {
       options.id,
       () => this.state === "ready",
     );
-    this.intents = new Intents(
-      options.storage,
-      options.deviceId,
-      limits.intents,
-      limits.outboxBytes,
-      limits.sendBytes,
-      (id) => {
+    this.intents = new Intents({
+      storage: options.storage,
+      device: options.deviceId,
+      limit: limits.intents,
+      bytes: limits.outboxBytes,
+      frameBytes: limits.sendBytes,
+      changed: (id) => {
         const intent = this.intents.get(id);
         if (intent?.state === "pending" && !this.waitingHints.has(id))
           this.waitingHints.set(
@@ -226,15 +222,15 @@ export class Client implements ClientApi {
         else this.pendingSendEntries.delete(id);
         this.notifications.emit([`intent:${id}`, "pendingSends"]);
       },
-      (command) => {
+      send: (command) => {
         if (this.state === "ready") this.connection.send({ type: "command", command });
       },
-      (attempt, run) =>
+      retryAfter: (attempt, run) =>
         options.scheduler.set(
           retryDelay(attempt, limits.retryBaseMs, limits.retryCapMs, options.random()),
           run,
         ),
-    );
+    });
   }
   private observeInputs(message: ServerMessage): void {
     const observe = (item: Item) => {
@@ -379,7 +375,7 @@ export class Client implements ClientApi {
     return this.requests
       .wait(
         id,
-        (value) => decodeServiceResponse(wire.ServerMessage, input, id, value),
+        (value) => wire.decodeServiceResponse(wire.ServerMessage, input, id, value),
         options,
         () => {
           sent = this.connection.send(parsed.data);

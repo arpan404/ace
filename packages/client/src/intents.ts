@@ -9,7 +9,6 @@ const Intent = z.object({
   error: z.string().optional(),
   delivered: z.boolean().optional(),
   threadId: z.string().optional(),
-  sent: z.boolean().optional(),
   waiting: z.boolean().optional(),
   localFailure: z.boolean().optional(),
   order: z.number().int().nonnegative().optional(),
@@ -17,59 +16,49 @@ const Intent = z.object({
 export type Intent = z.infer<typeof Intent>;
 /** A transient refusal (update drain, rolled-back transaction) is retried this many times. */
 const maxRetries = 10;
+interface IntentsOptions {
+  storage: Storage;
+  device: DeviceId;
+  limit: number;
+  bytes: number;
+  frameBytes: number;
+  changed(id: string): void;
+  send(command: Command): void;
+  retryAfter(attempt: number, run: () => void): () => void;
+}
 export class Intents {
   private records = new Map<string, Intent>();
   private sizes = new Map<string, number>();
   private retainedBytes = 0;
   private optimistic = new Map<string, Intent>();
   private enqueuing = new Map<string, Promise<void>>();
-  private storage: Storage;
-  private device: DeviceId;
-  private limit: number;
   private operations = 0;
   private sequence = 0;
   private acknowledging = new Set<string>();
-  private bytes: number;
-  private frameBytes: number;
   private chain: Promise<void> = Promise.resolve();
-  private changed: (id: string) => void;
-  private send: (command: Command) => void;
-  private retryAfter: (attempt: number, run: () => void) => () => void;
   private retries = new Map<string, { attempt: number; cancel: (() => void) | undefined }>();
   private ready = false;
   private connected = false;
   private inFlight = new Set<string>();
   private saving = new Set<string>();
   private initializing: Promise<void> | undefined;
-  constructor(
-    storage: Storage,
-    device: DeviceId,
-    limit: number,
-    bytes: number,
-    frameBytes: number,
-    changed: (id: string) => void,
-    send: (command: Command) => void,
-    retryAfter: (attempt: number, run: () => void) => () => void,
-  ) {
-    this.retryAfter = retryAfter;
-    this.storage = storage;
-    this.device = device;
-    this.limit = limit;
-    this.bytes = bytes;
-    this.frameBytes = frameBytes;
-    this.changed = changed;
-    this.send = send;
+  private options: IntentsOptions;
+  constructor(options: IntentsOptions) {
+    this.options = options;
   }
   initialize(): Promise<void> {
     this.initializing ??= (async () => {
       try {
-        const values = this.storage.records
-          ? (await this.storage.records.load()).map((raw) => Intent.parse(JSON.parse(raw)))
-          : z.array(Intent).parse(JSON.parse((await this.storage.load()) ?? "[]"));
+        const values = this.options.storage.records
+          ? (await this.options.storage.records.load()).map((raw) => Intent.parse(JSON.parse(raw)))
+          : z.array(Intent).parse(JSON.parse((await this.options.storage.load()) ?? "[]"));
         // Old builds retained settled payloads indefinitely. Trim them before enforcing bounds.
         for (const intent of values.toSorted((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
           this.sequence = Math.max(this.sequence, intent.order ?? 0);
-          if (intent.command.deviceId !== this.device || this.records.has(intent.command.id))
+          if (
+            intent.command.deviceId !== this.options.device ||
+            this.records.has(intent.command.id)
+          )
             throw new Error("Outbox identity mismatch");
           this.put(intent.command.id, intent);
         }
@@ -79,7 +68,7 @@ export class Intents {
             ...evicted,
             ...values.filter((entry) => !this.retained(entry)).map((entry) => entry.command.id),
           ]);
-        for (const id of this.records.keys()) this.changed(id);
+        for (const id of this.records.keys()) this.options.changed(id);
         this.ready = true;
       } catch {
         throw new ClientError("storage");
@@ -91,7 +80,7 @@ export class Intents {
     return this.optimistic.get(id) ?? this.records.get(id);
   }
   private serialize(run: () => Promise<void>): Promise<void> {
-    if (this.operations >= this.limit * 2) return Promise.reject(new ClientError("limit"));
+    if (this.operations >= this.options.limit * 2) return Promise.reject(new ClientError("limit"));
     this.operations++;
     const result = this.chain.then(run).finally(() => {
       this.operations--;
@@ -100,7 +89,7 @@ export class Intents {
     return result;
   }
   enqueue(id: string, payload: CommandPayload): Promise<void> {
-    const command = Command.parse({ id, deviceId: this.device, payload });
+    const command = Command.parse({ id, deviceId: this.options.device, payload });
     const existing = this.get(id);
     if (existing && JSON.stringify(existing.command) !== JSON.stringify(command))
       return Promise.reject(
@@ -111,18 +100,16 @@ export class Intents {
     if (!existing || existing.localFailure) {
       if (existing?.localFailure) this.remove(id);
       this.optimistic.set(id, { command, state: "saving" });
-      this.changed(id);
+      this.options.changed(id);
     }
     const operation = this.serialize(async () => {
       if (!this.ready) throw new ClientError("storage");
-      if (!fitsUtf8(JSON.stringify({ type: "command", command }), this.frameBytes))
+      if (!fitsUtf8(JSON.stringify({ type: "command", command }), this.options.frameBytes))
         throw new ClientError("limit");
       const stored = this.records.get(id);
       if (stored) {
-        if (JSON.stringify(stored.command) !== JSON.stringify(command))
-          throw new ClientError("protocol", "Idempotency key reused with different payload");
         if (stored.state === "pending") this.pump();
-        else if (this.connected) this.send(stored.command);
+        else if (this.connected) this.options.send(stored.command);
         return;
       }
       const intent: Intent = { command, state: "pending", order: ++this.sequence };
@@ -139,7 +126,7 @@ export class Intents {
       }
       this.saving.delete(id);
       this.optimistic.delete(id);
-      this.changed(id);
+      this.options.changed(id);
       this.pump();
     })
       .catch((error: unknown) => {
@@ -151,7 +138,7 @@ export class Intents {
             localFailure: true,
             error: error instanceof ClientError ? error.code : "storage",
           });
-          this.changed(id);
+          this.options.changed(id);
         }
         throw error;
       })
@@ -168,7 +155,7 @@ export class Intents {
       return this.acknowledge({ commandId: intent.command.id, ok: false, error: code });
     this.inFlight.delete(commandId);
     retry.cancel?.();
-    retry.cancel = this.retryAfter(retry.attempt++, () => {
+    retry.cancel = this.options.retryAfter(retry.attempt++, () => {
       retry.cancel = undefined;
       if (this.records.get(commandId)?.state === "pending") this.pump();
     });
@@ -189,13 +176,11 @@ export class Intents {
       const previous = this.records.get(result.commandId);
       if (!previous || previous.state !== "pending") return;
       const next: Intent = {
-        command: previous.command,
-        ...(previous.order === undefined ? {} : { order: previous.order }),
+        ...previous,
         state: result.ok ? "acked" : "failed",
-        ...(result.error === undefined ? {} : { error: result.error }),
+        error: result.error,
+        threadId: result.threadId,
       };
-      if (previous.delivered) next.delivered = true;
-      if (result.threadId) next.threadId = result.threadId;
       this.put(result.commandId, next);
       try {
         const evicted = this.evict(result.commandId);
@@ -204,24 +189,22 @@ export class Intents {
         this.put(result.commandId, previous);
         throw new ClientError("storage");
       }
-      this.changed(result.commandId);
+      this.options.changed(result.commandId);
     }).finally(() => {
       this.acknowledging.delete(result.commandId);
       this.inFlight.delete(result.commandId);
       this.pump();
     });
   }
-  values(): readonly Intent[] {
-    return [...new Map([...this.records, ...this.optimistic]).values()];
-  }
   waiting(id: string): void {
     const previous = this.records.get(id);
     if (previous?.state !== "pending" || previous.waiting) return;
     this.put(id, { ...previous, waiting: true });
-    this.changed(id);
+    this.options.changed(id);
   }
   /** The admission item replaced the optimistic bubble. Release its persisted payload. */
   observe(id: string): Promise<void> {
+    if (!this.records.has(id) || this.records.get(id)?.delivered) return Promise.resolve();
     return this.serialize(async () => {
       const previous = this.records.get(id);
       if (!previous || previous.delivered) return;
@@ -233,7 +216,7 @@ export class Intents {
         this.put(id, previous);
         throw new ClientError("storage");
       }
-      this.changed(id);
+      this.options.changed(id);
     });
   }
   private put(id: string, intent: Intent): void {
@@ -259,8 +242,8 @@ export class Intents {
   private evict(protect?: string): string[] {
     const evicted: string[] = [];
     const fits = () =>
-      this.records.size <= this.limit &&
-      this.retainedBytes + 2 + Math.max(0, this.records.size - 1) <= this.bytes;
+      this.records.size <= this.options.limit &&
+      this.retainedBytes + 2 + Math.max(0, this.records.size - 1) <= this.options.bytes;
     for (const [id, intent] of this.records) {
       if (fits()) break;
       if (
@@ -271,13 +254,13 @@ export class Intents {
         continue;
       this.remove(id);
       evicted.push(id);
-      this.changed(id);
+      this.options.changed(id);
     }
     if (!fits()) throw new ClientError("limit");
     return evicted;
   }
   private async persist(intent: Intent | undefined, evicted: readonly string[]): Promise<void> {
-    const records = this.storage.records;
+    const records = this.options.storage.records;
     if (records) {
       for (const id of evicted) await records.write(id, null);
       if (intent)
@@ -287,7 +270,7 @@ export class Intents {
         );
       return;
     }
-    await this.storage.save(
+    await this.options.storage.save(
       JSON.stringify([...this.records.values()].filter((entry) => this.retained(entry))),
     );
   }
@@ -316,9 +299,7 @@ export class Intents {
       )
         continue;
       this.inFlight.add(id);
-      this.put(id, { ...intent, sent: true });
-      this.changed(id);
-      this.send(intent.command);
+      this.options.send(intent.command);
     }
   }
   replay(): void {
