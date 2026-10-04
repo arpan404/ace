@@ -1,4 +1,5 @@
 import { ArrowsOutSimpleIcon } from "@phosphor-icons/react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icon.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.tsx";
 import { Tip } from "@/components/ui/tooltip.tsx";
@@ -26,12 +27,23 @@ export function OpenTabs(props: OpenTabsProps) {
   const tabs = workspace.right.tabs;
   const shown = shownTab(workspace.right)?.key;
   const label = `${tabs.length} open ${tabs.length === 1 ? "tab" : "tabs"}`;
+  const hover = useHoverOpen(props.defaultOpen ?? false);
   return (
-    <Popover defaultOpen={props.defaultOpen ?? false}>
-      <PopoverTrigger openOnHover delay={250} aria-label={label} className={countButton}>
+    <Popover open={hover.open} onOpenChange={hover.setOpen}>
+      <PopoverTrigger
+        aria-label={label}
+        className={countButton}
+        onPointerEnter={hover.enter}
+        onPointerLeave={hover.leave}
+      >
         <CountMark count={tabs.length} />
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-[280px] p-1.5">
+      <PopoverContent
+        align="end"
+        className="w-[280px] p-1.5"
+        onPointerEnter={hover.enter}
+        onPointerLeave={hover.leave}
+      >
         <p className="px-2 pt-1 pb-1.5 text-[11px] font-medium tracking-[0.02em] text-subtle-foreground">
           Open tabs
         </p>
@@ -74,4 +86,31 @@ export function OpenTabs(props: OpenTabsProps) {
       </PopoverContent>
     </Popover>
   );
+}
+
+/**
+ * Opens a quarter second after the pointer rests on the trigger and closes shortly after it
+ * leaves both trigger and list; a click or Enter toggles it at once.
+ */
+function useHoverOpen(initial: boolean) {
+  const [open, setOpen] = useState(initial);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const later = (next: boolean, ms: number) => {
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setOpen(next), ms);
+  };
+  return {
+    open,
+    setOpen: (next: boolean) => {
+      clearTimeout(timer.current);
+      setOpen(next);
+    },
+    enter: (event: React.PointerEvent) => {
+      if (event.pointerType === "mouse") later(true, open ? 0 : 250);
+    },
+    leave: (event: React.PointerEvent) => {
+      if (event.pointerType === "mouse") later(false, 200);
+    },
+  };
 }

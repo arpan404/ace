@@ -122,7 +122,8 @@ export function WorkspaceDock(props: {
         )}
         <div
           className={cn(
-            "flex shrink-0 items-center gap-1 border-b [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
+            // A shadow hairline, not a border: the strip's controls sit on its exact centre line.
+            "flex shrink-0 items-center gap-1 shadow-[inset_0_-1px_0_var(--border)] [-webkit-app-region:drag] [&_button]:[-webkit-app-region:no-drag]",
             // The side panel's strip is the header row above it: same height, same centre line.
             right ? "h-(--header-h) pr-2.5 pl-2" : "h-10 pr-1.5 pl-2",
             layout.sheet && "h-12",

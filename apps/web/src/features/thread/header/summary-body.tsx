@@ -90,7 +90,7 @@ export function SummaryBody(props: { thread: ThreadRef }) {
                   <span className="text-status-failed">−{checkout.deletions}</span>
                 </span>
               ) : (
-                <span className="shrink-0">clean</span>
+                <span className="shrink-0">nothing uncommitted</span>
               )}
             </span>
           ) : (

@@ -152,6 +152,10 @@ const screens: Record<string, Setup> = {
   "thread-open-tabs": async (page) => {
     await rightTab("/t/thread-cold-start", "Preview")(page);
     await page.getByRole("button", { name: "Right panel" }).click();
+    // Hover once the panel has gone and the header has its full width back.
+    await expect(page.getByRole("region", { name: "Thread panel" })).toHaveCount(0);
+    // The header's actions unfold into the room the panel left; let that settle first.
+    await page.waitForTimeout(400);
     await page.getByRole("button", { name: /^\d+ open tabs?$/ }).hover();
     await page.getByRole("list", { name: "Open tabs" }).waitFor();
   },

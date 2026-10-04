@@ -111,16 +111,18 @@ Rules:
 ## Workspace tabs (side and bottom docks)
 
 A screen with docks passes `workspace={{ scope, definition }}` to `<Screen>`; the thread screen
-passes its id and `threadWorkspace` (`features/panels/thread-workspace.tsx`). A **tab** is one
+passes its id and `threadWorkspace` (`features/panels/thread-workspace.ts`). A **tab** is one
 opened resource (Changes, a terminal, a browser page, a file); a **dock** (`right` beside the
 column, `bottom` under the column and the right dock) shows one tab at a time. Hiding a dock keeps
 its tabs; closing a tab removes one resource. Each scope (thread) keeps its own tabs, showing tab,
-open docks, sizes and full view (`lib/workspace`, persisted under `ace.workspace`, the 64 most
-recently changed threads); the last resize anywhere is the size new threads start at.
+open docks, sizes, full view and pinned summary (`lib/workspace`, persisted under
+`ace.workspace`, the 64 most recently changed threads); the last resize anywhere is the size new
+threads start at.
 
 The shell owns the strip (order, drag and keyboard reorder, close, pin, move between docks,
-overflow, the + launcher), sizes, full view, motion, persistence and shortcuts. A tool only
-declares a kind:
+overflow, the + launcher), sizes, full view, motion, persistence and shortcuts. A tool declares a
+**kind** in `features/panels/thread-kinds.tsx`, a module that loads after the thread screen's
+first paint, so a kind's icon, badge and loader never weigh on the route (ADR 0056):
 
 ```ts
 import { defineTabKind } from "@/lib/workspace/index.ts";
@@ -131,7 +133,7 @@ export const fileKind = defineTabKind({
   icon: FilesIcon,
   docks: ["right"], // allowed docks, preferred first (default: right)
   singleton: false, // one tab per id; `true` for a per-thread tool like Changes
-  shortcut: "files", // a keymap id: opens it, and pressed again while showing hides the dock
+  pinned: false, // `true` opens as a tool tab at the front, without a close button
   launcher: 30, // position on the + launcher; leave out to keep it off
   title: (tab) => basename(tab.id), // else the title the view last reported, else `label`
   load: () => import("./file-tab.tsx"), // { default: View, Actions? }, loaded on first show
@@ -140,25 +142,28 @@ export const fileKind = defineTabKind({
 });
 ```
 
-- Add the kind to `threadKinds` in `features/panels/thread-workspace.tsx`. Nothing in the shell changes.
-- The view gets `TabViewProps` (`scope`, `tab`, `dock`) and reads live state from `@ace/client-react`
-  as any screen does. Tabs not showing stay mounted inside `<Activity mode="hidden">`.
+- List the kind in `threadKinds`. If it has a shortcut, add `kind → keymap id` to `shortcuts` in
+  `thread-workspace.ts` (bound from first paint; pressed before the kinds have loaded, the tool
+  opens once they have). Nothing in the shell changes.
+- The view gets `TabViewProps` (`scope`, `tab`, `dock`) and reads live state from
+  `@ace/client-react` as any screen does. Tabs not showing stay mounted inside
+  `<Activity mode="hidden">`; a view whose code fails to load shows the error and Try again in
+  its own tab.
 - `Actions` renders at the end of the dock's strip while one of the kind's tabs shows (New
   terminal, Clear).
 - Open things from anywhere with `useWorkspaceActions(threadId).open({ kind, id?, data? })`;
   opening a resource that is already open shows it (applying `data`). `data` is JSON kept with the
-  tab across reloads; validate it in the view, it comes from storage.
+  tab across reloads: validate it in the view, it comes from storage.
 - A view that learns a better title (a page's title, a file name) calls
   `useWorkspaceActions(scope).update(tab.key, { title })`.
-- Pinned kinds (`pinned: true`) open as tool tabs at the front of the strip without a close
-  button; their context menu still closes or unpins them.
 - A tool the daemon can't serve yet still registers, with a view that says exactly what is
-  missing (see `features/panels/placeholders.tsx`); replace it by registering a kind with the same id.
+  missing (`features/panels/placeholders.tsx`); replace it by registering a kind with the same id.
 
 Shortcuts (`lib/keymap.ts`): ⇧⌘B side panel, ⌘J bottom panel, ⇧⌘F full view, ⌥⌘T new tab,
-⌥⌘W close tab, ⇧⌘] / ⇧⌘[ next and previous tab, and each tool's own (⇧⌘D Changes, ⌃⇧A Agents,
+⌥⌘W close tab, ⇧⌘] and ⇧⌘[ next and previous tab, and each tool's own (⇧⌘D Changes, ⌃⇧A Agents,
 ⌃` Terminal, ⌃⇧P Preview, ⌃⇧M Devices, ⌃⇧L Logs, ⌘P Files, ⌥⌘S Side chat). In a strip: arrows
-move between tabs and show them, Home/End jump, Delete closes, Alt+Shift+arrows reorder.
+move between tabs and show them, Home and End jump, Delete closes, Alt+Shift+arrows reorder;
+right-click (or the context-menu key) for pin, move, full view and close.
 
 ## Daemon services and protocol gaps
 
