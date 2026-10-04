@@ -88,12 +88,20 @@ export function useRootWorking(threadId: string): boolean {
   return useThread(threadId, [`agent:${rootId}`], read) ?? false;
 }
 
+const noneShown: ReadonlySet<string> = new Set();
+
 /**
  * Below the last block: open requests to answer, then what the agent is doing now. `quiet`
- * drops a plain "Working" line when the work log above already says "Working for …".
+ * drops a plain "Working" line when the work log above already says "Working for …". Requests
+ * in `inline` already sit in the transcript where they were asked.
  */
-export function LiveFooter(props: { threadId: string; quiet?: boolean }) {
-  const pending = useInteractions(props.threadId) ?? [];
+export function LiveFooter(props: {
+  threadId: string;
+  quiet?: boolean;
+  inline?: ReadonlySet<string>;
+}) {
+  const inline = props.inline ?? noneShown;
+  const pending = (useInteractions(props.threadId) ?? []).filter((id) => !inline.has(id));
   const meta = useThreadMeta(props.threadId);
   const rootId = meta?.rootAgentId ?? "";
   const status = meta?.status;

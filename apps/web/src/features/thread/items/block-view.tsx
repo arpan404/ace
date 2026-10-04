@@ -3,7 +3,9 @@ import { ArchiveIcon, InfoIcon, WarningIcon } from "@phosphor-icons/react";
 import { memo, Suspense } from "react";
 import { DeferredReviewNote } from "./deferred-review.ts";
 import { Marker, MarkerContent } from "@/components/ui/marker.tsx";
+import { DeferredInteractionCard } from "../interactions/deferred-card.ts";
 import type { Block } from "../transcript/blocks.ts";
+import { TurnEnd } from "../transcript/turn-end.tsx";
 import { BackgroundTaskLine } from "./background-task.tsx";
 import { ChangedFiles } from "./changed-files.tsx";
 import { AssistantMessage, UserMessage } from "./messages.tsx";
@@ -36,6 +38,21 @@ export const BlockView = memo(function BlockView(props: {
       return <ChangedFiles threadId={threadId} itemIds={block.itemIds} />;
     case "item":
       return <QuietItem threadId={threadId} itemId={block.itemId} />;
+    case "question":
+      // Placeholder (contract C-B): the pending card where the question was asked.
+      return (
+        <Suspense fallback={null}>
+          <DeferredInteractionCard.Component
+            threadId={threadId}
+            interactionId={block.interactionId}
+          />
+        </Suspense>
+      );
+    case "event":
+      // Placeholder (contract C-B): the injected text as a quiet line.
+      return <QuietItem threadId={threadId} itemId={block.itemId} />;
+    case "end":
+      return <TurnEnd threadId={threadId} runId={block.runId} askId={block.askId} />;
   }
 });
 

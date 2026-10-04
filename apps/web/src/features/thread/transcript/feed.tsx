@@ -32,7 +32,7 @@ import { BlockView } from "../items/block-view.tsx";
 import { readingColumn } from "../lib/column.ts";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
-import { openWorkIndex, type Block } from "./blocks.ts";
+import { blockItems, openWorkIndex, type Block } from "./blocks.ts";
 import { LiveFooter, useRootWorking } from "./live-footer.tsx";
 import { newestOrdinal, recentTurns, rowOf, transcriptRows, type Row } from "./rows.ts";
 import { useGutter, useKeepPlace, useStayPinned, type Anchor } from "./scroll.ts";
@@ -52,6 +52,9 @@ const gap: Record<Block["kind"], string> = {
   subagents: "pb-1.5",
   background: "pb-2",
   item: "pb-3",
+  question: "pb-4",
+  event: "pb-3",
+  end: "pb-4",
 };
 /**
  * The virtualizer learns a new scroll position from the scroll event, which arrives after the
@@ -165,6 +168,11 @@ export function Feed(props: FeedProps) {
   const rootWorking = useRootWorking(threadId);
   const liveWork = !detached && rootWorking && openWork >= 0;
   const liveBlock = liveWork ? blocks[openWork]?.key : undefined;
+  const inline = useMemo(
+    () =>
+      new Set(blocks.flatMap((block) => (block.kind === "question" ? [block.interactionId] : []))),
+    [blocks],
+  );
 
   const viewport = useRef<HTMLDivElement>(null);
   const feed = useRef<HTMLDivElement>(null);
@@ -437,7 +445,7 @@ export function Feed(props: FeedProps) {
               />
             </Suspense>
           ) : (
-            <LiveFooter threadId={threadId} quiet={liveWork} />
+            <LiveFooter threadId={threadId} quiet={liveWork} inline={inline} />
           )}
         </div>
       </div>
@@ -533,7 +541,7 @@ function RowView(props: {
 /** An item a row shows, for finding it again once it folds or opens. */
 function rowItem(row: Row): string | undefined {
   if (row.kind === "turn") return row.itemIds[0];
-  if (row.kind === "block") return "itemIds" in row.block ? row.block.itemIds[0] : row.block.itemId;
+  if (row.kind === "block") return blockItems(row.block)[0];
   return undefined;
 }
 
