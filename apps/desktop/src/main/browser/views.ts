@@ -241,8 +241,13 @@ class EmbeddedPage implements ViewPage {
   private blocked = new Set<() => void>();
   private gate = new WebSocketGate();
   private nativeInput = false;
-  /** Agent input in flight (CDP `Input.*` or a key press), which must not be blocked. */
-  private agentInput = 0;
+  /**
+   * Set only while this page itself dispatches an input event (a relayed CDP `Input.*`
+   * command or a key press). Chromium runs Electron's input hooks synchronously inside that
+   * dispatch, so the events it sees then are exactly the injected ones; a person's own events
+   * arrive as separate tasks and never see it set. See `inject`.
+   */
+  private injecting = 0;
   private lastBlocked = 0;
   private placed = false;
   private closing: Promise<void> | undefined;
@@ -325,11 +330,21 @@ class EmbeddedPage implements ViewPage {
     this.driven();
     this.gate.command(method, params);
     if (!method.startsWith("Input.")) return this.send(method, params);
-    this.agentInput++;
+    return this.inject(() => this.send(method, params));
+  }
+
+  /**
+   * Run a synchronous input dispatch whose events must pass the native gate: the daemon only
+   * relays input that its sender may give (an agent, or the person who holds the lease
+   * elsewhere). No time window is opened: an event the dispatch doesn't produce synchronously
+   * is treated as the person's and gated, so a change in Chromium fails closed.
+   */
+  private inject<T>(dispatch: () => T): T {
+    this.injecting++;
     try {
-      return await this.send(method, params);
+      return dispatch();
     } finally {
-      this.agentInput--;
+      this.injecting--;
     }
   }
 
@@ -389,18 +404,15 @@ class EmbeddedPage implements ViewPage {
   async press(key: string): Promise<void> {
     this.driven();
     const press = parseChord(key, this.options.platform);
-    this.agentInput++;
-    try {
-      const { keyCode, modifiers } = press;
+    const { keyCode, modifiers } = press;
+    this.inject(() => {
       this.contents.sendInputEvent({ type: "keyDown", keyCode, modifiers });
       if (press.text)
         this.contents.sendInputEvent({ type: "char", keyCode: press.text, modifiers });
       this.contents.sendInputEvent({ type: "keyUp", keyCode, modifiers });
-      // Let the page take the events before native input is gated again.
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    } finally {
-      this.agentInput--;
-    }
+    });
+    // Let the page handle the keys before the daemon reports the press done.
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 
   async resize(width: number, height: number): Promise<void> {
@@ -480,7 +492,7 @@ class EmbeddedPage implements ViewPage {
   }
 
   private allowInput(): boolean {
-    return this.nativeInput || this.agentInput > 0;
+    return this.nativeInput || this.injecting > 0;
   }
 
   /** At most one take-control request a second, however fast the person clicks. */
