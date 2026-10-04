@@ -19,7 +19,14 @@ test("Side chat has the thread composer's shape, switched off, with the reason a
   expect(reason?.textContent).toBe(
     "This daemon can't start side chats yet. Fork the thread to explore without changing it.",
   );
+  expect(box.getAttribute("placeholder")).toBe("Side chats need a newer daemon");
   // The same send button as the thread's composer, saying why it can't send.
   const send = within(panel).getByRole("button", { name: "Send" });
   expect(send.getAttribute("aria-disabled")).toBe("true");
+  // + looks and reads unavailable too, with the same reason, and opens nothing.
+  const add = within(panel).getByRole("button", { name: "Add files and context" });
+  expect(add.getAttribute("aria-disabled")).toBe("true");
+  expect(document.getElementById(add.getAttribute("aria-describedby") ?? "")).toBe(reason);
+  await userEvent.click(add);
+  expect(screen.queryByRole("menu")).toBeNull();
 });

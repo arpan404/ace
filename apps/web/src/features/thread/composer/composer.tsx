@@ -78,7 +78,14 @@ export function Composer({
    * Why nothing can be sent here at all (a side chat the daemon can't run): the composer keeps
    * its shape, but its input and actions are off and point at the reason.
    */
-  unavailable?: { reason: string; describedBy: string } | undefined;
+  unavailable?:
+    | {
+        reason: string;
+        describedBy: string;
+        /** The reason in a few words, shown as the placeholder ("Side chats need a newer daemon"). */
+        short?: string | undefined;
+      }
+    | undefined;
   ref?: Ref<ComposerHandle> | undefined;
 }) {
   const { storage } = useLayout();
@@ -96,6 +103,7 @@ export function Composer({
   const placeCaret = useRef<number | undefined>(undefined);
   const input = useRef<HTMLTextAreaElement>(null);
   const box = useRef<HTMLDivElement>(null);
+  const shell = useRef<HTMLDivElement>(null);
   const listId = useId();
   const addMenu = useRef<{ open(): void }>(null);
   useImperativeHandle(ref, () => ({ openAdd: () => addMenu.current?.open() }));
@@ -225,7 +233,9 @@ export function Composer({
   const unscoped =
     props.thread.draft && !props.thread.id ? "Waiting for the daemon to open a draft" : undefined;
   const placeholder =
-    props.placeholder ?? (terse ? "Ask anything" : "Ask anything, @ to mention, / for commands");
+    props.unavailable?.short ??
+    props.placeholder ??
+    (terse ? "Ask anything" : "Ask anything, @ to mention, / for commands");
   const expanded = suggestions.state === "ready";
 
   return (
@@ -241,6 +251,7 @@ export function Composer({
         </Suspense>
       )}
       <div
+        ref={shell}
         data-slot="composer"
         onDragOver={(event) => event.preventDefault()}
         onDrop={(event) => {
@@ -316,7 +327,9 @@ export function Composer({
             }}
             onInsert={(inserted) => edit(insertAt(text, caret, inserted))}
             thread={props.thread.draft ? undefined : props.thread}
+            anchor={shell}
             width={width}
+            unavailable={props.unavailable}
           />
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <ComposerCompact value={compact}>{props.controls}</ComposerCompact>
@@ -325,6 +338,8 @@ export function Composer({
           <PrimaryAction
             mode={mode}
             blocked={blocked}
+            off={!!off}
+            describedBy={props.unavailable?.describedBy}
             onSend={() => void submit(false)}
             onStop={() => props.onStop?.()}
           />

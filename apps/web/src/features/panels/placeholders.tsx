@@ -13,6 +13,8 @@ import { useThreadParts } from "./agents/thread-parts.ts";
 /** The one line a side chat shows while the daemon can't run one. */
 export const sideChatUnavailable =
   "This daemon can't start side chats yet. Fork the thread to explore without changing it.";
+/** The same, in a few words: the switched-off composer's placeholder. */
+const sideChatUnavailableShort = "Side chats need a newer daemon";
 
 /**
  * Side chat: a short, temporary conversation about the thread that never touches its work.
@@ -43,6 +45,7 @@ export function SideChatPlaceholder(props: TabViewProps) {
             <SideChatComposer
               threadId={props.scope}
               reason={sideChatUnavailable}
+              short={sideChatUnavailableShort}
               reasonId={reason}
             />
           </div>
