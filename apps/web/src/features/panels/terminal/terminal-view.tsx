@@ -16,6 +16,7 @@ import type { Row, Style } from "./screen.ts";
 import type { TerminalSessions } from "./sessions.ts";
 import { terminalText, type TerminalSurface } from "./surface.ts";
 import { canUseXterm, XtermView } from "./xterm-view.tsx";
+import { terminalFontFamily } from "./fonts.ts";
 
 const keys: Record<string, string> = {
   Enter: "\r",
@@ -150,6 +151,7 @@ export function ScreenRows(props: {
         "min-h-0 flex-1 overflow-auto px-3 pt-2 pb-3 font-mono text-ui leading-5 whitespace-pre-wrap text-muted-foreground",
         props.className,
       )}
+      style={{ fontFamily: terminalFontFamily("var(--font-mono)") }}
     >
       <LongRows
         items={rows}
