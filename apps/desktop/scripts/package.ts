@@ -57,6 +57,8 @@ const config: Configuration = {
   asarUnpack: ["**/*.node", "**/spawn-helper", "**/rg", "**/rg.exe"],
   extraResources: [
     { from: join(dist, "bin"), to: "bin" },
+    // The tray's template images (appPaths().trayIcon); the app icons come from build/.
+    { from: join(desktop, "resources"), to: "icons", filter: ["trayTemplate*.png"] },
     // The daemon's own Node runtime (none on Windows, which runs no local daemon yet).
     ...(existsSync(join(dist, "runtime")) ? [{ from: join(dist, "runtime"), to: "runtime" }] : []),
     ...(process.platform === "darwin"
@@ -100,6 +102,8 @@ const config: Configuration = {
   },
   mac: {
     category: "public.app-category.developer-tools",
+    // Rendered from build/icon.svg by scripts/icons.ts, as is build/icon.png.
+    icon: join(desktop, "build/icon.icns"),
     target: full
       ? [
           { target: "dmg", arch: [arch] },
@@ -131,7 +135,7 @@ const config: Configuration = {
     },
   },
   dmg: { sign: false },
-  win: { target: [{ target: "nsis", arch: [arch] }] },
+  win: { target: [{ target: "nsis", arch: [arch] }], icon: join(desktop, "build/icon.png") },
   nsis: { oneClick: false, perMachine: false, include: join(desktop, "build/installer.nsh") },
   linux: {
     target: [
@@ -139,6 +143,7 @@ const config: Configuration = {
       { target: "deb", arch: [arch] },
     ],
     category: "Development",
+    icon: join(desktop, "build/icon.png"),
     mimeTypes: ["x-scheme-handler/ace", "inode/directory"],
   },
   publish: null,

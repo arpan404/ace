@@ -17,6 +17,8 @@ import { StatusTray } from "./os/tray.ts";
 
 export interface BackgroundOptions {
   userData: string;
+  /** The tray's template image (`appPaths().trayIcon`). */
+  trayIcon: string;
   runtime: DaemonRuntime;
   settings(): DesktopSettings;
   window(): BrowserWindow | undefined;
@@ -66,12 +68,15 @@ export class Background {
       },
     });
     this.attention = new Attention(options.settings, options.window);
-    this.tray = new StatusTray({
-      open: () => options.open(),
-      pause: (paused) =>
-        void options.runtime.pause(paused).catch((error: unknown) => options.log(String(error))),
-      quitAll: options.quitAll,
-    });
+    this.tray = new StatusTray(
+      {
+        open: () => options.open(),
+        pause: (paused) =>
+          void options.runtime.pause(paused).catch((error: unknown) => options.log(String(error))),
+        quitAll: options.quitAll,
+      },
+      options.trayIcon,
+    );
     this.notifier = new NativeNotifier({
       open: (link) => options.open(link),
       send: (command) =>

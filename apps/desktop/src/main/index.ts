@@ -89,6 +89,7 @@ function main(): void {
 
   const background = new Background({
     userData: app.getPath("userData"),
+    trayIcon: paths.trayIcon,
     runtime,
     settings: () => settings.get(),
     window: () => window,
@@ -210,6 +211,7 @@ function main(): void {
   app.on("activate", () => open());
 
   void app.whenReady().then(async () => {
+    if (paths.devIcon) app.dock?.setIcon(paths.devIcon);
     const devUrl = process.env.ACE_DESKTOP_RENDERER_URL;
     // A remote-only app lets the person enter a daemon, which must use TLS (`wss:`).
     const remote =
