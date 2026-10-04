@@ -32,6 +32,14 @@ const generic = new Set(["monospace", "ui-monospace", "sans-serif", "serif", "sy
 const unquote = (face: string) => face.trim().replace(/^["']|["']$/g, "");
 
 /**
+ * The font stack a terminal renderer draws `element` with: its resolved monospace family
+ * (the theme's `--font-mono`, already expanded by the browser) with the symbol faces added.
+ */
+export function terminalFont(element: Element): string {
+  return terminalFontFamily(getComputedStyle(element).fontFamily || "monospace");
+}
+
+/**
  * The terminal's font stack: the app's monospace faces first, unchanged, then the symbol faces,
  * then the generic families. A browser falls back one character at a time, so only glyphs the
  * monospace faces lack come from the symbol faces.

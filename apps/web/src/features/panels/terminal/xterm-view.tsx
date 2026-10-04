@@ -6,7 +6,7 @@ import { joinWrapped } from "./search.ts";
 import type { TerminalSessions } from "./sessions.ts";
 import { scrollbackRows, terminalText, type TerminalSurface } from "./surface.ts";
 import { themeFor } from "./xterm-theme.ts";
-import { terminalFontFamily } from "./fonts.ts";
+import { terminalFont } from "./fonts.ts";
 
 /*
  * A terminal drawn by xterm.js with its WebGL renderer (ADR 0056): full-screen programs,
@@ -63,7 +63,7 @@ export function XtermView(props: {
         import("@xterm/xterm/css/xterm.css"),
       ]);
       if (disposed) return;
-      const fontFamily = terminalFontFamily(getComputedStyle(element).fontFamily || "monospace");
+      const fontFamily = terminalFont(element);
       let lineHeight = terminalText.row / (terminalText.size * 1.2);
       const term = new Terminal({
         fontFamily,
