@@ -52,3 +52,73 @@ Public API tests use temporary SQLite homes and executable fake CLIs for account
 - [Claude provider research](../research/providers/claude-code.md) and [fast mode](https://code.claude.com/docs/en/fast-mode).
 - [OpenCode provider research](../research/providers/opencode.md) and [configuration](https://opencode.ai/docs/config/).
 - [Cursor provider research](../research/providers/cursor.md) and [CLI configuration](https://cursor.com/docs/cli/reference/configuration).
+
+## Amendment: accounts managed from Settings
+
+Accepted 2026-10-04 for the owner's multiple-account request. This supersedes the
+host-local registration restriction in "Protocol and wire additions". ADR 0002
+continues to govern authentication. The app opens a terminal for the installed
+provider's own local login flow. ace does not implement OAuth, accept credentials,
+or read provider credential files. Cursor uses the official SDK exception in
+ADR 0002 and the supervised hosts in ADR 0043 when that backend is selected.
+
+`accounts.add` accepts only provider and label. The daemon generates the ID and
+creates a private, mode-0700 home at `<dataDir>/account-homes/<id>`. Persist only
+instance metadata and directory selectors. Managed instances also isolate HOME,
+XDG cache/config/data/state, APPDATA and temporary files so incidental CLI writes
+stay in the private home. Pi uses `PI_CODING_AGENT_DIR`; its sign-in status remains
+unknown because no verified provider-independent status probe exists.
+
+`accounts.rename`, `accounts.remove` and `accounts.setDefault` update the registry.
+Removal unregisters by default. Only `deleteHome: true` permits deleting a
+daemon-created home, after checking the parent and home are direct directories,
+not symlinks. Host-registered homes can be unregistered, but cannot be deleted or
+used for app-initiated auth. Active writers and auth jobs prevent removal and
+other conflicting account changes. Defaults persist per provider and affect new
+assignments. Existing pinned sessions keep their account. Removing a selected
+account falls back to the implicit CLI account.
+
+Every native provider has an implicit `<provider>-cli-default` account labeled
+"Default (your CLI login)". These records use the daemon's launch environment
+and point to the CLI's existing normal home. Registration creates no directory
+there. The app cannot rename, remove, sign into, sign out of, or migrate these
+accounts. The user manages their normal login directly through the CLI.
+
+`accounts.login` and `accounts.logout` return `accounts.auth` with a terminal ID.
+The terminal belongs to the requesting socket. The client subscribes with the
+existing `terminal.request` API and omits `threadId`. Launch waits for that first
+subscription so no browser challenge is lost before the UI is ready. Auth
+terminals use the existing PTY process ownership and shutdown service, with
+explicit executable arguments. They have no scrollback, snapshots, event-log
+entries, or replay. Output is forwarded only to that live authorized socket.
+Disconnect cancels the terminal and awaits process cleanup. Input is never
+written to an ace log or history. Pi requires the client to display the returned
+`/login` or `/logout` instruction in its terminal.
+
+Codex runs `codex login` or `codex logout`; Claude runs `claude auth login/logout`;
+OpenCode runs `opencode auth login/logout`. Cursor ACP runs `agent login/logout`
+only for the already verified isolated CLI release. Cursor SDK auth fences and
+drains the instance's hosts before launching a PTY-owned helper that invokes the
+existing supervised SDK auth driver. The SDK host discards key-bearing returns.
+Only its ephemeral browser URL reaches the terminal. After exit and process
+cleanup, refresh safe sign-in status and replace only that instance's model
+catalog generation. Metadata discovery sends no prompt or inference request.
+
+Account mutations and auth terminal access require the local owner connection,
+a desktop connection, or the explicit `accounts` pairing scope. `operate` and
+remote `admin` alone do not grant this scope. Pairing defaults remain read and
+operate. Existing Cursor browser-auth mutations require the same accounts scope,
+so they cannot bypass this policy. Read-only account listing still requires read.
+
+The backend exposes `accounts.changed` with the updated public summary, or null
+after removal. Public summaries include `implicit` and `isDefault`, never home
+paths or launch environments. The fake daemon implements the same lifecycle and
+catalog behavior. Socket behavior tests use controlled executable CLIs, temporary
+homes and local paired devices. They verify isolation, status/model refresh,
+default persistence, deletion choices, immutable CLI accounts and authorization.
+
+Primary command references: [Claude CLI](https://code.claude.com/docs/en/cli-reference),
+[Codex CLI](https://developers.openai.com/codex/cli/reference),
+[OpenCode auth](https://opencode.ai/v2/docs/cli/commands/),
+[Cursor CLI auth](https://docs.cursor.com/en/cli/reference/authentication), and
+[Pi quickstart](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/quickstart.md).

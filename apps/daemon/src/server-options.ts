@@ -41,6 +41,7 @@ export interface ServerOptions {
   screen?: ScreenManager;
   devices?: DevicesService;
   accounts?: AccountService;
+  accountManagement?: import("./account-management.ts").AccountManagement;
   cursorAuth?: CursorAuthService;
   commands?: CommandService;
   files?: FilesService;

@@ -1,32 +1,32 @@
 {
-  "$id": "https://ace.local/protocol/v1/AccountsResponse.json",
+  "$id": "https://ace.local/protocol/v1/AccountManagementRequest.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "oneOf": [
     {
       "properties": {
-        "account": {
-          "anyOf": [
-            {
-              "$ref": "https://ace.local/protocol/v1/AccountSummary.json"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "label": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
           "type": "string"
         },
         "type": {
-          "const": "accounts.changed",
+          "const": "accounts.add",
           "type": "string"
         }
       },
       "required": [
         "type",
         "requestId",
-        "account"
+        "provider",
+        "label"
       ],
       "type": "object"
     },
@@ -35,24 +35,18 @@
         "instanceId": {
           "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
-        "instruction": {
-          "enum": [
-            "/login",
-            "/logout"
-          ],
+        "label": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
           "type": "string"
         },
         "requestId": {
           "maxLength": 128,
           "type": "string"
         },
-        "terminalId": {
-          "maxLength": 128,
-          "minLength": 1,
-          "type": "string"
-        },
         "type": {
-          "const": "accounts.auth",
+          "const": "accounts.rename",
           "type": "string"
         }
       },
@@ -60,81 +54,99 @@
         "type",
         "requestId",
         "instanceId",
-        "terminalId"
+        "label"
       ],
       "type": "object"
     },
     {
       "properties": {
-        "accounts": {
-          "items": {
-            "$ref": "https://ace.local/protocol/v1/AccountSummary.json"
-          },
-          "maxItems": 256,
-          "type": "array"
+        "deleteHome": {
+          "default": false,
+          "type": "boolean"
+        },
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
         },
         "requestId": {
           "maxLength": 128,
           "type": "string"
         },
         "type": {
-          "const": "accounts.list",
+          "const": "accounts.remove",
           "type": "string"
         }
       },
       "required": [
         "type",
         "requestId",
-        "accounts"
+        "instanceId"
       ],
       "type": "object"
     },
     {
       "properties": {
-        "account": {
-          "anyOf": [
-            {
-              "$ref": "https://ace.local/protocol/v1/AccountSummary.json"
-            },
-            {
-              "type": "null"
-            }
-          ]
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+        },
+        "provider": {
+          "$ref": "https://ace.local/protocol/v1/NativeAccountProvider.json"
         },
         "requestId": {
           "maxLength": 128,
           "type": "string"
         },
         "type": {
-          "const": "accounts.status",
+          "const": "accounts.setDefault",
           "type": "string"
         }
       },
       "required": [
         "type",
         "requestId",
-        "account"
+        "provider",
+        "instanceId"
       ],
       "type": "object"
     },
     {
       "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+        },
         "requestId": {
           "maxLength": 128,
           "type": "string"
         },
-        "result": {
-          "$ref": "https://ace.local/protocol/v1/MigrationResult.json"
-        },
         "type": {
-          "const": "accounts.migrate",
+          "const": "accounts.login",
           "type": "string"
         }
       },
       "required": [
         "type",
         "requestId",
-        "result"
+        "instanceId"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "instanceId": {
+          "$ref": "https://ace.local/protocol/v1/AccountInstanceId.json"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "type": {
+          "const": "accounts.logout",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "requestId",
+        "instanceId"
       ],
       "type": "object"
     }

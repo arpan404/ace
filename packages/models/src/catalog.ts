@@ -29,6 +29,7 @@ type State = {
   retryAt: number;
   invalidating?: Promise<void>;
   flight?: Promise<ModelInstanceStatus>;
+  cleanup?: Promise<void>;
   abort?: AbortController;
 };
 function cacheRevision(instance: ModelInstance): string {
@@ -180,7 +181,9 @@ export class ModelCatalog implements ModelCatalogApi {
     if (state) this.#providers.get(state.config.provider)?.delete(instance);
     this.#states.delete(instance);
     this.#persisted.delete(instance);
-    return pending;
+    return Promise.all([pending, state?.flight]).then(async () => {
+      await state?.cleanup;
+    });
   }
   #select(filter: ModelFilter): State[] {
     const matches = (state: State) =>
@@ -328,6 +331,7 @@ export class ModelCatalog implements ModelCatalogApi {
             () => {},
             () => {},
           );
+          state.cleanup = cleanup;
           this.#discoveries.add(cleanup);
           void cleanup.then(() => this.#discoveries.delete(cleanup));
           const models = await Promise.race([discovery, failure]);

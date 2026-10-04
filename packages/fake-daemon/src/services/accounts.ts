@@ -1,3 +1,4 @@
+import { NativeAccountProvider } from "@ace/protocol/accounts";
 import type { AccountSummary as Summary } from "@ace/protocol/accounts";
 import type { z } from "zod";
 
@@ -43,7 +44,9 @@ function plain(id: "opencode" | "cursor", version: string, now: number): Account
     id,
     provider: id,
     installationVersion: version,
-    label: "Default",
+    label: "Default (your CLI login)",
+    implicit: true,
+    isDefault: true,
     availability: "available",
     quota: { auth: "logged_in", observedAt: now, windows: {}, blockers: {}, usage: {} },
   };
@@ -53,6 +56,23 @@ function plain(id: "opencode" | "cursor", version: string, now: number): Account
 export function accountSummaries(now: number): AccountSummary[] {
   return [
     ...accountList(now).map((account) => accountSummary(account, now)),
+    ...NativeAccountProvider.options
+      .filter((provider) => provider !== "opencode" && provider !== "cursor")
+      .map((provider) => ({
+        id: `${provider}-cli-default`,
+        provider,
+        label: "Default (your CLI login)",
+        implicit: true,
+        isDefault: true,
+        availability: "available" as const,
+        quota: {
+          auth: "logged_in" as const,
+          observedAt: now,
+          windows: {},
+          blockers: {},
+          usage: {},
+        },
+      })),
     plain("opencode", "1.4", now),
     plain("cursor", "0.9", now),
   ];

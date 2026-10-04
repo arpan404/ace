@@ -21,6 +21,7 @@ const row = z.object({ instance: z.string().max(32768), quota: z.string().max(16
 async function canonicalInstance(input: ProviderInstance): Promise<ProviderInstance> {
   const parsed = ProviderInstance.parse(input);
   instanceEnv(parsed, {});
+  if (parsed.implicit) return parsed;
   const homeDir = await canonicalHome(parsed.homeDir);
   const env: ProviderInstance["env"] = {};
   for (const key of Object.keys(parsed.env)) {
@@ -37,6 +38,7 @@ function summarize(
 ) {
   return {
     id: instance.id,
+    implicit: instance.implicit ?? false,
     provider: instance.provider,
     label: instance.label,
     ...(instance.provider === "acp"
@@ -162,7 +164,13 @@ export class AccountRegistry {
             throw new Error("An instance identity cannot change homes or agents");
           continue;
         }
-        if (other.instance.provider !== instance.provider || instance.provider === "acp") continue;
+        if (
+          other.instance.implicit ||
+          instance.implicit ||
+          other.instance.provider !== instance.provider ||
+          instance.provider === "acp"
+        )
+          continue;
         if (
           [other.instance.homeDir, ...Object.values(other.instance.env)].some((p) =>
             roots.has(resolve(p)),
@@ -203,7 +211,7 @@ export class AccountRegistry {
     signal?.throwIfAborted();
     const roots = new Map<string, Set<string>>();
     for (const { instance } of normalized) {
-      if (instance.provider === "acp") continue;
+      if (instance.provider === "acp" || instance.implicit) continue;
       const used = roots.get(instance.provider) ?? new Set<string>();
       const selectors = new Set([instance.homeDir, ...Object.values(instance.env)]);
       for (const path of selectors)
@@ -260,12 +268,61 @@ export class AccountRegistry {
       throw error;
     }
   }
+  selectedProvider(provider: string): string | undefined {
+    const value = this.db
+      .prepare("SELECT instance_id FROM account_selection WHERE backend=?")
+      .get(`provider:${provider}`);
+    return value ? AccountInstanceId.parse(value.instance_id) : undefined;
+  }
+  selectProvider(provider: string, id: string): void {
+    if (this.get(id)?.instance.provider !== provider) throw new Error("Provider mismatch");
+    this.db
+      .prepare(
+        "INSERT INTO account_selection VALUES (?,?) ON CONFLICT(backend) DO UPDATE SET instance_id=excluded.instance_id",
+      )
+      .run(`provider:${provider}`, id);
+  }
+  rename(id: string, label: string): void {
+    const account = this.get(id);
+    if (!account || account.instance.implicit) throw new Error("Account is immutable");
+    this.upsert.run(
+      id,
+      JSON.stringify(ProviderInstance.parse({ ...account.instance, label })),
+      JSON.stringify(account.quota),
+    );
+  }
+  unregister(id: string): void {
+    const account = this.get(id);
+    if (!account || account.instance.implicit) throw new Error("Account is immutable");
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      this.db.prepare("DELETE FROM account_selection WHERE instance_id=?").run(id);
+      this.db.prepare("DELETE FROM accounts WHERE id=?").run(id);
+      this.db.exec("COMMIT");
+    } catch (error) {
+      this.db.exec("ROLLBACK");
+      throw error;
+    }
+  }
   summary(id: string, now: number) {
     const account = this.get(id);
-    return account ? summarize(account, now) : undefined;
+    return account
+      ? {
+          ...summarize(account, now),
+          isDefault:
+            (this.selectedProvider(account.instance.provider) ??
+              `${account.instance.provider}-cli-default`) === id,
+        }
+      : undefined;
   }
   summaries(now: number) {
-    return this.list().map((account) => summarize(account, now));
+    return this.list().map((account) =>
+      Object.assign(summarize(account, now), {
+        isDefault:
+          (this.selectedProvider(account.instance.provider) ??
+            `${account.instance.provider}-cli-default`) === account.instance.id,
+      }),
+    );
   }
   pickInstance(input: Parameters<typeof pickInstance>[0], now: number) {
     return pickInstance(input, this.list(), now);
