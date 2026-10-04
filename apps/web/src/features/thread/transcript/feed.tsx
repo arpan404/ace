@@ -36,7 +36,7 @@ import type { ThreadNav } from "../long/nav.tsx";
 import { blockItems, type Block } from "./blocks.ts";
 import { LiveFooter } from "./live-footer.tsx";
 import { newestOrdinal, recentFrom, rowOf, transcriptRows, turnCount, type Row } from "./rows.ts";
-import { useGutter, useKeepPlace, useStayPinned, type Anchor } from "./scroll.ts";
+import { useDockShift, useGutter, useKeepPlace, useStayPinned, type Anchor } from "./scroll.ts";
 import { useRunOrdinals } from "./run-ordinals.ts";
 import { useBlocks } from "./use-blocks.ts";
 import { useTurnActivity } from "./use-turn-activity.ts";
@@ -138,7 +138,7 @@ export interface FeedProps {
   /** Items that reached the live end since the reader left it. */
   fresh: { count: number; more: boolean };
   liveNewest: string | undefined;
-  /** Cards that float over the transcript's top, under search and the jump bar. */
+  /** A card docked above the transcript (the catch-up card): it pushes the rows down. */
   overlay?: ReactNode;
 }
 
@@ -262,6 +262,8 @@ export function Feed(props: FeedProps) {
     placedUntil.current = performance.now() + 250;
   }, [keys]);
   useStayPinned(viewport, pinnedRef, glidingUntil);
+  const dock = useRef<HTMLDivElement>(null);
+  useDockShift(dock, viewport, pinnedRef);
   useGutter(viewport);
   // A window that isn't joined to the tail has no live end to follow.
   useEffect(() => {
@@ -384,140 +386,152 @@ export function Feed(props: FeedProps) {
   const dividerRow = divider && rows.find((row) => row.key === divider)?.key;
   return (
     <div className="relative flex h-full min-h-0 flex-col">
-      <div
-        ref={viewport}
-        data-virtual-viewport=""
-        // A classic scrollbar reserves the same room on both edges, so the column stays centred
-        // on the composer's axis; `useGutter` gives the composer the same inset.
-        // Once scrolled, the top 16px fade, so nothing reads as cut under the header; a pinned
-        // summary beside the text keeps it clear (`--summary-inset`).
-        style={
-          fadeTop
-            ? { ...viewportStyle, maskImage: fadeTop, WebkitMaskImage: fadeTop }
-            : viewportStyle
-        }
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
-        onScroll={(event) => {
-          const el = event.currentTarget;
-          readTop();
-          slideOnScroll(el);
-          const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;
-          if (!atEnd && performance.now() < glidingUntil.current) return;
-          // A detached window's end is not the live end.
-          const following = atEnd && !detached;
-          if (following !== pinnedRef.current) setPinned(following);
-        }}
-      >
-        <div className={`${readingColumn} pt-6 pb-16`}>
-          <div className="flex justify-center pb-4">
-            {hasOlder ? (
-              <Button variant="ghost" size="sm" disabled={loading} onClick={() => void loadOlder()}>
-                {loading && <Spinner />}
-                Load earlier messages
-              </Button>
+      <div ref={dock} className="flex flex-none justify-center px-4 pt-3 empty:hidden">
+        {!window && props.overlay}
+      </div>
+      {/* The rows and the bars that float over their top (search, the jump bar). */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <div
+          ref={viewport}
+          data-virtual-viewport=""
+          // A classic scrollbar reserves the same room on both edges, so the column stays centred
+          // on the composer's axis; `useGutter` gives the composer the same inset.
+          // Once scrolled, the top 16px fade, so nothing reads as cut under the header; a pinned
+          // summary beside the text keeps it clear (`--summary-inset`).
+          style={
+            fadeTop
+              ? { ...viewportStyle, maskImage: fadeTop, WebkitMaskImage: fadeTop }
+              : viewportStyle
+          }
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]"
+          onScroll={(event) => {
+            const el = event.currentTarget;
+            readTop();
+            slideOnScroll(el);
+            const atEnd = el.scrollHeight - el.scrollTop - el.clientHeight < nearEdge;
+            if (!atEnd && performance.now() < glidingUntil.current) return;
+            // A detached window's end is not the live end.
+            const following = atEnd && !detached;
+            if (following !== pinnedRef.current) setPinned(following);
+          }}
+        >
+          <div className={`${readingColumn} pt-6 pb-16`}>
+            <div className="flex justify-center pb-4">
+              {hasOlder ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={loading}
+                  onClick={() => void loadOlder()}
+                >
+                  {loading && <Spinner />}
+                  Load earlier messages
+                </Button>
+              ) : (
+                <Marker variant="separator" className="text-xs text-subtle-foreground">
+                  <MarkerContent>Beginning of thread</MarkerContent>
+                </Marker>
+              )}
+            </div>
+            {pager.error && (
+              <p role="alert" className="pb-3 text-center text-xs text-status-failed">
+                Couldn't load earlier messages. Try again.
+              </p>
+            )}
+            <div
+              ref={feed}
+              role="feed"
+              aria-label="Transcript"
+              aria-busy={loading || jump.loading !== undefined}
+              className="relative w-full"
+              style={{ height: total }}
+            >
+              {items.map((item) => {
+                const row = rows[item.index];
+                if (!row) return null;
+                const lit = flash?.key === row.key;
+                return (
+                  <div
+                    key={item.key}
+                    ref={virtualizer.measureElement}
+                    data-index={item.index}
+                    role="article"
+                    aria-posinset={item.index + 1}
+                    aria-setsize={hasOlder ? -1 : rows.length}
+                    {...(lit && flash?.hit ? { "data-hit": "" } : {})}
+                    className={cn("absolute inset-x-0 top-0", rowGap(row, rows[item.index + 1]))}
+                    style={{ transform: `translateY(${item.start - margin}px)` }}
+                  >
+                    <div
+                      className={entering.has(row.key) ? "fx-rise-in" : undefined}
+                      style={lit ? highlight : undefined}
+                    >
+                      {dividerRow === row.key && <NewActivity />}
+                      <RowView
+                        threadId={threadId}
+                        row={row}
+                        live={row.key === liveBlock}
+                        onOpen={(ordinal) =>
+                          setOpened((previous) => new Set(previous).add(ordinal))
+                        }
+                        onFold={(ordinal) =>
+                          setOpened((previous) => {
+                            const next = new Set(previous);
+                            next.delete(ordinal);
+                            return next;
+                          })
+                        }
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {detached ? (
+              <Suspense fallback={null}>
+                <DeferredGapRow.Component
+                  threadId={threadId}
+                  lastTurn={lastWindowOrdinal}
+                  loading={jump.loading === "newer"}
+                  onNewer={() => void nav.jump.newer()}
+                  onLive={toLive}
+                />
+              </Suspense>
             ) : (
-              <Marker variant="separator" className="text-xs text-subtle-foreground">
-                <MarkerContent>Beginning of thread</MarkerContent>
-              </Marker>
+              <LiveFooter
+                threadId={threadId}
+                activity={liveBlock ? undefined : activity}
+                inline={inline}
+              />
             )}
           </div>
-          {pager.error && (
-            <p role="alert" className="pb-3 text-center text-xs text-status-failed">
-              Couldn't load earlier messages. Try again.
-            </p>
-          )}
-          <div
-            ref={feed}
-            role="feed"
-            aria-label="Transcript"
-            aria-busy={loading || jump.loading !== undefined}
-            className="relative w-full"
-            style={{ height: total }}
-          >
-            {items.map((item) => {
-              const row = rows[item.index];
-              if (!row) return null;
-              const lit = flash?.key === row.key;
-              return (
-                <div
-                  key={item.key}
-                  ref={virtualizer.measureElement}
-                  data-index={item.index}
-                  role="article"
-                  aria-posinset={item.index + 1}
-                  aria-setsize={hasOlder ? -1 : rows.length}
-                  {...(lit && flash?.hit ? { "data-hit": "" } : {})}
-                  className={cn("absolute inset-x-0 top-0", rowGap(row, rows[item.index + 1]))}
-                  style={{ transform: `translateY(${item.start - margin}px)` }}
-                >
-                  <div
-                    className={entering.has(row.key) ? "fx-rise-in" : undefined}
-                    style={lit ? highlight : undefined}
-                  >
-                    {dividerRow === row.key && <NewActivity />}
-                    <RowView
-                      threadId={threadId}
-                      row={row}
-                      live={row.key === liveBlock}
-                      onOpen={(ordinal) => setOpened((previous) => new Set(previous).add(ordinal))}
-                      onFold={(ordinal) =>
-                        setOpened((previous) => {
-                          const next = new Set(previous);
-                          next.delete(ordinal);
-                          return next;
-                        })
-                      }
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          {detached ? (
+        </div>
+        <div className="pointer-events-none absolute inset-x-0 top-3 z-[6] flex flex-col items-center gap-2 px-4">
+          {nav.searchOpen && (
             <Suspense fallback={null}>
-              <DeferredGapRow.Component
+              <DeferredSearchBar.Component nav={nav} />
+            </Suspense>
+          )}
+          {window && (
+            <Suspense fallback={null}>
+              <DeferredJumpBar.Component
+                turn={jump.turn}
+                reading={reading}
                 threadId={threadId}
-                lastTurn={lastWindowOrdinal}
-                loading={jump.loading === "newer"}
-                onNewer={() => void nav.jump.newer()}
+                failed={jump.failed}
                 onLive={toLive}
               />
             </Suspense>
-          ) : (
-            <LiveFooter
-              threadId={threadId}
-              activity={liveBlock ? undefined : activity}
-              inline={inline}
-            />
+          )}
+          {!window && jump.failed && (
+            <Suspense fallback={null}>
+              <DeferredJumpFailed.Component
+                message={jump.failed}
+                onDismiss={() => nav.jump.dismissError()}
+              />
+            </Suspense>
           )}
         </div>
-      </div>
-      <div className="pointer-events-none absolute inset-x-0 top-3 z-[6] flex flex-col items-center gap-2 px-4">
-        {nav.searchOpen && (
-          <Suspense fallback={null}>
-            <DeferredSearchBar.Component nav={nav} />
-          </Suspense>
-        )}
-        {window && (
-          <Suspense fallback={null}>
-            <DeferredJumpBar.Component
-              turn={jump.turn}
-              reading={reading}
-              threadId={threadId}
-              failed={jump.failed}
-              onLive={toLive}
-            />
-          </Suspense>
-        )}
-        {!window && jump.failed && (
-          <Suspense fallback={null}>
-            <DeferredJumpFailed.Component
-              message={jump.failed}
-              onDismiss={() => nav.jump.dismissError()}
-            />
-          </Suspense>
-        )}
-        {!window && props.overlay}
       </div>
       <Suspense fallback={null}>
         <DeferredTurnKeys.Component
