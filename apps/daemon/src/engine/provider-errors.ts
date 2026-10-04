@@ -38,7 +38,7 @@ function readable(
     rate_limit: `${name} reached an account limit. Wait for the limit to reset or select another eligible account.`,
     overloaded_error: `${name} is temporarily overloaded. Try again shortly.`,
   };
-  const message = messages[code];
+  const message = Object.hasOwn(messages, code) ? messages[code] : undefined;
   return message
     ? { text: message, details: { code, provider, ...(model ? { model } : {}) } }
     : undefined;
