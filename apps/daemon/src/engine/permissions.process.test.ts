@@ -23,6 +23,41 @@ function approval(command: string): Fact {
   };
 }
 
+test("a reused native approval key reviews only its still-pending incarnation", async () => {
+  const frames = scriptFrames();
+  const h = await harness(
+    [
+      {
+        on: "send",
+        frames: [
+          frames.frame(
+            start,
+            approval("rm -rf build"),
+            { type: "interaction.closed", interaction: "permission", state: "cancelled" },
+            approval("pwd"),
+          ),
+        ],
+      },
+      { on: "resolve", frames: [frames.frame(end)] },
+    ],
+    frames,
+  );
+  try {
+    const id = await h.create();
+    const interactions = Object.values(h.store.snapshotThread(id).interactions);
+    expect(interactions).toHaveLength(2);
+    expect(interactions.find((entry) => entry.state === "cancelled")?.review).toBeUndefined();
+    expect(interactions.find((entry) => entry.state === "resolved")).toMatchObject({
+      review: { decision: "approve" },
+      resolution: { optionId: "once" },
+    });
+    expect(h.errors).toEqual([]);
+    expect(h.store.getThread(id)?.status.state).toBe("done");
+  } finally {
+    await h.close();
+  }
+});
+
 test.each(["success", "failure", "process-exit"] as const)(
   "a native answer crossing turn completion retains its audit without reviving dead requests: %s",
   async (outcome) => {

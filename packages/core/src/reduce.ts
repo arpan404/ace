@@ -36,6 +36,47 @@ function signal(state: ThreadState, fact: Fact, ctx: ApplyContext, events: Event
 
 /** Fold one adapter fact. The caller owns the clock, id sequence and envelope. */
 export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): EventPayload[] {
+  return fold(state, input, ctx, (events) => recomputeStatuses(state, ctx.now, events));
+}
+
+/** A provider frame commits atomically. Consecutive entity facts need one derived
+ * status, but turn/control boundaries still observe all preceding facts.
+ */
+export class FactBatch {
+  private state: ThreadState;
+  private pendingAt: number | undefined;
+  constructor(state: ThreadState) {
+    this.state = state;
+  }
+  apply(fact: Fact, ctx: ApplyContext): EventPayload[] {
+    const batchable =
+      (fact.type === "interaction.opened" && fact.item === undefined) ||
+      (fact.type === "item.upsert" &&
+        (fact.draft?.type === "message" || fact.draft?.type === "notice") &&
+        fact.draft.complete === true &&
+        get(this.state.items, fact.item)?.type !== "tool_call");
+    const preceding = !batchable || this.pendingAt !== ctx.now ? this.flush() : [];
+    const emitted = fold(this.state, fact, ctx, (events) => {
+      if (batchable) this.pendingAt = ctx.now;
+      else recomputeStatuses(this.state, ctx.now, events);
+    });
+    return [...preceding, ...emitted];
+  }
+  flush(): EventPayload[] {
+    if (this.pendingAt === undefined) return [];
+    const events: EventPayload[] = [];
+    recomputeStatuses(this.state, this.pendingAt, events);
+    this.pendingAt = undefined;
+    return events;
+  }
+}
+
+function fold(
+  state: ThreadState,
+  input: unknown,
+  ctx: ApplyContext,
+  finish: (events: EventPayload[]) => void,
+): EventPayload[] {
   if (!Number.isSafeInteger(ctx.now) || ctx.now < 0)
     throw new Error("now must be a nonnegative integer");
   if (typeof ctx.ids?.next !== "function") throw new Error("ids.next must be a function");
@@ -211,6 +252,6 @@ export function apply(state: ThreadState, input: unknown, ctx: ApplyContext): Ev
   }
   flushNotices(state, ctx, events);
   reconcileLinks(state, ctx, events);
-  recomputeStatuses(state, ctx.now, events);
+  finish(events);
   return events;
 }

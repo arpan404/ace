@@ -8,7 +8,7 @@ import { TransitionReadiness } from "./transition-readiness.ts";
 import { captureExecutionSources } from "./execution-provenance.ts";
 import { quiescent } from "./transition-history.ts";
 import { TransitionState } from "./transition-state.ts";
-import { apply, type Fact, type ThreadState, type IdSource } from "@ace/core";
+import { FactBatch, type Fact, type ThreadState, type IdSource } from "@ace/core";
 import type { StatementSync } from "node:sqlite";
 import { randomUUID } from "node:crypto";
 import { ExecutionOptions, Command, CommandId, ThreadId, type EventPayload } from "@ace/protocol";
@@ -197,6 +197,7 @@ export class EngineRepository {
         const state = this.state(id);
         if (!state) throw new Error("Missing engine state");
         this.snapshots.get(id)?.begin();
+        const batch = new FactBatch(state);
         let continuationStarted = false;
         const events = coalesceFacts(facts).flatMap((input) => {
           const queue = input.type === "turn.started" ? this.queue.get(id) : undefined;
@@ -244,7 +245,7 @@ export class EngineRepository {
           const snapshot = this.snapshots.get(id);
           const finish = snapshot?.prepare(fact) ?? (() => {});
           try {
-            const emitted = apply(state, fact, {
+            const emitted = batch.apply(fact, {
               now,
               ids: this.ids,
               ...(fact.type === "turn.ended"
@@ -268,6 +269,7 @@ export class EngineRepository {
             finish();
           }
         });
+        events.push(...batch.flush());
         // Admission-based providers transfer queue ownership before a run starts.
         // Persist the acknowledgement policy in the existing per-thread record store,
         // so a later run cannot acknowledge the next, unrelated engine input.
