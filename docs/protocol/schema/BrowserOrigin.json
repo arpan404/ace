@@ -5,6 +5,7 @@
     "https://youtube.com"
   ],
   "maxLength": 8192,
+  "minLength": 1,
   "type": "string",
   "x-ace-constraint": "An exact canonical HTTP(S) origin, including scheme and optional port, with no path, query, fragment or URL credentials."
 }

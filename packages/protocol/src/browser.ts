@@ -76,6 +76,7 @@ export type BrowserInput = z.infer<typeof BrowserInput>;
 /** Canonical HTTP origin. WebSocket policy maps ws/wss to http/https. */
 export const BrowserOrigin = z
   .string()
+  .min(1)
   .max(8192)
   .refine((raw) => {
     try {
