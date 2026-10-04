@@ -211,6 +211,78 @@ const screens: Record<string, Setup> = {
   "thread-preview": rightTab("/t/thread-cold-start", "Preview"),
   // Nothing to preview yet: open a browser, or preview a dev server by its port.
   "thread-preview-empty": rightTab("/t/thread-install-page", "Preview"),
+  // Files: an empty file tab, ⌘P quick open, and a file beside the checkout tree.
+  "thread-files-empty": rightTab("/t/thread-cold-start", "Files"),
+  "thread-quick-open": async (page) => {
+    await openThread("/t/thread-cold-start")(page);
+    await page.keyboard.press("ControlOrMeta+p");
+    await page.getByRole("combobox", { name: "Search files" }).fill("replay");
+    await page.getByRole("option").first().waitFor();
+  },
+  "thread-file": async (page) => {
+    await openThread("/t/thread-cold-start")(page);
+    await page.keyboard.press("ControlOrMeta+p");
+    await page.getByRole("combobox", { name: "Search files" }).fill("replay.ts");
+    await page.getByRole("option", { name: /replay\.ts/ }).waitFor();
+    await page.keyboard.press("Enter");
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("region", { name: "Source of apps/server/src/replay.ts" }).waitFor();
+    await panel.getByRole("button", { name: "Show the file tree" }).click();
+    await panel.getByRole("complementary", { name: "Checkout files" }).waitFor();
+  },
+  // Browser: a page loaded from the new tab's address bar.
+  "thread-browser": async (page) => {
+    await rightTab("/t/thread-cold-start", /^Changes/)(page);
+    const panel = page.getByRole("region", { name: "Thread panel" });
+    await panel.getByRole("button", { name: "New tab" }).click();
+    const address = panel.getByRole("combobox", { name: "Address" });
+    await address.fill("docs.example.com/guide");
+    await address.press("Enter");
+    await panel.getByRole("img", { name: "Live view of https://docs.example.com/guide" }).waitFor();
+  },
+  "thread-side-chat": rightTab("/t/thread-cold-start", "Side chat"),
+  // The composer: its + menu, approvals and model menus, three lines, and an attachment.
+  "composer-add-menu": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("button", { name: "Add files and context" }).click();
+    await page.getByRole("menuitem", { name: "Files" }).waitFor();
+  },
+  "composer-approvals": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("button", { name: /^Approvals:/ }).click();
+    await page.getByRole("menuitemradio").first().waitFor();
+  },
+  "composer-model": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("button", { name: /^Model:/ }).click();
+    await page.getByRole("menu").waitFor();
+  },
+  "composer-multiline": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page
+      .getByRole("combobox", { name: "Message" })
+      .fill(
+        "Check the cold-start path before merging\nthen rerun the relay soak\nand post the numbers here",
+      );
+  },
+  "composer-attachments": async (page) => {
+    await openThread("/t/thread-replay-cursor")(page);
+    await page.getByRole("combobox", { name: "Message" }).fill("See the relay log");
+    await page.getByLabel("Files to attach").setInputFiles({
+      name: "relay.log",
+      mimeType: "text/plain",
+      buffer: Buffer.from("2026-10-03 resume seq 0"),
+    });
+    await page.getByRole("list", { name: "Attachments" }).getByText("relay.log").waitFor();
+  },
+  "thread-terminal-new": async (page) => {
+    await bottomTab("/t/thread-cold-start", "zsh")(page);
+    const bottom = page.getByRole("region", { name: "Bottom panel" });
+    await bottom.getByRole("button", { name: "New terminal" }).click();
+    await bottom.getByRole("tab", { name: "Terminal", selected: true }).waitFor();
+    await page.keyboard.type("git status");
+    await page.keyboard.press("Enter");
+  },
   // A thread stopped at its account's usage limit, with the recovery choices.
   "thread-limited": async (page) => {
     await openThread("/t/thread-limit-search")(page);
