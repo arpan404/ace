@@ -10,7 +10,7 @@ import {
   TerminalIcon,
 } from "@phosphor-icons/react";
 import { formatElapsed } from "@ace/ui-core";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.tsx";
 import {
   ContextMenu,
@@ -90,6 +90,12 @@ function ShellResource(props: TabViewProps) {
 
 function ShellOutput(props: TabViewProps & { task: BackgroundTask }) {
   const { scope, tab, task } = props;
+  const actions = useWorkspaceActions(scope);
+  // Opened by id alone (the transcript, the summary): the tab takes the command's short name.
+  const label = shellLabel(task.title);
+  useEffect(() => {
+    if (tab.title === undefined) actions.update(tab.key, { title: label });
+  }, [tab.title, tab.key, label, actions]);
   const client = useClient();
   const { terminalUi } = usePanelServices();
   const ui = useTabUi(terminalUi, tab.key);

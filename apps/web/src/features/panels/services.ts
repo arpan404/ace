@@ -5,9 +5,8 @@ import type { ReviewDraft } from "./changes/drafts.ts";
 import type { ClearedLines } from "./logs/cleared.ts";
 import type { PreviewSource } from "./sources.ts";
 import { LocalStore } from "./store.ts";
-import { onTerminalEnd } from "./terminal/closing.ts";
 import type { TerminalSessions } from "./terminal/sessions.ts";
-import { createTabUi, type TabUiState } from "./terminal/tab-ui.ts";
+import type { TabUiState } from "./terminal/tab-ui.ts";
 
 export interface DiffPrefs {
   mode: "unified" | "split";
@@ -46,10 +45,8 @@ export function panelServices(client: ClientApi): Promise<PanelServices> {
         drafts: new LocalStore<readonly ReviewDraft[]>([]),
         diffPrefs: new LocalStore<DiffPrefs>({ mode: "unified", wrap: false }),
         logCleared: new LocalStore<ClearedLines>(new Map()),
-        terminalUi: createTabUi(),
+        terminalUi: new LocalStore<TabUiState>(new Map()),
       };
-      // A closed terminal tab ends its shell (thread-kinds' onClose has no client to ask).
-      onTerminalEnd((end) => sources.terminals.end(end.threadId, end.terminalId));
       ready.set(client, value);
       return value;
     });

@@ -1,6 +1,6 @@
 import {
-  ArrowDownIcon,
-  ArrowUpIcon,
+  CaretDownIcon,
+  CaretUpIcon,
   MagnifyingGlassIcon,
   TextAaIcon,
   XIcon,
@@ -149,7 +149,7 @@ export function FindBar(props: {
       </button>
       <span aria-hidden className="mx-0.5 h-4 w-px bg-border" />
       <IconButton
-        icon={ArrowUpIcon}
+        icon={CaretUpIcon}
         label="Previous match"
         keys="shift+enter"
         size="sm"
@@ -157,7 +157,7 @@ export function FindBar(props: {
         onClick={() => step(-1)}
       />
       <IconButton
-        icon={ArrowDownIcon}
+        icon={CaretDownIcon}
         label="Next match"
         keys="enter"
         size="sm"

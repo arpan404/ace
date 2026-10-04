@@ -2,7 +2,6 @@ import { useIntentSender, useItem, useTask } from "@ace/client-react";
 import { StopIcon, TerminalIcon } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button.tsx";
 import { Spinner } from "@/components/ui/spinner.tsx";
-import { shellTab } from "@/features/panels/index.ts";
 import { useWorkspaceActions } from "@/lib/workspace/index.ts";
 import { useTicker } from "../lib/clock.ts";
 import { formatElapsed } from "@ace/ui-core";
@@ -51,7 +50,8 @@ export function BackgroundTaskLine(props: { threadId: string; itemId: string; ta
               type="button"
               title="Show its output"
               aria-label={`Show output of ${command}`}
-              onClick={() => workspace.open(shellTab(task))}
+              // The workspace's agent-shell tab (features/panels/terminal/tabs.ts); it names itself.
+              onClick={() => workspace.open({ kind: "shell", id: task.id })}
               className="min-w-0 truncate rounded-[5px] bg-secondary px-1.5 py-px font-mono text-[12.5px] text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)]"
             >
               {command}

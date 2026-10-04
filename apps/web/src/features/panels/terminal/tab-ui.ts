@@ -1,5 +1,5 @@
-import { useCallback } from "react";
-import { LocalStore, useLocal } from "../store.ts";
+import { useCallback, useSyncExternalStore } from "react";
+import type { LocalStore } from "../store.ts";
 
 /*
  * Per-tab view state the strip's actions and the tab's view share: whether Find is open and
@@ -16,10 +16,6 @@ export type TabUiState = ReadonlyMap<string, TabUi>;
 const closed: TabUi = { find: false, rename: false };
 /** Tabs whose state is kept; the least recently changed are forgotten first. */
 const keptTabs = 128;
-
-export function createTabUi(): LocalStore<TabUiState> {
-  return new LocalStore<TabUiState>(new Map());
-}
 
 export function setTabUi(store: LocalStore<TabUiState>, key: string, patch: Partial<TabUi>): void {
   store.set((previous) => {
@@ -38,6 +34,6 @@ export function setTabUi(store: LocalStore<TabUiState>, key: string, patch: Part
 }
 
 export function useTabUi(store: LocalStore<TabUiState>, key: string): TabUi {
-  const select = useCallback((state: TabUiState) => state.get(key) ?? closed, [key]);
-  return useLocal(store, select);
+  const read = useCallback(() => store.get().get(key) ?? closed, [store, key]);
+  return useSyncExternalStore(store.subscribe, read, read);
 }

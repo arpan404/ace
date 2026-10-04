@@ -184,16 +184,7 @@ export function usePaletteGroups(close: () => void): PaletteGroup[] {
       },
     ];
     return groups;
-  }, [
-    close,
-    navigate,
-    themes,
-    theme.scheme,
-    update,
-    scope,
-    docks,
-    workspace,
-  ]);
+  }, [close, navigate, themes, theme.scheme, update, scope, docks, workspace]);
   return useMemo(
     () => [...threadGroups, ...staticGroups].filter((group) => group.items.length > 0),
     [threadGroups, staticGroups],
