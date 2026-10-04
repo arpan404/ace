@@ -388,9 +388,22 @@ export class EngineRepository {
         if (intent.kind !== "thread.fork" || intent.status === "running") continue;
         for (const thread of this.transitions.releaseGuards(intent.commandId)) released.add(thread);
       }
+      const stoppedInputs: EventPayload[] = [];
+      const state = this.requireState(id);
+      for (const intent of this.pending.headers(id)) {
+        if (intent.status !== "running" && !intent.awaiting) continue;
+        const key = `input:${intent.commandId}`;
+        const item = state.items[key];
+        if (item?.type === "message") {
+          const updated = { ...item, notAnswered: "stopped" as const };
+          state.items[key] = updated;
+          stoppedInputs.push({ type: "item.updated", item: updated });
+        }
+      }
+      if (stoppedInputs.length) this.save(state, stoppedInputs, now);
       this.store
         .statement(
-          "UPDATE intents SET status='failed', awaiting=0, error='Cancelled before delivery' WHERE thread_id=? AND kind IN ('thread.send','thread.create','thread.fork') AND (status IN ('pending','queued','running') OR awaiting=1)",
+          "UPDATE intents SET status='failed', awaiting=0, error='Cancelled before delivery' WHERE thread_id=? AND kind IN ('thread.send','thread.create','thread.fork') AND (status='running' OR awaiting=1)",
         )
         .run(id);
       for (const intent of this.pending.headers(id))

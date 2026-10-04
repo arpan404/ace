@@ -214,6 +214,17 @@ export function engineHandler(
             )
           )
             return fail("agent_not_found");
+          if (p.type === "thread.interrupt" && p.runId !== undefined) {
+            const state = repo.requireState(threadId);
+            const target =
+              p.agentId === undefined ? state.rootKey : state.indexes.agentKeysById[p.agentId];
+            if (
+              !target ||
+              state.agents[target]?.activeRun !== p.runId ||
+              state.runs[p.runId]?.state !== "active"
+            )
+              return fail("stale_interrupt");
+          }
           if (p.type === "thread.interrupt" && p.agentId !== undefined) {
             const state = repo.requireState(threadId);
             const entry = registry.get(state.config.provider, repo.backend(threadId));
@@ -271,6 +282,20 @@ export function engineHandler(
         const heldSend = p.type === "thread.send" && repo.queue.get(threadId).paused;
         if (!heldSend && !repo.reserve(threadId)) return fail("engine_capacity_exceeded");
         const released = p.type === "thread.interrupt" ? repo.cancelPending(threadId, now()) : [];
+        if (p.type === "thread.interrupt") {
+          const queue = repo.queue.get(threadId);
+          repo.queue.set(
+            threadId,
+            {
+              paused: true,
+              reason: "stopped",
+              resumeAt: null,
+              timerAction: null,
+              holdToken: queue.holdToken + 1,
+            },
+            now(),
+          );
+        }
         repo.add(admitted, threadId, resolutionId);
         repo.admitInput(admitted, threadId, now());
         if (p.type === "thread.create" || p.type === "thread.send") {

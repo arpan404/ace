@@ -96,11 +96,26 @@ export function recoverEngine(
       const uncertain = repo.queue.hasUncertain(state.threadId);
       repo.queue.set(
         state.threadId,
-        { paused: true, reason: uncertain ? "uncertain" : queue.limited ? "limit" : "restart" },
+        {
+          paused: true,
+          reason:
+            queue.reason === "stopped"
+              ? "stopped"
+              : uncertain
+                ? "uncertain"
+                : queue.limited
+                  ? "limit"
+                  : "restart",
+        },
         clock.now(),
       );
       recovery.sync(state.threadId);
-      if (!uncertain && !queue.limited && recovery.preferences(state.threadId).continueAfterRestart)
+      if (
+        !uncertain &&
+        !queue.limited &&
+        queue.reason !== "stopped" &&
+        recovery.preferences(state.threadId).continueAfterRestart
+      )
         recovery.automatic(state.threadId);
       // Recovery controls already accepted before a crash are safe only when unclaimed.
       if (

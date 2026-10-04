@@ -171,6 +171,9 @@ export async function executeIntent(
     if (!actor.session.setMode) throw new Error("Provider mode selection unavailable");
     await actor.session.setMode(p.mode);
   } else if (p.type === "thread.interrupt") {
+    const targetKey =
+      p.agentId === undefined ? state.rootKey : state.indexes.agentKeysById[p.agentId];
+    if (p.runId && (!targetKey || state.agents[targetKey]?.activeRun !== p.runId)) return;
     const agent = p.agentId === undefined ? undefined : state.indexes.agentKeysById[p.agentId];
     const capabilities =
       actor.effectiveCapabilities ??
