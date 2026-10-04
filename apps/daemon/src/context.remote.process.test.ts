@@ -131,3 +131,126 @@ test("remote operate scope can reserve files but cannot read workspace or attach
     }),
   ).toMatchObject({ kind: "error", code: "forbidden" });
 });
+
+test("attachment HTTP reads require current read and thread permission, preserve original bytes and bound preview and ranges", async () => {
+  let context: ContextService | undefined;
+  const { token } = await import("./socket-test-support.ts");
+  const { readFile } = await import("node:fs/promises");
+  const { request: httpsRequest } = await import("node:https");
+  const { imageSize } = await import("image-size");
+  let allowed = true;
+  const f = await setup({
+    context: {
+      handle: (device, request, access) => {
+        if (!context) throw new Error("Context unavailable");
+        return context.handle(device, request, access);
+      },
+      readAttachment: (...args) => {
+        if (!context) throw new Error("Context unavailable");
+        return context.readAttachment(...args);
+      },
+    },
+    canReadThread: (_device, thread) => allowed && thread === f.thread.id,
+  });
+  context = await ContextService.open({
+    root: join(f.home, "context"),
+    id: () => "image-upload",
+    now: () => 1000,
+    authorize: (_device, thread) => thread === f.thread.id,
+    workspace: () => undefined,
+  });
+  const owned = context;
+  cleanups.push(() => owned.close());
+  const bytes = await readFile(
+    new URL("../../../packages/context/fixtures/colours.png", import.meta.url),
+  );
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const uploader = await f.connect();
+  await uploader.next();
+  const send = async (operation: ContextOperation) => {
+    uploader.send({ type: "context.request", requestId: "http-upload", operation });
+    const reply = await uploader.next();
+    if (reply.type !== "context.result") throw new Error("Expected context result");
+    return reply.result;
+  };
+  const begin = await send({
+    op: "upload.begin",
+    threadId: f.thread.id,
+    sha256,
+    bytes: bytes.length,
+    name: "screen.txt",
+  });
+  if (begin.kind !== "upload") throw new Error("Expected upload");
+  for (let offset = 0; offset < bytes.length; offset += 65531)
+    await send({
+      op: "upload.chunk",
+      uploadId: begin.uploadId,
+      offset,
+      data: bytes.subarray(offset, offset + 65531).toString("base64"),
+    });
+  await send({ op: "upload.commit", uploadId: begin.uploadId });
+  const reader = await f.pair(["read"]),
+    operator = await f.pair(["operate"]);
+  const base = `${f.server.remoteUrl.replace("wss:", "https:")}/v1/attachments/${f.thread.id}/${sha256}`;
+  const get = (url: string, credential: string, headers: Record<string, string> = {}) =>
+    new Promise<{
+      status: number;
+      bytes: Buffer;
+      headers: import("node:http").IncomingHttpHeaders;
+    }>((resolve, reject) => {
+      const req = httpsRequest(
+        url,
+        {
+          rejectUnauthorized: false,
+          headers: { authorization: `Bearer ${credential}`, ...headers },
+        },
+        (response) => {
+          const chunks: Buffer[] = [];
+          response.on("data", (chunk: Buffer) => chunks.push(chunk));
+          response.on("end", () =>
+            resolve({
+              status: response.statusCode ?? 0,
+              bytes: Buffer.concat(chunks),
+              headers: response.headers,
+            }),
+          );
+          response.on("error", reject);
+        },
+      );
+      req.on("error", reject);
+      req.end();
+    });
+  expect((await get(`${base}/original`, "0".repeat(64))).status).toBe(401);
+  expect((await get(`${base}/original`, token)).status).toBe(401);
+  expect((await get(`${base}/original`, operator.token)).status).toBe(403);
+  const original = await get(`${base}/original`, reader.token);
+  expect(original.status).toBe(200);
+  expect(original.bytes).toEqual(bytes);
+  expect(original.headers["content-type"]).toBe("image/png");
+  expect(original.headers.etag).toContain(sha256);
+  expect((await get(`${base}/original`, reader.token, { range: "bytes=17-123" })).bytes).toEqual(
+    bytes.subarray(17, 124),
+  );
+  expect((await get(`${base}/original`, reader.token, { range: "bytes=0-999999999" })).status).toBe(
+    416,
+  );
+  expect(
+    (await get(`${base}/original`, reader.token, { "if-none-match": original.headers.etag ?? "" }))
+      .status,
+  ).toBe(304);
+  const preview = await get(`${base}/thumbnail`, reader.token);
+  expect(preview.status).toBe(200);
+  expect(preview.bytes.length).toBeLessThan(256 * 1024);
+  expect(imageSize(preview.bytes)).toMatchObject({ width: 256, height: 192 });
+  allowed = false;
+  expect(
+    (await get(`${base}/original`, reader.token, { "if-none-match": original.headers.etag ?? "" }))
+      .status,
+  ).toBe(403);
+  allowed = true;
+  expect(
+    (await get(base.replace(f.thread.id, "other-thread") + "/original", reader.token)).status,
+  ).toBe(403);
+  await f.request(`/v1/devices/${reader.device.id}`, { method: "DELETE", token });
+  expect((await get(`${base}/original`, reader.token)).status).toBe(401);
+});

@@ -263,3 +263,23 @@ test("selected question identities survive native comma serialization", async ()
     await h.session.close("shutdown");
   }
 });
+
+test("the Claude CLI receives image content with the original MIME and base64 bytes", async () => {
+  const h = await harness();
+  try {
+    await h.session.send(
+      [
+        { type: "text", text: "hello" },
+        { type: "image", mimeType: "image/png", url: "data:image/png;base64,YWJj" },
+      ],
+      "queue",
+    );
+    const data = object(object((await h.wait(subtype("fake_input"))).data).input);
+    expect(object(data.message).content).toEqual([
+      { type: "text", text: "hello" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "YWJj" } },
+    ]);
+  } finally {
+    await h.session.close("user");
+  }
+});

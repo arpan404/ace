@@ -74,6 +74,7 @@ export async function executeIntent(
       prepared?.release();
       throw new DeliveryDeferred("Delivery was superseded before provider consumption");
     }
+    if (prepared?.attachments) actor.rememberAttachments(prepared.attachments);
     if (prepared)
       actor.retainInput(
         intent.id,

@@ -77,3 +77,5 @@ export type {
   ThreadReadStateInput,
   ThreadMarkReadInput,
 } from "./long-thread.ts";
+
+export { attachmentBytes, type AttachmentInput } from "./attachments.ts";

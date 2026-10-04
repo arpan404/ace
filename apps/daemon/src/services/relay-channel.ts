@@ -13,6 +13,7 @@ import type { HostChannel } from "@ace/relay";
 import type { Store } from "../store.ts";
 export interface RelayServices {
   files?: FilesService;
+  context?: import("../server-options.ts").ServerOptions["context"];
   threadFiles?: import("../files-workspaces.ts").FilesWorkspaces;
   appDevices?: DevicesService;
   browser?: BrowserService;
@@ -161,7 +162,39 @@ export function attachRelayService(
       })
     : undefined;
   return {
-    accept(message: ClientMessage) {
+    async accept(message: ClientMessage) {
+      if (message.type === "context.request") {
+        if (channel.bufferedBytes > 256 * 1024) {
+          channel.close();
+          throw new Error("Attachment relay backpressure");
+        }
+        const op = message.operation;
+        if (
+          !options.context ||
+          op.op !== "attachment.read" ||
+          !authorize("read") ||
+          !threadAccess(op.threadId)
+        ) {
+          await channel.send({
+            type: "context.result",
+            requestId: message.requestId,
+            result: {
+              kind: "error",
+              code: "forbidden",
+              message: "Thread attachment read permission required",
+            },
+          });
+          return;
+        }
+        await channel.send(
+          await options.context.handle(
+            device,
+            message,
+            () => authorize("read") && threadAccess(op.threadId),
+          ),
+        );
+        return;
+      }
       if (
         message.type === "files.abort" ||
         message.type === "files.pull" ||

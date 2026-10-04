@@ -889,6 +889,18 @@ export class FakeDaemon implements Host {
         });
         if (payload.context?.draftId)
           this.servicesWire.context.adopt(command.deviceId, payload.context.draftId, id);
+        const attachments = this.servicesWire.context.messageAttachments(
+          id,
+          payload.context?.attachments.map((a) => a.sha256) ?? [],
+        );
+        for (const fact of started.facts)
+          if (
+            fact.type === "item.upsert" &&
+            fact.draft.type === "message" &&
+            fact.draft.role === "user" &&
+            attachments.length
+          )
+            fact.draft.attachments = attachments;
         this.apply(id, started.facts);
         return { commandId, ok: true, threadId: ThreadId.parse(id) };
       }
@@ -896,6 +908,10 @@ export class FakeDaemon implements Host {
         return this.run(commandId, payload.threadId, (host) =>
           sendFacts(host, commandId, {
             ...payload,
+            attachments: this.servicesWire.context.messageAttachments(
+              payload.threadId,
+              payload.context?.attachments.map((a) => a.sha256) ?? [],
+            ),
             // An omitted delivery resolves the person's follow-up setting, as the daemon does.
             delivery:
               payload.delivery ??

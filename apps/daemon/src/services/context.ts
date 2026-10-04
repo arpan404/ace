@@ -94,6 +94,7 @@ export function createContextSession(context: SocketContext): SocketService {
           const op = message.operation.op;
           const scope =
             op === "attachment.list" ||
+            op === "attachment.read" ||
             op === "upload.status" ||
             op.startsWith("mention.") ||
             op === "draft.mention.complete"

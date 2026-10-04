@@ -59,6 +59,11 @@ type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
 export type CursorAuthQuery = WithoutRequestId<CursorAuthRequest>;
 
 export class Client implements ClientApi {
+  attachmentBytes(input: import("./attachments.ts").AttachmentInput, options: RequestOptions = {}) {
+    return import("./attachments.ts").then(({ attachmentBytes }) =>
+      attachmentBytes(this, input, options),
+    );
+  }
   /** Project calls forward through `command`/`request`; pushes arrive through `onMessage`. */
   readonly projects: ProjectsApi = { ...projectCalls(this), ...projectEvents(this) };
   private options: ClientOptions;

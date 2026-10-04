@@ -20,6 +20,7 @@ export interface FakeQueued {
   key: string;
   text: string;
   input: ContentPart[];
+  attachments?: import("@ace/protocol").Attachment[];
   context?: MessageContext | undefined;
   delivery: FollowUpBehavior;
   state: "queued" | "uncertain";

@@ -39,6 +39,11 @@ test(
         "--eval",
         `
 import { SqliteLocalAgentStore } from '@cursor/sdk/sqlite';
+import sharp from 'sharp';
+const encodedImage = await sharp({create:{width:320,height:240,channels:4,background:{r:230,g:40,b:70,alpha:0.5}}}).png().toBuffer();
+const preview = await sharp(encodedImage).resize({width:256,height:256,fit:'inside'}).png().toBuffer();
+const info = await sharp(preview).metadata();
+if(info.width!==256 || info.height!==192 || !info.hasAlpha) throw new Error('Packaged attachment decoder lost image dimensions or alpha');
 import { createRequire } from 'node:module';
 import { access } from 'node:fs/promises';
 import { constants } from 'node:fs';

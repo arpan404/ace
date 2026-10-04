@@ -31,7 +31,12 @@ export function busy(host: ThreadHost): boolean {
 }
 
 /** A user message that starts a fresh root turn. */
-export function startTurn(host: ThreadHost, key: string, text: string): Fact[] {
+export function startTurn(
+  host: ThreadHost,
+  key: string,
+  text: string,
+  attachments: import("@ace/protocol").Attachment[] = [],
+): Fact[] {
   const root = host.state.rootKey;
   if (root === undefined) return [];
   return [
@@ -40,13 +45,24 @@ export function startTurn(host: ThreadHost, key: string, text: string): Fact[] {
       type: "item.upsert",
       agent: root,
       item: `input-${key}`,
-      draft: { type: "message", role: "user", complete: true, parts: [{ type: "text", text }] },
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        parts: [{ type: "text", text }],
+        ...(attachments.length ? { attachments } : {}),
+      },
     },
   ];
 }
 
 /** A user message delivered into the running turn without ending it. */
-export function steerFacts(host: ThreadHost, key: string, text: string): Fact[] {
+export function steerFacts(
+  host: ThreadHost,
+  key: string,
+  text: string,
+  attachments: import("@ace/protocol").Attachment[] = [],
+): Fact[] {
   const root = host.state.rootKey;
   if (root === undefined) return [];
   return [
@@ -54,7 +70,13 @@ export function steerFacts(host: ThreadHost, key: string, text: string): Fact[] 
       type: "item.upsert",
       agent: root,
       item: `input-${key}`,
-      draft: { type: "message", role: "user", complete: true, parts: [{ type: "text", text }] },
+      draft: {
+        type: "message",
+        role: "user",
+        complete: true,
+        parts: [{ type: "text", text }],
+        ...(attachments.length ? { attachments } : {}),
+      },
     },
   ];
 }
@@ -68,6 +90,7 @@ export function sendFacts(
     input: readonly ContentPart[];
     context?: MessageContext | undefined;
     delivery: "steer" | "queue";
+    attachments?: import("@ace/protocol").Attachment[];
   },
 ): ThreadCommandOutcome {
   const root = host.state.rootKey;
@@ -79,7 +102,7 @@ export function sendFacts(
       ...(payload.model ? { model: payload.model } : {}),
       ...(payload.options ? { options: payload.options } : {}),
     };
-    return { ok: true, facts: startTurn(host, commandId, text) };
+    return { ok: true, facts: startTurn(host, commandId, text, payload.attachments) };
   }
   if (
     payload.delivery === "steer" &&
@@ -87,12 +110,13 @@ export function sendFacts(
     payload.model === undefined &&
     payload.options === undefined
   )
-    return { ok: true, facts: steerFacts(host, commandId, text) };
+    return { ok: true, facts: steerFacts(host, commandId, text, payload.attachments) };
   if (host.queued.length >= 256) return { ok: false, error: "queue_limit" };
   host.queued.push({
     key: commandId,
     text,
     input: [...payload.input],
+    ...(payload.attachments ? { attachments: payload.attachments } : {}),
     ...(payload.context ? { context: payload.context } : {}),
     delivery: payload.delivery,
     state: "queued",
@@ -116,7 +140,7 @@ export function drainQueue(host: ThreadHost): Fact[] {
   };
   return [
     { type: "queue.changed", count: host.queued.length },
-    ...startTurn(host, next.key, next.text),
+    ...startTurn(host, next.key, next.text, next.attachments),
   ];
 }
 

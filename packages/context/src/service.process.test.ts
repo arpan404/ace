@@ -86,7 +86,10 @@ test("binary mentions retain validated paths and typed fallback diagnostics", as
     caps,
   );
   expect(result.projection.input).toEqual([
-    { type: "text", text: `Attachment: ${join(f.root, "binary.dat")}` },
+    {
+      type: "text",
+      text: 'Provider claude cannot take attachment "binary.dat" (application/octet-stream) within its media capabilities and size limits.',
+    },
   ]);
   expect(result.diagnostics.map((d) => d.code)).toEqual(["binary", "unsupported"]);
 });
@@ -151,7 +154,7 @@ test("composition falls back when a stored image exceeds the inline media budget
   expect(result.projection.input).toEqual([
     {
       type: "text",
-      text: `Attachment: ${join(f.root, ".git", "ace-context", "blobs", hash(png))}`,
+      text: 'Provider claude cannot take attachment "phone.png" (image/png) within its media capabilities and size limits.',
     },
   ]);
   expect(result.diagnostics).toMatchObject([{ code: "unsupported" }]);
@@ -306,4 +309,26 @@ test("caller edits to a leased descriptor cannot change which blob gets released
   expect(await readFile(blob.path)).toEqual(png);
   lease.release();
   expect(await f.service.uploads.collect()).toBe(1);
+});
+
+test("Codex receives exact image bytes at a MIME-derived filename even when the upload name lies", async () => {
+  const f = await fixture();
+  await storeBytes(f.service, png, "wrong.txt");
+  const result = await f.service.compose(
+    "device",
+    thread,
+    {
+      mentions: [],
+      attachments: [{ sha256: hash(png) }],
+    },
+    { ...caps, provider: "codex" },
+  );
+  try {
+    const image = result.projection.input[0];
+    if (image?.type !== "localImage") throw new Error("Expected native local image");
+    expect(image.path.endsWith(".png")).toBe(true);
+    expect(hash(await readFile(image.path))).toBe(hash(png));
+  } finally {
+    result.release();
+  }
 });

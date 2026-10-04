@@ -243,3 +243,25 @@ test("a repeated native terminal cursor rejects cascade visibly instead of hangi
     await h.dispose();
   }
 });
+
+test("images reach app-server as native localImage and data image inputs", async () => {
+  const h = await sessionHarness();
+  try {
+    await h.session.send(
+      [
+        { type: "text", text: "running" },
+        { type: "file", path: "/tmp/verified.png", mimeType: "image/png" },
+        { type: "image", mimeType: "image/jpeg", url: "data:image/jpeg;base64,YWJj" },
+      ],
+      "queue",
+    );
+    const frame = h.frames.find((f) => f.dir === "send" && obj(f.data).method === "turn/start");
+    expect(obj(obj(frame?.data).params).input).toEqual([
+      { type: "text", text: "running", text_elements: [] },
+      { type: "localImage", path: "/tmp/verified.png" },
+      { type: "image", url: "data:image/jpeg;base64,YWJj" },
+    ]);
+  } finally {
+    await h.dispose();
+  }
+});

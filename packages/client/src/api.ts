@@ -64,6 +64,11 @@ type WithoutRequestId<T> = T extends unknown ? Omit<T, "requestId"> : never;
 export type RegistryQuery = WithoutRequestId<RegistryRequest>;
 
 export interface ClientApi {
+  /** Resolve a content id on this connection. Never use a global daemon URL. */
+  attachmentBytes(
+    input: import("./attachments.ts").AttachmentInput,
+    options?: RequestOptions,
+  ): Promise<{ bytes: Uint8Array; mimeType: string }>;
   readonly projects: ProjectsApi;
   readonly state: ConnectionState;
   readonly error: ClientError | undefined;
