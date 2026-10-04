@@ -1,6 +1,6 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from "react";
 import type { IconGlyph } from "@/components/icon.tsx";
-import type { Dock, OpenRequest, WorkspaceTab } from "./model.ts";
+import type { Dock, OpenRequest, ScopeWorkspace, WorkspaceTab } from "./model.ts";
 
 /*
  * The tab-kind registry: how a feature plugs a resource into the workspace docks without
@@ -50,8 +50,21 @@ export interface TabKindOptions {
   onClose?(scope: string, tab: WorkspaceTab): void;
   /** How the launcher's Suggested opens a file with this kind, when it can. */
   fromFile?(path: string): Omit<OpenRequest, "dock">;
-  /** How the launcher's Suggested opens an address with this kind, when it can. */
-  fromUrl?(url: string): Omit<OpenRequest, "dock">;
+  /**
+   * How the launcher's address bar and Suggested open an address with this kind, when it can.
+   * `workspace` is the scope's current one, for picking a fresh id.
+   */
+  fromUrl?(url: string, workspace: ScopeWorkspace): Omit<OpenRequest, "dock">;
+  /**
+   * What the tool's shortcut does, instead of showing or hiding its tab (Files' ⌘P opens a
+   * quick-open palette). Called once the kinds have loaded.
+   */
+  onShortcut?(scope: string): void;
+  /**
+   * Drawn once per screen while it shows, outside any dock (a palette the shortcut opens).
+   * Loaded with the kinds, so keep it small and load its body on demand.
+   */
+  Overlay?: ComponentType<{ scope: string }>;
 }
 
 type LazyView = LazyExoticComponent<ComponentType<TabViewProps>>;

@@ -121,7 +121,7 @@ export function LauncherTab(props: TabViewProps) {
             }}
             onUrl={(url) => {
               const kind = kindFor("fromUrl");
-              if (kind?.fromUrl) openHere(kind.fromUrl(url.url));
+              if (kind?.fromUrl) openHere(kind.fromUrl(url.url, store.get(props.scope)));
             }}
           />
         </WithServices>

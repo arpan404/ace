@@ -1,5 +1,6 @@
 import { FilesClientMessage, type ClientMessage, type ServerMessage } from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
+import { checkoutFiles } from "./services/checkout-contents.ts";
 
 type File = { bytes: Uint8Array; version: string };
 type Upload = {
@@ -48,6 +49,20 @@ export class FakeFilesWire {
     )
       throw new Error("OUTSIDE_WORKSPACE");
     return `${thread.details?.worktree ?? `/fake/${thread.workspaceId}`}\0${path}`;
+  }
+  /**
+   * The file at `key`: one uploaded or written here, else the project checkout's own copy
+   * (`checkout-contents.ts`), kept from then on so uploads over it see its version.
+   */
+  private file(threadId: string, path: string, key: string): File | undefined {
+    const known = this.files.get(key);
+    if (known) return known;
+    const workspaceId = this.host.thread(threadId)?.thread.workspaceId ?? "";
+    const text = checkoutFiles(workspaceId)[path];
+    if (text === undefined) return undefined;
+    const file = { bytes: new TextEncoder().encode(text), version: `checkout-${++this.sequence}` };
+    this.files.set(key, file);
+    return file;
   }
   session(send: (message: ServerMessage) => void) {
     const channels = new Map<number, Channel>();
@@ -131,13 +146,27 @@ export class FakeFilesWire {
           const threadId = message.threadId;
           if (op.op === "download" || op.op === "stat") {
             const key = this.key(threadId, op.path);
-            const file = this.files.get(key);
+            const file = this.file(threadId, op.path, key);
+            if (!file && op.op === "stat") {
+              // As the daemon: an absent path is a result with no version, not an error.
+              emit({
+                type: "files.result",
+                requestId: message.requestId,
+                value: { path: op.path, version: null },
+              });
+              return;
+            }
             if (!file) throw new Error("NOT_FOUND");
             if (op.op === "stat") {
               emit({
                 type: "files.result",
                 requestId: message.requestId,
-                value: { size: file.bytes.length, version: file.version },
+                value: {
+                  path: op.path,
+                  size: file.bytes.length,
+                  version: file.version,
+                  type: "file",
+                },
               });
               return;
             }
@@ -172,7 +201,7 @@ export class FakeFilesWire {
             let upload: Upload;
             if (op.op === "upload.begin") {
               const key = this.key(threadId, op.path);
-              if ((this.files.get(key)?.version ?? null) !== op.expected)
+              if ((this.file(threadId, op.path, key)?.version ?? null) !== op.expected)
                 throw new Error("CONFLICT");
               const total =
                 [...this.files.values()].reduce((n, value) => n + value.bytes.length, 0) +

@@ -31,6 +31,8 @@ export interface WorkspaceActions {
   open(request: OpenTab): void;
   /** A tool's shortcut: show it, or hide its dock if it is already showing. */
   toggleKind(kind: string): void;
+  /** A tool's shortcut as the tool defines it (`onShortcut`), else `toggleKind`. */
+  shortcut(kind: string): void;
   /** A new launcher tab in `dock` (default right). */
   newTab(dock?: Dock): void;
   activate(key: string): void;
@@ -87,7 +89,7 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       const fresh = launcher(workspace, dock);
       return fresh ? openTab(workspace, fresh) : workspace;
     });
-  return {
+  const actions: WorkspaceActions = {
     open: (open) => withKinds(() => change((workspace) => openTab(workspace, request(open)))),
     toggleKind: (kind) =>
       withKinds(() =>
@@ -107,6 +109,12 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
           return openTab(workspace, resolved);
         }),
       ),
+    shortcut: (kind) =>
+      withKinds(() => {
+        const handler = definition()?.kind(kind)?.onShortcut;
+        if (handler) handler(scope);
+        else actions.toggleKind(kind);
+      }),
     newTab: (dock = "right") =>
       change((workspace) => {
         const fresh = launcher(workspace, dock);
@@ -166,4 +174,5 @@ export function workspaceActions(store: WorkspaceStore, scope: string): Workspac
       store.setPreferred(dock, size, persist);
     },
   };
+  return actions;
 }
