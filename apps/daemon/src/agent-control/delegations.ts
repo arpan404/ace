@@ -102,7 +102,7 @@ export class DelegationService {
   command(id: string, payload: CommandPayload) {
     const command = Command.parse({ id, deviceId: "ace-agent", payload });
     return this.deps.store.recordCommand(command.id, command.deviceId, () =>
-      this.deps.engine.handler.handle(command, commandContext(this.deps.store)),
+      this.deps.engine.internalHandler.handle(command, commandContext(this.deps.store)),
     );
   }
   /** A receipt reserves each follow-up generation once, including retries after completion. */
@@ -131,7 +131,7 @@ export class DelegationService {
       },
     });
     const result = this.deps.store.recordCommand(command.id, command.deviceId, () =>
-      this.deps.engine.handler.handle(command, commandContext(this.deps.store)),
+      this.deps.engine.internalHandler.handle(command, commandContext(this.deps.store)),
     );
     this.arm();
     return result;

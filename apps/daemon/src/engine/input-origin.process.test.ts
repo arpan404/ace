@@ -91,7 +91,7 @@ test("delegation results retain their origin when a provider echoes them as user
   );
   close.push(h.close);
   const id = await h.create();
-  h.command(
+  h.internalCommand(
     {
       type: "thread.send",
       threadId: id,
@@ -99,7 +99,6 @@ test("delegation results retain their origin when a provider echoes them as user
       trigger: "subagent_result",
       origin: { kind: "subagent_result", threadIds: [id] },
     },
-    "device",
     "result",
   );
   await h.engine.flush();
@@ -171,4 +170,21 @@ test("provider-expanded context echoes preserve the person's original message pa
     parts: [{ type: "text", text: "Original question" }],
     nativeId: "expanded-echo",
   });
+});
+
+test("external sends cannot forge ace provenance or trusted run triggers", async () => {
+  const frames = scriptFrames();
+  const h = await harness([{ on: "send", frames: [frames.frame(start, end)] }], frames);
+  close.push(h.close);
+  const result = h.command({
+    type: "thread.create", workspaceId: h.workspace, provider: "codex",
+    input: [{ type: "text", text: "person text" }],
+    trigger: "subagent_result", origin: { kind: "handoff" },
+  }, "ace-agent", "forged");
+  if (!result.threadId) throw new Error("Missing thread");
+  expect(h.store.snapshotThread(result.threadId).items["input:forged"]).toMatchObject({
+    synthetic: false, origin: { kind: "person", commandId: "forged" },
+  });
+  await h.engine.flush();
+  expect(Object.values(h.store.snapshotThread(result.threadId).runs)[0]?.trigger).toBe("user");
 });

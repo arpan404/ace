@@ -61,7 +61,7 @@ export function automationExecutor(context: ServiceContext): AutomationExecutor 
     });
   return {
     execute(input, signal) {
-      const handler = services.handler;
+      const handler = services.engine?.internalHandler ?? services.handler;
       if (!handler) throw new Error("engine_unavailable");
       const workspaceId = store.atomic((db) =>
         WorkspaceId.parse(

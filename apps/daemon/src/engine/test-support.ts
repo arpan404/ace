@@ -181,6 +181,10 @@ export async function harness(
     const value = Command.parse({ id, deviceId, payload });
     return store.recordCommand(value.id, value.deviceId, () => engine.handler.handle(value, store));
   }
+  function internalCommand(payload: CommandPayload, id: string) {
+    const value = Command.parse({ id, deviceId: "ace-agent", payload });
+    return store.recordCommand(value.id, value.deviceId, () => engine.internalHandler.handle(value, store));
+  }
   async function connect(deviceId: string) {
     const client = new Client(server.url);
     clients.push(client);
@@ -214,6 +218,7 @@ export async function harness(
     registry,
     engine,
     command,
+    internalCommand,
     connect,
     errors,
     async create() {

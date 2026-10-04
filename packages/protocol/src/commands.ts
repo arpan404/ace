@@ -39,7 +39,7 @@ export const ThreadCreateOptions = TurnOptions.and(z.object(AgentLaunchOptions.s
 export type ThreadCreateOptions = z.infer<typeof ThreadCreateOptions>;
 
 export const CommandPayload = z.discriminatedUnion("type", [
-  ThreadPrepareCommand,
+  ThreadPrepareCommand.extend({ titleSource: z.enum(["person", "agent"]).optional() }),
   ThreadMarkReadCommand,
   z.object({
     type: z.literal("thread.permission.set"),

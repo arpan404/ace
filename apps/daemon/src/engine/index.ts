@@ -68,6 +68,8 @@ export interface EngineOptions {
 }
 export class Engine {
   readonly handler: CommandHandler;
+  /** In-process admission for ace-owned inputs; never installed on the socket. */
+  readonly internalHandler: CommandHandler;
   private limits: EngineLimits;
   private nextThreadId: () => string;
   private admissions: CreationAdmissions;
@@ -224,7 +226,7 @@ export class Engine {
       options.selectInstance,
       options.machine,
     );
-    this.handler = {
+    this.internalHandler = {
       handle: (command, context) =>
         permissionOptions(command)
           ? { commandId: command.id, ok: false, error: "provider_permission_options_forbidden" }
@@ -239,6 +241,22 @@ export class Engine {
                       ? this.commandPolicy(command, () => handler.handle(command, context))
                       : handler.handle(command, context)),
                 ),
+    };
+    this.handler = {
+      handle: (command, context) => {
+        const p = command.payload;
+        if (p.type === "thread.create" || p.type === "thread.send") {
+          const { origin: _origin, trigger: _trigger, ...person } = p;
+          return this.internalHandler.handle(
+            CommandSchema.parse({ ...command, payload: { ...person, trigger: "user" } }), context,
+          );
+        }
+        if (p.type === "thread.prepare") {
+          const { titleSource: _source, ...person } = p;
+          return this.internalHandler.handle(CommandSchema.parse({ ...command, payload: person }), context);
+        }
+        return this.internalHandler.handle(command, context);
+      },
     };
     const recover = () =>
       recoverEngine(
@@ -343,7 +361,7 @@ export class Engine {
             return { commandId: command.id, ok: false, error: "permission_mode_unsupported" };
         }
         const payload = { ...p, threadId: id, ...(requested ? { permissionMode: requested } : {}) };
-        const result = this.handler.handle(
+        const result = this.internalHandler.handle(
           CommandSchema.parse({ ...command, payload }),
           commandContext(this.repo.store),
         );
