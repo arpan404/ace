@@ -984,6 +984,38 @@ test("Preview transitions wait for the previous receipt and preserve newer detac
 
 function noop() {}
 
+test("fake creation accepts an existing empty folder and preserves a nonempty destination", async () => {
+  const f = world();
+  const client = f.tab();
+  await client.start();
+  const first = await client.projects.create({ parent: "/fake", name: "existing" });
+  const initialized = await client.projects.create({
+    parent: "/fake",
+    name: "existing",
+    git: { initialBranch: "trunk" },
+  });
+  expect(initialized).toMatchObject({
+    ok: true,
+    workspace: first.workspace,
+    inspection: { git: { branch: "trunk" } },
+  });
+  expect(await client.projects.create({ parent: "/fake", name: "existing" })).toMatchObject({
+    ok: false,
+    error: "destination_not_empty",
+  });
+  await client.projects.create({ parent: "/fake", name: "template", gitignore: "build/\n" });
+  expect(await client.projects.create({ parent: "/fake", name: "template" })).toMatchObject({
+    ok: false,
+    error: "destination_not_empty",
+  });
+  await client.projects.create({ parent: "/fake", name: "parent" });
+  await client.projects.create({ parent: "/fake/parent", name: "child" });
+  expect(await client.projects.create({ parent: "/fake", name: "parent" })).toMatchObject({
+    ok: false,
+    error: "destination_not_empty",
+  });
+});
+
 test("worker project APIs forward create add rename remove folder reads and project pushes", async () => {
   const f = world();
   const a = f.tab();

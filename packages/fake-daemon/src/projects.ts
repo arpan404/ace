@@ -13,7 +13,13 @@ import {
 } from "@ace/protocol";
 import type { FakeServiceContext } from "./service-context.ts";
 
-type Directory = { git: boolean; modifiedAt: number; initialBranch: string; remote?: string };
+type Directory = {
+  empty: boolean;
+  git: boolean;
+  modifiedAt: number;
+  initialBranch: string;
+  remote?: string;
+};
 /** Host filesystem fixture and registered catalog, including projects without threads. */
 export class FakeProjects {
   private context: FakeServiceContext;
@@ -23,13 +29,19 @@ export class FakeProjects {
   private removed = new Set<string>();
   private retained = new Map<string, Project>();
   private directories = new Map<string, Directory>([
-    ["/fake", { git: false, modifiedAt: 1, initialBranch: "main" }],
+    ["/fake", { empty: true, git: false, modifiedAt: 1, initialBranch: "main" }],
   ]);
   private listeners = new Set<(message: WorkspaceChanged | WorkspaceCloneProgress) => void>();
   private destinations = new Set<string>();
   private clones = new Map<
     string,
-    { cancelled: boolean; device: string; finished: Promise<void>; wake: (() => void) | undefined }
+    {
+      cancelled: boolean;
+      committed: boolean;
+      device: string;
+      finished: Promise<void>;
+      wake: (() => void) | undefined;
+    }
   >();
   constructor(context: FakeServiceContext, hasOwnedWork: (id: string) => boolean) {
     this.context = context;
@@ -53,6 +65,7 @@ export class FakeProjects {
       );
       this.projects.set(id, project);
       this.directories.set(project.path, {
+        empty: false,
         git: true,
         modifiedAt: thread.createdAt,
         initialBranch: thread.details?.baseBranch ?? "main",
@@ -146,8 +159,11 @@ export class FakeProjects {
         if (!this.directories.has(parent)) throw new Error("directory_unavailable");
         const path = `${parent}/${p.name}`;
         if (this.destinations.has(path)) throw new Error("project_busy");
-        if (this.directories.has(path)) throw new Error("destination_not_empty");
+        if (this.directories.get(path)?.empty === false) throw new Error("destination_not_empty");
+        const parentDirectory = this.directories.get(parent);
+        if (parentDirectory) parentDirectory.empty = false;
         this.directories.set(path, {
+          empty: p.git === undefined && p.gitignore === undefined,
           git: p.git !== undefined,
           initialBranch: p.git?.initialBranch ?? "main",
           modifiedAt: this.context.now(),
@@ -213,10 +229,11 @@ export class FakeProjects {
     const finished = Promise.withResolvers<void>();
     const flight: {
       cancelled: boolean;
+      committed: boolean;
       device: string;
       finished: Promise<void>;
       wake: (() => void) | undefined;
-    } = { cancelled: false, device, finished: finished.promise, wake: undefined };
+    } = { cancelled: false, committed: false, device, finished: finished.promise, wake: undefined };
     this.clones.set(commandId, flight);
     const progress = (phase: WorkspaceCloneProgress["phase"], percent?: number) =>
       this.emit({
@@ -231,10 +248,18 @@ export class FakeProjects {
       if (!this.directories.has(parent)) throw new Error("directory_unavailable");
       if (!ProjectCloneUrl.safeParse(input.url).success) throw new Error("git_invalid_argument");
       const path = `${parent}/${input.name}`;
-      if (this.directories.has(path)) throw new Error("destination_not_empty");
+      if (this.directories.get(path)?.empty === false) throw new Error("destination_not_empty");
       if (this.destinations.has(path)) throw new Error("project_busy");
       this.destinations.add(path);
       destination = path;
+      const parentDirectory = this.directories.get(parent);
+      if (parentDirectory) parentDirectory.empty = false;
+      this.directories.set(path, {
+        empty: true,
+        git: false,
+        initialBranch: "main",
+        modifiedAt: this.context.now(),
+      });
       progress("starting");
       // Yield each stage to the transport so clients can send cancel before the receipt.
       for (const phase of ["receiving", "resolving", "checkout"] as const) {
@@ -251,11 +276,13 @@ export class FakeProjects {
         progress(phase, 100);
       }
       this.directories.set(path, {
+        empty: false,
         git: true,
         initialBranch: "main",
         remote: input.url,
         modifiedAt: this.context.now(),
       });
+      flight.committed = true;
       const result = this.register(path, input.name);
       progress("completed", 100);
       return result;
@@ -278,6 +305,7 @@ export class FakeProjects {
         const flight = this.clones.get(op.commandId);
         if (!flight) throw new Error("clone_not_running");
         if (flight.device !== device) throw new Error("forbidden");
+        if (flight.committed) throw new Error("clone_not_running");
         flight.cancelled = true;
         flight.wake?.();
         await flight.finished;

@@ -70,6 +70,14 @@ test("paired read operate and admin devices need explicit projects scope for pat
       if (!scopes.includes("projects")) expect(f.projects.catalog.recent(100)).toEqual([]);
     }
     const desktop = f.store.devices.create("Desktop", ["desktop"], 1000);
+    if (!server.remoteUrl) throw new Error("Remote unavailable");
+    await expect(
+      accessRequest(server.remoteUrl.replace("wss:", "https:"), "/v1/tickets", {
+        method: "POST",
+        token: desktop.token,
+        fingerprint: identity.fingerprint,
+      }),
+    ).rejects.toThrow(/Desktop credentials are local only|403/);
     const client = await server.connect({ deviceId: desktop.device.id, token: desktop.token });
     client.send(
       ProjectsRequest.parse({
