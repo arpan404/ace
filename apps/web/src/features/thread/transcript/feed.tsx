@@ -32,12 +32,13 @@ import { BlockView } from "../items/block-view.tsx";
 import { readingColumn } from "../lib/column.ts";
 import type { JumpSnapshot } from "../long/jump-controller.ts";
 import type { ThreadNav } from "../long/nav.tsx";
-import { blockItems, openWorkIndex, type Block } from "./blocks.ts";
-import { LiveFooter, useRootWorking } from "./live-footer.tsx";
+import { blockItems, type Block } from "./blocks.ts";
+import { LiveFooter } from "./live-footer.tsx";
 import { newestOrdinal, recentTurns, rowOf, transcriptRows, type Row } from "./rows.ts";
 import { useGutter, useKeepPlace, useStayPinned, type Anchor } from "./scroll.ts";
 import { useRunOrdinals } from "./run-ordinals.ts";
 import { useBlocks } from "./use-blocks.ts";
+import { useTurnActivity } from "./use-turn-activity.ts";
 import { useNewActivity } from "./use-new-activity.ts";
 
 const none: readonly string[] = [];
@@ -164,10 +165,15 @@ export function Feed(props: FeedProps) {
     () => new Set(motionRows.flatMap((row) => (row.phase === "enter" ? [row.key] : []))),
     [motionRows],
   );
-  const openWork = openWorkIndex(blocks);
-  const rootWorking = useRootWorking(threadId);
-  const liveWork = !detached && rootWorking && openWork >= 0;
-  const liveBlock = liveWork ? blocks[openWork]?.key : undefined;
+  // The turn's one live line: the bottom work log's header while the agent works on it, else
+  // the footer under the last block. Never both.
+  const activity = useTurnActivity(threadId);
+  const rootWorking = activity?.tone === "working";
+  const bottom = blocks.at(-1);
+  const liveBlock =
+    !detached && rootWorking && activity?.elapsedFrom !== undefined && bottom?.kind === "work"
+      ? bottom.key
+      : undefined;
   const inline = useMemo(
     () =>
       new Set(blocks.flatMap((block) => (block.kind === "question" ? [block.interactionId] : []))),
@@ -445,7 +451,11 @@ export function Feed(props: FeedProps) {
               />
             </Suspense>
           ) : (
-            <LiveFooter threadId={threadId} quiet={liveWork} inline={inline} />
+            <LiveFooter
+              threadId={threadId}
+              activity={liveBlock ? undefined : activity}
+              inline={inline}
+            />
           )}
         </div>
       </div>

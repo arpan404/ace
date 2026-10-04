@@ -155,19 +155,6 @@ export function buildBlocks(source: BlockSource): Block[] {
   return blocks;
 }
 
-/**
- * The work block still taking items: the last stretch's, when no message has followed it.
- * While the agent works, it reads "Working for …"; -1 when there is none.
- */
-export function openWorkIndex(blocks: readonly Block[]): number {
-  for (let index = blocks.length - 1; index >= 0; index--) {
-    const kind = blocks[index]?.kind;
-    if (kind === "work") return index;
-    if (kind !== "subagents" && kind !== "background") return -1;
-  }
-  return -1;
-}
-
 /** The items a block shows, for finding its turn and the row a jump lands on. */
 export function blockItems(block: Block): readonly string[] {
   if ("itemIds" in block) return block.itemIds;
