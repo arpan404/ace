@@ -51,9 +51,8 @@ test("toasts stand in the main pane's bottom-right corner, above the composer an
   await page.getByRole("button", { name: "Right panel" }).click();
   const panel = page.getByRole("region", { name: "Thread panel" });
   await panel.waitFor();
-  // Beside the panel the column is narrow: Run, Open and Commit fold into ⋯ Actions.
-  await page.getByRole("button", { name: "Actions", exact: true }).click();
-  await page.getByRole("button", { name: "Commit", exact: true }).click();
+  // Beside the panel the column is narrow: Run, Open and Commit stay in the header as icons.
+  await page.getByRole("banner").getByRole("button", { name: "Commit", exact: true }).click();
   await page
     .getByRole("dialog", { name: "Commit changes" })
     .getByRole("button", { name: "Commit" })

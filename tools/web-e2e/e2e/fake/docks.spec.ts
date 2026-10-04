@@ -152,10 +152,12 @@ test("with the side panel open at its default width, the thread title keeps at l
   await page.getByRole("button", { name: "Right panel" }).click();
   await expect(sidePanel(page)).toBeVisible();
   const title = page.getByRole("heading", { level: 1 });
-  // Run, Open and Commit fold into one ⋯ Actions beside a narrow column.
-  await expect(
-    page.getByRole("banner").getByRole("button", { name: "Actions", exact: true }),
-  ).toBeVisible();
+  // Beside a narrow column Run, Open and Commit drop their labels but stay one click away, and
+  // the header keeps a single ⋯.
+  const header = page.getByRole("banner");
+  await expect(header.getByRole("button", { name: "Commit", exact: true })).toBeVisible();
+  await expect(header.getByText("Commit", { exact: true })).not.toBeVisible();
+  await expect(header.getByRole("button", { name: "More actions" })).toHaveCount(1);
   const room = await title.evaluate((element) => ({
     shown: element.clientWidth,
     whole: element.scrollWidth,
