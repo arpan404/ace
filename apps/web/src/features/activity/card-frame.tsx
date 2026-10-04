@@ -60,7 +60,7 @@ export function useCardFocused(cardKey: string): boolean {
 
 export function CommandBlock(props: { command: string }) {
   return (
-    <pre className="rounded-[9px] bg-code px-3 py-[9px] font-mono text-[12.5px] leading-normal whitespace-pre-wrap text-foreground">
+    <pre className="rounded-md bg-code px-3 py-[9px] font-mono text-[12.5px] leading-normal whitespace-pre-wrap text-foreground">
       {props.command}
     </pre>
   );

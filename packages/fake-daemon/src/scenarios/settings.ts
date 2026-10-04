@@ -52,7 +52,16 @@ function model(
   instance: string,
   id: string,
   displayName: string,
-  extra: { isDefault?: boolean; contextWindow?: number; efforts?: string[] } = {},
+  extra: {
+    isDefault?: boolean;
+    contextWindow?: number;
+    efforts?: string[];
+    defaultEffort?: string;
+    /** Offers Codex's priority tier, which the composer's speed toggle asks for. */
+    fast?: boolean;
+    isNew?: boolean;
+    deprecated?: boolean;
+  } = {},
 ): CatalogModel {
   return CatalogModel.parse({
     id: `${instance}:${id}`,
@@ -62,11 +71,23 @@ function model(
     nativeModelId: id,
     contextWindow: extra.contextWindow,
     reasoningEfforts: extra.efforts ?? [],
-    serviceTiers: [],
+    ...(extra.defaultEffort ? { defaultEffort: extra.defaultEffort } : {}),
+    serviceTiers: extra.fast
+      ? [
+          {
+            id: "default",
+            name: "Standard",
+            speed: "standard",
+            parameters: { serviceTier: "default" },
+          },
+          { id: "priority", name: "Fast", speed: "fast", parameters: { serviceTier: "priority" } },
+        ]
+      : [],
     inputModalities: ["text", "image"],
     isDefault: extra.isDefault ?? false,
     hidden: false,
-    deprecated: false,
+    deprecated: extra.deprecated ?? false,
+    ...(extra.isNew ? { isNew: true } : {}),
     raw: { json: JSON.stringify({ id }), truncated: false },
   });
 }
@@ -230,9 +251,15 @@ export function modelCatalog(): CatalogModel[] {
     model("claude", "claude-personal", "claude-sonnet-4-5", "Sonnet 4.5", {
       contextWindow: 1_000_000,
       efforts: ["low", "medium", "high"],
+      isNew: true,
     }),
     model("claude", "claude-personal", "claude-haiku-4-5", "Haiku 4.5", {
       contextWindow: 200_000,
+    }),
+    model("claude", "claude-personal", "claude-opus-4", "Opus 4", {
+      contextWindow: 200_000,
+      efforts: ["low", "medium", "high"],
+      deprecated: true,
     }),
     model("claude", "claude-work", "claude-opus-4-1", "Opus 4.1", {
       isDefault: true,
@@ -242,20 +269,27 @@ export function modelCatalog(): CatalogModel[] {
     model("claude", "claude-work", "claude-sonnet-4-5", "Sonnet 4.5", {
       contextWindow: 1_000_000,
       efforts: ["low", "medium", "high"],
+      isNew: true,
     }),
     model("codex", "codex-personal", "gpt-5-codex", "GPT-5 Codex", {
       isDefault: true,
       contextWindow: 400_000,
       efforts: ["minimal", "low", "medium", "high"],
+      defaultEffort: "medium",
+      fast: true,
     }),
     model("codex", "codex-personal", "gpt-5", "GPT-5", {
       contextWindow: 400_000,
       efforts: ["minimal", "low", "medium", "high"],
+      defaultEffort: "medium",
+      fast: true,
     }),
     model("codex", "codex-team", "gpt-5-codex", "GPT-5 Codex", {
       isDefault: true,
       contextWindow: 400_000,
       efforts: ["minimal", "low", "medium", "high"],
+      defaultEffort: "medium",
+      fast: true,
     }),
     model("opencode", "opencode", "anthropic/claude-sonnet-4-5", "Sonnet 4.5 (OpenCode)", {
       isDefault: true,

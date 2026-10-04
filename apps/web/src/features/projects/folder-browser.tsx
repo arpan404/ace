@@ -101,7 +101,7 @@ export function FolderBrowser(props: {
                     type="button"
                     aria-current={index === all.length - 1 ? "location" : undefined}
                     onClick={() => open(crumb.path)}
-                    className="inline-flex h-[22px] min-w-0 items-center gap-1 rounded-[7px] px-1.5 outline-none hover:bg-accent hover:text-foreground focus-visible:bg-accent aria-[current]:text-foreground"
+                    className="inline-flex h-[22px] min-w-0 items-center gap-1 rounded-sm px-1.5 outline-none hover:bg-accent hover:text-foreground focus-visible:bg-accent aria-[current]:text-foreground"
                   >
                     {crumb.home && <Icon icon={HouseSimpleIcon} size={13} />}
                     <span className="truncate">{crumb.label}</span>
@@ -158,7 +158,7 @@ export function FolderBrowser(props: {
             aria-label={props.label}
             aria-activedescendant={selectedIndex >= 0 ? `${listId}-${selectedIndex}` : undefined}
             onKeyDown={onKeyDown}
-            className="rounded-[7px] outline-none focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]"
+            className="rounded-sm outline-none focus-visible:shadow-[0_0_0_2px_color-mix(in_oklab,var(--ring)_40%,transparent)]"
           >
             {entries.map((entry, index) => (
               <FolderRow
@@ -205,7 +205,7 @@ function FolderRow(props: {
       onClick={props.onSelect}
       onDoubleClick={props.onOpen}
       className={cn(
-        "flex h-[30px] cursor-default items-center gap-2 rounded-[7px] px-2 text-ui text-foreground",
+        "flex h-[30px] cursor-default items-center gap-2 rounded-sm px-2 text-ui text-foreground",
         props.selected ? "bg-accent" : "hover:bg-accent",
       )}
     >

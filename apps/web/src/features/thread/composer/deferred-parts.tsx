@@ -23,6 +23,8 @@ export const DeferredSuggestionList = deferredComponent(() =>
 export function preloadComposerParts(): Promise<unknown> {
   return Promise.all([
     preloadComposerMenus(),
+    // The model chip's popover, through the controls' own chunk so the route never holds it.
+    import("@/features/models/index.ts").then((models) => models.preloadModelControl()),
     DeferredThreadControls.preload(),
     DeferredQueuedPills.preload(),
     DeferredQueueNotice.preload(),

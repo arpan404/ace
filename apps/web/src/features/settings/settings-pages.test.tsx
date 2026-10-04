@@ -52,6 +52,20 @@ test("follow-ups and restart recovery are stored on the daemon", async () => {
   ).toContain("Steer");
 });
 
+test("when done threads settle is set in General and stored on the daemon", async () => {
+  const app = harness();
+  await app.open("/settings/general");
+  expect(await screen.findByText(/Threads that need you never settle/)).toBeTruthy();
+  await pick("Settle done threads", "After a week");
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("threads.autoSettleAfter")).toBe("1w"),
+  );
+  await pick("Settle done threads", "Never");
+  await waitFor(() =>
+    expect(app.daemon.services.settings.get("threads.autoSettleAfter")).toBe("never"),
+  );
+});
+
 test("the default provider lists the installed CLIs and remembers the choice", async () => {
   await harness().open("/settings/general");
   const select = await screen.findByRole("combobox", { name: "Default provider for new threads" });

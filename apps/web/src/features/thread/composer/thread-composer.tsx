@@ -1,8 +1,8 @@
 import { useClient, useThreadMeta } from "@ace/client-react";
-import type { ThreadStatus } from "@ace/protocol";
+import type { ExecutionOptions, ThreadStatus } from "@ace/protocol";
 import { ThreadId } from "@ace/protocol";
 import { providerNames } from "@ace/ui-core";
-import { Suspense, useRef, type Ref } from "react";
+import { Suspense, useRef, useState, type Ref } from "react";
 import { useToast } from "@/components/ui/toast.tsx";
 import { useDaemonSetting } from "@/lib/daemon-setting.ts";
 import { useToastClearance } from "@/lib/toast-clearance.ts";
@@ -59,6 +59,14 @@ export function ThreadComposer({
   // Toasts (a thread elsewhere needs you, Undo) rise above the composer, never over it.
   const box = useRef<HTMLDivElement>(null);
   useToastClearance(box);
+  // Effort and speed picked for the next message, kept for this thread only.
+  const [picked, setPicked] = useState<{ threadId: string; options: ExecutionOptions }>();
+  const nextOptions = picked?.threadId === props.thread.id ? picked.options : undefined;
+  const next = {
+    options: nextOptions,
+    onChange: (options: ExecutionOptions | undefined) =>
+      setPicked(options && { threadId: props.thread.id, options }),
+  };
 
   const submit = async (draft: Draft) => {
     try {
@@ -67,9 +75,12 @@ export function ThreadComposer({
         threadId,
         input: [{ type: "text", text: draft.text || "See the attached files." }],
         context: { mentions: draft.mentions, attachments: draft.attachments },
-        // Plain Enter leaves delivery to the daemon's setting; ⌘↵ overrides it.
+        // Plain Enter leaves delivery to the daemon's setting; ⌘↵ overrides it. A message that
+        // changes effort or speed always waits for the next turn (the daemon queues it).
         ...(draft.opposite ? { delivery: followUp === "steer" ? "queue" : "steer" } : {}),
+        ...(nextOptions ? { options: nextOptions } : {}),
       });
+      if (nextOptions) setPicked(undefined);
       return true;
     } catch {
       toast.add({
@@ -119,7 +130,7 @@ export function ThreadComposer({
           }
           controls={
             <Suspense fallback={<ControlsPending />}>
-              <DeferredThreadControls.Component thread={props.thread} busy={busy} />
+              <DeferredThreadControls.Component thread={props.thread} busy={busy} next={next} />
             </Suspense>
           }
           status={<ContextMeter threadId={props.thread.id} />}

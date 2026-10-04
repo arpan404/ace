@@ -23,6 +23,7 @@ export * from "./file-changes.ts";
 export * from "./file-tree.ts";
 export * from "./inline-markdown.ts";
 export * from "./models.ts";
+export * from "./model-picker.ts";
 export * from "./lru.ts";
 export * from "./organizer.ts";
 export * from "./permissions.ts";

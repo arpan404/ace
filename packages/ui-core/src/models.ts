@@ -26,6 +26,35 @@ export interface ModelChoice {
   /** Reasoning efforts the model takes, in the catalog's order; empty when it has no choice. */
   efforts: readonly string[];
   defaultEffort: string | undefined;
+  /** The model's identity across accounts (`modelKey`), which favorites and the picker use. */
+  key: string;
+  /** The provider marks it newly released. */
+  isNew: boolean;
+  /** Deprecated by the provider: listed under Legacy models. */
+  legacy: boolean;
+  /** The `serviceTier` that runs it faster, when it has one ace can ask for. */
+  fastTier: string | undefined;
+}
+
+/**
+ * A model's identity in pickers and favorites: its provider and native id. Providers share
+ * native ids (Codex, Pi and Cursor all list `gpt-5.5`), so the id alone never identifies one.
+ */
+export function modelKey(provider: ProviderKind, id: string): string {
+  return `${provider}\u0000${id}`;
+}
+
+/**
+ * The service tier that makes a model faster, when the catalog names it as a `serviceTier`
+ * launch option (Codex's priority tier). Tiers set some other way (a Claude fast-mode flag) are
+ * not something a thread can be started or switched with, so they don't count.
+ */
+export function fastTier(model: Pick<CatalogModel, "serviceTiers">): string | undefined {
+  for (const tier of model.serviceTiers) {
+    const value = tier.parameters["serviceTier"];
+    if (tier.speed === "fast" && typeof value === "string") return value;
+  }
+  return undefined;
 }
 
 /**
@@ -53,6 +82,10 @@ export function recordedChoice(
     isDefault: false,
     efforts: [],
     defaultEffort: undefined,
+    key: modelKey(selection.provider, model ?? `${selection.provider}:default`),
+    isNew: false,
+    legacy: false,
+    fastTier: undefined,
   };
 }
 
@@ -110,6 +143,10 @@ export function modelChoices(
             isDefault: model.isDefault,
             efforts: model.reasoningEfforts,
             defaultEffort: model.defaultEffort,
+            key: modelKey(provider, model.nativeModelId),
+            isNew: model.isNew ?? false,
+            legacy: model.deprecated,
+            fastTier: fastTier(model),
           },
         ];
       }),
@@ -193,6 +230,12 @@ export interface ModelOption {
   /** Reasoning efforts the model takes, in the catalog's order; empty when it has no choice. */
   efforts: readonly string[];
   defaultEffort: string | undefined;
+  /** The provider marks it newly released. */
+  isNew: boolean;
+  /** Deprecated by the provider: listed under Legacy models. */
+  legacy: boolean;
+  /** The `serviceTier` that runs it faster, when it has one ace can ask for. */
+  fastTier: string | undefined;
 }
 
 /** A signed-in account of the chosen model's provider, with how much quota it has used. */
@@ -204,10 +247,6 @@ export interface AccountOption {
   usage: string;
   /** The first account with headroom for its provider. */
   isDefault: boolean;
-}
-
-function modelOptionKey(provider: ProviderKind, id: string): string {
-  return `${provider}\u0000${id}`;
 }
 
 /**
@@ -228,7 +267,7 @@ export function newThreadOptions(
   const seen = new Set<string>();
   const options: ModelOption[] = [];
   for (const model of models) {
-    const key = modelOptionKey(model.provider, model.nativeModelId);
+    const key = modelKey(model.provider, model.nativeModelId);
     if (model.hidden || missing.has(model.provider) || seen.has(key)) continue;
     seen.add(key);
     options.push({
@@ -240,6 +279,9 @@ export function newThreadOptions(
       fromCatalog: true,
       efforts: model.reasoningEfforts,
       defaultEffort: model.defaultEffort,
+      isNew: model.isNew ?? false,
+      legacy: model.deprecated,
+      fastTier: fastTier(model),
     });
   }
   const listed = new Set(options.map((option) => option.provider));
@@ -248,7 +290,7 @@ export function newThreadOptions(
     if (state !== "not_installed" && provider !== "acp" && !listed.has(provider)) {
       listed.add(provider);
       options.push({
-        key: modelOptionKey(provider, `${provider}:default`),
+        key: modelKey(provider, `${provider}:default`),
         id: `${provider}:default`,
         label: `${providerNames[provider]} default`,
         provider,
@@ -256,6 +298,9 @@ export function newThreadOptions(
         fromCatalog: false,
         efforts: [],
         defaultEffort: undefined,
+        isNew: false,
+        legacy: false,
+        fastTier: undefined,
       });
     }
   const signedIn = accounts.filter((account) => account.signedIn);

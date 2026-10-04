@@ -61,7 +61,7 @@ function ScopeMenu(props: { scope: Scope; turns: readonly Turn[]; onScope(scope:
       <Tip label="What to show">
         <MenuTrigger
           aria-label={`Scope: ${scopeLabel(props.scope, props.turns)}`}
-          className="flex h-7 min-w-0 items-center gap-1 rounded-[7px] px-2 text-sm font-medium text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent"
+          className="flex h-7 min-w-0 items-center gap-1 rounded-sm px-2 text-sm font-medium text-foreground outline-none transition-colors duration-(--dur-1) hover:bg-accent focus-visible:shadow-[0_0_0_2px_var(--ring)] aria-expanded:bg-accent"
         >
           <span className="truncate">{scopeLabel(props.scope, props.turns)}</span>
           <CaretDownIcon aria-hidden size={12} className="shrink-0 text-subtle-foreground" />

@@ -101,6 +101,7 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
       mode: resolved.mode,
       baseBranch: base,
       effort: resolved.effort,
+      serviceTier: resolved.fast ? resolved.model.fastTier : undefined,
       permission: chosen,
       text: draft.text.trim() || "See the attached files.",
       context: {
@@ -136,6 +137,18 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
             placeholder="Describe the change, a bug, or a question. @ to mention a file"
             controls={
               <>
+                <ModelPicker
+                  options={options}
+                  resolved={resolved}
+                  onModel={(model) => {
+                    setPicked(options?.models.find((m) => m.key === model)?.provider);
+                    choose({ model, account: undefined, effort: undefined, fast: undefined });
+                  }}
+                  onAccount={(account) => choose({ account })}
+                  onEffort={(effort) => choose({ effort })}
+                  onFast={(fast) => choose({ fast })}
+                  onReset={() => choose({ effort: undefined, fast: undefined })}
+                />
                 <PermissionPicker
                   mode={chosen ?? defaultMode}
                   capabilities={permissions.capabilities}
@@ -148,16 +161,6 @@ export function NewThreadPage(props: { project?: string | undefined; base?: stri
                   }
                   inherited={!chosen}
                   onChange={(mode) => setPermission(mode ?? undefined)}
-                />
-                <ModelPicker
-                  options={options}
-                  resolved={resolved}
-                  onModel={(model) => {
-                    setPicked(options?.models.find((m) => m.key === model)?.provider);
-                    choose({ model, account: undefined, effort: undefined });
-                  }}
-                  onAccount={(account) => choose({ account })}
-                  onEffort={(effort) => choose({ effort })}
                 />
               </>
             }
